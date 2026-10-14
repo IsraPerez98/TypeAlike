@@ -3,14 +3,18 @@
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
+use std::sync::Arc;
 
+use dispatch2::DispatchQueue;
 use ghosttype_core::app::{App, TrayOutcome};
 use ghosttype_core::engine::Reaction;
+use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
+use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSMenuItem, NSWorkspace,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSMenuItem, NSSearchField, NSWorkspace,
     NSWorkspaceActiveSpaceDidChangeNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
@@ -21,8 +25,10 @@ use crate::event_tap::EventTap;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Chord, Disposition, ReleaseFilter};
+use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::overlay::Overlay;
+use crate::settings::{ActionTarget, SettingsWindow};
 
 const CARET_SETTLE_DELAY: NSTimeInterval = 0.04;
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
@@ -31,8 +37,8 @@ thread_local! {
     static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
 }
 
-/// Shows the menu bar extra and offers suggestions until the user quits.
-pub(crate) fn run(app: App) -> Result<(), RunError> {
+/// Shows the menu bar extra and offers suggestions until the user quits; settings use `hub`.
+pub(crate) fn run(app: App, hub: Box<dyn ModelHub>) -> Result<(), RunError> {
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -48,6 +54,7 @@ pub(crate) fn run(app: App) -> Result<(), RunError> {
         main_thread,
     );
     observe_space_changes(&target);
+    main_menu::install(main_thread);
     RUNTIME.set(Some(Runtime {
         app,
         focus: FocusTracker::new(),
@@ -59,6 +66,10 @@ pub(crate) fn run(app: App) -> Result<(), RunError> {
         pending_ghost: None,
         pending_injection: None,
         release_filter: ReleaseFilter::default(),
+        models: ModelsPane::new(),
+        hub,
+        hub_sink: main_thread_sink(),
+        settings: None,
     }));
     tracing::info!("running in the menu bar");
     application.run();
@@ -79,6 +90,15 @@ fn observe_space_changes(target: &RuntimeTarget) {
     }
 }
 
+/// Returns a sink that hands each hub event to the runtime on the main thread.
+fn main_thread_sink() -> HubEventSink {
+    Arc::new(|event: HubEvent| {
+        DispatchQueue::main().exec_async(move || {
+            with_runtime(|runtime| runtime.on_hub_event(event));
+        });
+    })
+}
+
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
     RUNTIME.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(action))
 }
@@ -94,6 +114,10 @@ struct Runtime {
     pending_ghost: Option<String>,
     pending_injection: Option<String>,
     release_filter: ReleaseFilter,
+    models: ModelsPane,
+    hub: Box<dyn ModelHub>,
+    hub_sink: HubEventSink,
+    settings: Option<SettingsWindow>,
 }
 
 impl Runtime {
@@ -198,11 +222,60 @@ impl Runtime {
     fn on_menu_item(&mut self, tag: isize) -> Option<TrayOutcome> {
         let command = menu_bar::command_for_tag(&self.app.tray_view().items, tag)?;
         let outcome = self.app.on_tray_command(command);
-        if outcome == TrayOutcome::Updated {
-            self.hide_ghost();
-            self.menu_bar.update(&self.app.tray_view());
+        match outcome {
+            TrayOutcome::Updated => {
+                self.hide_ghost();
+                self.menu_bar.update(&self.app.tray_view());
+            }
+            TrayOutcome::OpenSettings => self.open_settings(),
+            TrayOutcome::Quit => {}
         }
         Some(outcome)
+    }
+
+    fn open_settings(&mut self) {
+        let request = self.models.on_open();
+        self.hub.submit(request, &self.hub_sink);
+        let view = self.models.view();
+        let target = &self.target;
+        let settings = self.settings.get_or_insert_with(|| {
+            let action_target = ActionTarget {
+                target: Retained::into_super(target.clone()),
+                button_action: sel!(pickSettingsButton:),
+                search_action: sel!(searchModels:),
+            };
+            SettingsWindow::new(action_target, target.mtm())
+        });
+        settings.render(&view);
+        settings.show();
+    }
+
+    fn on_settings_button(&mut self, tag: isize) {
+        let action = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.action_for_tag(tag));
+        if let Some(action) = action {
+            self.on_models_action(action);
+        }
+    }
+
+    fn on_models_action(&mut self, action: ModelsAction) {
+        if let Some(request) = self.models.on_action(action) {
+            self.hub.submit(request, &self.hub_sink);
+        }
+        self.render_settings();
+    }
+
+    fn on_hub_event(&mut self, event: HubEvent) {
+        self.models.on_event(event);
+        self.render_settings();
+    }
+
+    fn render_settings(&mut self) {
+        if let Some(settings) = &mut self.settings {
+            settings.render(&self.models.view());
+        }
     }
 }
 
@@ -222,6 +295,20 @@ define_class!(
             if outcome == Some(TrayOutcome::Quit) {
                 NSApplication::sharedApplication(self.mtm()).terminate(None);
             }
+        }
+
+        // SAFETY: matches the action signature, called with the clicked settings button.
+        #[unsafe(method(pickSettingsButton:))]
+        fn pick_settings_button(&self, sender: &NSButton) {
+            let tag = sender.tag();
+            with_runtime(|runtime| runtime.on_settings_button(tag));
+        }
+
+        // SAFETY: matches the action signature, called with the submitted search field.
+        #[unsafe(method(searchModels:))]
+        fn search_models(&self, sender: &NSSearchField) {
+            let query = sender.stringValue().to_string();
+            with_runtime(|runtime| runtime.on_models_action(ModelsAction::Search(query)));
         }
 
         // SAFETY: matches the timer action signature.

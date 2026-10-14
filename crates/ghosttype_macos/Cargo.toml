@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+dispatch2.workspace = true
 ghosttype_core.workspace = true
 objc2.workspace = true
 objc2-app-kit.workspace = true

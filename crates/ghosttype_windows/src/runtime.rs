@@ -219,6 +219,9 @@ impl Runtime {
                 self.hide_ghost();
                 self.refresh_tray();
             }
+            TrayOutcome::OpenSettings => {
+                tracing::info!("the settings window is not available on windows yet");
+            }
             // SAFETY: plain call.
             TrayOutcome::Quit => unsafe { PostQuitMessage(0) },
         }

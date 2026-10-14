@@ -11,6 +11,7 @@ use crate::labels::title_case;
 
 const ACTIVE_SYMBOL: &str = "character.cursor.ibeam";
 const PAUSED_SYMBOL: &str = "pause.circle";
+const SETTINGS_KEY_EQUIVALENT: &str = ",";
 const QUIT_KEY_EQUIVALENT: &str = "q";
 const NO_KEY_EQUIVALENT: &str = "";
 
@@ -61,7 +62,7 @@ impl MenuBarItem {
     fn build_menu(&self, items: &[TrayItem]) -> Retained<NSMenu> {
         let menu = NSMenu::new(self.main_thread);
         for (tag, item) in (0..).zip(items) {
-            if tag > 0 && item.command == TrayCommand::Quit {
+            if tag > 0 && item.command == TrayCommand::OpenSettings {
                 menu.addItem(&NSMenuItem::separatorItem(self.main_thread));
             }
             menu.addItem(&self.build_menu_item(item, tag));
@@ -111,6 +112,7 @@ fn symbol_image(status: Status, description: &str) -> Option<Retained<NSImage>> 
 
 fn key_equivalent(command: TrayCommand) -> &'static str {
     match command {
+        TrayCommand::OpenSettings => SETTINGS_KEY_EQUIVALENT,
         TrayCommand::Quit => QUIT_KEY_EQUIVALENT,
         TrayCommand::TogglePause => NO_KEY_EQUIVALENT,
     }
@@ -149,6 +151,11 @@ mod tests {
     #[test]
     fn quit_has_command_q() {
         assert_eq!(key_equivalent(TrayCommand::Quit), "q");
+    }
+
+    #[test]
+    fn settings_has_command_comma() {
+        assert_eq!(key_equivalent(TrayCommand::OpenSettings), ",");
     }
 
     #[test]

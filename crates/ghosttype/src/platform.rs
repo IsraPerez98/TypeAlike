@@ -9,11 +9,17 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
     ghosttype_windows::run(app).context("ghosttype stopped unexpectedly")
 }
 
-/// Runs the app with this OS's menu bar extra, event tap and overlay until the user quits.
+/// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
+/// user quits.
 #[cfg(target_os = "macos")]
 pub(crate) fn run(app: App) -> anyhow::Result<()> {
     use anyhow::Context as _;
-    ghosttype_macos::run(app).context("ghosttype stopped unexpectedly")
+    const MODELS_DIR: &str = "Library/Application Support/GhostType/Models";
+    let models_dir = std::env::home_dir()
+        .context("no home directory")?
+        .join(MODELS_DIR);
+    let hub = ghosttype_models::HuggingFace::new(models_dir);
+    ghosttype_macos::run(app, Box::new(hub)).context("ghosttype stopped unexpectedly")
 }
 
 /// Fails: no platform layer exists for this OS yet.

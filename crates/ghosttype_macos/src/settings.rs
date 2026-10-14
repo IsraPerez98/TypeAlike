@@ -1,0 +1,761 @@
+//! The settings window: renders the core Models pane and reports clicks back by button tag.
+//!
+//! Layout follows System Settings: a pinned header with the search field, then grouped lists in
+//! rounded boxes with hairline separators between rows.
+
+use ghosttype_core::models_pane::{
+    ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
+};
+use objc2::rc::Retained;
+use objc2::runtime::{NSObject, Sel};
+use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{
+    NSAccessibility as _, NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSCellImagePosition,
+    NSColor, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
+    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField, NSStackView,
+    NSStackViewDistribution, NSStackViewGravity, NSTextField, NSTitlePosition,
+    NSUserInterfaceLayoutOrientation, NSView, NSWindow, NSWindowStyleMask,
+};
+use objc2_core_foundation::CGFloat;
+use objc2_foundation::{NSArray, NSEdgeInsets, NSPoint, NSRect, NSSize, NSString};
+
+use crate::labels::title_case;
+
+const WINDOW_TITLE: &str = "GhostType Settings";
+const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
+const HEADER_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 20.0,
+    left: 24.0,
+    bottom: 16.0,
+    right: 24.0,
+};
+const CONTENT_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 20.0,
+    left: 24.0,
+    bottom: 24.0,
+    right: 24.0,
+};
+const NO_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 0.0,
+    left: 0.0,
+    bottom: 0.0,
+    right: 0.0,
+};
+const ROW_CONTAINER_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 0.0,
+    left: 12.0,
+    bottom: 0.0,
+    right: 12.0,
+};
+const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 28.0,
+    left: 16.0,
+    bottom: 28.0,
+    right: 16.0,
+};
+const TITLE_FONT_SIZE: CGFloat = 17.0;
+const SUMMARY_FONT_SIZE: CGFloat = 12.0;
+const DETAIL_FONT_SIZE: CGFloat = 12.0;
+const HEADER_SPACING: CGFloat = 4.0;
+const SEARCH_FIELD_TOP_SPACING: CGFloat = 14.0;
+const SECTION_SPACING: CGFloat = 28.0;
+const LIST_PART_SPACING: CGFloat = 8.0;
+const ROW_HEIGHT: CGFloat = 52.0;
+const ROW_COLUMN_SPACING: CGFloat = 12.0;
+const ROW_TEXT_SPACING: CGFloat = 2.0;
+const ACCESSORY_SPACING: CGFloat = 8.0;
+const MESSAGE_SPACING: CGFloat = 8.0;
+const ICON_BUTTON_SIDE: CGFloat = 24.0;
+const GROUP_CORNER_RADIUS: CGFloat = 10.0;
+const GROUP_BORDER_WIDTH: CGFloat = 1.0;
+const PROGRESS_FULL: f64 = 1000.0;
+const OPEN_SYMBOL: &str = "chevron.right";
+const BACK_SYMBOL: &str = "chevron.left";
+const CANCEL_SYMBOL: &str = "xmark.circle.fill";
+const DELETE_SYMBOL: &str = "trash";
+const INSTALLED_SYMBOL: &str = "checkmark.circle.fill";
+const INSTALLED_DESCRIPTION: &str = "Downloaded";
+const UNAVAILABLE_SYMBOL: &str = "lock.fill";
+const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
+
+/// The object and selectors every settings button and the search field report to.
+#[derive(Debug)]
+pub(crate) struct ActionTarget {
+    pub(crate) target: Retained<NSObject>,
+    pub(crate) button_action: Sel,
+    pub(crate) search_action: Sel,
+}
+
+/// The settings window, kept alive and reused after the user closes it.
+#[derive(Debug)]
+pub(crate) struct SettingsWindow {
+    window: Retained<NSWindow>,
+    title: Retained<NSTextField>,
+    summary: Retained<NSTextField>,
+    search_field: Retained<NSSearchField>,
+    browse: ListView,
+    downloaded: ListView,
+    actions: Vec<ModelsAction>,
+    target: ActionTarget,
+    main_thread: MainThreadMarker,
+}
+
+impl SettingsWindow {
+    /// Builds the window, hidden until [`Self::show`].
+    ///
+    /// A button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The search
+    /// field sends `target.search_action` when the user submits or clears it.
+    pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let title = label(&NSFont::boldSystemFontOfSize(TITLE_FONT_SIZE), main_thread);
+        let summary = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
+        summary.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let search_field = search_field(&target, main_thread);
+        let header = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            HEADER_SPACING,
+            HEADER_INSETS,
+            main_thread,
+        );
+        let header_views: [&NSView; 3] = [&title, &summary, &search_field];
+        for view in header_views {
+            header.addArrangedSubview(view);
+        }
+        header.setCustomSpacing_afterView(SEARCH_FIELD_TOP_SPACING, &summary);
+        fill_width(&summary, &header);
+        fill_width(&search_field, &header);
+        let content = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            SECTION_SPACING,
+            CONTENT_INSETS,
+            main_thread,
+        );
+        let browse = ListView::new(&content, &target, main_thread);
+        let downloaded = ListView::new(&content, &target, main_thread);
+        let window = settings_window(&header, &content, main_thread);
+        Self {
+            window,
+            title,
+            summary,
+            search_field,
+            browse,
+            downloaded,
+            actions: Vec::new(),
+            target,
+            main_thread,
+        }
+    }
+
+    /// Brings the window and the app to the front.
+    pub(crate) fn show(&self) {
+        NSApplication::sharedApplication(self.main_thread).activate();
+        self.window.makeKeyAndOrderFront(None);
+    }
+
+    /// Shows `view`, reusing row views so clicks in progress are not lost.
+    pub(crate) fn render(&mut self, view: &ModelsView) {
+        self.title.setStringValue(&NSString::from_str(view.title));
+        self.summary.setStringValue(&NSString::from_str(view.summary));
+        self.search_field
+            .setPlaceholderString(Some(&NSString::from_str(view.search_placeholder)));
+        self.actions.clear();
+        let mut renderer = Renderer {
+            actions: &mut self.actions,
+            target: &self.target,
+            main_thread: self.main_thread,
+        };
+        renderer.render_list(&mut self.browse, Some(&view.browse));
+        renderer.render_list(&mut self.downloaded, view.downloaded.as_ref());
+    }
+
+    /// Returns the action of the button that carries `tag` in the last render.
+    pub(crate) fn action_for_tag(&self, tag: isize) -> Option<ModelsAction> {
+        let index = usize::try_from(tag).ok()?;
+        self.actions.get(index).cloned()
+    }
+}
+
+/// A heading, a rounded group of rows or a message, and a footer.
+#[derive(Debug)]
+struct ListView {
+    container: Retained<NSStackView>,
+    back: Retained<NSButton>,
+    heading: Retained<NSTextField>,
+    rows_stack: Retained<NSStackView>,
+    message: MessageView,
+    footer: Retained<NSTextField>,
+    rows: Vec<RowView>,
+}
+
+impl ListView {
+    fn new(content: &NSStackView, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let back = icon_button(target, main_thread);
+        back.setImagePosition(NSCellImagePosition::ImageLeading);
+        let heading = label(
+            &NSFont::boldSystemFontOfSize(NSFont::systemFontSize()),
+            main_thread,
+        );
+        let title_bar = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            ACCESSORY_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        title_bar.addArrangedSubview(&back);
+        title_bar.addArrangedSubview(&heading);
+        let rows_stack = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            0.0,
+            NO_INSETS,
+            main_thread,
+        );
+        let message = MessageView::new(&rows_stack, target, main_thread);
+        let group = rounded_group(&rows_stack, main_thread);
+        let footer = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        footer.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        footer.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            LIST_PART_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        let parts: [&NSView; 3] = [&title_bar, &group, &footer];
+        for part in parts {
+            container.addArrangedSubview(part);
+        }
+        content.addArrangedSubview(&container);
+        fill_width(&container, content);
+        fill_width(&group, &container);
+        fill_width(&footer, &container);
+        fill_width(&message.container, &rows_stack);
+        Self {
+            container,
+            back,
+            heading,
+            rows_stack,
+            message,
+            footer,
+            rows: Vec::new(),
+        }
+    }
+
+    fn resize_rows(&mut self, count: usize, target: &ActionTarget, main_thread: MainThreadMarker) {
+        if self.rows.len() == count {
+            return;
+        }
+        for row_view in self.rows.drain(..) {
+            row_view.container.removeFromSuperview();
+        }
+        let rows_stack = &self.rows_stack;
+        self.rows
+            .extend((0..count).map(|_| RowView::new(rows_stack, target, main_thread)));
+    }
+}
+
+/// What shows in a group instead of rows: a spinner or a message, with an optional retry.
+#[derive(Debug)]
+struct MessageView {
+    container: Retained<NSStackView>,
+    spinner: Retained<NSProgressIndicator>,
+    text: Retained<NSTextField>,
+    retry: Retained<NSButton>,
+}
+
+impl MessageView {
+    fn new(rows_stack: &NSStackView, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let spinner = spinner(main_thread);
+        let text = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        text.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let retry = push_button(target, main_thread);
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            MESSAGE_SPACING,
+            MESSAGE_INSETS,
+            main_thread,
+        );
+        let parts: [&NSView; 3] = [&spinner, &text, &retry];
+        for part in parts {
+            container.addView_inGravity(part, NSStackViewGravity::Center);
+        }
+        rows_stack.addArrangedSubview(&container);
+        Self {
+            container,
+            spinner,
+            text,
+            retry,
+        }
+    }
+}
+
+/// One row: a separator above it, texts, a trailing detail and the accessory controls.
+#[derive(Debug)]
+struct RowView {
+    container: Retained<NSStackView>,
+    separator: Retained<NSBox>,
+    title: Retained<NSTextField>,
+    subtitle: Retained<NSTextField>,
+    detail: Retained<NSTextField>,
+    progress: Retained<NSProgressIndicator>,
+    status: Retained<NSImageView>,
+    primary: Retained<NSButton>,
+    icon: Retained<NSButton>,
+}
+
+impl RowView {
+    fn new(rows_stack: &NSStackView, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let title = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
+        let subtitle = truncating_label(
+            &NSFont::systemFontOfSize(NSFont::smallSystemFontSize()),
+            main_thread,
+        );
+        let texts = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            ROW_TEXT_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        texts.addArrangedSubview(&title);
+        texts.addArrangedSubview(&subtitle);
+        texts.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultLow,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        // SAFETY: reads an AppKit constant that is initialized before any code runs.
+        let regular_weight = unsafe { NSFontWeightRegular };
+        let detail = label(
+            &NSFont::monospacedDigitSystemFontOfSize_weight(DETAIL_FONT_SIZE, regular_weight),
+            main_thread,
+        );
+        detail.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let progress = spinner(main_thread);
+        let status = NSImageView::new(main_thread);
+        let primary = push_button(target, main_thread);
+        let icon = icon_button(target, main_thread);
+        let row_views: [&NSView; 6] = [&texts, &detail, &progress, &status, &primary, &icon];
+        let content = NSStackView::stackViewWithViews(&NSArray::from_slice(&row_views), main_thread);
+        content.setSpacing(ROW_COLUMN_SPACING);
+        content.setDistribution(NSStackViewDistribution::Fill);
+        content
+            .heightAnchor()
+            .constraintEqualToConstant(ROW_HEIGHT)
+            .setActive(true);
+        let separator = separator(main_thread);
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            0.0,
+            ROW_CONTAINER_INSETS,
+            main_thread,
+        );
+        container.addArrangedSubview(&separator);
+        container.addArrangedSubview(&content);
+        rows_stack.addArrangedSubview(&container);
+        fill_width(&container, rows_stack);
+        fill_width(&separator, &container);
+        fill_width(&content, &container);
+        Self {
+            container,
+            separator,
+            title,
+            subtitle,
+            detail,
+            progress,
+            status,
+            primary,
+            icon,
+        }
+    }
+
+    fn update(&self, row: &ModelRow, renderer: &mut Renderer<'_>) {
+        set_text(&self.title, &row.title);
+        set_text(&self.subtitle, &row.subtitle);
+        set_text(&self.detail, &row.detail);
+        let subtitle_color = match row.accessory {
+            RowAccessory::Failed { .. } => NSColor::systemRedColor(),
+            _ => NSColor::secondaryLabelColor(),
+        };
+        self.subtitle.setTextColor(Some(&subtitle_color));
+        let controls: [&NSView; 4] = [&self.progress, &self.status, &self.primary, &self.icon];
+        for control in controls {
+            control.setHidden(true);
+        }
+        stop_spinning(&self.progress);
+        self.show_accessory(&row.accessory, &row.title, renderer);
+    }
+
+    fn show_accessory(&self, accessory: &RowAccessory, subject: &str, renderer: &mut Renderer<'_>) {
+        match accessory {
+            RowAccessory::Download(button) | RowAccessory::Failed { retry: button } => {
+                renderer.show_push_button(&self.primary, button, Some(subject));
+            }
+            RowAccessory::Open(button) => renderer.show_icon_button(&self.icon, OPEN_SYMBOL, button, subject),
+            RowAccessory::Downloading { progress, cancel } => {
+                self.progress.setIndeterminate(false);
+                self.progress.setDoubleValue(f64::from(progress.0));
+                self.progress.setHidden(false);
+                renderer.show_icon_button(&self.icon, CANCEL_SYMBOL, cancel, subject);
+            }
+            RowAccessory::Canceling => start_spinning(&self.progress),
+            RowAccessory::Installed { delete } => {
+                show_status(
+                    &self.status,
+                    INSTALLED_SYMBOL,
+                    INSTALLED_DESCRIPTION,
+                    &NSColor::systemGreenColor(),
+                );
+                renderer.show_icon_button(&self.icon, DELETE_SYMBOL, delete, subject);
+            }
+            RowAccessory::Unavailable => show_status(
+                &self.status,
+                UNAVAILABLE_SYMBOL,
+                UNAVAILABLE_DESCRIPTION,
+                &NSColor::tertiaryLabelColor(),
+            ),
+        }
+    }
+}
+
+struct Renderer<'a> {
+    actions: &'a mut Vec<ModelsAction>,
+    target: &'a ActionTarget,
+    main_thread: MainThreadMarker,
+}
+
+impl Renderer<'_> {
+    fn render_list(&mut self, view: &mut ListView, list: Option<&ModelList>) {
+        view.container.setHidden(list.is_none());
+        let Some(list) = list else {
+            return;
+        };
+        set_text(&view.heading, &list.heading);
+        set_text(&view.footer, list.footer.unwrap_or_default());
+        match &list.back {
+            Some(back) => self.show_back_button(&view.back, back),
+            None => view.back.setHidden(true),
+        }
+        let rows = match &list.content {
+            ListContent::Rows(rows) => rows.as_slice(),
+            ListContent::Loading(_) | ListContent::Message { .. } => &[],
+        };
+        self.render_message(&view.message, &list.content);
+        view.resize_rows(rows.len(), self.target, self.main_thread);
+        for (index, (row_view, row)) in view.rows.iter().zip(rows).enumerate() {
+            row_view.separator.setHidden(index == 0);
+            row_view.update(row, self);
+        }
+    }
+
+    fn render_message(&mut self, view: &MessageView, content: &ListContent) {
+        stop_spinning(&view.spinner);
+        view.retry.setHidden(true);
+        match content {
+            ListContent::Rows(_) => view.container.setHidden(true),
+            ListContent::Loading(text) => {
+                view.container.setHidden(false);
+                set_text(&view.text, text);
+                start_spinning(&view.spinner);
+            }
+            ListContent::Message { text, retry } => {
+                view.container.setHidden(false);
+                set_text(&view.text, text);
+                if let Some(retry) = retry {
+                    self.show_push_button(&view.retry, retry, None);
+                }
+            }
+        }
+    }
+
+    fn show_push_button(&mut self, view: &NSButton, button: &RowButton, subject: Option<&str>) {
+        view.setTitle(&NSString::from_str(&title_case(button.label)));
+        let spoken_label = subject.map(|subject| NSString::from_str(&format!("{}, {subject}", button.label)));
+        view.setAccessibilityLabel(spoken_label.as_deref());
+        self.attach(view, button);
+    }
+
+    fn show_icon_button(&mut self, view: &NSButton, symbol_name: &str, button: &RowButton, subject: &str) {
+        let spoken_label = format!("{}, {subject}", button.label);
+        view.setImage(symbol(symbol_name, &spoken_label).as_deref());
+        view.setToolTip(Some(&NSString::from_str(button.label)));
+        view.setAccessibilityLabel(Some(&NSString::from_str(&spoken_label)));
+        self.attach(view, button);
+    }
+
+    fn show_back_button(&mut self, view: &NSButton, button: &RowButton) {
+        view.setImage(symbol(BACK_SYMBOL, button.label).as_deref());
+        view.setTitle(&NSString::from_str(&title_case(button.label)));
+        self.attach(view, button);
+    }
+
+    fn attach(&mut self, view: &NSButton, button: &RowButton) {
+        let tag = isize::try_from(self.actions.len()).expect("a window never holds isize::MAX buttons");
+        self.actions.push(button.action.clone());
+        view.setTag(tag);
+        view.setHidden(false);
+    }
+}
+
+fn settings_window(
+    header: &NSView,
+    content: &NSStackView,
+    main_thread: MainThreadMarker,
+) -> Retained<NSWindow> {
+    // SAFETY: the window is released on close by default; the next statement turns that off
+    // before the window can close.
+    let window = unsafe {
+        NSWindow::initWithContentRect_styleMask_backing_defer(
+            NSWindow::alloc(main_thread),
+            NSRect::new(NSPoint::ZERO, WINDOW_SIZE),
+            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable,
+            NSBackingStoreType::Buffered,
+            false,
+        )
+    };
+    // SAFETY: the window is owned by `SettingsWindow`, so AppKit must not release it on close.
+    unsafe { window.setReleasedWhenClosed(false) };
+    window.setTitle(&NSString::from_str(WINDOW_TITLE));
+    window.setAutorecalculatesKeyViewLoop(true);
+    let scroll_view = scroll_view(content, main_thread);
+    let divider = separator(main_thread);
+    let root = stack(
+        NSUserInterfaceLayoutOrientation::Vertical,
+        0.0,
+        NO_INSETS,
+        main_thread,
+    );
+    let root_views: [&NSView; 3] = [header, &divider, &scroll_view];
+    for view in root_views {
+        root.addArrangedSubview(view);
+        fill_width(view, &root);
+    }
+    root.setDistribution(NSStackViewDistribution::Fill);
+    window.setContentView(Some(&root));
+    window.center();
+    window
+}
+
+fn scroll_view(content: &NSStackView, main_thread: MainThreadMarker) -> Retained<NSScrollView> {
+    let document = FlippedView::new(main_thread);
+    document.addSubview(content);
+    let scroll_view = NSScrollView::new(main_thread);
+    scroll_view.setHasVerticalScroller(true);
+    scroll_view.setAutohidesScrollers(true);
+    scroll_view.setDrawsBackground(false);
+    scroll_view.setDocumentView(Some(&document));
+    scroll_view.setContentHuggingPriority_forOrientation(1.0, NSLayoutConstraintOrientation::Vertical);
+    let clip_view = scroll_view.contentView();
+    document.setTranslatesAutoresizingMaskIntoConstraints(false);
+    content.setTranslatesAutoresizingMaskIntoConstraints(false);
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        document
+            .leadingAnchor()
+            .constraintEqualToAnchor(&clip_view.leadingAnchor()),
+        document
+            .trailingAnchor()
+            .constraintEqualToAnchor(&clip_view.trailingAnchor()),
+        document
+            .topAnchor()
+            .constraintEqualToAnchor(&clip_view.topAnchor()),
+        content
+            .leadingAnchor()
+            .constraintEqualToAnchor(&document.leadingAnchor()),
+        content
+            .trailingAnchor()
+            .constraintEqualToAnchor(&document.trailingAnchor()),
+        content.topAnchor().constraintEqualToAnchor(&document.topAnchor()),
+        content
+            .bottomAnchor()
+            .constraintEqualToAnchor(&document.bottomAnchor()),
+    ]));
+    scroll_view
+}
+
+/// Wraps `content` in a rounded box like the grouped lists of System Settings.
+fn rounded_group(content: &NSView, main_thread: MainThreadMarker) -> Retained<NSBox> {
+    let group = NSBox::new(main_thread);
+    group.setBoxType(NSBoxType::Custom);
+    group.setTitlePosition(NSTitlePosition::NoTitle);
+    group.setContentViewMargins(NSSize::ZERO);
+    group.setCornerRadius(GROUP_CORNER_RADIUS);
+    group.setBorderWidth(GROUP_BORDER_WIDTH);
+    group.setBorderColor(&NSColor::separatorColor());
+    group.setFillColor(&NSColor::quaternarySystemFillColor());
+    group.setContentView(Some(content));
+    content.setTranslatesAutoresizingMaskIntoConstraints(false);
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        content
+            .leadingAnchor()
+            .constraintEqualToAnchor(&group.leadingAnchor()),
+        content
+            .trailingAnchor()
+            .constraintEqualToAnchor(&group.trailingAnchor()),
+        content.topAnchor().constraintEqualToAnchor(&group.topAnchor()),
+        content
+            .bottomAnchor()
+            .constraintEqualToAnchor(&group.bottomAnchor()),
+    ]));
+    group
+}
+
+fn search_field(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSSearchField> {
+    let field = NSSearchField::new(main_thread);
+    field.setControlSize(NSControlSize::Large);
+    field.setSendsWholeSearchString(true);
+    // SAFETY: the target implements the search action, taking the field, and `SettingsWindow`
+    // keeps the target alive as long as the field.
+    unsafe {
+        field.setTarget(Some(&target.target));
+        field.setAction(Some(target.search_action));
+    }
+    field
+}
+
+fn push_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSButton> {
+    // SAFETY: the target implements the button action, taking the button, and `SettingsWindow`
+    // keeps the target alive as long as the button.
+    let button = unsafe {
+        NSButton::buttonWithTitle_target_action(
+            &NSString::new(),
+            Some(&target.target),
+            Some(target.button_action),
+            main_thread,
+        )
+    };
+    button.setHidden(true);
+    button
+}
+
+fn icon_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSButton> {
+    let button = push_button(target, main_thread);
+    button.setBordered(false);
+    button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        button
+            .widthAnchor()
+            .constraintGreaterThanOrEqualToConstant(ICON_BUTTON_SIDE),
+        button
+            .heightAnchor()
+            .constraintGreaterThanOrEqualToConstant(ICON_BUTTON_SIDE),
+    ]));
+    button
+}
+
+fn spinner(main_thread: MainThreadMarker) -> Retained<NSProgressIndicator> {
+    let spinner = NSProgressIndicator::new(main_thread);
+    spinner.setStyle(NSProgressIndicatorStyle::Spinning);
+    spinner.setControlSize(NSControlSize::Small);
+    spinner.setMinValue(0.0);
+    spinner.setMaxValue(PROGRESS_FULL);
+    spinner.setHidden(true);
+    spinner
+}
+
+fn start_spinning(spinner: &NSProgressIndicator) {
+    spinner.setIndeterminate(true);
+    spinner.setHidden(false);
+    // SAFETY: AppKit accepts no sender.
+    unsafe { spinner.startAnimation(None) };
+}
+
+fn stop_spinning(spinner: &NSProgressIndicator) {
+    // SAFETY: AppKit accepts no sender.
+    unsafe { spinner.stopAnimation(None) };
+    spinner.setHidden(true);
+}
+
+fn show_status(view: &NSImageView, symbol_name: &str, description: &str, tint: &NSColor) {
+    view.setImage(symbol(symbol_name, description).as_deref());
+    view.setContentTintColor(Some(tint));
+    view.setHidden(false);
+}
+
+fn symbol(name: &str, description: &str) -> Option<Retained<NSImage>> {
+    let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+        &NSString::from_str(name),
+        Some(&NSString::from_str(description)),
+    );
+    if image.is_none() {
+        tracing::warn!(name, "settings symbol is unavailable");
+    }
+    image
+}
+
+fn separator(main_thread: MainThreadMarker) -> Retained<NSBox> {
+    let separator = NSBox::new(main_thread);
+    separator.setBoxType(NSBoxType::Separator);
+    separator
+}
+
+fn label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> {
+    let label = NSTextField::labelWithString(&NSString::new(), main_thread);
+    label.setFont(Some(font));
+    label
+}
+
+fn truncating_label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> {
+    let label = label(font, main_thread);
+    label.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+    label.setContentCompressionResistancePriority_forOrientation(
+        NSLayoutPriorityDefaultLow,
+        NSLayoutConstraintOrientation::Horizontal,
+    );
+    label
+}
+
+/// Shows `text` in `label`, hiding the label when `text` is empty.
+fn set_text(label: &NSTextField, text: &str) {
+    label.setStringValue(&NSString::from_str(text));
+    label.setHidden(text.is_empty());
+}
+
+fn stack(
+    orientation: NSUserInterfaceLayoutOrientation,
+    spacing: CGFloat,
+    insets: NSEdgeInsets,
+    main_thread: MainThreadMarker,
+) -> Retained<NSStackView> {
+    let stack = NSStackView::new(main_thread);
+    stack.setOrientation(orientation);
+    let alignment = if orientation == NSUserInterfaceLayoutOrientation::Vertical {
+        NSLayoutAttribute::Leading
+    } else {
+        NSLayoutAttribute::CenterY
+    };
+    stack.setAlignment(alignment);
+    stack.setSpacing(spacing);
+    stack.setEdgeInsets(insets);
+    stack
+}
+
+/// Makes `view` as wide as the inside of the vertical `stack` it is arranged in.
+fn fill_width(view: &NSView, stack: &NSStackView) {
+    let insets = stack.edgeInsets();
+    view.widthAnchor()
+        .constraintEqualToAnchor_constant(&stack.widthAnchor(), -(insets.left + insets.right))
+        .setActive(true);
+}
+
+define_class!(
+    // SAFETY: NSView has no subclassing requirements, and this class does not implement Drop.
+    #[unsafe(super(NSView, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "GhostTypeFlippedView"]
+    /// A plain view with a top-left origin, so scrolled content starts at the top.
+    struct FlippedView;
+
+    impl FlippedView {
+        // SAFETY: matches the NSView method signature.
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool {
+            true
+        }
+    }
+);
+
+impl FlippedView {
+    fn new(main_thread: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(main_thread).set_ivars(());
+        // SAFETY: NSView's init takes no arguments and returns an initialized view.
+        unsafe { msg_send![super(this), init] }
+    }
+}

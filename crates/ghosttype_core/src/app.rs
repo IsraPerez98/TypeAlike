@@ -1,4 +1,4 @@
-//! App lifecycle: whether suggestions are on, and the tray menu that controls it.
+//! App lifecycle: whether suggestions are on, and the tray menu that controls it and opens settings.
 
 use crate::engine::{Engine, Reaction};
 use crate::key::Key;
@@ -27,6 +27,8 @@ pub enum Field {
 pub enum TrayCommand {
     /// Pauses suggestions when active, resumes them when paused.
     TogglePause,
+    /// Shows the settings window.
+    OpenSettings,
     /// Exits GhostType.
     Quit,
 }
@@ -56,6 +58,8 @@ pub struct TrayView {
 pub enum TrayOutcome {
     /// The tray view changed and must be re-rendered; any ghost text must be hidden.
     Updated,
+    /// The settings window must show and come to the front.
+    OpenSettings,
     /// The app must exit.
     Quit,
 }
@@ -121,6 +125,10 @@ impl App {
                     command: TrayCommand::TogglePause,
                 },
                 TrayItem {
+                    label: "Settings…",
+                    command: TrayCommand::OpenSettings,
+                },
+                TrayItem {
                     label: "Quit GhostType",
                     command: TrayCommand::Quit,
                 },
@@ -139,6 +147,7 @@ impl App {
                 self.engine.reset();
                 TrayOutcome::Updated
             }
+            TrayCommand::OpenSettings => TrayOutcome::OpenSettings,
             TrayCommand::Quit => TrayOutcome::Quit,
         }
     }
@@ -217,6 +226,10 @@ mod tests {
                         command: TrayCommand::TogglePause
                     },
                     TrayItem {
+                        label: "Settings…",
+                        command: TrayCommand::OpenSettings
+                    },
+                    TrayItem {
                         label: "Quit GhostType",
                         command: TrayCommand::Quit
                     },
@@ -250,6 +263,10 @@ mod tests {
                     TrayItem {
                         label: "Resume suggestions",
                         command: TrayCommand::TogglePause
+                    },
+                    TrayItem {
+                        label: "Settings…",
+                        command: TrayCommand::OpenSettings
                     },
                     TrayItem {
                         label: "Quit GhostType",
@@ -302,6 +319,15 @@ mod tests {
         let reaction = type_text(&mut app, "r");
 
         assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn settings_command_opens_settings() {
+        let mut app = app();
+
+        let outcome = app.on_tray_command(TrayCommand::OpenSettings);
+
+        assert_eq!(outcome, TrayOutcome::OpenSettings);
     }
 
     #[test]
