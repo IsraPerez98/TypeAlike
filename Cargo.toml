@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/ghosttype"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/IsraPerez98/GhostType"
+publish = false
+
+# Every dependency is declared here once and inherited with `foo.workspace = true`.
+[workspace.dependencies]
+ghosttype_core = { path = "crates/ghosttype_core" }
+ghosttype_windows = { path = "crates/ghosttype_windows" }
+
+[workspace.lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+# Selected restriction lints.
+allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_structs_with_brackets = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+print_stdout = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unwrap_used = "warn"
+# The windows crate family pulls in duplicate versions we can't control.
+multiple_crate_versions = "allow"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

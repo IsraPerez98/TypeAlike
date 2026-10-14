@@ -1,0 +1,20 @@
+[package]
+name = "ghosttype"
+description = "System-wide inline autocomplete for Windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "GhostType"
+path = "src/main.rs"
+
+[dependencies]
+ghosttype_core.workspace = true
+ghosttype_windows.workspace = true
+
+[lints]
+workspace = true
