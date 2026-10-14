@@ -1,11 +1,15 @@
-//! The settings window: renders the core Models pane and reports clicks back by button tag.
+//! The settings window: a toolbar of panes that render the core Models and Playground panes and
+//! report user actions back.
 //!
 //! Layout follows System Settings: a pinned header with the search field, then grouped lists in
 //! rounded boxes with hairline separators between rows.
 
+mod playground;
+
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
+use ghosttype_core::playground::{PlaygroundAction, PlaygroundView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -13,16 +17,18 @@ use objc2_app_kit::{
     NSAccessibility as _, NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSCellImagePosition,
     NSColor, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
     NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField, NSStackView,
-    NSStackViewDistribution, NSStackViewGravity, NSTextField, NSTitlePosition,
-    NSUserInterfaceLayoutOrientation, NSView, NSWindow, NSWindowStyleMask,
+    NSObjectNSKeyValueBindingCreation as _, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder,
+    NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity,
+    NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextField, NSTitleBinding,
+    NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow, NSWindowStyleMask,
+    NSWindowToolbarStyle,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSEdgeInsets, NSPoint, NSRect, NSSize, NSString};
 
 use crate::labels::title_case;
+use crate::settings::playground::PlaygroundPage;
 
-const WINDOW_TITLE: &str = "GhostType Settings";
 const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
 const HEADER_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 20.0,
@@ -54,7 +60,6 @@ const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
     bottom: 28.0,
     right: 16.0,
 };
-const TITLE_FONT_SIZE: CGFloat = 17.0;
 const SUMMARY_FONT_SIZE: CGFloat = 12.0;
 const DETAIL_FONT_SIZE: CGFloat = 12.0;
 const HEADER_SPACING: CGFloat = 4.0;
@@ -78,24 +83,31 @@ const INSTALLED_SYMBOL: &str = "checkmark.circle.fill";
 const INSTALLED_DESCRIPTION: &str = "Downloaded";
 const UNAVAILABLE_SYMBOL: &str = "lock.fill";
 const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
+const MODELS_SYMBOL: &str = "cube";
+const PLAYGROUND_SYMBOL: &str = "text.cursor";
 
-/// The object and selectors every settings button and the search field report to.
+/// The object and selectors every settings control reports to.
 #[derive(Debug)]
 pub(crate) struct ActionTarget {
     pub(crate) target: Retained<NSObject>,
     pub(crate) button_action: Sel,
     pub(crate) search_action: Sel,
+    pub(crate) model_picker_action: Sel,
+    pub(crate) complete_action: Sel,
 }
 
 /// The settings window, kept alive and reused after the user closes it.
 #[derive(Debug)]
 pub(crate) struct SettingsWindow {
     window: Retained<NSWindow>,
-    title: Retained<NSTextField>,
+    tabs: Retained<NSTabViewController>,
+    models_pane: Pane,
+    playground_pane: Pane,
     summary: Retained<NSTextField>,
     search_field: Retained<NSSearchField>,
     browse: ListView,
     downloaded: ListView,
+    playground: PlaygroundPage,
     actions: Vec<ModelsAction>,
     target: ActionTarget,
     main_thread: MainThreadMarker,
@@ -104,10 +116,11 @@ pub(crate) struct SettingsWindow {
 impl SettingsWindow {
     /// Builds the window, hidden until [`Self::show`].
     ///
-    /// A button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The search
-    /// field sends `target.search_action` when the user submits or clears it.
+    /// A Models button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The
+    /// search field sends `target.search_action` when the user submits or clears it. The Playground
+    /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
+    /// button and prompt field send `target.complete_action`.
     pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
-        let title = label(&NSFont::boldSystemFontOfSize(TITLE_FONT_SIZE), main_thread);
         let summary = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
         summary.setTextColor(Some(&NSColor::secondaryLabelColor()));
@@ -118,7 +131,7 @@ impl SettingsWindow {
             HEADER_INSETS,
             main_thread,
         );
-        let header_views: [&NSView; 3] = [&title, &summary, &search_field];
+        let header_views: [&NSView; 2] = [&summary, &search_field];
         for view in header_views {
             header.addArrangedSubview(view);
         }
@@ -133,14 +146,25 @@ impl SettingsWindow {
         );
         let browse = ListView::new(&content, &target, main_thread);
         let downloaded = ListView::new(&content, &target, main_thread);
-        let window = settings_window(&header, &content, main_thread);
+        let playground = PlaygroundPage::new(&target, main_thread);
+        let models_pane = Pane::new(
+            &models_root(&header, &content, main_thread),
+            MODELS_SYMBOL,
+            main_thread,
+        );
+        let playground_pane = Pane::new(&playground.root, PLAYGROUND_SYMBOL, main_thread);
+        let tabs = pane_tabs(&[&models_pane, &playground_pane], main_thread);
+        let window = settings_window(&tabs, main_thread);
         Self {
             window,
-            title,
+            tabs,
+            models_pane,
+            playground_pane,
             summary,
             search_field,
             browse,
             downloaded,
+            playground,
             actions: Vec::new(),
             target,
             main_thread,
@@ -153,9 +177,10 @@ impl SettingsWindow {
         self.window.makeKeyAndOrderFront(None);
     }
 
-    /// Shows `view`, reusing row views so clicks in progress are not lost.
-    pub(crate) fn render(&mut self, view: &ModelsView) {
-        self.title.setStringValue(&NSString::from_str(view.title));
+    /// Shows `view` in the Models pane, reusing row views so clicks in progress are not lost.
+    pub(crate) fn render_models(&mut self, view: &ModelsView) {
+        self.models_pane.set_title(view.title);
+        self.show_selected_pane_title();
         self.summary.setStringValue(&NSString::from_str(view.summary));
         self.search_field
             .setPlaceholderString(Some(&NSString::from_str(view.search_placeholder)));
@@ -169,10 +194,59 @@ impl SettingsWindow {
         renderer.render_list(&mut self.downloaded, view.downloaded.as_ref());
     }
 
-    /// Returns the action of the button that carries `tag` in the last render.
+    /// Returns the action of the Models button that carries `tag` in the last render.
     pub(crate) fn action_for_tag(&self, tag: isize) -> Option<ModelsAction> {
         let index = usize::try_from(tag).ok()?;
         self.actions.get(index).cloned()
+    }
+
+    /// Shows `view` in the Playground pane.
+    pub(crate) fn render_playground(&mut self, view: &PlaygroundView) {
+        self.playground_pane.set_title(view.title);
+        self.show_selected_pane_title();
+        self.playground.render(view);
+    }
+
+    /// Names the window after the selected pane, which the tab controller does only on a selection change.
+    fn show_selected_pane_title(&self) {
+        if let Some(selected) = self.tabs.tabView().selectedTabViewItem() {
+            self.tabs.setTitle(Some(&selected.label()));
+        }
+    }
+
+    /// Returns the action of the Playground model menu entry at `index` in the last render.
+    pub(crate) fn playground_choice(&self, index: isize) -> Option<PlaygroundAction> {
+        self.playground.choice_action(index)
+    }
+
+    /// Returns the text in the Playground prompt field.
+    pub(crate) fn playground_prompt(&self) -> String {
+        self.playground.prompt()
+    }
+}
+
+/// One pane of the settings toolbar: its view controller and toolbar item.
+#[derive(Debug)]
+struct Pane {
+    controller: Retained<NSViewController>,
+    tab: Retained<NSTabViewItem>,
+}
+
+impl Pane {
+    fn new(view: &NSView, symbol_name: &str, main_thread: MainThreadMarker) -> Self {
+        let controller = NSViewController::new(main_thread);
+        controller.setView(view);
+        controller.setPreferredContentSize(WINDOW_SIZE);
+        let tab = NSTabViewItem::tabViewItemWithViewController(&controller);
+        tab.setImage(symbol(symbol_name, "").as_deref());
+        Self { controller, tab }
+    }
+
+    /// Names the pane in its toolbar item, and in the window title while the pane is selected.
+    fn set_title(&self, title: &str) {
+        let title = NSString::from_str(title);
+        self.controller.setTitle(Some(&title));
+        self.tab.setLabel(&title);
     }
 }
 
@@ -495,11 +569,16 @@ impl Renderer<'_> {
     }
 }
 
-fn settings_window(
-    header: &NSView,
-    content: &NSStackView,
-    main_thread: MainThreadMarker,
-) -> Retained<NSWindow> {
+fn pane_tabs(panes: &[&Pane], main_thread: MainThreadMarker) -> Retained<NSTabViewController> {
+    let tabs = NSTabViewController::new(main_thread);
+    tabs.setTabStyle(NSTabViewControllerTabStyle::Toolbar);
+    for pane in panes {
+        tabs.addTabViewItem(&pane.tab);
+    }
+    tabs
+}
+
+fn settings_window(tabs: &NSTabViewController, main_thread: MainThreadMarker) -> Retained<NSWindow> {
     // SAFETY: the window is released on close by default; the next statement turns that off
     // before the window can close.
     let window = unsafe {
@@ -513,8 +592,27 @@ fn settings_window(
     };
     // SAFETY: the window is owned by `SettingsWindow`, so AppKit must not release it on close.
     unsafe { window.setReleasedWhenClosed(false) };
-    window.setTitle(&NSString::from_str(WINDOW_TITLE));
+    window.setToolbarStyle(NSWindowToolbarStyle::Preference);
     window.setAutorecalculatesKeyViewLoop(true);
+    window.setContentViewController(Some(tabs));
+    // The binding below copies the title to the window, and a window title must not be nil.
+    tabs.setTitle(Some(&NSString::new()));
+    // SAFETY: `title` of the tab controller is a string the window can show, and the window keeps
+    // the tab controller alive as its content view controller.
+    unsafe {
+        window.bind_toObject_withKeyPath_options(NSTitleBinding, tabs, &NSString::from_str("title"), None);
+    }
+    window.setContentSize(WINDOW_SIZE);
+    window.center();
+    window
+}
+
+/// The Models pane: the pinned `header`, a divider, and `content` that scrolls.
+fn models_root(
+    header: &NSView,
+    content: &NSStackView,
+    main_thread: MainThreadMarker,
+) -> Retained<NSStackView> {
     let scroll_view = scroll_view(content, main_thread);
     let divider = separator(main_thread);
     let root = stack(
@@ -529,9 +627,7 @@ fn settings_window(
         fill_width(view, &root);
     }
     root.setDistribution(NSStackViewDistribution::Fill);
-    window.setContentView(Some(&root));
-    window.center();
-    window
+    root
 }
 
 fn scroll_view(content: &NSStackView, main_thread: MainThreadMarker) -> Retained<NSScrollView> {

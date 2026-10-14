@@ -7,7 +7,7 @@ mod api;
 mod store;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -93,6 +93,13 @@ impl ModelHub for HuggingFace {
             }
         }
     }
+}
+
+/// Returns where the downloaded `file` is stored under `models_dir`, or `None` when its repository
+/// or name could escape the directory.
+#[must_use]
+pub fn stored_path(models_dir: &Path, file: &ModelFile) -> Option<PathBuf> {
+    store::file_path(models_dir, file)
 }
 
 fn to_hub_result<T>(result: Result<T, FetchError>, operation: &'static str) -> Result<T, HubError> {

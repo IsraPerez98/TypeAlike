@@ -20,6 +20,7 @@ mod single_instance;
 
 use ghosttype_core::app::App;
 use ghosttype_core::hub::ModelHub;
+use ghosttype_core::inference::ModelRunner;
 
 /// A failure that stops GhostType from starting or running.
 #[derive(Debug, thiserror::Error)]
@@ -37,7 +38,8 @@ pub enum RunError {
 
 /// Runs GhostType in the menu bar until the user quits, offering suggestions from `app`.
 ///
-/// The settings window finds, downloads and deletes models through `hub`.
+/// The settings window finds, downloads and deletes models through `hub`, and tries them with
+/// `runner`.
 ///
 /// Returns immediately when another instance is already running for this user. Quitting from the
 /// menu ends the process.
@@ -46,10 +48,10 @@ pub enum RunError {
 ///
 /// Returns [`RunError`] when called off the main thread, when the instance lock can't be checked,
 /// or when macOS denies the keyboard event tap.
-pub fn run(app: App, hub: Box<dyn ModelHub>) -> Result<(), RunError> {
+pub fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
     let Some(_instance_lock) = single_instance::acquire().map_err(RunError::InstanceCheck)? else {
         tracing::info!("another instance is already running");
         return Ok(());
     };
-    runtime::run(app, hub)
+    runtime::run(app, hub, runner)
 }

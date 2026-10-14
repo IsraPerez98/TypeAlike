@@ -9,13 +9,15 @@ use dispatch2::DispatchQueue;
 use ghosttype_core::app::{App, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
+use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, Prompt};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
+use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSMenuItem, NSSearchField, NSWorkspace,
-    NSWorkspaceActiveSpaceDidChangeNotification,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton,
+    NSSearchField, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
@@ -37,8 +39,9 @@ thread_local! {
     static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
 }
 
-/// Shows the menu bar extra and offers suggestions until the user quits; settings use `hub`.
-pub(crate) fn run(app: App, hub: Box<dyn ModelHub>) -> Result<(), RunError> {
+/// Shows the menu bar extra and offers suggestions until the user quits; settings use `hub` and
+/// `runner`.
+pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -68,7 +71,10 @@ pub(crate) fn run(app: App, hub: Box<dyn ModelHub>) -> Result<(), RunError> {
         release_filter: ReleaseFilter::default(),
         models: ModelsPane::new(),
         hub,
-        hub_sink: main_thread_sink(),
+        hub_sink: main_thread_sink(Runtime::on_hub_event),
+        playground: PlaygroundPane::new(),
+        runner,
+        runner_sink: main_thread_sink(Runtime::on_inference_event),
         settings: None,
     }));
     tracing::info!("running in the menu bar");
@@ -90,11 +96,13 @@ fn observe_space_changes(target: &RuntimeTarget) {
     }
 }
 
-/// Returns a sink that hands each hub event to the runtime on the main thread.
-fn main_thread_sink() -> HubEventSink {
-    Arc::new(|event: HubEvent| {
+/// Returns a sink that hands each event to `handle` on the main thread.
+fn main_thread_sink<Event: Send + 'static>(
+    handle: fn(&mut Runtime, Event),
+) -> Arc<dyn Fn(Event) + Send + Sync> {
+    Arc::new(move |event: Event| {
         DispatchQueue::main().exec_async(move || {
-            with_runtime(|runtime| runtime.on_hub_event(event));
+            with_runtime(|runtime| handle(runtime, event));
         });
     })
 }
@@ -117,6 +125,9 @@ struct Runtime {
     models: ModelsPane,
     hub: Box<dyn ModelHub>,
     hub_sink: HubEventSink,
+    playground: PlaygroundPane,
+    runner: Box<dyn ModelRunner>,
+    runner_sink: InferenceEventSink,
     settings: Option<SettingsWindow>,
 }
 
@@ -236,17 +247,18 @@ impl Runtime {
     fn open_settings(&mut self) {
         let request = self.models.on_open();
         self.hub.submit(request, &self.hub_sink);
-        let view = self.models.view();
         let target = &self.target;
         let settings = self.settings.get_or_insert_with(|| {
             let action_target = ActionTarget {
                 target: Retained::into_super(target.clone()),
                 button_action: sel!(pickSettingsButton:),
                 search_action: sel!(searchModels:),
+                model_picker_action: sel!(pickPlaygroundModel:),
+                complete_action: sel!(completePlaygroundText:),
             };
             SettingsWindow::new(action_target, target.mtm())
         });
-        settings.render(&view);
+        render_panes(settings, &self.models, &self.playground);
         settings.show();
     }
 
@@ -272,11 +284,48 @@ impl Runtime {
         self.render_settings();
     }
 
-    fn render_settings(&mut self) {
-        if let Some(settings) = &mut self.settings {
-            settings.render(&self.models.view());
+    fn on_playground_model_picked(&mut self, index: isize) {
+        let action = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.playground_choice(index));
+        match action {
+            Some(action) => self.on_playground_action(action),
+            None => self.render_settings(),
         }
     }
+
+    fn on_playground_complete(&mut self) {
+        let prompt = self
+            .settings
+            .as_ref()
+            .map(SettingsWindow::playground_prompt)
+            .unwrap_or_default();
+        self.on_playground_action(PlaygroundAction::Complete(Prompt(prompt)));
+    }
+
+    fn on_playground_action(&mut self, action: PlaygroundAction) {
+        if let Some(request) = self.playground.on_action(action) {
+            self.runner.submit(request, &self.runner_sink);
+        }
+        self.render_settings();
+    }
+
+    fn on_inference_event(&mut self, event: InferenceEvent) {
+        self.playground.on_event(event);
+        self.render_settings();
+    }
+
+    fn render_settings(&mut self) {
+        if let Some(settings) = &mut self.settings {
+            render_panes(settings, &self.models, &self.playground);
+        }
+    }
+}
+
+fn render_panes(settings: &mut SettingsWindow, models: &ModelsPane, playground: &PlaygroundPane) {
+    settings.render_models(&models.view());
+    settings.render_playground(&playground.view(&models.installed_files()));
 }
 
 define_class!(
@@ -309,6 +358,19 @@ define_class!(
         fn search_models(&self, sender: &NSSearchField) {
             let query = sender.stringValue().to_string();
             with_runtime(|runtime| runtime.on_models_action(ModelsAction::Search(query)));
+        }
+
+        // SAFETY: matches the action signature, called with the playground's model menu.
+        #[unsafe(method(pickPlaygroundModel:))]
+        fn pick_playground_model(&self, sender: &NSPopUpButton) {
+            let index = sender.indexOfSelectedItem();
+            with_runtime(|runtime| runtime.on_playground_model_picked(index));
+        }
+
+        // SAFETY: matches the action signature, called with the playground's button or prompt field.
+        #[unsafe(method(completePlaygroundText:))]
+        fn complete_playground_text(&self, _sender: &NSControl) {
+            with_runtime(Runtime::on_playground_complete);
         }
 
         // SAFETY: matches the timer action signature.

@@ -22,6 +22,7 @@ tracing-subscriber.workspace = true
 ghosttype_windows.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+ghosttype_llm.workspace = true
 ghosttype_macos.workspace = true
 ghosttype_models.workspace = true
 

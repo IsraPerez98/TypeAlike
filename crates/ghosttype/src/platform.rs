@@ -18,8 +18,9 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
     let models_dir = std::env::home_dir()
         .context("no home directory")?
         .join(MODELS_DIR);
-    let hub = ghosttype_models::HuggingFace::new(models_dir);
-    ghosttype_macos::run(app, Box::new(hub)).context("ghosttype stopped unexpectedly")
+    let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
+    let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
+    ghosttype_macos::run(app, Box::new(hub), Box::new(runner)).context("ghosttype stopped unexpectedly")
 }
 
 /// Fails: no platform layer exists for this OS yet.

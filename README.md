@@ -8,7 +8,8 @@ Grey "ghost text" suggestions appear at the caret in any app; press **Tab** to a
 ## Build
 
 Requires [rustup](https://rustup.rs/) (the toolchain version is pinned in `rust-toolchain.toml` and installed
-automatically), plus the MSVC build tools on Windows or the Xcode Command Line Tools on macOS.
+automatically) and [CMake](https://cmake.org/), plus the MSVC build tools and LLVM on Windows or the Xcode Command
+Line Tools on macOS. CMake and Clang build llama.cpp, which runs the language models.
 
 On macOS, GhostType needs Accessibility access (System Settings > Privacy & Security > Accessibility) to read
 the caret and type accepted text. When started with `cargo run`, grant access to the terminal app.
@@ -28,6 +29,8 @@ cargo clippy --workspace --all-targets # lints
 | `crates/ghosttype_core` | Platform-independent suggestion and acceptance logic |
 | `crates/ghosttype_windows` | Win32 / UI Automation integration: hooks, caret reading, overlay, input |
 | `crates/ghosttype_macos` | AppKit / Accessibility integration: event tap, caret reading, overlay, input, menu bar |
+| `crates/ghosttype_models` | Hugging Face search, model downloads and the local models directory |
+| `crates/ghosttype_llm` | Runs GGUF language models with llama.cpp |
 
 ## Contributing
 

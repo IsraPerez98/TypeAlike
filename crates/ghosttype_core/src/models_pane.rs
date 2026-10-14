@@ -246,6 +246,16 @@ impl ModelsPane {
         }
     }
 
+    /// Returns the downloaded model files, by repository and then name.
+    #[must_use]
+    pub fn installed_files(&self) -> Vec<ModelFile> {
+        self.files
+            .iter()
+            .filter(|(_, tracked)| matches!(tracked.state, FileState::Installed))
+            .map(|(file, _)| file.clone())
+            .collect()
+    }
+
     /// Returns what the pane must show now.
     #[must_use]
     pub fn view(&self) -> ModelsView {
@@ -557,7 +567,7 @@ fn repo_row(repo: &RepoSummary) -> ModelRow {
     }
 }
 
-fn model_name(file: &ModelFile) -> String {
+pub(crate) fn model_name(file: &ModelFile) -> String {
     file.name
         .strip_suffix(GGUF_EXTENSION)
         .unwrap_or(&file.name)
@@ -1159,6 +1169,16 @@ mod tests {
 
         let downloaded = pane.view().downloaded.expect("files are installed");
         assert_eq!(titles(rows(downloaded)), ["z", "a", "b"]);
+    }
+
+    #[test]
+    fn only_complete_downloads_are_installed_files() {
+        let mut pane = downloading("b.gguf", 100);
+        pane.on_event(HubEvent::Installed(vec![sized("a.gguf", 1)]));
+
+        let installed = pane.installed_files();
+
+        assert_eq!(installed, [file("a.gguf")]);
     }
 
     #[test]

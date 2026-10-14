@@ -17,8 +17,10 @@ ghosttype_core = { path = "crates/ghosttype_core" }
 ghosttype_windows = { path = "crates/ghosttype_windows" }
 ghosttype_macos = { path = "crates/ghosttype_macos" }
 ghosttype_models = { path = "crates/ghosttype_models" }
+ghosttype_llm = { path = "crates/ghosttype_llm" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+llama-cpp-2 = { version = "0.1.159", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
@@ -65,12 +67,14 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSGraphics",
     "NSImage",
     "NSImageView",
+    "NSKeyValueBinding",
     "NSLayoutAnchor",
     "NSLayoutConstraint",
     "NSMenu",
     "NSMenuItem",
     "NSPanel",
     "NSParagraphStyle",
+    "NSPopUpButton",
     "NSProgressIndicator",
     "NSResponder",
     "NSRunningApplication",
@@ -81,9 +85,13 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSStatusBar",
     "NSStatusBarButton",
     "NSStatusItem",
+    "NSTabView",
+    "NSTabViewController",
+    "NSTabViewItem",
     "NSTextField",
     "NSUserInterfaceLayout",
     "NSView",
+    "NSViewController",
     "NSWindow",
     "NSWorkspace",
     "objc2-core-foundation",
