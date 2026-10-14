@@ -9,6 +9,7 @@ mod event_tap;
 mod focus;
 mod injection;
 mod keys;
+mod labels;
 mod menu_bar;
 mod overlay;
 mod runtime;

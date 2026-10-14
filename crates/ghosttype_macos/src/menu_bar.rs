@@ -7,6 +7,8 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
 use objc2_foundation::NSString;
 
+use crate::labels::title_case;
+
 const ACTIVE_SYMBOL: &str = "character.cursor.ibeam";
 const PAUSED_SYMBOL: &str = "pause.circle";
 const QUIT_KEY_EQUIVALENT: &str = "q";
@@ -114,19 +116,6 @@ fn key_equivalent(command: TrayCommand) -> &'static str {
     }
 }
 
-/// Turns a sentence-case core label into the title case macOS menus use.
-fn title_case(label: &str) -> String {
-    label.split(' ').map(capitalize).collect::<Vec<_>>().join(" ")
-}
-
-fn capitalize(word: &str) -> String {
-    let mut characters = word.chars();
-    characters
-        .next()
-        .map(|first| first.to_uppercase().chain(characters).collect())
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,16 +144,6 @@ mod tests {
     #[test]
     fn negative_tag_maps_to_nothing() {
         assert_eq!(command_for_tag(&ITEMS, -1), None);
-    }
-
-    #[test]
-    fn sentence_case_label_becomes_title_case() {
-        assert_eq!(title_case("Resume suggestions"), "Resume Suggestions");
-    }
-
-    #[test]
-    fn title_case_keeps_inner_capitals() {
-        assert_eq!(title_case("Quit GhostType"), "Quit GhostType");
     }
 
     #[test]
