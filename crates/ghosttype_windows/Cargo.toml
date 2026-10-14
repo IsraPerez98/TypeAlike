@@ -10,6 +10,9 @@ publish.workspace = true
 
 [dependencies]
 ghosttype_core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+windows.workspace = true
 
 [lints]
 workspace = true

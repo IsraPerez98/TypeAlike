@@ -1,0 +1,324 @@
+//! The message loop, and the one place Win32 callbacks reach GhostType's state.
+
+use std::cell::RefCell;
+
+use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
+use ghosttype_core::engine::Reaction;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, HOOKPROC,
+    KBDLLHOOKSTRUCT, KillTimer, MSG, PostMessageW, PostQuitMessage, RegisterWindowMessageW, SetTimer,
+    SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID,
+    WM_APP, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_SETTINGCHANGE,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WS_OVERLAPPED,
+};
+use windows::core::{Error, Owned, PCWSTR, w};
+
+use crate::RunError;
+use crate::focus::{self, FocusChange, FocusTracker};
+use crate::injection::{self, INJECTION_TAG};
+use crate::keys::{self, Disposition, ReleaseFilter};
+use crate::overlay::Overlay;
+use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
+use crate::window::{Window, WindowSpec};
+
+const GHOST_TIMER_ID: usize = 1;
+const CARET_SETTLE_DELAY_MS: u32 = 40;
+const INJECT_MESSAGE: u32 = WM_APP + 2;
+const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
+const SWALLOW_EVENT: LRESULT = LRESULT(1);
+const QUIT_RECEIVED: i32 = 0;
+const READ_FAILED: i32 = -1;
+
+thread_local! {
+    static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
+}
+
+/// Shows the tray icon and offers suggestions until the user quits.
+pub(crate) fn run(app: App) -> Result<(), RunError> {
+    let window = Window::create(WindowSpec {
+        class_name: w!("GhostType.Main"),
+        procedure: Some(main_window_procedure),
+        style: WS_OVERLAPPED,
+        extended_style: WINDOW_EX_STYLE::default(),
+    })
+    .map_err(RunError::during("create the main window"))?;
+    let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
+    let tray = Tray::add(window.handle(), &app.tray_view()).map_err(RunError::during("add the tray icon"))?;
+    // SAFETY: plain call with a static, nul-terminated name.
+    let taskbar_created_message = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
+    let _keyboard_hook = install_hook(WH_KEYBOARD_LL, Some(keyboard_procedure))
+        .map_err(RunError::during("install the keyboard hook"))?;
+    let _mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
+        .map_err(RunError::during("install the mouse hook"))?;
+    RUNTIME.set(Some(Runtime {
+        app,
+        focus: FocusTracker::new(),
+        tray,
+        overlay,
+        window,
+        taskbar_created_message,
+        pending_ghost: None,
+        pending_injection: None,
+        release_filter: ReleaseFilter::default(),
+    }));
+    tracing::info!("running in the tray");
+    let result = pump_messages();
+    RUNTIME.take();
+    result
+}
+
+fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Result<Owned<HHOOK>> {
+    // SAFETY: plain call.
+    let module = unsafe { GetModuleHandleW(None) }?;
+    // SAFETY: the procedure lives for the whole program; low-level hooks run on this thread.
+    let hook = unsafe { SetWindowsHookExW(kind, procedure, Some(module.into()), 0) }?;
+    // SAFETY: SetWindowsHookExW returned a valid hook that nothing else owns.
+    Ok(unsafe { Owned::new(hook) })
+}
+
+fn pump_messages() -> Result<(), RunError> {
+    let mut message = MSG::default();
+    loop {
+        // SAFETY: `message` is a local the call fills in.
+        match unsafe { GetMessageW(&raw mut message, None, 0, 0) }.0 {
+            QUIT_RECEIVED => return Ok(()),
+            READ_FAILED => return Err(RunError::during("read the message queue")(Error::from_thread())),
+            _ => {}
+        }
+        // SAFETY: `message` was just filled in by GetMessageW.
+        unsafe {
+            // Returns whether a character message was produced, not an error.
+            let _ = TranslateMessage(&raw const message);
+            DispatchMessageW(&raw const message);
+        }
+    }
+}
+
+fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
+    RUNTIME.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(action))
+}
+
+struct Runtime {
+    app: App,
+    focus: FocusTracker,
+    tray: Tray,
+    overlay: Overlay,
+    window: Window,
+    taskbar_created_message: u32,
+    pending_ghost: Option<String>,
+    pending_injection: Option<String>,
+    release_filter: ReleaseFilter,
+}
+
+impl Runtime {
+    fn on_keyboard(&mut self, message: u32, event: &KBDLLHOOKSTRUCT) -> Disposition {
+        if event.dwExtraInfo == INJECTION_TAG {
+            return Disposition::Pass;
+        }
+        let Ok(key) = u16::try_from(event.vkCode).map(VIRTUAL_KEY) else {
+            return Disposition::Pass;
+        };
+        match message {
+            WM_KEYDOWN | WM_SYSKEYDOWN => self.on_key_down(key, event.scanCode),
+            WM_KEYUP | WM_SYSKEYUP => self.release_filter.on_release(key),
+            _ => Disposition::Pass,
+        }
+    }
+
+    fn on_key_down(&mut self, key: VIRTUAL_KEY, scan_code: u32) -> Disposition {
+        if self.focus.refresh() == FocusChange::Changed {
+            self.on_context_lost();
+        }
+        let Some(core_key) = keys::translate(key, keys::current_chord(), keys::typed_char(key, scan_code))
+        else {
+            return Disposition::Pass;
+        };
+        let reaction = self.app.on_key(core_key, self.focus.field());
+        let disposition = self.apply(reaction);
+        self.release_filter.on_press(key, disposition);
+        disposition
+    }
+
+    fn on_context_lost(&mut self) {
+        let reaction = self.app.on_context_lost();
+        self.apply(reaction);
+    }
+
+    fn apply(&mut self, reaction: Reaction) -> Disposition {
+        match reaction {
+            Reaction::Show(text) => {
+                self.pending_ghost = Some(text);
+                self.restart_ghost_timer();
+                Disposition::Pass
+            }
+            Reaction::Hide => {
+                self.hide_ghost();
+                Disposition::Pass
+            }
+            Reaction::Accept(text) => {
+                self.hide_ghost();
+                self.pending_injection = Some(text);
+                // SAFETY: plain call on our own window.
+                let posted =
+                    unsafe { PostMessageW(Some(self.window.handle()), INJECT_MESSAGE, WPARAM(0), LPARAM(0)) };
+                if let Err(error) = posted {
+                    tracing::warn!(%error, "failed to queue accepted text");
+                }
+                Disposition::Swallow
+            }
+        }
+    }
+
+    fn restart_ghost_timer(&self) {
+        // SAFETY: plain call on our own window.
+        let timer = unsafe {
+            SetTimer(
+                Some(self.window.handle()),
+                GHOST_TIMER_ID,
+                CARET_SETTLE_DELAY_MS,
+                None,
+            )
+        };
+        if timer == 0 {
+            tracing::warn!(error = %Error::from_thread(), "failed to schedule ghost text");
+        }
+    }
+
+    fn hide_ghost(&mut self) {
+        self.pending_ghost = None;
+        self.stop_ghost_timer();
+        self.overlay.hide();
+    }
+
+    fn stop_ghost_timer(&self) {
+        // Fails only when no timer is pending, which needs no handling.
+        // SAFETY: plain call on our own window.
+        let _ = unsafe { KillTimer(Some(self.window.handle()), GHOST_TIMER_ID) };
+    }
+
+    fn show_pending_ghost(&self) {
+        self.stop_ghost_timer();
+        let Some(text) = &self.pending_ghost else {
+            return;
+        };
+        let Some(caret) = focus::caret() else {
+            self.overlay.hide();
+            return;
+        };
+        if let Err(error) = self.overlay.show(text, caret) {
+            tracing::warn!(%error, "failed to show ghost text");
+        }
+    }
+
+    fn on_tray_command(&mut self, command: TrayCommand) {
+        match self.app.on_tray_command(command) {
+            TrayOutcome::Updated => {
+                self.hide_ghost();
+                self.refresh_tray();
+            }
+            // SAFETY: plain call.
+            TrayOutcome::Quit => unsafe { PostQuitMessage(0) },
+        }
+    }
+
+    fn refresh_tray(&mut self) {
+        let view = self.app.tray_view();
+        if let Err(error) = self.tray.update(&view) {
+            tracing::warn!(%error, "failed to update tray icon");
+        }
+    }
+
+    fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+        match message {
+            WM_TIMER if wparam.0 == GHOST_TIMER_ID => self.show_pending_ghost(),
+            WM_SETTINGCHANGE if is_color_set_change(lparam) => self.refresh_tray(),
+            _ if message == self.taskbar_created_message => {
+                if let Err(error) = self.tray.register() {
+                    tracing::warn!(%error, "failed to re-add tray icon");
+                }
+            }
+            _ => return None,
+        }
+        Some(LRESULT(0))
+    }
+}
+
+fn is_color_set_change(lparam: LPARAM) -> bool {
+    if lparam.0 == 0 {
+        return false;
+    }
+    let area = PCWSTR(std::ptr::with_exposed_provenance(lparam.0.cast_unsigned()));
+    // SAFETY: for WM_SETTINGCHANGE a non-zero lparam is a nul-terminated string valid for the message.
+    unsafe { area.to_string() }.is_ok_and(|area| area == COLOR_SET_CHANGE)
+}
+
+extern "system" fn main_window_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let handled = match message {
+        TRAY_CALLBACK_MESSAGE => {
+            tray::menu_request(wparam, lparam).map(|request| show_tray_menu(window, request))
+        }
+        INJECT_MESSAGE => Some(inject_pending_text()),
+        _ => with_runtime(|runtime| runtime.on_window_message(message, wparam, lparam)).flatten(),
+    };
+    // SAFETY: forwards the system's own arguments unchanged.
+    handled.unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) })
+}
+
+fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
+    let Some(view) = with_runtime(|runtime| runtime.app.tray_view()) else {
+        return LRESULT(0);
+    };
+    match tray::pick_command(window, &view.items, request.anchor) {
+        Ok(Some(command)) => {
+            with_runtime(|runtime| runtime.on_tray_command(command));
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "failed to show tray menu"),
+    }
+    LRESULT(0)
+}
+
+fn inject_pending_text() -> LRESULT {
+    let text = with_runtime(|runtime| runtime.pending_injection.take()).flatten();
+    if let Some(text) = text
+        && let Err(error) = injection::type_text(&text)
+    {
+        tracing::warn!(%error, "failed to type accepted text");
+    }
+    LRESULT(0)
+}
+
+extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION.cast_signed() {
+        // SAFETY: for HC_ACTION, lparam points to this event's KBDLLHOOKSTRUCT, valid during the call.
+        let event =
+            unsafe { &*std::ptr::with_exposed_provenance::<KBDLLHOOKSTRUCT>(lparam.0.cast_unsigned()) };
+        let message = u32::try_from(wparam.0).unwrap_or_default();
+        if with_runtime(|runtime| runtime.on_keyboard(message, event)) == Some(Disposition::Swallow) {
+            return SWALLOW_EVENT;
+        }
+    }
+    // SAFETY: forwards the system's own arguments unchanged.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+extern "system" fn mouse_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let message = u32::try_from(wparam.0).unwrap_or_default();
+    let is_button_down = matches!(
+        message,
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+    );
+    if code == HC_ACTION.cast_signed() && is_button_down {
+        with_runtime(Runtime::on_context_lost);
+    }
+    // SAFETY: forwards the system's own arguments unchanged.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
