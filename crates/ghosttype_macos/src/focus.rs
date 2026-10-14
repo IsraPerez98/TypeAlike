@@ -98,15 +98,8 @@ impl FocusTracker {
             .ok()?;
         let selection = read_range(&selection)?;
         let caret_index = selection.location.checked_add(selection.length)?;
-        let at_caret = CFRange {
-            location: caret_index,
-            length: 0,
-        };
-        bounds_for_range(&element, at_caret)
-            .and_then(Caret::from_bounds)
-            .or_else(|| {
-                bounds_for_range(&element, previous_unit_range(caret_index)?).and_then(Caret::from_bounds)
-            })
+        // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
+        bounds_for_range(&element, previous_unit_range(caret_index)?).and_then(Caret::from_bounds)
     }
 
     fn is_secure_text_focused(&self) -> bool {
