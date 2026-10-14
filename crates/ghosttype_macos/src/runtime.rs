@@ -39,8 +39,8 @@ thread_local! {
     static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
 }
 
-/// Shows the menu bar extra and offers suggestions until the user quits; settings use `hub` and
-/// `runner`.
+/// Shows the menu bar extra and offers suggestions from `runner` until the user quits; settings
+/// use `hub` and `runner`.
 pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
@@ -75,6 +75,7 @@ pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>
         playground: PlaygroundPane::new(),
         runner,
         runner_sink: main_thread_sink(Runtime::on_inference_event),
+        suggestion_sink: main_thread_sink(Runtime::on_suggestion_event),
         settings: None,
     }));
     tracing::info!("running in the menu bar");
@@ -128,6 +129,7 @@ struct Runtime {
     playground: PlaygroundPane,
     runner: Box<dyn ModelRunner>,
     runner_sink: InferenceEventSink,
+    suggestion_sink: InferenceEventSink,
     settings: Option<SettingsWindow>,
 }
 
@@ -186,6 +188,18 @@ impl Runtime {
                 self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
                 Disposition::Swallow
             }
+            Reaction::Request(request) => {
+                self.hide_ghost();
+                self.runner.submit(request, &self.suggestion_sink);
+                Disposition::Pass
+            }
+        }
+    }
+
+    fn on_suggestion_event(&mut self, event: InferenceEvent) {
+        if let InferenceEvent::Completed(result) = event {
+            let reaction = self.app.on_completion(result);
+            self.apply(reaction);
         }
     }
 

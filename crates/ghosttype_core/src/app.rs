@@ -1,13 +1,14 @@
 //! App lifecycle: whether suggestions are on, and the tray menu that controls it and opens settings.
 
 use crate::engine::{Engine, Reaction};
+use crate::inference::{Completion, InferenceError};
 use crate::key::Key;
-use crate::suggestion::SuggestionProvider;
 
 /// Whether GhostType is currently offering suggestions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Status {
     /// Suggestions are shown while typing.
+    #[default]
     Active,
     /// The user paused suggestions from the tray.
     Paused,
@@ -67,32 +68,34 @@ pub enum TrayOutcome {
 /// GhostType's state while running: suggestion engine plus on/off status.
 ///
 /// ```
+/// use std::time::Duration;
+///
 /// use ghosttype_core::app::{App, Field};
 /// use ghosttype_core::engine::Reaction;
+/// use ghosttype_core::inference::{Completion, TokenCount};
 /// use ghosttype_core::key::Key;
-/// use ghosttype_core::phrases::PhraseList;
 ///
-/// let mut app = App::new(Box::new(PhraseList::new(["Best regards"])));
-/// for character in "Best r".chars() {
-///     app.on_key(Key::Char(character), Field::Open);
-/// }
+/// let mut app = App::new();
+/// app.on_key(Key::Char('B'), Field::Open);
+/// app.on_completion(Ok(Completion {
+///     text: "est regards".to_owned(),
+///     tokens: TokenCount(2),
+///     duration: Duration::from_millis(80),
+/// }));
 ///
-/// assert_eq!(app.on_key(Key::Tab, Field::Open), Reaction::Accept("egards".to_owned()));
+/// assert_eq!(app.on_key(Key::Tab, Field::Open), Reaction::Accept("est regards".to_owned()));
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct App {
     engine: Engine,
     status: Status,
 }
 
 impl App {
-    /// Creates an active app suggesting completions from `provider`.
+    /// Creates an active app with no typed context.
     #[must_use]
-    pub fn new(provider: Box<dyn SuggestionProvider>) -> Self {
-        Self {
-            engine: Engine::new(provider),
-            status: Status::Active,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Handles a key pressed in the focused `field`.
@@ -102,6 +105,11 @@ impl App {
             (Status::Active, Field::Excluded) => self.engine.reset(),
             (Status::Active, Field::Open) => self.engine.on_key(key),
         }
+    }
+
+    /// Handles the completion of the last [`Reaction::Request`].
+    pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+        self.engine.on_completion(result)
     }
 
     /// Handles the caret moving somewhere unknown: focus change, mouse click.
@@ -155,54 +163,80 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::phrases::PhraseList;
+    use std::time::Duration;
 
-    fn app() -> App {
-        App::new(Box::new(PhraseList::new(["Best regards"])))
+    use super::*;
+    use crate::engine::MAX_SUGGESTION_TOKENS;
+    use crate::inference::{InferenceRequest, Prompt, TokenCount};
+
+    fn request(context: &str) -> Reaction {
+        Reaction::Request(InferenceRequest::Complete {
+            prompt: Prompt(context.to_owned()),
+            max_tokens: MAX_SUGGESTION_TOKENS,
+        })
     }
 
-    fn type_text(app: &mut App, text: &str) -> Reaction {
-        text.chars()
-            .map(|character| app.on_key(Key::Char(character), Field::Open))
-            .last()
-            .expect("text is not empty")
+    #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
+    fn completion(text: &str) -> Result<Completion, InferenceError> {
+        Ok(Completion {
+            text: text.to_owned(),
+            tokens: TokenCount(1),
+            duration: Duration::ZERO,
+        })
+    }
+
+    fn type_key(app: &mut App, character: char) -> Reaction {
+        app.on_key(Key::Char(character), Field::Open)
+    }
+
+    fn app_showing(suggestion: &str) -> App {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+        app.on_completion(completion(suggestion));
+        app
     }
 
     #[test]
-    fn active_app_suggests() {
-        let mut app = app();
+    fn active_app_requests_completion() {
+        let mut app = App::new();
 
-        let reaction = type_text(&mut app, "Best r");
+        let reaction = type_key(&mut app, 'B');
 
-        assert_eq!(reaction, Reaction::Show("egards".to_owned()));
+        assert_eq!(reaction, request("B"));
+    }
+
+    #[test]
+    fn completion_shows_in_active_app() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        let reaction = app.on_completion(completion("est regards"));
+
+        assert_eq!(reaction, Reaction::Show("est regards".to_owned()));
     }
 
     #[test]
     fn excluded_field_gets_no_suggestion() {
-        let mut app = app();
-        type_text(&mut app, "Best ");
+        let mut app = App::new();
 
-        let reaction = app.on_key(Key::Char('r'), Field::Excluded);
+        let reaction = app.on_key(Key::Char('B'), Field::Excluded);
 
         assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
     fn excluded_field_forgets_typed_context() {
-        let mut app = app();
-        type_text(&mut app, "Best ");
+        let mut app = app_showing("est");
         app.on_key(Key::Char('x'), Field::Excluded);
 
-        let reaction = type_text(&mut app, "r");
+        let reaction = type_key(&mut app, 'r');
 
-        assert_eq!(reaction, Reaction::Hide);
+        assert_eq!(reaction, request("r"));
     }
 
     #[test]
     fn context_lost_hides_suggestion() {
-        let mut app = app();
-        type_text(&mut app, "Best r");
+        let mut app = app_showing("est");
 
         let reaction = app.on_context_lost();
 
@@ -211,7 +245,7 @@ mod tests {
 
     #[test]
     fn new_app_is_active_with_pause_entry() {
-        let app = app();
+        let app = App::new();
 
         let view = app.tray_view();
 
@@ -240,7 +274,7 @@ mod tests {
 
     #[test]
     fn toggle_pause_updates_tray() {
-        let mut app = app();
+        let mut app = App::new();
 
         let outcome = app.on_tray_command(TrayCommand::TogglePause);
 
@@ -249,7 +283,7 @@ mod tests {
 
     #[test]
     fn paused_app_offers_resume_entry() {
-        let mut app = app();
+        let mut app = App::new();
         app.on_tray_command(TrayCommand::TogglePause);
 
         let view = app.tray_view();
@@ -279,18 +313,17 @@ mod tests {
 
     #[test]
     fn paused_app_does_not_suggest() {
-        let mut app = app();
+        let mut app = App::new();
         app.on_tray_command(TrayCommand::TogglePause);
 
-        let reaction = type_text(&mut app, "Best r");
+        let reaction = type_key(&mut app, 'B');
 
         assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
     fn paused_app_lets_tab_through() {
-        let mut app = app();
-        type_text(&mut app, "Best r");
+        let mut app = app_showing("est");
         app.on_tray_command(TrayCommand::TogglePause);
 
         let reaction = app.on_key(Key::Tab, Field::Open);
@@ -299,31 +332,41 @@ mod tests {
     }
 
     #[test]
-    fn resumed_app_suggests_again() {
-        let mut app = app();
-        app.on_tray_command(TrayCommand::TogglePause);
-        app.on_tray_command(TrayCommand::TogglePause);
-
-        let reaction = type_text(&mut app, "Best r");
-
-        assert_eq!(reaction, Reaction::Show("egards".to_owned()));
-    }
-
-    #[test]
-    fn pausing_forgets_typed_context() {
-        let mut app = app();
-        type_text(&mut app, "Best ");
-        app.on_tray_command(TrayCommand::TogglePause);
+    fn paused_app_drops_completion() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
         app.on_tray_command(TrayCommand::TogglePause);
 
-        let reaction = type_text(&mut app, "r");
+        let reaction = app.on_completion(completion("est"));
 
         assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
+    fn resumed_app_suggests_again() {
+        let mut app = App::new();
+        app.on_tray_command(TrayCommand::TogglePause);
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        let reaction = type_key(&mut app, 'B');
+
+        assert_eq!(reaction, request("B"));
+    }
+
+    #[test]
+    fn pausing_forgets_typed_context() {
+        let mut app = app_showing("est");
+        app.on_tray_command(TrayCommand::TogglePause);
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        let reaction = type_key(&mut app, 'r');
+
+        assert_eq!(reaction, request("r"));
+    }
+
+    #[test]
     fn settings_command_opens_settings() {
-        let mut app = app();
+        let mut app = App::new();
 
         let outcome = app.on_tray_command(TrayCommand::OpenSettings);
 
@@ -332,7 +375,7 @@ mod tests {
 
     #[test]
     fn quit_command_quits() {
-        let mut app = app();
+        let mut app = App::new();
 
         let outcome = app.on_tray_command(TrayCommand::Quit);
 

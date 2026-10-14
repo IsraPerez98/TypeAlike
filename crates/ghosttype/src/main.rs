@@ -7,12 +7,11 @@
 mod platform;
 
 use ghosttype_core::app::App;
-use ghosttype_core::phrases::PhraseList;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
-    let app = App::new(Box::new(PhraseList::default()));
+    let app = App::new();
     platform::run(app)
 }

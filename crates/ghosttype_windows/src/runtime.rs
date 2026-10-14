@@ -154,7 +154,8 @@ impl Runtime {
                 self.restart_ghost_timer();
                 Disposition::Pass
             }
-            Reaction::Hide => {
+            // Windows has no model runner yet, so a request gets no completion.
+            Reaction::Hide | Reaction::Request(_) => {
                 self.hide_ghost();
                 Disposition::Pass
             }

@@ -1,13 +1,14 @@
 //! Decides what ghost text to show as the user types, and what Tab inserts.
 
-use std::fmt;
+use std::{fmt, mem};
 
+use crate::inference::{Completion, InferenceError, InferenceRequest, Prompt, TokenCount};
 use crate::key::Key;
-use crate::suggestion::SuggestionProvider;
 
 const MAX_CONTEXT_CHARS: usize = 200;
+pub(crate) const MAX_SUGGESTION_TOKENS: TokenCount = TokenCount(16);
 
-/// What the platform must do after a key press or context change.
+/// What the platform must do after a key press, a context change or a completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reaction {
     /// Let the key through and show this ghost text after the caret.
@@ -16,61 +17,129 @@ pub enum Reaction {
     Hide,
     /// Swallow the key, hide the ghost text and type this text into the focused app.
     Accept(String),
+    /// Let the key through, hide any ghost text and submit this request to the model runner.
+    /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion).
+    Request(InferenceRequest),
 }
 
-/// Tracks the text typed at the caret and the suggestion currently offered for it.
+/// Tracks the text typed at the caret and the model's suggestion for it.
+#[derive(Default)]
 pub(crate) struct Engine {
-    provider: Box<dyn SuggestionProvider>,
     context: String,
-    suggestion: Option<String>,
+    offer: Offer,
+}
+
+#[derive(Default)]
+enum Offer {
+    #[default]
+    Idle,
+    Requested {
+        prompt: String,
+        is_dismissed: bool,
+    },
+    Shown(String),
 }
 
 impl Engine {
-    /// Creates an engine with an empty context that asks `provider` for completions.
-    #[must_use]
-    pub fn new(provider: Box<dyn SuggestionProvider>) -> Self {
-        Self {
-            provider,
-            context: String::new(),
-            suggestion: None,
-        }
-    }
-
     /// Updates the context for a key pressed in the focused app.
     pub fn on_key(&mut self, key: Key) -> Reaction {
         match key {
-            Key::Char(character) if !character.is_control() => {
-                self.append(&character.to_string());
-                self.refresh()
-            }
+            Key::Char(character) if !character.is_control() => self.on_typed(character),
             Key::Backspace => {
                 self.context.pop();
-                self.refresh()
+                self.request()
             }
             Key::Tab => self.accept(),
-            Key::Escape => {
-                self.suggestion = None;
+            Key::Escape => self.dismiss(),
+            Key::Char(_) | Key::Other => self.reset(),
+        }
+    }
+
+    /// Handles the completion of the last [`Reaction::Request`].
+    pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+        match mem::take(&mut self.offer) {
+            Offer::Requested { prompt, .. } if prompt != self.context => self.request(),
+            Offer::Requested {
+                is_dismissed: false, ..
+            } => result
+                .ok()
+                .and_then(|completion| suggestion_after(&self.context, &completion.text))
+                .map_or(Reaction::Hide, |suggestion| self.show(suggestion)),
+            Offer::Requested {
+                is_dismissed: true, ..
+            } => Reaction::Hide,
+            offer @ (Offer::Idle | Offer::Shown(_)) => {
+                self.offer = offer;
                 Reaction::Hide
             }
-            Key::Char(_) | Key::Other => self.reset(),
         }
     }
 
     /// Forgets the typed context, for when the caret moved somewhere unknown.
     pub fn reset(&mut self) -> Reaction {
         self.context.clear();
-        self.suggestion = None;
+        // A request in flight stays tracked, so that the engine never has two.
+        if let Offer::Shown(_) = self.offer {
+            self.offer = Offer::Idle;
+        }
         Reaction::Hide
     }
 
-    fn accept(&mut self) -> Reaction {
-        match self.suggestion.take() {
-            Some(completion) => {
-                self.append(&completion);
-                Reaction::Accept(completion)
-            }
-            None => self.reset(),
+    fn on_typed(&mut self, character: char) -> Reaction {
+        self.append(&character.to_string());
+        let rest = match &self.offer {
+            Offer::Shown(suggestion) => suggestion.strip_prefix(character).map(str::to_owned),
+            Offer::Idle | Offer::Requested { .. } => None,
+        };
+        match rest {
+            Some(rest) if !rest.is_empty() => self.show(rest),
+            _ => self.request(),
         }
+    }
+
+    fn accept(&mut self) -> Reaction {
+        match mem::take(&mut self.offer) {
+            Offer::Shown(suggestion) => {
+                self.append(&suggestion);
+                Reaction::Accept(suggestion)
+            }
+            offer @ (Offer::Idle | Offer::Requested { .. }) => {
+                self.offer = offer;
+                self.reset()
+            }
+        }
+    }
+
+    fn dismiss(&mut self) -> Reaction {
+        if let Offer::Requested { is_dismissed, .. } = &mut self.offer {
+            *is_dismissed = true;
+        } else {
+            self.offer = Offer::Idle;
+        }
+        Reaction::Hide
+    }
+
+    fn request(&mut self) -> Reaction {
+        if let Offer::Requested { .. } = self.offer {
+            return Reaction::Hide;
+        }
+        if self.context.trim().is_empty() {
+            self.offer = Offer::Idle;
+            return Reaction::Hide;
+        }
+        self.offer = Offer::Requested {
+            prompt: self.context.clone(),
+            is_dismissed: false,
+        };
+        Reaction::Request(InferenceRequest::Complete {
+            prompt: Prompt(self.context.clone()),
+            max_tokens: MAX_SUGGESTION_TOKENS,
+        })
+    }
+
+    fn show(&mut self, suggestion: String) -> Reaction {
+        self.offer = Offer::Shown(suggestion.clone());
+        Reaction::Show(suggestion)
     }
 
     fn append(&mut self, text: &str) {
@@ -83,11 +152,19 @@ impl Engine {
             .map_or(0, |(index, _)| index);
         self.context.drain(..kept_start);
     }
+}
 
-    fn refresh(&mut self) -> Reaction {
-        self.suggestion = self.provider.suggest(&self.context);
-        self.suggestion.clone().map_or(Reaction::Hide, Reaction::Show)
-    }
+/// Returns the first line of `completion` as ghost text after `context`, or `None` when it has no
+/// text. Spaces that would double the space at the end of `context`, or trail, are dropped.
+fn suggestion_after(context: &str, completion: &str) -> Option<String> {
+    let first_line = completion.lines().next().unwrap_or_default();
+    let line = if context.ends_with(char::is_whitespace) {
+        first_line.trim_start()
+    } else {
+        first_line
+    };
+    let suggestion = line.trim_end();
+    (!suggestion.is_empty()).then(|| suggestion.to_owned())
 }
 
 impl fmt::Debug for Engine {
@@ -95,41 +172,36 @@ impl fmt::Debug for Engine {
         formatter
             .debug_struct("Engine")
             .field("context_chars", &self.context.chars().count())
-            .field("has_suggestion", &self.suggestion.is_some())
+            .field("is_waiting", &matches!(self.offer, Offer::Requested { .. }))
+            .field("has_suggestion", &matches!(self.offer, Offer::Shown(_)))
             .finish_non_exhaustive()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::time::Duration;
 
     use super::*;
 
-    const TRIGGER: &str = "hel";
-    const COMPLETION: &str = "lo";
-
-    #[derive(Default)]
-    struct FakeProvider {
-        last_context: Rc<RefCell<String>>,
+    fn request(context: &str) -> Reaction {
+        Reaction::Request(InferenceRequest::Complete {
+            prompt: Prompt(context.to_owned()),
+            max_tokens: MAX_SUGGESTION_TOKENS,
+        })
     }
 
-    impl SuggestionProvider for FakeProvider {
-        fn suggest(&self, context: &str) -> Option<String> {
-            context.clone_into(&mut self.last_context.borrow_mut());
-            context.ends_with(TRIGGER).then(|| COMPLETION.to_owned())
-        }
+    #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
+    fn completion(text: &str) -> Result<Completion, InferenceError> {
+        Ok(Completion {
+            text: text.to_owned(),
+            tokens: TokenCount(1),
+            duration: Duration::ZERO,
+        })
     }
 
-    fn engine() -> Engine {
-        Engine::new(Box::new(FakeProvider::default()))
-    }
-
-    fn engine_recording_context() -> (Engine, Rc<RefCell<String>>) {
-        let provider = FakeProvider::default();
-        let last_context = Rc::clone(&provider.last_context);
-        (Engine::new(Box::new(provider)), last_context)
+    fn show(text: &str) -> Reaction {
+        Reaction::Show(text.to_owned())
     }
 
     fn type_text(engine: &mut Engine, text: &str) -> Reaction {
@@ -139,38 +211,160 @@ mod tests {
             .expect("text is not empty")
     }
 
-    #[test]
-    fn typing_trigger_shows_completion() {
-        let mut engine = engine();
+    fn engine_waiting_for(context: &str) -> Engine {
+        let mut engine = Engine::default();
+        for character in context.chars() {
+            engine.on_completion(completion(""));
+            engine.on_key(Key::Char(character));
+        }
+        engine
+    }
 
-        let reaction = type_text(&mut engine, "hel");
-
-        assert_eq!(reaction, Reaction::Show(COMPLETION.to_owned()));
+    fn engine_showing(context: &str, suggestion: &str) -> Engine {
+        let mut engine = engine_waiting_for(context);
+        engine.on_completion(completion(suggestion));
+        engine
     }
 
     #[test]
-    fn typing_without_match_hides() {
-        let mut engine = engine();
+    fn typing_requests_completion_of_context() {
+        let mut engine = Engine::default();
 
-        let reaction = type_text(&mut engine, "help");
+        let reaction = engine.on_key(Key::Char('h'));
+
+        assert_eq!(reaction, request("h"));
+    }
+
+    #[test]
+    fn typing_while_waiting_hides() {
+        let mut engine = engine_waiting_for("h");
+
+        let reaction = engine.on_key(Key::Char('e'));
 
         assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
+    fn whitespace_context_requests_nothing() {
+        let mut engine = Engine::default();
+
+        let reaction = engine.on_key(Key::Char(' '));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn completion_for_current_context_shows() {
+        let mut engine = engine_waiting_for("hel");
+
+        let reaction = engine.on_completion(completion("lo"));
+
+        assert_eq!(reaction, show("lo"));
+    }
+
+    #[test]
+    fn stale_completion_requests_current_context() {
+        let mut engine = engine_waiting_for("he");
+        engine.on_key(Key::Char('l'));
+
+        let reaction = engine.on_completion(completion("llo"));
+
+        assert_eq!(reaction, request("hel"));
+    }
+
+    #[test]
+    fn failed_completion_hides() {
+        let mut engine = engine_waiting_for("hel");
+
+        let reaction = engine.on_completion(Err(InferenceError::NoModel));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn completion_without_text_on_first_line_hides() {
+        let cases = ["", "  ", "\nnext line"];
+
+        let reactions = cases.map(|text| engine_waiting_for("hel").on_completion(completion(text)));
+
+        assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[test]
+    fn completion_stops_at_line_break() {
+        let mut engine = engine_waiting_for("hel");
+
+        let reaction = engine.on_completion(completion("lo there\nNext line"));
+
+        assert_eq!(reaction, show("lo there"));
+    }
+
+    #[test]
+    fn completion_drops_trailing_whitespace() {
+        let mut engine = engine_waiting_for("hel");
+
+        let reaction = engine.on_completion(completion("lo  "));
+
+        assert_eq!(reaction, show("lo"));
+    }
+
+    #[test]
+    fn completion_after_whitespace_drops_leading_whitespace() {
+        let mut engine = engine_waiting_for("Hi ");
+
+        let reaction = engine.on_completion(completion("  there"));
+
+        assert_eq!(reaction, show("there"));
+    }
+
+    #[test]
+    fn completion_after_word_keeps_leading_space() {
+        let mut engine = engine_waiting_for("Hi");
+
+        let reaction = engine.on_completion(completion(" there"));
+
+        assert_eq!(reaction, show(" there"));
+    }
+
+    #[test]
+    fn typing_next_suggested_character_shows_rest() {
+        let mut engine = engine_showing("hel", "lo world");
+
+        let reaction = engine.on_key(Key::Char('l'));
+
+        assert_eq!(reaction, show("o world"));
+    }
+
+    #[test]
+    fn typing_other_character_requests_new_completion() {
+        let mut engine = engine_showing("hel", "lo");
+
+        let reaction = engine.on_key(Key::Char('p'));
+
+        assert_eq!(reaction, request("help"));
+    }
+
+    #[test]
+    fn typing_whole_suggestion_requests_continuation() {
+        let mut engine = engine_showing("hel", "lo");
+
+        let reaction = type_text(&mut engine, "lo");
+
+        assert_eq!(reaction, request("hello"));
+    }
+
+    #[test]
     fn tab_accepts_visible_suggestion() {
-        let mut engine = engine();
-        type_text(&mut engine, "hel");
+        let mut engine = engine_showing("hel", "lo");
 
         let reaction = engine.on_key(Key::Tab);
 
-        assert_eq!(reaction, Reaction::Accept(COMPLETION.to_owned()));
+        assert_eq!(reaction, Reaction::Accept("lo".to_owned()));
     }
 
     #[test]
     fn tab_without_suggestion_passes_through() {
-        let mut engine = engine();
-        type_text(&mut engine, "help");
+        let mut engine = engine_waiting_for("hel");
 
         let reaction = engine.on_key(Key::Tab);
 
@@ -179,19 +373,17 @@ mod tests {
 
     #[test]
     fn accepted_text_becomes_context() {
-        let (mut engine, last_context) = engine_recording_context();
-        type_text(&mut engine, "hel");
+        let mut engine = engine_showing("hel", "lo");
         engine.on_key(Key::Tab);
 
-        type_text(&mut engine, "!");
+        let reaction = engine.on_key(Key::Char('!'));
 
-        assert_eq!(*last_context.borrow(), "hello!");
+        assert_eq!(reaction, request("hello!"));
     }
 
     #[test]
     fn suggestion_is_offered_once_after_accept() {
-        let mut engine = engine();
-        type_text(&mut engine, "hel");
+        let mut engine = engine_showing("hel", "lo");
         engine.on_key(Key::Tab);
 
         let reaction = engine.on_key(Key::Tab);
@@ -200,18 +392,17 @@ mod tests {
     }
 
     #[test]
-    fn backspace_restores_suggestion() {
-        let mut engine = engine();
-        type_text(&mut engine, "help");
+    fn backspace_requests_completion_of_shorter_context() {
+        let mut engine = engine_showing("hel", "lo");
 
         let reaction = engine.on_key(Key::Backspace);
 
-        assert_eq!(reaction, Reaction::Show(COMPLETION.to_owned()));
+        assert_eq!(reaction, request("he"));
     }
 
     #[test]
     fn backspace_on_empty_context_hides() {
-        let mut engine = engine();
+        let mut engine = Engine::default();
 
         let reaction = engine.on_key(Key::Backspace);
 
@@ -220,8 +411,7 @@ mod tests {
 
     #[test]
     fn escape_hides_suggestion() {
-        let mut engine = engine();
-        type_text(&mut engine, "hel");
+        let mut engine = engine_showing("hel", "lo");
 
         let reaction = engine.on_key(Key::Escape);
 
@@ -230,8 +420,7 @@ mod tests {
 
     #[test]
     fn tab_after_escape_passes_through() {
-        let mut engine = engine();
-        type_text(&mut engine, "hel");
+        let mut engine = engine_showing("hel", "lo");
         engine.on_key(Key::Escape);
 
         let reaction = engine.on_key(Key::Tab);
@@ -240,54 +429,92 @@ mod tests {
     }
 
     #[test]
-    fn other_key_clears_context() {
-        let mut engine = engine();
-        type_text(&mut engine, "he");
-        engine.on_key(Key::Other);
+    fn escape_while_waiting_drops_completion() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_key(Key::Escape);
 
-        let reaction = type_text(&mut engine, "l");
+        let reaction = engine.on_completion(completion("lo"));
 
         assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn typing_after_escape_while_waiting_requests_again() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_key(Key::Escape);
+        engine.on_key(Key::Char('p'));
+
+        let reaction = engine.on_completion(completion("lo"));
+
+        assert_eq!(reaction, request("help"));
+    }
+
+    #[test]
+    fn other_key_clears_context() {
+        let mut engine = engine_showing("he", "llo");
+        engine.on_key(Key::Other);
+
+        let reaction = engine.on_key(Key::Char('l'));
+
+        assert_eq!(reaction, request("l"));
     }
 
     #[test]
     fn control_character_clears_context() {
-        let mut engine = engine();
-        type_text(&mut engine, "he\r");
+        let mut engine = engine_showing("he", "llo");
+        engine.on_key(Key::Char('\r'));
 
-        let reaction = type_text(&mut engine, "l");
+        let reaction = engine.on_key(Key::Char('l'));
+
+        assert_eq!(reaction, request("l"));
+    }
+
+    #[test]
+    fn reset_hides_and_clears_context() {
+        let mut engine = engine_showing("he", "llo");
+
+        let reset_reaction = engine.reset();
+        let typed_reaction = engine.on_key(Key::Char('l'));
+
+        assert_eq!((reset_reaction, typed_reaction), (Reaction::Hide, request("l")));
+    }
+
+    #[test]
+    fn completion_after_reset_is_dropped() {
+        let mut engine = engine_waiting_for("hel");
+        engine.reset();
+
+        let reaction = engine.on_completion(completion("lo"));
 
         assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
-    fn reset_hides_and_clears_context() {
-        let mut engine = engine();
-        type_text(&mut engine, "he");
+    fn reset_keeps_one_request_in_flight() {
+        let mut engine = engine_waiting_for("hel");
+        engine.reset();
 
-        let reset_reaction = engine.reset();
-        let typed_reaction = type_text(&mut engine, "l");
+        let reaction = engine.on_key(Key::Char('x'));
 
-        assert_eq!((reset_reaction, typed_reaction), (Reaction::Hide, Reaction::Hide));
+        assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]
     fn context_keeps_only_recent_characters() {
-        let (mut engine, last_context) = engine_recording_context();
-        let typed = format!("x{}", "y".repeat(MAX_CONTEXT_CHARS));
+        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CONTEXT_CHARS - 1)));
+        engine.on_completion(completion(""));
 
-        type_text(&mut engine, &typed);
+        let reaction = engine.on_key(Key::Char('y'));
 
-        assert_eq!(*last_context.borrow(), "y".repeat(MAX_CONTEXT_CHARS));
+        assert_eq!(reaction, request(&"y".repeat(MAX_CONTEXT_CHARS)));
     }
 
     #[test]
-    fn debug_does_not_reveal_typed_text() {
-        let mut engine = engine();
-        type_text(&mut engine, "secret");
+    fn debug_does_not_reveal_typed_or_suggested_text() {
+        let engine = engine_showing("secret", "word");
 
         let debug = format!("{engine:?}");
 
-        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("secret") && !debug.contains("word"));
     }
 }

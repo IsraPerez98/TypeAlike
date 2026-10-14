@@ -10,6 +10,4 @@ pub mod hub;
 pub mod inference;
 pub mod key;
 pub mod models_pane;
-pub mod phrases;
 pub mod playground;
-pub mod suggestion;

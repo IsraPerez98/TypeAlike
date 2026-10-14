@@ -138,7 +138,7 @@ enum CompletionState {
 
 const PANE_TITLE: &str = "Playground";
 const PANE_SUMMARY: &str =
-    "Test a downloaded model before you use it. The model continues the text that you type.";
+    "Select the model that suggests text as you type. Then type the start of a sentence to test the model.";
 const MODEL_LABEL: &str = "Model";
 const SELECT_MODEL_PLACEHOLDER: &str = "Select a model";
 const NO_MODELS_PLACEHOLDER: &str = "No downloaded models";
@@ -425,7 +425,7 @@ mod tests {
             view,
             PlaygroundView {
                 title: "Playground",
-                summary: "Test a downloaded model before you use it. The model continues the text that you type.",
+                summary: "Select the model that suggests text as you type. Then type the start of a sentence to test the model.",
                 model: ModelPicker {
                     label: "Model",
                     choices: vec![placeholder("No downloaded models")],

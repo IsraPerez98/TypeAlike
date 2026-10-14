@@ -38,8 +38,8 @@ pub enum RunError {
 
 /// Runs GhostType in the menu bar until the user quits, offering suggestions from `app`.
 ///
-/// The settings window finds, downloads and deletes models through `hub`, and tries them with
-/// `runner`.
+/// The settings window finds, downloads and deletes models through `hub`. Its Playground pane
+/// loads a model into `runner`, and that model completes the text that the user types.
 ///
 /// Returns immediately when another instance is already running for this user. Quitting from the
 /// menu ends the process.
