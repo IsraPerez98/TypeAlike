@@ -31,7 +31,7 @@ pub enum RunError {
     #[error("failed to check for a running instance")]
     InstanceCheck(#[source] std::io::Error),
     /// macOS refused the keyboard event tap, almost always for lack of Accessibility access.
-    #[error("failed to watch the keyboard; grant accessibility access and start ghosttype again")]
+    #[error("ghosttype needs accessibility access to watch the keyboard")]
     KeyboardAccess,
 }
 

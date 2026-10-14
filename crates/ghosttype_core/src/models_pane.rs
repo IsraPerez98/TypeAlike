@@ -130,11 +130,12 @@ const SEARCH_PLACEHOLDER: &str = "Search Hugging Face";
 const SUGGESTED_HEADING: &str = "Suggested models";
 const SUGGESTED_FOOTER: &str =
     "Smaller models are faster and use less memory. Larger models give better suggestions.";
-const RESULTS_FOOTER: &str = "The list shows only GGUF models, most downloaded first.";
+const RESULTS_FOOTER: &str =
+    "The list shows only GGUF models. The models with the most downloads are at the top.";
 const FILES_FOOTER: &str = "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file.";
 const DOWNLOADED_HEADING: &str = "Downloaded models";
 const SEARCHING_TEXT: &str = "Searching…";
-const LOADING_FILES_TEXT: &str = "Loading files…";
+const LOADING_FILES_TEXT: &str = "Loading the files…";
 const NO_USABLE_FILES_TEXT: &str = "This model has no GGUF files that GhostType can use.";
 const GATED_REPO_NOTE: &str = "Needs a Hugging Face account";
 const CANCELING_DETAIL: &str = "Canceling…";
@@ -525,7 +526,7 @@ fn results_list(query: &str, results: &Fetch<Vec<RepoSummary>>) -> ModelList {
     let content = match results {
         Fetch::Pending => ListContent::Loading(SEARCHING_TEXT),
         Fetch::Failed(error) => failure_message(*error, ModelsAction::Search(query.to_owned())),
-        Fetch::Done(repos) if repos.is_empty() => message(format!("No results for “{query}”.")),
+        Fetch::Done(repos) if repos.is_empty() => message(format!("No models match “{query}”.")),
         Fetch::Done(repos) => ListContent::Rows(repos.iter().map(repo_row).collect()),
     };
     ModelList {
@@ -592,13 +593,13 @@ fn permille(received: ByteSize, total: ByteSize) -> Permille {
 
 fn error_message(error: HubError) -> &'static str {
     match error {
-        HubError::Offline => "Cannot connect to Hugging Face. Check your internet connection.",
+        HubError::Offline => "GhostType cannot connect to Hugging Face. Check your internet connection.",
         HubError::AccessDenied => "This model needs a Hugging Face account.",
         HubError::NotFound => "Hugging Face cannot find this model.",
         HubError::Server => "Hugging Face is not available. Try again later.",
         HubError::InvalidResponse => "Hugging Face sent an incorrect response. Try again later.",
         HubError::Storage => "GhostType cannot save the model. Make sure that the disk has free space.",
-        HubError::Canceled => "Download canceled.",
+        HubError::Canceled => "You canceled the download.",
     }
 }
 
@@ -1025,7 +1026,8 @@ mod tests {
             downloaded_row(&pane),
             ModelRow {
                 title: "a".to_owned(),
-                subtitle: "Cannot connect to Hugging Face. Check your internet connection.".to_owned(),
+                subtitle: "GhostType cannot connect to Hugging Face. Check your internet connection."
+                    .to_owned(),
                 detail: "100 bytes".to_owned(),
                 accessory: RowAccessory::Failed {
                     retry: button("Try again", ModelsAction::Download(sized("a.gguf", 100)))
@@ -1088,7 +1090,7 @@ mod tests {
                 HubError::Storage,
                 "GhostType cannot save the model. Make sure that the disk has free space.",
             ),
-            (HubError::Canceled, "Download canceled."),
+            (HubError::Canceled, "You canceled the download."),
         ];
 
         let messages = cases.map(|(error, _)| {
@@ -1260,7 +1262,7 @@ mod tests {
             (browse.heading.as_str(), browse.footer),
             (
                 "Results for “qwen”",
-                Some("The list shows only GGUF models, most downloaded first.")
+                Some("The list shows only GGUF models. The models with the most downloads are at the top.")
             )
         );
     }
@@ -1311,7 +1313,7 @@ mod tests {
         assert_eq!(
             pane.view().browse.content,
             ListContent::Message {
-                text: "No results for “nothing”.".to_owned(),
+                text: "No models match “nothing”.".to_owned(),
                 retry: None,
             }
         );
@@ -1354,7 +1356,7 @@ mod tests {
             ModelList {
                 heading: REPO.to_owned(),
                 back: Some(button("Results", ModelsAction::BackToResults)),
-                content: ListContent::Loading("Loading files…"),
+                content: ListContent::Loading("Loading the files…"),
                 footer: Some(
                     "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file."
                 ),
@@ -1458,7 +1460,7 @@ mod tests {
                 Some(HubRequest::ListFiles {
                     repo: REPO.to_owned()
                 }),
-                ListContent::Loading("Loading files…")
+                ListContent::Loading("Loading the files…")
             )
         );
     }
@@ -1472,7 +1474,10 @@ mod tests {
             result: Ok(vec![sized("a.gguf", 1)]),
         });
 
-        assert_eq!(pane.view().browse.content, ListContent::Loading("Loading files…"));
+        assert_eq!(
+            pane.view().browse.content,
+            ListContent::Loading("Loading the files…")
+        );
     }
 
     #[test]

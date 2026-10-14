@@ -25,5 +25,5 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
 /// Fails: no platform layer exists for this OS yet.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub(crate) fn run(_app: App) -> anyhow::Result<()> {
-    anyhow::bail!("this operating system is not supported yet")
+    anyhow::bail!("ghosttype does not support this operating system yet")
 }
