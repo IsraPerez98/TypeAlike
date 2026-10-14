@@ -13,9 +13,9 @@ automatically), plus the MSVC build tools on Windows or the Xcode Command Line T
 On macOS, GhostType needs Accessibility access (System Settings > Privacy & Security > Accessibility) to read
 the caret and type accepted text. When started with `cargo run`, grant access to the terminal app.
 
-```powershell
+```sh
 cargo run                              # debug build of the app
-cargo build --release                  # target\release\GhostType.exe
+cargo build --release                  # optimized build in target/release
 cargo test --workspace                 # unit tests
 cargo clippy --workspace --all-targets # lints
 ```

@@ -3,7 +3,6 @@
 OSS Windows-first Cotypist clone (https://cotypist.app/). System-wide inline autocomplete: ghost text at caret in any app, Tab accepts. Rust.
 
 ## Build
-- Cargo not on PATH: `$env:USERPROFILE\.cargo\bin\cargo.exe`.
 - Toolchain pinned `rust-toolchain.toml`; bump with `rust-version`.
 - `cargo run` = app (default member `crates/ghosttype`, bin `GhostType`).
 - Pre-commit = CI, all must pass: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets` (`RUSTFLAGS=-D warnings`); `cargo test --workspace`; `cargo doc --workspace --no-deps`.
