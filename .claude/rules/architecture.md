@@ -1,0 +1,11 @@
+# Architecture
+
+- Virtual workspace, flat `crates/`. Never nest crates in `src/`.
+- Deps point inward: `ghosttype` → `ghosttype_windows` → `ghosttype_core`. Core never depends outward.
+- `ghosttype_core`: pure Rust. No OS API, no `windows` crate, no `unsafe`, no IO, no threads/clock (inject). Full unit tests.
+- `ghosttype_windows`: all `unsafe`/FFI, behind safe wrappers. Implements core traits. Minimal logic.
+- `ghosttype`: thin bin. Wiring, config load, logging setup, event loop. No business logic.
+- Core defines traits (text source, suggestion provider, injector, clock); platform implements. OS/IO behind traits → core tests run headless.
+- New feature (AI provider, settings UI, other OS) = new module/crate behind core trait.
+- New crate only for clear boundary, own deps, or compile time; name `ghosttype_<area>`.
+- No globals/statics; state owned and passed explicitly.
