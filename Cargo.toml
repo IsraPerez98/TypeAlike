@@ -15,6 +15,7 @@ publish = false
 [workspace.dependencies]
 ghosttype_core = { path = "crates/ghosttype_core" }
 ghosttype_windows = { path = "crates/ghosttype_windows" }
+ghosttype_macos = { path = "crates/ghosttype_macos" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
@@ -31,6 +32,64 @@ windows = { version = "=0.62.2", default-features = false, features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+] }
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSDate",
+    "NSGeometry",
+    "NSNotification",
+    "NSObject",
+    "NSString",
+    "NSTimer",
+] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "libc",
+    "NSApplication",
+    "NSButton",
+    "NSColor",
+    "NSControl",
+    "NSFont",
+    "NSGraphics",
+    "NSImage",
+    "NSMenu",
+    "NSMenuItem",
+    "NSPanel",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSScreen",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSTextField",
+    "NSView",
+    "NSWindow",
+    "NSWorkspace",
+    "objc2-core-foundation",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "CFCGTypes",
+    "CFDictionary",
+    "CFMachPort",
+    "CFNumber",
+    "CFRunLoop",
+    "CFString",
+] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "CGEvent",
+    "CGEventTypes",
+    "CGRemoteOperation",
+] }
+objc2-application-services = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "AXError",
+    "AXUIElement",
+    "AXValue",
+    "HIServices",
 ] }
 
 [workspace.lints.rust]

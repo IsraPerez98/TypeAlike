@@ -1,4 +1,4 @@
-//! GhostType: system-wide inline autocomplete for Windows.
+//! GhostType: system-wide inline autocomplete for Windows and macOS.
 //!
 //! The binary only wires things together: configuration, logging and the platform event loop.
 

@@ -9,8 +9,15 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
     ghosttype_windows::run(app).context("ghosttype stopped unexpectedly")
 }
 
+/// Runs the app with this OS's menu bar extra, event tap and overlay until the user quits.
+#[cfg(target_os = "macos")]
+pub(crate) fn run(app: App) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    ghosttype_macos::run(app).context("ghosttype stopped unexpectedly")
+}
+
 /// Fails: no platform layer exists for this OS yet.
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub(crate) fn run(_app: App) -> anyhow::Result<()> {
     anyhow::bail!("this operating system is not supported yet")
 }

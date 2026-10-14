@@ -6,7 +6,7 @@ paths:
 # Windows
 
 ## unsafe & FFI
-- `unsafe` only in `ghosttype_windows`. Minimal blocks, `// SAFETY:` per block stating upheld invariants.
+- `unsafe` only in platform crates (`ghosttype_windows`, `ghosttype_macos`). Minimal blocks, `// SAFETY:` per block stating upheld invariants.
 - Safe wrapper per OS resource: RAII type, `Drop` releases (hook, window, handle, COM init, GDI object). No raw handles in pub API.
 - `unsafe fn` only if misuse = UB. Never fake `Send`/`Sync`.
 - Wide (`W`) APIs only; UTF-16 conversion at the boundary, Rust strings inside.
