@@ -19,4 +19,4 @@ Virtual workspace, flat `crates/`.
 `.claude/rules/` (binding; path-scoped ones load with matching files):
 - `tdd.md` test-first workflow · `clean-code.md` naming, structure, no comments · `architecture.md` crate boundaries, traits
 - `portability.md` logic in core; platform crates only translate, so OS ports never touch core
-- `rust.md` API, errors, docs, types · `dependencies.md` Cargo · `windows.md` FFI, threads, runtime invariants · `windows-ui.md` Windows 11 look & feel (Fluent) · `macos-ui.md` macOS look & feel (Apple HIG, Liquid Glass) · `git.md`
+- `rust.md` API, errors, docs, types · `dependencies.md` Cargo · `windows.md` FFI, threads, runtime invariants · `windows-ui.md` Windows 11 look & feel (Fluent) · `macos-ui.md` macOS look & feel (Apple HIG, Liquid Glass) · `git.md` · `ste100.md` Simplified Technical English for prose and UI strings
