@@ -17,6 +17,7 @@ use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
+use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{
     DecodeError, LlamaContextLoadError, LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_tracing,
@@ -123,7 +124,7 @@ impl GenerateError {
     }
 }
 
-/// Continues `prompt` greedily until the model ends the text or adds `max_tokens`.
+/// Continues `prompt` greedily until the model ends the text, writes markup or adds `max_tokens`.
 fn generate(
     backend: &LlamaBackend,
     model: &LlamaModel,
@@ -153,7 +154,7 @@ fn generate(
     let mut position = i32::try_from(prompt_tokens.len()).expect("the prompt fits in the context");
     while added.len() < max_added {
         let token = sampler.sample(&context, LAST_OUTPUT);
-        if vocab.is_eog(token) {
+        if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
             break;
         }
         added.push(token);
@@ -167,6 +168,11 @@ fn generate(
     }
     let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
     Ok((added_text(&vocab, &prompt_tokens, &added), tokens))
+}
+
+/// Tells if a token with `attrs` is markup, such as `<think>`, that never belongs in typed text.
+fn is_markup(attrs: LlamaTokenAttrs) -> bool {
+    attrs.intersects(LlamaTokenAttr::Control | LlamaTokenAttr::UserDefined)
 }
 
 /// Returns the text `added` puts after `prompt_tokens`, with the spacing it has after them.
@@ -213,5 +219,19 @@ mod tests {
         let text = text_without_cut_character(b"a\xffb");
 
         assert_eq!(text, "a\u{FFFD}b");
+    }
+
+    #[test]
+    fn only_control_and_user_defined_tokens_are_markup() {
+        let cases = [
+            (LlamaTokenAttr::Normal, false),
+            (LlamaTokenAttr::Byte, false),
+            (LlamaTokenAttr::Control, true),
+            (LlamaTokenAttr::UserDefined, true),
+        ];
+
+        let markup = cases.map(|(attr, _)| is_markup(LlamaTokenAttrs(attr.into())));
+
+        assert_eq!(markup, cases.map(|(_, expected)| expected));
     }
 }
