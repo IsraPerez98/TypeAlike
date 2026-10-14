@@ -6,6 +6,6 @@
 - `ghosttype_windows`: all `unsafe`/FFI, behind safe wrappers. Implements core traits. Minimal logic.
 - `ghosttype`: thin bin. Wiring, config load, logging setup, event loop. No business logic.
 - Core defines traits (text source, suggestion provider, injector, clock); platform implements. OS/IO behind traits → core tests run headless.
-- New feature (AI provider, settings UI, other OS) = new module/crate behind core trait.
+- New feature (AI provider, settings UI, other OS) = new module/crate behind core trait. See `portability.md`.
 - New crate only for clear boundary, own deps, or compile time; name `ghosttype_<area>`.
 - No globals/statics; state owned and passed explicitly.

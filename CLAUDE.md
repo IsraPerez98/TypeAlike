@@ -17,4 +17,5 @@ Virtual workspace, flat `crates/`.
 ## Rules
 `.claude/rules/` (binding; path-scoped ones load with matching files):
 - `tdd.md` test-first workflow · `clean-code.md` naming, structure, no comments · `architecture.md` crate boundaries, traits
+- `portability.md` logic in core; platform crates only translate, so OS ports never touch core
 - `rust.md` API, errors, docs, types · `dependencies.md` Cargo · `windows.md` FFI, threads, runtime invariants · `git.md`
