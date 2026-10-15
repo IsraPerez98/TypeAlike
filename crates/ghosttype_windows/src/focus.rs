@@ -1,31 +1,38 @@
 //! What has keyboard focus: whether GhostType may suggest there, and where its caret is.
 
 use ghosttype_core::app::Field;
-use windows::Win32::Foundation::{HANDLE, HWND, POINT};
-use windows::Win32::Graphics::Gdi::ClientToScreen;
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-    GetWindowLongW, GetWindowThreadProcessId,
+    GetWindowLongW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SMTO_BLOCK, SendMessageTimeoutW, WM_GETFONT,
 };
 use windows::core::{Owned, Result};
 
 const EDIT_CLASS_NAME: &str = "Edit";
 const MAX_CLASS_NAME_UNITS: usize = 16;
+const FONT_REPLY_TIMEOUT_MS: u32 = 50;
 
-/// Where ghost text starts: just right of the caret, in physical screen pixels.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Where ghost text starts, just right of the caret in physical screen pixels, and how it looks.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Caret {
     pub(crate) origin: POINT,
     pub(crate) height: i32,
+    /// The font face of the control that owns the caret, when the control reports one.
+    pub(crate) font_face: Option<String>,
 }
 
 impl Caret {
     /// Builds a caret from its screen-space corners; `None` when it has no height.
-    pub(crate) fn from_corners(top_left: POINT, bottom_right: POINT) -> Option<Self> {
+    pub(crate) fn from_corners(
+        top_left: POINT,
+        bottom_right: POINT,
+        font_face: Option<String>,
+    ) -> Option<Self> {
         let height = bottom_right.y.checked_sub(top_left.y)?;
         (height > 0).then_some(Self {
             origin: POINT {
@@ -33,6 +40,7 @@ impl Caret {
                 y: top_left.y,
             },
             height,
+            font_face,
         })
     }
 }
@@ -118,8 +126,50 @@ pub(crate) fn caret() -> Option<Caret> {
             && ClientToScreen(info.hwndCaret, &raw mut bottom_right).as_bool()
     };
     is_mapped
-        .then(|| Caret::from_corners(top_left, bottom_right))
+        .then(|| Caret::from_corners(top_left, bottom_right, font_face(info.hwndCaret)))
         .flatten()
+}
+
+/// Reads the font face that `window` draws its text in, when the window reports one in time.
+fn font_face(window: HWND) -> Option<String> {
+    let mut font = 0;
+    // SMTO_BLOCK keeps hook events out until the reply, so the busy runtime never drops a key.
+    // SAFETY: the result pointer refers to a local.
+    let replied = unsafe {
+        SendMessageTimeoutW(
+            window,
+            WM_GETFONT,
+            WPARAM(0),
+            LPARAM(0),
+            SMTO_BLOCK | SMTO_ABORTIFHUNG,
+            FONT_REPLY_TIMEOUT_MS,
+            Some(&raw mut font),
+        )
+    };
+    if replied.0 == 0 || font == 0 {
+        return None;
+    }
+    let mut description = LOGFONTW::default();
+    // SAFETY: the output buffer is a local of exactly the size passed; a stale handle only fails.
+    let written = unsafe {
+        GetObjectW(
+            HGDIOBJ(std::ptr::with_exposed_provenance_mut(font)),
+            size_of::<LOGFONTW>()
+                .try_into()
+                .expect("font description size fits in i32"),
+            Some((&raw mut description).cast()),
+        )
+    };
+    if written == 0 {
+        return None;
+    }
+    face_name(&description.lfFaceName)
+}
+
+/// Reads a face name that ends at its first nul; `None` when it is empty.
+fn face_name(units: &[u16]) -> Option<String> {
+    let name = units.split(|&unit| unit == 0).next().unwrap_or_default();
+    (!name.is_empty()).then(|| String::from_utf16_lossy(name))
 }
 
 fn is_password_focused() -> bool {
@@ -196,21 +246,40 @@ mod tests {
 
     #[test]
     fn caret_starts_right_of_caret_box() {
-        let caret = Caret::from_corners(POINT { x: 100, y: 40 }, POINT { x: 102, y: 60 });
+        let caret = Caret::from_corners(POINT { x: 100, y: 40 }, POINT { x: 102, y: 60 }, None);
 
         assert_eq!(
             caret,
             Some(Caret {
                 origin: POINT { x: 102, y: 40 },
-                height: 20
+                height: 20,
+                font_face: None,
             })
         );
     }
 
     #[test]
     fn caret_without_height_is_not_shown() {
-        let caret = Caret::from_corners(POINT { x: 100, y: 40 }, POINT { x: 102, y: 40 });
+        let caret = Caret::from_corners(POINT { x: 100, y: 40 }, POINT { x: 102, y: 40 }, None);
 
         assert_eq!(caret, None);
+    }
+
+    #[test]
+    fn face_name_ends_at_first_nul() {
+        let units = [0x43, 0x6F, 0x6E, 0, 0x78, 0];
+
+        let face = face_name(&units);
+
+        assert_eq!(face.as_deref(), Some("Con"));
+    }
+
+    #[test]
+    fn empty_face_name_is_none() {
+        let units = [0, 0x78, 0];
+
+        let face = face_name(&units);
+
+        assert_eq!(face, None);
     }
 }

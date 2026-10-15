@@ -333,7 +333,7 @@ impl Runtime {
             self.overlay.hide();
             return;
         };
-        if let Err(error) = self.overlay.show(text, caret) {
+        if let Err(error) = self.overlay.show(text, &caret) {
             tracing::warn!(%error, "failed to show ghost text");
         }
     }
