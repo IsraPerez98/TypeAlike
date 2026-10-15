@@ -105,10 +105,13 @@ impl Engine {
     fn accept(&mut self) -> Reaction {
         match mem::take(&mut self.offer) {
             Offer::Shown(suggestion) => {
-                self.append(&suggestion);
+                let (word, rest) = split_first_word(&suggestion);
+                let rest = (!rest.is_empty()).then(|| rest.to_owned());
+                self.append(word);
+                self.offer = rest.clone().map_or(Offer::Idle, Offer::Shown);
                 Reaction::Accept {
-                    text: suggestion,
-                    rest: None,
+                    text: word.to_owned(),
+                    rest,
                 }
             }
             offer @ (Offer::Idle | Offer::Requested { .. }) => {
@@ -173,6 +176,14 @@ fn suggestion_after(context: &str, completion: &str) -> Option<String> {
     };
     let suggestion = line.trim_end();
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
+}
+
+/// Splits `suggestion` into its first word, with the whitespace before that word, and the rest.
+fn split_first_word(suggestion: &str) -> (&str, &str) {
+    let rest = suggestion
+        .trim_start()
+        .trim_start_matches(|character: char| !character.is_whitespace());
+    suggestion.split_at(suggestion.len() - rest.len())
 }
 
 impl fmt::Debug for Engine {
@@ -369,12 +380,50 @@ mod tests {
     }
 
     #[test]
-    fn tab_accepts_visible_suggestion() {
+    fn tab_accepts_next_word_of_suggestion() {
+        let mut engine = engine_showing("hel", "lo big world");
+
+        let reaction = engine.on_key(Key::Tab);
+
+        assert_eq!(reaction, accept("lo", Some(" big world")));
+    }
+
+    #[test]
+    fn tab_accepts_word_with_space_before_it() {
+        let mut engine = engine_showing("hello", " big world");
+
+        let reaction = engine.on_key(Key::Tab);
+
+        assert_eq!(reaction, accept(" big", Some(" world")));
+    }
+
+    #[test]
+    fn tab_after_accepted_word_accepts_following_word() {
+        let mut engine = engine_showing("hel", "lo big world");
+        engine.on_key(Key::Tab);
+
+        let reaction = engine.on_key(Key::Tab);
+
+        assert_eq!(reaction, accept(" big", Some(" world")));
+    }
+
+    #[test]
+    fn tab_accepts_last_word_and_hides() {
         let mut engine = engine_showing("hel", "lo");
 
         let reaction = engine.on_key(Key::Tab);
 
         assert_eq!(reaction, accept("lo", None));
+    }
+
+    #[test]
+    fn typing_after_accepted_word_follows_rest() {
+        let mut engine = engine_showing("hel", "lo big world");
+        engine.on_key(Key::Tab);
+
+        let reaction = engine.on_key(Key::Char(' '));
+
+        assert_eq!(reaction, show("big world"));
     }
 
     #[test]
@@ -387,8 +436,8 @@ mod tests {
     }
 
     #[test]
-    fn accepted_text_becomes_context() {
-        let mut engine = engine_showing("hel", "lo");
+    fn accepted_word_becomes_context() {
+        let mut engine = engine_showing("hel", "lo big world");
         engine.on_key(Key::Tab);
 
         let reaction = engine.on_key(Key::Char('!'));

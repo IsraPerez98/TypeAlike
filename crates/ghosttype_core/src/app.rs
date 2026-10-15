@@ -85,7 +85,11 @@ pub enum TrayOutcome {
 ///
 /// assert_eq!(
 ///     app.on_key(Key::Tab, Field::Open),
-///     Reaction::Accept { text: "est regards".to_owned(), rest: None }
+///     Reaction::Accept { text: "est".to_owned(), rest: Some(" regards".to_owned()) }
+/// );
+/// assert_eq!(
+///     app.on_key(Key::Tab, Field::Open),
+///     Reaction::Accept { text: " regards".to_owned(), rest: None }
 /// );
 /// ```
 #[derive(Debug, Default)]
