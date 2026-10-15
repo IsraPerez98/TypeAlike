@@ -5,7 +5,7 @@ use crate::settings::controls::ControlKind;
 use crate::settings::palette::{ControlStyle, Surface, Tone};
 use crate::settings::typography::TextRole;
 
-const KINDS: [ControlKind; 9] = [
+const KINDS: [ControlKind; 10] = [
     ControlKind::Label,
     ControlKind::TrailingLabel,
     ControlKind::Paragraph,
@@ -14,6 +14,7 @@ const KINDS: [ControlKind; 9] = [
     ControlKind::NavigationButton,
     ControlKind::Picker,
     ControlKind::TextField,
+    ControlKind::TextArea,
     ControlKind::ProgressBar,
 ];
 const ROLES: [TextRole; 6] = [

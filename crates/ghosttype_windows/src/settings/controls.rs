@@ -39,6 +39,9 @@ const STATIC_OWNER_DRAW: u32 = 0x000D;
 const STATIC_NOPREFIX: u32 = 0x0080;
 const BUTTON_OWNER_DRAW: u32 = 0x000B;
 const EDIT_AUTO_SCROLL: u32 = 0x0080;
+const EDIT_MULTILINE: u32 = 0x0004;
+const EDIT_AUTO_VERTICAL_SCROLL: u32 = 0x0040;
+const EDIT_WANT_RETURN: u32 = 0x1000;
 const DRAWN: LRESULT = LRESULT(1);
 
 /// What a control is.
@@ -60,6 +63,8 @@ pub(crate) enum ControlKind {
     Picker,
     /// A one-line text field.
     TextField,
+    /// A text field of several lines, where Enter starts a new line.
+    TextArea,
     /// A bar that fills as work completes.
     ProgressBar,
 }
@@ -74,13 +79,17 @@ impl ControlKind {
                 (w!("Button"), BUTTON_OWNER_DRAW | WS_TABSTOP.0)
             }
             Self::TextField => (w!("Edit"), EDIT_AUTO_SCROLL | WS_TABSTOP.0),
+            Self::TextArea => (
+                w!("Edit"),
+                EDIT_MULTILINE | EDIT_AUTO_VERTICAL_SCROLL | EDIT_WANT_RETURN | WS_TABSTOP.0,
+            ),
             Self::ProgressBar => (w!("msctls_progress32"), 0),
         }
     }
 
     fn extended_style(self) -> WINDOW_EX_STYLE {
         match self {
-            Self::TextField => WS_EX_LAYERED,
+            Self::TextField | Self::TextArea => WS_EX_LAYERED,
             Self::Label
             | Self::TrailingLabel
             | Self::Paragraph
@@ -95,20 +104,31 @@ impl ControlKind {
     /// Whether the control reacts to the pointer passing over it.
     fn tracks_hover(self) -> bool {
         match self {
-            Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker | Self::TextField => {
-                true
-            }
+            Self::Button
+            | Self::PrimaryButton
+            | Self::NavigationButton
+            | Self::Picker
+            | Self::TextField
+            | Self::TextArea => true,
             Self::Label | Self::TrailingLabel | Self::Paragraph | Self::ProgressBar => false,
         }
+    }
+
+    /// Whether the user types into the control, over a frame that its page draws.
+    pub(crate) fn is_text_field(self) -> bool {
+        matches!(self, Self::TextField | Self::TextArea)
     }
 
     /// Whether the user activates the control like a button, with a click, Space or Enter.
     pub(crate) fn is_button(self) -> bool {
         match self {
             Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker => true,
-            Self::Label | Self::TrailingLabel | Self::Paragraph | Self::TextField | Self::ProgressBar => {
-                false
-            }
+            Self::Label
+            | Self::TrailingLabel
+            | Self::Paragraph
+            | Self::TextField
+            | Self::TextArea
+            | Self::ProgressBar => false,
         }
     }
 }
@@ -185,6 +205,7 @@ impl Control {
             }
             ControlKind::Label
             | ControlKind::TextField
+            | ControlKind::TextArea
             | ControlKind::TrailingLabel
             | ControlKind::Paragraph
             | ControlKind::Button
@@ -221,6 +242,10 @@ impl Control {
         if self.text == text {
             return;
         }
+        self.write_text(text);
+    }
+
+    fn write_text(&mut self, text: &str) {
         text.clone_into(&mut self.text);
         // SAFETY: plain call on a control this type owns; the text outlives the call.
         if let Err(error) = unsafe { SetWindowTextW(self.handle, &HSTRING::from(text)) } {
@@ -240,6 +265,15 @@ impl Control {
     /// Reads the text the user typed into a text field.
     pub(crate) fn typed_text(&self) -> String {
         window_text(self.handle)
+    }
+
+    /// Shows `text` in a text field, unless the field already holds it, so that the caret and
+    /// the undo of the user stay while the user types.
+    pub(crate) fn replace_typed_text(&mut self, text: &str) {
+        if self.typed_text() == text {
+            return;
+        }
+        self.write_text(text);
     }
 
     /// The hint that a text field shows while it is empty.
@@ -330,7 +364,7 @@ impl Control {
 
     /// Applies the font and color key of a text field, and repaints any control with `appearance`.
     pub(crate) fn apply(&self, appearance: &Appearance) {
-        if self.kind == ControlKind::TextField {
+        if self.kind.is_text_field() {
             let font = appearance.field_font().handle();
             let margins = usize::try_from(EC_LEFTMARGIN | EC_RIGHTMARGIN).unwrap_or_default();
             // SAFETY: the font stays alive while this appearance is in use. A new font resets the
@@ -578,7 +612,7 @@ fn end_hover(window: HWND) {
 /// Stores the hover state and repaints what shows it: the page frame for text fields.
 fn show_hover(window: HWND, look: ControlLook) {
     write_look(window, look);
-    let shown_by = if look.kind == ControlKind::TextField {
+    let shown_by = if look.kind.is_text_field() {
         // SAFETY: plain call on a child window.
         unsafe { GetParent(window) }.unwrap_or(window)
     } else {

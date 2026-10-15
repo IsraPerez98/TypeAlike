@@ -26,6 +26,7 @@ const BUTTON_PADDING: i32 = 12;
 const MIN_BUTTON_WIDTH: i32 = 96;
 const FIELD_PADDING_LEFT: i32 = 11;
 const FIELD_PADDING_RIGHT: i32 = 8;
+const TEXT_AREA_PADDING_Y: i32 = 6;
 
 pub(crate) const PAGE_TEXT: ControlStyle = ControlStyle {
     surface: Surface::Page,
@@ -75,12 +76,31 @@ impl Placer {
         appearance: &Appearance,
         shapes: &mut Vec<Shape>,
     ) {
-        let left = frame.x + appearance.px(FIELD_PADDING_LEFT);
-        let text_area = Bounds {
-            x: left,
-            width: (frame.right() - appearance.px(FIELD_PADDING_RIGHT) - left).max(0),
-            ..frame.centered_band(appearance.line_height(TextRole::Body))
-        };
+        let text_area =
+            field_text_area(frame, appearance).centered_band(appearance.line_height(TextRole::Body));
+        self.place_in_frame(control, frame, text_area, shapes);
+    }
+
+    /// Shows the text area `control` inside a frame at `frame`, given in content coordinates,
+    /// and adds the frame to the shapes that the page draws. The text fills the frame.
+    pub(crate) fn place_text_area(
+        &mut self,
+        control: &Control,
+        frame: Bounds,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let text_area = field_text_area(frame, appearance).inset(0, appearance.px(TEXT_AREA_PADDING_Y));
+        self.place_in_frame(control, frame, text_area, shapes);
+    }
+
+    fn place_in_frame(
+        &mut self,
+        control: &Control,
+        frame: Bounds,
+        text_area: Bounds,
+        shapes: &mut Vec<Shape>,
+    ) {
         self.place(control, text_area);
         shapes.push(Shape::Field(FieldShape {
             frame,
@@ -88,6 +108,21 @@ impl Placer {
             edit: control.handle(),
             placeholder: control.placeholder(),
         }));
+    }
+}
+
+/// The height of a text area frame that shows `lines` lines of text.
+pub(crate) fn text_area_height(lines: i32, appearance: &Appearance) -> i32 {
+    lines * appearance.line_height(TextRole::Body) + 2 * appearance.px(TEXT_AREA_PADDING_Y)
+}
+
+/// The part of a field `frame` where the text goes, between its left and right padding.
+fn field_text_area(frame: Bounds, appearance: &Appearance) -> Bounds {
+    let left = frame.x + appearance.px(FIELD_PADDING_LEFT);
+    Bounds {
+        x: left,
+        width: (frame.right() - appearance.px(FIELD_PADDING_RIGHT) - left).max(0),
+        ..frame
     }
 }
 

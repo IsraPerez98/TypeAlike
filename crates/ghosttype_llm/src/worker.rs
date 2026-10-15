@@ -11,7 +11,7 @@ use std::time::Instant;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, Prompt,
-    TokenCount,
+    SystemPrompt, TokenCount,
 };
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -46,6 +46,10 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
     let mut worker = Worker::default();
     for Job { request, sink } in jobs {
         let event = match request {
+            InferenceRequest::SetSystemPrompt(system_prompt) => {
+                worker.system_prompt = system_prompt;
+                continue;
+            }
             InferenceRequest::Load { file, backend } => InferenceEvent::Loaded {
                 result: worker.load(locate_model(&file), backend),
                 file,
@@ -62,6 +66,7 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
 struct Worker {
     backend: Option<LlamaBackend>,
     model: Option<LlamaModel>,
+    system_prompt: SystemPrompt,
 }
 
 impl Worker {
@@ -97,7 +102,8 @@ impl Worker {
         let (Some(backend), Some(model)) = (&self.backend, &self.model) else {
             return Err(InferenceError::NoModel);
         };
-        let (text, tokens) = generate(backend, model, prompt, max_tokens).map_err(|error| {
+        let full_prompt = with_system_prompt(&self.system_prompt, prompt);
+        let (text, tokens) = generate(backend, model, &full_prompt, max_tokens).map_err(|error| {
             tracing::warn!(%error, "failed to complete text");
             error.to_inference_error()
         })?;
@@ -107,6 +113,16 @@ impl Worker {
             duration: started.elapsed(),
         })
     }
+}
+
+/// Returns the text that the model continues: the system prompt, a blank line, then `prompt`.
+/// The blank line parts them without a label that the model could copy into its suggestion.
+fn with_system_prompt(system_prompt: &SystemPrompt, prompt: &Prompt) -> Prompt {
+    let system_prompt = system_prompt.0.trim();
+    if system_prompt.is_empty() {
+        return prompt.clone();
+    }
+    Prompt(format!("{system_prompt}\n\n{}", prompt.0))
 }
 
 /// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
@@ -384,6 +400,28 @@ mod tests {
         let verdict = check_fit(&path, device.index, ALL_MEMORY_BYTES);
 
         assert_eq!(verdict, Err(InferenceError::ModelTooLarge));
+    }
+
+    #[test]
+    fn system_prompt_comes_before_the_prompt_after_a_blank_line() {
+        let system_prompt = SystemPrompt("  Formal Spanish.\n".to_owned());
+
+        let full_prompt = with_system_prompt(&system_prompt, &Prompt("Estimado".to_owned()));
+
+        assert_eq!(full_prompt, Prompt("Formal Spanish.\n\nEstimado".to_owned()));
+    }
+
+    #[test]
+    fn blank_system_prompt_adds_nothing() {
+        let prompts = [SystemPrompt::default(), SystemPrompt(" \n ".to_owned())];
+
+        let full_prompts =
+            prompts.map(|system_prompt| with_system_prompt(&system_prompt, &Prompt("Dear".to_owned())));
+
+        assert_eq!(
+            full_prompts,
+            [Prompt("Dear".to_owned()), Prompt("Dear".to_owned())]
+        );
     }
 
     #[test]

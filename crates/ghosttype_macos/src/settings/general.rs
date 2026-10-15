@@ -1,20 +1,34 @@
-//! The General pane: the autostart switch and the suggestion model menu in one rounded group.
+//! The General pane: the autostart switch and the suggestion model menu in one rounded group,
+//! then the system prompt editor.
 
-use ghosttype_core::general_pane::{AutostartSwitch, GeneralView};
+use ghosttype_core::general_pane::{AutostartSwitch, GeneralView, SystemPromptEditor};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAccessibility as _, NSControlStateValueOff, NSControlStateValueOn, NSFont,
+    NSAccessibility as _, NSBorderType, NSButton, NSControlStateValueOff, NSControlStateValueOn, NSFont,
     NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSScrollView,
-    NSStackView, NSSwitch, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
+    NSStackView, NSStackViewGravity, NSSwitch, NSTextDidChangeNotification, NSTextField, NSTextView,
+    NSUserInterfaceLayoutOrientation, NSView,
 };
-use objc2_foundation::NSString;
+use objc2_core_foundation::CGFloat;
+use objc2_foundation::{NSEdgeInsets, NSNotificationCenter, NSSize, NSString};
 
 use super::{
     ActionTarget, CONTENT_INSETS, GroupedRow, LIST_PART_SPACING, ModelMenu, NO_INSETS, NoteView,
-    SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, rounded_group, row_texts, scroll_view,
+    SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, rounded_group, row_texts, scroll_view,
     secondary_wrapping_label, set_text, stack, truncating_label,
 };
+use crate::labels::title_case;
+
+const SYSTEM_PROMPT_HEIGHT: CGFloat = 120.0;
+/// Puts a section spacing above the editor, also while the suggestion model note above it hides.
+const SYSTEM_PROMPT_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: SECTION_SPACING - LIST_PART_SPACING,
+    left: 0.0,
+    bottom: 0.0,
+    right: 0.0,
+};
+const SYSTEM_PROMPT_TEXT_INSETS: NSSize = NSSize::new(4.0, 6.0);
 
 /// The views of the General pane, kept to update them on each render.
 #[derive(Debug)]
@@ -26,11 +40,14 @@ pub(super) struct GeneralPage {
     autostart_switch: Retained<NSSwitch>,
     suggestion_model_row: SettingRow,
     suggestion_model_note: NoteView,
+    system_prompt: SystemPromptView,
 }
 
 impl GeneralPage {
     /// Builds the pane. The autostart switch sends `target.autostart_action`; the suggestion model
-    /// menu sends `target.suggestion_model_action`.
+    /// menu sends `target.suggestion_model_action`. Each edit of the system prompt sends
+    /// `target.system_prompt_action` with the notification, and its reset button sends
+    /// `target.reset_system_prompt_action`.
     pub(super) fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
         let content = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
@@ -53,7 +70,13 @@ impl GeneralPage {
         let suggestion_model_row = SettingRow::add(&rows_stack, &suggestion_model_menu.button, main_thread);
         let group = rounded_group(&rows_stack, main_thread);
         let suggestion_model_note = NoteView::new(main_thread);
-        let parts: [&NSView; 3] = [&summary, &group, &suggestion_model_note.container];
+        let system_prompt = SystemPromptView::new(target, main_thread);
+        let parts: [&NSView; 4] = [
+            &summary,
+            &group,
+            &suggestion_model_note.container,
+            &system_prompt.container,
+        ];
         for part in parts {
             content.addArrangedSubview(part);
             fill_width(part, &content);
@@ -67,7 +90,13 @@ impl GeneralPage {
             autostart_switch,
             suggestion_model_row,
             suggestion_model_note,
+            system_prompt,
         }
+    }
+
+    /// Returns the text in the system prompt field.
+    pub(super) fn system_prompt(&self) -> String {
+        self.system_prompt.text_view.string().to_string()
     }
 
     /// Shows `view`.
@@ -79,6 +108,7 @@ impl GeneralPage {
             .render(picker.menu.label, picker.description);
         self.suggestion_model_menu.render(&picker.menu);
         self.suggestion_model_note.render(picker.note.as_ref());
+        self.system_prompt.render(&view.system_prompt);
     }
 
     fn render_autostart(&self, autostart: Option<&AutostartSwitch>) {
@@ -147,4 +177,110 @@ fn autostart_switch(target: &ActionTarget, main_thread: MainThreadMarker) -> Ret
         switch.setAction(Some(target.autostart_action));
     }
     switch
+}
+
+/// The system prompt editor: a heading, a description, the text field and the reset button.
+#[derive(Debug)]
+struct SystemPromptView {
+    container: Retained<NSStackView>,
+    heading: Retained<NSTextField>,
+    description: Retained<NSTextField>,
+    text_view: Retained<NSTextView>,
+    reset_button: Retained<NSButton>,
+}
+
+impl SystemPromptView {
+    fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let heading = label(
+            &NSFont::boldSystemFontOfSize(NSFont::systemFontSize()),
+            main_thread,
+        );
+        let description = secondary_wrapping_label(main_thread);
+        description.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let (text_scroll_view, text_view) = system_prompt_text_view(target, main_thread);
+        let reset_button = reset_button(target, main_thread);
+        let button_row = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            0.0,
+            NO_INSETS,
+            main_thread,
+        );
+        button_row.addView_inGravity(&reset_button, NSStackViewGravity::Trailing);
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            LIST_PART_SPACING,
+            SYSTEM_PROMPT_INSETS,
+            main_thread,
+        );
+        let parts: [&NSView; 4] = [&heading, &description, &text_scroll_view, &button_row];
+        for part in parts {
+            container.addArrangedSubview(part);
+            fill_width(part, &container);
+        }
+        Self {
+            container,
+            heading,
+            description,
+            text_view,
+            reset_button,
+        }
+    }
+
+    fn render(&self, editor: &SystemPromptEditor) {
+        set_text(&self.heading, editor.label);
+        set_text(&self.description, editor.description);
+        self.text_view
+            .setAccessibilityLabel(Some(&NSString::from_str(editor.label)));
+        if self.text_view.string().to_string() != editor.text {
+            self.text_view.setString(&NSString::from_str(&editor.text));
+        }
+        self.reset_button
+            .setTitle(&NSString::from_str(&title_case(editor.reset_label)));
+        self.reset_button.setEnabled(editor.is_reset_enabled);
+    }
+}
+
+/// Returns a plain text view with a bezel, in the scroll view that holds it.
+fn system_prompt_text_view(
+    target: &ActionTarget,
+    main_thread: MainThreadMarker,
+) -> (Retained<NSScrollView>, Retained<NSTextView>) {
+    let text_scroll_view = NSTextView::scrollableTextView(main_thread);
+    text_scroll_view.setBorderType(NSBorderType::BezelBorder);
+    text_scroll_view
+        .heightAnchor()
+        .constraintEqualToConstant(SYSTEM_PROMPT_HEIGHT)
+        .setActive(true);
+    let text_view = text_scroll_view
+        .documentView()
+        .and_then(|view| view.downcast::<NSTextView>().ok())
+        .expect("a scrollable text view holds a text view");
+    text_view.setRichText(false);
+    text_view.setAllowsUndo(true);
+    text_view.setFont(Some(&NSFont::systemFontOfSize(NSFont::systemFontSize())));
+    text_view.setTextContainerInset(SYSTEM_PROMPT_TEXT_INSETS);
+    // SAFETY: the target implements the action, taking the notification, and the center drops
+    // deallocated observers itself.
+    unsafe {
+        NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+            &target.target,
+            target.system_prompt_action,
+            Some(NSTextDidChangeNotification),
+            Some(&text_view),
+        );
+    }
+    (text_scroll_view, text_view)
+}
+
+fn reset_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSButton> {
+    // SAFETY: the target implements the reset action, taking the button, and `SettingsWindow`
+    // keeps the target alive as long as the button.
+    unsafe {
+        NSButton::buttonWithTitle_target_action(
+            &NSString::new(),
+            Some(&target.target),
+            Some(target.reset_system_prompt_action),
+            main_thread,
+        )
+    }
 }

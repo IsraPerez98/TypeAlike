@@ -79,7 +79,7 @@ thread_local! {
 pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
     let Services {
         hub,
-        runner,
+        mut runner,
         settings_store,
     } = services;
     let window = Window::create(WindowSpec {
@@ -100,6 +100,9 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
     let _mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
         .map_err(RunError::during("install the mouse hook"))?;
     let (mailbox, deliveries) = Mailbox::new(window.handle());
+    let general = GeneralPane::new(settings);
+    let runner_sink = mailbox.sink(Delivery::Playground);
+    runner.submit(general.system_prompt_request(), &runner_sink);
     STATE.with(|state| {
         state.runtime.replace(Some(Runtime {
             app,
@@ -114,11 +117,11 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
             models: ModelsPane::new(),
             hub,
             hub_sink: mailbox.sink(Delivery::Hub),
-            playground: PlaygroundPane::with_backend(settings.backend),
-            general: GeneralPane::new(settings),
+            playground: PlaygroundPane::with_backend(general.settings().backend),
+            general,
             settings_store,
             runner,
-            runner_sink: mailbox.sink(Delivery::Playground),
+            runner_sink,
             suggestion_sink: mailbox.sink(Delivery::Suggestion),
             deliveries,
             settings: None,

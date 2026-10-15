@@ -3,12 +3,12 @@
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, InferenceRequest};
+use crate::inference::{Backend, InferenceRequest, SystemPrompt};
 use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
-use crate::settings::{Autostart, Settings};
+use crate::settings::{Autostart, DEFAULT_SYSTEM_PROMPT, Settings};
 
 /// Something the user did in the General pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeneralAction {
     /// Picked this backend to run models.
     SelectBackend(Backend),
@@ -16,6 +16,10 @@ pub enum GeneralAction {
     EnableAutostart,
     /// Turned off the switch that starts GhostType at login.
     DisableAutostart,
+    /// Changed the text of the system prompt to this text.
+    EditSystemPrompt(SystemPrompt),
+    /// Asked for the default system prompt again.
+    ResetSystemPrompt,
 }
 
 /// One entry of the backend menu.
@@ -65,6 +69,22 @@ pub struct SuggestionModelPicker {
     pub note: Option<Note>,
 }
 
+/// The field that edits the system prompt, and the button that resets it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemPromptEditor {
+    /// Text before the field, in sentence case.
+    pub label: &'static str,
+    /// A sentence below the label about what the setting changes.
+    pub description: &'static str,
+    /// The system prompt in the field. Change the field only when it shows other text, so that
+    /// the caret and the undo history of the user stay.
+    pub text: String,
+    /// The reset button's label, in sentence case.
+    pub reset_label: &'static str,
+    /// Whether the reset button can reset, because the field does not show the default.
+    pub is_reset_enabled: bool,
+}
+
 /// Everything the General pane shows, top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneralView {
@@ -80,6 +100,8 @@ pub struct GeneralView {
     pub backend: Option<BackendPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
     pub backend_note: Option<Note>,
+    /// The system prompt editor.
+    pub system_prompt: SystemPromptEditor,
 }
 
 /// What the platform must do after a General action.
@@ -100,6 +122,10 @@ const SUGGESTION_MODEL_DESCRIPTION: &str =
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
+const SYSTEM_PROMPT_LABEL: &str = "System prompt";
+const SYSTEM_PROMPT_DESCRIPTION: &str = "The model reads this text before the text you type. Describe the \
+     writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.";
+const RESET_SYSTEM_PROMPT_LABEL: &str = "Reset to default";
 const BACKEND_CHOICES: [(Backend, &str); 3] = [
     (Backend::Cpu, "CPU"),
     (Backend::Vulkan, "Vulkan (GPU)"),
@@ -172,6 +198,13 @@ impl GeneralPane {
         &self.settings
     }
 
+    /// Returns the request that gives the saved system prompt to the model runner, for when
+    /// GhostType starts.
+    #[must_use]
+    pub fn system_prompt_request(&self) -> InferenceRequest {
+        InferenceRequest::SetSystemPrompt(self.settings.system_prompt())
+    }
+
     /// Selects the saved suggestion model in `playground`, so that it loads when GhostType starts.
     /// Returns the request to send, if any.
     pub fn load_suggestion_model(&self, playground: &mut PlaygroundPane) -> Option<InferenceRequest> {
@@ -197,6 +230,8 @@ impl GeneralPane {
             GeneralAction::SelectBackend(backend) => self.select_backend(backend, playground),
             GeneralAction::EnableAutostart => self.change_autostart(|autostart| autostart.enable()),
             GeneralAction::DisableAutostart => self.change_autostart(|autostart| autostart.disable()),
+            GeneralAction::EditSystemPrompt(system_prompt) => self.change_system_prompt(Some(system_prompt)),
+            GeneralAction::ResetSystemPrompt => self.change_system_prompt(None),
         }
     }
 
@@ -215,6 +250,13 @@ impl GeneralPane {
             suggestion_model: suggestion_model_picker(playground, installed),
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
             backend_note: playground.load_note().filter(|_| self.has_backend_menu),
+            system_prompt: SystemPromptEditor {
+                label: SYSTEM_PROMPT_LABEL,
+                description: SYSTEM_PROMPT_DESCRIPTION,
+                text: self.settings.system_prompt().0,
+                reset_label: RESET_SYSTEM_PROMPT_LABEL,
+                is_reset_enabled: self.settings.custom_system_prompt.is_some(),
+            },
         }
     }
 
@@ -226,6 +268,19 @@ impl GeneralPane {
         GeneralOutcome {
             settings: Some(self.settings.clone()),
             request: playground.change_backend(backend),
+        }
+    }
+
+    /// Keeps `custom` as the system prompt, or the default for `None` or a copy of the default.
+    fn change_system_prompt(&mut self, custom: Option<SystemPrompt>) -> GeneralOutcome {
+        let custom = custom.filter(|system_prompt| system_prompt.0 != DEFAULT_SYSTEM_PROMPT);
+        if custom == self.settings.custom_system_prompt {
+            return GeneralOutcome::default();
+        }
+        self.settings.custom_system_prompt = custom;
+        GeneralOutcome {
+            settings: Some(self.settings.clone()),
+            request: Some(self.system_prompt_request()),
         }
     }
 
@@ -327,15 +382,36 @@ mod tests {
     fn settings(backend: Backend) -> Settings {
         Settings {
             backend,
-            suggestion_model: None,
+            ..Settings::default()
         }
     }
 
     fn suggestion_settings(suggestion_model: Option<ModelFile>) -> Settings {
         Settings {
-            backend: Backend::Cpu,
             suggestion_model,
+            ..Settings::default()
         }
+    }
+
+    fn custom_settings(system_prompt: &str) -> Settings {
+        Settings {
+            custom_system_prompt: Some(SystemPrompt(system_prompt.to_owned())),
+            ..Settings::default()
+        }
+    }
+
+    fn system_prompt_outcome(settings: Settings) -> GeneralOutcome {
+        GeneralOutcome {
+            request: Some(InferenceRequest::SetSystemPrompt(settings.system_prompt())),
+            settings: Some(settings),
+        }
+    }
+
+    fn edit_system_prompt(pane: &mut GeneralPane, text: &str) -> GeneralOutcome {
+        pane.on_action(
+            GeneralAction::EditSystemPrompt(SystemPrompt(text.to_owned())),
+            &mut PlaygroundPane::new(),
+        )
     }
 
     fn choice(title: &'static str, backend: Backend) -> BackendChoice {
@@ -411,6 +487,13 @@ mod tests {
                     is_enabled: true,
                 }),
                 backend_note: None,
+                system_prompt: SystemPromptEditor {
+                    label: "System prompt",
+                    description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
+                    text: DEFAULT_SYSTEM_PROMPT.to_owned(),
+                    reset_label: "Reset to default",
+                    is_reset_enabled: false,
+                },
             }
         );
     }
@@ -424,7 +507,7 @@ mod tests {
                 .view(&PlaygroundPane::with_backend(backend), &[])
                 .backend
                 .expect("the pane shows the backend menu");
-            picker.choices[picker.selected].action
+            picker.choices[picker.selected].action.clone()
         });
 
         assert_eq!(shown, backends.map(GeneralAction::SelectBackend));
@@ -704,5 +787,99 @@ mod tests {
         let request = pane.load_suggestion_model(&mut playground);
 
         assert_eq!((request, playground.is_busy()), (None, false));
+    }
+
+    #[test]
+    fn custom_system_prompt_shows_with_reset_enabled() {
+        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let editor = pane.view(&PlaygroundPane::new(), &[]).system_prompt;
+
+        assert_eq!(
+            (editor.text.as_str(), editor.is_reset_enabled),
+            ("Formal Spanish.", true)
+        );
+    }
+
+    #[test]
+    fn editing_the_system_prompt_keeps_it_and_gives_it_to_the_runner() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = edit_system_prompt(&mut pane, "Formal Spanish.");
+
+        assert_eq!(
+            (outcome, pane.settings()),
+            (
+                system_prompt_outcome(custom_settings("Formal Spanish.")),
+                &custom_settings("Formal Spanish."),
+            )
+        );
+    }
+
+    #[test]
+    fn emptied_system_prompt_is_kept_as_empty() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = edit_system_prompt(&mut pane, "");
+
+        assert_eq!(outcome, system_prompt_outcome(custom_settings("")));
+    }
+
+    #[test]
+    fn editing_the_system_prompt_to_the_same_text_does_nothing() {
+        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let outcome = edit_system_prompt(&mut pane, "Formal Spanish.");
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    #[test]
+    fn system_prompt_edited_back_to_the_default_is_the_default() {
+        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let outcome = edit_system_prompt(&mut pane, DEFAULT_SYSTEM_PROMPT);
+
+        let is_reset_enabled = pane
+            .view(&PlaygroundPane::new(), &[])
+            .system_prompt
+            .is_reset_enabled;
+        assert_eq!(
+            (outcome, is_reset_enabled),
+            (system_prompt_outcome(Settings::default()), false)
+        );
+    }
+
+    #[test]
+    fn resetting_the_system_prompt_gives_the_default_to_the_runner() {
+        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let outcome = pane.on_action(GeneralAction::ResetSystemPrompt, &mut PlaygroundPane::new());
+
+        assert_eq!(
+            (outcome, pane.settings()),
+            (system_prompt_outcome(Settings::default()), &Settings::default())
+        );
+    }
+
+    #[test]
+    fn resetting_the_default_system_prompt_does_nothing() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = pane.on_action(GeneralAction::ResetSystemPrompt, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    #[test]
+    fn saved_system_prompt_goes_to_the_runner_at_start() {
+        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let request = pane.system_prompt_request();
+
+        assert_eq!(
+            request,
+            InferenceRequest::SetSystemPrompt(SystemPrompt("Formal Spanish.".to_owned()))
+        );
     }
 }

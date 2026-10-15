@@ -132,7 +132,7 @@ pub(crate) fn control(
         ControlKind::NavigationButton => navigation_item(painter, bounds, item, appearance),
         ControlKind::Picker => picker(painter, bounds, item, appearance),
         ControlKind::ProgressBar => progress_bar(painter, bounds, item, appearance),
-        ControlKind::TextField => Ok(()),
+        ControlKind::TextField | ControlKind::TextArea => Ok(()),
     }
 }
 

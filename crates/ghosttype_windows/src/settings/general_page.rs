@@ -1,19 +1,28 @@
-//! The General pane: renders the core [`GeneralView`] and reports the backend the user picks.
+//! The General pane: renders the core [`GeneralView`] and reports the backend the user picks and
+//! the system prompt the user writes.
 
-use ghosttype_core::general_pane::{BackendChoice, BackendPicker, GeneralAction, GeneralView};
+use ghosttype_core::general_pane::{
+    BackendChoice, BackendPicker, GeneralAction, GeneralView, SystemPromptEditor,
+};
+use ghosttype_core::inference::SystemPrompt;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::WNDPROC;
+use windows::Win32::UI::WindowsAndMessaging::{BN_CLICKED, EN_CHANGE, WNDPROC};
 use windows::core::{Result, w};
 
 use crate::settings::appearance::Appearance;
 use crate::settings::controls::{Control, ControlKind, PickerMenu};
 use crate::settings::form::{
-    self, CARD_DETAIL, CARD_TEXT, Header, Placer, SECTION_GAP, SettingCard, enable_if, show_note,
+    self, CARD_DETAIL, CARD_PADDING_X, CARD_PADDING_Y, CARD_TEXT, CONTROL_GAP, CONTROL_HEIGHT, Header,
+    Placer, SECTION_GAP, SettingCard, enable_if, show_note,
 };
-use crate::settings::page::Page;
+use crate::settings::layout::Column;
+use crate::settings::page::{Page, Shape};
 use crate::settings::typography::TextRole;
 
 const PICKER_WIDTH: i32 = 280;
+const SYSTEM_PROMPT_LINES: i32 = 6;
+const EDIT_LINE_BREAK: &str = "\r\n";
+const LINE_BREAK: &str = "\n";
 
 /// The General pane and its controls.
 #[derive(Debug)]
@@ -23,6 +32,10 @@ pub(crate) struct GeneralPage {
     backend_description: Control,
     backend_note: Control,
     backend_picker: Control,
+    system_prompt_label: Control,
+    system_prompt_description: Control,
+    system_prompt_field: Control,
+    reset_system_prompt: Control,
     choices: Vec<BackendChoice>,
     has_note: bool,
     page: Page,
@@ -39,6 +52,10 @@ impl GeneralPage {
             backend_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             backend_picker: control(ControlKind::Picker, TextRole::Body, CARD_TEXT)?,
+            system_prompt_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
+            system_prompt_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            system_prompt_field: control(ControlKind::TextArea, TextRole::Body, CARD_TEXT)?,
+            reset_system_prompt: control(ControlKind::Button, TextRole::Body, CARD_TEXT)?,
             choices: Vec::new(),
             has_note: false,
             page,
@@ -63,7 +80,17 @@ impl GeneralPage {
         if let Some(note) = &view.backend_note {
             show_note(&mut self.backend_note, note);
         }
+        self.render_system_prompt(&view.system_prompt);
         self.layout(appearance);
+    }
+
+    fn render_system_prompt(&mut self, editor: &SystemPromptEditor) {
+        self.system_prompt_label.set_text(editor.label);
+        self.system_prompt_description.set_text(editor.description);
+        self.system_prompt_field
+            .replace_typed_text(&editor.text.replace(LINE_BREAK, EDIT_LINE_BREAK));
+        self.reset_system_prompt.set_text(editor.reset_label);
+        enable_if(&self.reset_system_prompt, editor.is_reset_enabled);
     }
 
     fn render_backend(&mut self, backend: &BackendPicker) {
@@ -101,6 +128,8 @@ impl GeneralPage {
                 control_width: PICKER_WIDTH,
             };
             card.layout(&mut column, &mut placer, appearance, &mut shapes);
+            column.skip(appearance.px(SECTION_GAP));
+            self.layout_system_prompt(&mut column, &mut placer, appearance, &mut shapes);
             let content_height = column.top() + appearance.px(form::PAGE_PADDING);
             if !self.page.finish_layout(content_height, shapes) {
                 return;
@@ -108,9 +137,61 @@ impl GeneralPage {
         }
     }
 
+    /// Places the system prompt card: the label and description, the field, then the reset button.
+    fn layout_system_prompt(
+        &self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let padding_x = appearance.px(CARD_PADDING_X);
+        let padding_y = appearance.px(CARD_PADDING_Y);
+        let gap = appearance.px(CONTROL_GAP);
+        let width = column.take(0).width - 2 * padding_x;
+        let label_height = appearance.line_height(TextRole::Body);
+        let description_height = appearance.wrapped_height(
+            self.system_prompt_description.current_text(),
+            TextRole::Caption,
+            width,
+        );
+        let field_height = form::text_area_height(SYSTEM_PROMPT_LINES, appearance);
+        let button_height = appearance.px(CONTROL_HEIGHT);
+        let card = column
+            .take(label_height + description_height + field_height + button_height + 2 * gap + 2 * padding_y);
+        shapes.push(Shape::Card(card));
+        let mut inner = Column::new(card.x + padding_x, card.y + padding_y, width);
+        let label = inner.take(label_height);
+        let description = inner.take(description_height);
+        inner.skip(gap);
+        let field = inner.take(field_height);
+        inner.skip(gap);
+        let button_width = form::button_width(appearance, self.reset_system_prompt.current_text());
+        let (_, button) = inner.take(button_height).split_trailing(button_width, 0);
+        // The label goes right before the field in z-order, so it names the field for UI Automation.
+        placer.place(&self.system_prompt_description, description);
+        placer.place(&self.system_prompt_label, label);
+        placer.place_text_area(&self.system_prompt_field, field, appearance, shapes);
+        placer.place(&self.reset_system_prompt, button);
+    }
+
     /// The action of the backend at `index` of the backend menu.
     pub(crate) fn choice_at(&self, index: usize) -> Option<GeneralAction> {
-        self.choices.get(index).map(|choice| choice.action)
+        self.choices.get(index).map(|choice| choice.action.clone())
+    }
+
+    /// The action of a `WM_COMMAND` with `notification` from `control`: an edit of the system
+    /// prompt field, or a click of its reset button.
+    pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
+        if control == self.system_prompt_field.handle() && notification == EN_CHANGE {
+            let text = self
+                .system_prompt_field
+                .typed_text()
+                .replace(EDIT_LINE_BREAK, LINE_BREAK);
+            return Some(GeneralAction::EditSystemPrompt(SystemPrompt(text)));
+        }
+        (control == self.reset_system_prompt.handle() && notification == BN_CLICKED)
+            .then_some(GeneralAction::ResetSystemPrompt)
     }
 
     /// Whether `control` is the backend picker.
@@ -136,6 +217,10 @@ impl GeneralPage {
             &self.backend_description,
             &self.backend_note,
             &self.backend_picker,
+            &self.system_prompt_label,
+            &self.system_prompt_description,
+            &self.system_prompt_field,
+            &self.reset_system_prompt,
         ])
     }
 }

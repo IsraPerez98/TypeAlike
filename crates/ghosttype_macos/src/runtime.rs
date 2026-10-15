@@ -10,7 +10,7 @@ use ghosttype_core::app::{App, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
-use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, Prompt};
+use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, Prompt, SystemPrompt};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -71,6 +71,7 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
         .with_autostart(autostart);
     let mut playground = PlaygroundPane::new();
     let runner_sink = main_thread_sink(Runtime::on_inference_event);
+    runner.submit(general.system_prompt_request(), &runner_sink);
     if let Some(request) = general.load_suggestion_model(&mut playground) {
         runner.submit(request, &runner_sink);
     }
@@ -298,6 +299,8 @@ impl Runtime {
                 complete_action: sel!(completePlaygroundText:),
                 autostart_action: sel!(switchAutostart:),
                 suggestion_model_action: sel!(pickSuggestionModel:),
+                system_prompt_action: sel!(systemPromptDidChange:),
+                reset_system_prompt_action: sel!(resetSystemPrompt:),
             };
             SettingsWindow::new(action_target, target.mtm())
         });
@@ -363,6 +366,13 @@ impl Runtime {
             Some(action) => self.on_playground_action(action),
             None => self.render_settings(),
         }
+    }
+
+    fn on_system_prompt_edit(&mut self) {
+        let Some(text) = self.settings.as_ref().map(SettingsWindow::system_prompt) else {
+            return;
+        };
+        self.on_general_action(GeneralAction::EditSystemPrompt(SystemPrompt(text)));
     }
 
     fn on_general_action(&mut self, action: GeneralAction) {
@@ -458,6 +468,18 @@ define_class!(
         fn pick_suggestion_model(&self, sender: &NSPopUpButton) {
             let index = sender.indexOfSelectedItem();
             with_runtime(|runtime| runtime.on_suggestion_model_picked(index));
+        }
+
+        // SAFETY: matches the notification observer signature, called for each edit of the system prompt.
+        #[unsafe(method(systemPromptDidChange:))]
+        fn system_prompt_did_change(&self, _notification: &NSNotification) {
+            with_runtime(Runtime::on_system_prompt_edit);
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's reset button.
+        #[unsafe(method(resetSystemPrompt:))]
+        fn reset_system_prompt(&self, _sender: &NSButton) {
+            with_runtime(|runtime| runtime.on_general_action(GeneralAction::ResetSystemPrompt));
         }
 
         // SAFETY: matches the action signature, called with the playground's button or prompt field.

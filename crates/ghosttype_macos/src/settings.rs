@@ -102,6 +102,8 @@ pub(crate) struct ActionTarget {
     pub(crate) complete_action: Sel,
     pub(crate) autostart_action: Sel,
     pub(crate) suggestion_model_action: Sel,
+    pub(crate) system_prompt_action: Sel,
+    pub(crate) reset_system_prompt_action: Sel,
 }
 
 /// The settings window, kept alive and reused after the user closes it.
@@ -131,7 +133,9 @@ impl SettingsWindow {
     /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
     /// button and prompt field send `target.complete_action`. The General autostart switch sends
     /// `target.autostart_action`, and its suggestion model menu sends
-    /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`].
+    /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`]. Each edit of the
+    /// General system prompt sends `target.system_prompt_action`, see [`Self::system_prompt`], and
+    /// its reset button sends `target.reset_system_prompt_action`.
     pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
         let summary = wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
@@ -203,6 +207,11 @@ impl SettingsWindow {
     /// Returns the action of the General suggestion model menu entry at `index` in the last render.
     pub(crate) fn suggestion_model_choice(&self, index: isize) -> Option<PlaygroundAction> {
         self.general.suggestion_model_menu.action_at(index)
+    }
+
+    /// Returns the text in the General system prompt field.
+    pub(crate) fn system_prompt(&self) -> String {
+        self.general.system_prompt()
     }
 
     /// Shows `view` in the Models pane, reusing row views so clicks in progress are not lost.

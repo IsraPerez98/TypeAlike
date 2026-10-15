@@ -286,6 +286,9 @@ impl SettingsWindow {
 
     /// Reads a `WM_COMMAND` from `control` with `notification`.
     pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<SettingsInput> {
+        if let Some(action) = self.general.action_for(control, notification) {
+            return Some(SettingsInput::General(action));
+        }
         if notification != BN_CLICKED {
             return None;
         }

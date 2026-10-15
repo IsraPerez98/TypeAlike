@@ -5,7 +5,7 @@ use std::io;
 use std::path::PathBuf;
 
 use ghosttype_core::hub::ModelFile;
-use ghosttype_core::inference::Backend;
+use ghosttype_core::inference::{Backend, SystemPrompt};
 use ghosttype_core::settings::{Settings, SettingsStore};
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,7 @@ impl SettingsStore for SettingsFile {
 struct StoredSettings {
     backend: StoredBackend,
     suggestion_model: Option<StoredModelFile>,
+    system_prompt: Option<String>,
 }
 
 impl Default for StoredSettings {
@@ -100,6 +101,7 @@ impl From<Settings> for StoredSettings {
         Self {
             backend,
             suggestion_model,
+            system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
         }
     }
 }
@@ -118,6 +120,7 @@ impl From<StoredSettings> for Settings {
         Self {
             backend,
             suggestion_model,
+            custom_system_prompt: stored.system_prompt.map(SystemPrompt),
         }
     }
 }
@@ -174,6 +177,17 @@ mod tests {
     }
 
     #[test]
+    fn system_prompt_reads_as_the_custom_system_prompt() {
+        let json = r#"{ "system_prompt": "Formal Spanish." }"#;
+
+        let system_prompt = parse(json)
+            .ok()
+            .and_then(|settings| settings.custom_system_prompt);
+
+        assert_eq!(system_prompt, Some(SystemPrompt("Formal Spanish.".to_owned())));
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -195,6 +209,7 @@ mod tests {
         let settings = Settings {
             backend: Backend::Cuda,
             suggestion_model: Some(model_file()),
+            custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
         };
 
         file.save(&settings);

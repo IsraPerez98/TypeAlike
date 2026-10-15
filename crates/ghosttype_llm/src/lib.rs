@@ -50,7 +50,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use ghosttype_core::inference::{InferenceError, InferenceEvent, Prompt, TokenCount};
+    use ghosttype_core::inference::{InferenceError, InferenceEvent, Prompt, SystemPrompt, TokenCount};
 
     use super::*;
 
@@ -140,5 +140,32 @@ mod tests {
         );
 
         assert_eq!(event, InferenceEvent::Completed(Err(InferenceError::NoModel)));
+    }
+
+    #[test]
+    fn setting_the_system_prompt_sends_no_event() {
+        let mut runner = LlamaCpp::new(|_| None);
+        let (sender, events) = mpsc::channel();
+        let sink: InferenceEventSink = Arc::new(move |event| {
+            sender.send(event).ok();
+        });
+
+        runner.submit(
+            InferenceRequest::SetSystemPrompt(SystemPrompt("Formal Spanish.".to_owned())),
+            &sink,
+        );
+        runner.submit(
+            InferenceRequest::Complete {
+                prompt: Prompt("Dear".to_owned()),
+                max_tokens: TokenCount(4),
+            },
+            &sink,
+        );
+        drop(sink);
+
+        assert_eq!(
+            events.iter().collect::<Vec<_>>(),
+            [InferenceEvent::Completed(Err(InferenceError::NoModel))]
+        );
     }
 }

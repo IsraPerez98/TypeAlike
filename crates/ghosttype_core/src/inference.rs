@@ -27,6 +27,23 @@ impl fmt::Debug for Prompt {
     }
 }
 
+/// Text the model reads before each prompt: what the user wants the text to be like. `Debug`
+/// shows only its length, so logs never hold what the user wrote.
+///
+/// ```
+/// use ghosttype_core::inference::SystemPrompt;
+///
+/// assert_eq!(format!("{:?}", SystemPrompt("Formal".to_owned())), "SystemPrompt(6 chars)");
+/// ```
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct SystemPrompt(pub String);
+
+impl fmt::Debug for SystemPrompt {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "SystemPrompt({} chars)", self.0.chars().count())
+    }
+}
+
 /// The hardware that runs a model, and the interface that drives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Backend {
@@ -39,9 +56,13 @@ pub enum Backend {
     Cuda,
 }
 
-/// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its variant.
+/// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its
+/// variant, or with no event when it names none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InferenceRequest {
+    /// Puts this system prompt before the prompt of each later completion, for every model. No
+    /// event answers it. An empty system prompt adds nothing.
+    SetSystemPrompt(SystemPrompt),
     /// Loads the downloaded `file` in place of the loaded model: [`InferenceEvent::Loaded`].
     Load {
         /// The model file to load.
