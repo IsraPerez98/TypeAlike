@@ -3,7 +3,9 @@
 use std::iter;
 
 use crate::hub::ModelFile;
-use crate::inference::{Completion, InferenceError, InferenceEvent, InferenceRequest, Prompt, TokenCount};
+use crate::inference::{
+    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, Prompt, TokenCount,
+};
 use crate::models_pane::model_name;
 
 /// Something the user did in the Playground pane.
@@ -108,12 +110,13 @@ pub struct PlaygroundView {
 ///
 /// let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 ///
-/// assert_eq!(request, Some(InferenceRequest::Load { file }));
+/// assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
 /// ```
 #[derive(Debug, Default)]
 pub struct PlaygroundPane {
     model: Option<SelectedModel>,
     completion: Option<CompletionState>,
+    backend: Option<Backend>,
 }
 
 #[derive(Debug)]
@@ -165,10 +168,53 @@ const NOTHING_ADDED_NOTE: Note = Note {
 const MAX_COMPLETION_TOKENS: TokenCount = TokenCount(32);
 
 impl PlaygroundPane {
-    /// Creates a pane with no model selected.
+    /// Creates a pane with no model selected. The runner picks the backend of each model.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a pane with no model selected that loads each model on `backend`.
+    #[must_use]
+    pub fn with_backend(backend: Backend) -> Self {
+        Self {
+            backend: Some(backend),
+            ..Self::default()
+        }
+    }
+
+    /// Loads models on `backend` from now on, and loads the selected model again on it. Returns
+    /// the request to send, if any. Call it only while the pane is not busy, see
+    /// [`is_busy`](Self::is_busy), because a load that runs ignores the change.
+    pub fn change_backend(&mut self, backend: Backend) -> Option<InferenceRequest> {
+        self.backend = Some(backend);
+        let model = self.model.as_mut()?;
+        model.state = ModelState::Loading;
+        self.completion = None;
+        Some(InferenceRequest::Load {
+            file: model.file.clone(),
+            backend: self.backend,
+        })
+    }
+
+    /// Whether a model loads or a completion runs now.
+    #[must_use]
+    pub fn is_busy(&self) -> bool {
+        let is_loading = self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.state == ModelState::Loading);
+        is_loading || self.is_completing()
+    }
+
+    /// Tells that the selected model loads, or why it did not load; `None` otherwise.
+    #[must_use]
+    pub fn load_note(&self) -> Option<Note> {
+        match self.model.as_ref()?.state {
+            ModelState::Loading => Some(LOADING_NOTE),
+            ModelState::Failed(error) => Some(error_note(error)),
+            ModelState::Ready => None,
+        }
     }
 
     /// Handles a user action; returns the request it needs, if any.
@@ -235,7 +281,10 @@ impl PlaygroundPane {
             state: ModelState::Loading,
         });
         self.completion = None;
-        Some(InferenceRequest::Load { file })
+        Some(InferenceRequest::Load {
+            file,
+            backend: self.backend,
+        })
     }
 
     fn complete(&mut self, prompt: Prompt) -> Option<InferenceRequest> {
@@ -251,14 +300,6 @@ impl PlaygroundPane {
             prompt,
             max_tokens: MAX_COMPLETION_TOKENS,
         })
-    }
-
-    fn is_busy(&self) -> bool {
-        let is_loading = self
-            .model
-            .as_ref()
-            .is_some_and(|model| model.state == ModelState::Loading);
-        is_loading || self.is_completing()
     }
 
     fn is_completing(&self) -> bool {
@@ -337,6 +378,12 @@ fn error_note(error: InferenceError) -> Note {
         InferenceError::ModelMissing => "GhostType cannot find the model file. Download the model again.",
         InferenceError::ModelInvalid => {
             "GhostType cannot load this model. The file is damaged, or GhostType cannot use this type of model."
+        }
+        InferenceError::ModelTooLarge => {
+            "The model does not fit in the GPU memory. In General, select another backend, or use a smaller model."
+        }
+        InferenceError::BackendUnavailable => {
+            "GhostType cannot use this backend on this computer. In General, select another backend."
         }
         InferenceError::NoModel => "Select a model first.",
         InferenceError::PromptTooLong => "The text is too long for this model. Use shorter text.",
@@ -480,7 +527,161 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file }));
+        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+    }
+
+    #[test]
+    fn pane_with_a_backend_loads_models_on_it() {
+        let file = model_file("a.gguf");
+        let mut pane = PlaygroundPane::with_backend(Backend::Vulkan);
+
+        let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Some(Backend::Vulkan),
+            })
+        );
+    }
+
+    #[test]
+    fn changing_the_backend_loads_the_selected_model_again() {
+        let file = model_file("a.gguf");
+        let mut pane = ready_pane(&file);
+
+        let request = pane.change_backend(Backend::Cuda);
+
+        assert_eq!(
+            (request, pane.view(std::slice::from_ref(&file)).model_note),
+            (
+                Some(InferenceRequest::Load {
+                    file,
+                    backend: Some(Backend::Cuda),
+                }),
+                Some(LOADING),
+            )
+        );
+    }
+
+    #[test]
+    fn changing_the_backend_loads_a_failed_model_again() {
+        let file = model_file("a.gguf");
+        let mut pane = PlaygroundPane::with_backend(Backend::Vulkan);
+        pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+        pane.on_event(InferenceEvent::Loaded {
+            file: file.clone(),
+            result: Err(InferenceError::ModelTooLarge),
+        });
+
+        let request = pane.change_backend(Backend::Cpu);
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Some(Backend::Cpu),
+            })
+        );
+    }
+
+    #[test]
+    fn changing_the_backend_without_a_model_loads_nothing() {
+        let mut pane = PlaygroundPane::new();
+
+        let request = pane.change_backend(Backend::Vulkan);
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn models_selected_after_a_backend_change_load_on_it() {
+        let file = model_file("a.gguf");
+        let mut pane = PlaygroundPane::new();
+        pane.change_backend(Backend::Vulkan);
+
+        let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Some(Backend::Vulkan),
+            })
+        );
+    }
+
+    #[test]
+    fn changing_the_backend_clears_the_output() {
+        let file = model_file("a.gguf");
+        let mut pane = completing_pane(&file);
+        pane.on_event(InferenceEvent::Completed(Ok(completion(
+            " Sir",
+            1,
+            Duration::ZERO,
+        ))));
+
+        pane.change_backend(Backend::Vulkan);
+
+        assert_eq!(pane.view(&[file]).output, None);
+    }
+
+    #[test]
+    fn pane_is_busy_while_a_model_loads() {
+        let mut pane = PlaygroundPane::new();
+        pane.on_action(PlaygroundAction::SelectModel(model_file("a.gguf")));
+
+        assert!(pane.is_busy());
+    }
+
+    #[test]
+    fn pane_is_busy_while_text_completes() {
+        let pane = completing_pane(&model_file("a.gguf"));
+
+        assert!(pane.is_busy());
+    }
+
+    #[test]
+    fn pane_with_a_loaded_model_is_not_busy() {
+        let pane = ready_pane(&model_file("a.gguf"));
+
+        assert!(!pane.is_busy());
+    }
+
+    #[test]
+    fn load_note_tells_how_the_selected_model_loads() {
+        let file = model_file("a.gguf");
+        let loading = {
+            let mut pane = PlaygroundPane::new();
+            pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+            pane
+        };
+        let failed = {
+            let mut pane = PlaygroundPane::new();
+            pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+            pane.on_event(InferenceEvent::Loaded {
+                file: file.clone(),
+                result: Err(InferenceError::BackendUnavailable),
+            });
+            pane
+        };
+        let panes = [PlaygroundPane::new(), loading, failed, ready_pane(&file)];
+
+        let notes = panes.map(|pane| pane.load_note());
+
+        assert_eq!(
+            notes,
+            [
+                None,
+                Some(LOADING),
+                Some(Note {
+                    text: "GhostType cannot use this backend on this computer. In General, select another backend.",
+                    tone: NoteTone::Error,
+                }),
+                None,
+            ]
+        );
     }
 
     #[test]
@@ -557,7 +758,7 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file }));
+        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
     }
 
     #[test]
@@ -601,7 +802,13 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(other.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file: other }));
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file: other,
+                backend: None,
+            })
+        );
     }
 
     #[test]
@@ -789,6 +996,8 @@ mod tests {
         let errors = [
             InferenceError::ModelMissing,
             InferenceError::ModelInvalid,
+            InferenceError::ModelTooLarge,
+            InferenceError::BackendUnavailable,
             InferenceError::NoModel,
             InferenceError::PromptTooLong,
             InferenceError::Failed,
@@ -802,6 +1011,12 @@ mod tests {
                 Some("GhostType cannot find the model file. Download the model again."),
                 Some(
                     "GhostType cannot load this model. The file is damaged, or GhostType cannot use this type of model."
+                ),
+                Some(
+                    "The model does not fit in the GPU memory. In General, select another backend, or use a smaller model."
+                ),
+                Some(
+                    "GhostType cannot use this backend on this computer. In General, select another backend."
                 ),
                 Some("Select a model first."),
                 Some("The text is too long for this model. Use shorter text."),

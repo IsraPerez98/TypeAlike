@@ -1,5 +1,5 @@
 //! The settings window: a navigation list of panes, like the Settings app, that renders the core
-//! Models and Playground panes and reports user actions back.
+//! Models, Playground and General panes and reports user actions back.
 //!
 //! Mica fills the whole window: the frame extends over the client area, and every window in it
 //! draws with Direct2D into pixels with alpha. Transparent pixels show Mica, and cards and
@@ -9,6 +9,7 @@ mod appearance;
 mod canvas;
 mod controls;
 mod form;
+mod general_page;
 mod layout;
 mod look;
 mod models_page;
@@ -20,6 +21,7 @@ mod typography;
 
 use std::rc::Rc;
 
+use ghosttype_core::general_pane::{GeneralAction, GeneralView};
 use ghosttype_core::models_pane::{ModelsAction, ModelsView};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundView};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
@@ -50,8 +52,10 @@ use windows::core::{BOOL, HSTRING, Owned, Result, w};
 use crate::gdi::glyph_icon;
 use crate::settings::controls::{Control, ControlKind};
 use crate::settings::form::PAGE_TEXT;
+use crate::settings::general_page::GeneralPage;
 use crate::settings::layout::{Bounds, Dpi, Point, ScrollMove, centered_origin};
 use crate::settings::models_page::ModelsPage;
+use crate::settings::page::Page;
 use crate::settings::paint::PaintSession;
 use crate::settings::palette::Backdrop;
 use crate::settings::playground_page::PlaygroundPage;
@@ -77,6 +81,7 @@ const WHOLE_WINDOW: i32 = -1;
 const APP_GLYPH: &str = "\u{E70F}";
 const MODELS_GLYPH: char = '\u{E896}';
 const PLAYGROUND_GLYPH: char = '\u{E70F}';
+const GENERAL_GLYPH: char = '\u{E713}';
 
 /// The window procedures that receive the settings window's messages.
 #[derive(Debug, Clone, Copy)]
@@ -84,6 +89,7 @@ pub(crate) struct Procedures {
     pub(crate) window: WNDPROC,
     pub(crate) models_page: WNDPROC,
     pub(crate) playground_page: WNDPROC,
+    pub(crate) general_page: WNDPROC,
 }
 
 /// Something the user did in the settings window that the core panes must handle.
@@ -91,15 +97,27 @@ pub(crate) struct Procedures {
 pub(crate) enum SettingsInput {
     Models(ModelsAction),
     Playground(PlaygroundAction),
-    /// The user opened the model picker; its menu must show outside any borrow of the runtime.
-    OpenModelMenu,
+    General(GeneralAction),
+    /// The user opened a picker; its menu must show outside any borrow of the runtime.
+    OpenMenu(MenuPicker),
+}
+
+/// A picker whose choices show in a menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MenuPicker {
+    Model,
+    Backend,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
     Models,
     Playground,
+    General,
 }
+
+/// The panes in the order of the navigation list.
+const PANES: [Pane; 3] = [Pane::Models, Pane::Playground, Pane::General];
 
 /// The title bar and taskbar icons of the window, kept alive while the window shows them.
 #[derive(Debug)]
@@ -113,8 +131,10 @@ struct WindowIcons {
 pub(crate) struct SettingsWindow {
     models_tab: Control,
     playground_tab: Control,
+    general_tab: Control,
     models: ModelsPage,
     playground: PlaygroundPage,
+    general: GeneralPage,
     selected: Pane,
     appearance: Rc<Appearance>,
     icons: Option<WindowIcons>,
@@ -149,8 +169,10 @@ impl SettingsWindow {
         let mut settings = Self {
             models_tab: tab()?.with_glyph(MODELS_GLYPH),
             playground_tab: tab()?.with_glyph(PLAYGROUND_GLYPH),
+            general_tab: tab()?.with_glyph(GENERAL_GLYPH),
             models: ModelsPage::create(handle, procedures.models_page)?,
             playground: PlaygroundPage::create(handle, procedures.playground_page)?,
+            general: GeneralPage::create(handle, procedures.general_page)?,
             selected: Pane::Models,
             appearance,
             icons: None,
@@ -213,12 +235,19 @@ impl SettingsWindow {
         let _ = unsafe { ShowWindow(self.handle(), SW_HIDE) };
     }
 
-    pub(crate) fn render(&mut self, models: &ModelsView, playground: &PlaygroundView) -> Result<()> {
+    pub(crate) fn render(
+        &mut self,
+        models: &ModelsView,
+        playground: &PlaygroundView,
+        general: &GeneralView,
+    ) -> Result<()> {
         self.models_tab.set_text(models.title);
         self.playground_tab.set_text(playground.title);
+        self.general_tab.set_text(general.title);
         let appearance = Rc::clone(&self.appearance);
         self.models.render(models, &appearance)?;
         self.playground.render(playground, &appearance);
+        self.general.render(general, &appearance);
         self.show_selected_page();
         Ok(())
     }
@@ -236,20 +265,23 @@ impl SettingsWindow {
             width: nav_width - 2 * padding,
             height: item_height,
         };
-        self.models_tab.place(item, None);
-        item.y += item_height + appearance.px(NAV_ITEM_GAP);
-        self.playground_tab.place(item, Some(self.models_tab.handle()));
+        let mut previous = None;
+        for pane in PANES {
+            let tab = self.tab(pane);
+            tab.place(item, previous);
+            previous = Some(tab.handle());
+            item.y += item_height + appearance.px(NAV_ITEM_GAP);
+        }
         let page = Bounds {
             x: nav_width,
             y: 0,
             width: (client.width - nav_width).max(0),
             height: client.height,
         };
-        for handle in [self.models.page().handle(), self.playground.page().handle()] {
-            move_window(handle, page);
+        for pane in PANES {
+            move_window(self.page(pane).handle(), page);
+            self.layout_pane(pane);
         }
-        self.models.layout(&appearance);
-        self.playground.layout(&appearance);
     }
 
     /// Reads a `WM_COMMAND` from `control` with `notification`.
@@ -257,16 +289,15 @@ impl SettingsWindow {
         if notification != BN_CLICKED {
             return None;
         }
-        if control == self.models_tab.handle() {
-            self.select(Pane::Models);
-            return None;
-        }
-        if control == self.playground_tab.handle() {
-            self.select(Pane::Playground);
+        if let Some(pane) = PANES.into_iter().find(|&pane| self.tab(pane).handle() == control) {
+            self.select(pane);
             return None;
         }
         if self.playground.is_model_picker(control) {
-            return Some(SettingsInput::OpenModelMenu);
+            return Some(SettingsInput::OpenMenu(MenuPicker::Model));
+        }
+        if self.general.is_backend_picker(control) {
+            return Some(SettingsInput::OpenMenu(MenuPicker::Backend));
         }
         self.models
             .action_for(control)
@@ -295,33 +326,29 @@ impl SettingsWindow {
             })
     }
 
-    /// The menu that the model picker opens.
-    pub(crate) fn model_menu(&self) -> PickerMenu {
-        self.playground.model_menu()
+    /// The menu that `picker` opens.
+    pub(crate) fn picker_menu(&self, picker: MenuPicker) -> PickerMenu {
+        match picker {
+            MenuPicker::Model => self.playground.model_menu(),
+            MenuPicker::Backend => self.general.backend_menu(),
+        }
     }
 
-    /// Reads the pick of the entry at `index` of the model menu.
-    pub(crate) fn input_for_model(&self, index: usize) -> Option<SettingsInput> {
-        self.playground.choice_at(index).map(SettingsInput::Playground)
+    /// Reads the pick of the entry at `index` of the menu of `picker`.
+    pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<SettingsInput> {
+        match picker {
+            MenuPicker::Model => self.playground.choice_at(index).map(SettingsInput::Playground),
+            MenuPicker::Backend => self.general.choice_at(index).map(SettingsInput::General),
+        }
     }
 
     /// Reacts to the pointer over the page `page_window`, which scrolls with its scroll bar.
     pub(crate) fn on_page_pointer(&mut self, page_window: HWND, pointer: Pointer) {
-        let appearance = Rc::clone(&self.appearance);
-        let (pane, scroll) = if page_window == self.playground.page().handle() {
-            (
-                Pane::Playground,
-                self.playground.page_mut().on_pointer(pointer, &appearance),
-            )
-        } else if page_window == self.models.page().handle() {
-            (
-                Pane::Models,
-                self.models.page_mut().on_pointer(pointer, &appearance),
-            )
-        } else {
+        let Some(pane) = self.pane_of(page_window) else {
             return;
         };
-        if let Some(scroll) = scroll {
+        let appearance = Rc::clone(&self.appearance);
+        if let Some(scroll) = self.page_mut(pane).on_pointer(pointer, &appearance) {
             self.scroll_pane(pane, scroll);
         }
     }
@@ -342,13 +369,8 @@ impl SettingsWindow {
             return;
         }
         let bounds = bounds_in(focus, page);
-        let appearance = Rc::clone(&self.appearance);
-        match self.selected {
-            Pane::Models if self.models.page_mut().reveal(bounds) => self.models.layout(&appearance),
-            Pane::Playground if self.playground.page_mut().reveal(bounds) => {
-                self.playground.layout(&appearance);
-            }
-            Pane::Models | Pane::Playground => {}
+        if self.page_mut(self.selected).reveal(bounds) {
+            self.layout_pane(self.selected);
         }
     }
 
@@ -388,10 +410,8 @@ impl SettingsWindow {
 
     /// Paints the page `page_window`. Call only while handling `WM_PAINT`.
     pub(crate) fn paint_page(&self, page_window: HWND) {
-        if page_window == self.playground.page().handle() {
-            self.playground.page().paint(&self.appearance);
-        } else {
-            self.models.page().paint(&self.appearance);
+        if let Some(pane) = self.pane_of(page_window) {
+            self.page(pane).paint(&self.appearance);
         }
     }
 
@@ -422,49 +442,72 @@ impl SettingsWindow {
     }
 
     fn mark_selected_tab(&self) {
-        let (selected, other) = match self.selected {
-            Pane::Models => (&self.models_tab, &self.playground_tab),
-            Pane::Playground => (&self.playground_tab, &self.models_tab),
-        };
-        selected.mark_selected();
-        other.mark_unselected();
+        for pane in PANES {
+            if pane == self.selected {
+                self.tab(pane).mark_selected();
+            } else {
+                self.tab(pane).mark_unselected();
+            }
+        }
     }
 
     fn show_selected_page(&self) {
-        match self.selected {
-            Pane::Models => {
-                self.models.page().show();
-                self.playground.page().hide();
-            }
-            Pane::Playground => {
-                self.playground.page().show();
-                self.models.page().hide();
-            }
+        self.page(self.selected).show();
+        for pane in PANES.into_iter().filter(|&pane| pane != self.selected) {
+            self.page(pane).hide();
         }
     }
 
     fn scroll_pane(&mut self, pane: Pane, scroll: ScrollMove) {
-        let appearance = Rc::clone(&self.appearance);
-        match pane {
-            Pane::Models if self.models.page_mut().scroll(scroll) => self.models.layout(&appearance),
-            Pane::Playground if self.playground.page_mut().scroll(scroll) => {
-                self.playground.layout(&appearance);
-            }
-            Pane::Models | Pane::Playground => {}
+        if self.page_mut(pane).scroll(scroll) {
+            self.layout_pane(pane);
         }
     }
 
     fn selected_tab(&self) -> &Control {
-        match self.selected {
-            Pane::Models => &self.models_tab,
-            Pane::Playground => &self.playground_tab,
-        }
+        self.tab(self.selected)
     }
 
     fn selected_page_handle(&self) -> HWND {
-        match self.selected {
-            Pane::Models => self.models.page().handle(),
-            Pane::Playground => self.playground.page().handle(),
+        self.page(self.selected).handle()
+    }
+
+    fn tab(&self, pane: Pane) -> &Control {
+        match pane {
+            Pane::Models => &self.models_tab,
+            Pane::Playground => &self.playground_tab,
+            Pane::General => &self.general_tab,
+        }
+    }
+
+    fn page(&self, pane: Pane) -> &Page {
+        match pane {
+            Pane::Models => self.models.page(),
+            Pane::Playground => self.playground.page(),
+            Pane::General => self.general.page(),
+        }
+    }
+
+    fn page_mut(&mut self, pane: Pane) -> &mut Page {
+        match pane {
+            Pane::Models => self.models.page_mut(),
+            Pane::Playground => self.playground.page_mut(),
+            Pane::General => self.general.page_mut(),
+        }
+    }
+
+    fn pane_of(&self, page_window: HWND) -> Option<Pane> {
+        PANES
+            .into_iter()
+            .find(|&pane| self.page(pane).handle() == page_window)
+    }
+
+    fn layout_pane(&mut self, pane: Pane) {
+        let appearance = Rc::clone(&self.appearance);
+        match pane {
+            Pane::Models => self.models.layout(&appearance),
+            Pane::Playground => self.playground.layout(&appearance),
+            Pane::General => self.general.layout(&appearance),
         }
     }
 
@@ -482,10 +525,12 @@ impl SettingsWindow {
             Ok(icons) => self.icons = Some(icons),
             Err(error) => tracing::warn!(%error, "failed to set window icons"),
         }
-        self.models_tab.apply(&appearance);
-        self.playground_tab.apply(&appearance);
+        for pane in PANES {
+            self.tab(pane).apply(&appearance);
+        }
         self.models.apply(&appearance);
         self.playground.apply(&appearance);
+        self.general.apply(&appearance);
         // Returns whether it redrew; a failure only delays the repaint.
         // SAFETY: plain call on a window this type owns.
         let _ = unsafe {

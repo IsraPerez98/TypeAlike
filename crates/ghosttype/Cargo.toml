@@ -12,6 +12,12 @@ publish.workspace = true
 name = "GhostType"
 path = "src/main.rs"
 
+[features]
+# Builds the GPU backends that the General pane offers. Each needs its SDK at build time (the
+# Vulkan SDK, the CUDA Toolkit) and its runtime at run time (a GPU driver, the CUDA DLLs).
+vulkan = ["ghosttype_llm/vulkan"]
+cuda = ["ghosttype_llm/cuda"]
+
 [dependencies]
 anyhow.workspace = true
 ghosttype_core.workspace = true
@@ -24,6 +30,8 @@ ghosttype_models.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ghosttype_windows.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 ghosttype_macos.workspace = true

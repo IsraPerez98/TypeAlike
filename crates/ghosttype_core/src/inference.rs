@@ -27,6 +27,18 @@ impl fmt::Debug for Prompt {
     }
 }
 
+/// The hardware that runs a model, and the interface that drives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Backend {
+    /// The CPU of this computer.
+    #[default]
+    Cpu,
+    /// A GPU through Vulkan: NVIDIA, AMD or Intel.
+    Vulkan,
+    /// An NVIDIA GPU through CUDA.
+    Cuda,
+}
+
 /// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InferenceRequest {
@@ -34,6 +46,8 @@ pub enum InferenceRequest {
     Load {
         /// The model file to load.
         file: ModelFile,
+        /// The backend that runs the model, or `None` to let the runner pick, as its build allows.
+        backend: Option<Backend>,
     },
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`].
     Complete {
@@ -76,6 +90,10 @@ pub enum InferenceError {
     ModelMissing,
     /// The file is not a model the runner can load.
     ModelInvalid,
+    /// The model does not fit in the free memory of the GPU that the backend uses.
+    ModelTooLarge,
+    /// The backend cannot run here: this build does not include it, or no GPU supports it.
+    BackendUnavailable,
     /// No model is loaded.
     NoModel,
     /// The prompt does not fit in the model's context with room for the completion.

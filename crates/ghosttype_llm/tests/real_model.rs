@@ -24,7 +24,13 @@ fn real_model_continues_text() {
         sender.send(event).ok();
     });
 
-    runner.submit(InferenceRequest::Load { file: file.clone() }, &sink);
+    runner.submit(
+        InferenceRequest::Load {
+            file: file.clone(),
+            backend: None,
+        },
+        &sink,
+    );
     runner.submit(
         InferenceRequest::Complete {
             prompt: Prompt("Once upon a time".to_owned()),

@@ -185,6 +185,8 @@ dependencies = [
  "ghosttype_macos",
  "ghosttype_models",
  "ghosttype_windows",
+ "serde",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]
@@ -199,6 +201,7 @@ version = "0.1.0"
 dependencies = [
  "ghosttype_core",
  "llama-cpp-2",
+ "llama-cpp-sys-2",
  "thiserror",
  "tracing",
 ]

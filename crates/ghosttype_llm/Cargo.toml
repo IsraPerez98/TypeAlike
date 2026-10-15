@@ -8,9 +8,16 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Each GPU backend builds as a DLL that llama.cpp loads at start. The app still starts and runs on
+# the CPU when the GPU driver or runtime is missing.
+vulkan = ["llama-cpp-2/vulkan", "llama-cpp-2/dynamic-backends"]
+cuda = ["llama-cpp-2/cuda", "llama-cpp-2/dynamic-backends"]
+
 [dependencies]
 ghosttype_core.workspace = true
-llama-cpp-2.workspace = true
+llama-cpp-2 = { workspace = true, features = ["common"] }
+llama-cpp-sys-2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

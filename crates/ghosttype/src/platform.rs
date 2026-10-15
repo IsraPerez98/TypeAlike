@@ -1,19 +1,29 @@
 //! Selects the platform layer that runs GhostType on this OS.
 
+#[cfg(target_os = "windows")]
+mod settings_file;
+
 use ghosttype_core::app::App;
 
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
 pub(crate) fn run(app: App) -> anyhow::Result<()> {
     use anyhow::Context as _;
-    let models_dir = std::env::var_os("LOCALAPPDATA")
+    let data_dir = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .context("no local app data directory")?
-        .join("GhostType")
-        .join("Models");
+        .join("GhostType");
+    let models_dir = data_dir.join("Models");
+    let settings_file = settings_file::SettingsFile::new(data_dir.join("settings.json"));
+    let settings = settings_file.load();
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
-    ghosttype_windows::run(app, Box::new(hub), Box::new(runner)).context("ghosttype stopped unexpectedly")
+    let services = ghosttype_windows::Services {
+        hub: Box::new(hub),
+        runner: Box::new(runner),
+        settings_store: Box::new(settings_file),
+    };
+    ghosttype_windows::run(app, settings, services).context("ghosttype stopped unexpectedly")
 }
 
 /// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the

@@ -1,31 +1,39 @@
 //! The thread that owns llama.cpp: the backend, the loaded model and each completion.
 
+use std::ffi::CString;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::str;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, Prompt, TokenCount,
+    Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, Prompt,
+    TokenCount,
 };
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
 use llama_cpp_2::model::LlamaModel;
-use llama_cpp_2::model::params::LlamaModelParams;
+use llama_cpp_2::model::params::{FitError, LlamaModelParams};
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{
-    DecodeError, LlamaContextLoadError, LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_tracing,
+    DecodeError, LlamaBackendDevice, LlamaBackendDeviceType, LlamaContextLoadError, LlamaCppError,
+    LlamaModelLoadError, LogOptions, list_llama_ggml_backend_devices, max_devices, send_logs_to_tracing,
 };
+use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
 const CONTEXT_TOKENS: u32 = 2048;
 const SEQUENCE: i32 = 0;
 const LAST_OUTPUT: i32 = -1;
+/// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
+/// desktop and other apps keep working.
+const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -38,8 +46,8 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
     let mut worker = Worker::default();
     for Job { request, sink } in jobs {
         let event = match request {
-            InferenceRequest::Load { file } => InferenceEvent::Loaded {
-                result: worker.load(locate_model(&file)),
+            InferenceRequest::Load { file, backend } => InferenceEvent::Loaded {
+                result: worker.load(locate_model(&file), backend),
                 file,
             },
             InferenceRequest::Complete { prompt, max_tokens } => {
@@ -57,21 +65,21 @@ struct Worker {
 }
 
 impl Worker {
-    fn load(&mut self, path: Option<PathBuf>) -> Result<(), InferenceError> {
+    fn load(&mut self, path: Option<PathBuf>, backend: Option<Backend>) -> Result<(), InferenceError> {
         self.model = None;
         let path = path
             .filter(|path| path.is_file())
             .ok_or(InferenceError::ModelMissing)?;
-        let backend = self.start_backend().map_err(|error| {
+        let llama = self.start_backend().map_err(|error| {
             tracing::error!(%error, "failed to start llama.cpp");
             InferenceError::Failed
         })?;
-        let model = LlamaModel::load_from_file(backend, &path, &LlamaModelParams::default()).map_err(
-            |error: LlamaModelLoadError| {
+        let params = model_params(&path, backend)?;
+        let model =
+            LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
                 tracing::warn!(%error, "failed to load a model");
                 InferenceError::ModelInvalid
-            },
-        )?;
+            })?;
         self.model = Some(model);
         Ok(())
     }
@@ -99,6 +107,90 @@ impl Worker {
             duration: started.elapsed(),
         })
     }
+}
+
+/// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
+/// makes sure that the whole model fits in the GPU, because llama.cpp otherwise loads a part of it
+/// into slow shared memory, or fails at a later step.
+fn model_params(path: &Path, backend: Option<Backend>) -> Result<LlamaModelParams, InferenceError> {
+    match backend {
+        None => Ok(LlamaModelParams::default()),
+        Some(Backend::Cpu) => on_devices(&[]),
+        Some(gpu_backend @ (Backend::Vulkan | Backend::Cuda)) => {
+            let devices = list_llama_ggml_backend_devices();
+            let device = gpu_device(&devices, gpu_backend).ok_or_else(|| {
+                tracing::warn!(backend = ?gpu_backend, "no GPU device for the backend");
+                InferenceError::BackendUnavailable
+            })?;
+            tracing::info!(backend = ?gpu_backend, device = %device.description, "loading the model on a GPU");
+            check_fit(path, device.index, GPU_MEMORY_MARGIN_BYTES)?;
+            on_devices(&[device.index])
+        }
+    }
+}
+
+/// Returns the device that runs `backend`: its first discrete GPU, else its first integrated GPU.
+/// The CPU backend has none.
+fn gpu_device(devices: &[LlamaBackendDevice], backend: Backend) -> Option<&LlamaBackendDevice> {
+    let registry = match backend {
+        Backend::Cpu => return None,
+        Backend::Vulkan => "Vulkan",
+        Backend::Cuda => "CUDA",
+    };
+    let of_type = |device_type| {
+        devices
+            .iter()
+            .find(|device| device.backend == registry && device.device_type == device_type)
+    };
+    of_type(LlamaBackendDeviceType::Gpu).or_else(|| of_type(LlamaBackendDeviceType::IntegratedGpu))
+}
+
+/// Returns parameters that put the model on the GPU `devices` only. With no devices, the model
+/// runs on the CPU only.
+fn on_devices(devices: &[usize]) -> Result<LlamaModelParams, InferenceError> {
+    LlamaModelParams::default()
+        .with_devices(devices)
+        .map_err(|error| {
+            tracing::warn!(%error, "failed to select the GPU");
+            InferenceError::BackendUnavailable
+        })
+}
+
+/// Makes sure that the model at `path`, with all its layers and its context, fits in the free
+/// memory of `device` and leaves `margin_bytes` free. It reads the model but does not load it.
+fn check_fit(path: &Path, device: usize, margin_bytes: usize) -> Result<(), InferenceError> {
+    let model_path = path
+        .to_str()
+        .and_then(|path| CString::new(path).ok())
+        .ok_or(InferenceError::ModelInvalid)?;
+    let mut params = on_devices(&[device])?;
+    let all_layers = params.n_gpu_layers();
+    let mut context = context_params(CONTEXT_TOKENS);
+    let mut margins = vec![margin_bytes; max_devices()];
+    let fitted = Pin::new(&mut params).fit_params(
+        &model_path,
+        &mut context,
+        &mut margins,
+        CONTEXT_TOKENS,
+        GGML_LOG_LEVEL_WARN,
+    );
+    fit_verdict(fitted.map(|_| params.n_gpu_layers() == all_layers))
+}
+
+/// Reads the outcome of llama.cpp's fit: whether it kept every layer on the GPU, or why it failed.
+/// llama.cpp moves layers to the CPU when the model does not fit. GhostType refuses that instead.
+fn fit_verdict(fitted: Result<bool, FitError>) -> Result<(), InferenceError> {
+    match fitted {
+        Ok(true) => Ok(()),
+        Ok(false) | Err(FitError::Failure) => Err(InferenceError::ModelTooLarge),
+        Err(FitError::Error) => Err(InferenceError::ModelInvalid),
+    }
+}
+
+fn context_params(context_tokens: u32) -> LlamaContextParams {
+    LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(context_tokens))
+        .with_n_batch(context_tokens)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -142,10 +234,7 @@ fn generate(
     if prompt_tokens.len().saturating_add(max_added) > capacity {
         return Err(GenerateError::PromptTooLong);
     }
-    let params = LlamaContextParams::default()
-        .with_n_ctx(NonZeroU32::new(context_tokens))
-        .with_n_batch(context_tokens);
-    let mut context = model.new_context(backend, params)?;
+    let mut context = model.new_context(backend, context_params(context_tokens))?;
     let mut batch = LlamaBatch::new(capacity, 1);
     batch.add_sequence(&prompt_tokens, SEQUENCE, false)?;
     context.decode(&mut batch)?;
@@ -197,6 +286,105 @@ fn text_without_cut_character(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn device(index: usize, backend: &str, device_type: LlamaBackendDeviceType) -> LlamaBackendDevice {
+        LlamaBackendDevice {
+            index,
+            name: format!("{backend}{index}"),
+            description: String::new(),
+            backend: backend.to_owned(),
+            memory_total: 0,
+            memory_free: 0,
+            device_type,
+        }
+    }
+
+    fn gpu_index(devices: &[LlamaBackendDevice], backend: Backend) -> Option<usize> {
+        gpu_device(devices, backend).map(|device| device.index)
+    }
+
+    #[test]
+    fn discrete_gpu_runs_the_backend_before_an_integrated_one() {
+        let devices = [
+            device(0, "CPU", LlamaBackendDeviceType::Cpu),
+            device(1, "Vulkan", LlamaBackendDeviceType::IntegratedGpu),
+            device(2, "Vulkan", LlamaBackendDeviceType::Gpu),
+        ];
+
+        assert_eq!(gpu_index(&devices, Backend::Vulkan), Some(2));
+    }
+
+    #[test]
+    fn integrated_gpu_runs_the_backend_without_a_discrete_one() {
+        let devices = [
+            device(0, "Vulkan", LlamaBackendDeviceType::IntegratedGpu),
+            device(1, "CPU", LlamaBackendDeviceType::Cpu),
+        ];
+
+        assert_eq!(gpu_index(&devices, Backend::Vulkan), Some(0));
+    }
+
+    #[test]
+    fn gpu_of_another_backend_does_not_run_it() {
+        let devices = [
+            device(0, "CUDA", LlamaBackendDeviceType::Gpu),
+            device(1, "CPU", LlamaBackendDeviceType::Cpu),
+        ];
+
+        assert_eq!(gpu_index(&devices, Backend::Vulkan), None);
+    }
+
+    #[test]
+    fn cuda_backend_runs_on_a_cuda_device() {
+        let devices = [
+            device(0, "Vulkan", LlamaBackendDeviceType::Gpu),
+            device(1, "CUDA", LlamaBackendDeviceType::Gpu),
+        ];
+
+        assert_eq!(gpu_index(&devices, Backend::Cuda), Some(1));
+    }
+
+    #[test]
+    fn cpu_backend_has_no_gpu() {
+        let devices = [device(0, "Vulkan", LlamaBackendDeviceType::Gpu)];
+
+        assert_eq!(gpu_index(&devices, Backend::Cpu), None);
+    }
+
+    #[test]
+    fn only_a_fit_that_keeps_every_layer_on_the_gpu_passes() {
+        let fits = [Ok(true), Ok(false), Err(FitError::Failure), Err(FitError::Error)];
+
+        let verdicts = fits.map(fit_verdict);
+
+        assert_eq!(
+            verdicts,
+            [
+                Ok(()),
+                Err(InferenceError::ModelTooLarge),
+                Err(InferenceError::ModelTooLarge),
+                Err(InferenceError::ModelInvalid),
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU build, a GPU and the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+    fn model_does_not_fit_when_the_margin_takes_all_gpu_memory() {
+        const ALL_MEMORY_BYTES: usize = 1 << 50;
+        let path =
+            PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
+        let mut worker = Worker::default();
+        worker.start_backend().expect("llama.cpp starts");
+        let devices = list_llama_ggml_backend_devices();
+        let device = gpu_device(&devices, Backend::Vulkan)
+            .or_else(|| gpu_device(&devices, Backend::Cuda))
+            .expect("the build has a GPU backend and the computer has a GPU");
+
+        let verdict = check_fit(&path, device.index, ALL_MEMORY_BYTES);
+
+        assert_eq!(verdict, Err(InferenceError::ModelTooLarge));
+    }
 
     #[test]
     fn complete_text_is_kept() {

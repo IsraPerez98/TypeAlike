@@ -6,10 +6,12 @@ use std::sync::mpsc;
 
 use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
+use ghosttype_core::general_pane::GeneralPane;
 use ghosttype_core::hub::{HubEventSink, ModelHub};
 use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner};
 use ghosttype_core::models_pane::ModelsPane;
 use ghosttype_core::playground::PlaygroundPane;
+use ghosttype_core::settings::{Settings, SettingsStore};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -27,22 +29,22 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
-use crate::RunError;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Disposition, ReleaseFilter};
 use crate::mailbox::{DELIVERY_MESSAGE, Delivery, Mailbox};
 use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
-use crate::settings::{self, Appearance, Pointer, Procedures, SettingsInput, SettingsWindow};
+use crate::settings::{self, Appearance, MenuPicker, Pointer, Procedures, SettingsInput, SettingsWindow};
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
+use crate::{RunError, Services};
 
 const GHOST_TIMER_ID: usize = 1;
 const CARET_SETTLE_DELAY_MS: u32 = 40;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
-const MODEL_MENU_MESSAGE: u32 = WM_APP + 4;
+const PICKER_MENU_MESSAGE: u32 = WM_APP + 4;
 const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
@@ -53,6 +55,7 @@ const SETTINGS_PROCEDURES: Procedures = Procedures {
     window: Some(settings_window_procedure),
     models_page: Some(settings_page_procedure),
     playground_page: Some(settings_page_procedure),
+    general_page: Some(settings_page_procedure),
 };
 
 /// Everything Win32 callbacks on this thread can reach. The appearance has its own cell because
@@ -71,9 +74,14 @@ thread_local! {
     };
 }
 
-/// Shows the tray icon and offers suggestions from `runner` until the user quits; settings use
-/// `hub` and `runner`.
-pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
+/// Shows the tray icon and offers suggestions from the runner of `services` until the user quits.
+/// The settings window starts with `settings` and uses `services`.
+pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
+    let Services {
+        hub,
+        runner,
+        settings_store,
+    } = services;
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
         procedure: Some(main_window_procedure),
@@ -106,12 +114,15 @@ pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>
             models: ModelsPane::new(),
             hub,
             hub_sink: mailbox.sink(Delivery::Hub),
-            playground: PlaygroundPane::new(),
+            playground: PlaygroundPane::with_backend(settings.backend),
+            general: GeneralPane::new(settings),
+            settings_store,
             runner,
             runner_sink: mailbox.sink(Delivery::Playground),
             suggestion_sink: mailbox.sink(Delivery::Suggestion),
             deliveries,
             settings: None,
+            pending_menu: None,
         }))
     });
     tracing::info!("running in the tray");
@@ -197,11 +208,15 @@ struct Runtime {
     hub: Box<dyn ModelHub>,
     hub_sink: HubEventSink,
     playground: PlaygroundPane,
+    general: GeneralPane,
+    settings_store: Box<dyn SettingsStore>,
     runner: Box<dyn ModelRunner>,
     runner_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
     deliveries: mpsc::Receiver<Delivery>,
     settings: Option<SettingsWindow>,
+    /// The picker whose menu must show once the runtime is free.
+    pending_menu: Option<MenuPicker>,
 }
 
 impl Runtime {
@@ -417,7 +432,8 @@ impl Runtime {
         };
         let models = self.models.view();
         let playground = self.playground.view(&self.models.installed_files());
-        if let Err(error) = settings.render(&models, &playground) {
+        let general = self.general.view(&self.playground);
+        if let Err(error) = settings.render(&models, &playground, &general) {
             tracing::warn!(%error, "failed to render settings");
         }
     }
@@ -434,31 +450,41 @@ impl Runtime {
                     self.runner.submit(request, &self.runner_sink);
                 }
             }
-            SettingsInput::OpenModelMenu => {
-                self.post_model_menu();
+            SettingsInput::General(action) => {
+                let outcome = self.general.on_action(action, &mut self.playground);
+                if let Some(settings) = outcome.settings {
+                    self.settings_store.save(&settings);
+                }
+                if let Some(request) = outcome.request {
+                    self.runner.submit(request, &self.runner_sink);
+                }
+            }
+            SettingsInput::OpenMenu(picker) => {
+                self.post_picker_menu(picker);
                 return;
             }
         }
         self.render_settings();
     }
 
-    fn post_model_menu(&self) {
+    fn post_picker_menu(&mut self, picker: MenuPicker) {
         let Some(settings) = &self.settings else {
             return;
         };
         // SAFETY: plain call on our own window.
         let posted =
-            unsafe { PostMessageW(Some(settings.handle()), MODEL_MENU_MESSAGE, WPARAM(0), LPARAM(0)) };
-        if let Err(error) = posted {
-            tracing::warn!(%error, "failed to open the model menu");
+            unsafe { PostMessageW(Some(settings.handle()), PICKER_MENU_MESSAGE, WPARAM(0), LPARAM(0)) };
+        match posted {
+            Ok(()) => self.pending_menu = Some(picker),
+            Err(error) => tracing::warn!(%error, "failed to open a picker menu"),
         }
     }
 
-    fn on_model_pick(&mut self, index: usize) {
+    fn on_menu_pick(&mut self, picker: MenuPicker, index: usize) {
         let input = self
             .settings
             .as_ref()
-            .and_then(|settings| settings.input_for_model(index));
+            .and_then(|settings| settings.input_for_pick(picker, index));
         if let Some(input) = input {
             self.on_settings_input(input);
         }
@@ -585,7 +611,7 @@ extern "system" fn settings_window_procedure(
             Some(HANDLED)
         }
         WM_DRAWITEM => draw_settings_item(lparam),
-        MODEL_MENU_MESSAGE => Some(show_model_menu(window)),
+        PICKER_MENU_MESSAGE => Some(show_picker_menu(window)),
         _ => with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten(),
     };
     // SAFETY: forwards the system's own arguments unchanged.
@@ -642,22 +668,26 @@ fn repaint_field_frames(page: HWND) {
     let _ = unsafe { InvalidateRect(Some(page), None, false) };
 }
 
-/// Shows the model menu below the picker and applies the pick. The menu runs a message loop of
-/// its own, so it shows outside any borrow of the runtime.
-fn show_model_menu(window: HWND) -> LRESULT {
-    let Some(model_menu) =
-        with_runtime(|runtime| runtime.settings.as_ref().map(SettingsWindow::model_menu)).flatten()
-    else {
+/// Shows the menu of the pending picker below it and applies the pick. The menu runs a message
+/// loop of its own, so it shows outside any borrow of the runtime.
+fn show_picker_menu(window: HWND) -> LRESULT {
+    let pending = with_runtime(|runtime| {
+        let picker = runtime.pending_menu.take()?;
+        let menu = runtime.settings.as_ref()?.picker_menu(picker);
+        Some((picker, menu))
+    })
+    .flatten();
+    let Some((picker, picker_menu)) = pending else {
         return HANDLED;
     };
-    let labels: Vec<&str> = model_menu.titles.iter().map(String::as_str).collect();
-    let placement = MenuPlacement::Below(model_menu.anchor);
-    match menu::pick(window, &labels, Some(model_menu.selected), placement) {
+    let labels: Vec<&str> = picker_menu.titles.iter().map(String::as_str).collect();
+    let placement = MenuPlacement::Below(picker_menu.anchor);
+    match menu::pick(window, &labels, Some(picker_menu.selected), placement) {
         Ok(Some(index)) => {
-            with_runtime(|runtime| runtime.on_model_pick(index));
+            with_runtime(|runtime| runtime.on_menu_pick(picker, index));
         }
         Ok(None) => {}
-        Err(error) => tracing::warn!(%error, "failed to show the model menu"),
+        Err(error) => tracing::warn!(%error, "failed to show a picker menu"),
     }
     HANDLED
 }

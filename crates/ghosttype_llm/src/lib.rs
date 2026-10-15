@@ -14,7 +14,9 @@ use ghosttype_core::inference::{InferenceEventSink, InferenceRequest, ModelRunne
 
 use crate::worker::Job;
 
-/// Runs one GGUF model at a time with llama.cpp, on the GPU when the build supports it.
+/// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
+/// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
+/// GPU supports it, and only when the whole model fits in the free memory of that GPU.
 #[derive(Debug)]
 pub struct LlamaCpp {
     jobs: mpsc::Sender<Job>,
@@ -70,7 +72,10 @@ mod tests {
     }
 
     fn load_request() -> InferenceRequest {
-        InferenceRequest::Load { file: model_file() }
+        InferenceRequest::Load {
+            file: model_file(),
+            backend: None,
+        }
     }
 
     #[test]

@@ -32,7 +32,13 @@ impl LoadedModel {
             repo: "test/model".to_owned(),
             name: "model.gguf".to_owned(),
         };
-        runner.submit(InferenceRequest::Load { file: file.clone() }, &sink);
+        runner.submit(
+            InferenceRequest::Load {
+                file: file.clone(),
+                backend: None,
+            },
+            &sink,
+        );
         let loaded = events.recv().expect("the runner answers the load");
         assert_eq!(loaded, InferenceEvent::Loaded { file, result: Ok(()) });
         Self { runner, sink, events }
