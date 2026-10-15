@@ -2,3 +2,4 @@
 *.exe
 *.pdb
 CLAUDE.original.md
+/.cargo/config.local.toml

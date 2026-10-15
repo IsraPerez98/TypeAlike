@@ -6,7 +6,7 @@ OSS Windows-first Cotypist clone (https://cotypist.app/). System-wide inline aut
 - Toolchain pinned `rust-toolchain.toml`; bump with `rust-version`.
 - `cargo run` = app (default member `crates/ghosttype`, bin `GhostType`).
 - Pre-commit = CI, all must pass: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets` (`RUSTFLAGS=-D warnings`); `cargo test --workspace`; `cargo doc --workspace --no-deps`.
-- GPU backends (Windows, opt-in): `cargo run --features vulkan,cuda`. The default build runs models on the CPU only. `vulkan` needs the Vulkan SDK (`VULKAN_SDK`). `cuda` needs the CUDA Toolkit and the CUDA DLLs on `PATH` at run time. With MSVC, build CUDA from a VS developer prompt with `CMAKE_GENERATOR=Ninja` and `CUDACXX` set, because the Visual Studio generator finds no CUDA toolset. Keep the target folder path short (`CARGO_TARGET_DIR`), because the Vulkan shader build goes past `MAX_PATH`.
+- GPU backends (Windows, opt-in): `cargo run --features vulkan,cuda`. The default build runs models on the CPU only. `vulkan` needs the Vulkan SDK (`VULKAN_SDK`). `cuda` needs the CUDA Toolkit and the CUDA DLLs on `PATH` at run time. Local build settings go in `.cargo/config.local.toml` (gitignored, loaded by `.cargo/config.toml`). Copy `.cargo/config.local.example.toml` to start. It sets the Ninja generator (the Visual Studio generator finds no CUDA toolset), `CUDACXX`, a short target folder (the Vulkan shader build goes past `MAX_PATH`), and `CMAKE_CUDA_ARCHITECTURES` for the local GPU only (much faster CUDA build). CMake configures llama.cpp only one time: after a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
 - Settings file: `%LOCALAPPDATA%\GhostType\settings.json` (the General pane writes it).
 
 ## Layout

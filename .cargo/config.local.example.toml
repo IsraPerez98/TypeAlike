@@ -1,0 +1,20 @@
+# Build settings for one development machine. Cargo loads them through `.cargo/config.toml`.
+# Copy this file to `.cargo/config.local.toml` and change the values. Git ignores that file.
+# CMake configures llama.cpp only one time. After you change a value in [env], or after a failed
+# CMake step, run `cargo clean -p llama-cpp-sys-2`.
+
+[build]
+# The Vulkan shader build goes past MAX_PATH, so keep this path short.
+target-dir = "C:/tmp/gt"
+
+[env]
+# The Visual Studio generator finds no CUDA toolset. Ninja needs no developer prompt.
+CMAKE_GENERATOR = "Ninja"
+# The folder that contains ninja.exe. Visual Studio installs Ninja here. Not necessary if ninja.exe is on PATH.
+CMAKE_PROGRAM_PATH = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja"
+# The CUDA Toolkit that builds the CUDA backend.
+CUDACXX = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/nvcc.exe"
+# Compile the CUDA kernels only for the GPU of this machine. This removes most of the CUDA build time.
+# `nvidia-smi --query-gpu=compute_cap --format=csv` shows the compute capability.
+# Examples: 8.6 is "86-real", 8.9 is "89-real", 12.0 is "120a-real".
+CMAKE_CUDA_ARCHITECTURES = "120a-real"
