@@ -5,6 +5,8 @@
 
 #![cfg(windows)]
 
+mod clipboard;
+mod desktop;
 mod focus;
 mod gdi;
 mod injection;

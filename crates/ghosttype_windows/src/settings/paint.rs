@@ -34,6 +34,11 @@ const INDICATOR_HEIGHT: i32 = 16;
 const PROGRESS_TRACK: i32 = 1;
 const PROGRESS_INDICATOR: i32 = 3;
 const PROGRESS_FULL: i64 = 1000;
+const SWITCH_TRACK_WIDTH: i32 = 40;
+const SWITCH_TRACK_HEIGHT: i32 = 20;
+const SWITCH_KNOB: i32 = 12;
+const SWITCH_KNOB_ACTIVE: i32 = 14;
+const SWITCH_LABEL_GAP: i32 = 12;
 
 /// A `WM_PAINT` in progress on one window, ended on drop.
 pub(crate) struct PaintSession {
@@ -131,6 +136,7 @@ pub(crate) fn control(
         ControlKind::Button | ControlKind::PrimaryButton => button(painter, bounds, item, appearance),
         ControlKind::NavigationButton => navigation_item(painter, bounds, item, appearance),
         ControlKind::Picker => picker(painter, bounds, item, appearance),
+        ControlKind::Switch => switch(painter, bounds, item, appearance),
         ControlKind::ProgressBar => progress_bar(painter, bounds, item, appearance),
         ControlKind::TextField | ControlKind::TextArea => Ok(()),
     }
@@ -238,6 +244,100 @@ fn picker(
     let text = control_text(item.interaction, appearance);
     painter.text(item.text, label, TextStyle::line(item.look.role), text)?;
     focus_visual(painter, bounds, item, appearance)
+}
+
+/// Draws a toggle switch as WinUI does: the track at the trailing edge, its knob at the end that
+/// shows the state, and the state as text before the track.
+fn switch(
+    painter: &Painter<'_>,
+    bounds: Bounds,
+    item: &ControlPaint<'_>,
+    appearance: &Appearance,
+) -> Result<()> {
+    let palette = &appearance.palette;
+    let is_on = item.look.is_selected;
+    let is_disabled = item.interaction == Interaction::Disabled;
+    let knob_size = match item.interaction {
+        Interaction::Hover | Interaction::Pressed => SWITCH_KNOB_ACTIVE,
+        Interaction::Rest | Interaction::Disabled => SWITCH_KNOB,
+    };
+    let sizes = SwitchSizes {
+        track_width: appearance.px(SWITCH_TRACK_WIDTH),
+        track_height: appearance.px(SWITCH_TRACK_HEIGHT),
+        knob: appearance.px(knob_size),
+        label_gap: appearance.px(SWITCH_LABEL_GAP),
+    };
+    let parts = switch_parts(bounds, sizes, is_on);
+    let track_radius = coordinate(parts.track.height) / 2.0;
+    if is_on {
+        painter.fill_rounded(parts.track, track_radius, palette.accent.of(item.interaction))?;
+    } else {
+        let stroke = if is_disabled {
+            palette.text.disabled
+        } else {
+            palette.strokes.control_strong
+        };
+        painter.fill_rounded(parts.track, track_radius, palette.subtle.of(item.interaction))?;
+        painter.stroke_rounded(parts.track, track_radius, appearance.px(STROKE).max(1), stroke)?;
+    }
+    let knob_color = match (is_on, is_disabled) {
+        (true, false) => palette.text.on_accent,
+        (true, true) => palette.text.on_accent_disabled,
+        (false, false) => palette.text.secondary,
+        (false, true) => palette.text.disabled,
+    };
+    painter.fill_rounded(parts.knob, coordinate(parts.knob.height) / 2.0, knob_color)?;
+    let style = TextStyle {
+        alignment: Alignment::Trailing,
+        ..TextStyle::line(item.look.role)
+    };
+    let text = control_text(item.interaction, appearance);
+    painter.text(item.text, parts.label, style, text)?;
+    focus_visual(painter, bounds, item, appearance)
+}
+
+/// The sizes of a switch's parts, in physical pixels.
+#[derive(Debug, Clone, Copy)]
+struct SwitchSizes {
+    track_width: i32,
+    track_height: i32,
+    knob: i32,
+    label_gap: i32,
+}
+
+/// Where a switch draws its state text, its track and its knob.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SwitchParts {
+    label: Bounds,
+    track: Bounds,
+    knob: Bounds,
+}
+
+/// Places the track of a switch at the trailing edge of `bounds`, centered across it, with the
+/// knob at its trailing end when `is_on` and at its leading end when not.
+fn switch_parts(bounds: Bounds, sizes: SwitchSizes, is_on: bool) -> SwitchParts {
+    let track = Bounds {
+        x: bounds.right() - sizes.track_width,
+        width: sizes.track_width,
+        ..bounds.centered_band(sizes.track_height)
+    };
+    let knob_margin = (sizes.track_height - sizes.knob) / 2;
+    let knob_x = if is_on {
+        track.right() - knob_margin - sizes.knob
+    } else {
+        track.x + knob_margin
+    };
+    let knob = Bounds {
+        x: knob_x,
+        y: track.y + knob_margin,
+        width: sizes.knob,
+        height: sizes.knob,
+    };
+    let label = Bounds {
+        width: (track.x - sizes.label_gap - bounds.x).max(0),
+        ..bounds
+    };
+    SwitchParts { label, track, knob }
 }
 
 /// Fills a control and draws its border with the stronger bottom edge that makes it look raised,
@@ -484,6 +584,57 @@ mod tests {
         let picked = cases.map(|(state, is_hovered, _)| interaction(state, look(is_hovered)));
 
         assert_eq!(picked, cases.map(|(_, _, expected)| expected));
+    }
+
+    #[test]
+    fn switch_knob_moves_to_the_end_that_shows_the_state() {
+        let bounds = Bounds {
+            x: 100,
+            y: 10,
+            width: 80,
+            height: 32,
+        };
+        let sizes = SwitchSizes {
+            track_width: 40,
+            track_height: 20,
+            knob: 12,
+            label_gap: 12,
+        };
+        let track = Bounds {
+            x: 140,
+            y: 16,
+            width: 40,
+            height: 20,
+        };
+        let label = Bounds { width: 28, ..bounds };
+
+        let parts = [false, true].map(|is_on| switch_parts(bounds, sizes, is_on));
+
+        assert_eq!(
+            parts,
+            [
+                SwitchParts {
+                    label,
+                    track,
+                    knob: Bounds {
+                        x: 144,
+                        y: 20,
+                        width: 12,
+                        height: 12,
+                    },
+                },
+                SwitchParts {
+                    label,
+                    track,
+                    knob: Bounds {
+                        x: 164,
+                        y: 20,
+                        width: 12,
+                        height: 12,
+                    },
+                },
+            ]
+        );
     }
 
     #[test]

@@ -10,7 +10,7 @@ use ghosttype_core::app::{App, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
-use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, Prompt, SystemPrompt};
+use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, SystemPrompt};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -43,7 +43,7 @@ thread_local! {
 
 /// Shows the menu bar extra and offers suggestions from the runner of `services` until the user
 /// quits. The settings window starts with `settings` and uses `services`.
-pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
+pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Result<(), RunError> {
     let Services {
         hub,
         mut runner,
@@ -66,12 +66,13 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
     );
     observe_space_changes(&target);
     main_menu::install(main_thread);
+    app.use_settings(&settings);
+    let mut playground = PlaygroundPane::new();
+    playground.use_settings(&settings);
     let general = GeneralPane::new(settings)
         .without_backend_menu()
         .with_autostart(autostart);
-    let mut playground = PlaygroundPane::new();
     let runner_sink = main_thread_sink(Runtime::on_inference_event);
-    runner.submit(general.system_prompt_request(), &runner_sink);
     if let Some(request) = general.load_suggestion_model(&mut playground) {
         runner.submit(request, &runner_sink);
     }
@@ -181,7 +182,7 @@ impl Runtime {
         };
         let chord = Chord::from_flags(CGEvent::flags(Some(event)));
         let core_key = keys::translate(key, chord, keys::typed_char(event));
-        let reaction = self.app.on_key(core_key, self.focus.field());
+        let reaction = self.app.on_key(core_key, &self.focus);
         let disposition = self.apply(reaction);
         self.release_filter.on_press(key, disposition);
         disposition
@@ -298,6 +299,7 @@ impl Runtime {
                 model_picker_action: sel!(pickPlaygroundModel:),
                 complete_action: sel!(completePlaygroundText:),
                 autostart_action: sel!(switchAutostart:),
+                clipboard_action: sel!(switchClipboard:),
                 suggestion_model_action: sel!(pickSuggestionModel:),
                 system_prompt_action: sel!(systemPromptDidChange:),
                 reset_system_prompt_action: sel!(resetSystemPrompt:),
@@ -347,7 +349,7 @@ impl Runtime {
             .as_ref()
             .map(SettingsWindow::playground_prompt)
             .unwrap_or_default();
-        self.on_playground_action(PlaygroundAction::Complete(Prompt(prompt)));
+        self.on_playground_action(PlaygroundAction::Complete(prompt));
     }
 
     fn on_playground_action(&mut self, action: PlaygroundAction) {
@@ -379,6 +381,8 @@ impl Runtime {
         let outcome = self.general.on_action(action, &mut self.playground);
         if let Some(settings) = outcome.settings {
             self.settings_store.save(&settings);
+            self.app.use_settings(&settings);
+            self.playground.use_settings(&settings);
         }
         if let Some(request) = outcome.request {
             self.runner.submit(request, &self.runner_sink);
@@ -459,6 +463,17 @@ define_class!(
                 GeneralAction::EnableAutostart
             } else {
                 GeneralAction::DisableAutostart
+            };
+            with_runtime(|runtime| runtime.on_general_action(action));
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's clipboard switch.
+        #[unsafe(method(switchClipboard:))]
+        fn switch_clipboard(&self, sender: &NSSwitch) {
+            let action = if sender.state() == NSControlStateValueOn {
+                GeneralAction::AllowClipboard
+            } else {
+                GeneralAction::DenyClipboard
             };
             with_runtime(|runtime| runtime.on_general_action(action));
         }

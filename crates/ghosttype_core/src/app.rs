@@ -1,8 +1,10 @@
 //! App lifecycle: whether suggestions are on, and the tray menu that controls it and opens settings.
 
+use crate::desktop::Desktop;
 use crate::engine::{Engine, Reaction};
 use crate::inference::{Completion, InferenceError};
 use crate::key::Key;
+use crate::settings::Settings;
 
 /// Whether GhostType is currently offering suggestions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -71,12 +73,21 @@ pub enum TrayOutcome {
 /// use std::time::Duration;
 ///
 /// use ghosttype_core::app::{App, Field};
+/// use ghosttype_core::desktop::{Desktop, Surroundings};
 /// use ghosttype_core::engine::Reaction;
 /// use ghosttype_core::inference::{Completion, TokenCount};
 /// use ghosttype_core::key::Key;
 ///
+/// struct Editor;
+///
+/// impl Desktop for Editor {
+///     fn field(&self) -> Field { Field::Open }
+///     fn surroundings(&self) -> Surroundings { Surroundings::default() }
+///     fn clipboard_text(&self) -> Option<String> { None }
+/// }
+///
 /// let mut app = App::new();
-/// app.on_key(Key::Char('B'), Field::Open);
+/// app.on_key(Key::Char('B'), &Editor);
 /// app.on_completion(Ok(Completion {
 ///     text: "est regards".to_owned(),
 ///     tokens: TokenCount(2),
@@ -84,11 +95,11 @@ pub enum TrayOutcome {
 /// }));
 ///
 /// assert_eq!(
-///     app.on_key(Key::Tab, Field::Open),
+///     app.on_key(Key::Tab, &Editor),
 ///     Reaction::Accept { text: "est".to_owned(), rest: Some(" regards".to_owned()) }
 /// );
 /// assert_eq!(
-///     app.on_key(Key::Tab, Field::Open),
+///     app.on_key(Key::Tab, &Editor),
 ///     Reaction::Accept { text: " regards".to_owned(), rest: None }
 /// );
 /// ```
@@ -99,18 +110,27 @@ pub struct App {
 }
 
 impl App {
-    /// Creates an active app with no typed context.
+    /// Creates an active app with no typed context. Until [`use_settings`](Self::use_settings),
+    /// the model reads no system prompt and no clipboard text.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Handles a key pressed in the focused `field`.
-    pub fn on_key(&mut self, key: Key, field: Field) -> Reaction {
-        match (self.status, field) {
-            (Status::Paused, _) => Reaction::Hide,
-            (Status::Active, Field::Excluded) => self.engine.reset(),
-            (Status::Active, Field::Open) => self.engine.on_key(key),
+    /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
+    /// place on.
+    pub fn use_settings(&mut self, settings: &Settings) {
+        self.engine.use_settings(settings);
+    }
+
+    /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
+    pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
+        match self.status {
+            Status::Paused => Reaction::Hide,
+            Status::Active => match desktop.field() {
+                Field::Excluded => self.engine.reset(),
+                Field::Open => self.engine.on_key(key, desktop),
+            },
         }
     }
 
@@ -173,8 +193,25 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::desktop::Surroundings;
     use crate::engine::MAX_SUGGESTION_TOKENS;
     use crate::inference::{InferenceRequest, Prompt, TokenCount};
+
+    struct FakeDesktop(Field);
+
+    impl Desktop for FakeDesktop {
+        fn field(&self) -> Field {
+            self.0
+        }
+
+        fn surroundings(&self) -> Surroundings {
+            Surroundings::default()
+        }
+
+        fn clipboard_text(&self) -> Option<String> {
+            None
+        }
+    }
 
     fn request(context: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
@@ -193,7 +230,7 @@ mod tests {
     }
 
     fn type_key(app: &mut App, character: char) -> Reaction {
-        app.on_key(Key::Char(character), Field::Open)
+        app.on_key(Key::Char(character), &FakeDesktop(Field::Open))
     }
 
     fn app_showing(suggestion: &str) -> App {
@@ -226,7 +263,7 @@ mod tests {
     fn excluded_field_gets_no_suggestion() {
         let mut app = App::new();
 
-        let reaction = app.on_key(Key::Char('B'), Field::Excluded);
+        let reaction = app.on_key(Key::Char('B'), &FakeDesktop(Field::Excluded));
 
         assert_eq!(reaction, Reaction::Hide);
     }
@@ -234,11 +271,24 @@ mod tests {
     #[test]
     fn excluded_field_forgets_typed_context() {
         let mut app = app_showing("est");
-        app.on_key(Key::Char('x'), Field::Excluded);
+        app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
 
         let reaction = type_key(&mut app, 'r');
 
         assert_eq!(reaction, request("r"));
+    }
+
+    #[test]
+    fn settings_give_the_system_prompt() {
+        let mut app = App::new();
+        app.use_settings(&Settings::default());
+
+        let reaction = type_key(&mut app, 'B');
+
+        assert_eq!(
+            reaction,
+            request(&format!("{}\n\nB", crate::settings::DEFAULT_SYSTEM_PROMPT))
+        );
     }
 
     #[test]
@@ -333,7 +383,7 @@ mod tests {
         let mut app = app_showing("est");
         app.on_tray_command(TrayCommand::TogglePause);
 
-        let reaction = app.on_key(Key::Tab, Field::Open);
+        let reaction = app.on_key(Key::Tab, &FakeDesktop(Field::Open));
 
         assert_eq!(reaction, Reaction::Hide);
     }

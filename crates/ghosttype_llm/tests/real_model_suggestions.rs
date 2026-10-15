@@ -1,10 +1,12 @@
 //! Suggests text with a real GGUF model while the user types. Run it with
-//! `GHOSTTYPE_TEST_MODEL=/path/to/model.gguf cargo test -p ghosttype_llm -- --ignored`.
+//! `GHOSTTYPE_TEST_MODEL=/path/to/model.gguf cargo test -p ghosttype_llm -- --ignored --test-threads=1`.
+//! One test at a time, because llama.cpp starts only once in a process.
 
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
 use ghosttype_core::app::{App, Field};
+use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
@@ -12,6 +14,22 @@ use ghosttype_core::inference::{
 };
 use ghosttype_core::key::Key;
 use ghosttype_llm::LlamaCpp;
+
+struct Editor;
+
+impl Desktop for Editor {
+    fn field(&self) -> Field {
+        Field::Open
+    }
+
+    fn surroundings(&self) -> Surroundings {
+        Surroundings::default()
+    }
+
+    fn clipboard_text(&self) -> Option<String> {
+        None
+    }
+}
 
 struct LoadedModel {
     runner: LlamaCpp,
@@ -57,18 +75,36 @@ impl LoadedModel {
     }
 }
 
+/// Types `text` into `app` while `model` completes, and returns the reaction to the completion
+/// of all of it.
+fn suggest_after(model: &mut LoadedModel, app: &mut App, text: &str) -> Reaction {
+    let mut characters = text.chars();
+    let first = characters.next().expect("the text is not empty");
+    let first_request = app.on_key(Key::Char(first), &Editor);
+    characters.for_each(|character| assert_eq!(app.on_key(Key::Char(character), &Editor), Reaction::Hide));
+    let stale = app.on_completion(model.complete(first_request));
+    app.on_completion(model.complete(stale))
+}
+
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn real_model_suggests_text_after_typed_words() {
     let mut model = LoadedModel::load();
-    let mut app = App::new();
-    let first_request = app.on_key(Key::Char('T'), Field::Open);
-    "hank you for your"
-        .chars()
-        .for_each(|character| assert_eq!(app.on_key(Key::Char(character), Field::Open), Reaction::Hide));
 
-    let stale = app.on_completion(model.complete(first_request));
-    let reaction = app.on_completion(model.complete(stale));
+    let reaction = suggest_after(&mut model, &mut App::new(), "Thank you for your");
 
     assert!(matches!(reaction, Reaction::Show(_)), "unexpected {reaction:?}");
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn real_model_finishes_a_word_cut_inside_a_token() {
+    let mut model = LoadedModel::load();
+
+    let reaction = suggest_after(&mut model, &mut App::new(), "The weather today is beauti");
+
+    assert!(
+        matches!(&reaction, Reaction::Show(text) if text.starts_with("ful")),
+        "unexpected {reaction:?}"
+    );
 }

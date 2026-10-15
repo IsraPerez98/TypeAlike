@@ -10,8 +10,8 @@ use crate::hub::ModelFile;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TokenCount(pub u32);
 
-/// Text the user typed for the model to continue. `Debug` shows only its length, so logs never
-/// hold what the user wrote.
+/// The text the model continues: what it knows about the writing, then the text before the caret.
+/// `Debug` shows only its length, so logs never hold what the user wrote.
 ///
 /// ```
 /// use ghosttype_core::inference::Prompt;
@@ -60,9 +60,6 @@ pub enum Backend {
 /// variant, or with no event when it names none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InferenceRequest {
-    /// Puts this system prompt before the prompt of each later completion, for every model. No
-    /// event answers it. An empty system prompt adds nothing.
-    SetSystemPrompt(SystemPrompt),
     /// Loads the downloaded `file` in place of the loaded model: [`InferenceEvent::Loaded`].
     Load {
         /// The model file to load.
@@ -70,7 +67,8 @@ pub enum InferenceRequest {
         /// The backend that runs the model, or `None` to let the runner pick, as its build allows.
         backend: Option<Backend>,
     },
-    /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`].
+    /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`]. The added text
+    /// can also finish the last word of `prompt`.
     Complete {
         /// The text to continue.
         prompt: Prompt,

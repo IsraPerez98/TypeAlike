@@ -1,8 +1,8 @@
-//! The General pane: renders the core [`GeneralView`] and reports the backend the user picks and
-//! the system prompt the user writes.
+//! The General pane: renders the core [`GeneralView`] and reports the clipboard access and the
+//! backend the user picks, and the system prompt the user writes.
 
 use ghosttype_core::general_pane::{
-    BackendChoice, BackendPicker, GeneralAction, GeneralView, SystemPromptEditor,
+    BackendChoice, BackendPicker, ClipboardSwitch, GeneralAction, GeneralView, SystemPromptEditor,
 };
 use ghosttype_core::inference::SystemPrompt;
 use windows::Win32::Foundation::HWND;
@@ -20,6 +20,9 @@ use crate::settings::page::{Page, Shape};
 use crate::settings::typography::TextRole;
 
 const PICKER_WIDTH: i32 = 280;
+const SWITCH_WIDTH: i32 = 88;
+const SWITCH_ON_TEXT: &str = "On";
+const SWITCH_OFF_TEXT: &str = "Off";
 const SYSTEM_PROMPT_LINES: i32 = 6;
 const EDIT_LINE_BREAK: &str = "\r\n";
 const LINE_BREAK: &str = "\n";
@@ -28,6 +31,10 @@ const LINE_BREAK: &str = "\n";
 #[derive(Debug)]
 pub(crate) struct GeneralPage {
     header: Header,
+    clipboard_label: Control,
+    clipboard_description: Control,
+    clipboard_switch: Control,
+    is_clipboard_on: bool,
     backend_label: Control,
     backend_description: Control,
     backend_note: Control,
@@ -48,6 +55,10 @@ impl GeneralPage {
         let control = |kind, role, style| Control::create(host, kind, role, style);
         Ok(Self {
             header: Header::create(host)?,
+            clipboard_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
+            clipboard_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            clipboard_switch: control(ControlKind::Switch, TextRole::Body, CARD_TEXT)?,
+            is_clipboard_on: false,
             backend_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
             backend_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
@@ -73,6 +84,7 @@ impl GeneralPage {
     pub(crate) fn render(&mut self, view: &GeneralView, appearance: &Appearance) {
         self.page.set_title(view.title);
         self.header.render(view.title, view.summary);
+        self.render_clipboard(&view.clipboard);
         if let Some(backend) = &view.backend {
             self.render_backend(backend);
         }
@@ -82,6 +94,19 @@ impl GeneralPage {
         }
         self.render_system_prompt(&view.system_prompt);
         self.layout(appearance);
+    }
+
+    fn render_clipboard(&mut self, clipboard: &ClipboardSwitch) {
+        self.clipboard_label.set_text(clipboard.label);
+        self.clipboard_description.set_text(clipboard.description);
+        if clipboard.is_on {
+            self.clipboard_switch.set_text(SWITCH_ON_TEXT);
+            self.clipboard_switch.mark_selected();
+        } else {
+            self.clipboard_switch.set_text(SWITCH_OFF_TEXT);
+            self.clipboard_switch.mark_unselected();
+        }
+        self.is_clipboard_on = clipboard.is_on;
     }
 
     fn render_system_prompt(&mut self, editor: &SystemPromptEditor) {
@@ -113,6 +138,14 @@ impl GeneralPage {
             let mut placer = Placer::new(self.page.offset());
             let mut shapes = Vec::new();
             self.header.layout(&mut column, &mut placer, appearance);
+            column.skip(appearance.px(SECTION_GAP));
+            let clipboard_card = SettingCard {
+                label: &self.clipboard_label,
+                details: &[&self.clipboard_description],
+                control: &self.clipboard_switch,
+                control_width: SWITCH_WIDTH,
+            };
+            clipboard_card.layout(&mut column, &mut placer, appearance, &mut shapes);
             column.skip(appearance.px(SECTION_GAP));
             let with_note = [&self.backend_description, &self.backend_note];
             let details: &[&Control] = if self.has_note {
@@ -180,9 +213,17 @@ impl GeneralPage {
         self.choices.get(index).map(|choice| choice.action.clone())
     }
 
-    /// The action of a `WM_COMMAND` with `notification` from `control`: an edit of the system
-    /// prompt field, or a click of its reset button.
+    /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard
+    /// switch, an edit of the system prompt field, or a click of its reset button.
     pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
+        if control == self.clipboard_switch.handle() && notification == BN_CLICKED {
+            let action = if self.is_clipboard_on {
+                GeneralAction::DenyClipboard
+            } else {
+                GeneralAction::AllowClipboard
+            };
+            return Some(action);
+        }
         if control == self.system_prompt_field.handle() && notification == EN_CHANGE {
             let text = self
                 .system_prompt_field
@@ -213,6 +254,9 @@ impl GeneralPage {
 
     fn controls(&self) -> impl Iterator<Item = &Control> {
         self.header.controls().into_iter().chain([
+            &self.clipboard_label,
+            &self.clipboard_description,
+            &self.clipboard_switch,
             &self.backend_label,
             &self.backend_description,
             &self.backend_note,

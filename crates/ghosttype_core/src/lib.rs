@@ -5,6 +5,7 @@
 
 pub mod app;
 mod catalog;
+pub mod desktop;
 pub mod engine;
 pub mod general_pane;
 pub mod hub;
@@ -12,4 +13,5 @@ pub mod inference;
 pub mod key;
 pub mod models_pane;
 pub mod playground;
+mod prompt;
 pub mod settings;

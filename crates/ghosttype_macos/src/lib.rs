@@ -6,6 +6,7 @@
 
 #![cfg(target_os = "macos")]
 
+mod clipboard;
 mod event_tap;
 mod focus;
 mod injection;

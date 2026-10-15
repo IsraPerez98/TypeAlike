@@ -1,9 +1,10 @@
-//! The General pane: the autostart switch and the suggestion model menu in one rounded group,
-//! then the system prompt editor.
+//! The General pane: the autostart switch, the clipboard switch and the suggestion model menu in
+//! one rounded group, then the system prompt editor.
 
-use ghosttype_core::general_pane::{AutostartSwitch, GeneralView, SystemPromptEditor};
+use ghosttype_core::general_pane::{AutostartSwitch, ClipboardSwitch, GeneralView, SystemPromptEditor};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
+use objc2::runtime::Sel;
 use objc2_app_kit::{
     NSAccessibility as _, NSBorderType, NSButton, NSControlStateValueOff, NSControlStateValueOn, NSFont,
     NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSScrollView,
@@ -38,14 +39,17 @@ pub(super) struct GeneralPage {
     summary: Retained<NSTextField>,
     autostart_row: SettingRow,
     autostart_switch: Retained<NSSwitch>,
+    clipboard_row: SettingRow,
+    clipboard_switch: Retained<NSSwitch>,
     suggestion_model_row: SettingRow,
     suggestion_model_note: NoteView,
     system_prompt: SystemPromptView,
 }
 
 impl GeneralPage {
-    /// Builds the pane. The autostart switch sends `target.autostart_action`; the suggestion model
-    /// menu sends `target.suggestion_model_action`. Each edit of the system prompt sends
+    /// Builds the pane. The autostart switch sends `target.autostart_action`, the clipboard switch
+    /// sends `target.clipboard_action`, and the suggestion model menu sends
+    /// `target.suggestion_model_action`. Each edit of the system prompt sends
     /// `target.system_prompt_action` with the notification, and its reset button sends
     /// `target.reset_system_prompt_action`.
     pub(super) fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
@@ -57,7 +61,8 @@ impl GeneralPage {
         );
         let summary = secondary_wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
-        let autostart_switch = autostart_switch(target, main_thread);
+        let autostart_switch = switch(target, target.autostart_action, main_thread);
+        let clipboard_switch = switch(target, target.clipboard_action, main_thread);
         let suggestion_model_menu = ModelMenu::new(target, target.suggestion_model_action, main_thread);
         let rows_stack = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
@@ -67,6 +72,7 @@ impl GeneralPage {
         );
         let autostart_row = SettingRow::add(&rows_stack, &autostart_switch, main_thread);
         autostart_row.row.separator.setHidden(true);
+        let clipboard_row = SettingRow::add(&rows_stack, &clipboard_switch, main_thread);
         let suggestion_model_row = SettingRow::add(&rows_stack, &suggestion_model_menu.button, main_thread);
         let group = rounded_group(&rows_stack, main_thread);
         let suggestion_model_note = NoteView::new(main_thread);
@@ -88,6 +94,8 @@ impl GeneralPage {
             summary,
             autostart_row,
             autostart_switch,
+            clipboard_row,
+            clipboard_switch,
             suggestion_model_row,
             suggestion_model_note,
             system_prompt,
@@ -103,6 +111,7 @@ impl GeneralPage {
     pub(super) fn render(&mut self, view: &GeneralView) {
         set_text(&self.summary, view.summary);
         self.render_autostart(view.autostart.as_ref());
+        self.render_clipboard(&view.clipboard);
         let picker = &view.suggestion_model;
         self.suggestion_model_row
             .render(picker.menu.label, picker.description);
@@ -113,23 +122,28 @@ impl GeneralPage {
 
     fn render_autostart(&self, autostart: Option<&AutostartSwitch>) {
         self.autostart_row.row.container.setHidden(autostart.is_none());
-        self.suggestion_model_row
-            .row
-            .separator
-            .setHidden(autostart.is_none());
+        self.clipboard_row.row.separator.setHidden(autostart.is_none());
         let Some(autostart) = autostart else {
             return;
         };
         self.autostart_row.render(autostart.label, autostart.description);
-        self.autostart_switch
-            .setAccessibilityLabel(Some(&NSString::from_str(autostart.label)));
-        let state = if autostart.is_on {
-            NSControlStateValueOn
-        } else {
-            NSControlStateValueOff
-        };
-        self.autostart_switch.setState(state);
+        render_switch(&self.autostart_switch, autostart.label, autostart.is_on);
     }
+
+    fn render_clipboard(&self, clipboard: &ClipboardSwitch) {
+        self.clipboard_row.render(clipboard.label, clipboard.description);
+        render_switch(&self.clipboard_switch, clipboard.label, clipboard.is_on);
+    }
+}
+
+fn render_switch(switch: &NSSwitch, label: &str, is_on: bool) {
+    switch.setAccessibilityLabel(Some(&NSString::from_str(label)));
+    let state = if is_on {
+        NSControlStateValueOn
+    } else {
+        NSControlStateValueOff
+    };
+    switch.setState(state);
 }
 
 /// A row of the group: a label over a description, and the control that changes the setting.
@@ -168,13 +182,14 @@ impl SettingRow {
     }
 }
 
-fn autostart_switch(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSSwitch> {
+/// Returns a switch that sends `action` to the target.
+fn switch(target: &ActionTarget, action: Sel, main_thread: MainThreadMarker) -> Retained<NSSwitch> {
     let switch = NSSwitch::new(main_thread);
-    // SAFETY: the target implements the autostart action, taking the switch, and `SettingsWindow`
+    // SAFETY: the target implements each switch action, taking the switch, and `SettingsWindow`
     // keeps the target alive as long as the switch.
     unsafe {
         switch.setTarget(Some(&target.target));
-        switch.setAction(Some(target.autostart_action));
+        switch.setAction(Some(action));
     }
     switch
 }

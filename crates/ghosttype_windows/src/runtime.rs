@@ -22,13 +22,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     HC_ACTION, HHOOK, HOOKPROC, IDCANCEL, IDOK, IsDialogMessageW, KBDLLHOOKSTRUCT, KillTimer, MSG,
     PostMessageW, PostQuitMessage, RegisterWindowMessageW, SPI_SETHIGHCONTRAST, SW_HIDE, SetTimer,
     SetWindowsHookExW, ShowWindow, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
-    WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_DPICHANGED,
-    WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_SETTINGCHANGE, WM_SIZE,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WS_OVERLAPPED,
+    WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT,
+    WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_SETTINGCHANGE,
+    WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
+use crate::clipboard::ClipboardWatch;
+use crate::desktop::ForegroundDesktop;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Disposition, ReleaseFilter};
@@ -76,10 +78,10 @@ thread_local! {
 
 /// Shows the tray icon and offers suggestions from the runner of `services` until the user quits.
 /// The settings window starts with `settings` and uses `services`.
-pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
+pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Result<(), RunError> {
     let Services {
         hub,
-        mut runner,
+        runner,
         settings_store,
     } = services;
     let window = Window::create(WindowSpec {
@@ -100,9 +102,11 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
     let _mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
         .map_err(RunError::during("install the mouse hook"))?;
     let (mailbox, deliveries) = Mailbox::new(window.handle());
+    app.use_settings(&settings);
+    let mut playground = PlaygroundPane::with_backend(settings.backend);
+    playground.use_settings(&settings);
+    let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
     let general = GeneralPane::new(settings);
-    let runner_sink = mailbox.sink(Delivery::Playground);
-    runner.submit(general.system_prompt_request(), &runner_sink);
     STATE.with(|state| {
         state.runtime.replace(Some(Runtime {
             app,
@@ -117,11 +121,12 @@ pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<()
             models: ModelsPane::new(),
             hub,
             hub_sink: mailbox.sink(Delivery::Hub),
-            playground: PlaygroundPane::with_backend(general.settings().backend),
+            playground,
             general,
             settings_store,
             runner,
-            runner_sink,
+            runner_sink: mailbox.sink(Delivery::Playground),
+            clipboard,
             suggestion_sink: mailbox.sink(Delivery::Suggestion),
             deliveries,
             settings: None,
@@ -216,6 +221,7 @@ struct Runtime {
     runner: Box<dyn ModelRunner>,
     runner_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
+    clipboard: ClipboardWatch,
     deliveries: mpsc::Receiver<Delivery>,
     settings: Option<SettingsWindow>,
     /// The picker whose menu must show once the runtime is free.
@@ -245,7 +251,11 @@ impl Runtime {
         else {
             return Disposition::Pass;
         };
-        let reaction = self.app.on_key(core_key, self.focus.field());
+        let desktop = ForegroundDesktop {
+            focus: &self.focus,
+            clipboard: &self.clipboard,
+        };
+        let reaction = self.app.on_key(core_key, &desktop);
         let disposition = self.apply(reaction);
         self.release_filter.on_press(key, disposition);
         disposition
@@ -365,6 +375,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == GHOST_TIMER_ID => self.show_pending_ghost(),
             WM_SETTINGCHANGE if is_appearance_change(wparam, lparam) => self.on_appearance_change(),
             DELIVERY_MESSAGE => self.take_deliveries(),
+            WM_CLIPBOARDUPDATE => self.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
                 if let Err(error) = self.tray.register() {
                     tracing::warn!(%error, "failed to re-add tray icon");
@@ -458,6 +469,9 @@ impl Runtime {
                 let outcome = self.general.on_action(action, &mut self.playground);
                 if let Some(settings) = outcome.settings {
                     self.settings_store.save(&settings);
+                    self.app.use_settings(&settings);
+                    self.playground.use_settings(&settings);
+                    self.clipboard.use_access(settings.clipboard_access);
                 }
                 if let Some(request) = outcome.request {
                     self.runner.submit(request, &self.runner_sink);

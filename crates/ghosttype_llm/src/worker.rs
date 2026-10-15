@@ -11,8 +11,9 @@ use std::time::Instant;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, Prompt,
-    SystemPrompt, TokenCount,
+    TokenCount,
 };
+use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
@@ -31,6 +32,8 @@ use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 const CONTEXT_TOKENS: u32 = 2048;
 const SEQUENCE: i32 = 0;
 const LAST_OUTPUT: i32 = -1;
+/// The most text at the end of a prompt that generation takes back and writes again.
+const MAX_HEALED_BYTES: usize = 24;
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
 const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
@@ -46,10 +49,6 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
     let mut worker = Worker::default();
     for Job { request, sink } in jobs {
         let event = match request {
-            InferenceRequest::SetSystemPrompt(system_prompt) => {
-                worker.system_prompt = system_prompt;
-                continue;
-            }
             InferenceRequest::Load { file, backend } => InferenceEvent::Loaded {
                 result: worker.load(locate_model(&file), backend),
                 file,
@@ -66,7 +65,6 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
 struct Worker {
     backend: Option<LlamaBackend>,
     model: Option<LlamaModel>,
-    system_prompt: SystemPrompt,
 }
 
 impl Worker {
@@ -102,8 +100,7 @@ impl Worker {
         let (Some(backend), Some(model)) = (&self.backend, &self.model) else {
             return Err(InferenceError::NoModel);
         };
-        let full_prompt = with_system_prompt(&self.system_prompt, prompt);
-        let (text, tokens) = generate(backend, model, &full_prompt, max_tokens).map_err(|error| {
+        let (text, tokens) = generate(backend, model, prompt, max_tokens).map_err(|error| {
             tracing::warn!(%error, "failed to complete text");
             error.to_inference_error()
         })?;
@@ -113,16 +110,6 @@ impl Worker {
             duration: started.elapsed(),
         })
     }
-}
-
-/// Returns the text that the model continues: the system prompt, a blank line, then `prompt`.
-/// The blank line parts them without a label that the model could copy into its suggestion.
-fn with_system_prompt(system_prompt: &SystemPrompt, prompt: &Prompt) -> Prompt {
-    let system_prompt = system_prompt.0.trim();
-    if system_prompt.is_empty() {
-        return prompt.clone();
-    }
-    Prompt(format!("{system_prompt}\n\n{}", prompt.0))
 }
 
 /// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
@@ -233,6 +220,10 @@ impl GenerateError {
 }
 
 /// Continues `prompt` greedily until the model ends the text, writes markup or adds `max_tokens`.
+///
+/// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
+/// the first added tokens write that text again. A prompt that ends in a space or in a part of a
+/// word otherwise ends on tokens that the model seldom saw there, and the model continues it badly.
 fn generate(
     backend: &LlamaBackend,
     model: &LlamaModel,
@@ -240,7 +231,8 @@ fn generate(
     max_tokens: TokenCount,
 ) -> Result<(String, TokenCount), GenerateError> {
     let vocab = model.vocab();
-    let prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
+    let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
+    let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
     let context_tokens = CONTEXT_TOKENS.min(model.n_ctx_train());
     let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
     let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
@@ -255,13 +247,16 @@ fn generate(
     batch.add_sequence(&prompt_tokens, SEQUENCE, false)?;
     context.decode(&mut batch)?;
     let mut sampler = LlamaSampler::greedy();
+    let mut unwritten = healed_text.as_slice();
     let mut added = Vec::new();
     let mut position = i32::try_from(prompt_tokens.len()).expect("the prompt fits in the context");
     while added.len() < max_added {
-        let token = sampler.sample(&context, LAST_OUTPUT);
+        let token = best_token_agreeing_with(&context, &vocab, unwritten)
+            .unwrap_or_else(|| sampler.sample(&context, LAST_OUTPUT));
         if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
             break;
         }
+        unwritten = unwritten_after(unwritten, &vocab.token_to_piece(token, false, None));
         added.push(token);
         if added.len() == max_added {
             break;
@@ -272,7 +267,65 @@ fn generate(
         context.decode(&mut batch)?;
     }
     let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
-    Ok((added_text(&vocab, &prompt_tokens, &added), tokens))
+    Ok((added_text(&vocab, &prompt_tokens, &added, &healed_text), tokens))
+}
+
+/// Removes the tokens of the last word from the end of `prompt_tokens`, and returns their text.
+/// It stops at the token that starts the word, at markup, and before the first token, so the
+/// prompt never becomes empty.
+fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Vec<LlamaToken>) -> Vec<u8> {
+    let mut text = Vec::new();
+    while text.len() < MAX_HEALED_BYTES && prompt_tokens.len() > 1 {
+        let Some(&token) = prompt_tokens
+            .last()
+            .filter(|&&token| !is_markup(vocab.attr(token)))
+        else {
+            break;
+        };
+        prompt_tokens.pop();
+        let piece = vocab.token_to_piece(token, false, None);
+        text.splice(0..0, piece.iter().copied());
+        if starts_word(&piece) {
+            break;
+        }
+    }
+    text
+}
+
+/// Returns the most likely next token whose text agrees with the `unwritten` text, or `None` when
+/// no text is unwritten.
+fn best_token_agreeing_with(
+    context: &LlamaContext<'_>,
+    vocab: &LlamaVocab<'_>,
+    unwritten: &[u8],
+) -> Option<LlamaToken> {
+    if unwritten.is_empty() {
+        return None;
+    }
+    let mut best: Option<(LlamaToken, f32)> = None;
+    for (index, &logit) in context.get_logits_ith(LAST_OUTPUT).iter().enumerate() {
+        let is_better = best.is_none_or(|(_, best_logit)| logit > best_logit);
+        let token = LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32"));
+        if is_better && agrees_with(&vocab.token_to_piece(token, false, None), unwritten) {
+            best = Some((token, logit));
+        }
+    }
+    best.map(|(token, _)| token)
+}
+
+/// Whether a token with `piece` as text can write the start of `unwritten`: it writes a part of it,
+/// or all of it and more.
+fn agrees_with(piece: &[u8], unwritten: &[u8]) -> bool {
+    !piece.is_empty() && (piece.starts_with(unwritten) || unwritten.starts_with(piece))
+}
+
+/// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
+fn unwritten_after<'text>(unwritten: &'text [u8], piece: &[u8]) -> &'text [u8] {
+    unwritten.strip_prefix(piece).unwrap_or_default()
+}
+
+fn starts_word(piece: &[u8]) -> bool {
+    piece.first().is_some_and(u8::is_ascii_whitespace)
 }
 
 /// Tells if a token with `attrs` is markup, such as `<think>`, that never belongs in typed text.
@@ -280,14 +333,26 @@ fn is_markup(attrs: LlamaTokenAttrs) -> bool {
     attrs.intersects(LlamaTokenAttr::Control | LlamaTokenAttr::UserDefined)
 }
 
-/// Returns the text `added` puts after `prompt_tokens`, with the spacing it has after them.
-fn added_text(vocab: &LlamaVocab<'_>, prompt_tokens: &[LlamaToken], added: &[LlamaToken]) -> String {
+/// Returns the text `added` puts after `prompt_tokens`, with the spacing it has after them, without
+/// the `healed_text` that the prompt already ends with.
+fn added_text(
+    vocab: &LlamaVocab<'_>,
+    prompt_tokens: &[LlamaToken],
+    added: &[LlamaToken],
+    healed_text: &[u8],
+) -> String {
     let prompt_bytes = vocab.detokenize(prompt_tokens, false, false);
     let all_bytes = vocab.detokenize(&[prompt_tokens, added].concat(), false, false);
     let added_bytes = all_bytes
         .strip_prefix(prompt_bytes.as_slice())
         .map_or_else(|| vocab.detokenize(added, false, false), <[u8]>::to_vec);
-    text_without_cut_character(&added_bytes)
+    text_without_cut_character(text_after_prefix(&added_bytes, healed_text))
+}
+
+/// Returns `bytes` after `prefix`, or nothing when they do not start with it, so that a completion
+/// never types again text that is already there.
+fn text_after_prefix<'bytes>(bytes: &'bytes [u8], prefix: &[u8]) -> &'bytes [u8] {
+    bytes.strip_prefix(prefix).unwrap_or_default()
 }
 
 /// Returns `bytes` as text, without a character that the token limit cut at the end.
@@ -403,25 +468,57 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_comes_before_the_prompt_after_a_blank_line() {
-        let system_prompt = SystemPrompt("  Formal Spanish.\n".to_owned());
+    fn token_agrees_with_text_it_starts_or_completes() {
+        let cases = [
+            (&b" beaut"[..], &b" beauti"[..], true),
+            (b" beautiful", b" beauti", true),
+            (b" beast", b" beauti", false),
+            (b"", b" beauti", false),
+        ];
 
-        let full_prompt = with_system_prompt(&system_prompt, &Prompt("Estimado".to_owned()));
+        let agreements = cases.map(|(piece, unwritten, _)| agrees_with(piece, unwritten));
 
-        assert_eq!(full_prompt, Prompt("Formal Spanish.\n\nEstimado".to_owned()));
+        assert_eq!(agreements, cases.map(|(_, _, agrees)| agrees));
     }
 
     #[test]
-    fn blank_system_prompt_adds_nothing() {
-        let prompts = [SystemPrompt::default(), SystemPrompt(" \n ".to_owned())];
+    fn written_piece_leaves_the_rest_unwritten() {
+        let cases = [
+            (&b" beauti"[..], &b" beaut"[..], &b"i"[..]),
+            (b" beauti", b" beautiful", b""),
+        ];
 
-        let full_prompts =
-            prompts.map(|system_prompt| with_system_prompt(&system_prompt, &Prompt("Dear".to_owned())));
+        let rests = cases.map(|(unwritten, piece, _)| unwritten_after(unwritten, piece));
 
-        assert_eq!(
-            full_prompts,
-            [Prompt("Dear".to_owned()), Prompt("Dear".to_owned())]
-        );
+        assert_eq!(rests, cases.map(|(_, _, rest)| rest));
+    }
+
+    #[test]
+    fn only_a_piece_with_leading_whitespace_starts_a_word() {
+        let cases = [
+            (&b" beaut"[..], true),
+            (b"\nHi", true),
+            (b"i", false),
+            (b"", false),
+        ];
+
+        let starts = cases.map(|(piece, _)| starts_word(piece));
+
+        assert_eq!(starts, cases.map(|(_, starts)| starts));
+    }
+
+    #[test]
+    fn text_after_the_healed_prefix_is_kept() {
+        let text = text_after_prefix(b" world, hi", b" wor");
+
+        assert_eq!(text, b"ld, hi");
+    }
+
+    #[test]
+    fn text_that_does_not_start_with_the_healed_prefix_is_dropped() {
+        let text = text_after_prefix(b" planet", b" wor");
+
+        assert_eq!(text, b"");
     }
 
     #[test]

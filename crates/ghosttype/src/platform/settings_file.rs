@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SystemPrompt};
-use ghosttype_core::settings::{Settings, SettingsStore};
+use ghosttype_core::settings::{ClipboardAccess, Settings, SettingsStore};
 use serde::{Deserialize, Serialize};
 
 /// The settings file: it gives the saved settings at start, and keeps each change.
@@ -65,6 +65,7 @@ struct StoredSettings {
     backend: StoredBackend,
     suggestion_model: Option<StoredModelFile>,
     system_prompt: Option<String>,
+    clipboard_access: StoredClipboardAccess,
 }
 
 impl Default for StoredSettings {
@@ -79,6 +80,13 @@ enum StoredBackend {
     Cpu,
     Vulkan,
     Cuda,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredClipboardAccess {
+    Denied,
+    Allowed,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,10 +106,15 @@ impl From<Settings> for StoredSettings {
             repo: file.repo,
             name: file.name,
         });
+        let clipboard_access = match settings.clipboard_access {
+            ClipboardAccess::Denied => StoredClipboardAccess::Denied,
+            ClipboardAccess::Allowed => StoredClipboardAccess::Allowed,
+        };
         Self {
             backend,
             suggestion_model,
             system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
+            clipboard_access,
         }
     }
 }
@@ -117,10 +130,15 @@ impl From<StoredSettings> for Settings {
             repo: file.repo,
             name: file.name,
         });
+        let clipboard_access = match stored.clipboard_access {
+            StoredClipboardAccess::Denied => ClipboardAccess::Denied,
+            StoredClipboardAccess::Allowed => ClipboardAccess::Allowed,
+        };
         Self {
             backend,
             suggestion_model,
             custom_system_prompt: stored.system_prompt.map(SystemPrompt),
+            clipboard_access,
         }
     }
 }
@@ -188,6 +206,21 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_access_reads_from_its_name() {
+        let files = [
+            r#"{ "clipboard_access": "denied" }"#,
+            r#"{ "clipboard_access": "allowed" }"#,
+        ];
+
+        let accesses = files.map(|json| parse(json).map(|settings| settings.clipboard_access).ok());
+
+        assert_eq!(
+            accesses,
+            [Some(ClipboardAccess::Denied), Some(ClipboardAccess::Allowed)]
+        );
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -210,6 +243,7 @@ mod tests {
             backend: Backend::Cuda,
             suggestion_model: Some(model_file()),
             custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
+            clipboard_access: ClipboardAccess::Allowed,
         };
 
         file.save(&settings);

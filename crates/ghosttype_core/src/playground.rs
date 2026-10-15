@@ -2,19 +2,22 @@
 
 use std::iter;
 
+use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, Prompt, TokenCount,
+    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, SystemPrompt, TokenCount,
 };
 use crate::models_pane::model_name;
+use crate::prompt;
+use crate::settings::Settings;
 
 /// Something the user did in the Playground pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaygroundAction {
     /// Picked this downloaded model.
     SelectModel(ModelFile),
-    /// Asked the model to continue this text.
-    Complete(Prompt),
+    /// Asked the model to continue this text, as it continues the text that the user types.
+    Complete(String),
 }
 
 /// One entry of the model menu.
@@ -117,6 +120,7 @@ pub struct PlaygroundPane {
     model: Option<SelectedModel>,
     completion: Option<CompletionState>,
     backend: Option<Backend>,
+    system_prompt: SystemPrompt,
 }
 
 #[derive(Debug)]
@@ -197,6 +201,11 @@ impl PlaygroundPane {
         })
     }
 
+    /// Puts the system prompt of `settings` before the text of each later completion.
+    pub fn use_settings(&mut self, settings: &Settings) {
+        self.system_prompt = settings.system_prompt();
+    }
+
     /// Whether a model loads or a completion runs now.
     #[must_use]
     pub fn is_busy(&self) -> bool {
@@ -230,7 +239,7 @@ impl PlaygroundPane {
     pub fn on_action(&mut self, action: PlaygroundAction) -> Option<InferenceRequest> {
         match action {
             PlaygroundAction::SelectModel(file) => self.select_model(file),
-            PlaygroundAction::Complete(prompt) => self.complete(prompt),
+            PlaygroundAction::Complete(text) => self.complete(&text),
         }
     }
 
@@ -296,17 +305,18 @@ impl PlaygroundPane {
         })
     }
 
-    fn complete(&mut self, prompt: Prompt) -> Option<InferenceRequest> {
+    fn complete(&mut self, text: &str) -> Option<InferenceRequest> {
         let is_ready = self
             .model
             .as_ref()
             .is_some_and(|model| model.state == ModelState::Ready);
-        if !is_ready || self.is_completing() || prompt.0.trim().is_empty() {
+        if !is_ready || self.is_completing() || text.trim().is_empty() {
             return None;
         }
         self.completion = Some(CompletionState::Running);
+        let preface = prompt::preface(&self.system_prompt, &Surroundings::default(), None);
         Some(InferenceRequest::Complete {
-            prompt,
+            prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,
         })
     }
@@ -409,6 +419,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::inference::Prompt;
 
     const LOADING: Note = Note {
         text: "Loading the model…",
@@ -424,6 +435,10 @@ mod tests {
 
     fn prompt(text: &str) -> Prompt {
         Prompt(text.to_owned())
+    }
+
+    fn complete(text: &str) -> PlaygroundAction {
+        PlaygroundAction::Complete(text.to_owned())
     }
 
     fn choice(file: &ModelFile, title: &str) -> ModelChoice {
@@ -452,7 +467,7 @@ mod tests {
 
     fn completing_pane(file: &ModelFile) -> PlaygroundPane {
         let mut pane = ready_pane(file);
-        pane.on_action(PlaygroundAction::Complete(prompt("Dear")));
+        pane.on_action(complete("Dear"));
         pane
     }
 
@@ -824,7 +839,7 @@ mod tests {
     fn completing_sends_the_prompt_with_a_token_limit() {
         let mut pane = ready_pane(&model_file("a.gguf"));
 
-        let request = pane.on_action(PlaygroundAction::Complete(prompt("Dear ")));
+        let request = pane.on_action(complete("Dear "));
 
         assert_eq!(
             request,
@@ -836,10 +851,29 @@ mod tests {
     }
 
     #[test]
+    fn completing_puts_the_system_prompt_before_the_text() {
+        let mut pane = ready_pane(&model_file("a.gguf"));
+        pane.use_settings(&Settings {
+            custom_system_prompt: Some(SystemPrompt("Formal.".to_owned())),
+            ..Settings::default()
+        });
+
+        let request = pane.on_action(complete("Dear "));
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Complete {
+                prompt: prompt("Formal.\n\nDear "),
+                max_tokens: TokenCount(32),
+            })
+        );
+    }
+
+    #[test]
     fn blank_prompt_is_not_sent() {
         let mut pane = ready_pane(&model_file("a.gguf"));
 
-        let request = pane.on_action(PlaygroundAction::Complete(prompt(" \n")));
+        let request = pane.on_action(complete(" \n"));
 
         assert_eq!(request, None);
     }
@@ -849,7 +883,7 @@ mod tests {
         let mut pane = PlaygroundPane::new();
         pane.on_action(PlaygroundAction::SelectModel(model_file("a.gguf")));
 
-        let request = pane.on_action(PlaygroundAction::Complete(prompt("Dear")));
+        let request = pane.on_action(complete("Dear"));
 
         assert_eq!(request, None);
     }
@@ -878,7 +912,7 @@ mod tests {
     fn completing_while_a_completion_runs_does_nothing() {
         let mut pane = completing_pane(&model_file("a.gguf"));
 
-        let request = pane.on_action(PlaygroundAction::Complete(prompt("Dear")));
+        let request = pane.on_action(complete("Dear"));
 
         assert_eq!(request, None);
     }

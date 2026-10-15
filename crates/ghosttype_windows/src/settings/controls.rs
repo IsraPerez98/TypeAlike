@@ -61,6 +61,8 @@ pub(crate) enum ControlKind {
     NavigationButton,
     /// A button that shows a choice and opens a menu of the other choices, like a combo box.
     Picker,
+    /// A toggle switch: a button that turns a setting on or off, with its state as text.
+    Switch,
     /// A one-line text field.
     TextField,
     /// A text field of several lines, where Enter starts a new line.
@@ -75,7 +77,7 @@ impl ControlKind {
             Self::Label | Self::TrailingLabel | Self::Paragraph => {
                 (w!("Static"), STATIC_OWNER_DRAW | STATIC_NOPREFIX)
             }
-            Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker => {
+            Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker | Self::Switch => {
                 (w!("Button"), BUTTON_OWNER_DRAW | WS_TABSTOP.0)
             }
             Self::TextField => (w!("Edit"), EDIT_AUTO_SCROLL | WS_TABSTOP.0),
@@ -97,6 +99,7 @@ impl ControlKind {
             | Self::PrimaryButton
             | Self::NavigationButton
             | Self::Picker
+            | Self::Switch
             | Self::ProgressBar => WINDOW_EX_STYLE::default(),
         }
     }
@@ -108,6 +111,7 @@ impl ControlKind {
             | Self::PrimaryButton
             | Self::NavigationButton
             | Self::Picker
+            | Self::Switch
             | Self::TextField
             | Self::TextArea => true,
             Self::Label | Self::TrailingLabel | Self::Paragraph | Self::ProgressBar => false,
@@ -122,7 +126,7 @@ impl ControlKind {
     /// Whether the user activates the control like a button, with a click, Space or Enter.
     pub(crate) fn is_button(self) -> bool {
         match self {
-            Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker => true,
+            Self::Button | Self::PrimaryButton | Self::NavigationButton | Self::Picker | Self::Switch => true,
             Self::Label
             | Self::TrailingLabel
             | Self::Paragraph
@@ -211,7 +215,8 @@ impl Control {
             | ControlKind::Button
             | ControlKind::PrimaryButton
             | ControlKind::NavigationButton
-            | ControlKind::Picker => {}
+            | ControlKind::Picker
+            | ControlKind::Switch => {}
         }
         if self.kind.tracks_hover() || self.kind == ControlKind::ProgressBar {
             // SAFETY: the procedure lives for the whole program and removes itself on WM_NCDESTROY.

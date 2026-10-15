@@ -12,11 +12,11 @@ OSS Windows-first Cotypist clone (https://cotypist.app/). System-wide inline aut
 
 ## Layout
 Virtual workspace, flat `crates/`.
-- `ghosttype_core`: engine, matching, accept state machine, settings model, Models, Playground and General panes. Pure Rust, no OS.
+- `ghosttype_core`: engine, matching, accept state machine, prompt (system prompt, app and window, text around the caret, clipboard), settings model, Models, Playground and General panes. Pure Rust, no OS. Platforms read the desktop through the `Desktop` trait.
 - `ghosttype_windows`: hooks, UIA, overlay, `SendInput`, tray, settings window. All FFI.
 - `ghosttype_macos`: event tap, Accessibility (AX), overlay panel, CGEvent injection, menu bar extra, settings window. All FFI. Needs Accessibility access (`cargo run` from a terminal: grant it to the terminal app).
 - `ghosttype_models`: Hugging Face search, downloads and the local models directory (`ModelHub`). HTTPS + file IO, no FFI.
-- `ghosttype_llm`: runs GGUF models with llama.cpp (`llama-cpp-2`) on one worker thread (`ModelRunner`), on the backend that each load names (CPU, Vulkan, CUDA). Metal on Apple silicon. Refuses a GPU load when the whole model does not fit in free GPU memory. Build needs CMake and libclang.
+- `ghosttype_llm`: runs GGUF models with llama.cpp (`llama-cpp-2`) on one worker thread (`ModelRunner`), on the backend that each load names (CPU, Vulkan, CUDA). Metal on Apple silicon. Refuses a GPU load when the whole model does not fit in free GPU memory. Heals the last word of each prompt (token healing). Build needs CMake and libclang.
 - `ghosttype`: bin. Wiring, config, logging, event loop.
 
 ## Rules

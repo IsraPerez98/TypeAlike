@@ -5,7 +5,7 @@ use crate::settings::controls::ControlKind;
 use crate::settings::palette::{ControlStyle, Surface, Tone};
 use crate::settings::typography::TextRole;
 
-const KINDS: [ControlKind; 10] = [
+const KINDS: [ControlKind; 11] = [
     ControlKind::Label,
     ControlKind::TrailingLabel,
     ControlKind::Paragraph,
@@ -13,6 +13,7 @@ const KINDS: [ControlKind; 10] = [
     ControlKind::PrimaryButton,
     ControlKind::NavigationButton,
     ControlKind::Picker,
+    ControlKind::Switch,
     ControlKind::TextField,
     ControlKind::TextArea,
     ControlKind::ProgressBar,
@@ -51,7 +52,7 @@ pub(crate) struct ControlLook {
     pub(crate) glyph: Option<char>,
     /// Whether the pointer is over the control.
     pub(crate) is_hovered: bool,
-    /// Whether the control stands for the shown page, for navigation items.
+    /// Whether a navigation item stands for the shown page, or a switch is on.
     pub(crate) is_selected: bool,
 }
 

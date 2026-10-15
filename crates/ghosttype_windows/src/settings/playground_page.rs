@@ -1,7 +1,6 @@
 //! The Playground pane: renders the core [`PlaygroundView`] and reports the model the user picks
 //! and the text the user asks to complete.
 
-use ghosttype_core::inference::Prompt;
 use ghosttype_core::playground::{ModelChoice, PlaygroundAction, PlaygroundOutput, PlaygroundView};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WNDPROC;
@@ -253,7 +252,7 @@ impl PlaygroundPage {
     pub(crate) fn completion_for(&self, control: HWND) -> Option<PlaygroundAction> {
         let asks_for_completion = control == self.prompt.handle() || control == self.complete.handle();
         (asks_for_completion && self.is_complete_enabled)
-            .then(|| PlaygroundAction::Complete(Prompt(self.prompt.typed_text())))
+            .then(|| PlaygroundAction::Complete(self.prompt.typed_text()))
     }
 
     pub(crate) fn apply(&self, appearance: &Appearance) {

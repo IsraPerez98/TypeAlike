@@ -5,7 +5,7 @@ use std::fmt;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SystemPrompt};
 use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
-use crate::settings::{Autostart, DEFAULT_SYSTEM_PROMPT, Settings};
+use crate::settings::{Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, Settings};
 
 /// Something the user did in the General pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +20,10 @@ pub enum GeneralAction {
     EditSystemPrompt(SystemPrompt),
     /// Asked for the default system prompt again.
     ResetSystemPrompt,
+    /// Turned on the switch that lets suggestions use the text on the clipboard.
+    AllowClipboard,
+    /// Turned off the switch that lets suggestions use the text on the clipboard.
+    DenyClipboard,
 }
 
 /// One entry of the backend menu.
@@ -49,6 +53,17 @@ pub struct BackendPicker {
 /// The switch that starts GhostType when the user logs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutostartSwitch {
+    /// Text before the switch, in sentence case.
+    pub label: &'static str,
+    /// A sentence below the label about what the setting changes.
+    pub description: &'static str,
+    /// Whether the switch shows on.
+    pub is_on: bool,
+}
+
+/// The switch that lets suggestions use the text on the clipboard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardSwitch {
     /// Text before the switch, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the setting changes.
@@ -96,6 +111,8 @@ pub struct GeneralView {
     pub autostart: Option<AutostartSwitch>,
     /// The suggestion model menu.
     pub suggestion_model: SuggestionModelPicker,
+    /// The clipboard switch.
+    pub clipboard: ClipboardSwitch,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<BackendPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
@@ -119,6 +136,9 @@ const AUTOSTART_LABEL: &str = "Open at login";
 const AUTOSTART_DESCRIPTION: &str = "Start GhostType when you log in to this computer.";
 const SUGGESTION_MODEL_DESCRIPTION: &str =
     "The model that suggests text as you type. GhostType loads it again when it starts.";
+const CLIPBOARD_LABEL: &str = "Use copied text";
+const CLIPBOARD_DESCRIPTION: &str = "Suggestions can use the text that you copy. GhostType reads the \
+     clipboard only when you start to type, and does not save the text.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -198,13 +218,6 @@ impl GeneralPane {
         &self.settings
     }
 
-    /// Returns the request that gives the saved system prompt to the model runner, for when
-    /// GhostType starts.
-    #[must_use]
-    pub fn system_prompt_request(&self) -> InferenceRequest {
-        InferenceRequest::SetSystemPrompt(self.settings.system_prompt())
-    }
-
     /// Selects the saved suggestion model in `playground`, so that it loads when GhostType starts.
     /// Returns the request to send, if any.
     pub fn load_suggestion_model(&self, playground: &mut PlaygroundPane) -> Option<InferenceRequest> {
@@ -232,6 +245,8 @@ impl GeneralPane {
             GeneralAction::DisableAutostart => self.change_autostart(|autostart| autostart.disable()),
             GeneralAction::EditSystemPrompt(system_prompt) => self.change_system_prompt(Some(system_prompt)),
             GeneralAction::ResetSystemPrompt => self.change_system_prompt(None),
+            GeneralAction::AllowClipboard => self.change_clipboard_access(ClipboardAccess::Allowed),
+            GeneralAction::DenyClipboard => self.change_clipboard_access(ClipboardAccess::Denied),
         }
     }
 
@@ -248,6 +263,11 @@ impl GeneralPane {
                 is_on: autostart.is_enabled(),
             }),
             suggestion_model: suggestion_model_picker(playground, installed),
+            clipboard: ClipboardSwitch {
+                label: CLIPBOARD_LABEL,
+                description: CLIPBOARD_DESCRIPTION,
+                is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
+            },
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
             backend_note: playground.load_note().filter(|_| self.has_backend_menu),
             system_prompt: SystemPromptEditor {
@@ -278,9 +298,21 @@ impl GeneralPane {
             return GeneralOutcome::default();
         }
         self.settings.custom_system_prompt = custom;
+        self.changed_settings()
+    }
+
+    fn change_clipboard_access(&mut self, access: ClipboardAccess) -> GeneralOutcome {
+        if access == self.settings.clipboard_access {
+            return GeneralOutcome::default();
+        }
+        self.settings.clipboard_access = access;
+        self.changed_settings()
+    }
+
+    fn changed_settings(&self) -> GeneralOutcome {
         GeneralOutcome {
             settings: Some(self.settings.clone()),
-            request: Some(self.system_prompt_request()),
+            request: None,
         }
     }
 
@@ -400,10 +432,17 @@ mod tests {
         }
     }
 
-    fn system_prompt_outcome(settings: Settings) -> GeneralOutcome {
+    fn settings_outcome(settings: Settings) -> GeneralOutcome {
         GeneralOutcome {
-            request: Some(InferenceRequest::SetSystemPrompt(settings.system_prompt())),
             settings: Some(settings),
+            request: None,
+        }
+    }
+
+    fn clipboard_settings(clipboard_access: ClipboardAccess) -> Settings {
+        Settings {
+            clipboard_access,
+            ..Settings::default()
         }
     }
 
@@ -474,6 +513,11 @@ mod tests {
                         text: "Download a model in the Models pane.",
                         tone: NoteTone::Plain,
                     }),
+                },
+                clipboard: ClipboardSwitch {
+                    label: "Use copied text",
+                    description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
+                    is_on: false,
                 },
                 backend: Some(BackendPicker {
                     label: "Inference backend",
@@ -802,7 +846,7 @@ mod tests {
     }
 
     #[test]
-    fn editing_the_system_prompt_keeps_it_and_gives_it_to_the_runner() {
+    fn editing_the_system_prompt_keeps_it() {
         let mut pane = GeneralPane::new(Settings::default());
 
         let outcome = edit_system_prompt(&mut pane, "Formal Spanish.");
@@ -810,7 +854,7 @@ mod tests {
         assert_eq!(
             (outcome, pane.settings()),
             (
-                system_prompt_outcome(custom_settings("Formal Spanish.")),
+                settings_outcome(custom_settings("Formal Spanish.")),
                 &custom_settings("Formal Spanish."),
             )
         );
@@ -822,7 +866,7 @@ mod tests {
 
         let outcome = edit_system_prompt(&mut pane, "");
 
-        assert_eq!(outcome, system_prompt_outcome(custom_settings("")));
+        assert_eq!(outcome, settings_outcome(custom_settings("")));
     }
 
     #[test]
@@ -846,19 +890,19 @@ mod tests {
             .is_reset_enabled;
         assert_eq!(
             (outcome, is_reset_enabled),
-            (system_prompt_outcome(Settings::default()), false)
+            (settings_outcome(Settings::default()), false)
         );
     }
 
     #[test]
-    fn resetting_the_system_prompt_gives_the_default_to_the_runner() {
+    fn resetting_the_system_prompt_keeps_the_default() {
         let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
 
         let outcome = pane.on_action(GeneralAction::ResetSystemPrompt, &mut PlaygroundPane::new());
 
         assert_eq!(
             (outcome, pane.settings()),
-            (system_prompt_outcome(Settings::default()), &Settings::default())
+            (settings_outcome(Settings::default()), &Settings::default())
         );
     }
 
@@ -872,14 +916,39 @@ mod tests {
     }
 
     #[test]
-    fn saved_system_prompt_goes_to_the_runner_at_start() {
-        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
+    fn allowing_the_clipboard_keeps_it_and_turns_the_switch_on() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let mut playground = PlaygroundPane::new();
 
-        let request = pane.system_prompt_request();
+        let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut playground);
 
+        let is_on = pane.view(&playground, &[]).clipboard.is_on;
         assert_eq!(
-            request,
-            InferenceRequest::SetSystemPrompt(SystemPrompt("Formal Spanish.".to_owned()))
+            (outcome, is_on),
+            (
+                settings_outcome(clipboard_settings(ClipboardAccess::Allowed)),
+                true
+            )
         );
+    }
+
+    #[test]
+    fn denying_the_clipboard_keeps_it_and_turns_the_switch_off() {
+        let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Allowed));
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(GeneralAction::DenyClipboard, &mut playground);
+
+        let is_on = pane.view(&playground, &[]).clipboard.is_on;
+        assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    }
+
+    #[test]
+    fn choosing_the_current_clipboard_access_does_nothing() {
+        let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Allowed));
+
+        let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
     }
 }

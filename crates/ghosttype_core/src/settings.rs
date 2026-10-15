@@ -9,6 +9,16 @@ pub const DEFAULT_SYSTEM_PROMPT: &str = "A person types the text below on their 
      email, a chat message, a note or a document. The writing is clear, natural and correct. It keeps \
      the language, tone and style of the person who writes it.";
 
+/// Whether suggestions may use the text on the clipboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClipboardAccess {
+    /// GhostType never reads the clipboard.
+    #[default]
+    Denied,
+    /// GhostType reads the clipboard when the user starts to type, and the model reads its text.
+    Allowed,
+}
+
 /// Everything that GhostType keeps between runs.
 ///
 /// ```
@@ -25,6 +35,8 @@ pub struct Settings {
     pub suggestion_model: Option<ModelFile>,
     /// The system prompt that the user wrote, or `None` for [`DEFAULT_SYSTEM_PROMPT`].
     pub custom_system_prompt: Option<SystemPrompt>,
+    /// Whether suggestions may use the text on the clipboard.
+    pub clipboard_access: ClipboardAccess,
 }
 
 impl Settings {
