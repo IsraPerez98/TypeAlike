@@ -142,7 +142,7 @@ enum CompletionState {
 const PANE_TITLE: &str = "Playground";
 const PANE_SUMMARY: &str =
     "Select the model that suggests text as you type. Then type the start of a sentence to test the model.";
-const MODEL_LABEL: &str = "Model";
+const MODEL_LABEL: &str = "Suggestion model";
 const SELECT_MODEL_PLACEHOLDER: &str = "Select a model";
 const NO_MODELS_PLACEHOLDER: &str = "No downloaded models";
 const PROMPT_LABEL: &str = "Text";
@@ -205,6 +205,15 @@ impl PlaygroundPane {
             .as_ref()
             .is_some_and(|model| model.state == ModelState::Loading);
         is_loading || self.is_completing()
+    }
+
+    /// Returns the selected model once it loaded without an error.
+    #[must_use]
+    pub fn loaded_model(&self) -> Option<&ModelFile> {
+        self.model
+            .as_ref()
+            .filter(|model| model.state == ModelState::Ready)
+            .map(|model| &model.file)
     }
 
     /// Tells that the selected model loads, or why it did not load; `None` otherwise.
@@ -474,7 +483,7 @@ mod tests {
                 title: "Playground",
                 summary: "Select the model that suggests text as you type. Then type the start of a sentence to test the model.",
                 model: ModelPicker {
-                    label: "Model",
+                    label: "Suggestion model",
                     choices: vec![placeholder("No downloaded models")],
                     selected: 0,
                     is_enabled: false,
@@ -505,7 +514,7 @@ mod tests {
             (view.model, view.model_note, view.is_complete_enabled),
             (
                 ModelPicker {
-                    label: "Model",
+                    label: "Suggestion model",
                     choices: vec![
                         placeholder("Select a model"),
                         choice(&first, "first"),
@@ -697,7 +706,7 @@ mod tests {
             (view.model, view.model_note, view.is_complete_enabled),
             (
                 ModelPicker {
-                    label: "Model",
+                    label: "Suggestion model",
                     choices: vec![choice(&first, "first"), choice(&second, "second")],
                     selected: 1,
                     is_enabled: false,

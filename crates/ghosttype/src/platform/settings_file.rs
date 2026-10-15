@@ -4,6 +4,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{Settings, SettingsStore};
 use serde::{Deserialize, Serialize};
@@ -38,7 +39,7 @@ impl SettingsFile {
 
     /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
     /// write never leaves a damaged file.
-    fn write(&self, settings: Settings) -> io::Result<()> {
+    fn write(&self, settings: &Settings) -> io::Result<()> {
         if let Some(folder) = self.path.parent() {
             fs::create_dir_all(folder)?;
         }
@@ -50,7 +51,7 @@ impl SettingsFile {
 
 impl SettingsStore for SettingsFile {
     fn save(&mut self, settings: &Settings) {
-        if let Err(error) = self.write(*settings) {
+        if let Err(error) = self.write(settings) {
             tracing::warn!(%error, "failed to save the settings");
         }
     }
@@ -62,6 +63,7 @@ impl SettingsStore for SettingsFile {
 #[serde(default)]
 struct StoredSettings {
     backend: StoredBackend,
+    suggestion_model: Option<StoredModelFile>,
 }
 
 impl Default for StoredSettings {
@@ -78,6 +80,12 @@ enum StoredBackend {
     Cuda,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredModelFile {
+    repo: String,
+    name: String,
+}
+
 impl From<Settings> for StoredSettings {
     fn from(settings: Settings) -> Self {
         let backend = match settings.backend {
@@ -85,7 +93,14 @@ impl From<Settings> for StoredSettings {
             Backend::Vulkan => StoredBackend::Vulkan,
             Backend::Cuda => StoredBackend::Cuda,
         };
-        Self { backend }
+        let suggestion_model = settings.suggestion_model.map(|file| StoredModelFile {
+            repo: file.repo,
+            name: file.name,
+        });
+        Self {
+            backend,
+            suggestion_model,
+        }
     }
 }
 
@@ -96,7 +111,14 @@ impl From<StoredSettings> for Settings {
             StoredBackend::Vulkan => Backend::Vulkan,
             StoredBackend::Cuda => Backend::Cuda,
         };
-        Self { backend }
+        let suggestion_model = stored.suggestion_model.map(|file| ModelFile {
+            repo: file.repo,
+            name: file.name,
+        });
+        Self {
+            backend,
+            suggestion_model,
+        }
     }
 }
 
@@ -104,14 +126,21 @@ fn parse(json: &str) -> Result<Settings, serde_json::Error> {
     serde_json::from_str::<StoredSettings>(json).map(Settings::from)
 }
 
-fn to_json(settings: Settings) -> String {
-    serde_json::to_string_pretty(&StoredSettings::from(settings))
-        .expect("settings of plain enums always serialize")
+fn to_json(settings: &Settings) -> String {
+    serde_json::to_string_pretty(&StoredSettings::from(settings.clone()))
+        .expect("settings of plain enums and strings always serialize")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn model_file() -> ModelFile {
+        ModelFile {
+            repo: "owner/repo".to_owned(),
+            name: "model.gguf".to_owned(),
+        }
+    }
 
     fn temporary_file(name: &str) -> PathBuf {
         std::env::temp_dir()
@@ -136,6 +165,15 @@ mod tests {
     }
 
     #[test]
+    fn suggestion_model_reads_from_its_repo_and_name() {
+        let json = r#"{ "suggestion_model": { "repo": "owner/repo", "name": "model.gguf" } }"#;
+
+        let suggestion_model = parse(json).ok().and_then(|settings| settings.suggestion_model);
+
+        assert_eq!(suggestion_model, Some(model_file()));
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -154,18 +192,16 @@ mod tests {
         let path = temporary_file("saved.json");
         let mut file = SettingsFile::new(path.clone());
 
-        file.save(&Settings {
+        let settings = Settings {
             backend: Backend::Cuda,
-        });
+            suggestion_model: Some(model_file()),
+        };
+
+        file.save(&settings);
         let loaded = file.load();
 
         fs::remove_file(&path).ok();
-        assert_eq!(
-            loaded,
-            Settings {
-                backend: Backend::Cuda
-            }
-        );
+        assert_eq!(loaded, settings);
     }
 
     #[test]

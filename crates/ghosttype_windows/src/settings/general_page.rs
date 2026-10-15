@@ -1,6 +1,6 @@
 //! The General pane: renders the core [`GeneralView`] and reports the backend the user picks.
 
-use ghosttype_core::general_pane::{BackendChoice, GeneralAction, GeneralView};
+use ghosttype_core::general_pane::{BackendChoice, BackendPicker, GeneralAction, GeneralView};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::WNDPROC;
 use windows::core::{Result, w};
@@ -56,22 +56,27 @@ impl GeneralPage {
     pub(crate) fn render(&mut self, view: &GeneralView, appearance: &Appearance) {
         self.page.set_title(view.title);
         self.header.render(view.title, view.summary);
-        self.backend_label.set_text(view.backend.label);
-        self.backend_description.set_text(view.backend.description);
-        let titles: Vec<String> = view
-            .backend
-            .choices
-            .iter()
-            .map(|choice| choice.title.to_owned())
-            .collect();
-        self.backend_picker.set_choices(&titles, view.backend.selected);
-        enable_if(&self.backend_picker, view.backend.is_enabled);
-        self.choices.clone_from(&view.backend.choices);
+        if let Some(backend) = &view.backend {
+            self.render_backend(backend);
+        }
         self.has_note = view.backend_note.is_some();
         if let Some(note) = &view.backend_note {
             show_note(&mut self.backend_note, note);
         }
         self.layout(appearance);
+    }
+
+    fn render_backend(&mut self, backend: &BackendPicker) {
+        self.backend_label.set_text(backend.label);
+        self.backend_description.set_text(backend.description);
+        let titles: Vec<String> = backend
+            .choices
+            .iter()
+            .map(|choice| choice.title.to_owned())
+            .collect();
+        self.backend_picker.set_choices(&titles, backend.selected);
+        enable_if(&self.backend_picker, backend.is_enabled);
+        self.choices.clone_from(&backend.choices);
     }
 
     /// Places every control for the page's size and scroll offset.

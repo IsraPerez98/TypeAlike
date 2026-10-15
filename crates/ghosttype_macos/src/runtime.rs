@@ -8,21 +8,22 @@ use std::sync::Arc;
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{App, TrayOutcome};
 use ghosttype_core::engine::Reaction;
+use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
 use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, Prompt};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
+use ghosttype_core::settings::{Settings, SettingsStore};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton,
-    NSSearchField, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSControlStateValueOn, NSMenuItem,
+    NSPopUpButton, NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
 
-use crate::RunError;
 use crate::event_tap::EventTap;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
@@ -31,6 +32,7 @@ use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::overlay::Overlay;
 use crate::settings::{ActionTarget, SettingsWindow};
+use crate::{RunError, Services};
 
 const CARET_SETTLE_DELAY: NSTimeInterval = 0.04;
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
@@ -39,9 +41,15 @@ thread_local! {
     static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
 }
 
-/// Shows the menu bar extra and offers suggestions from `runner` until the user quits; settings
-/// use `hub` and `runner`.
-pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
+/// Shows the menu bar extra and offers suggestions from the runner of `services` until the user
+/// quits. The settings window starts with `settings` and uses `services`.
+pub(crate) fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
+    let Services {
+        hub,
+        mut runner,
+        settings_store,
+        autostart,
+    } = services;
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -58,6 +66,14 @@ pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>
     );
     observe_space_changes(&target);
     main_menu::install(main_thread);
+    let general = GeneralPane::new(settings)
+        .without_backend_menu()
+        .with_autostart(autostart);
+    let mut playground = PlaygroundPane::new();
+    let runner_sink = main_thread_sink(Runtime::on_inference_event);
+    if let Some(request) = general.load_suggestion_model(&mut playground) {
+        runner.submit(request, &runner_sink);
+    }
     RUNTIME.set(Some(Runtime {
         app,
         focus: FocusTracker::new(),
@@ -72,9 +88,11 @@ pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>
         models: ModelsPane::new(),
         hub,
         hub_sink: main_thread_sink(Runtime::on_hub_event),
-        playground: PlaygroundPane::new(),
+        playground,
+        general,
+        settings_store,
         runner,
-        runner_sink: main_thread_sink(Runtime::on_inference_event),
+        runner_sink,
         suggestion_sink: main_thread_sink(Runtime::on_suggestion_event),
         settings: None,
     }));
@@ -127,6 +145,8 @@ struct Runtime {
     hub: Box<dyn ModelHub>,
     hub_sink: HubEventSink,
     playground: PlaygroundPane,
+    general: GeneralPane,
+    settings_store: Box<dyn SettingsStore>,
     runner: Box<dyn ModelRunner>,
     runner_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
@@ -276,10 +296,12 @@ impl Runtime {
                 search_action: sel!(searchModels:),
                 model_picker_action: sel!(pickPlaygroundModel:),
                 complete_action: sel!(completePlaygroundText:),
+                autostart_action: sel!(switchAutostart:),
+                suggestion_model_action: sel!(pickSuggestionModel:),
             };
             SettingsWindow::new(action_target, target.mtm())
         });
-        render_panes(settings, &self.models, &self.playground);
+        render_panes(settings, &self.models, &self.playground, &self.general);
         settings.show();
     }
 
@@ -332,21 +354,53 @@ impl Runtime {
         self.render_settings();
     }
 
+    fn on_suggestion_model_picked(&mut self, index: isize) {
+        let action = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.suggestion_model_choice(index));
+        match action {
+            Some(action) => self.on_playground_action(action),
+            None => self.render_settings(),
+        }
+    }
+
+    fn on_general_action(&mut self, action: GeneralAction) {
+        let outcome = self.general.on_action(action, &mut self.playground);
+        if let Some(settings) = outcome.settings {
+            self.settings_store.save(&settings);
+        }
+        if let Some(request) = outcome.request {
+            self.runner.submit(request, &self.runner_sink);
+        }
+        self.render_settings();
+    }
+
     fn on_inference_event(&mut self, event: InferenceEvent) {
         self.playground.on_event(event);
+        if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
+            self.settings_store.save(&settings);
+        }
         self.render_settings();
     }
 
     fn render_settings(&mut self) {
         if let Some(settings) = &mut self.settings {
-            render_panes(settings, &self.models, &self.playground);
+            render_panes(settings, &self.models, &self.playground, &self.general);
         }
     }
 }
 
-fn render_panes(settings: &mut SettingsWindow, models: &ModelsPane, playground: &PlaygroundPane) {
+fn render_panes(
+    settings: &mut SettingsWindow,
+    models: &ModelsPane,
+    playground: &PlaygroundPane,
+    general: &GeneralPane,
+) {
+    let installed = models.installed_files();
+    settings.render_general(&general.view(playground, &installed));
     settings.render_models(&models.view());
-    settings.render_playground(&playground.view(&models.installed_files()));
+    settings.render_playground(&playground.view(&installed));
 }
 
 define_class!(
@@ -386,6 +440,24 @@ define_class!(
         fn pick_playground_model(&self, sender: &NSPopUpButton) {
             let index = sender.indexOfSelectedItem();
             with_runtime(|runtime| runtime.on_playground_model_picked(index));
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's autostart switch.
+        #[unsafe(method(switchAutostart:))]
+        fn switch_autostart(&self, sender: &NSSwitch) {
+            let action = if sender.state() == NSControlStateValueOn {
+                GeneralAction::EnableAutostart
+            } else {
+                GeneralAction::DisableAutostart
+            };
+            with_runtime(|runtime| runtime.on_general_action(action));
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's suggestion model menu.
+        #[unsafe(method(pickSuggestionModel:))]
+        fn pick_suggestion_model(&self, sender: &NSPopUpButton) {
+            let index = sender.indexOfSelectedItem();
+            with_runtime(|runtime| runtime.on_suggestion_model_picked(index));
         }
 
         // SAFETY: matches the action signature, called with the playground's button or prompt field.

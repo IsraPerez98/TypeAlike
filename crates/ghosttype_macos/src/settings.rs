@@ -1,11 +1,13 @@
-//! The settings window: a toolbar of panes that render the core Models and Playground panes and
-//! report user actions back.
+//! The settings window: a toolbar of panes that render the core General, Models and Playground
+//! panes and report user actions back.
 //!
 //! Layout follows System Settings: a pinned header with the search field, then grouped lists in
 //! rounded boxes with hairline separators between rows.
 
+mod general;
 mod playground;
 
+use ghosttype_core::general_pane::GeneralView;
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
@@ -15,7 +17,7 @@ use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSAccessibility as _, NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSCellImagePosition,
-    NSColor, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
+    NSColor, NSControl, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
     NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
     NSMenuItem, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSProgressIndicator,
     NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution,
@@ -27,6 +29,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSEdgeInsets, NSPoint, NSRect, NSSize, NSString};
 
 use crate::labels::title_case;
+use crate::settings::general::GeneralPage;
 use crate::settings::playground::PlaygroundPage;
 
 const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
@@ -67,7 +70,8 @@ const HEADER_SPACING: CGFloat = 4.0;
 const SEARCH_FIELD_TOP_SPACING: CGFloat = 14.0;
 const SECTION_SPACING: CGFloat = 28.0;
 const LIST_PART_SPACING: CGFloat = 8.0;
-const ROW_HEIGHT: CGFloat = 52.0;
+const MIN_ROW_HEIGHT: CGFloat = 52.0;
+const ROW_TEXT_PADDING: CGFloat = 8.0;
 const ROW_COLUMN_SPACING: CGFloat = 12.0;
 const ROW_TEXT_SPACING: CGFloat = 2.0;
 const ACCESSORY_SPACING: CGFloat = 8.0;
@@ -84,6 +88,7 @@ const INSTALLED_SYMBOL: &str = "checkmark.circle.fill";
 const INSTALLED_DESCRIPTION: &str = "Downloaded";
 const UNAVAILABLE_SYMBOL: &str = "lock.fill";
 const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
+const GENERAL_SYMBOL: &str = "gearshape";
 const MODELS_SYMBOL: &str = "cube";
 const PLAYGROUND_SYMBOL: &str = "text.cursor";
 
@@ -95,6 +100,8 @@ pub(crate) struct ActionTarget {
     pub(crate) search_action: Sel,
     pub(crate) model_picker_action: Sel,
     pub(crate) complete_action: Sel,
+    pub(crate) autostart_action: Sel,
+    pub(crate) suggestion_model_action: Sel,
 }
 
 /// The settings window, kept alive and reused after the user closes it.
@@ -102,8 +109,10 @@ pub(crate) struct ActionTarget {
 pub(crate) struct SettingsWindow {
     window: Retained<NSWindow>,
     tabs: Retained<NSTabViewController>,
+    general_pane: Pane,
     models_pane: Pane,
     playground_pane: Pane,
+    general: GeneralPage,
     summary: Retained<NSTextField>,
     search_field: Retained<NSSearchField>,
     browse: ListView,
@@ -120,9 +129,11 @@ impl SettingsWindow {
     /// A Models button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The
     /// search field sends `target.search_action` when the user submits or clears it. The Playground
     /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
-    /// button and prompt field send `target.complete_action`.
+    /// button and prompt field send `target.complete_action`. The General autostart switch sends
+    /// `target.autostart_action`, and its suggestion model menu sends
+    /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`].
     pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
-        let summary = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        let summary = wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
         summary.setTextColor(Some(&NSColor::secondaryLabelColor()));
         let search_field = search_field(&target, main_thread);
@@ -148,19 +159,23 @@ impl SettingsWindow {
         let browse = ListView::new(&content, &target, main_thread);
         let downloaded = ListView::new(&content, &target, main_thread);
         let playground = PlaygroundPage::new(&target, main_thread);
+        let general = GeneralPage::new(&target, main_thread);
+        let general_pane = Pane::new(&general.root, GENERAL_SYMBOL, main_thread);
         let models_pane = Pane::new(
             &models_root(&header, &content, main_thread),
             MODELS_SYMBOL,
             main_thread,
         );
         let playground_pane = Pane::new(&playground.root, PLAYGROUND_SYMBOL, main_thread);
-        let tabs = pane_tabs(&[&models_pane, &playground_pane], main_thread);
+        let tabs = pane_tabs(&[&general_pane, &models_pane, &playground_pane], main_thread);
         let window = settings_window(&tabs, main_thread);
         Self {
             window,
             tabs,
+            general_pane,
             models_pane,
             playground_pane,
+            general,
             summary,
             search_field,
             browse,
@@ -176,6 +191,18 @@ impl SettingsWindow {
     pub(crate) fn show(&self) {
         NSApplication::sharedApplication(self.main_thread).activate();
         self.window.makeKeyAndOrderFront(None);
+    }
+
+    /// Shows `view` in the General pane.
+    pub(crate) fn render_general(&mut self, view: &GeneralView) {
+        self.general_pane.set_title(view.title);
+        self.show_selected_pane_title();
+        self.general.render(view);
+    }
+
+    /// Returns the action of the General suggestion model menu entry at `index` in the last render.
+    pub(crate) fn suggestion_model_choice(&self, index: isize) -> Option<PlaygroundAction> {
+        self.general.suggestion_model_menu.action_at(index)
     }
 
     /// Shows `view` in the Models pane, reusing row views so clicks in progress are not lost.
@@ -287,7 +314,7 @@ impl ListView {
         );
         let message = MessageView::new(&rows_stack, target, main_thread);
         let group = rounded_group(&rows_stack, main_thread);
-        let footer = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        let footer = wrapping_label(main_thread);
         footer.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
         footer.setTextColor(Some(&NSColor::secondaryLabelColor()));
         let container = stack(
@@ -341,7 +368,7 @@ struct MessageView {
 impl MessageView {
     fn new(rows_stack: &NSStackView, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
         let spinner = spinner(main_thread);
-        let text = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        let text = wrapping_label(main_thread);
         text.setTextColor(Some(&NSColor::secondaryLabelColor()));
         let retry = push_button(target, main_thread);
         let container = stack(
@@ -469,7 +496,8 @@ struct GroupedRow {
 }
 
 impl GroupedRow {
-    /// Adds a row of `texts`, then `controls`, left to right, at the bottom of `rows_stack`.
+    /// Adds a row of `texts`, then `controls`, left to right, at the bottom of `rows_stack`. The
+    /// row grows past its minimum height to keep a padding around `texts` when they wrap.
     fn add(
         rows_stack: &NSStackView,
         texts: &NSView,
@@ -482,10 +510,18 @@ impl GroupedRow {
         }
         content.setSpacing(ROW_COLUMN_SPACING);
         content.setDistribution(NSStackViewDistribution::Fill);
-        content
-            .heightAnchor()
-            .constraintEqualToConstant(ROW_HEIGHT)
-            .setActive(true);
+        // NSStackView does not keep its edge insets on the cross axis, so the padding is explicit.
+        NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+            content
+                .heightAnchor()
+                .constraintGreaterThanOrEqualToConstant(MIN_ROW_HEIGHT),
+            texts
+                .topAnchor()
+                .constraintGreaterThanOrEqualToAnchor_constant(&content.topAnchor(), ROW_TEXT_PADDING),
+            texts
+                .bottomAnchor()
+                .constraintLessThanOrEqualToAnchor_constant(&content.bottomAnchor(), -ROW_TEXT_PADDING),
+        ]));
         let separator = separator(main_thread);
         let container = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
@@ -920,7 +956,7 @@ fn label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> 
 }
 
 fn secondary_wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
-    let label = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+    let label = wrapping_label(main_thread);
     label.setTextColor(Some(&NSColor::secondaryLabelColor()));
     label
 }
@@ -983,6 +1019,51 @@ fn fill_width(view: &NSView, stack: &NSStackView) {
     view.widthAnchor()
         .constraintEqualToAnchor_constant(&stack.widthAnchor(), -(insets.left + insets.right))
         .setActive(true);
+}
+
+/// A wrapping, non-editable label in the system font.
+fn wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
+    let label = WrappingLabel::new(main_thread);
+    label.setEditable(false);
+    label.setSelectable(true);
+    label.setBezeled(false);
+    label.setDrawsBackground(false);
+    label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
+    label.setFont(Some(&NSFont::systemFontOfSize(NSFont::systemFontSize())));
+    label.setTextColor(Some(&NSColor::labelColor()));
+    Retained::into_super(label)
+}
+
+define_class!(
+    // SAFETY: NSTextField has no subclassing requirements, and this class does not implement Drop.
+    #[unsafe(super(NSTextField, NSControl, NSView, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "GhostTypeWrappingLabel"]
+    /// A text field that wraps at its laid-out width. AppKit sizes a wrapping field as one line
+    /// unless its preferred maximum layout width is set, so its lines would overflow its row.
+    struct WrappingLabel;
+
+    impl WrappingLabel {
+        // SAFETY: matches the NSView method signature.
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            let width = self.bounds().size.width;
+            if (self.preferredMaxLayoutWidth() - width).abs() > CGFloat::EPSILON {
+                self.setPreferredMaxLayoutWidth(width);
+                self.invalidateIntrinsicContentSize();
+            }
+            // SAFETY: calls the NSTextField layout that this method overrides.
+            let () = unsafe { msg_send![super(self), layout] };
+        }
+    }
+);
+
+impl WrappingLabel {
+    fn new(main_thread: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(main_thread).set_ivars(());
+        // SAFETY: NSTextField's initWithFrame takes a frame and returns an initialized field.
+        unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] }
+    }
 }
 
 define_class!(

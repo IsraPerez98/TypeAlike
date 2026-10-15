@@ -13,7 +13,7 @@ use objc2_foundation::{NSEdgeInsets, NSString};
 use super::{
     ActionTarget, CONTENT_INSETS, DETAIL_FONT_SIZE, LIST_PART_SPACING, ModelMenu, NO_INSETS, NoteView,
     ROW_CONTAINER_INSETS, SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, rounded_group, scroll_view,
-    secondary_wrapping_label, set_text, stack,
+    secondary_wrapping_label, set_text, stack, wrapping_label,
 };
 use crate::labels::title_case;
 
@@ -135,7 +135,7 @@ struct OutputView {
 impl OutputView {
     fn new(main_thread: MainThreadMarker) -> Self {
         let heading = heading(main_thread);
-        let text = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+        let text = wrapping_label(main_thread);
         text.setSelectable(true);
         let detail = secondary_wrapping_label(main_thread);
         // SAFETY: reads an AppKit constant that is initialized before any code runs.

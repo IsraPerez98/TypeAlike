@@ -431,8 +431,9 @@ impl Runtime {
             return;
         };
         let models = self.models.view();
-        let playground = self.playground.view(&self.models.installed_files());
-        let general = self.general.view(&self.playground);
+        let installed = self.models.installed_files();
+        let playground = self.playground.view(&installed);
+        let general = self.general.view(&self.playground, &installed);
         if let Err(error) = settings.render(&models, &playground, &general) {
             tracing::warn!(%error, "failed to render settings");
         }
