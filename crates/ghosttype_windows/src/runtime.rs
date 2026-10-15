@@ -1,17 +1,28 @@
 //! The message loop, and the one place Win32 callbacks reach GhostType's state.
 
 use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::mpsc;
 
 use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use ghosttype_core::hub::{HubEventSink, ModelHub};
+use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner};
+use ghosttype_core::models_pane::ModelsPane;
+use ghosttype_core::playground::PlaygroundPane;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
+use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_TAB};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, HOOKPROC,
-    KBDLLHOOKSTRUCT, KillTimer, MSG, PostMessageW, PostQuitMessage, RegisterWindowMessageW, SetTimer,
-    SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID,
-    WM_APP, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_RBUTTONDOWN, WM_SETTINGCHANGE,
+    CallNextHookEx, DefWindowProcW, DispatchMessageW, EN_CHANGE, EN_KILLFOCUS, EN_SETFOCUS, GetMessageW,
+    HC_ACTION, HHOOK, HOOKPROC, IDCANCEL, IDOK, IsDialogMessageW, KBDLLHOOKSTRUCT, KillTimer, MSG,
+    PostMessageW, PostQuitMessage, RegisterWindowMessageW, SPI_SETHIGHCONTRAST, SW_HIDE, SetTimer,
+    SetWindowsHookExW, ShowWindow, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
+    WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_DPICHANGED,
+    WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_SETTINGCHANGE, WM_SIZE,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, PCWSTR, w};
@@ -20,32 +31,59 @@ use crate::RunError;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Disposition, ReleaseFilter};
+use crate::mailbox::{DELIVERY_MESSAGE, Delivery, Mailbox};
+use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
+use crate::settings::{self, Appearance, Pointer, Procedures, SettingsInput, SettingsWindow};
+use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
 
 const GHOST_TIMER_ID: usize = 1;
 const CARET_SETTLE_DELAY_MS: u32 = 40;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
+const MODEL_MENU_MESSAGE: u32 = WM_APP + 4;
 const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
+const HANDLED: LRESULT = LRESULT(0);
+const DRAWN: LRESULT = LRESULT(1);
 const QUIT_RECEIVED: i32 = 0;
 const READ_FAILED: i32 = -1;
+const SETTINGS_PROCEDURES: Procedures = Procedures {
+    window: Some(settings_window_procedure),
+    models_page: Some(settings_page_procedure),
+    playground_page: Some(settings_page_procedure),
+};
 
-thread_local! {
-    static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
+/// Everything Win32 callbacks on this thread can reach. The appearance has its own cell because
+/// controls ask to draw while the runtime is busy changing them.
+struct ThreadState {
+    runtime: RefCell<Option<Runtime>>,
+    appearance: RefCell<Option<Rc<Appearance>>>,
 }
 
-/// Shows the tray icon and offers suggestions until the user quits.
-pub(crate) fn run(app: App) -> Result<(), RunError> {
+thread_local! {
+    static STATE: ThreadState = const {
+        ThreadState {
+            runtime: RefCell::new(None),
+            appearance: RefCell::new(None),
+        }
+    };
+}
+
+/// Shows the tray icon and offers suggestions from `runner` until the user quits; settings use
+/// `hub` and `runner`.
+pub(crate) fn run(app: App, hub: Box<dyn ModelHub>, runner: Box<dyn ModelRunner>) -> Result<(), RunError> {
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
         procedure: Some(main_window_procedure),
         style: WS_OVERLAPPED,
         extended_style: WINDOW_EX_STYLE::default(),
+        parent: None,
     })
     .map_err(RunError::during("create the main window"))?;
     let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
+    system_theme::match_menus_to(SystemTheme::read());
     let tray = Tray::add(window.handle(), &app.tray_view()).map_err(RunError::during("add the tray icon"))?;
     // SAFETY: plain call with a static, nul-terminated name.
     let taskbar_created_message = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
@@ -53,20 +91,35 @@ pub(crate) fn run(app: App) -> Result<(), RunError> {
         .map_err(RunError::during("install the keyboard hook"))?;
     let _mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
         .map_err(RunError::during("install the mouse hook"))?;
-    RUNTIME.set(Some(Runtime {
-        app,
-        focus: FocusTracker::new(),
-        tray,
-        overlay,
-        window,
-        taskbar_created_message,
-        pending_ghost: None,
-        pending_injection: None,
-        release_filter: ReleaseFilter::default(),
-    }));
+    let (mailbox, deliveries) = Mailbox::new(window.handle());
+    STATE.with(|state| {
+        state.runtime.replace(Some(Runtime {
+            app,
+            focus: FocusTracker::new(),
+            tray,
+            overlay,
+            window,
+            taskbar_created_message,
+            pending_ghost: None,
+            pending_injection: None,
+            release_filter: ReleaseFilter::default(),
+            models: ModelsPane::new(),
+            hub,
+            hub_sink: mailbox.sink(Delivery::Hub),
+            playground: PlaygroundPane::new(),
+            runner,
+            runner_sink: mailbox.sink(Delivery::Playground),
+            suggestion_sink: mailbox.sink(Delivery::Suggestion),
+            deliveries,
+            settings: None,
+        }))
+    });
     tracing::info!("running in the tray");
     let result = pump_messages();
-    RUNTIME.take();
+    STATE.with(|state| {
+        state.runtime.take();
+        state.appearance.take();
+    });
     result
 }
 
@@ -88,6 +141,9 @@ fn pump_messages() -> Result<(), RunError> {
             READ_FAILED => return Err(RunError::during("read the message queue")(Error::from_thread())),
             _ => {}
         }
+        if is_settings_dialog_message(&message) {
+            continue;
+        }
         // SAFETY: `message` was just filled in by GetMessageW.
         unsafe {
             // Returns whether a character message was produced, not an error.
@@ -97,8 +153,34 @@ fn pump_messages() -> Result<(), RunError> {
     }
 }
 
+/// Gives the settings window keyboard navigation (Tab, arrow keys, Enter, Escape) like a dialog.
+fn is_settings_dialog_message(message: &MSG) -> bool {
+    let Some(settings) =
+        with_runtime(|runtime| runtime.settings.as_ref().map(SettingsWindow::handle)).flatten()
+    else {
+        return false;
+    };
+    // SAFETY: `message` was filled in by GetMessageW and the settings window is alive.
+    if !unsafe { IsDialogMessageW(settings, &raw const *message) }.as_bool() {
+        return false;
+    }
+    if message.message == WM_KEYDOWN && message.wParam.0 == usize::from(VK_TAB.0) {
+        with_runtime(|runtime| runtime.settings.as_mut().map(SettingsWindow::reveal_focus));
+    }
+    true
+}
+
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
-    RUNTIME.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(action))
+    STATE.with(|state| state.runtime.try_borrow_mut().ok()?.as_mut().map(action))
+}
+
+fn with_appearance<Output>(action: impl FnOnce(&Appearance) -> Output) -> Option<Output> {
+    let appearance = STATE.with(|state| state.appearance.try_borrow().ok()?.clone())?;
+    Some(action(&appearance))
+}
+
+fn publish_appearance(appearance: Rc<Appearance>) {
+    STATE.with(|state| state.appearance.replace(Some(appearance)));
 }
 
 struct Runtime {
@@ -111,6 +193,15 @@ struct Runtime {
     pending_ghost: Option<String>,
     pending_injection: Option<String>,
     release_filter: ReleaseFilter,
+    models: ModelsPane,
+    hub: Box<dyn ModelHub>,
+    hub_sink: HubEventSink,
+    playground: PlaygroundPane,
+    runner: Box<dyn ModelRunner>,
+    runner_sink: InferenceEventSink,
+    suggestion_sink: InferenceEventSink,
+    deliveries: mpsc::Receiver<Delivery>,
+    settings: Option<SettingsWindow>,
 }
 
 impl Runtime {
@@ -154,8 +245,7 @@ impl Runtime {
                 self.restart_ghost_timer();
                 Disposition::Pass
             }
-            // Windows has no model runner yet, so a request gets no completion.
-            Reaction::Hide | Reaction::Request(_) => {
+            Reaction::Hide => {
                 self.hide_ghost();
                 Disposition::Pass
             }
@@ -170,6 +260,18 @@ impl Runtime {
                 }
                 Disposition::Swallow
             }
+            Reaction::Request(request) => {
+                self.hide_ghost();
+                self.runner.submit(request, &self.suggestion_sink);
+                Disposition::Pass
+            }
+        }
+    }
+
+    fn on_suggestion_event(&mut self, event: InferenceEvent) {
+        if let InferenceEvent::Completed(result) = event {
+            let reaction = self.app.on_completion(result);
+            self.apply(reaction);
         }
     }
 
@@ -220,9 +322,7 @@ impl Runtime {
                 self.hide_ghost();
                 self.refresh_tray();
             }
-            TrayOutcome::OpenSettings => {
-                tracing::info!("the settings window is not available on windows yet");
-            }
+            TrayOutcome::OpenSettings => self.open_settings(),
             // SAFETY: plain call.
             TrayOutcome::Quit => unsafe { PostQuitMessage(0) },
         }
@@ -238,7 +338,8 @@ impl Runtime {
     fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
             WM_TIMER if wparam.0 == GHOST_TIMER_ID => self.show_pending_ghost(),
-            WM_SETTINGCHANGE if is_color_set_change(lparam) => self.refresh_tray(),
+            WM_SETTINGCHANGE if is_appearance_change(wparam, lparam) => self.on_appearance_change(),
+            DELIVERY_MESSAGE => self.take_deliveries(),
             _ if message == self.taskbar_created_message => {
                 if let Err(error) = self.tray.register() {
                     tracing::warn!(%error, "failed to re-add tray icon");
@@ -246,8 +347,188 @@ impl Runtime {
             }
             _ => return None,
         }
-        Some(LRESULT(0))
+        Some(HANDLED)
     }
+
+    fn on_appearance_change(&mut self) {
+        system_theme::match_menus_to(SystemTheme::read());
+        self.refresh_tray();
+        let Some(settings) = &mut self.settings else {
+            return;
+        };
+        match settings.change_theme() {
+            Ok(()) => publish_appearance(settings.appearance()),
+            Err(error) => tracing::warn!(%error, "failed to redraw settings for the new theme"),
+        }
+    }
+
+    fn take_deliveries(&mut self) {
+        let mut has_pane_changes = false;
+        while let Ok(delivery) = self.deliveries.try_recv() {
+            match delivery {
+                Delivery::Hub(event) => {
+                    self.models.on_event(event);
+                    has_pane_changes = true;
+                }
+                Delivery::Playground(event) => {
+                    self.playground.on_event(event);
+                    has_pane_changes = true;
+                }
+                Delivery::Suggestion(event) => self.on_suggestion_event(event),
+            }
+        }
+        if has_pane_changes {
+            self.render_settings();
+        }
+    }
+
+    fn open_settings(&mut self) {
+        let request = self.models.on_open();
+        self.hub.submit(request, &self.hub_sink);
+        if self.settings.is_none() {
+            match SettingsWindow::create(SETTINGS_PROCEDURES) {
+                Ok(settings) => {
+                    publish_appearance(settings.appearance());
+                    self.settings = Some(settings);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to create the settings window");
+                    return;
+                }
+            }
+        }
+        self.render_settings();
+        if let Some(settings) = &mut self.settings {
+            settings.layout();
+            settings.show();
+        }
+    }
+
+    fn render_settings(&mut self) {
+        let Some(settings) = &mut self.settings else {
+            return;
+        };
+        let models = self.models.view();
+        let playground = self.playground.view(&self.models.installed_files());
+        if let Err(error) = settings.render(&models, &playground) {
+            tracing::warn!(%error, "failed to render settings");
+        }
+    }
+
+    fn on_settings_input(&mut self, input: SettingsInput) {
+        match input {
+            SettingsInput::Models(action) => {
+                if let Some(request) = self.models.on_action(action) {
+                    self.hub.submit(request, &self.hub_sink);
+                }
+            }
+            SettingsInput::Playground(action) => {
+                if let Some(request) = self.playground.on_action(action) {
+                    self.runner.submit(request, &self.runner_sink);
+                }
+            }
+            SettingsInput::OpenModelMenu => {
+                self.post_model_menu();
+                return;
+            }
+        }
+        self.render_settings();
+    }
+
+    fn post_model_menu(&self) {
+        let Some(settings) = &self.settings else {
+            return;
+        };
+        // SAFETY: plain call on our own window.
+        let posted =
+            unsafe { PostMessageW(Some(settings.handle()), MODEL_MENU_MESSAGE, WPARAM(0), LPARAM(0)) };
+        if let Err(error) = posted {
+            tracing::warn!(%error, "failed to open the model menu");
+        }
+    }
+
+    fn on_model_pick(&mut self, index: usize) {
+        let input = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.input_for_model(index));
+        if let Some(input) = input {
+            self.on_settings_input(input);
+        }
+    }
+
+    fn on_settings_message(
+        &mut self,
+        window: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Option<LRESULT> {
+        let settings = self.settings.as_mut()?;
+        match message {
+            WM_SIZE if window == settings.handle() => settings.layout(),
+            WM_DPICHANGED => {
+                // SAFETY: for WM_DPICHANGED the lparam points to the suggested RECT, valid during the message.
+                let suggested =
+                    unsafe { *std::ptr::with_exposed_provenance::<RECT>(lparam.0.cast_unsigned()) };
+                match settings.change_dpi(u32::from(low_word(wparam.0)), suggested) {
+                    Ok(()) => publish_appearance(settings.appearance()),
+                    Err(error) => tracing::warn!(%error, "failed to rescale settings"),
+                }
+            }
+            WM_MOUSEWHEEL => settings.scroll_by_wheel(i32::from(high_word(wparam.0).cast_signed())),
+            WM_MOUSEMOVE => {
+                settings.on_page_pointer(window, Pointer::Move(settings::pointer_position(lparam)));
+            }
+            WM_LBUTTONDOWN => {
+                settings.on_page_pointer(window, Pointer::Press(settings::pointer_position(lparam)));
+            }
+            WM_LBUTTONUP => settings.on_page_pointer(window, Pointer::Release),
+            WM_MOUSELEAVE => settings.on_page_pointer(window, Pointer::Leave),
+            WM_CAPTURECHANGED => settings.on_page_pointer(window, Pointer::CaptureLost),
+            WM_COMMAND => self.on_settings_command(wparam, lparam),
+            _ => return None,
+        }
+        Some(HANDLED)
+    }
+
+    fn on_settings_command(&mut self, wparam: WPARAM, lparam: LPARAM) {
+        let Some(settings) = &mut self.settings else {
+            return;
+        };
+        let command = i32::from(low_word(wparam.0));
+        let input = if lparam.0 != 0 {
+            let control = HWND(std::ptr::with_exposed_provenance_mut(lparam.0.cast_unsigned()));
+            settings.input_for(control, u32::from(high_word(wparam.0)))
+        } else if command == IDOK.0 {
+            settings.input_for_enter()
+        } else if command == IDCANCEL.0 {
+            settings.hide();
+            None
+        } else {
+            None
+        };
+        if let Some(input) = input {
+            self.on_settings_input(input);
+        }
+    }
+
+    fn paint_settings_page(&self, page: HWND) -> Option<LRESULT> {
+        self.settings.as_ref()?.paint_page(page);
+        Some(HANDLED)
+    }
+}
+
+fn low_word(value: usize) -> u16 {
+    u16::try_from(value & usize::from(u16::MAX)).expect("masked to 16 bits")
+}
+
+fn high_word(value: usize) -> u16 {
+    low_word(value >> u16::BITS)
+}
+
+fn is_appearance_change(wparam: WPARAM, lparam: LPARAM) -> bool {
+    u32::try_from(wparam.0) == Ok(SPI_SETHIGHCONTRAST.0) || is_color_set_change(lparam)
 }
 
 fn is_color_set_change(lparam: LPARAM) -> bool {
@@ -276,9 +557,116 @@ extern "system" fn main_window_procedure(
     handled.unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) })
 }
 
+extern "system" fn settings_window_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let handled = match message {
+        WM_CLOSE => {
+            // Returns the previous visibility, not an error.
+            // SAFETY: plain call on the window that got the message.
+            let _ = unsafe { ShowWindow(window, SW_HIDE) };
+            Some(HANDLED)
+        }
+        WM_ERASEBKGND => Some(DRAWN),
+        WM_PAINT => with_appearance(|appearance| SettingsWindow::paint_background(window, appearance))
+            .map(|()| HANDLED),
+        WM_GETMINMAXINFO => {
+            SettingsWindow::limit_size(window, lparam);
+            Some(HANDLED)
+        }
+        WM_DRAWITEM => draw_settings_item(lparam),
+        MODEL_MENU_MESSAGE => Some(show_model_menu(window)),
+        _ => with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten(),
+    };
+    // SAFETY: forwards the system's own arguments unchanged.
+    handled.unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) })
+}
+
+extern "system" fn settings_page_procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let handled = match message {
+        WM_ERASEBKGND => Some(DRAWN),
+        WM_CTLCOLOREDIT => with_appearance(|appearance| appearance.color_field(wparam)),
+        WM_DRAWITEM => draw_settings_item(lparam),
+        WM_PAINT => with_runtime(|runtime| runtime.paint_settings_page(window))
+            .flatten()
+            .or_else(|| paint_page_later(window)),
+        WM_COMMAND => {
+            if is_field_change(wparam) {
+                repaint_field_frames(window);
+            }
+            with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten()
+        }
+        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSELEAVE | WM_CAPTURECHANGED => {
+            with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten()
+        }
+        _ => None,
+    };
+    // SAFETY: forwards the system's own arguments unchanged.
+    handled.unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) })
+}
+
+/// Draws a settings control with the current appearance; it needs no runtime state.
+fn draw_settings_item(lparam: LPARAM) -> Option<LRESULT> {
+    with_appearance(|appearance| SettingsWindow::draw_item(lparam, appearance))
+        .filter(|is_drawn| *is_drawn)
+        .map(|_| DRAWN)
+}
+
+/// Whether a `WM_COMMAND` tells that a text field gained or lost focus or changed its text,
+/// which changes the frame and placeholder that its page draws.
+fn is_field_change(wparam: WPARAM) -> bool {
+    matches!(
+        u32::from(high_word(wparam.0)),
+        EN_SETFOCUS | EN_KILLFOCUS | EN_CHANGE
+    )
+}
+
+fn repaint_field_frames(page: HWND) {
+    // Returns whether it invalidated; a failure only delays the repaint.
+    // SAFETY: plain call on the window that got the message.
+    let _ = unsafe { InvalidateRect(Some(page), None, false) };
+}
+
+/// Shows the model menu below the picker and applies the pick. The menu runs a message loop of
+/// its own, so it shows outside any borrow of the runtime.
+fn show_model_menu(window: HWND) -> LRESULT {
+    let Some(model_menu) =
+        with_runtime(|runtime| runtime.settings.as_ref().map(SettingsWindow::model_menu)).flatten()
+    else {
+        return HANDLED;
+    };
+    let labels: Vec<&str> = model_menu.titles.iter().map(String::as_str).collect();
+    let placement = MenuPlacement::Below(model_menu.anchor);
+    match menu::pick(window, &labels, Some(model_menu.selected), placement) {
+        Ok(Some(index)) => {
+            with_runtime(|runtime| runtime.on_model_pick(index));
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "failed to show the model menu"),
+    }
+    HANDLED
+}
+
+/// Paints the background of a page whose state is busy, and asks for a full paint once it is free.
+fn paint_page_later(window: HWND) -> Option<LRESULT> {
+    with_appearance(|appearance| SettingsWindow::paint_background(window, appearance))?;
+    // Returns whether it invalidated; a failure only leaves the cards out until the next paint.
+    // SAFETY: plain call on the window that got the message.
+    let _ = unsafe { InvalidateRect(Some(window), None, false) };
+    Some(HANDLED)
+}
+
 fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
     let Some(view) = with_runtime(|runtime| runtime.app.tray_view()) else {
-        return LRESULT(0);
+        return HANDLED;
     };
     match tray::pick_command(window, &view.items, request.anchor) {
         Ok(Some(command)) => {
@@ -287,7 +675,7 @@ fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "failed to show tray menu"),
     }
-    LRESULT(0)
+    HANDLED
 }
 
 fn inject_pending_text() -> LRESULT {
@@ -297,7 +685,7 @@ fn inject_pending_text() -> LRESULT {
     {
         tracing::warn!(%error, "failed to type accepted text");
     }
-    LRESULT(0)
+    HANDLED
 }
 
 extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

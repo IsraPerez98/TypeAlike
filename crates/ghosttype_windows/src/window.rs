@@ -3,8 +3,8 @@
 use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, RegisterClassExW, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WNDCLASSEXW, WNDPROC,
+    CreateWindowExW, DestroyWindow, IDC_ARROW, LoadCursorW, RegisterClassExW, UnregisterClassW,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC,
 };
 use windows::core::{Error, PCWSTR, Result};
 
@@ -15,6 +15,8 @@ pub(crate) struct WindowSpec {
     pub(crate) procedure: WNDPROC,
     pub(crate) style: WINDOW_STYLE,
     pub(crate) extended_style: WINDOW_EX_STYLE,
+    /// The window that contains this one, for a child window.
+    pub(crate) parent: Option<HWND>,
 }
 
 /// A window and its class, destroyed and unregistered on drop.
@@ -43,7 +45,7 @@ impl Window {
                 0,
                 0,
                 0,
-                None,
+                spec.parent,
                 None,
                 Some(class.instance),
                 None,
@@ -77,12 +79,15 @@ impl WindowClass {
     fn register(spec: WindowSpec) -> Result<Self> {
         // SAFETY: plain call.
         let instance: HINSTANCE = unsafe { GetModuleHandleW(None) }?.into();
+        // SAFETY: plain call that loads a shared system cursor, which is never freed.
+        let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }?;
         let class = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>()
                 .try_into()
                 .expect("class size fits in u32"),
             lpfnWndProc: spec.procedure,
             hInstance: instance,
+            hCursor: cursor,
             lpszClassName: spec.class_name,
             ..WNDCLASSEXW::default()
         };

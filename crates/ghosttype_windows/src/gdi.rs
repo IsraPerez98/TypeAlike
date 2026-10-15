@@ -1,4 +1,5 @@
-//! Renders text into premultiplied-alpha bitmaps, for the overlay and the tray icon.
+//! Renders text into premultiplied-alpha bitmaps and icons, for the overlay, the tray and window
+//! icons, and holds the memory bitmaps that the settings window draws into.
 
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -6,18 +7,23 @@ use std::marker::PhantomData;
 use windows::Win32::Foundation::{COLORREF, E_FAIL, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
-    CLIP_DEFAULT_PRECIS, CreateCompatibleDC, CreateDIBSection, CreateFontW, DEFAULT_CHARSET, DEFAULT_PITCH,
-    DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DrawTextW, FW_NORMAL,
-    GdiFlush, GetTextExtentPoint32W, GetTextFaceW, HBITMAP, HDC, HFONT, HGDIOBJ, OUT_TT_PRECIS, SelectObject,
-    SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
+    CLIP_DEFAULT_PRECIS, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, DEFAULT_CHARSET,
+    DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DrawTextW,
+    FW_NORMAL, GdiFlush, GetTextExtentPoint32W, GetTextFaceW, HBITMAP, HDC, HFONT, HGDIOBJ, OUT_TT_PRECIS,
+    SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{ULW_ALPHA, UpdateLayeredWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateIconIndirect, HICON, ICONINFO, ULW_ALPHA, UpdateLayeredWindow,
+};
 use windows::core::{Error, HSTRING, Owned, Result};
 
 use crate::pixels::{Rgb, tint_by_coverage};
 
 const BITS_PER_PIXEL: u16 = 32;
 const MAX_FACE_NAME_UNITS: usize = 32;
+const ICON_FACES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
+const MONOCHROME_PLANES: u32 = 1;
+const MONOCHROME_BITS: u32 = 1;
 
 /// How a font's pixel height is measured.
 #[derive(Debug, Clone, Copy)]
@@ -32,7 +38,7 @@ pub(crate) enum FontHeight {
 pub(crate) struct Font(Owned<HFONT>);
 
 impl Font {
-    /// Creates an antialiased regular font in the first of `faces` that is installed.
+    /// Creates a regular antialiased font in the first of `faces` that is installed.
     pub(crate) fn first_installed(faces: &[&str], height: FontHeight) -> Result<Self> {
         for face in faces {
             let font = Self::create(face, height)?;
@@ -41,6 +47,11 @@ impl Font {
             }
         }
         Err(Error::new(E_FAIL, "none of the font faces is installed"))
+    }
+
+    /// Raw font handle, valid while `self` lives.
+    pub(crate) fn handle(&self) -> HFONT {
+        *self.0
     }
 
     fn create(face: &str, height: FontHeight) -> Result<Self> {
@@ -163,6 +174,39 @@ impl TextBitmap {
     }
 }
 
+/// Renders `glyph` of the system icon font as a square icon of `side` pixels in `color`.
+pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HICON>> {
+    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(side))?;
+    let bitmap = TextBitmap::render(glyph, &font, color, TextLayout::CenteredSquare(side))?;
+    let bitmap_size = bitmap.size();
+    // SAFETY: plain call; the bitmap is owned right after.
+    let ignored_mask = unsafe {
+        CreateBitmap(
+            bitmap_size.cx,
+            bitmap_size.cy,
+            MONOCHROME_PLANES,
+            MONOCHROME_BITS,
+            None,
+        )
+    };
+    if ignored_mask.is_invalid() {
+        return Err(Error::from_thread());
+    }
+    // SAFETY: CreateBitmap returned a valid bitmap that nothing else owns.
+    let ignored_mask = unsafe { Owned::new(ignored_mask) };
+    let info = ICONINFO {
+        fIcon: true.into(),
+        xHotspot: 0,
+        yHotspot: 0,
+        hbmMask: *ignored_mask,
+        hbmColor: bitmap.handle(),
+    };
+    // SAFETY: both bitmaps are alive and unselected; the system copies them into the icon.
+    let icon = unsafe { CreateIconIndirect(&raw const info) }?;
+    // SAFETY: CreateIconIndirect returned a valid icon that nothing else owns.
+    Ok(unsafe { Owned::new(icon) })
+}
+
 fn measure(context: &MemoryContext, units: &[u16]) -> Result<SIZE> {
     let mut size = SIZE::default();
     // SAFETY: the text and the output size are valid for the call.
@@ -200,14 +244,15 @@ fn draw(context: &MemoryContext, units: &mut [u16], size: SIZE, layout: TextLayo
 }
 
 /// A DIB section bitmap whose pixel memory this process can write.
-struct PixelSection {
+pub(crate) struct PixelSection {
     bitmap: Owned<HBITMAP>,
     bits: *mut u32,
     pixel_count: usize,
 }
 
 impl PixelSection {
-    fn new(size: SIZE) -> Result<Self> {
+    /// Creates a top-down 32-bit bitmap of `size`, every pixel transparent black.
+    pub(crate) fn new(size: SIZE) -> Result<Self> {
         let info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>()
@@ -236,6 +281,11 @@ impl PixelSection {
         })
     }
 
+    /// The bitmap as a GDI object to select into a device context, valid while `self` lives.
+    pub(crate) fn object(&self) -> HGDIOBJ {
+        HGDIOBJ(self.bitmap.0)
+    }
+
     /// Pixels of the section, top row first.
     ///
     /// # Safety
@@ -248,12 +298,12 @@ impl PixelSection {
 }
 
 /// A memory device context, deleted on drop.
-struct MemoryContext {
+pub(crate) struct MemoryContext {
     handle: HDC,
 }
 
 impl MemoryContext {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         // SAFETY: plain call; the context is owned right after.
         let handle = unsafe { CreateCompatibleDC(None) };
         if handle.is_invalid() {
@@ -262,7 +312,13 @@ impl MemoryContext {
         Ok(Self { handle })
     }
 
-    fn select(&self, object: HGDIOBJ) -> Selection<'_> {
+    /// Raw context handle, valid while `self` lives.
+    pub(crate) fn handle(&self) -> HDC {
+        self.handle
+    }
+
+    /// Selects `object` until the returned selection drops.
+    pub(crate) fn select(&self, object: HGDIOBJ) -> Selection<'_> {
         // SAFETY: `object` is a live GDI object owned by the caller for the selection's lifetime.
         let previous = unsafe { SelectObject(self.handle, object) };
         Selection {
@@ -282,7 +338,7 @@ impl Drop for MemoryContext {
 }
 
 /// Restores the previously selected object when dropped.
-struct Selection<'context> {
+pub(crate) struct Selection<'context> {
     context: HDC,
     previous: HGDIOBJ,
     lifetime: PhantomData<&'context MemoryContext>,

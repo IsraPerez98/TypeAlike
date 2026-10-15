@@ -32,6 +32,7 @@ impl Overlay {
                 | WS_EX_LAYERED
                 | WS_EX_TOOLWINDOW
                 | WS_EX_TOPMOST,
+            parent: None,
         })?;
         Ok(Self { window })
     }

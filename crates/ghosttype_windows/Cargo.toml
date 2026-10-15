@@ -13,6 +13,7 @@ ghosttype_core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 windows.workspace = true
+windows-numerics.workspace = true
 
 [lints]
 workspace = true

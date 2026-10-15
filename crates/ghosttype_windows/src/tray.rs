@@ -2,34 +2,26 @@
 
 use ghosttype_core::app::{Status, TrayCommand, TrayItem, TrayView};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
-use windows::Win32::Graphics::Gdi::CreateBitmap;
-use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_SELECT,
     NINF_KEY, NOTIFY_ICON_MESSAGE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, NOTIFYICONDATAW_0,
     Shell_NotifyIconW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateIconIndirect, CreatePopupMenu, HICON, ICONINFO, MF_STRING, PostMessageW, SM_CXSMICON,
-    SetForegroundWindow, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx,
-    WM_APP, WM_CONTEXTMENU, WM_NULL,
-};
-use windows::core::{BOOL, Error, HSTRING, Owned, Result, w};
+use windows::Win32::UI::WindowsAndMessaging::{HICON, SM_CXSMICON, WM_APP, WM_CONTEXTMENU};
+use windows::core::{Owned, Result};
 
-use crate::gdi::{Font, FontHeight, TextBitmap, TextLayout};
+use crate::gdi::glyph_icon;
+use crate::menu::{self, MenuPlacement};
 use crate::pixels::Rgb;
+use crate::system_theme::is_taskbar_light;
 
 /// Message the shell sends to the owner window for icon clicks.
 pub(crate) const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
 
 const ICON_ID: u32 = 1;
-const FIRST_ITEM_ID: usize = 1;
-const ICON_FONT_FACES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
 const ACTIVE_GLYPH: &str = "\u{E70F}";
 const PAUSED_GLYPH: &str = "\u{E769}";
-const MONOCHROME_PLANES: u32 = 1;
-const MONOCHROME_BITS: u32 = 1;
 
 /// A click on the tray icon that asks for the menu, anchored at this screen point.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,33 +116,14 @@ impl Drop for Tray {
 
 /// Shows the tray menu at `anchor` and returns the picked command, if any.
 pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> Result<Option<TrayCommand>> {
-    // SAFETY: plain call; the menu is owned right after.
-    let menu = unsafe { Owned::new(CreatePopupMenu()?) };
-    for (id, item) in (FIRST_ITEM_ID..).zip(items) {
-        // SAFETY: the menu is alive and the label outlives the call.
-        unsafe { AppendMenuW(*menu, MF_STRING, id, &HSTRING::from(item.label)) }?;
-    }
-    // Best effort (KB135788): a menu dismisses on outside clicks only while its owner is foreground.
-    // SAFETY: plain call on our own window.
-    let _ = unsafe { SetForegroundWindow(window) };
-    let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN;
-    // SAFETY: menu and window are alive; with TPM_RETURNCMD the result is the picked id, 0 for none.
-    let picked = unsafe { TrackPopupMenuEx(*menu, flags.0, anchor.x, anchor.y, window, None) };
-    // Completes the KB135788 workaround so the next menu opens on the first click.
-    // SAFETY: plain call on our own window.
-    unsafe { PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0)) }?;
-    Ok(command_for_id(items, picked))
-}
-
-fn command_for_id(items: &[TrayItem], picked: BOOL) -> Option<TrayCommand> {
-    let index = usize::try_from(picked.0).ok()?.checked_sub(FIRST_ITEM_ID)?;
-    items.get(index).map(|item| item.command)
+    let labels: Vec<&str> = items.iter().map(|item| item.label).collect();
+    let picked = menu::pick(window, &labels, None, MenuPlacement::AboveCursor(anchor))?;
+    Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }
 
 fn render_icon(status: Status) -> Result<Owned<HICON>> {
     // SAFETY: plain calls.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
-    let font = Font::first_installed(&ICON_FONT_FACES, FontHeight::Em(side))?;
     let glyph = match status {
         Status::Active => ACTIVE_GLYPH,
         Status::Paused => PAUSED_GLYPH,
@@ -160,48 +133,7 @@ fn render_icon(status: Status) -> Result<Owned<HICON>> {
     } else {
         Rgb::WHITE
     };
-    let bitmap = TextBitmap::render(glyph, &font, color, TextLayout::CenteredSquare(side))?;
-    icon_from_bitmap(&bitmap)
-}
-
-fn icon_from_bitmap(bitmap: &TextBitmap) -> Result<Owned<HICON>> {
-    let size = bitmap.size();
-    // SAFETY: plain call; the bitmap is owned right after.
-    let ignored_mask = unsafe { CreateBitmap(size.cx, size.cy, MONOCHROME_PLANES, MONOCHROME_BITS, None) };
-    if ignored_mask.is_invalid() {
-        return Err(Error::from_thread());
-    }
-    // SAFETY: CreateBitmap returned a valid bitmap that nothing else owns.
-    let ignored_mask = unsafe { Owned::new(ignored_mask) };
-    let info = ICONINFO {
-        fIcon: true.into(),
-        xHotspot: 0,
-        yHotspot: 0,
-        hbmMask: *ignored_mask,
-        hbmColor: bitmap.handle(),
-    };
-    // SAFETY: both bitmaps are alive and unselected; the system copies them into the icon.
-    let icon = unsafe { CreateIconIndirect(&raw const info) }?;
-    // SAFETY: CreateIconIndirect returned a valid icon that nothing else owns.
-    Ok(unsafe { Owned::new(icon) })
-}
-
-fn is_taskbar_light() -> bool {
-    let mut value: u32 = 0;
-    let mut value_size: u32 = size_of::<u32>().try_into().expect("dword size fits in u32");
-    // SAFETY: the output buffer is a local of exactly the size passed.
-    let status = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
-            w!("SystemUsesLightTheme"),
-            RRF_RT_REG_DWORD,
-            None,
-            Some((&raw mut value).cast()),
-            Some(&raw mut value_size),
-        )
-    };
-    status.is_ok() && value != 0
+    glyph_icon(glyph, side, color)
 }
 
 fn fixed_units<const LENGTH: usize>(text: &str) -> [u16; LENGTH] {
@@ -266,32 +198,6 @@ mod tests {
         let (wparam, lparam) = callback(windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE, 10, 20);
 
         assert_eq!(menu_request(wparam, lparam), None);
-    }
-
-    #[test]
-    fn picked_id_maps_to_item_command() {
-        let items = [
-            TrayItem {
-                label: "Pause suggestions",
-                command: TrayCommand::TogglePause,
-            },
-            TrayItem {
-                label: "Quit GhostType",
-                command: TrayCommand::Quit,
-            },
-        ];
-
-        assert_eq!(command_for_id(&items, BOOL(2)), Some(TrayCommand::Quit));
-    }
-
-    #[test]
-    fn dismissed_menu_picks_nothing() {
-        let items = [TrayItem {
-            label: "Quit GhostType",
-            command: TrayCommand::Quit,
-        }];
-
-        assert_eq!(command_for_id(&items, BOOL(0)), None);
     }
 
     #[test]
