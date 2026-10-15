@@ -9,7 +9,7 @@ mod playground;
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
-use ghosttype_core::playground::{PlaygroundAction, PlaygroundView};
+use ghosttype_core::playground::{ModelPicker, Note, NoteTone, PlaygroundAction, PlaygroundView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -17,11 +17,11 @@ use objc2_app_kit::{
     NSAccessibility as _, NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSCellImagePosition,
     NSColor, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
     NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
-    NSObjectNSKeyValueBindingCreation as _, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder,
-    NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity,
-    NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextField, NSTitleBinding,
-    NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow, NSWindowStyleMask,
-    NSWindowToolbarStyle,
+    NSMenuItem, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution,
+    NSStackViewGravity, NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextField,
+    NSTitleBinding, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow,
+    NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSEdgeInsets, NSPoint, NSRect, NSSize, NSString};
@@ -54,6 +54,7 @@ const ROW_CONTAINER_INSETS: NSEdgeInsets = NSEdgeInsets {
     bottom: 0.0,
     right: 12.0,
 };
+
 const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 28.0,
     left: 16.0,
@@ -216,7 +217,7 @@ impl SettingsWindow {
 
     /// Returns the action of the Playground model menu entry at `index` in the last render.
     pub(crate) fn playground_choice(&self, index: isize) -> Option<PlaygroundAction> {
-        self.playground.choice_action(index)
+        self.playground.model_menu.action_at(index)
     }
 
     /// Returns the text in the Playground prompt field.
@@ -384,18 +385,7 @@ impl RowView {
             &NSFont::systemFontOfSize(NSFont::smallSystemFontSize()),
             main_thread,
         );
-        let texts = stack(
-            NSUserInterfaceLayoutOrientation::Vertical,
-            ROW_TEXT_SPACING,
-            NO_INSETS,
-            main_thread,
-        );
-        texts.addArrangedSubview(&title);
-        texts.addArrangedSubview(&subtitle);
-        texts.setContentHuggingPriority_forOrientation(
-            NSLayoutPriorityDefaultLow,
-            NSLayoutConstraintOrientation::Horizontal,
-        );
+        let texts = row_texts(&title, &subtitle, main_thread);
         // SAFETY: reads an AppKit constant that is initialized before any code runs.
         let regular_weight = unsafe { NSFontWeightRegular };
         let detail = label(
@@ -407,27 +397,8 @@ impl RowView {
         let status = NSImageView::new(main_thread);
         let primary = push_button(target, main_thread);
         let icon = icon_button(target, main_thread);
-        let row_views: [&NSView; 6] = [&texts, &detail, &progress, &status, &primary, &icon];
-        let content = NSStackView::stackViewWithViews(&NSArray::from_slice(&row_views), main_thread);
-        content.setSpacing(ROW_COLUMN_SPACING);
-        content.setDistribution(NSStackViewDistribution::Fill);
-        content
-            .heightAnchor()
-            .constraintEqualToConstant(ROW_HEIGHT)
-            .setActive(true);
-        let separator = separator(main_thread);
-        let container = stack(
-            NSUserInterfaceLayoutOrientation::Vertical,
-            0.0,
-            ROW_CONTAINER_INSETS,
-            main_thread,
-        );
-        container.addArrangedSubview(&separator);
-        container.addArrangedSubview(&content);
-        rows_stack.addArrangedSubview(&container);
-        fill_width(&container, rows_stack);
-        fill_width(&separator, &container);
-        fill_width(&content, &container);
+        let controls: [&NSView; 5] = [&detail, &progress, &status, &primary, &icon];
+        let GroupedRow { container, separator } = GroupedRow::add(rows_stack, &texts, &controls, main_thread);
         Self {
             container,
             separator,
@@ -486,6 +457,166 @@ impl RowView {
                 UNAVAILABLE_DESCRIPTION,
                 &NSColor::tertiaryLabelColor(),
             ),
+        }
+    }
+}
+
+/// A row of a rounded group: a separator above it and the row's columns.
+#[derive(Debug)]
+struct GroupedRow {
+    container: Retained<NSStackView>,
+    separator: Retained<NSBox>,
+}
+
+impl GroupedRow {
+    /// Adds a row of `texts`, then `controls`, left to right, at the bottom of `rows_stack`.
+    fn add(
+        rows_stack: &NSStackView,
+        texts: &NSView,
+        controls: &[&NSView],
+        main_thread: MainThreadMarker,
+    ) -> Self {
+        let content = NSStackView::stackViewWithViews(&NSArray::from_slice(&[texts]), main_thread);
+        for control in controls {
+            content.addArrangedSubview(control);
+        }
+        content.setSpacing(ROW_COLUMN_SPACING);
+        content.setDistribution(NSStackViewDistribution::Fill);
+        content
+            .heightAnchor()
+            .constraintEqualToConstant(ROW_HEIGHT)
+            .setActive(true);
+        let separator = separator(main_thread);
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            0.0,
+            ROW_CONTAINER_INSETS,
+            main_thread,
+        );
+        container.addArrangedSubview(&separator);
+        container.addArrangedSubview(&content);
+        rows_stack.addArrangedSubview(&container);
+        fill_width(&container, rows_stack);
+        fill_width(&separator, &container);
+        fill_width(&content, &container);
+        Self { container, separator }
+    }
+}
+
+/// A pop-up menu of models. It rebuilds its entries only when they change, so an open menu stays
+/// open.
+#[derive(Debug)]
+struct ModelMenu {
+    button: Retained<NSPopUpButton>,
+    titles: Vec<String>,
+    actions: Vec<Option<PlaygroundAction>>,
+}
+
+impl ModelMenu {
+    /// Builds a menu that sends `action` to the target of `target` when the user picks a model.
+    fn new(target: &ActionTarget, action: Sel, main_thread: MainThreadMarker) -> Self {
+        let button = NSPopUpButton::new(main_thread);
+        button.setPullsDown(false);
+        // SAFETY: the target implements `action`, taking the pop-up button, and `SettingsWindow`
+        // keeps the target alive as long as the button.
+        unsafe {
+            button.setTarget(Some(&target.target));
+            button.setAction(Some(action));
+        }
+        Self {
+            button,
+            titles: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    /// Shows `picker`, and keeps the actions of its entries for [`Self::action_at`].
+    fn render(&mut self, picker: &ModelPicker) {
+        self.button
+            .setAccessibilityLabel(Some(&NSString::from_str(picker.label)));
+        let titles: Vec<String> = picker.choices.iter().map(|choice| choice.title.clone()).collect();
+        if titles != self.titles {
+            self.rebuild(&titles);
+            self.titles = titles;
+        }
+        self.actions = picker
+            .choices
+            .iter()
+            .map(|choice| choice.action.clone())
+            .collect();
+        let selected = isize::try_from(picker.selected).expect("a menu never holds isize::MAX entries");
+        self.button.selectItemAtIndex(selected);
+        self.button.setEnabled(picker.is_enabled);
+    }
+
+    /// Returns the action of the entry at `index` in the last render.
+    fn action_at(&self, index: isize) -> Option<PlaygroundAction> {
+        let index = usize::try_from(index).ok()?;
+        self.actions.get(index).cloned().flatten()
+    }
+
+    fn rebuild(&self, titles: &[String]) {
+        self.button.removeAllItems();
+        let Some(menu) = self.button.menu() else {
+            return;
+        };
+        for title in titles {
+            // SAFETY: the item has no action, so the pop-up button sends its own action instead.
+            let item = unsafe {
+                NSMenuItem::initWithTitle_action_keyEquivalent(
+                    NSMenuItem::alloc(self.button.mtm()),
+                    &NSString::from_str(title),
+                    None,
+                    &NSString::new(),
+                )
+            };
+            menu.addItem(&item);
+        }
+    }
+}
+
+/// A spinner and a line of status text.
+#[derive(Debug)]
+struct NoteView {
+    container: Retained<NSStackView>,
+    spinner: Retained<NSProgressIndicator>,
+    text: Retained<NSTextField>,
+}
+
+impl NoteView {
+    fn new(main_thread: MainThreadMarker) -> Self {
+        let spinner = spinner(main_thread);
+        let text = secondary_wrapping_label(main_thread);
+        text.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            MESSAGE_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        container.addArrangedSubview(&spinner);
+        container.addArrangedSubview(&text);
+        Self {
+            container,
+            spinner,
+            text,
+        }
+    }
+
+    fn render(&self, note: Option<&Note>) {
+        stop_spinning(&self.spinner);
+        self.container.setHidden(note.is_none());
+        let Some(note) = note else {
+            return;
+        };
+        set_text(&self.text, note.text);
+        let color = match note.tone {
+            NoteTone::Plain | NoteTone::Busy => NSColor::secondaryLabelColor(),
+            NoteTone::Error => NSColor::systemRedColor(),
+        };
+        self.text.setTextColor(Some(&color));
+        if note.tone == NoteTone::Busy {
+            start_spinning(&self.spinner);
         }
     }
 }
@@ -786,6 +917,29 @@ fn label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> 
     let label = NSTextField::labelWithString(&NSString::new(), main_thread);
     label.setFont(Some(font));
     label
+}
+
+fn secondary_wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
+    let label = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
+    label.setTextColor(Some(&NSColor::secondaryLabelColor()));
+    label
+}
+
+/// Stacks `title` over `subtitle`, taking the free width of a row.
+fn row_texts(title: &NSView, subtitle: &NSView, main_thread: MainThreadMarker) -> Retained<NSStackView> {
+    let texts = stack(
+        NSUserInterfaceLayoutOrientation::Vertical,
+        ROW_TEXT_SPACING,
+        NO_INSETS,
+        main_thread,
+    );
+    texts.addArrangedSubview(title);
+    texts.addArrangedSubview(subtitle);
+    texts.setContentHuggingPriority_forOrientation(
+        NSLayoutPriorityDefaultLow,
+        NSLayoutConstraintOrientation::Horizontal,
+    );
+    texts
 }
 
 fn truncating_label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> {

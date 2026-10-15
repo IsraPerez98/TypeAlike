@@ -1,20 +1,19 @@
 //! The Playground pane: a model menu, a prompt field and the text the model adds.
 
-use ghosttype_core::playground::{Note, NoteTone, PlaygroundAction, PlaygroundOutput, PlaygroundView};
+use ghosttype_core::playground::{PlaygroundOutput, PlaygroundView};
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::{MainThreadMarker, MainThreadOnly as _};
 use objc2_app_kit::{
-    NSAccessibility as _, NSBox, NSButton, NSColor, NSFont, NSFontWeightRegular, NSLineBreakMode, NSMenuItem,
-    NSPopUpButton, NSProgressIndicator, NSScrollView, NSStackView, NSStackViewGravity, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSBox, NSButton, NSFont, NSFontWeightRegular, NSLineBreakMode, NSScrollView,
+    NSStackView, NSStackViewGravity, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
 
 use super::{
-    ActionTarget, CONTENT_INSETS, DETAIL_FONT_SIZE, LIST_PART_SPACING, MESSAGE_SPACING, NO_INSETS,
+    ActionTarget, CONTENT_INSETS, DETAIL_FONT_SIZE, LIST_PART_SPACING, ModelMenu, NO_INSETS, NoteView,
     ROW_CONTAINER_INSETS, SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, rounded_group, scroll_view,
-    set_text, spinner, stack, start_spinning, stop_spinning,
+    secondary_wrapping_label, set_text, stack,
 };
 use crate::labels::title_case;
 
@@ -33,14 +32,12 @@ pub(super) struct PlaygroundPage {
     pub(super) root: Retained<NSScrollView>,
     summary: Retained<NSTextField>,
     model_label: Retained<NSTextField>,
-    model_menu: Retained<NSPopUpButton>,
+    pub(super) model_menu: ModelMenu,
     model_note: NoteView,
     prompt_label: Retained<NSTextField>,
     prompt_field: Retained<NSTextField>,
     complete_button: Retained<NSButton>,
     output: OutputView,
-    choice_titles: Vec<String>,
-    choice_actions: Vec<Option<PlaygroundAction>>,
 }
 
 impl PlaygroundPage {
@@ -56,8 +53,8 @@ impl PlaygroundPage {
         let summary = secondary_wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
         let model_label = label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
-        let model_menu = model_menu(target, main_thread);
-        let model_row = form_row(&model_label, &model_menu, main_thread);
+        let model_menu = ModelMenu::new(target, target.model_picker_action, main_thread);
+        let model_row = form_row(&model_label, &model_menu.button, main_thread);
         let model_group = rounded_group(&model_row, main_thread);
         let model_note = NoteView::new(main_thread);
         let prompt_label = heading(main_thread);
@@ -99,8 +96,6 @@ impl PlaygroundPage {
             prompt_field,
             complete_button,
             output,
-            choice_titles: Vec::new(),
-            choice_actions: Vec::new(),
         }
     }
 
@@ -108,9 +103,7 @@ impl PlaygroundPage {
     pub(super) fn render(&mut self, view: &PlaygroundView) {
         set_text(&self.summary, view.summary);
         set_text(&self.model_label, view.model.label);
-        self.model_menu
-            .setAccessibilityLabel(Some(&NSString::from_str(view.model.label)));
-        self.render_choices(view);
+        self.model_menu.render(&view.model);
         self.model_note.render(view.model_note.as_ref());
         set_text(&self.prompt_label, view.prompt_label);
         self.prompt_field
@@ -123,102 +116,9 @@ impl PlaygroundPage {
         self.output.render(view.output_heading, view.output.as_ref());
     }
 
-    /// Returns the action of the model menu entry at `index` in the last render.
-    pub(super) fn choice_action(&self, index: isize) -> Option<PlaygroundAction> {
-        let index = usize::try_from(index).ok()?;
-        self.choice_actions.get(index).cloned().flatten()
-    }
-
     /// Returns the text in the prompt field.
     pub(super) fn prompt(&self) -> String {
         self.prompt_field.stringValue().to_string()
-    }
-
-    fn render_choices(&mut self, view: &PlaygroundView) {
-        let titles: Vec<String> = view
-            .model
-            .choices
-            .iter()
-            .map(|choice| choice.title.clone())
-            .collect();
-        if titles != self.choice_titles {
-            self.rebuild_menu(&titles);
-            self.choice_titles = titles;
-        }
-        self.choice_actions = view
-            .model
-            .choices
-            .iter()
-            .map(|choice| choice.action.clone())
-            .collect();
-        let selected = isize::try_from(view.model.selected).expect("a menu never holds isize::MAX entries");
-        self.model_menu.selectItemAtIndex(selected);
-        self.model_menu.setEnabled(view.model.is_enabled);
-    }
-
-    fn rebuild_menu(&self, titles: &[String]) {
-        self.model_menu.removeAllItems();
-        let Some(menu) = self.model_menu.menu() else {
-            return;
-        };
-        for title in titles {
-            // SAFETY: the item has no action, so the pop-up button sends its own action instead.
-            let item = unsafe {
-                NSMenuItem::initWithTitle_action_keyEquivalent(
-                    NSMenuItem::alloc(self.model_menu.mtm()),
-                    &NSString::from_str(title),
-                    None,
-                    &NSString::new(),
-                )
-            };
-            menu.addItem(&item);
-        }
-    }
-}
-
-/// A spinner and a line of status text.
-#[derive(Debug)]
-struct NoteView {
-    container: Retained<NSStackView>,
-    spinner: Retained<NSProgressIndicator>,
-    text: Retained<NSTextField>,
-}
-
-impl NoteView {
-    fn new(main_thread: MainThreadMarker) -> Self {
-        let spinner = spinner(main_thread);
-        let text = secondary_wrapping_label(main_thread);
-        text.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
-        let container = stack(
-            NSUserInterfaceLayoutOrientation::Horizontal,
-            MESSAGE_SPACING,
-            NO_INSETS,
-            main_thread,
-        );
-        container.addArrangedSubview(&spinner);
-        container.addArrangedSubview(&text);
-        Self {
-            container,
-            spinner,
-            text,
-        }
-    }
-
-    fn render(&self, note: Option<&Note>) {
-        stop_spinning(&self.spinner);
-        self.container.setHidden(note.is_none());
-        let Some(note) = note else {
-            return;
-        };
-        set_text(&self.text, note.text);
-        let color = match note.tone {
-            NoteTone::Plain | NoteTone::Busy => NSColor::secondaryLabelColor(),
-            NoteTone::Error => NSColor::systemRedColor(),
-        };
-        self.text.setTextColor(Some(&color));
-        if note.tone == NoteTone::Busy {
-            start_spinning(&self.spinner);
-        }
     }
 }
 
@@ -301,18 +201,6 @@ fn form_row(leading: &NSView, trailing: &NSView, main_thread: MainThreadMarker) 
     row
 }
 
-fn model_menu(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSPopUpButton> {
-    let menu = NSPopUpButton::new(main_thread);
-    menu.setPullsDown(false);
-    // SAFETY: the target implements the model picker action, taking the pop-up button, and
-    // `SettingsWindow` keeps the target alive as long as the button.
-    unsafe {
-        menu.setTarget(Some(&target.target));
-        menu.setAction(Some(target.model_picker_action));
-    }
-    menu
-}
-
 fn prompt_field(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSTextField> {
     let field = NSTextField::textFieldWithString(&NSString::new(), main_thread);
     field.setUsesSingleLineMode(false);
@@ -348,10 +236,4 @@ fn heading(main_thread: MainThreadMarker) -> Retained<NSTextField> {
         &NSFont::boldSystemFontOfSize(NSFont::systemFontSize()),
         main_thread,
     )
-}
-
-fn secondary_wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
-    let label = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
-    label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-    label
 }
