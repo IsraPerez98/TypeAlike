@@ -15,8 +15,13 @@ pub enum Reaction {
     Show(String),
     /// Let the key through and hide any ghost text.
     Hide,
-    /// Swallow the key, hide the ghost text and type this text into the focused app.
-    Accept(String),
+    /// Swallow the key and type text into the focused app.
+    Accept {
+        /// The text to type at the caret.
+        text: String,
+        /// The ghost text to show after the typed text, or `None` to hide the ghost text.
+        rest: Option<String>,
+    },
     /// Let the key through, hide any ghost text and submit this request to the model runner.
     /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion).
     Request(InferenceRequest),
@@ -101,7 +106,10 @@ impl Engine {
         match mem::take(&mut self.offer) {
             Offer::Shown(suggestion) => {
                 self.append(&suggestion);
-                Reaction::Accept(suggestion)
+                Reaction::Accept {
+                    text: suggestion,
+                    rest: None,
+                }
             }
             offer @ (Offer::Idle | Offer::Requested { .. }) => {
                 self.offer = offer;
@@ -202,6 +210,13 @@ mod tests {
 
     fn show(text: &str) -> Reaction {
         Reaction::Show(text.to_owned())
+    }
+
+    fn accept(text: &str, rest: Option<&str>) -> Reaction {
+        Reaction::Accept {
+            text: text.to_owned(),
+            rest: rest.map(str::to_owned),
+        }
     }
 
     fn type_text(engine: &mut Engine, text: &str) -> Reaction {
@@ -359,7 +374,7 @@ mod tests {
 
         let reaction = engine.on_key(Key::Tab);
 
-        assert_eq!(reaction, Reaction::Accept("lo".to_owned()));
+        assert_eq!(reaction, accept("lo", None));
     }
 
     #[test]

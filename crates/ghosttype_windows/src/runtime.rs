@@ -241,15 +241,14 @@ impl Runtime {
     fn apply(&mut self, reaction: Reaction) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
-                self.pending_ghost = Some(text);
-                self.restart_ghost_timer();
+                self.show_ghost_after_caret_settles(text);
                 Disposition::Pass
             }
             Reaction::Hide => {
                 self.hide_ghost();
                 Disposition::Pass
             }
-            Reaction::Accept(text) => {
+            Reaction::Accept { text, rest } => {
                 self.hide_ghost();
                 self.pending_injection = Some(text);
                 // SAFETY: plain call on our own window.
@@ -257,6 +256,9 @@ impl Runtime {
                     unsafe { PostMessageW(Some(self.window.handle()), INJECT_MESSAGE, WPARAM(0), LPARAM(0)) };
                 if let Err(error) = posted {
                     tracing::warn!(%error, "failed to queue accepted text");
+                }
+                if let Some(rest) = rest {
+                    self.show_ghost_after_caret_settles(rest);
                 }
                 Disposition::Swallow
             }
@@ -273,6 +275,11 @@ impl Runtime {
             let reaction = self.app.on_completion(result);
             self.apply(reaction);
         }
+    }
+
+    fn show_ghost_after_caret_settles(&mut self, text: String) {
+        self.pending_ghost = Some(text);
+        self.restart_ghost_timer();
     }
 
     fn restart_ghost_timer(&self) {

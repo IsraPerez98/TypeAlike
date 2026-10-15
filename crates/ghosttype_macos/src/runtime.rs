@@ -174,18 +174,20 @@ impl Runtime {
     fn apply(&mut self, reaction: Reaction) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
-                self.pending_ghost = Some(text);
-                self.restart_ghost_timer();
+                self.show_ghost_after_caret_settles(text);
                 Disposition::Pass
             }
             Reaction::Hide => {
                 self.hide_ghost();
                 Disposition::Pass
             }
-            Reaction::Accept(text) => {
+            Reaction::Accept { text, rest } => {
                 self.hide_ghost();
                 self.pending_injection = Some(text);
                 self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
+                if let Some(rest) = rest {
+                    self.show_ghost_after_caret_settles(rest);
+                }
                 Disposition::Swallow
             }
             Reaction::Request(request) => {
@@ -214,6 +216,11 @@ impl Runtime {
                 false,
             )
         }
+    }
+
+    fn show_ghost_after_caret_settles(&mut self, text: String) {
+        self.pending_ghost = Some(text);
+        self.restart_ghost_timer();
     }
 
     fn restart_ghost_timer(&mut self) {

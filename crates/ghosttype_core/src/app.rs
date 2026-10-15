@@ -83,7 +83,10 @@ pub enum TrayOutcome {
 ///     duration: Duration::from_millis(80),
 /// }));
 ///
-/// assert_eq!(app.on_key(Key::Tab, Field::Open), Reaction::Accept("est regards".to_owned()));
+/// assert_eq!(
+///     app.on_key(Key::Tab, Field::Open),
+///     Reaction::Accept { text: "est regards".to_owned(), rest: None }
+/// );
 /// ```
 #[derive(Debug, Default)]
 pub struct App {
