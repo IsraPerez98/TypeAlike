@@ -5,8 +5,8 @@
 //! controls over Mica. Text fields stay edit controls: layered windows whose background color is
 //! a color key, so only their text and caret cover the frame that the page draws behind them.
 
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::InvalidateRect;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{InvalidateRect, MapWindowPoints};
 use windows::Win32::UI::Controls::{
     DRAWITEMSTRUCT, EM_SETMARGINS, ODA_DRAWENTIRE, ODS_FLAGS, ODT_STATIC, PBM_GETPOS, PBM_SETPOS,
     PBM_SETRANGE32, SetWindowTheme, WM_MOUSELEAVE,
@@ -370,15 +370,45 @@ impl Control {
         self.set_text(&shown);
     }
 
-    /// The choices of a picker, top to bottom.
-    pub(crate) fn choices(&self) -> &[String] {
-        &self.choices
+    /// The menu of choices that a picker opens, below the picker on the screen.
+    pub(crate) fn picker_menu(&self) -> PickerMenu {
+        let mut area = RECT::default();
+        // SAFETY: `area` is a local the call fills in.
+        if let Err(error) = unsafe { GetClientRect(self.handle, &raw mut area) } {
+            tracing::warn!(%error, "failed to read picker size");
+        }
+        let mut corners = [
+            POINT {
+                x: area.left,
+                y: area.top,
+            },
+            POINT {
+                x: area.right,
+                y: area.bottom,
+            },
+        ];
+        // SAFETY: the points are a local array the call converts in place.
+        unsafe { MapWindowPoints(Some(self.handle), None, &mut corners) };
+        PickerMenu {
+            anchor: RECT {
+                left: corners[0].x,
+                top: corners[0].y,
+                right: corners[1].x,
+                bottom: corners[1].y,
+            },
+            titles: self.choices.clone(),
+            selected: self.selected_choice,
+        }
     }
+}
 
-    /// The index of the choice a picker shows.
-    pub(crate) fn selected_choice(&self) -> usize {
-        self.selected_choice
-    }
+/// The menu of choices that a picker opens.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PickerMenu {
+    /// The picker on the screen, which the menu opens below.
+    pub(crate) anchor: RECT,
+    pub(crate) titles: Vec<String>,
+    pub(crate) selected: usize,
 }
 
 impl Drop for Control {

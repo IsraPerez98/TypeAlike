@@ -2,36 +2,23 @@
 //! and the text the user asks to complete.
 
 use ghosttype_core::inference::Prompt;
-use ghosttype_core::playground::{
-    ModelChoice, Note, NoteTone, PlaygroundAction, PlaygroundOutput, PlaygroundView,
-};
-use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::Graphics::Gdi::MapWindowPoints;
-use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, WNDPROC};
+use ghosttype_core::playground::{ModelChoice, PlaygroundAction, PlaygroundOutput, PlaygroundView};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::WNDPROC;
 use windows::core::{Result, w};
 
 use crate::settings::appearance::Appearance;
-use crate::settings::controls::{Control, ControlKind};
+use crate::settings::controls::{Control, ControlKind, PickerMenu};
 use crate::settings::form::{
     self, CARD_DETAIL, CARD_PADDING_X, CARD_PADDING_Y, CARD_TEXT, CONTROL_GAP, CONTROL_HEIGHT, HEADING_GAP,
-    Header, PAGE_TEXT, Placer, SECTION_GAP,
+    Header, PAGE_TEXT, Placer, SECTION_GAP, SettingCard, enable_if, show_note,
 };
-use crate::settings::layout::{Bounds, Column};
+use crate::settings::layout::Column;
 use crate::settings::page::{Page, Shape};
-use crate::settings::palette::{ControlStyle, Surface, Tone};
 use crate::settings::typography::TextRole;
 
 const PICKER_WIDTH: i32 = 280;
 const OUTPUT_DETAIL_GAP: i32 = 4;
-
-/// The menu of downloaded models that the model picker opens.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ModelMenu {
-    /// The picker on the screen, which the menu opens below.
-    pub(crate) anchor: RECT,
-    pub(crate) titles: Vec<String>,
-    pub(crate) selected: usize,
-}
 
 /// What the output card shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +56,7 @@ impl PlaygroundPage {
         Ok(Self {
             header: Header::create(host)?,
             model_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
-            model_note: control(ControlKind::Label, TextRole::Caption, CARD_DETAIL)?,
+            model_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             model_picker: control(ControlKind::Picker, TextRole::Body, CARD_TEXT)?,
             prompt_heading: control(ControlKind::Label, TextRole::BodyStrong, PAGE_TEXT)?,
             prompt: control(ControlKind::TextField, TextRole::Body, CARD_TEXT)?,
@@ -162,41 +149,20 @@ impl PlaygroundPage {
         appearance: &Appearance,
         shapes: &mut Vec<Shape>,
     ) {
-        let body_line = appearance.line_height(TextRole::Body);
-        let caption_line = appearance.line_height(TextRole::Caption);
-        let text_height = if self.has_note {
-            body_line + caption_line
-        } else {
-            body_line
-        };
-        let content_height = text_height.max(appearance.px(CONTROL_HEIGHT));
-        let card = column.take(form::card_height(content_height, appearance));
-        shapes.push(Shape::Card(card));
-        let inner = card.inset(appearance.px(CARD_PADDING_X), 0);
-        let (text_area, picker_area) =
-            inner.split_trailing(appearance.px(PICKER_WIDTH), appearance.px(CONTROL_GAP));
-        let text_block = text_area.centered_band(text_height);
-        placer.place(
-            &self.model_label,
-            Bounds {
-                height: body_line,
-                ..text_block
-            },
-        );
-        if self.has_note {
-            let note = Bounds {
-                y: text_block.y + body_line,
-                height: caption_line,
-                ..text_block
-            };
-            placer.place(&self.model_note, note);
+        let note = [&self.model_note];
+        let details: &[&Control] = if self.has_note {
+            &note
         } else {
             self.model_note.hide();
-        }
-        placer.place(
-            &self.model_picker,
-            picker_area.centered_band(appearance.px(CONTROL_HEIGHT)),
-        );
+            &[]
+        };
+        let card = SettingCard {
+            label: &self.model_label,
+            details,
+            control: &self.model_picker,
+            control_width: PICKER_WIDTH,
+        };
+        card.layout(column, placer, appearance, shapes);
     }
 
     fn layout_prompt(
@@ -279,35 +245,8 @@ impl PlaygroundPage {
     }
 
     /// The menu that the model picker opens, below the picker on the screen.
-    pub(crate) fn model_menu(&self) -> ModelMenu {
-        let picker = self.model_picker.handle();
-        let mut area = RECT::default();
-        // SAFETY: `area` is a local the call fills in.
-        if let Err(error) = unsafe { GetClientRect(picker, &raw mut area) } {
-            tracing::warn!(%error, "failed to read model picker size");
-        }
-        let mut corners = [
-            POINT {
-                x: area.left,
-                y: area.top,
-            },
-            POINT {
-                x: area.right,
-                y: area.bottom,
-            },
-        ];
-        // SAFETY: the points are a local array the call converts in place.
-        unsafe { MapWindowPoints(Some(picker), None, &mut corners) };
-        ModelMenu {
-            anchor: RECT {
-                left: corners[0].x,
-                top: corners[0].y,
-                right: corners[1].x,
-                bottom: corners[1].y,
-            },
-            titles: self.model_picker.choices().to_vec(),
-            selected: self.model_picker.selected_choice(),
-        }
+    pub(crate) fn model_menu(&self) -> PickerMenu {
+        self.model_picker.picker_menu()
     }
 
     /// The completion the user asked for, when `control` is the prompt field or the complete button.
@@ -337,24 +276,4 @@ impl PlaygroundPage {
             &self.output_detail,
         ])
     }
-}
-
-fn enable_if(control: &Control, is_enabled: bool) {
-    if is_enabled {
-        control.enable();
-    } else {
-        control.disable();
-    }
-}
-
-fn show_note(control: &mut Control, note: &Note) {
-    let tone = match note.tone {
-        NoteTone::Plain | NoteTone::Busy => Tone::Secondary,
-        NoteTone::Error => Tone::Critical,
-    };
-    control.set_style(ControlStyle {
-        surface: Surface::Card,
-        tone,
-    });
-    control.set_text(note.text);
 }

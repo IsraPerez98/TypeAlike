@@ -60,8 +60,8 @@ use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
 
 pub(crate) use crate::settings::appearance::Appearance;
+pub(crate) use crate::settings::controls::PickerMenu;
 pub(crate) use crate::settings::page::Pointer;
-pub(crate) use crate::settings::playground_page::ModelMenu;
 
 const WINDOW_TITLE: &str = "GhostType";
 const WINDOW_WIDTH: i32 = 1000;
@@ -296,7 +296,7 @@ impl SettingsWindow {
     }
 
     /// The menu that the model picker opens.
-    pub(crate) fn model_menu(&self) -> ModelMenu {
+    pub(crate) fn model_menu(&self) -> PickerMenu {
         self.playground.model_menu()
     }
 

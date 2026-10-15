@@ -1,5 +1,6 @@
 //! Spacing and controls that every settings pane shares: the header and the tab-ordered placement.
 
+use ghosttype_core::playground::{Note, NoteTone};
 use windows::Win32::Foundation::HWND;
 use windows::core::Result;
 
@@ -93,6 +94,81 @@ impl Placer {
 /// The height of a card that holds content of `content_height`, never below the Fluent minimum.
 pub(crate) fn card_height(content_height: i32, appearance: &Appearance) -> i32 {
     (content_height + 2 * appearance.px(CARD_PADDING_Y)).max(appearance.px(CARD_MIN_HEIGHT))
+}
+
+/// A settings row: a label with lines of detail below it at the leading edge, and a control at
+/// the trailing edge.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettingCard<'a> {
+    pub(crate) label: &'a Control,
+    /// Caption paragraphs below the label, which wrap onto as many lines as they need. The
+    /// caller hides the ones that it leaves out.
+    pub(crate) details: &'a [&'a Control],
+    pub(crate) control: &'a Control,
+    /// The width of `control`, in effective pixels.
+    pub(crate) control_width: i32,
+}
+
+impl SettingCard<'_> {
+    /// Places the card's controls in a card that it takes from `column`, and adds the card to
+    /// `shapes`.
+    pub(crate) fn layout(
+        self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let padding_x = appearance.px(CARD_PADDING_X);
+        let control_width = appearance.px(self.control_width);
+        let gap = appearance.px(CONTROL_GAP);
+        let text_width = (column.take(0).width - 2 * padding_x - control_width - gap).max(0);
+        let label_height = appearance.line_height(TextRole::Body);
+        let detail_heights: Vec<i32> = self
+            .details
+            .iter()
+            .map(|detail| appearance.wrapped_height(detail.current_text(), TextRole::Caption, text_width))
+            .collect();
+        let text_height = label_height + detail_heights.iter().sum::<i32>();
+        let card = column.take(card_height(
+            text_height.max(appearance.px(CONTROL_HEIGHT)),
+            appearance,
+        ));
+        shapes.push(Shape::Card(card));
+        let (text_area, control_area) = card.inset(padding_x, 0).split_trailing(control_width, gap);
+        let text_block = text_area.centered_band(text_height);
+        let mut text = Column::new(text_block.x, text_block.y, text_block.width);
+        placer.place(self.label, text.take(label_height));
+        for (detail, height) in self.details.iter().zip(detail_heights) {
+            placer.place(detail, text.take(height));
+        }
+        placer.place(
+            self.control,
+            control_area.centered_band(appearance.px(CONTROL_HEIGHT)),
+        );
+    }
+}
+
+/// Lets the user use `control` only when `is_enabled`.
+pub(crate) fn enable_if(control: &Control, is_enabled: bool) {
+    if is_enabled {
+        control.enable();
+    } else {
+        control.disable();
+    }
+}
+
+/// Shows `note` in `control` on a card, in the color of its tone.
+pub(crate) fn show_note(control: &mut Control, note: &Note) {
+    let tone = match note.tone {
+        NoteTone::Plain | NoteTone::Busy => Tone::Secondary,
+        NoteTone::Error => Tone::Critical,
+    };
+    control.set_style(ControlStyle {
+        surface: Surface::Card,
+        tone,
+    });
+    control.set_text(note.text);
 }
 
 /// The column of a pane's content in a page of `viewport` size.
