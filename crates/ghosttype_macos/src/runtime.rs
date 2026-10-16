@@ -5,19 +5,21 @@ use std::ffi::c_void;
 use std::mem;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dispatch2::DispatchQueue;
-use ghosttype_core::app::{App, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome};
-use ghosttype_core::engine::Reaction;
-use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
-use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
-use ghosttype_core::inference::{
-    InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, SystemPrompt,
+use ghosttype_core::app::{BadgeView, Field, TrayView};
+use ghosttype_core::controller::{
+    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, PaneAction, Services, SettingsView,
+    Shell, Timer,
 };
+use ghosttype_core::desktop::{Desktop, Surroundings};
+use ghosttype_core::general_pane::GeneralAction;
+use ghosttype_core::inference::SystemPrompt;
 use ghosttype_core::key::{Disposition, ReleaseFilter};
-use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
-use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
-use ghosttype_core::settings::{Settings, SettingsStore};
+use ghosttype_core::models_pane::ModelsAction;
+use ghosttype_core::playground::PlaygroundAction;
+use ghosttype_core::settings::{ClipboardAccess, Settings};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -29,18 +31,17 @@ use objc2_app_kit::{
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
 
+use crate::RunError;
 use crate::badge::Badge;
 use crate::event_tap::EventTap;
-use crate::focus::{self, Caret, FocusChange, FocusTracker};
+use crate::focus::{self, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::overlay::Overlay;
 use crate::settings::{ActionTarget, SettingsWindow};
-use crate::{RunError, Services};
 
-const CARET_SETTLE_DELAY: NSTimeInterval = 0.04;
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
 
 thread_local! {
@@ -48,14 +49,8 @@ thread_local! {
 }
 
 /// Shows the menu bar extra and offers suggestions from the runner of `services` until the user
-/// quits. The settings window starts with `settings` and uses `services`.
-pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Result<(), RunError> {
-    let Services {
-        hub,
-        mut runner,
-        settings_store,
-        autostart,
-    } = services;
+/// quits. GhostType starts with the saved `settings`.
+pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError> {
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
@@ -64,48 +59,36 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     }
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;
     let target = RuntimeTarget::new(main_thread);
+    let deliver: DeliverySink = Arc::new(|delivery| {
+        DispatchQueue::main().exec_async(move || {
+            with_runtime(|runtime| runtime.on_delivery(delivery));
+        });
+    });
+    let controller = Controller::new(settings, services, BackendChoice::Runner, &deliver);
     let menu_bar = MenuBarItem::add(
-        &app.tray_view(),
+        &controller.tray_view(),
         Retained::into_super(target.clone()),
         sel!(pickMenuItem:),
         main_thread,
     );
     observe_workspace(&target);
     main_menu::install(main_thread);
-    app.use_settings(&settings);
-    let mut playground = PlaygroundPane::new();
-    playground.use_settings(&settings);
-    let general = GeneralPane::new(settings)
-        .without_backend_menu()
-        .with_autostart(autostart);
-    let runner_sink = main_thread_sink(Runtime::on_inference_event);
-    if let Some(request) = general.load_suggestion_model(&mut playground) {
-        runner.submit(request, &runner_sink);
-    }
     RUNTIME.set(Some(Runtime {
-        app,
-        focus: FocusTracker::new(),
-        menu_bar,
-        overlay: Overlay::new(main_thread),
-        badge: Badge::new(main_thread),
-        is_badge_pressed: false,
+        controller,
+        shell: AppKitShell {
+            focus: FocusTracker::new(),
+            menu_bar,
+            overlay: Overlay::new(main_thread),
+            badge: Badge::new(main_thread),
+            target,
+            caret_timer: None,
+            settle_timer: None,
+            pending_injection: None,
+            settings: None,
+        },
         tap,
-        target,
-        caret_timer: None,
-        settle_timer: None,
-        pending_ghost: None,
-        pending_injection: None,
         release_filter: ReleaseFilter::default(),
-        models: ModelsPane::new(),
-        hub,
-        hub_sink: main_thread_sink(Runtime::on_hub_event),
-        playground,
-        general,
-        settings_store,
-        runner,
-        runner_sink,
-        suggestion_sink: main_thread_sink(Runtime::on_suggestion_event),
-        settings: None,
+        is_badge_pressed: false,
     }));
     tracing::info!("running in the menu bar");
     application.run();
@@ -132,45 +115,16 @@ fn observe_workspace(target: &RuntimeTarget) {
     }
 }
 
-/// Returns a sink that hands each event to `handle` on the main thread.
-fn main_thread_sink<Event: Send + 'static>(
-    handle: fn(&mut Runtime, Event),
-) -> Arc<dyn Fn(Event) + Send + Sync> {
-    Arc::new(move |event: Event| {
-        DispatchQueue::main().exec_async(move || {
-            with_runtime(|runtime| handle(runtime, event));
-        });
-    })
-}
-
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
     RUNTIME.with(|cell| cell.try_borrow_mut().ok()?.as_mut().map(action))
 }
 
 struct Runtime {
-    app: App,
-    focus: FocusTracker,
-    menu_bar: MenuBarItem,
-    overlay: Overlay,
-    badge: Badge,
-    is_badge_pressed: bool,
+    controller: Controller,
+    shell: AppKitShell,
     tap: EventTap,
-    target: Retained<RuntimeTarget>,
-    caret_timer: Option<Retained<NSTimer>>,
-    settle_timer: Option<Retained<NSTimer>>,
-    pending_ghost: Option<String>,
-    pending_injection: Option<String>,
     release_filter: ReleaseFilter<CGKeyCode>,
-    models: ModelsPane,
-    hub: Box<dyn ModelHub>,
-    hub_sink: HubEventSink,
-    playground: PlaygroundPane,
-    general: GeneralPane,
-    settings_store: Box<dyn SettingsStore>,
-    runner: Box<dyn ModelRunner>,
-    runner_sink: InferenceEventSink,
-    suggestion_sink: InferenceEventSink,
-    settings: Option<SettingsWindow>,
+    is_badge_pressed: bool,
 }
 
 impl Runtime {
@@ -178,20 +132,20 @@ impl Runtime {
         if CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG {
             return Disposition::Pass;
         }
-        self.restart_settle_timer();
+        self.controller.on_input(&mut self.shell);
         match kind {
             CGEventType::KeyDown => self.on_key_down(event),
             CGEventType::KeyUp => {
                 keys::key_code(event).map_or(Disposition::Pass, |key| self.release_filter.on_release(key))
             }
-            CGEventType::LeftMouseDown if self.badge.contains(CGEvent::location(Some(event))) => {
+            CGEventType::LeftMouseDown if self.shell.badge.contains(CGEvent::location(Some(event))) => {
                 self.is_badge_pressed = true;
-                self.on_badge_click();
+                self.controller.on_badge_click(&mut self.shell);
                 Disposition::Swallow
             }
             CGEventType::LeftMouseUp if mem::take(&mut self.is_badge_pressed) => Disposition::Swallow,
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown | CGEventType::OtherMouseDown => {
-                self.on_context_lost();
+                self.controller.on_context_lost(&mut self.shell);
                 Disposition::Pass
             }
             _ => Disposition::Pass,
@@ -199,92 +153,103 @@ impl Runtime {
     }
 
     fn on_key_down(&mut self, event: &CGEvent) -> Disposition {
-        if self.focus.refresh() == FocusChange::Changed {
-            self.on_context_lost();
-        }
-        let Some(key) = keys::key_code(event) else {
-            return Disposition::Pass;
-        };
+        let code = keys::key_code(event);
         let chord = Chord::from_flags(CGEvent::flags(Some(event)));
-        let core_key = keys::translate(key, chord, keys::typed_char(event));
-        let reaction = self.app.on_key(core_key, &self.focus);
-        let disposition = self.apply(reaction);
-        self.release_filter.on_press(key, disposition);
-        self.render_badge_after_caret_settles();
+        let key = code.map(|code| keys::translate(code, chord, keys::typed_char(event)));
+        let disposition = self.controller.on_key_down(key, &mut self.shell);
+        if let Some(code) = code {
+            self.release_filter.on_press(code, disposition);
+        }
         disposition
     }
 
-    fn on_context_lost(&mut self) {
-        let reaction = self.app.on_context_lost();
-        self.apply(reaction);
-        self.render_badge(None);
-    }
-
-    fn restart_settle_timer(&mut self) {
-        if let Some(timer) = self.settle_timer.take() {
-            timer.invalidate();
-        }
-        self.settle_timer = Some(self.schedule(INPUT_SETTLE_DELAY.as_secs_f64(), sel!(inputDidSettle:)));
+    fn on_caret_settled(&mut self) {
+        self.shell.caret_timer = None;
+        self.controller.on_timer(Timer::CaretSettle, &mut self.shell);
     }
 
     fn on_input_settled(&mut self) {
-        self.settle_timer = None;
-        if self.focus.refresh() == FocusChange::Changed {
-            self.on_context_lost();
-        }
-        if let Some(request) = self.app.on_input_settled(&self.focus) {
-            self.runner.submit(request, &self.suggestion_sink);
-        }
+        self.shell.settle_timer = None;
+        self.controller.on_timer(Timer::InputSettle, &mut self.shell);
     }
 
     fn on_space_change(&mut self) {
-        self.on_context_lost();
-        self.restart_settle_timer();
+        self.controller.on_context_lost(&mut self.shell);
+        self.controller.on_input(&mut self.shell);
     }
 
-    fn apply(&mut self, reaction: Reaction) -> Disposition {
-        match reaction {
-            Reaction::Show(text) => {
-                self.show_ghost_after_caret_settles(text);
-                Disposition::Pass
-            }
-            Reaction::Hide => {
-                self.hide_ghost();
-                Disposition::Pass
-            }
-            Reaction::Accept { text, rest } => {
-                self.hide_ghost();
-                self.pending_injection = Some(text);
-                self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
-                if let Some(rest) = rest {
-                    self.show_ghost_after_caret_settles(rest);
-                }
-                Disposition::Swallow
-            }
-            Reaction::Request(request) => {
-                self.hide_ghost();
-                self.runner.submit(request, &self.suggestion_sink);
-                Disposition::Pass
-            }
+    fn on_app_activation(&mut self) {
+        self.controller.on_input(&mut self.shell);
+    }
+
+    fn on_menu_item(&mut self, tag: isize) {
+        if let Some(command) = menu_bar::command_for_tag(&self.controller.tray_view().items, tag) {
+            self.controller.on_tray_command(command, &mut self.shell);
         }
     }
 
-    fn on_suggestion_event(&mut self, event: InferenceEvent) {
-        let reaction = match event {
-            InferenceEvent::Partial(text) => self.app.on_partial_completion(&text),
-            InferenceEvent::Completed(result) => Some(self.app.on_completion(result)),
-            InferenceEvent::Loaded { .. } => None,
+    fn on_delivery(&mut self, delivery: Delivery) {
+        self.controller.on_delivery(delivery, &mut self.shell);
+    }
+
+    fn on_pane_action(&mut self, action: PaneAction) {
+        self.controller.on_pane_action(action, &mut self.shell);
+    }
+
+    /// Runs the action of the menu entry that `choose` reads from the settings window. For an
+    /// entry with no action, renders the panes again, so that the menu shows its selected entry.
+    fn on_menu_pick(&mut self, choose: impl FnOnce(&SettingsWindow) -> Option<PaneAction>) {
+        match self.shell.settings.as_ref().and_then(choose) {
+            Some(action) => self.on_pane_action(action),
+            None => self.controller.render_settings(&mut self.shell),
+        }
+    }
+
+    fn on_settings_button(&mut self, tag: isize) {
+        let action = self
+            .shell
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.action_for_tag(tag));
+        if let Some(action) = action {
+            self.on_pane_action(PaneAction::Models(action));
+        }
+    }
+
+    fn on_playground_complete(&mut self) {
+        let prompt = self
+            .shell
+            .settings
+            .as_ref()
+            .map(SettingsWindow::playground_prompt)
+            .unwrap_or_default();
+        self.on_pane_action(PaneAction::Playground(PlaygroundAction::Complete(prompt)));
+    }
+
+    fn on_system_prompt_edit(&mut self) {
+        let Some(text) = self.shell.settings.as_ref().map(SettingsWindow::system_prompt) else {
+            return;
         };
-        match reaction {
-            // A completion does not move the caret, so it must not make the wait for the caret longer.
-            Some(Reaction::Show(text)) if self.caret_timer.is_some() => self.pending_ghost = Some(text),
-            Some(reaction) => {
-                self.apply(reaction);
-            }
-            None => {}
-        }
+        self.on_pane_action(PaneAction::General(GeneralAction::EditSystemPrompt(
+            SystemPrompt(text),
+        )));
     }
+}
 
+/// What the controller reads and does through Accessibility and AppKit.
+struct AppKitShell {
+    focus: FocusTracker,
+    menu_bar: MenuBarItem,
+    overlay: Overlay,
+    badge: Badge,
+    target: Retained<RuntimeTarget>,
+    caret_timer: Option<Retained<NSTimer>>,
+    settle_timer: Option<Retained<NSTimer>>,
+    pending_injection: Option<String>,
+    settings: Option<SettingsWindow>,
+}
+
+impl AppKitShell {
     fn schedule(&self, delay: NSTimeInterval, action: Sel) -> Retained<NSTimer> {
         // SAFETY: every action passed here is a method of the target that takes the timer.
         unsafe {
@@ -298,95 +263,85 @@ impl Runtime {
         }
     }
 
-    fn show_ghost_after_caret_settles(&mut self, text: String) {
-        self.pending_ghost = Some(text);
-        self.restart_caret_timer();
-    }
-
-    fn restart_caret_timer(&mut self) {
-        self.stop_caret_timer();
-        self.caret_timer = Some(self.schedule(CARET_SETTLE_DELAY, sel!(caretDidSettle:)));
-    }
-
-    fn stop_caret_timer(&mut self) {
-        if let Some(timer) = self.caret_timer.take() {
-            timer.invalidate();
+    fn timer_slot(&mut self, timer: Timer) -> &mut Option<Retained<NSTimer>> {
+        match timer {
+            Timer::CaretSettle => &mut self.caret_timer,
+            Timer::InputSettle => &mut self.settle_timer,
         }
     }
+}
 
-    fn hide_ghost(&mut self) {
-        self.pending_ghost = None;
-        self.stop_caret_timer();
-        self.overlay.hide();
+impl Desktop for AppKitShell {
+    fn field(&self) -> Field {
+        self.focus.field()
     }
 
-    fn on_caret_settled(&mut self) {
-        self.caret_timer = None;
+    fn surroundings(&self) -> Surroundings {
+        self.focus.surroundings()
+    }
+
+    fn clipboard_text(&self) -> Option<String> {
+        self.focus.clipboard_text()
+    }
+}
+
+impl Shell for AppKitShell {
+    fn refresh_focus(&mut self) -> FocusChange {
+        self.focus.refresh()
+    }
+
+    fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>) {
         let caret = self.focus.caret();
-        self.render_badge(caret);
-        match (&self.pending_ghost, caret) {
+        match (badge, caret) {
+            (Some(badge), Some(caret)) => self.badge.show(&badge, caret),
+            _ => self.badge.hide(),
+        }
+        match (ghost, caret) {
             (Some(text), Some(caret)) => self.overlay.show(text, caret),
             _ => self.overlay.hide(),
         }
     }
 
-    fn render_badge_after_caret_settles(&mut self) {
-        if self.app.badge_view().is_some() {
-            self.restart_caret_timer();
-        } else {
-            self.badge.hide();
+    fn hide_ghost(&mut self) {
+        self.overlay.hide();
+    }
+
+    fn hide_badge(&mut self) {
+        self.badge.hide();
+    }
+
+    fn type_text(&mut self, text: String) {
+        self.pending_injection = Some(text);
+        self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
+    }
+
+    fn start_timer(&mut self, timer: Timer, delay: Duration) {
+        self.stop_timer(timer);
+        let action = match timer {
+            Timer::CaretSettle => sel!(caretDidSettle:),
+            Timer::InputSettle => sel!(inputDidSettle:),
+        };
+        let scheduled = self.schedule(delay.as_secs_f64(), action);
+        *self.timer_slot(timer) = Some(scheduled);
+    }
+
+    fn stop_timer(&mut self, timer: Timer) {
+        if let Some(scheduled) = self.timer_slot(timer).take() {
+            scheduled.invalidate();
         }
     }
 
-    fn render_badge(&mut self, caret: Option<Caret>) {
-        match (self.app.badge_view(), caret) {
-            (Some(view), Some(caret)) => self.badge.show(&view, caret),
-            _ => self.badge.hide(),
+    fn render_tray(&mut self, view: &TrayView) {
+        self.menu_bar.update(view);
+    }
+
+    fn render_settings(&mut self, view: &SettingsView) {
+        if let Some(settings) = &mut self.settings {
+            render_panes(settings, view);
         }
     }
 
-    fn on_badge_click(&mut self) {
-        if let Some(view) = self.app.badge_view() {
-            self.on_tray_command(view.command);
-        }
-    }
-
-    fn on_menu_item(&mut self, tag: isize) -> Option<TrayOutcome> {
-        let command = menu_bar::command_for_tag(&self.app.tray_view().items, tag)?;
-        Some(self.on_tray_command(command))
-    }
-
-    fn on_tray_command(&mut self, command: TrayCommand) -> TrayOutcome {
-        let outcome = self.app.on_tray_command(command);
-        match outcome {
-            TrayOutcome::Paused => {
-                self.hide_ghost();
-                let request = self.playground.unload_model();
-                self.on_status_change(request);
-            }
-            TrayOutcome::Resumed => {
-                let request = self.general.load_suggestion_model(&mut self.playground);
-                self.on_status_change(request);
-            }
-            TrayOutcome::OpenSettings => self.open_settings(),
-            TrayOutcome::Quit => {}
-        }
-        outcome
-    }
-
-    fn on_status_change(&mut self, model_request: Option<InferenceRequest>) {
-        if let Some(request) = model_request {
-            self.runner.submit(request, &self.runner_sink);
-        }
-        self.menu_bar.update(&self.app.tray_view());
-        let caret = self.focus.caret();
-        self.render_badge(caret);
-        self.render_settings();
-    }
-
-    fn open_settings(&mut self) {
-        let request = self.models.on_open();
-        self.hub.submit(request, &self.hub_sink);
+    fn show_settings(&mut self, view: &SettingsView) {
         let target = &self.target;
         let settings = self.settings.get_or_insert_with(|| {
             let action_target = ActionTarget {
@@ -406,126 +361,23 @@ impl Runtime {
             };
             SettingsWindow::new(action_target, target.mtm())
         });
-        render_panes(settings, &self.models, &self.playground, &self.general);
+        render_panes(settings, view);
         settings.show();
     }
 
-    fn on_settings_button(&mut self, tag: isize) {
-        let action = self
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.action_for_tag(tag));
-        if let Some(action) = action {
-            self.on_models_action(action);
-        }
-    }
+    /// macOS reads the clipboard only when core asks for its text, so it keeps no copied text.
+    fn use_clipboard_access(&mut self, _access: ClipboardAccess) {}
 
-    fn on_models_action(&mut self, action: ModelsAction) {
-        if let Some(request) = self.models.on_action(action) {
-            self.hub.submit(request, &self.hub_sink);
-        }
-        self.render_settings();
-    }
-
-    fn on_hub_event(&mut self, event: HubEvent) {
-        self.models.on_event(event);
-        self.render_settings();
-    }
-
-    fn on_playground_model_picked(&mut self, index: isize) {
-        let action = self
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.playground_choice(index));
-        match action {
-            Some(action) => self.on_playground_action(action),
-            None => self.render_settings(),
-        }
-    }
-
-    fn on_playground_complete(&mut self) {
-        let prompt = self
-            .settings
-            .as_ref()
-            .map(SettingsWindow::playground_prompt)
-            .unwrap_or_default();
-        self.on_playground_action(PlaygroundAction::Complete(prompt));
-    }
-
-    fn on_playground_action(&mut self, action: PlaygroundAction) {
-        if let Some(request) = self.playground.on_action(action) {
-            self.runner.submit(request, &self.runner_sink);
-        }
-        self.render_settings();
-    }
-
-    fn on_suggestion_model_picked(&mut self, index: isize) {
-        let action = self
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.suggestion_model_choice(index));
-        match action {
-            Some(action) => self.on_playground_action(action),
-            None => self.render_settings(),
-        }
-    }
-
-    fn on_suggestion_length_picked(&mut self, index: isize) {
-        let action = self
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.suggestion_length_choice(index));
-        match action {
-            Some(action) => self.on_general_action(action),
-            None => self.render_settings(),
-        }
-    }
-
-    fn on_system_prompt_edit(&mut self) {
-        let Some(text) = self.settings.as_ref().map(SettingsWindow::system_prompt) else {
-            return;
-        };
-        self.on_general_action(GeneralAction::EditSystemPrompt(SystemPrompt(text)));
-    }
-
-    fn on_general_action(&mut self, action: GeneralAction) {
-        let outcome = self.general.on_action(action, &mut self.playground);
-        if let Some(settings) = outcome.settings {
-            self.settings_store.save(&settings);
-            self.app.use_settings(&settings);
-            self.playground.use_settings(&settings);
-        }
-        if let Some(request) = outcome.request {
-            self.runner.submit(request, &self.runner_sink);
-        }
-        self.render_settings();
-    }
-
-    fn on_inference_event(&mut self, event: InferenceEvent) {
-        self.playground.on_event(event);
-        if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
-            self.settings_store.save(&settings);
-        }
-        self.render_settings();
-    }
-
-    fn render_settings(&mut self) {
-        if let Some(settings) = &mut self.settings {
-            render_panes(settings, &self.models, &self.playground, &self.general);
-        }
+    /// Ends the app from a timer, outside the borrow of the runtime that the end of the app drops.
+    fn quit(&mut self) {
+        self.schedule(NEXT_RUN_LOOP_PASS, sel!(quitApplication:));
     }
 }
 
-fn render_panes(
-    settings: &mut SettingsWindow,
-    models: &ModelsPane,
-    playground: &PlaygroundPane,
-    general: &GeneralPane,
-) {
-    let installed = models.installed_files();
-    settings.render_general(&general.view(playground, &installed));
-    settings.render_models(&models.view());
-    settings.render_playground(&playground.view(&installed));
+fn render_panes(settings: &mut SettingsWindow, view: &SettingsView) {
+    settings.render_general(&view.general);
+    settings.render_models(&view.models);
+    settings.render_playground(&view.playground);
 }
 
 define_class!(
@@ -540,10 +392,7 @@ define_class!(
         #[unsafe(method(pickMenuItem:))]
         fn pick_menu_item(&self, sender: &NSMenuItem) {
             let tag = sender.tag();
-            let outcome = with_runtime(|runtime| runtime.on_menu_item(tag)).flatten();
-            if outcome == Some(TrayOutcome::Quit) {
-                NSApplication::sharedApplication(self.mtm()).terminate(None);
-            }
+            with_runtime(|runtime| runtime.on_menu_item(tag));
         }
 
         // SAFETY: matches the action signature, called with the clicked settings button.
@@ -556,15 +405,19 @@ define_class!(
         // SAFETY: matches the action signature, called with the submitted search field.
         #[unsafe(method(searchModels:))]
         fn search_models(&self, sender: &NSSearchField) {
-            let query = sender.stringValue().to_string();
-            with_runtime(|runtime| runtime.on_models_action(ModelsAction::Search(query)));
+            let action = PaneAction::Models(ModelsAction::Search(sender.stringValue().to_string()));
+            with_runtime(|runtime| runtime.on_pane_action(action));
         }
 
         // SAFETY: matches the action signature, called with the playground's model menu.
         #[unsafe(method(pickPlaygroundModel:))]
         fn pick_playground_model(&self, sender: &NSPopUpButton) {
             let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| runtime.on_playground_model_picked(index));
+            with_runtime(|runtime| {
+                runtime.on_menu_pick(|settings| {
+                    settings.playground_choice(index).map(PaneAction::Playground)
+                });
+            });
         }
 
         // SAFETY: matches the action signature, called with the General pane's autostart switch.
@@ -575,7 +428,7 @@ define_class!(
             } else {
                 GeneralAction::DisableAutostart
             };
-            with_runtime(|runtime| runtime.on_general_action(action));
+            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
         }
 
         // SAFETY: matches the action signature, called with the General pane's clipboard switch.
@@ -586,7 +439,7 @@ define_class!(
             } else {
                 GeneralAction::DenyClipboard
             };
-            with_runtime(|runtime| runtime.on_general_action(action));
+            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
         }
 
         // SAFETY: matches the action signature, called with the General pane's prompt preparation switch.
@@ -597,7 +450,7 @@ define_class!(
             } else {
                 GeneralAction::PrepareOnFirstKey
             };
-            with_runtime(|runtime| runtime.on_general_action(action));
+            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
         }
 
         // SAFETY: matches the action signature, called with the General pane's suggestion display switch.
@@ -608,21 +461,29 @@ define_class!(
             } else {
                 GeneralAction::ShowWhenComplete
             };
-            with_runtime(|runtime| runtime.on_general_action(action));
+            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
         }
 
         // SAFETY: matches the action signature, called with the General pane's suggestion length menu.
         #[unsafe(method(pickSuggestionLength:))]
         fn pick_suggestion_length(&self, sender: &NSPopUpButton) {
             let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| runtime.on_suggestion_length_picked(index));
+            with_runtime(|runtime| {
+                runtime.on_menu_pick(|settings| {
+                    settings.suggestion_length_choice(index).map(PaneAction::General)
+                });
+            });
         }
 
         // SAFETY: matches the action signature, called with the General pane's suggestion model menu.
         #[unsafe(method(pickSuggestionModel:))]
         fn pick_suggestion_model(&self, sender: &NSPopUpButton) {
             let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| runtime.on_suggestion_model_picked(index));
+            with_runtime(|runtime| {
+                runtime.on_menu_pick(|settings| {
+                    settings.suggestion_model_choice(index).map(PaneAction::Playground)
+                });
+            });
         }
 
         // SAFETY: matches the notification observer signature, called for each edit of the system prompt.
@@ -634,7 +495,9 @@ define_class!(
         // SAFETY: matches the action signature, called with the General pane's reset button.
         #[unsafe(method(resetSystemPrompt:))]
         fn reset_system_prompt(&self, _sender: &NSButton) {
-            with_runtime(|runtime| runtime.on_general_action(GeneralAction::ResetSystemPrompt));
+            with_runtime(|runtime| {
+                runtime.on_pane_action(PaneAction::General(GeneralAction::ResetSystemPrompt));
+            });
         }
 
         // SAFETY: matches the action signature, called with the playground's button or prompt field.
@@ -658,12 +521,18 @@ define_class!(
         // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
-            let text = with_runtime(|runtime| runtime.pending_injection.take()).flatten();
+            let text = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
             if let Some(text) = text
                 && let Err(error) = injection::type_text(&text)
             {
                 tracing::warn!(%error, "failed to type accepted text");
             }
+        }
+
+        // SAFETY: matches the timer action signature.
+        #[unsafe(method(quitApplication:))]
+        fn quit_application(&self, _timer: &NSTimer) {
+            NSApplication::sharedApplication(self.mtm()).terminate(None);
         }
 
         // SAFETY: matches the notification observer signature.
@@ -675,7 +544,7 @@ define_class!(
         // SAFETY: matches the notification observer signature.
         #[unsafe(method(applicationDidActivate:))]
         fn application_did_activate(&self, _notification: &NSNotification) {
-            with_runtime(Runtime::restart_settle_timer);
+            with_runtime(Runtime::on_app_activation);
         }
     }
 );

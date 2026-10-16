@@ -20,12 +20,8 @@ mod runtime;
 mod settings;
 mod single_instance;
 
-use std::fmt;
-
-use ghosttype_core::app::App;
-use ghosttype_core::hub::ModelHub;
-use ghosttype_core::inference::ModelRunner;
-use ghosttype_core::settings::{Autostart, Settings, SettingsStore};
+use ghosttype_core::controller::Services;
+use ghosttype_core::settings::Settings;
 
 /// A failure that stops GhostType from starting or running.
 #[derive(Debug, thiserror::Error)]
@@ -41,28 +37,10 @@ pub enum RunError {
     KeyboardAccess,
 }
 
-/// The services that GhostType uses on macOS.
-pub struct Services {
-    /// Finds, downloads and deletes models for the Models pane.
-    pub hub: Box<dyn ModelHub>,
-    /// Loads the model that the Playground pane selects, and completes the text the user types.
-    pub runner: Box<dyn ModelRunner>,
-    /// Keeps the settings that the user changes in the General pane.
-    pub settings_store: Box<dyn SettingsStore>,
-    /// Starts GhostType at login when the user turns it on in the General pane.
-    pub autostart: Box<dyn Autostart>,
-}
-
-impl fmt::Debug for Services {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Services").finish_non_exhaustive()
-    }
-}
-
-/// Runs GhostType in the menu bar until the user quits, offering suggestions from `app`.
+/// Runs GhostType in the menu bar until the user quits.
 ///
-/// The settings window starts with the saved `settings` and works through `services`. The
-/// suggestion model of `settings` starts to load at once.
+/// GhostType starts with the saved `settings` and works through `services`. The suggestion model
+/// of `settings` starts to load at once.
 ///
 /// Returns immediately when another instance is already running for this user. Quitting from the
 /// menu ends the process.
@@ -71,10 +49,10 @@ impl fmt::Debug for Services {
 ///
 /// Returns [`RunError`] when called off the main thread, when the instance lock can't be checked,
 /// or when macOS denies the keyboard event tap.
-pub fn run(app: App, settings: Settings, services: Services) -> Result<(), RunError> {
+pub fn run(settings: Settings, services: Services) -> Result<(), RunError> {
     let Some(_instance_lock) = single_instance::acquire().map_err(RunError::InstanceCheck)? else {
         tracing::info!("another instance is already running");
         return Ok(());
     };
-    runtime::run(app, settings, services)
+    runtime::run(settings, services)
 }

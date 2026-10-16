@@ -5,11 +5,9 @@ mod launch_agent;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod settings_file;
 
-use ghosttype_core::app::App;
-
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
-pub(crate) fn run(app: App) -> anyhow::Result<()> {
+pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
     let data_dir = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
@@ -27,13 +25,14 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
         settings_store: Box::new(settings_file),
         autostart: Box::new(ghosttype_windows::StartupEntry::new(&program)),
     };
-    ghosttype_windows::run(app, settings, services).context("ghosttype stopped unexpectedly")
+    ghosttype_windows::run(ghosttype_core::app::App::new(), settings, services)
+        .context("ghosttype stopped unexpectedly")
 }
 
 /// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
 /// user quits.
 #[cfg(target_os = "macos")]
-pub(crate) fn run(app: App) -> anyhow::Result<()> {
+pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
     const DATA_DIR: &str = "Library/Application Support/GhostType";
     const LAUNCH_AGENTS_DIR: &str = "Library/LaunchAgents";
@@ -46,17 +45,17 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
     let launch_agent = launch_agent::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
-    let services = ghosttype_macos::Services {
+    let services = ghosttype_core::controller::Services {
         hub: Box::new(hub),
         runner: Box::new(runner),
         settings_store: Box::new(settings_file),
         autostart: Box::new(launch_agent),
     };
-    ghosttype_macos::run(app, settings, services).context("ghosttype stopped unexpectedly")
+    ghosttype_macos::run(settings, services).context("ghosttype stopped unexpectedly")
 }
 
 /// Fails: no platform layer exists for this OS yet.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub(crate) fn run(_app: App) -> anyhow::Result<()> {
+pub(crate) fn run() -> anyhow::Result<()> {
     anyhow::bail!("ghosttype does not support this operating system yet")
 }

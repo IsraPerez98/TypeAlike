@@ -4,6 +4,7 @@
 use std::ptr::{self, NonNull};
 
 use ghosttype_core::app::Field;
+use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{
     Desktop, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings,
 };
@@ -57,13 +58,6 @@ impl Caret {
             height: bounds.size.height,
         })
     }
-}
-
-/// Whether the frontmost app changed since it was last observed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FocusChange {
-    Unchanged,
-    Changed,
 }
 
 /// Follows the frontmost app and classifies whether GhostType may observe and type into it.
