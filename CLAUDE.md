@@ -13,7 +13,7 @@ OSS Windows-first Cotypist clone (https://cotypist.app/). System-wide inline aut
 
 ## Layout
 Virtual workspace, flat `crates/`.
-- `ghosttype_core`: engine, matching, accept state machine, prompt (system prompt, app and window, text around the caret, clipboard), settings model, Models, Playground and General panes. Pure Rust, no OS. Platforms read the desktop through the `Desktop` trait.
+- `ghosttype_core`: engine, matching, accept state machine, prompt (system prompt, app and window, text around the caret, clipboard), settings model, Models, Playground and General panes. The `Controller` runs GhostType from the platform events (keys, clicks, timers, tray, settings window, service answers). Pure Rust, no OS. Each platform implements the `Shell` trait: it reads the desktop (`Desktop`) and does the OS effects that the controller asks for. The platform runtimes only translate OS events into controller calls.
 - `ghosttype_windows`: hooks, UIA, overlay, `SendInput`, tray, settings window. All FFI.
 - `ghosttype_macos`: event tap, Accessibility (AX), overlay panel, CGEvent injection, menu bar extra, settings window. All FFI. Needs Accessibility access (`cargo run` from a terminal: grant it to the terminal app).
 - `ghosttype_models`: Hugging Face search, downloads and the local models directory (`ModelHub`). HTTPS + file IO, no FFI.
