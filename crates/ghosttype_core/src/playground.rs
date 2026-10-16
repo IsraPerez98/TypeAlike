@@ -271,6 +271,7 @@ impl PlaygroundPane {
                     model.state = result.map_or_else(ModelState::Failed, |()| ModelState::Ready);
                 }
             }
+            InferenceEvent::Partial(_) => {}
             InferenceEvent::Completed(result) => {
                 if self.is_completing() {
                     self.completion =

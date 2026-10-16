@@ -55,8 +55,12 @@ struct Session {
 enum Offer {
     #[default]
     Idle,
-    Requested {
-        is_dismissed: bool,
+    /// The completion of the newest request runs, and its parts grow the ghost text.
+    Growing {
+        /// The text that the user typed or accepted from the ghost text after the request.
+        typed: String,
+        /// The ghost text after `typed`, which is empty before the first part.
+        shown: String,
     },
     Shown(String),
 }
@@ -92,20 +96,39 @@ impl Engine {
         if self.unanswered_requests > 0 {
             return Reaction::Hide;
         }
+        if let Ok(completion) = result {
+            self.grow(&completion.text);
+        }
         match mem::take(&mut self.offer) {
-            Offer::Requested {
-                is_dismissed: false, ..
-            } => result
-                .ok()
-                .and_then(|completion| suggestion_after(self.text_before(), &completion.text))
-                .map_or(Reaction::Hide, |suggestion| self.show(suggestion)),
-            Offer::Requested {
-                is_dismissed: true, ..
-            } => Reaction::Hide,
-            offer @ (Offer::Idle | Offer::Shown(_)) => {
-                self.offer = offer;
-                Reaction::Hide
+            Offer::Growing { shown, .. } | Offer::Shown(shown) if !shown.is_empty() => self.show(shown),
+            Offer::Idle | Offer::Growing { .. } | Offer::Shown(_) => Reaction::Hide,
+        }
+    }
+
+    /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
+    /// far. Only its complete words show, and only for the newest request. Returns the reaction
+    /// when the ghost text changes, or `None`.
+    pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
+        let is_newest = self.unanswered_requests == 1;
+        (is_newest && self.grow(complete_words(text))).then(|| Reaction::Show(self.shown().to_owned()))
+    }
+
+    /// Makes the ghost text the text of `completion`, from the newest request, after the typed
+    /// text, when it has text there. Returns whether the ghost text changed.
+    fn grow(&mut self, completion: &str) -> bool {
+        let text_before = self
+            .session
+            .as_ref()
+            .map_or("", |session| session.text_before.as_str());
+        let Offer::Growing { typed, shown } = &mut self.offer else {
+            return false;
+        };
+        match suggestion_after_typed(text_before, typed, completion) {
+            Some(grown) if grown != *shown => {
+                *shown = grown;
+                true
             }
+            _ => false,
         }
     }
 
@@ -141,42 +164,49 @@ impl Engine {
 
     fn on_typed(&mut self, character: char) -> Reaction {
         self.keep_recent_text();
-        let rest = match &self.offer {
-            Offer::Shown(suggestion) => suggestion.strip_prefix(character).map(str::to_owned),
-            Offer::Idle | Offer::Requested { .. } => None,
+        let rest = match self.shown().strip_prefix(character) {
+            Some(rest) if !rest.is_empty() => rest.to_owned(),
+            _ => return self.request(),
         };
-        match rest {
-            Some(rest) if !rest.is_empty() => self.show(rest),
-            _ => self.request(),
-        }
+        self.take_from_ghost(character.encode_utf8(&mut [0; 4]), &rest);
+        Reaction::Show(rest)
     }
 
     fn accept(&mut self) -> Reaction {
-        match (mem::take(&mut self.offer), &mut self.session) {
-            (Offer::Shown(suggestion), Some(session)) => {
-                let (word, rest) = split_first_word(&suggestion);
-                let rest = (!rest.is_empty()).then(|| rest.to_owned());
-                session.text_before.push_str(word);
-                self.keep_recent_text();
-                self.offer = rest.clone().map_or(Offer::Idle, Offer::Shown);
-                Reaction::Accept {
-                    text: word.to_owned(),
-                    rest,
-                }
+        let suggestion = self.shown().to_owned();
+        let Some(session) = self.session.as_mut().filter(|_| !suggestion.is_empty()) else {
+            return self.reset();
+        };
+        let (word, rest) = split_first_word(&suggestion);
+        session.text_before.push_str(word);
+        self.keep_recent_text();
+        self.take_from_ghost(word, rest);
+        Reaction::Accept {
+            text: word.to_owned(),
+            rest: (!rest.is_empty()).then(|| rest.to_owned()),
+        }
+    }
+
+    /// Records that `taken`, the start of the ghost text, is now before the caret, and that
+    /// `rest` stays as the ghost text.
+    fn take_from_ghost(&mut self, taken: &str, rest: &str) {
+        match &mut self.offer {
+            Offer::Growing { typed, shown } => {
+                typed.push_str(taken);
+                rest.clone_into(shown);
             }
-            (offer, _) => {
-                self.offer = offer;
-                self.reset()
+            offer @ (Offer::Idle | Offer::Shown(_)) => {
+                *offer = if rest.is_empty() {
+                    Offer::Idle
+                } else {
+                    Offer::Shown(rest.to_owned())
+                };
             }
         }
     }
 
     fn dismiss(&mut self) -> Reaction {
-        if let Offer::Requested { is_dismissed, .. } = &mut self.offer {
-            *is_dismissed = true;
-        } else {
-            self.offer = Offer::Idle;
-        }
+        self.offer = Offer::Idle;
         Reaction::Hide
     }
 
@@ -185,7 +215,10 @@ impl Engine {
             self.offer = Offer::Idle;
             return Reaction::Hide;
         };
-        self.offer = Offer::Requested { is_dismissed: false };
+        self.offer = Offer::Growing {
+            typed: String::new(),
+            shown: String::new(),
+        };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Reaction::Request(InferenceRequest::Complete {
             prompt,
@@ -203,6 +236,14 @@ impl Engine {
     fn show(&mut self, suggestion: String) -> Reaction {
         self.offer = Offer::Shown(suggestion.clone());
         Reaction::Show(suggestion)
+    }
+
+    /// Returns the ghost text, which is empty when none shows.
+    fn shown(&self) -> &str {
+        match &self.offer {
+            Offer::Idle => "",
+            Offer::Growing { shown, .. } | Offer::Shown(shown) => shown,
+        }
     }
 
     fn text_before(&self) -> &str {
@@ -234,6 +275,21 @@ fn suggestion_after(context: &str, completion: &str) -> Option<String> {
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
 }
 
+/// Returns the ghost text that `completion` gives after the `typed` text, or `None` when it adds
+/// nothing after it. `text_before` ends with `typed`, and the request continued the text before
+/// `typed`.
+fn suggestion_after_typed(text_before: &str, typed: &str, completion: &str) -> Option<String> {
+    let context = text_before.strip_suffix(typed)?;
+    let suggestion = suggestion_after(context, completion)?;
+    let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
+    Some(rest.to_owned())
+}
+
+/// Returns `text` up to its last whitespace, without the word after it, which can still grow.
+fn complete_words(text: &str) -> &str {
+    text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
+}
+
 /// Splits `suggestion` into its first word, with the whitespace before that word, and the rest.
 fn split_first_word(suggestion: &str) -> (&str, &str) {
     let rest = suggestion
@@ -247,8 +303,8 @@ impl fmt::Debug for Engine {
         formatter
             .debug_struct("Engine")
             .field("text_before_chars", &self.text_before().chars().count())
-            .field("is_waiting", &matches!(self.offer, Offer::Requested { .. }))
-            .field("has_suggestion", &matches!(self.offer, Offer::Shown(_)))
+            .field("is_growing", &matches!(self.offer, Offer::Growing { .. }))
+            .field("has_suggestion", &!self.shown().is_empty())
             .finish_non_exhaustive()
     }
 }
@@ -476,6 +532,139 @@ mod tests {
         let reaction = engine.on_completion(completion(" there"));
 
         assert_eq!(reaction, show(" there"));
+    }
+
+    #[test]
+    fn partial_completion_shows_its_complete_words() {
+        let mut engine = engine_waiting_for("hel");
+
+        let reaction = engine.on_partial_completion("lo big wor");
+
+        assert_eq!(reaction, Some(show("lo big")));
+    }
+
+    #[test]
+    fn partial_completion_without_a_complete_word_changes_nothing() {
+        let cases = ["lo", " big"];
+
+        let reactions = cases.map(|text| engine_waiting_for("hel").on_partial_completion(text));
+
+        assert_eq!(reactions, cases.map(|_| None));
+    }
+
+    #[test]
+    fn partial_completion_that_adds_no_word_changes_nothing() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wo");
+
+        let reaction = engine.on_partial_completion("lo big wor");
+
+        assert_eq!(reaction, None);
+    }
+
+    #[test]
+    fn partial_completion_of_a_replaced_request_changes_nothing() {
+        let mut engine = engine_waiting_for("he");
+        press(&mut engine, Key::Char('l'));
+
+        let reaction = engine.on_partial_completion("llo big world");
+
+        assert_eq!(reaction, None);
+    }
+
+    #[test]
+    fn partial_completion_after_escape_changes_nothing() {
+        let mut engine = engine_waiting_for("hel");
+        press(&mut engine, Key::Escape);
+
+        let reaction = engine.on_partial_completion("lo big world");
+
+        assert_eq!(reaction, None);
+    }
+
+    #[test]
+    fn completion_after_partial_completion_shows_all_its_text() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+
+        let reaction = engine.on_completion(completion("lo big world"));
+
+        assert_eq!(reaction, show("lo big world"));
+    }
+
+    #[test]
+    fn failed_completion_keeps_the_shown_partial_completion() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+
+        let reaction = engine.on_completion(Err(InferenceError::Failed));
+
+        assert_eq!(reaction, show("lo big"));
+    }
+
+    #[test]
+    fn typed_character_of_a_partial_completion_stays_out_of_later_parts() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+        press(&mut engine, Key::Char('l'));
+
+        let reaction = engine.on_partial_completion("lo big world and");
+
+        assert_eq!(reaction, Some(show("o big world")));
+    }
+
+    #[test]
+    fn typed_space_after_a_word_stays_out_of_later_parts() {
+        let mut engine = engine_waiting_for("Hi");
+        engine.on_partial_completion(" there my fri");
+        press(&mut engine, Key::Char(' '));
+
+        let reaction = engine.on_completion(completion(" there my friend"));
+
+        assert_eq!(reaction, show("there my friend"));
+    }
+
+    #[test]
+    fn accepted_word_of_a_partial_completion_stays_out_of_later_parts() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+        press(&mut engine, Key::Tab);
+
+        let reaction = engine.on_partial_completion("lo big world and");
+
+        assert_eq!(reaction, Some(show(" big world")));
+    }
+
+    #[test]
+    fn partial_completion_after_accepting_all_shown_words_shows_the_next_words() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big");
+        press(&mut engine, Key::Tab);
+
+        let reaction = engine.on_completion(completion("lo big world"));
+
+        assert_eq!(reaction, show(" big world"));
+    }
+
+    #[test]
+    fn completion_that_differs_from_the_typed_text_keeps_the_shown_text() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+        press(&mut engine, Key::Char('l'));
+
+        let reaction = engine.on_completion(completion("p me"));
+
+        assert_eq!(reaction, show("o big"));
+    }
+
+    #[test]
+    fn tab_on_a_partial_completion_accepts_its_first_word() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big wor");
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(reaction, accept("lo", Some(" big")));
     }
 
     #[test]

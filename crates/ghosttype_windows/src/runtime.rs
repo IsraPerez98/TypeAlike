@@ -116,6 +116,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
             window,
             taskbar_created_message,
             pending_ghost: None,
+            is_ghost_timer_pending: false,
             pending_injection: None,
             release_filter: ReleaseFilter::default(),
             models: ModelsPane::new(),
@@ -210,6 +211,7 @@ struct Runtime {
     window: Window,
     taskbar_created_message: u32,
     pending_ghost: Option<String>,
+    is_ghost_timer_pending: bool,
     pending_injection: Option<String>,
     release_filter: ReleaseFilter,
     models: ModelsPane,
@@ -299,9 +301,18 @@ impl Runtime {
     }
 
     fn on_suggestion_event(&mut self, event: InferenceEvent) {
-        if let InferenceEvent::Completed(result) = event {
-            let reaction = self.app.on_completion(result);
-            self.apply(reaction);
+        let reaction = match event {
+            InferenceEvent::Partial(text) => self.app.on_partial_completion(&text),
+            InferenceEvent::Completed(result) => Some(self.app.on_completion(result)),
+            InferenceEvent::Loaded { .. } => None,
+        };
+        match reaction {
+            // A completion does not move the caret, so it must not make the wait for the caret longer.
+            Some(Reaction::Show(text)) if self.is_ghost_timer_pending => self.pending_ghost = Some(text),
+            Some(reaction) => {
+                self.apply(reaction);
+            }
+            None => {}
         }
     }
 
@@ -310,7 +321,7 @@ impl Runtime {
         self.restart_ghost_timer();
     }
 
-    fn restart_ghost_timer(&self) {
+    fn restart_ghost_timer(&mut self) {
         // SAFETY: plain call on our own window.
         let timer = unsafe {
             SetTimer(
@@ -323,6 +334,7 @@ impl Runtime {
         if timer == 0 {
             tracing::warn!(error = %Error::from_thread(), "failed to schedule ghost text");
         }
+        self.is_ghost_timer_pending = timer != 0;
     }
 
     fn hide_ghost(&mut self) {
@@ -331,13 +343,14 @@ impl Runtime {
         self.overlay.hide();
     }
 
-    fn stop_ghost_timer(&self) {
+    fn stop_ghost_timer(&mut self) {
+        self.is_ghost_timer_pending = false;
         // Fails only when no timer is pending, which needs no handling.
         // SAFETY: plain call on our own window.
         let _ = unsafe { KillTimer(Some(self.window.handle()), GHOST_TIMER_ID) };
     }
 
-    fn show_pending_ghost(&self) {
+    fn show_pending_ghost(&mut self) {
         self.stop_ghost_timer();
         let Some(text) = &self.pending_ghost else {
             return;

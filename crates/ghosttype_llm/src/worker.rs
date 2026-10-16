@@ -150,9 +150,21 @@ fn serve(llama: &LlamaBackend, model: &LlamaModel, queue: &mut JobQueue<'_>) {
             queue.give_back(job);
             return;
         };
-        let result = loaded.complete(prompt, *max_tokens, &mut || queue.has_newer_completion(&job.sink));
+        let mut progress = Progress {
+            is_outdated: &mut || queue.has_newer_completion(&job.sink),
+            send_partial: &mut |text| (job.sink)(InferenceEvent::Partial(text)),
+        };
+        let result = loaded.complete(prompt, *max_tokens, &mut progress);
         (job.sink)(InferenceEvent::Completed(result));
     }
+}
+
+/// What a running completion asks and tells its job.
+struct Progress<'job> {
+    /// Tells that a newer completion waits, so that this completion must stop.
+    is_outdated: &'job mut dyn FnMut() -> bool,
+    /// Receives the text that the completion added so far.
+    send_partial: &'job mut dyn FnMut(String),
 }
 
 /// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
@@ -280,15 +292,16 @@ struct LoadedModel<'model> {
 }
 
 impl LoadedModel<'_> {
-    /// Completes `prompt`. It stops early when `is_outdated` tells that a newer completion waits.
+    /// Completes `prompt`, and sends the text to `progress` while it grows. It stops early when
+    /// `progress` tells that a newer completion waits.
     fn complete(
         &mut self,
         prompt: &Prompt,
         max_tokens: TokenCount,
-        is_outdated: &mut dyn FnMut() -> bool,
+        progress: &mut Progress<'_>,
     ) -> Result<Completion, InferenceError> {
         let started = Instant::now();
-        let (text, tokens) = self.generate(prompt, max_tokens, is_outdated).map_err(|error| {
+        let (text, tokens) = self.generate(prompt, max_tokens, progress).map_err(|error| {
             if !matches!(error, GenerateError::Superseded) {
                 tracing::warn!(%error, "failed to complete text");
             }
@@ -313,7 +326,7 @@ impl LoadedModel<'_> {
         &mut self,
         prompt: &Prompt,
         max_tokens: TokenCount,
-        is_outdated: &mut dyn FnMut() -> bool,
+        progress: &mut Progress<'_>,
     ) -> Result<(String, TokenCount), GenerateError> {
         let model = self.model;
         let vocab = model.vocab();
@@ -333,8 +346,8 @@ impl LoadedModel<'_> {
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
         let added = cache
-            .decode_prompt(&prompt_tokens, is_outdated)
-            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, is_outdated));
+            .decode_prompt(&prompt_tokens, progress.is_outdated)
+            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, progress));
         match added {
             Ok(added) => {
                 let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
@@ -427,13 +440,14 @@ impl<'model> PromptCache<'model> {
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write `healed_text` again. Before each
-    /// decode, it stops when `is_outdated` tells so. Returns the added tokens.
+    /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
+    /// Returns the added tokens.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
         healed_text: &[u8],
         max_added: usize,
-        is_outdated: &mut dyn FnMut() -> bool,
+        progress: &mut Progress<'_>,
     ) -> Result<Vec<LlamaToken>, GenerateError> {
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
@@ -454,9 +468,10 @@ impl<'model> PromptCache<'model> {
             if ends_line || added.len() == max_added {
                 break;
             }
-            if is_outdated() {
+            if (progress.is_outdated)() {
                 return Err(GenerateError::Superseded);
             }
+            (progress.send_partial)(added_text(vocab, &self.tokens, &added, healed_text));
             batch.clear();
             batch.add(
                 token,

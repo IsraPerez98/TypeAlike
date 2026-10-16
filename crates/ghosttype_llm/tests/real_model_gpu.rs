@@ -39,7 +39,10 @@ fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
     );
     drop(sink);
     let loaded = events.recv().expect("the runner answers the load");
-    let completed = events.recv().expect("the runner answers the completion");
+    let completed = events
+        .iter()
+        .find(|event| !matches!(event, InferenceEvent::Partial(_)))
+        .expect("the runner answers the completion");
     (loaded, completed)
 }
 

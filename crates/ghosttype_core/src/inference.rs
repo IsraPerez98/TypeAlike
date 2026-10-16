@@ -67,9 +67,9 @@ pub enum InferenceRequest {
         /// The backend that runs the model, or `None` to let the runner pick, as its build allows.
         backend: Option<Backend>,
     },
-    /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`]. The added text
-    /// can also finish the last word of `prompt`. The runner stops at the first line break that
-    /// it adds.
+    /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`], after zero or more
+    /// [`InferenceEvent::Partial`]. The added text can also finish the last word of `prompt`. The
+    /// runner stops at the first line break that it adds.
     Complete {
         /// The text to continue.
         prompt: Prompt,
@@ -90,6 +90,9 @@ pub enum InferenceEvent {
         /// Nothing, or why the model did not load.
         result: Result<(), InferenceError>,
     },
+    /// A completion that still runs: the text that it added so far. Each part continues the text
+    /// of the part before it.
+    Partial(String),
     /// A completion finished: the added text, or why there is none.
     Completed(Result<Completion, InferenceError>),
 }

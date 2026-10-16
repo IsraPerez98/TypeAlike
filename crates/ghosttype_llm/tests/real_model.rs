@@ -40,7 +40,10 @@ fn real_model_continues_text() {
     );
     drop(sink);
     let loaded = events.recv().expect("the runner answers the load");
-    let completed = events.recv().expect("the runner answers the completion");
+    let completed = events
+        .iter()
+        .find(|event| !matches!(event, InferenceEvent::Partial(_)))
+        .expect("the runner answers the completion");
 
     assert_eq!(loaded, InferenceEvent::Loaded { file, result: Ok(()) });
     assert!(

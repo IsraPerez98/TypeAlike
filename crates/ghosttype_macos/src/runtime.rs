@@ -237,9 +237,18 @@ impl Runtime {
     }
 
     fn on_suggestion_event(&mut self, event: InferenceEvent) {
-        if let InferenceEvent::Completed(result) = event {
-            let reaction = self.app.on_completion(result);
-            self.apply(reaction);
+        let reaction = match event {
+            InferenceEvent::Partial(text) => self.app.on_partial_completion(&text),
+            InferenceEvent::Completed(result) => Some(self.app.on_completion(result)),
+            InferenceEvent::Loaded { .. } => None,
+        };
+        match reaction {
+            // A completion does not move the caret, so it must not make the wait for the caret longer.
+            Some(Reaction::Show(text)) if self.caret_timer.is_some() => self.pending_ghost = Some(text),
+            Some(reaction) => {
+                self.apply(reaction);
+            }
+            None => {}
         }
     }
 

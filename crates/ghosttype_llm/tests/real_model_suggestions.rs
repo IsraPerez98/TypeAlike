@@ -85,11 +85,19 @@ impl LoadedModel {
     }
 
     fn next_completion(&self) -> Result<Completion, InferenceError> {
-        let event = self.events.recv().expect("the runner answers the completion");
-        let InferenceEvent::Completed(result) = event else {
-            panic!("expected a completion, got {event:?}");
-        };
-        result
+        self.next_parts_and_completion().1
+    }
+
+    /// Returns the texts of the partial completions before the next completion, and the completion.
+    fn next_parts_and_completion(&self) -> (Vec<String>, Result<Completion, InferenceError>) {
+        let mut parts = Vec::new();
+        loop {
+            match self.events.recv().expect("the runner answers the completion") {
+                InferenceEvent::Partial(text) => parts.push(text),
+                InferenceEvent::Completed(result) => return (parts, result),
+                event @ InferenceEvent::Loaded { .. } => panic!("expected a completion, got {event:?}"),
+            }
+        }
     }
 
     fn complete(&mut self, reaction: Reaction) -> Result<Completion, InferenceError> {
@@ -189,6 +197,21 @@ fn long_prompt_after_another_long_prompt_completes() {
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn partial_completions_grow_into_the_completion() {
+    let mut model = LoadedModel::load();
+    model.submit(completion_request(LONG_PROMPT));
+
+    let (parts, completion) = model.next_parts_and_completion();
+
+    let text = completion.expect("the model completes the prompt").text;
+    assert!(
+        !parts.is_empty() && parts.iter().all(|part| text.starts_with(part.as_str())),
+        "parts {parts:?} do not grow into {text:?}"
+    );
 }
 
 #[test]

@@ -156,6 +156,12 @@ impl App {
         self.engine.on_completion(result)
     }
 
+    /// Handles `text`, the text that the completion of the last [`Reaction::Request`] added so far.
+    /// Returns the reaction when the ghost text changes, or `None`.
+    pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
+        self.engine.on_partial_completion(text)
+    }
+
     /// Handles the caret moving somewhere unknown: focus change, mouse click.
     pub fn on_context_lost(&mut self) -> Reaction {
         self.is_in_open_field = false;
@@ -296,6 +302,16 @@ mod tests {
         let reaction = app.on_completion(completion("est regards"));
 
         assert_eq!(reaction, Reaction::Show("est regards".to_owned()));
+    }
+
+    #[test]
+    fn partial_completion_shows_in_active_app() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        let reaction = app.on_partial_completion("est regards");
+
+        assert_eq!(reaction, Some(Reaction::Show("est".to_owned())));
     }
 
     #[test]
@@ -524,6 +540,17 @@ mod tests {
         let reaction = app.on_completion(completion("est"));
 
         assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn paused_app_drops_partial_completion() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        let reaction = app.on_partial_completion("est regards");
+
+        assert_eq!(reaction, None);
     }
 
     #[test]
