@@ -303,30 +303,28 @@ impl GeneralPane {
     /// Keeps `custom` as the system prompt, or the default for `None` or a copy of the default.
     fn change_system_prompt(&mut self, custom: Option<SystemPrompt>) -> GeneralOutcome {
         let custom = custom.filter(|system_prompt| system_prompt.0 != DEFAULT_SYSTEM_PROMPT);
-        if custom == self.settings.custom_system_prompt {
-            return GeneralOutcome::default();
-        }
-        self.settings.custom_system_prompt = custom;
-        self.changed_settings()
+        self.change_setting(custom, |settings| &mut settings.custom_system_prompt)
     }
 
     fn change_clipboard_access(&mut self, access: ClipboardAccess) -> GeneralOutcome {
-        if access == self.settings.clipboard_access {
-            return GeneralOutcome::default();
-        }
-        self.settings.clipboard_access = access;
-        self.changed_settings()
+        self.change_setting(access, |settings| &mut settings.clipboard_access)
     }
 
     fn change_prompt_preparation(&mut self, preparation: PromptPreparation) -> GeneralOutcome {
-        if preparation == self.settings.prompt_preparation {
-            return GeneralOutcome::default();
-        }
-        self.settings.prompt_preparation = preparation;
-        self.changed_settings()
+        self.change_setting(preparation, |settings| &mut settings.prompt_preparation)
     }
 
-    fn changed_settings(&self) -> GeneralOutcome {
+    /// Keeps `value` in the setting that `field` picks, and returns the settings when they changed.
+    fn change_setting<T: PartialEq>(
+        &mut self,
+        value: T,
+        field: fn(&mut Settings) -> &mut T,
+    ) -> GeneralOutcome {
+        let setting = field(&mut self.settings);
+        if *setting == value {
+            return GeneralOutcome::default();
+        }
+        *setting = value;
         GeneralOutcome {
             settings: Some(self.settings.clone()),
             request: None,

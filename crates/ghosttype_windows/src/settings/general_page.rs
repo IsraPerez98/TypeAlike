@@ -197,21 +197,23 @@ impl GeneralPage {
     /// switch or of the prompt preparation switch, an edit of the system prompt field, or a click
     /// of its reset button.
     pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
-        if self.clipboard.is_clicked(control, notification) {
-            let action = if self.clipboard.is_on {
-                GeneralAction::DenyClipboard
-            } else {
-                GeneralAction::AllowClipboard
-            };
-            return Some(action);
-        }
-        if self.preparation.is_clicked(control, notification) {
-            let action = if self.preparation.is_on {
-                GeneralAction::PrepareOnFirstKey
-            } else {
-                GeneralAction::PrepareOnFocus
-            };
-            return Some(action);
+        let switches = [
+            (
+                &self.clipboard,
+                GeneralAction::DenyClipboard,
+                GeneralAction::AllowClipboard,
+            ),
+            (
+                &self.preparation,
+                GeneralAction::PrepareOnFirstKey,
+                GeneralAction::PrepareOnFocus,
+            ),
+        ];
+        let clicked = switches
+            .into_iter()
+            .find(|(switch_card, ..)| switch_card.is_clicked(control, notification));
+        if let Some((switch_card, turn_off, turn_on)) = clicked {
+            return Some(if switch_card.is_on { turn_off } else { turn_on });
         }
         if control == self.system_prompt_field.handle() && notification == EN_CHANGE {
             let text = self
