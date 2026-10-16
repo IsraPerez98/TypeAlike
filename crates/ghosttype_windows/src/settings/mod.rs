@@ -108,6 +108,7 @@ pub(crate) enum MenuPicker {
     Model,
     Backend,
     SuggestionLength,
+    SuggestionModel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -306,6 +307,9 @@ impl SettingsWindow {
         if self.general.is_length_picker(control) {
             return Some(SettingsInput::OpenMenu(MenuPicker::SuggestionLength));
         }
+        if self.general.is_suggestion_model_picker(control) {
+            return Some(SettingsInput::OpenMenu(MenuPicker::SuggestionModel));
+        }
         self.models
             .action_for(control)
             .map(SettingsInput::Models)
@@ -339,6 +343,7 @@ impl SettingsWindow {
             MenuPicker::Model => self.playground.model_menu(),
             MenuPicker::Backend => self.general.backend_menu(),
             MenuPicker::SuggestionLength => self.general.length_menu(),
+            MenuPicker::SuggestionModel => self.general.suggestion_model_menu(),
         }
     }
 
@@ -348,6 +353,10 @@ impl SettingsWindow {
             MenuPicker::Model => self.playground.choice_at(index).map(SettingsInput::Playground),
             MenuPicker::Backend => self.general.backend_choice_at(index).map(SettingsInput::General),
             MenuPicker::SuggestionLength => self.general.length_choice_at(index).map(SettingsInput::General),
+            MenuPicker::SuggestionModel => self
+                .general
+                .suggestion_model_choice_at(index)
+                .map(SettingsInput::Playground),
         }
     }
 

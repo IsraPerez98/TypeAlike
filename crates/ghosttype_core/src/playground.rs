@@ -233,16 +233,6 @@ impl PlaygroundPane {
             .map(|model| &model.file)
     }
 
-    /// Tells that the selected model loads, or why it did not load; `None` otherwise.
-    #[must_use]
-    pub fn load_note(&self) -> Option<Note> {
-        match self.model.as_ref()?.state {
-            ModelState::Loading => Some(LOADING_NOTE),
-            ModelState::Failed(error) => Some(error_note(error)),
-            ModelState::Ready | ModelState::Unloaded => None,
-        }
-    }
-
     /// Unloads the selected model to free its memory, while it stays selected, so that
     /// selecting it again loads it again. Returns the request to send, if any.
     pub fn unload_model(&mut self) -> Option<InferenceRequest> {
@@ -693,41 +683,6 @@ mod tests {
     }
 
     #[test]
-    fn load_note_tells_how_the_selected_model_loads() {
-        let file = model_file("a.gguf");
-        let loading = {
-            let mut pane = PlaygroundPane::new();
-            pane.on_action(PlaygroundAction::SelectModel(file.clone()));
-            pane
-        };
-        let failed = {
-            let mut pane = PlaygroundPane::new();
-            pane.on_action(PlaygroundAction::SelectModel(file.clone()));
-            pane.on_event(InferenceEvent::Loaded {
-                file: file.clone(),
-                result: Err(InferenceError::BackendUnavailable),
-            });
-            pane
-        };
-        let panes = [PlaygroundPane::new(), loading, failed, ready_pane(&file)];
-
-        let notes = panes.map(|pane| pane.load_note());
-
-        assert_eq!(
-            notes,
-            [
-                None,
-                Some(LOADING),
-                Some(Note {
-                    text: "GhostType cannot use this backend on this computer. In General, select another backend.",
-                    tone: NoteTone::Error,
-                }),
-                None,
-            ]
-        );
-    }
-
-    #[test]
     fn loading_model_shows_status_and_locks_the_menu() {
         let first = model_file("first.gguf");
         let second = model_file("second.gguf");
@@ -894,15 +849,6 @@ mod tests {
             ),
             (None, 0, Some(UNLOADED), false)
         );
-    }
-
-    #[test]
-    fn unloaded_model_has_no_load_note() {
-        let mut pane = ready_pane(&model_file("a.gguf"));
-
-        pane.unload_model();
-
-        assert_eq!(pane.load_note(), None);
     }
 
     #[test]

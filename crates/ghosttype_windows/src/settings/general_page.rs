@@ -1,11 +1,13 @@
 //! The General pane: renders the core [`GeneralView`] and reports the clipboard access, the prompt
-//! preparation, the suggestion display, the suggestion length and the backend the user picks, and
-//! the system prompt the user writes.
+//! preparation, the suggestion display, the suggestion length, the suggestion model and the
+//! backend the user picks, and the system prompt the user writes.
 
 use ghosttype_core::general_pane::{
-    GeneralAction, GeneralView, SettingChoice, SettingPicker, SettingSwitch, SystemPromptEditor,
+    GeneralAction, GeneralView, SettingChoice, SettingPicker, SettingSwitch, SuggestionModelPicker,
+    SystemPromptEditor,
 };
 use ghosttype_core::inference::SystemPrompt;
+use ghosttype_core::playground::{ModelChoice, PlaygroundAction};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{BN_CLICKED, EN_CHANGE, WNDPROC};
 use windows::core::{Result, w};
@@ -36,13 +38,12 @@ pub(crate) struct GeneralPage {
     preparation: SwitchCard,
     display: SwitchCard,
     length: PickerCard,
+    suggestion_model: ModelCard,
     backend: PickerCard,
-    backend_note: Control,
     system_prompt_label: Control,
     system_prompt_description: Control,
     system_prompt_field: Control,
     reset_system_prompt: Control,
-    has_note: bool,
     page: Page,
 }
 
@@ -57,13 +58,12 @@ impl GeneralPage {
             preparation: SwitchCard::create(host)?,
             display: SwitchCard::create(host)?,
             length: PickerCard::create(host)?,
+            suggestion_model: ModelCard::create(host)?,
             backend: PickerCard::create(host)?,
-            backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             system_prompt_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
             system_prompt_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             system_prompt_field: control(ControlKind::TextArea, TextRole::Body, CARD_TEXT)?,
             reset_system_prompt: control(ControlKind::Button, TextRole::Body, CARD_TEXT)?,
-            has_note: false,
             page,
         })
     }
@@ -83,12 +83,9 @@ impl GeneralPage {
         self.preparation.render(&view.prompt_preparation);
         self.display.render(&view.suggestion_display);
         self.length.render(&view.suggestion_length);
+        self.suggestion_model.render(&view.suggestion_model);
         if let Some(backend) = &view.backend {
             self.backend.render(backend);
-        }
-        self.has_note = view.backend_note.is_some();
-        if let Some(note) = &view.backend_note {
-            show_note(&mut self.backend_note, note);
         }
         self.render_system_prompt(&view.system_prompt);
         self.layout(appearance);
@@ -116,14 +113,13 @@ impl GeneralPage {
                 column.skip(appearance.px(SECTION_GAP));
             }
             self.length
-                .layout(None, &mut column, &mut placer, appearance, &mut shapes);
+                .layout(&mut column, &mut placer, appearance, &mut shapes);
             column.skip(appearance.px(SECTION_GAP));
-            if !self.has_note {
-                self.backend_note.hide();
-            }
-            let backend_note = self.has_note.then_some(&self.backend_note);
+            self.suggestion_model
+                .layout(&mut column, &mut placer, appearance, &mut shapes);
+            column.skip(appearance.px(SECTION_GAP));
             self.backend
-                .layout(backend_note, &mut column, &mut placer, appearance, &mut shapes);
+                .layout(&mut column, &mut placer, appearance, &mut shapes);
             column.skip(appearance.px(SECTION_GAP));
             self.layout_system_prompt(&mut column, &mut placer, appearance, &mut shapes);
             let content_height = column.top() + appearance.px(form::PAGE_PADDING);
@@ -179,6 +175,12 @@ impl GeneralPage {
     /// The action of the suggestion length at `index` of the suggestion length menu.
     pub(crate) fn length_choice_at(&self, index: usize) -> Option<GeneralAction> {
         self.length.choice_at(index)
+    }
+
+    /// The action of the model at `index` of the suggestion model menu, when picking it does
+    /// something.
+    pub(crate) fn suggestion_model_choice_at(&self, index: usize) -> Option<PlaygroundAction> {
+        self.suggestion_model.choice_at(index)
     }
 
     /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard,
@@ -239,6 +241,16 @@ impl GeneralPage {
         self.length.picker.picker_menu()
     }
 
+    /// Whether `control` is the suggestion model picker.
+    pub(crate) fn is_suggestion_model_picker(&self, control: HWND) -> bool {
+        control == self.suggestion_model.picker.handle()
+    }
+
+    /// The menu that the suggestion model picker opens, below the picker on the screen.
+    pub(crate) fn suggestion_model_menu(&self) -> PickerMenu {
+        self.suggestion_model.picker.picker_menu()
+    }
+
     pub(crate) fn apply(&self, appearance: &Appearance) {
         self.page.apply();
         for control in self.controls() {
@@ -254,9 +266,9 @@ impl GeneralPage {
             .chain(self.preparation.controls())
             .chain(self.display.controls())
             .chain(self.length.controls())
+            .chain(self.suggestion_model.controls())
             .chain(self.backend.controls())
             .chain([
-                &self.backend_note,
                 &self.system_prompt_label,
                 &self.system_prompt_description,
                 &self.system_prompt_field,
@@ -356,19 +368,16 @@ impl PickerCard {
         self.choices.clone_from(&setting.choices);
     }
 
-    /// Places the card, with `note` below the description when there is one.
     fn layout(
         &self,
-        note: Option<&Control>,
         column: &mut Column,
         placer: &mut Placer,
         appearance: &Appearance,
         shapes: &mut Vec<Shape>,
     ) {
-        let details: Vec<&Control> = [&self.description].into_iter().chain(note).collect();
         let card = SettingCard {
             label: &self.label,
-            details: &details,
+            details: &[&self.description],
             control: &self.picker,
             control_width: PICKER_WIDTH,
         };
@@ -381,5 +390,78 @@ impl PickerCard {
 
     fn controls(&self) -> [&Control; 3] {
         [&self.label, &self.description, &self.picker]
+    }
+}
+
+/// A card with a label, a description, a note when there is one, and a picker that opens a menu of
+/// the downloaded models.
+#[derive(Debug)]
+struct ModelCard {
+    label: Control,
+    description: Control,
+    note: Control,
+    picker: Control,
+    choices: Vec<ModelChoice>,
+    has_note: bool,
+}
+
+impl ModelCard {
+    fn create(host: HWND) -> Result<Self> {
+        let control = |kind, role, style| Control::create(host, kind, role, style);
+        Ok(Self {
+            label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
+            description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            picker: control(ControlKind::Picker, TextRole::Body, CARD_TEXT)?,
+            choices: Vec::new(),
+            has_note: false,
+        })
+    }
+
+    fn render(&mut self, setting: &SuggestionModelPicker) {
+        self.label.set_text(setting.menu.label);
+        self.description.set_text(setting.description);
+        let titles: Vec<String> = setting
+            .menu
+            .choices
+            .iter()
+            .map(|choice| choice.title.clone())
+            .collect();
+        self.picker.set_choices(&titles, setting.menu.selected);
+        enable_if(&self.picker, setting.menu.is_enabled);
+        self.choices.clone_from(&setting.menu.choices);
+        self.has_note = setting.note.is_some();
+        if let Some(note) = &setting.note {
+            show_note(&mut self.note, note);
+        }
+    }
+
+    fn layout(
+        &self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        if !self.has_note {
+            self.note.hide();
+        }
+        let note = self.has_note.then_some(&self.note);
+        let details: Vec<&Control> = [&self.description].into_iter().chain(note).collect();
+        let card = SettingCard {
+            label: &self.label,
+            details: &details,
+            control: &self.picker,
+            control_width: PICKER_WIDTH,
+        };
+        card.layout(column, placer, appearance, shapes);
+    }
+
+    fn choice_at(&self, index: usize) -> Option<PlaygroundAction> {
+        self.choices.get(index)?.action.clone()
+    }
+
+    fn controls(&self) -> [&Control; 4] {
+        [&self.label, &self.description, &self.note, &self.picker]
     }
 }

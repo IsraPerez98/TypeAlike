@@ -125,8 +125,6 @@ pub struct GeneralView {
     pub suggestion_length: SettingPicker,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<SettingPicker>,
-    /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
-    pub backend_note: Option<Note>,
     /// The system prompt editor.
     pub system_prompt: SystemPromptEditor,
 }
@@ -315,7 +313,6 @@ impl GeneralPane {
             },
             suggestion_length: self.suggestion_length_picker(),
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
-            backend_note: playground.load_note().filter(|_| self.has_backend_menu),
             system_prompt: SystemPromptEditor {
                 label: SYSTEM_PROMPT_LABEL,
                 description: SYSTEM_PROMPT_DESCRIPTION,
@@ -641,7 +638,6 @@ mod tests {
                     selected: 1,
                     is_enabled: true,
                 }),
-                backend_note: None,
                 system_prompt: SystemPromptEditor {
                     label: "System prompt",
                     description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
@@ -669,12 +665,12 @@ mod tests {
     }
 
     #[test]
-    fn pane_without_backend_menu_hides_the_menu_and_its_note() {
+    fn pane_without_backend_menu_hides_the_menu() {
         let pane = GeneralPane::new(settings(Backend::Cpu)).without_backend_menu();
 
         let view = pane.view(&loading_playground(Backend::Cpu), &[]);
 
-        assert_eq!((view.backend, view.backend_note), (None, None));
+        assert_eq!(view.backend, None);
     }
 
     #[test]
@@ -736,21 +732,12 @@ mod tests {
     }
 
     #[test]
-    fn loading_model_locks_the_menu_and_shows_status() {
+    fn loading_model_locks_the_backend_menu() {
         let pane = GeneralPane::new(settings(Backend::Cuda));
 
         let view = pane.view(&loading_playground(Backend::Cuda), &[]);
 
-        assert_eq!(
-            (view.backend.map(|backend| backend.is_enabled), view.backend_note),
-            (
-                Some(false),
-                Some(Note {
-                    text: "Loading the model…",
-                    tone: NoteTone::Busy,
-                }),
-            )
-        );
+        assert_eq!(view.backend.map(|backend| backend.is_enabled), Some(false));
     }
 
     #[test]
@@ -759,11 +746,14 @@ mod tests {
 
         let view = pane.view(
             &loaded_playground(Backend::Vulkan, Err(InferenceError::ModelTooLarge)),
-            &[],
+            &[model_file()],
         );
 
         assert_eq!(
-            (view.backend.map(|backend| backend.is_enabled), view.backend_note),
+            (
+                view.backend.map(|backend| backend.is_enabled),
+                view.suggestion_model.note
+            ),
             (
                 Some(true),
                 Some(Note {
@@ -920,16 +910,13 @@ mod tests {
         let request = pane.load_suggestion_model(&mut playground);
 
         assert_eq!(
-            (request, playground.load_note()),
+            (request, playground.is_busy()),
             (
                 Some(InferenceRequest::Load {
                     file: model_file(),
                     backend: None,
                 }),
-                Some(Note {
-                    text: "Loading the model…",
-                    tone: NoteTone::Busy,
-                }),
+                true,
             )
         );
     }
