@@ -52,41 +52,6 @@ impl Chord {
     }
 }
 
-/// What a hook does with a keyboard event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Disposition {
-    /// The focused app receives the event.
-    Pass,
-    /// The event is dropped before any app sees it.
-    Swallow,
-}
-
-/// Swallows the release of a key whose press was swallowed, so the focused app sees neither.
-#[derive(Debug, Default)]
-pub(crate) struct ReleaseFilter {
-    swallowed: Option<VIRTUAL_KEY>,
-}
-
-impl ReleaseFilter {
-    /// Records how the press of `key` was handled.
-    pub(crate) fn on_press(&mut self, key: VIRTUAL_KEY, disposition: Disposition) {
-        match disposition {
-            Disposition::Swallow => self.swallowed = Some(key),
-            Disposition::Pass if self.swallowed == Some(key) => self.swallowed = None,
-            Disposition::Pass => {}
-        }
-    }
-
-    /// Returns how the release of `key` must be handled.
-    pub(crate) fn on_release(&mut self, key: VIRTUAL_KEY) -> Disposition {
-        if self.swallowed != Some(key) {
-            return Disposition::Pass;
-        }
-        self.swallowed = None;
-        Disposition::Swallow
-    }
-}
-
 /// Maps a key press to a core key; `None` for presses the engine must not see (modifiers alone).
 ///
 /// `typed` is the character the press produces in the active keyboard layout, if exactly one.
@@ -294,48 +259,6 @@ mod tests {
             Chord::from_held(|key| key == VK_RWIN || key == VK_CONTROL),
             Chord::Windows
         );
-    }
-
-    #[test]
-    fn swallowed_press_swallows_its_release() {
-        let mut filter = ReleaseFilter::default();
-        filter.on_press(VK_TAB, Disposition::Swallow);
-
-        assert_eq!(filter.on_release(VK_TAB), Disposition::Swallow);
-    }
-
-    #[test]
-    fn passed_press_passes_its_release() {
-        let mut filter = ReleaseFilter::default();
-        filter.on_press(VK_TAB, Disposition::Pass);
-
-        assert_eq!(filter.on_release(VK_TAB), Disposition::Pass);
-    }
-
-    #[test]
-    fn release_of_other_key_passes() {
-        let mut filter = ReleaseFilter::default();
-        filter.on_press(VK_TAB, Disposition::Swallow);
-
-        assert_eq!(filter.on_release(VK_A), Disposition::Pass);
-    }
-
-    #[test]
-    fn release_is_swallowed_once() {
-        let mut filter = ReleaseFilter::default();
-        filter.on_press(VK_TAB, Disposition::Swallow);
-        filter.on_release(VK_TAB);
-
-        assert_eq!(filter.on_release(VK_TAB), Disposition::Pass);
-    }
-
-    #[test]
-    fn release_passes_after_repeated_press_passed() {
-        let mut filter = ReleaseFilter::default();
-        filter.on_press(VK_TAB, Disposition::Swallow);
-        filter.on_press(VK_TAB, Disposition::Pass);
-
-        assert_eq!(filter.on_release(VK_TAB), Disposition::Pass);
     }
 
     #[test]

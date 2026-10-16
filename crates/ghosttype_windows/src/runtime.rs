@@ -9,6 +9,7 @@ use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::GeneralPane;
 use ghosttype_core::hub::{HubEventSink, ModelHub};
 use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::models_pane::ModelsPane;
 use ghosttype_core::playground::PlaygroundPane;
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -34,7 +35,7 @@ use crate::clipboard::ClipboardWatch;
 use crate::desktop::ForegroundDesktop;
 use crate::focus::{self, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
-use crate::keys::{self, Disposition, ReleaseFilter};
+use crate::keys;
 use crate::mailbox::{DELIVERY_MESSAGE, Delivery, Mailbox};
 use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
@@ -222,7 +223,7 @@ struct Runtime {
     pending_ghost: Option<String>,
     is_ghost_timer_pending: bool,
     pending_injection: Option<String>,
-    release_filter: ReleaseFilter,
+    release_filter: ReleaseFilter<VIRTUAL_KEY>,
     models: ModelsPane,
     hub: Box<dyn ModelHub>,
     hub_sink: HubEventSink,

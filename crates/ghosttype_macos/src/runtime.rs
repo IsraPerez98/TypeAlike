@@ -14,6 +14,7 @@ use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
 use ghosttype_core::inference::{
     InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, SystemPrompt,
 };
+use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -25,14 +26,14 @@ use objc2_app_kit::{
     NSPopUpButton, NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
     NSWorkspaceDidActivateApplicationNotification,
 };
-use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
+use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
 
 use crate::badge::Badge;
 use crate::event_tap::EventTap;
 use crate::focus::{self, Caret, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
-use crate::keys::{self, Chord, Disposition, ReleaseFilter};
+use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::overlay::Overlay;
@@ -159,7 +160,7 @@ struct Runtime {
     settle_timer: Option<Retained<NSTimer>>,
     pending_ghost: Option<String>,
     pending_injection: Option<String>,
-    release_filter: ReleaseFilter,
+    release_filter: ReleaseFilter<CGKeyCode>,
     models: ModelsPane,
     hub: Box<dyn ModelHub>,
     hub_sink: HubEventSink,
