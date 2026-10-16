@@ -24,7 +24,7 @@ use std::rc::Rc;
 use ghosttype_core::general_pane::{GeneralAction, GeneralView};
 use ghosttype_core::models_pane::{ModelsAction, ModelsView};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundView};
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE, DWMSBT_MAINWINDOW, DWMSBT_NONE,
     DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
@@ -32,7 +32,7 @@ use windows::Win32::Graphics::Dwm::{
 };
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints, MonitorFromPoint,
-    RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow,
+    RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow, ScreenToClient,
 };
 use windows::Win32::UI::Controls::{
     DRAWITEMSTRUCT, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
@@ -41,11 +41,11 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BN_CLICKED, GetClientRect, GetCursorPos, GetWindowRect, HICON, ICON_BIG, ICON_SMALL, IsChild, IsIconic,
-    MINMAXINFO, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
-    SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, UIS_SET, UISF_HIDEACCEL,
-    UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_SETICON, WNDCLASS_STYLES, WNDPROC, WS_CLIPCHILDREN,
-    WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
+    BN_CLICKED, GetClientRect, GetCursorPos, GetWindowRect, HICON, ICON_BIG, ICON_SMALL, IDC_IBEAM, IsChild,
+    IsIconic, LoadCursorW, MINMAXINFO, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE,
+    SWP_NOZORDER, SendMessageW, SetCursor, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
+    UIS_SET, UISF_HIDEACCEL, UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_CONTEXTMENU, WM_SETICON, WNDCLASS_STYLES,
+    WNDPROC, WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, HSTRING, Owned, Result, w};
 
@@ -100,6 +100,26 @@ pub(crate) enum SettingsInput {
     General(GeneralAction),
     /// The user opened a picker; its menu must show outside any borrow of the runtime.
     OpenMenu(MenuPicker),
+}
+
+/// Pointer input that the system gave to a page but that belongs to a text field on it. A field
+/// lets the pointer through where it shows its color key, so its page gets most of that input.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FieldInput {
+    edit: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+}
+
+impl FieldInput {
+    /// Sends the input to its field. Call outside any borrow of the runtime: the field takes the
+    /// focus and tells its page while it handles the input.
+    pub(crate) fn send(self) -> LRESULT {
+        // SAFETY: plain message to a text field of the settings window, with the arguments that the
+        // system made for the page, changed to the field.
+        unsafe { SendMessageW(self.edit, self.message, Some(self.wparam), Some(self.lparam)) }
+    }
 }
 
 /// A picker whose choices show in a menu.
@@ -372,6 +392,60 @@ impl SettingsWindow {
         }
     }
 
+    /// Changes a press of the left button or a context menu request that the page `page_window`
+    /// got over one of its text fields to input for that field.
+    pub(crate) fn field_input(
+        &self,
+        page_window: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Option<FieldInput> {
+        let page = self.page(self.pane_of(page_window)?);
+        if message == WM_CONTEXTMENU {
+            let field = page.field_at(client_point(page_window, pointer_position(lparam))?)?;
+            return Some(FieldInput {
+                edit: field.edit,
+                message,
+                wparam: WPARAM(field.edit.0.expose_provenance()),
+                lparam,
+            });
+        }
+        let field = page.field_at(pointer_position(lparam))?;
+        Some(FieldInput {
+            edit: field.edit,
+            message,
+            wparam,
+            lparam: pointer_lparam(field.point),
+        })
+    }
+
+    /// Shows the text cursor while the pointer is over a text field of the page `page_window`.
+    /// Returns whether it did.
+    pub(crate) fn show_field_cursor(&self, page_window: HWND) -> bool {
+        let Some(pane) = self.pane_of(page_window) else {
+            return false;
+        };
+        let is_over_field = cursor_in(page_window)
+            .and_then(|point| self.page(pane).field_at(point))
+            .is_some();
+        if !is_over_field {
+            return false;
+        }
+        // SAFETY: plain call that loads a shared system cursor, which is never freed.
+        match unsafe { LoadCursorW(None, IDC_IBEAM) } {
+            Ok(text_cursor) => {
+                // SAFETY: plain call; it returns the previous cursor, which stays shared.
+                unsafe { SetCursor(Some(text_cursor)) };
+                true
+            }
+            Err(error) => {
+                tracing::debug!(%error, "failed to load the text cursor");
+                false
+            }
+        }
+    }
+
     /// Scrolls the selected page by a mouse wheel rotation, in `WHEEL_DELTA` units up.
     pub(crate) fn scroll_by_wheel(&mut self, rotation: i32) {
         let scroll = page::Page::wheel_move(rotation, &self.appearance);
@@ -595,7 +669,7 @@ impl SettingsWindow {
     }
 }
 
-/// Reads the pointer position of a mouse message: signed client coordinates in `lparam`.
+/// Reads the pointer position of a mouse message: two signed words in `lparam`.
 pub(crate) fn pointer_position(lparam: LPARAM) -> Point {
     let value = lparam.0.cast_unsigned();
     let word = |shift: u32| {
@@ -606,6 +680,47 @@ pub(crate) fn pointer_position(lparam: LPARAM) -> Point {
         x: word(0),
         y: word(u16::BITS),
     }
+}
+
+/// Writes `point` as the pointer position of a mouse message, as [`pointer_position`] reads it.
+fn pointer_lparam(point: Point) -> LPARAM {
+    let word = |value: i32| {
+        let clamped = value.clamp(i16::MIN.into(), i16::MAX.into());
+        usize::from(
+            i16::try_from(clamped)
+                .expect("clamped to 16 bits")
+                .cast_unsigned(),
+        )
+    };
+    LPARAM((word(point.x) | (word(point.y) << u16::BITS)).cast_signed())
+}
+
+/// The pointer position in the client coordinates of `window`.
+fn cursor_in(window: HWND) -> Option<Point> {
+    let mut cursor = POINT::default();
+    // SAFETY: `cursor` is a local the call fills in.
+    unsafe { GetCursorPos(&raw mut cursor) }.ok()?;
+    client_point(
+        window,
+        Point {
+            x: cursor.x,
+            y: cursor.y,
+        },
+    )
+}
+
+/// Converts `screen`, a point on the screen, to the client coordinates of `window`.
+fn client_point(window: HWND, screen: Point) -> Option<Point> {
+    let mut point = POINT {
+        x: screen.x,
+        y: screen.y,
+    };
+    // SAFETY: `point` is a local the call converts in place.
+    let is_converted = unsafe { ScreenToClient(window, &raw mut point) }.as_bool();
+    is_converted.then_some(Point {
+        x: point.x,
+        y: point.y,
+    })
 }
 
 fn apply_frame(handle: HWND, appearance: &Appearance) {
@@ -766,5 +881,12 @@ mod tests {
         let lparam = LPARAM(0x0028_FFFB);
 
         assert_eq!(pointer_position(lparam), Point { x: -5, y: 40 });
+    }
+
+    #[test]
+    fn pointer_lparam_writes_signed_words() {
+        let point = Point { x: -9, y: 40 };
+
+        assert_eq!(pointer_lparam(point), LPARAM(0x0028_FFF7));
     }
 }

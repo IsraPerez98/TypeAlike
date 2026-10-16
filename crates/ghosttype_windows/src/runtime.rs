@@ -22,11 +22,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     HC_ACTION, HHOOK, HOOKPROC, IDCANCEL, IDOK, IsDialogMessageW, KBDLLHOOKSTRUCT, KillTimer, MSG,
     PostMessageW, PostQuitMessage, RegisterWindowMessageW, SPI_SETHIGHCONTRAST, SW_HIDE, SetTimer,
     SetWindowsHookExW, ShowWindow, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
-    WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT,
-    WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN,
-    WM_XBUTTONUP, WNDCLASS_STYLES, WS_OVERLAPPED,
+    WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU,
+    WM_CTLCOLOREDIT, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASS_STYLES, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
@@ -53,6 +53,7 @@ const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const DRAWN: LRESULT = LRESULT(1);
+const CURSOR_SET: LRESULT = LRESULT(1);
 const QUIT_RECEIVED: i32 = 0;
 const READ_FAILED: i32 = -1;
 const SETTINGS_PROCEDURES: Procedures = Procedures {
@@ -593,7 +594,7 @@ impl Runtime {
             WM_MOUSEMOVE => {
                 settings.on_page_pointer(window, Pointer::Move(settings::pointer_position(lparam)));
             }
-            WM_LBUTTONDOWN => {
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 settings.on_page_pointer(window, Pointer::Press(settings::pointer_position(lparam)));
             }
             WM_LBUTTONUP => settings.on_page_pointer(window, Pointer::Release),
@@ -717,13 +718,42 @@ extern "system" fn settings_page_procedure(
             }
             with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten()
         }
-        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSELEAVE | WM_CAPTURECHANGED => {
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_CONTEXTMENU => give_to_field(window, message, wparam, lparam)
+            .or_else(|| {
+                with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten()
+            }),
+        WM_SETCURSOR => show_field_cursor(window),
+        WM_MOUSEMOVE | WM_LBUTTONUP | WM_MOUSELEAVE | WM_CAPTURECHANGED => {
             with_runtime(|runtime| runtime.on_settings_message(window, message, wparam, lparam)).flatten()
         }
         _ => None,
     };
     // SAFETY: forwards the system's own arguments unchanged.
     handled.unwrap_or_else(|| unsafe { DefWindowProcW(window, message, wparam, lparam) })
+}
+
+/// Gives pointer input that a page got over one of its text fields to that field. The field
+/// handles it outside the borrow of the runtime, because it tells the page while it does.
+fn give_to_field(page: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+    let input = with_runtime(|runtime| {
+        runtime
+            .settings
+            .as_ref()?
+            .field_input(page, message, wparam, lparam)
+    })
+    .flatten()?;
+    Some(input.send())
+}
+
+fn show_field_cursor(page: HWND) -> Option<LRESULT> {
+    with_runtime(|runtime| {
+        runtime
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.show_field_cursor(page))
+    })
+    .filter(|is_shown| *is_shown)
+    .map(|_| CURSOR_SET)
 }
 
 /// Draws a settings control with the current appearance; it needs no runtime state.

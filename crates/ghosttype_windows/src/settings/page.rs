@@ -1,5 +1,8 @@
 //! A scrolling child window that holds the controls of one settings pane, and draws its cards,
 //! the frames of its text fields and its scroll bar.
+//!
+//! A text field lets the pointer through where it shows its color key, so the page gets most of
+//! the pointer input over a field. The page finds the field under the pointer for that input.
 
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -9,7 +12,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDCLASS_STYLES, WNDPROC, WS_CHILD,
+    CS_DBLCLKS, GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDPROC, WS_CHILD,
     WS_CLIPCHILDREN, WS_EX_CONTROLPARENT,
 };
 use windows::core::{HSTRING, PCWSTR, Result};
@@ -17,7 +20,7 @@ use windows::core::{HSTRING, PCWSTR, Result};
 use crate::settings::appearance::Appearance;
 use crate::settings::controls;
 use crate::settings::layout::{Bounds, Point, ScrollBar, ScrollBarSizes, ScrollMove, clamp_scroll, reveal};
-use crate::settings::paint::{self, FieldPaint, PaintSession};
+use crate::settings::paint::{self, FieldPaint, FieldState, PaintSession};
 use crate::window::{Window, WindowSpec};
 
 const WHEEL_SCROLL: i32 = 120;
@@ -60,6 +63,21 @@ impl Shape {
     }
 }
 
+/// A text field under the pointer, with the pointer in the coordinates of its edit control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FieldPoint {
+    pub(crate) edit: HWND,
+    pub(crate) point: Point,
+}
+
+/// The part of the page that shows the pointer over it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hover {
+    Gutter,
+    /// The frame of the text field with this edit control.
+    Field(HWND),
+}
+
 /// What the pointer did over the page itself, outside its controls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pointer {
@@ -85,7 +103,7 @@ pub(crate) struct Page {
     offset: i32,
     content_height: i32,
     shapes: Vec<Shape>,
-    is_gutter_hovered: bool,
+    hover: Option<Hover>,
     drag: Option<ThumbDrag>,
 }
 
@@ -94,7 +112,7 @@ impl Page {
         let window = Window::create(WindowSpec {
             class_name,
             procedure,
-            class_style: WNDCLASS_STYLES::default(),
+            class_style: CS_DBLCLKS,
             style: WS_CHILD | WS_CLIPCHILDREN,
             extended_style: WS_EX_CONTROLPARENT,
             parent: Some(parent),
@@ -104,7 +122,7 @@ impl Page {
             offset: 0,
             content_height: 0,
             shapes: Vec::new(),
-            is_gutter_hovered: false,
+            hover: None,
             drag: None,
         })
     }
@@ -184,6 +202,11 @@ impl Page {
         self.scroll(ScrollMove::To(target))
     }
 
+    /// The text field whose frame contains `point`, a point of the page.
+    pub(crate) fn field_at(&self, point: Point) -> Option<FieldPoint> {
+        field_at(&self.shapes, self.offset, point)
+    }
+
     /// Converts a mouse wheel rotation, in `WHEEL_DELTA` units up, to a scroll.
     pub(crate) fn wheel_move(rotation: i32, appearance: &Appearance) -> ScrollMove {
         ScrollMove::By(-rotation * appearance.px(WHEEL_SCROLL) / WHEEL_DELTA)
@@ -200,13 +223,11 @@ impl Page {
                         bar.offset_after_drag(drag.start_offset, point.y - drag.start_y),
                     ));
                 }
-                let is_over = self
-                    .scroll_bar(appearance)
-                    .is_some_and(|bar| bar.gutter.contains(point));
-                if is_over && !self.is_gutter_hovered {
+                let hover = self.hover_at(point, appearance);
+                if hover.is_some() && hover != self.hover {
                     self.watch_pointer_leave();
                 }
-                self.show_gutter_hover(is_over);
+                self.show_hover(hover);
                 None
             }
             Pointer::Press(point) => {
@@ -241,7 +262,7 @@ impl Page {
             }
             Pointer::Leave => {
                 if self.drag.is_none() {
-                    self.show_gutter_hover(false);
+                    self.show_hover(None);
                 }
                 None
             }
@@ -253,9 +274,19 @@ impl Page {
         }
     }
 
-    fn show_gutter_hover(&mut self, is_hovered: bool) {
-        if self.is_gutter_hovered != is_hovered {
-            self.is_gutter_hovered = is_hovered;
+    fn hover_at(&self, point: Point, appearance: &Appearance) -> Option<Hover> {
+        if self
+            .scroll_bar(appearance)
+            .is_some_and(|bar| bar.gutter.contains(point))
+        {
+            return Some(Hover::Gutter);
+        }
+        self.field_at(point).map(|field| Hover::Field(field.edit))
+    }
+
+    fn show_hover(&mut self, hover: Option<Hover>) {
+        if self.hover != hover {
+            self.hover = hover;
             self.repaint();
         }
     }
@@ -276,7 +307,7 @@ impl Page {
     }
 
     fn scroll_bar(&self, appearance: &Appearance) -> Option<ScrollBar> {
-        let is_expanded = self.is_gutter_hovered || self.drag.is_some();
+        let is_expanded = self.hover == Some(Hover::Gutter) || self.drag.is_some();
         let thumb_width = if is_expanded {
             EXPANDED_THUMB_WIDTH
         } else {
@@ -326,7 +357,7 @@ impl Page {
                             text_area: field.text_area,
                             placeholder: (is_empty && !field.placeholder.is_empty())
                                 .then_some(field.placeholder),
-                            state: controls::field_state(field.edit),
+                            state: self.field_state(field.edit),
                         };
                         paint::text_field(painter, &frame, appearance)?;
                     }
@@ -337,5 +368,139 @@ impl Page {
                 None => Ok(()),
             }
         });
+    }
+
+    /// How the text field `edit` draws: hovered also while the pointer is over its frame on the page.
+    fn field_state(&self, edit: HWND) -> FieldState {
+        match controls::field_state(edit) {
+            FieldState::Rest if self.hover == Some(Hover::Field(edit)) => FieldState::Hover,
+            state => state,
+        }
+    }
+}
+
+/// The text field whose frame, at the scroll `offset`, contains `point`.
+fn field_at(shapes: &[Shape], offset: i32, point: Point) -> Option<FieldPoint> {
+    shapes.iter().find_map(|shape| match shape.scrolled(offset) {
+        Shape::Field(field) if field.frame.contains(point) => Some(FieldPoint {
+            edit: field.edit,
+            point: Point {
+                x: point.x - field.text_area.x,
+                y: point.y - field.text_area.y,
+            },
+        }),
+        Shape::Card(_) | Shape::Field(_) => None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SEARCH: HWND = HWND(std::ptr::without_provenance_mut(1));
+    const PROMPT: HWND = HWND(std::ptr::without_provenance_mut(2));
+
+    fn field(edit: HWND, frame: Bounds, text_area: Bounds) -> Shape {
+        Shape::Field(FieldShape {
+            frame,
+            text_area,
+            edit,
+            placeholder: "",
+        })
+    }
+
+    fn shapes() -> Vec<Shape> {
+        vec![
+            Shape::Card(Bounds {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            }),
+            field(
+                SEARCH,
+                Bounds {
+                    x: 10,
+                    y: 20,
+                    width: 200,
+                    height: 32,
+                },
+                Bounds {
+                    x: 21,
+                    y: 26,
+                    width: 181,
+                    height: 20,
+                },
+            ),
+            field(
+                PROMPT,
+                Bounds {
+                    x: 10,
+                    y: 100,
+                    width: 200,
+                    height: 80,
+                },
+                Bounds {
+                    x: 21,
+                    y: 106,
+                    width: 181,
+                    height: 68,
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn field_at_finds_the_field_under_the_point_in_its_own_coordinates() {
+        let shapes = shapes();
+
+        let found = field_at(&shapes, 0, Point { x: 50, y: 120 });
+
+        assert_eq!(
+            found,
+            Some(FieldPoint {
+                edit: PROMPT,
+                point: Point { x: 29, y: 14 },
+            })
+        );
+    }
+
+    #[test]
+    fn field_at_includes_the_frame_around_the_text() {
+        let shapes = shapes();
+
+        let found = field_at(&shapes, 0, Point { x: 12, y: 22 });
+
+        assert_eq!(
+            found,
+            Some(FieldPoint {
+                edit: SEARCH,
+                point: Point { x: -9, y: -4 },
+            })
+        );
+    }
+
+    #[test]
+    fn field_at_follows_the_scroll_offset() {
+        let shapes = shapes();
+
+        let found = field_at(&shapes, 90, Point { x: 50, y: 30 });
+
+        assert_eq!(
+            found,
+            Some(FieldPoint {
+                edit: PROMPT,
+                point: Point { x: 29, y: 14 },
+            })
+        );
+    }
+
+    #[test]
+    fn field_at_ignores_points_outside_every_frame() {
+        let shapes = shapes();
+
+        let found = field_at(&shapes, 0, Point { x: 300, y: 60 });
+
+        assert_eq!(found, None);
     }
 }
