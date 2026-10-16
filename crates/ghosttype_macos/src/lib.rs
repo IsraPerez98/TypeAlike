@@ -1,11 +1,12 @@
 //! macOS platform layer of GhostType.
 //!
 //! Wraps AppKit, Core Graphics and Accessibility behind safe types: the keyboard and mouse event
-//! tap, reading the caret, the ghost-text overlay, text injection, the menu bar extra and the
-//! settings window.
+//! tap, reading the caret, the ghost-text overlay, the badge at the caret, text injection, the
+//! menu bar extra and the settings window.
 
 #![cfg(target_os = "macos")]
 
+mod badge;
 mod clipboard;
 mod event_tap;
 mod focus;

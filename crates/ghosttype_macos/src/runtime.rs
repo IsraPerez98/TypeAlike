@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::ffi::c_void;
+use std::mem;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
 
@@ -26,8 +27,9 @@ use objc2_app_kit::{
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
 
+use crate::badge::Badge;
 use crate::event_tap::EventTap;
-use crate::focus::{self, FocusChange, FocusTracker};
+use crate::focus::{self, Caret, FocusChange, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Chord, Disposition, ReleaseFilter};
 use crate::main_menu;
@@ -83,9 +85,11 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
         focus: FocusTracker::new(),
         menu_bar,
         overlay: Overlay::new(main_thread),
+        badge: Badge::new(main_thread),
+        is_badge_pressed: false,
         tap,
         target,
-        ghost_timer: None,
+        caret_timer: None,
         pending_ghost: None,
         pending_injection: None,
         release_filter: ReleaseFilter::default(),
@@ -139,9 +143,11 @@ struct Runtime {
     focus: FocusTracker,
     menu_bar: MenuBarItem,
     overlay: Overlay,
+    badge: Badge,
+    is_badge_pressed: bool,
     tap: EventTap,
     target: Retained<RuntimeTarget>,
-    ghost_timer: Option<Retained<NSTimer>>,
+    caret_timer: Option<Retained<NSTimer>>,
     pending_ghost: Option<String>,
     pending_injection: Option<String>,
     release_filter: ReleaseFilter,
@@ -167,6 +173,12 @@ impl Runtime {
             CGEventType::KeyUp => {
                 keys::key_code(event).map_or(Disposition::Pass, |key| self.release_filter.on_release(key))
             }
+            CGEventType::LeftMouseDown if self.badge.contains(CGEvent::location(Some(event))) => {
+                self.is_badge_pressed = true;
+                self.on_badge_click();
+                Disposition::Swallow
+            }
+            CGEventType::LeftMouseUp if mem::take(&mut self.is_badge_pressed) => Disposition::Swallow,
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown | CGEventType::OtherMouseDown => {
                 self.on_context_lost();
                 Disposition::Pass
@@ -187,12 +199,14 @@ impl Runtime {
         let reaction = self.app.on_key(core_key, &self.focus);
         let disposition = self.apply(reaction);
         self.release_filter.on_press(key, disposition);
+        self.render_badge_after_caret_settles();
         disposition
     }
 
     fn on_context_lost(&mut self) {
         let reaction = self.app.on_context_lost();
         self.apply(reaction);
+        self.render_badge(None);
     }
 
     fn apply(&mut self, reaction: Reaction) -> Disposition {
@@ -244,34 +258,54 @@ impl Runtime {
 
     fn show_ghost_after_caret_settles(&mut self, text: String) {
         self.pending_ghost = Some(text);
-        self.restart_ghost_timer();
+        self.restart_caret_timer();
     }
 
-    fn restart_ghost_timer(&mut self) {
-        self.stop_ghost_timer();
-        self.ghost_timer = Some(self.schedule(CARET_SETTLE_DELAY, sel!(showPendingGhost:)));
+    fn restart_caret_timer(&mut self) {
+        self.stop_caret_timer();
+        self.caret_timer = Some(self.schedule(CARET_SETTLE_DELAY, sel!(caretDidSettle:)));
     }
 
-    fn stop_ghost_timer(&mut self) {
-        if let Some(timer) = self.ghost_timer.take() {
+    fn stop_caret_timer(&mut self) {
+        if let Some(timer) = self.caret_timer.take() {
             timer.invalidate();
         }
     }
 
     fn hide_ghost(&mut self) {
         self.pending_ghost = None;
-        self.stop_ghost_timer();
+        self.stop_caret_timer();
         self.overlay.hide();
     }
 
-    fn show_pending_ghost(&mut self) {
-        self.ghost_timer = None;
-        let Some(text) = &self.pending_ghost else {
-            return;
-        };
-        match self.focus.caret() {
-            Some(caret) => self.overlay.show(text, caret),
-            None => self.overlay.hide(),
+    fn on_caret_settled(&mut self) {
+        self.caret_timer = None;
+        let caret = self.focus.caret();
+        self.render_badge(caret);
+        match (&self.pending_ghost, caret) {
+            (Some(text), Some(caret)) => self.overlay.show(text, caret),
+            _ => self.overlay.hide(),
+        }
+    }
+
+    fn render_badge_after_caret_settles(&mut self) {
+        if self.app.badge_view().is_some() {
+            self.restart_caret_timer();
+        } else {
+            self.badge.hide();
+        }
+    }
+
+    fn render_badge(&mut self, caret: Option<Caret>) {
+        match (self.app.badge_view(), caret) {
+            (Some(view), Some(caret)) => self.badge.show(&view, caret),
+            _ => self.badge.hide(),
+        }
+    }
+
+    fn on_badge_click(&mut self) {
+        if let Some(view) = self.app.badge_view() {
+            self.on_tray_command(view.command);
         }
     }
 
@@ -303,6 +337,8 @@ impl Runtime {
             self.runner.submit(request, &self.runner_sink);
         }
         self.menu_bar.update(&self.app.tray_view());
+        let caret = self.focus.caret();
+        self.render_badge(caret);
         self.render_settings();
     }
 
@@ -523,9 +559,9 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
-        #[unsafe(method(showPendingGhost:))]
-        fn show_pending_ghost(&self, _timer: &NSTimer) {
-            with_runtime(Runtime::show_pending_ghost);
+        #[unsafe(method(caretDidSettle:))]
+        fn caret_did_settle(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_caret_settled);
         }
 
         // SAFETY: matches the timer action signature.

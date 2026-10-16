@@ -99,7 +99,8 @@ pub(crate) fn command_for_tag(items: &[TrayItem], tag: isize) -> Option<TrayComm
     items.get(index).map(|item| item.command)
 }
 
-fn symbol_image(status: Status, description: &str) -> Option<Retained<NSImage>> {
+/// The SF Symbol that shows `status`, which assistive technology reads as `description`.
+pub(crate) fn symbol_image(status: Status, description: &str) -> Option<Retained<NSImage>> {
     let symbol = match status {
         Status::Active => ACTIVE_SYMBOL,
         Status::Paused => PAUSED_SYMBOL,

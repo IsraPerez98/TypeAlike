@@ -1,4 +1,4 @@
-//! App lifecycle: whether suggestions are on, and the tray menu that controls it and opens settings.
+//! App lifecycle: whether suggestions are on, and the tray menu and caret badge that control it.
 
 use crate::desktop::Desktop;
 use crate::engine::{Engine, Reaction};
@@ -12,7 +12,7 @@ pub enum Status {
     /// Suggestions are shown while typing.
     #[default]
     Active,
-    /// The user paused suggestions from the tray.
+    /// The user paused suggestions from the tray or the badge.
     Paused,
 }
 
@@ -25,7 +25,7 @@ pub enum Field {
     Excluded,
 }
 
-/// An action the user can pick from the tray menu.
+/// An action the user can pick from the tray menu or the badge at the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayCommand {
     /// Pauses suggestions when active, resumes them when paused.
@@ -56,13 +56,26 @@ pub struct TrayView {
     pub items: Vec<TrayItem>,
 }
 
+/// The badge at the caret of the field where the user types: a button that pauses or resumes
+/// suggestions. It shows above the caret, on the side opposite to the ghost text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BadgeView {
+    /// Status the glyph must reflect.
+    pub status: Status,
+    /// What a click does, in sentence case, for assistive technology.
+    pub label: &'static str,
+    /// Command run on click.
+    pub command: TrayCommand,
+}
+
 /// What the platform must do after a tray command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayOutcome {
-    /// Suggestions stopped: hide any ghost text, re-render the tray, and unload the suggestion
-    /// model to free its memory.
+    /// Suggestions stopped: hide any ghost text, re-render the tray and the badge, and unload
+    /// the suggestion model to free its memory.
     Paused,
-    /// Suggestions started again: re-render the tray, and load the suggestion model again.
+    /// Suggestions started again: re-render the tray and the badge, and load the suggestion
+    /// model again.
     Resumed,
     /// The settings window must show and come to the front.
     OpenSettings,
@@ -110,6 +123,7 @@ pub enum TrayOutcome {
 pub struct App {
     engine: Engine,
     status: Status,
+    is_in_open_field: bool,
 }
 
 impl App {
@@ -128,12 +142,12 @@ impl App {
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
-        match self.status {
-            Status::Paused => Reaction::Hide,
-            Status::Active => match desktop.field() {
-                Field::Excluded => self.engine.reset(),
-                Field::Open => self.engine.on_key(key, desktop),
-            },
+        let field = desktop.field();
+        self.is_in_open_field = field == Field::Open;
+        match (self.status, field) {
+            (Status::Paused, _) => Reaction::Hide,
+            (Status::Active, Field::Excluded) => self.engine.reset(),
+            (Status::Active, Field::Open) => self.engine.on_key(key, desktop),
         }
     }
 
@@ -144,22 +158,23 @@ impl App {
 
     /// Handles the caret moving somewhere unknown: focus change, mouse click.
     pub fn on_context_lost(&mut self) -> Reaction {
+        self.is_in_open_field = false;
         self.engine.reset()
     }
 
     /// Returns what the tray icon and menu must show now.
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
-        let (tooltip, toggle_label) = match self.status {
-            Status::Active => ("GhostType", "Pause suggestions"),
-            Status::Paused => ("GhostType (paused)", "Resume suggestions"),
+        let tooltip = match self.status {
+            Status::Active => "GhostType",
+            Status::Paused => "GhostType (paused)",
         };
         TrayView {
             status: self.status,
             tooltip,
             items: vec![
                 TrayItem {
-                    label: toggle_label,
+                    label: self.toggle_label(),
                     command: TrayCommand::TogglePause,
                 },
                 TrayItem {
@@ -174,7 +189,18 @@ impl App {
         }
     }
 
-    /// Runs a command picked from the tray menu.
+    /// Returns the badge to show at the caret, or `None` while the user types in no field that
+    /// GhostType watches.
+    #[must_use]
+    pub fn badge_view(&self) -> Option<BadgeView> {
+        self.is_in_open_field.then(|| BadgeView {
+            status: self.status,
+            label: self.toggle_label(),
+            command: TrayCommand::TogglePause,
+        })
+    }
+
+    /// Runs a command picked from the tray menu or the badge.
     pub fn on_tray_command(&mut self, command: TrayCommand) -> TrayOutcome {
         match command {
             TrayCommand::TogglePause => self.toggle_pause(),
@@ -191,6 +217,13 @@ impl App {
         };
         self.status = status;
         outcome
+    }
+
+    fn toggle_label(&self) -> &'static str {
+        match self.status {
+            Status::Active => "Pause suggestions",
+            Status::Paused => "Resume suggestions",
+        }
     }
 }
 
@@ -352,6 +385,84 @@ mod tests {
         let outcome = app.on_tray_command(TrayCommand::TogglePause);
 
         assert_eq!(outcome, TrayOutcome::Resumed);
+    }
+
+    const PAUSE_BADGE: BadgeView = BadgeView {
+        status: Status::Active,
+        label: "Pause suggestions",
+        command: TrayCommand::TogglePause,
+    };
+
+    const RESUME_BADGE: BadgeView = BadgeView {
+        status: Status::Paused,
+        label: "Resume suggestions",
+        command: TrayCommand::TogglePause,
+    };
+
+    #[test]
+    fn new_app_shows_no_badge() {
+        let app = App::new();
+
+        assert_eq!(app.badge_view(), None);
+    }
+
+    #[test]
+    fn typing_in_open_field_shows_pause_badge() {
+        let mut app = App::new();
+
+        type_key(&mut app, 'B');
+
+        assert_eq!(app.badge_view(), Some(PAUSE_BADGE));
+    }
+
+    #[test]
+    fn typing_in_excluded_field_hides_badge() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
+
+        assert_eq!(app.badge_view(), None);
+    }
+
+    #[test]
+    fn context_lost_hides_badge() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        app.on_context_lost();
+
+        assert_eq!(app.badge_view(), None);
+    }
+
+    #[test]
+    fn pausing_turns_badge_into_resume_badge() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        assert_eq!(app.badge_view(), Some(RESUME_BADGE));
+    }
+
+    #[test]
+    fn paused_app_shows_resume_badge_in_open_field() {
+        let mut app = App::new();
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        type_key(&mut app, 'B');
+
+        assert_eq!(app.badge_view(), Some(RESUME_BADGE));
+    }
+
+    #[test]
+    fn paused_app_shows_no_badge_in_excluded_field() {
+        let mut app = App::new();
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        app.on_key(Key::Char('B'), &FakeDesktop(Field::Excluded));
+
+        assert_eq!(app.badge_view(), None);
     }
 
     #[test]

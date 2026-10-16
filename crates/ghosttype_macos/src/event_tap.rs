@@ -8,10 +8,11 @@ use objc2_core_graphics::{
     CGEventType,
 };
 
-const WATCHED_EVENTS: [CGEventType; 5] = [
+const WATCHED_EVENTS: [CGEventType; 6] = [
     CGEventType::KeyDown,
     CGEventType::KeyUp,
     CGEventType::LeftMouseDown,
+    CGEventType::LeftMouseUp,
     CGEventType::RightMouseDown,
     CGEventType::OtherMouseDown,
 ];
