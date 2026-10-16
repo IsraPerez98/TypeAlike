@@ -26,7 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN,
-    WM_XBUTTONUP, WS_OVERLAPPED,
+    WM_XBUTTONUP, WNDCLASS_STYLES, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
@@ -90,6 +90,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
         procedure: Some(main_window_procedure),
+        class_style: WNDCLASS_STYLES::default(),
         style: WS_OVERLAPPED,
         extended_style: WINDOW_EX_STYLE::default(),
         parent: None,

@@ -4,7 +4,7 @@ use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, IDC_ARROW, LoadCursorW, RegisterClassExW, UnregisterClassW,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES, WNDCLASSEXW, WNDPROC,
 };
 use windows::core::{Error, PCWSTR, Result};
 
@@ -13,6 +13,7 @@ use windows::core::{Error, PCWSTR, Result};
 pub(crate) struct WindowSpec {
     pub(crate) class_name: PCWSTR,
     pub(crate) procedure: WNDPROC,
+    pub(crate) class_style: WNDCLASS_STYLES,
     pub(crate) style: WINDOW_STYLE,
     pub(crate) extended_style: WINDOW_EX_STYLE,
     /// The window that contains this one, for a child window.
@@ -85,6 +86,7 @@ impl WindowClass {
             cbSize: size_of::<WNDCLASSEXW>()
                 .try_into()
                 .expect("class size fits in u32"),
+            style: spec.class_style,
             lpfnWndProc: spec.procedure,
             hInstance: instance,
             hCursor: cursor,

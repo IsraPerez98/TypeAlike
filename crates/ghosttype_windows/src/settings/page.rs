@@ -9,8 +9,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDPROC, WS_CHILD, WS_CLIPCHILDREN,
-    WS_EX_CONTROLPARENT,
+    GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDCLASS_STYLES, WNDPROC, WS_CHILD,
+    WS_CLIPCHILDREN, WS_EX_CONTROLPARENT,
 };
 use windows::core::{HSTRING, PCWSTR, Result};
 
@@ -94,6 +94,7 @@ impl Page {
         let window = Window::create(WindowSpec {
             class_name,
             procedure,
+            class_style: WNDCLASS_STYLES::default(),
             style: WS_CHILD | WS_CLIPCHILDREN,
             extended_style: WS_EX_CONTROLPARENT,
             parent: Some(parent),

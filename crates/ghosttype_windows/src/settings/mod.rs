@@ -44,8 +44,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, GetClientRect, GetCursorPos, GetWindowRect, HICON, ICON_BIG, ICON_SMALL, IsChild, IsIconic,
     MINMAXINFO, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
     SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, UIS_SET, UISF_HIDEACCEL,
-    UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_SETICON, WNDPROC, WS_CLIPCHILDREN, WS_EX_CONTROLPARENT,
-    WS_OVERLAPPEDWINDOW,
+    UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_SETICON, WNDCLASS_STYLES, WNDPROC, WS_CLIPCHILDREN,
+    WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, HSTRING, Owned, Result, w};
 
@@ -159,6 +159,7 @@ impl SettingsWindow {
         let window = Window::create(WindowSpec {
             class_name: w!("GhostType.Settings"),
             procedure: procedures.window,
+            class_style: WNDCLASS_STYLES::default(),
             style: WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             extended_style: WS_EX_CONTROLPARENT,
             parent: None,
