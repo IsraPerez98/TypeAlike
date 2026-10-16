@@ -7,7 +7,7 @@ use ghosttype_core::app::Field;
 use ghosttype_core::desktop::{
     Desktop, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings,
 };
-use objc2_app_kit::NSWorkspace;
+use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
@@ -27,6 +27,17 @@ const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const VALUE_ATTRIBUTE: &str = "AXValue";
 const WINDOW_ATTRIBUTE: &str = "AXWindow";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
+const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
+const ENHANCED_USER_INTERFACE_ATTRIBUTE: &str = "AXEnhancedUserInterface";
+const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
+    "com.google.chrome",
+    "org.chromium.chromium",
+    "com.brave.browser",
+    "com.microsoft.edgemac",
+    "company.thebrowser.",
+    "com.vivaldi.vivaldi",
+    "com.operasoftware.opera",
+];
 const ACCESSIBILITY_QUERY_TIMEOUT_SECONDS: f32 = 0.1;
 
 /// Where ghost text starts: just right of the caret, in global points with a top-left origin.
@@ -92,9 +103,13 @@ impl FocusTracker {
         }
         self.frontmost_process = frontmost_process;
         self.frontmost_name = frontmost
+            .as_ref()
             .and_then(|application| application.localizedName())
             .map(|name| name.to_string());
         self.is_frontmost_eligible = frontmost_process.is_some_and(|process| !is_own_process(process));
+        if let Some(application) = frontmost.filter(|_| self.is_frontmost_eligible) {
+            wake_web_accessibility(&application);
+        }
         FocusChange::Changed
     }
 
@@ -152,6 +167,41 @@ pub(crate) fn request_accessibility_access() -> bool {
     let options = CFDictionary::from_slices(&[prompt_key], &[CFBoolean::new(true)]);
     // SAFETY: the options map a CFString key to a CFBoolean value, as the call expects.
     unsafe { AXIsProcessTrustedWithOptions(Some(options.as_ref())) }
+}
+
+/// Asks a Chromium or Electron app to build the accessibility tree of its web content. These apps
+/// skip that tree until an assistive app sets an attribute on them. Other apps ignore the request.
+fn wake_web_accessibility(application: &NSRunningApplication) {
+    let bundle_identifier = application
+        .bundleIdentifier()
+        .map(|identifier| identifier.to_string());
+    let attribute = web_accessibility_attribute(bundle_identifier.as_deref());
+    // SAFETY: plain call.
+    let element = unsafe { AXUIElement::new_application(application.processIdentifier()) };
+    // SAFETY: plain call on a valid element, with a CFBoolean value as both attributes expect.
+    let error =
+        unsafe { element.set_attribute_value(&CFString::from_static_str(attribute), CFBoolean::new(true)) };
+    tracing::debug!(
+        attribute,
+        code = error.0,
+        "asked the frontmost app for its web content"
+    );
+}
+
+/// Picks the attribute that wakes the web content tree of the app with `bundle_identifier`.
+fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str {
+    let is_chromium_browser = bundle_identifier.is_some_and(|identifier| {
+        let identifier = identifier.to_ascii_lowercase();
+        CHROMIUM_BROWSER_BUNDLE_PREFIXES
+            .iter()
+            .any(|prefix| identifier.starts_with(prefix))
+    });
+    // Window managers misplace the windows of apps with the enhanced user interface, so only these get it.
+    if is_chromium_browser {
+        ENHANCED_USER_INTERFACE_ATTRIBUTE
+    } else {
+        MANUAL_ACCESSIBILITY_ATTRIBUTE
+    }
 }
 
 fn previous_unit_range(caret_index: isize) -> Option<CFRange> {
@@ -419,6 +469,35 @@ mod tests {
                 after_caret: "world".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn chromium_browsers_get_the_enhanced_user_interface_switch() {
+        let bundle_identifiers = [
+            Some("com.google.Chrome"),
+            Some("com.google.Chrome.canary"),
+            Some("com.brave.Browser"),
+            Some("com.microsoft.edgemac"),
+            Some("company.thebrowser.Browser"),
+        ];
+
+        let attributes = bundle_identifiers.map(web_accessibility_attribute);
+
+        assert_eq!(attributes, [ENHANCED_USER_INTERFACE_ATTRIBUTE; 5]);
+    }
+
+    #[test]
+    fn other_apps_get_the_manual_accessibility_switch() {
+        let bundle_identifiers = [
+            Some("com.microsoft.VSCode"),
+            Some("com.tinyspeck.slackmacgap"),
+            Some("com.apple.TextEdit"),
+            None,
+        ];
+
+        let attributes = bundle_identifiers.map(web_accessibility_attribute);
+
+        assert_eq!(attributes, [MANUAL_ACCESSIBILITY_ATTRIBUTE; 4]);
     }
 
     #[test]

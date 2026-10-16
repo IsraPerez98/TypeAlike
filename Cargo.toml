@@ -133,6 +133,7 @@ objc2-application-services = { version = "0.3.2", default-features = false, feat
     "AXUIElement",
     "AXValue",
     "HIServices",
+    "libc",
 ] }
 
 [workspace.lints.rust]
