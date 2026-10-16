@@ -15,6 +15,7 @@ mod mailbox;
 mod menu;
 mod overlay;
 mod pixels;
+mod registry;
 mod runtime;
 mod settings;
 mod single_instance;

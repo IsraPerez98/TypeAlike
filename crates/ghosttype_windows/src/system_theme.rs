@@ -6,9 +6,7 @@ use windows::Win32::Graphics::Gdi::{
     COLOR_WINDOWTEXT, GetSysColor,
 };
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW};
-use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_ROUTINE_FLAGS, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD, RegGetValueW,
-};
+use windows::Win32::System::Registry::{RRF_RT_REG_BINARY, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::WindowsAndMessaging::{
     SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
@@ -16,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCSTR, PCWSTR, w};
 
 use crate::pixels::Rgb;
+use crate::registry::read_value;
 
 const PERSONALIZE_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
 const DWM_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\DWM");
@@ -202,24 +201,6 @@ fn read_accent_palette() -> Option<[u8; PALETTE_BYTES]> {
     let mut palette = [0_u8; PALETTE_BYTES];
     let size = read_value(ACCENT_KEY, w!("AccentPalette"), RRF_RT_REG_BINARY, &mut palette)?;
     (size == PALETTE_BYTES).then_some(palette)
-}
-
-/// Reads a value of `kind` into `buffer`. Returns how many bytes it holds.
-fn read_value(key: PCWSTR, name: PCWSTR, kind: REG_ROUTINE_FLAGS, buffer: &mut [u8]) -> Option<usize> {
-    let mut size: u32 = buffer.len().try_into().ok()?;
-    // SAFETY: the output buffer is a live slice of exactly the size passed.
-    let status = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            key,
-            name,
-            kind,
-            None,
-            Some(buffer.as_mut_ptr().cast()),
-            Some(&raw mut size),
-        )
-    };
-    status.is_ok().then(|| usize::try_from(size).ok()).flatten()
 }
 
 fn is_high_contrast_on() -> bool {
