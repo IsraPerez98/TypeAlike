@@ -22,28 +22,7 @@ impl Overlay {
     pub(crate) fn new(main_thread: MainThreadMarker) -> Self {
         let label = NSTextField::labelWithString(&NSString::new(), main_thread);
         label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
-            NSPanel::alloc(main_thread),
-            NSRect::ZERO,
-            NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
-            NSBackingStoreType::Buffered,
-            false,
-        );
-        // SAFETY: the panel is owned by this type, so AppKit must not release it on close.
-        unsafe { panel.setReleasedWhenClosed(false) };
-        panel.setIgnoresMouseEvents(true);
-        panel.setOpaque(false);
-        panel.setBackgroundColor(Some(&NSColor::clearColor()));
-        panel.setHasShadow(false);
-        panel.setHidesOnDeactivate(false);
-        panel.setLevel(NSStatusWindowLevel);
-        panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
-        panel.setCollectionBehavior(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::IgnoresCycle
-                | NSWindowCollectionBehavior::Stationary,
-        );
+        let panel = floating_panel(main_thread);
         panel.setContentView(Some(&label));
         Self {
             panel,
@@ -54,7 +33,7 @@ impl Overlay {
 
     /// Shows `text` starting at `caret`, in the system font sized to the caret.
     pub(crate) fn show(&self, text: &str, caret: Caret) {
-        let Some(primary_screen_height) = self.primary_screen_height() else {
+        let Some(primary_screen_height) = primary_screen_height(self.main_thread) else {
             self.hide();
             return;
         };
@@ -72,11 +51,41 @@ impl Overlay {
     pub(crate) fn hide(&self) {
         self.panel.orderOut(None);
     }
+}
 
-    fn primary_screen_height(&self) -> Option<CGFloat> {
-        let primary_screen = NSScreen::screens(self.main_thread).firstObject()?;
-        Some(primary_screen.frame().size.height)
-    }
+/// Builds a borderless panel that floats over every app on every Space. It never takes focus,
+/// and clicks go through it.
+pub(crate) fn floating_panel(main_thread: MainThreadMarker) -> Retained<NSPanel> {
+    let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+        NSPanel::alloc(main_thread),
+        NSRect::ZERO,
+        NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
+        NSBackingStoreType::Buffered,
+        false,
+    );
+    // SAFETY: the caller owns the panel, so AppKit must not release it on close.
+    unsafe { panel.setReleasedWhenClosed(false) };
+    panel.setIgnoresMouseEvents(true);
+    panel.setOpaque(false);
+    panel.setBackgroundColor(Some(&NSColor::clearColor()));
+    panel.setHasShadow(false);
+    panel.setHidesOnDeactivate(false);
+    panel.setLevel(NSStatusWindowLevel);
+    panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    panel.setCollectionBehavior(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::IgnoresCycle
+            | NSWindowCollectionBehavior::Stationary,
+    );
+    panel
+}
+
+/// The height of the primary screen, which turns the top-left global coordinates of the caret
+/// into the bottom-left ones of AppKit.
+pub(crate) fn primary_screen_height(main_thread: MainThreadMarker) -> Option<CGFloat> {
+    let primary_screen = NSScreen::screens(main_thread).firstObject()?;
+    Some(primary_screen.frame().size.height)
 }
 
 fn line_height(font: &NSFont) -> CGFloat {
