@@ -3,16 +3,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::time::Duration;
 
-use ghosttype_core::app::{App, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome};
-use ghosttype_core::engine::Reaction;
-use ghosttype_core::general_pane::GeneralPane;
-use ghosttype_core::hub::{HubEventSink, ModelHub};
-use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
+use ghosttype_core::controller::{
+    BackendChoice, Controller, Delivery, FocusChange, Services, SettingsView, Shell, Timer,
+};
+use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
-use ghosttype_core::models_pane::ModelsPane;
-use ghosttype_core::playground::PlaygroundPane;
-use ghosttype_core::settings::{Settings, SettingsStore};
+use ghosttype_core::settings::{ClipboardAccess, Settings};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -31,23 +30,21 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
+use crate::RunError;
 use crate::clipboard::ClipboardWatch;
-use crate::desktop::ForegroundDesktop;
-use crate::focus::{self, FocusChange, FocusTracker};
+use crate::focus::{self, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
-use crate::mailbox::{DELIVERY_MESSAGE, Delivery, Mailbox};
+use crate::mailbox::{DELIVERY_MESSAGE, Mailbox};
 use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
 use crate::settings::{self, Appearance, MenuPicker, Pointer, Procedures, SettingsInput, SettingsWindow};
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
-use crate::{RunError, Services};
 
-const GHOST_TIMER_ID: usize = 1;
+const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
-const CARET_SETTLE_DELAY_MS: u32 = 40;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const PICKER_MENU_MESSAGE: u32 = WM_APP + 4;
 const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
@@ -81,14 +78,8 @@ thread_local! {
 }
 
 /// Shows the tray icon and offers suggestions from the runner of `services` until the user quits.
-/// The settings window starts with `settings` and uses `services`.
-pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Result<(), RunError> {
-    let Services {
-        hub,
-        mut runner,
-        settings_store,
-        autostart,
-    } = services;
+/// GhostType starts with the saved `settings`.
+pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError> {
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
         procedure: Some(main_window_procedure),
@@ -100,47 +91,32 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     .map_err(RunError::during("create the main window"))?;
     let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
     system_theme::match_menus_to(SystemTheme::read());
-    let tray = Tray::add(window.handle(), &app.tray_view()).map_err(RunError::during("add the tray icon"))?;
+    let (mailbox, deliveries) = Mailbox::new(window.handle());
+    let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
+    let controller = Controller::new(settings, services, BackendChoice::User, &mailbox.into_sink());
+    let tray =
+        Tray::add(window.handle(), &controller.tray_view()).map_err(RunError::during("add the tray icon"))?;
     // SAFETY: plain call with a static, nul-terminated name.
     let taskbar_created_message = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
     let _keyboard_hook = install_hook(WH_KEYBOARD_LL, Some(keyboard_procedure))
         .map_err(RunError::during("install the keyboard hook"))?;
     let _mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
         .map_err(RunError::during("install the mouse hook"))?;
-    let (mailbox, deliveries) = Mailbox::new(window.handle());
-    app.use_settings(&settings);
-    let mut playground = PlaygroundPane::with_backend(settings.backend);
-    playground.use_settings(&settings);
-    let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
-    let general = GeneralPane::new(settings).with_autostart(autostart);
-    let runner_sink = mailbox.sink(Delivery::Playground);
-    if let Some(request) = general.load_suggestion_model(&mut playground) {
-        runner.submit(request, &runner_sink);
-    }
     STATE.with(|state| {
         state.runtime.replace(Some(Runtime {
-            app,
-            focus: FocusTracker::new(),
-            tray,
-            overlay,
-            window,
-            taskbar_created_message,
-            pending_ghost: None,
-            is_ghost_timer_pending: false,
-            pending_injection: None,
+            controller,
+            shell: Win32Shell {
+                focus: FocusTracker::new(),
+                clipboard,
+                overlay,
+                tray,
+                window,
+                pending_injection: None,
+                settings: None,
+            },
             release_filter: ReleaseFilter::default(),
-            models: ModelsPane::new(),
-            hub,
-            hub_sink: mailbox.sink(Delivery::Hub),
-            playground,
-            general,
-            settings_store,
-            runner,
-            runner_sink,
-            clipboard,
-            suggestion_sink: mailbox.sink(Delivery::Suggestion),
+            taskbar_created_message,
             deliveries,
-            settings: None,
             pending_menu: None,
         }))
     });
@@ -186,7 +162,7 @@ fn pump_messages() -> Result<(), RunError> {
 /// Gives the settings window keyboard navigation (Tab, arrow keys, Enter, Escape) like a dialog.
 fn is_settings_dialog_message(message: &MSG) -> bool {
     let Some(settings) =
-        with_runtime(|runtime| runtime.settings.as_ref().map(SettingsWindow::handle)).flatten()
+        with_runtime(|runtime| runtime.shell.settings.as_ref().map(SettingsWindow::handle)).flatten()
     else {
         return false;
     };
@@ -195,7 +171,7 @@ fn is_settings_dialog_message(message: &MSG) -> bool {
         return false;
     }
     if message.message == WM_KEYDOWN && message.wParam.0 == usize::from(VK_TAB.0) {
-        with_runtime(|runtime| runtime.settings.as_mut().map(SettingsWindow::reveal_focus));
+        with_runtime(|runtime| runtime.shell.settings.as_mut().map(SettingsWindow::reveal_focus));
     }
     true
 }
@@ -214,28 +190,11 @@ fn publish_appearance(appearance: Rc<Appearance>) {
 }
 
 struct Runtime {
-    app: App,
-    focus: FocusTracker,
-    tray: Tray,
-    overlay: Overlay,
-    window: Window,
-    taskbar_created_message: u32,
-    pending_ghost: Option<String>,
-    is_ghost_timer_pending: bool,
-    pending_injection: Option<String>,
+    controller: Controller,
+    shell: Win32Shell,
     release_filter: ReleaseFilter<VIRTUAL_KEY>,
-    models: ModelsPane,
-    hub: Box<dyn ModelHub>,
-    hub_sink: HubEventSink,
-    playground: PlaygroundPane,
-    general: GeneralPane,
-    settings_store: Box<dyn SettingsStore>,
-    runner: Box<dyn ModelRunner>,
-    runner_sink: InferenceEventSink,
-    suggestion_sink: InferenceEventSink,
-    clipboard: ClipboardWatch,
+    taskbar_created_message: u32,
     deliveries: mpsc::Receiver<Delivery>,
-    settings: Option<SettingsWindow>,
     /// The picker whose menu must show once the runtime is free.
     pending_menu: Option<MenuPicker>,
 }
@@ -245,7 +204,7 @@ impl Runtime {
         if event.dwExtraInfo == INJECTION_TAG {
             return Disposition::Pass;
         }
-        self.restart_settle_timer();
+        self.controller.on_input(&mut self.shell);
         let Ok(key) = u16::try_from(event.vkCode).map(VIRTUAL_KEY) else {
             return Disposition::Pass;
         };
@@ -257,188 +216,39 @@ impl Runtime {
     }
 
     fn on_key_down(&mut self, key: VIRTUAL_KEY, scan_code: u32) -> Disposition {
-        if self.focus.refresh() == FocusChange::Changed {
-            self.on_context_lost();
-        }
-        let Some(core_key) = keys::translate(key, keys::current_chord(), keys::typed_char(key, scan_code))
-        else {
-            return Disposition::Pass;
-        };
-        let desktop = ForegroundDesktop {
-            focus: &self.focus,
-            clipboard: &self.clipboard,
-        };
-        let reaction = self.app.on_key(core_key, &desktop);
-        let disposition = self.apply(reaction);
+        let core_key = keys::translate(key, keys::current_chord(), keys::typed_char(key, scan_code));
+        let disposition = self.controller.on_key_down(core_key, &mut self.shell);
         self.release_filter.on_press(key, disposition);
         disposition
     }
 
-    fn on_context_lost(&mut self) {
-        let reaction = self.app.on_context_lost();
-        self.apply(reaction);
+    fn on_click(&mut self) {
+        self.controller.on_context_lost(&mut self.shell);
     }
 
-    fn restart_settle_timer(&mut self) {
-        let delay_ms = u32::try_from(INPUT_SETTLE_DELAY.as_millis()).expect("the settle delay fits in u32");
-        if !self.start_timer(SETTLE_TIMER_ID, delay_ms) {
-            tracing::warn!(error = %Error::from_thread(), "failed to schedule the prompt preparation");
-        }
+    fn on_click_release(&mut self) {
+        self.controller.on_input(&mut self.shell);
     }
 
-    fn on_input_settled(&mut self) {
-        self.stop_timer(SETTLE_TIMER_ID);
-        if self.focus.refresh() == FocusChange::Changed {
-            self.on_context_lost();
-        }
-        let desktop = ForegroundDesktop {
-            focus: &self.focus,
-            clipboard: &self.clipboard,
-        };
-        if let Some(request) = self.app.on_input_settled(&desktop) {
-            self.runner.submit(request, &self.suggestion_sink);
-        }
-    }
-
-    /// Starts the window timer `timer_id`, or restarts it when it runs. Returns whether it runs.
-    fn start_timer(&self, timer_id: usize, delay_ms: u32) -> bool {
-        // SAFETY: plain call on our own window.
-        unsafe { SetTimer(Some(self.window.handle()), timer_id, delay_ms, None) != 0 }
-    }
-
-    fn stop_timer(&self, timer_id: usize) {
-        // Fails only when no timer is pending, which needs no handling.
-        // SAFETY: plain call on our own window.
-        let _ = unsafe { KillTimer(Some(self.window.handle()), timer_id) };
-    }
-
-    fn apply(&mut self, reaction: Reaction) -> Disposition {
-        match reaction {
-            Reaction::Show(text) => {
-                self.show_ghost_after_caret_settles(text);
-                Disposition::Pass
-            }
-            Reaction::Hide => {
-                self.hide_ghost();
-                Disposition::Pass
-            }
-            Reaction::Accept { text, rest } => {
-                self.hide_ghost();
-                self.pending_injection = Some(text);
-                // SAFETY: plain call on our own window.
-                let posted =
-                    unsafe { PostMessageW(Some(self.window.handle()), INJECT_MESSAGE, WPARAM(0), LPARAM(0)) };
-                if let Err(error) = posted {
-                    tracing::warn!(%error, "failed to queue accepted text");
-                }
-                if let Some(rest) = rest {
-                    self.show_ghost_after_caret_settles(rest);
-                }
-                Disposition::Swallow
-            }
-            Reaction::Request(request) => {
-                self.hide_ghost();
-                self.runner.submit(request, &self.suggestion_sink);
-                Disposition::Pass
-            }
-        }
-    }
-
-    fn on_suggestion_event(&mut self, event: InferenceEvent) {
-        let reaction = match event {
-            InferenceEvent::Partial(text) => self.app.on_partial_completion(&text),
-            InferenceEvent::Completed(result) => Some(self.app.on_completion(result)),
-            InferenceEvent::Loaded { .. } => None,
-        };
-        match reaction {
-            // A completion does not move the caret, so it must not make the wait for the caret longer.
-            Some(Reaction::Show(text)) if self.is_ghost_timer_pending => self.pending_ghost = Some(text),
-            Some(reaction) => {
-                self.apply(reaction);
-            }
-            None => {}
-        }
-    }
-
-    fn show_ghost_after_caret_settles(&mut self, text: String) {
-        self.pending_ghost = Some(text);
-        self.restart_ghost_timer();
-    }
-
-    fn restart_ghost_timer(&mut self) {
-        let is_started = self.start_timer(GHOST_TIMER_ID, CARET_SETTLE_DELAY_MS);
-        if !is_started {
-            tracing::warn!(error = %Error::from_thread(), "failed to schedule ghost text");
-        }
-        self.is_ghost_timer_pending = is_started;
-    }
-
-    fn hide_ghost(&mut self) {
-        self.pending_ghost = None;
-        self.stop_ghost_timer();
-        self.overlay.hide();
-    }
-
-    fn stop_ghost_timer(&mut self) {
-        self.is_ghost_timer_pending = false;
-        self.stop_timer(GHOST_TIMER_ID);
-    }
-
-    fn show_pending_ghost(&mut self) {
-        self.stop_ghost_timer();
-        let Some(text) = &self.pending_ghost else {
-            return;
-        };
-        let Some(caret) = focus::caret() else {
-            self.overlay.hide();
-            return;
-        };
-        if let Err(error) = self.overlay.show(text, &caret) {
-            tracing::warn!(%error, "failed to show ghost text");
-        }
+    /// Window timers repeat, and the controller asks for one call for each start.
+    fn on_timer(&mut self, timer: Timer) {
+        self.shell.stop_timer(timer);
+        self.controller.on_timer(timer, &mut self.shell);
     }
 
     fn on_tray_command(&mut self, command: TrayCommand) {
-        match self.app.on_tray_command(command) {
-            TrayOutcome::Paused => {
-                self.hide_ghost();
-                let request = self.playground.unload_model();
-                self.on_status_change(request);
-            }
-            TrayOutcome::Resumed => {
-                let request = self.general.load_suggestion_model(&mut self.playground);
-                self.on_status_change(request);
-            }
-            TrayOutcome::OpenSettings => self.open_settings(),
-            // SAFETY: plain call.
-            TrayOutcome::Quit => unsafe { PostQuitMessage(0) },
-        }
-    }
-
-    fn on_status_change(&mut self, model_request: Option<InferenceRequest>) {
-        if let Some(request) = model_request {
-            self.runner.submit(request, &self.runner_sink);
-        }
-        self.refresh_tray();
-        self.render_settings();
-    }
-
-    fn refresh_tray(&mut self) {
-        let view = self.app.tray_view();
-        if let Err(error) = self.tray.update(&view) {
-            tracing::warn!(%error, "failed to update tray icon");
-        }
+        self.controller.on_tray_command(command, &mut self.shell);
     }
 
     fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
-            WM_TIMER if wparam.0 == GHOST_TIMER_ID => self.show_pending_ghost(),
-            WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_input_settled(),
+            WM_TIMER if wparam.0 == CARET_TIMER_ID => self.on_timer(Timer::CaretSettle),
+            WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_timer(Timer::InputSettle),
             WM_SETTINGCHANGE if is_appearance_change(wparam, lparam) => self.on_appearance_change(),
             DELIVERY_MESSAGE => self.take_deliveries(),
-            WM_CLIPBOARDUPDATE => self.clipboard.on_update(),
+            WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
-                if let Err(error) = self.tray.register() {
+                if let Err(error) = self.shell.tray.register() {
                     tracing::warn!(%error, "failed to re-add tray icon");
                 }
             }
@@ -449,8 +259,8 @@ impl Runtime {
 
     fn on_appearance_change(&mut self) {
         system_theme::match_menus_to(SystemTheme::read());
-        self.refresh_tray();
-        let Some(settings) = &mut self.settings else {
+        self.shell.render_tray(&self.controller.tray_view());
+        let Some(settings) = &mut self.shell.settings else {
             return;
         };
         match settings.change_theme() {
@@ -460,97 +270,20 @@ impl Runtime {
     }
 
     fn take_deliveries(&mut self) {
-        let mut has_pane_changes = false;
         while let Ok(delivery) = self.deliveries.try_recv() {
-            match delivery {
-                Delivery::Hub(event) => {
-                    self.models.on_event(event);
-                    has_pane_changes = true;
-                }
-                Delivery::Playground(event) => {
-                    self.playground.on_event(event);
-                    if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
-                        self.settings_store.save(&settings);
-                    }
-                    has_pane_changes = true;
-                }
-                Delivery::Suggestion(event) => self.on_suggestion_event(event),
-            }
-        }
-        if has_pane_changes {
-            self.render_settings();
-        }
-    }
-
-    fn open_settings(&mut self) {
-        let request = self.models.on_open();
-        self.hub.submit(request, &self.hub_sink);
-        if self.settings.is_none() {
-            match SettingsWindow::create(SETTINGS_PROCEDURES) {
-                Ok(settings) => {
-                    publish_appearance(settings.appearance());
-                    self.settings = Some(settings);
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "failed to create the settings window");
-                    return;
-                }
-            }
-        }
-        self.render_settings();
-        if let Some(settings) = &mut self.settings {
-            settings.layout();
-            settings.show();
-        }
-    }
-
-    fn render_settings(&mut self) {
-        let Some(settings) = &mut self.settings else {
-            return;
-        };
-        let models = self.models.view();
-        let installed = self.models.installed_files();
-        let playground = self.playground.view(&installed);
-        let general = self.general.view(&self.playground, &installed);
-        if let Err(error) = settings.render(&models, &playground, &general) {
-            tracing::warn!(%error, "failed to render settings");
+            self.controller.on_delivery(delivery, &mut self.shell);
         }
     }
 
     fn on_settings_input(&mut self, input: SettingsInput) {
         match input {
-            SettingsInput::Models(action) => {
-                if let Some(request) = self.models.on_action(action) {
-                    self.hub.submit(request, &self.hub_sink);
-                }
-            }
-            SettingsInput::Playground(action) => {
-                if let Some(request) = self.playground.on_action(action) {
-                    self.runner.submit(request, &self.runner_sink);
-                }
-            }
-            SettingsInput::General(action) => {
-                let outcome = self.general.on_action(action, &mut self.playground);
-                if let Some(settings) = outcome.settings {
-                    self.settings_store.save(&settings);
-                    self.app.use_settings(&settings);
-                    self.playground.use_settings(&settings);
-                    self.clipboard.use_access(settings.clipboard_access);
-                }
-                if let Some(request) = outcome.request {
-                    self.runner.submit(request, &self.runner_sink);
-                }
-            }
-            SettingsInput::OpenMenu(picker) => {
-                self.post_picker_menu(picker);
-                return;
-            }
+            SettingsInput::Pane(action) => self.controller.on_pane_action(action, &mut self.shell),
+            SettingsInput::OpenMenu(picker) => self.post_picker_menu(picker),
         }
-        self.render_settings();
     }
 
     fn post_picker_menu(&mut self, picker: MenuPicker) {
-        let Some(settings) = &self.settings else {
+        let Some(settings) = &self.shell.settings else {
             return;
         };
         // SAFETY: plain call on our own window.
@@ -564,6 +297,7 @@ impl Runtime {
 
     fn on_menu_pick(&mut self, picker: MenuPicker, index: usize) {
         let input = self
+            .shell
             .settings
             .as_ref()
             .and_then(|settings| settings.input_for_pick(picker, index));
@@ -579,7 +313,7 @@ impl Runtime {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> Option<LRESULT> {
-        let settings = self.settings.as_mut()?;
+        let settings = self.shell.settings.as_mut()?;
         match message {
             WM_SIZE if window == settings.handle() => settings.layout(),
             WM_DPICHANGED => {
@@ -608,7 +342,7 @@ impl Runtime {
     }
 
     fn on_settings_command(&mut self, wparam: WPARAM, lparam: LPARAM) {
-        let Some(settings) = &mut self.settings else {
+        let Some(settings) = &mut self.shell.settings else {
             return;
         };
         let command = i32::from(low_word(wparam.0));
@@ -629,8 +363,138 @@ impl Runtime {
     }
 
     fn paint_settings_page(&self, page: HWND) -> Option<LRESULT> {
-        self.settings.as_ref()?.paint_page(page);
+        self.shell.settings.as_ref()?.paint_page(page);
         Some(HANDLED)
+    }
+}
+
+/// What the controller reads and does through Win32.
+struct Win32Shell {
+    focus: FocusTracker,
+    clipboard: ClipboardWatch,
+    overlay: Overlay,
+    tray: Tray,
+    window: Window,
+    pending_injection: Option<String>,
+    settings: Option<SettingsWindow>,
+}
+
+impl Desktop for Win32Shell {
+    fn field(&self) -> Field {
+        self.focus.field()
+    }
+
+    fn surroundings(&self) -> Surroundings {
+        self.focus.surroundings()
+    }
+
+    fn clipboard_text(&self) -> Option<String> {
+        self.clipboard.copied_text().map(str::to_owned)
+    }
+}
+
+impl Shell for Win32Shell {
+    fn refresh_focus(&mut self) -> FocusChange {
+        self.focus.refresh()
+    }
+
+    /// Shows only the ghost text: Windows has no badge yet.
+    fn render_at_caret(&mut self, ghost: Option<&str>, _badge: Option<BadgeView>) {
+        let Some(text) = ghost else {
+            self.overlay.hide();
+            return;
+        };
+        let Some(caret) = focus::caret() else {
+            self.overlay.hide();
+            return;
+        };
+        if let Err(error) = self.overlay.show(text, &caret) {
+            tracing::warn!(%error, "failed to show ghost text");
+        }
+    }
+
+    fn hide_ghost(&mut self) {
+        self.overlay.hide();
+    }
+
+    /// Does nothing: Windows has no badge yet.
+    fn hide_badge(&mut self) {}
+
+    fn type_text(&mut self, text: String) {
+        self.pending_injection = Some(text);
+        // SAFETY: plain call on our own window.
+        let posted =
+            unsafe { PostMessageW(Some(self.window.handle()), INJECT_MESSAGE, WPARAM(0), LPARAM(0)) };
+        if let Err(error) = posted {
+            tracing::warn!(%error, "failed to queue accepted text");
+        }
+    }
+
+    fn start_timer(&mut self, timer: Timer, delay: Duration) {
+        let delay_ms = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: plain call on our own window.
+        let is_started =
+            unsafe { SetTimer(Some(self.window.handle()), timer_id(timer), delay_ms, None) } != 0;
+        if !is_started {
+            tracing::warn!(error = %Error::from_thread(), ?timer, "failed to start a timer");
+        }
+    }
+
+    fn stop_timer(&mut self, timer: Timer) {
+        // Fails only when no timer is pending, which needs no handling.
+        // SAFETY: plain call on our own window.
+        let _ = unsafe { KillTimer(Some(self.window.handle()), timer_id(timer)) };
+    }
+
+    fn render_tray(&mut self, view: &TrayView) {
+        if let Err(error) = self.tray.update(view) {
+            tracing::warn!(%error, "failed to update tray icon");
+        }
+    }
+
+    fn render_settings(&mut self, view: &SettingsView) {
+        let Some(settings) = &mut self.settings else {
+            return;
+        };
+        if let Err(error) = settings.render(&view.models, &view.playground, &view.general) {
+            tracing::warn!(%error, "failed to render settings");
+        }
+    }
+
+    fn show_settings(&mut self, view: &SettingsView) {
+        if self.settings.is_none() {
+            match SettingsWindow::create(SETTINGS_PROCEDURES) {
+                Ok(settings) => {
+                    publish_appearance(settings.appearance());
+                    self.settings = Some(settings);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to create the settings window");
+                    return;
+                }
+            }
+        }
+        self.render_settings(view);
+        if let Some(settings) = &mut self.settings {
+            settings.layout();
+            settings.show();
+        }
+    }
+
+    fn use_clipboard_access(&mut self, access: ClipboardAccess) {
+        self.clipboard.use_access(access);
+    }
+
+    fn quit(&mut self) {
+        // SAFETY: plain call.
+        unsafe { PostQuitMessage(0) };
+    }
+}
+
+fn timer_id(timer: Timer) -> usize {
+    match timer {
+        Timer::CaretSettle => CARET_TIMER_ID,
+        Timer::InputSettle => SETTLE_TIMER_ID,
     }
 }
 
@@ -738,6 +602,7 @@ extern "system" fn settings_page_procedure(
 fn give_to_field(page: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
     let input = with_runtime(|runtime| {
         runtime
+            .shell
             .settings
             .as_ref()?
             .field_input(page, message, wparam, lparam)
@@ -749,6 +614,7 @@ fn give_to_field(page: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Op
 fn show_field_cursor(page: HWND) -> Option<LRESULT> {
     with_runtime(|runtime| {
         runtime
+            .shell
             .settings
             .as_ref()
             .is_some_and(|settings| settings.show_field_cursor(page))
@@ -784,7 +650,7 @@ fn repaint_field_frames(page: HWND) {
 fn show_picker_menu(window: HWND) -> LRESULT {
     let pending = with_runtime(|runtime| {
         let picker = runtime.pending_menu.take()?;
-        let menu = runtime.settings.as_ref()?.picker_menu(picker);
+        let menu = runtime.shell.settings.as_ref()?.picker_menu(picker);
         Some((picker, menu))
     })
     .flatten();
@@ -813,7 +679,7 @@ fn paint_page_later(window: HWND) -> Option<LRESULT> {
 }
 
 fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
-    let Some(view) = with_runtime(|runtime| runtime.app.tray_view()) else {
+    let Some(view) = with_runtime(|runtime| runtime.controller.tray_view()) else {
         return HANDLED;
     };
     match tray::pick_command(window, &view.items, request.anchor) {
@@ -827,7 +693,7 @@ fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
 }
 
 fn inject_pending_text() -> LRESULT {
-    let text = with_runtime(|runtime| runtime.pending_injection.take()).flatten();
+    let text = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
     if let Some(text) = text
         && let Err(error) = injection::type_text(&text)
     {
@@ -858,10 +724,10 @@ extern "system" fn mouse_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     );
     let is_button_up = matches!(message, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP);
     if code == HC_ACTION.cast_signed() && is_button_down {
-        with_runtime(Runtime::on_context_lost);
+        with_runtime(Runtime::on_click);
     }
     if code == HC_ACTION.cast_signed() && is_button_up {
-        with_runtime(Runtime::restart_settle_timer);
+        with_runtime(Runtime::on_click_release);
     }
     // SAFETY: forwards the system's own arguments unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

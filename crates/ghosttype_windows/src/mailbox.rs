@@ -3,27 +3,15 @@
 
 use std::sync::{Arc, mpsc};
 
-use ghosttype_core::hub::HubEvent;
-use ghosttype_core::inference::InferenceEvent;
+use ghosttype_core::controller::{Delivery, DeliverySink};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
 /// Message posted to the main window when deliveries wait in the channel.
 pub(crate) const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 
-/// An event for the main thread, tagged with who asked for it.
+/// The sending end of the channel.
 #[derive(Debug)]
-pub(crate) enum Delivery {
-    /// For the Models pane.
-    Hub(HubEvent),
-    /// For the Playground pane.
-    Playground(InferenceEvent),
-    /// For the suggestion at the caret.
-    Suggestion(InferenceEvent),
-}
-
-/// The sending end, shared by every sink.
-#[derive(Debug, Clone)]
 pub(crate) struct Mailbox {
     sender: mpsc::Sender<Delivery>,
     window: usize,
@@ -40,13 +28,9 @@ impl Mailbox {
         (mailbox, receiver)
     }
 
-    /// Returns a sink, callable from any thread, that delivers each event wrapped by `wrap`.
-    pub(crate) fn sink<Event: 'static>(
-        &self,
-        wrap: fn(Event) -> Delivery,
-    ) -> Arc<dyn Fn(Event) + Send + Sync> {
-        let mailbox = self.clone();
-        Arc::new(move |event| mailbox.deliver(wrap(event)))
+    /// Returns a sink, callable from any thread, that sends each delivery to the main thread.
+    pub(crate) fn into_sink(self) -> DeliverySink {
+        Arc::new(move |delivery| self.deliver(delivery))
     }
 
     fn deliver(&self, delivery: Delivery) {

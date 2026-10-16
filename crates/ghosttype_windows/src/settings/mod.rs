@@ -21,9 +21,10 @@ mod typography;
 
 use std::rc::Rc;
 
-use ghosttype_core::general_pane::{GeneralAction, GeneralView};
-use ghosttype_core::models_pane::{ModelsAction, ModelsView};
-use ghosttype_core::playground::{PlaygroundAction, PlaygroundView};
+use ghosttype_core::controller::PaneAction;
+use ghosttype_core::general_pane::GeneralView;
+use ghosttype_core::models_pane::ModelsView;
+use ghosttype_core::playground::PlaygroundView;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE, DWMSBT_MAINWINDOW, DWMSBT_NONE,
@@ -92,12 +93,11 @@ pub(crate) struct Procedures {
     pub(crate) general_page: WNDPROC,
 }
 
-/// Something the user did in the settings window that the core panes must handle.
+/// Something the user did in the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsInput {
-    Models(ModelsAction),
-    Playground(PlaygroundAction),
-    General(GeneralAction),
+    /// An action that a core pane must handle.
+    Pane(PaneAction),
     /// The user opened a picker; its menu must show outside any borrow of the runtime.
     OpenMenu(MenuPicker),
 }
@@ -310,7 +310,7 @@ impl SettingsWindow {
     /// Reads a `WM_COMMAND` from `control` with `notification`.
     pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<SettingsInput> {
         if let Some(action) = self.general.action_for(control, notification) {
-            return Some(SettingsInput::General(action));
+            return Some(SettingsInput::Pane(PaneAction::General(action)));
         }
         if notification != BN_CLICKED {
             return None;
@@ -333,12 +333,13 @@ impl SettingsWindow {
         }
         self.models
             .action_for(control)
-            .map(SettingsInput::Models)
+            .map(PaneAction::Models)
             .or_else(|| {
                 self.playground
                     .completion_for(control)
-                    .map(SettingsInput::Playground)
+                    .map(PaneAction::Playground)
             })
+            .map(SettingsInput::Pane)
     }
 
     /// Reads the Enter key: it clicks a focused button, or submits a search or a completion.
@@ -350,12 +351,9 @@ impl SettingsWindow {
         }
         self.models
             .search_for(focus)
-            .map(SettingsInput::Models)
-            .or_else(|| {
-                self.playground
-                    .completion_for(focus)
-                    .map(SettingsInput::Playground)
-            })
+            .map(PaneAction::Models)
+            .or_else(|| self.playground.completion_for(focus).map(PaneAction::Playground))
+            .map(SettingsInput::Pane)
     }
 
     /// The menu that `picker` opens.
@@ -370,15 +368,16 @@ impl SettingsWindow {
 
     /// Reads the pick of the entry at `index` of the menu of `picker`.
     pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<SettingsInput> {
-        match picker {
-            MenuPicker::Model => self.playground.choice_at(index).map(SettingsInput::Playground),
-            MenuPicker::Backend => self.general.backend_choice_at(index).map(SettingsInput::General),
-            MenuPicker::SuggestionLength => self.general.length_choice_at(index).map(SettingsInput::General),
+        let action = match picker {
+            MenuPicker::Model => self.playground.choice_at(index).map(PaneAction::Playground),
+            MenuPicker::Backend => self.general.backend_choice_at(index).map(PaneAction::General),
+            MenuPicker::SuggestionLength => self.general.length_choice_at(index).map(PaneAction::General),
             MenuPicker::SuggestionModel => self
                 .general
                 .suggestion_model_choice_at(index)
-                .map(SettingsInput::Playground),
-        }
+                .map(PaneAction::Playground),
+        };
+        action.map(SettingsInput::Pane)
     }
 
     /// Reacts to the pointer over the page `page_window`, which scrolls with its scroll bar.

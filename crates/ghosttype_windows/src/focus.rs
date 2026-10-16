@@ -2,6 +2,7 @@
 //! and window it is in.
 
 use ghosttype_core::app::Field;
+use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::Surroundings;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
@@ -49,13 +50,6 @@ impl Caret {
             font_face,
         })
     }
-}
-
-/// Whether the foreground window changed since it was last observed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FocusChange {
-    Unchanged,
-    Changed,
 }
 
 /// Follows the foreground window and classifies whether GhostType may observe and type into it.

@@ -19,14 +19,13 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let program = std::env::current_exe().context("no path to the running program")?;
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
-    let services = ghosttype_windows::Services {
+    let services = ghosttype_core::controller::Services {
         hub: Box::new(hub),
         runner: Box::new(runner),
         settings_store: Box::new(settings_file),
         autostart: Box::new(ghosttype_windows::StartupEntry::new(&program)),
     };
-    ghosttype_windows::run(ghosttype_core::app::App::new(), settings, services)
-        .context("ghosttype stopped unexpectedly")
+    ghosttype_windows::run(settings, services).context("ghosttype stopped unexpectedly")
 }
 
 /// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
