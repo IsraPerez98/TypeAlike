@@ -127,6 +127,11 @@ impl Column {
     pub(crate) fn top(self) -> i32 {
         self.top
     }
+
+    /// The width inside a block with `padding` at the left and right, never negative.
+    pub(crate) fn inner_width(self, padding: i32) -> i32 {
+        (self.width - 2 * padding).max(0)
+    }
 }
 
 /// Returns the width of the content column: the space between the side `padding`, at most `max_width`.
@@ -315,6 +320,16 @@ mod tests {
                 40
             )
         );
+    }
+
+    #[test]
+    fn inner_width_removes_padding_on_both_sides() {
+        assert_eq!(Column::new(8, 4, 100).inner_width(16), 68);
+    }
+
+    #[test]
+    fn inner_width_of_narrow_column_is_zero() {
+        assert_eq!(Column::new(8, 4, 0).inner_width(16), 0);
     }
 
     #[test]

@@ -261,7 +261,7 @@ impl ListGroup {
         appearance: &Appearance,
         shapes: &mut Vec<Shape>,
     ) {
-        let width = column.take(0).width - 2 * appearance.px(CARD_PADDING_X);
+        let width = column.inner_width(appearance.px(CARD_PADDING_X));
         let button_width = self.message_action.as_ref().map_or(0, |_| {
             form::button_width(appearance, self.message_button.current_text())
         });

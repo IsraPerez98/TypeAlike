@@ -207,7 +207,7 @@ impl PlaygroundPage {
         );
         column.skip(appearance.px(HEADING_GAP));
         let padding_x = appearance.px(CARD_PADDING_X);
-        let text_width = column.take(0).width - 2 * padding_x;
+        let text_width = column.inner_width(padding_x);
         let text_height =
             appearance.wrapped_height(self.output_text.current_text(), TextRole::Body, text_width);
         let detail_height = if self.output == OutputShape::Completion {

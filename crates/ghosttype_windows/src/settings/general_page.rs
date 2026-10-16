@@ -148,7 +148,7 @@ impl GeneralPage {
         let padding_x = appearance.px(CARD_PADDING_X);
         let padding_y = appearance.px(CARD_PADDING_Y);
         let gap = appearance.px(CONTROL_GAP);
-        let width = column.take(0).width - 2 * padding_x;
+        let width = column.inner_width(padding_x);
         let label_height = appearance.line_height(TextRole::Body);
         let description_height = appearance.wrapped_height(
             self.system_prompt_description.current_text(),
