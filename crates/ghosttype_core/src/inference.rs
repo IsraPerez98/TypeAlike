@@ -68,7 +68,8 @@ pub enum InferenceRequest {
         backend: Option<Backend>,
     },
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`]. The added text
-    /// can also finish the last word of `prompt`.
+    /// can also finish the last word of `prompt`. The runner stops at the first line break that
+    /// it adds.
     Complete {
         /// The text to continue.
         prompt: Prompt,

@@ -223,7 +223,8 @@ impl GenerateError {
     }
 }
 
-/// Continues `prompt` greedily until the model ends the text, writes markup or adds `max_tokens`.
+/// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or adds
+/// `max_tokens`.
 ///
 /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
 /// the first added tokens write that text again. A prompt that ends in a space or in a part of a
@@ -260,9 +261,11 @@ fn generate(
         if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
             break;
         }
-        unwritten = unwritten_after(unwritten, &vocab.token_to_piece(token, false, None));
+        let piece = vocab.token_to_piece(token, false, None);
+        let ends_line = writes_line_break(&piece, unwritten);
+        unwritten = unwritten_after(unwritten, &piece);
         added.push(token);
-        if added.len() == max_added {
+        if ends_line || added.len() == max_added {
             break;
         }
         batch.clear();
@@ -326,6 +329,13 @@ fn agrees_with(piece: &[u8], unwritten: &[u8]) -> bool {
 /// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
 fn unwritten_after<'text>(unwritten: &'text [u8], piece: &[u8]) -> &'text [u8] {
     unwritten.strip_prefix(piece).unwrap_or_default()
+}
+
+/// Whether a token with `piece` as text adds a line break after it writes the `unwritten` text.
+fn writes_line_break(piece: &[u8], unwritten: &[u8]) -> bool {
+    piece
+        .get(unwritten.len()..)
+        .is_some_and(|added| added.contains(&b'\n'))
 }
 
 fn starts_word(piece: &[u8]) -> bool {
@@ -495,6 +505,21 @@ mod tests {
         let rests = cases.map(|(unwritten, piece, _)| unwritten_after(unwritten, piece));
 
         assert_eq!(rests, cases.map(|(_, _, rest)| rest));
+    }
+
+    #[test]
+    fn only_a_line_break_after_the_healed_text_ends_the_line() {
+        let cases = [
+            (&b"\n"[..], &b""[..], true),
+            (b"ld\nHi", b"ld", true),
+            (b" world", b"", false),
+            (b"\nHi", b"\nHi", false),
+            (b"\nHi", b"\nHi there", false),
+        ];
+
+        let ends = cases.map(|(piece, unwritten, _)| writes_line_break(piece, unwritten));
+
+        assert_eq!(ends, cases.map(|(_, _, ends)| ends));
     }
 
     #[test]
