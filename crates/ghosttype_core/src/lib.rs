@@ -5,6 +5,7 @@
 
 pub mod app;
 mod catalog;
+pub mod controller;
 pub mod desktop;
 pub mod engine;
 pub mod general_pane;
