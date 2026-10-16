@@ -110,6 +110,9 @@ impl LoadedModel {
 const SHORT_PROMPT: &str = "Thank you for the quick reply. I read the new terms with the";
 const LONG_PROMPT: &str =
     "Thank you for the quick reply. I read the new terms with the finance team this morning, and we";
+const ONE_WORD_REMOVED: &str = "Thank you for the quick reply. I read the new terms with";
+const TWO_WORDS_REMOVED: &str = "Thank you for the quick reply. I read the new terms";
+const LAST_WORD_CHANGED: &str = "Thank you for the quick reply. I read the new terms for the";
 
 fn completion_request(prompt: &str) -> Reaction {
     Reaction::Request(InferenceRequest::Complete {
@@ -168,6 +171,44 @@ fn prompt_that_extends_a_cached_prompt_completes_as_without_the_cache() {
     complete_text(&mut model, SHORT_PROMPT);
 
     let with_cache = complete_text(&mut model, LONG_PROMPT);
+
+    assert_eq!(with_cache, without_cache);
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn prompt_without_the_last_word_completes_as_without_the_cache() {
+    let mut model = LoadedModel::load();
+    let without_cache = complete_text(&mut model, ONE_WORD_REMOVED);
+    complete_text(&mut model, SHORT_PROMPT);
+
+    let with_cache = complete_text(&mut model, ONE_WORD_REMOVED);
+
+    assert_eq!(with_cache, without_cache);
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn prompt_without_the_last_two_words_completes_as_without_the_cache() {
+    let mut model = LoadedModel::load();
+    let without_cache = complete_text(&mut model, TWO_WORDS_REMOVED);
+    complete_text(&mut model, ONE_WORD_REMOVED);
+    complete_text(&mut model, SHORT_PROMPT);
+    complete_text(&mut model, ONE_WORD_REMOVED);
+
+    let with_cache = complete_text(&mut model, TWO_WORDS_REMOVED);
+
+    assert_eq!(with_cache, without_cache);
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn prompt_with_another_last_word_completes_as_without_the_cache() {
+    let mut model = LoadedModel::load();
+    let without_cache = complete_text(&mut model, LAST_WORD_CHANGED);
+    complete_text(&mut model, SHORT_PROMPT);
+
+    let with_cache = complete_text(&mut model, LAST_WORD_CHANGED);
 
     assert_eq!(with_cache, without_cache);
 }

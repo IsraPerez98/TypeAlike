@@ -26,7 +26,8 @@ use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{
     DecodeError, LlamaBackendDevice, LlamaBackendDeviceType, LlamaContextLoadError, LlamaCppError,
-    LlamaModelLoadError, LogOptions, list_llama_ggml_backend_devices, max_devices, send_logs_to_tracing,
+    LlamaModelLoadError, LlamaStateSeqFlags, LogOptions, SeqState, StateSeqError,
+    list_llama_ggml_backend_devices, max_devices, send_logs_to_tracing,
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
@@ -42,6 +43,9 @@ const SEQUENCES: u32 = 2;
 const LAST_OUTPUT: i32 = -1;
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
+/// The most saved states of the prompt sequence: one for each of the last words, so that a
+/// backspace across each of these words goes back to a saved state.
+const MAX_SNAPSHOTS: usize = 4;
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
 const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
@@ -268,6 +272,8 @@ enum GenerateError {
     Decode(#[from] DecodeError),
     #[error("failed to change the cache of a sequence")]
     Sequence(#[from] KvCacheConversionError),
+    #[error("failed to save the state of a sequence")]
+    Snapshot(#[from] StateSeqError),
     #[error("a newer completion waits")]
     Superseded,
 }
@@ -277,9 +283,12 @@ impl GenerateError {
         match self {
             Self::PromptTooLong => InferenceError::PromptTooLong,
             Self::Superseded => InferenceError::Superseded,
-            Self::EmptyPrompt | Self::Context(_) | Self::Batch(_) | Self::Decode(_) | Self::Sequence(_) => {
-                InferenceError::Failed
-            }
+            Self::EmptyPrompt
+            | Self::Context(_)
+            | Self::Batch(_)
+            | Self::Decode(_)
+            | Self::Sequence(_)
+            | Self::Snapshot(_) => InferenceError::Failed,
         }
     }
 }
@@ -332,6 +341,7 @@ impl LoadedModel<'_> {
         let vocab = model.vocab();
         let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
         let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
+        let last_word_start = last_word_start(&vocab, &prompt_tokens);
         let context_tokens = CONTEXT_TOKENS.min(model.n_ctx_train());
         let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
         let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
@@ -346,7 +356,7 @@ impl LoadedModel<'_> {
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
         let added = cache
-            .decode_prompt(&prompt_tokens, progress.is_outdated)
+            .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
             .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, progress));
         match added {
             Ok(added) => {
@@ -370,6 +380,17 @@ struct PromptCache<'model> {
     tokens: Vec<LlamaToken>,
     /// The output of the model after the last of `tokens`.
     logits: Vec<f32>,
+    /// The saved states of the prompt sequence, oldest first, for a recurrent model. Such a model
+    /// keeps one running state, so it cannot remove only the end of a sequence. `None` for a model
+    /// that can.
+    snapshots: Option<Vec<Snapshot>>,
+}
+
+/// A saved state of the prompt sequence after its first `tokens` tokens.
+struct Snapshot {
+    tokens: usize,
+    state: SeqState,
+    logits: Vec<f32>,
 }
 
 impl<'model> PromptCache<'model> {
@@ -382,19 +403,37 @@ impl<'model> PromptCache<'model> {
             context: model.new_context(llama, context_params(context_tokens))?,
             tokens: Vec::new(),
             logits: Vec::new(),
+            snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
         })
     }
 
     /// Makes the prompt sequence hold `prompt`. It first frees the cache of the last completion. It
     /// keeps the cached tokens that `prompt` starts with, and decodes the rest in batches. Before
     /// each batch, it stops when `is_outdated` tells so, and keeps the batches that it decoded.
+    ///
+    /// For a recurrent model, it saves the state before the token at `last_word_start`, so that a
+    /// later prompt without the last word goes back to that state.
     fn decode_prompt(
+        &mut self,
+        prompt: &[LlamaToken],
+        last_word_start: usize,
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<(), GenerateError> {
+        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
+        self.keep_start_of(prompt);
+        if self.snapshots.is_some() && self.tokens.len() <= last_word_start {
+            self.decode_rest_of(&prompt[..last_word_start], is_outdated)?;
+            self.save_snapshot()?;
+        }
+        self.decode_rest_of(prompt, is_outdated)
+    }
+
+    /// Decodes the tokens of `prompt` after the cached tokens in batches.
+    fn decode_rest_of(
         &mut self,
         prompt: &[LlamaToken],
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
-        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
-        self.keep(kept_tokens(&self.tokens, prompt));
         let batch_size = usize::try_from(BATCH_TOKENS).expect("a u32 fits in usize");
         for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
             if is_outdated() {
@@ -419,9 +458,11 @@ impl<'model> PromptCache<'model> {
         Ok(())
     }
 
-    /// Keeps the first `count` cached tokens. It keeps none when the model cannot remove only the
-    /// end of a sequence, as a recurrent model cannot.
-    fn keep(&mut self, count: usize) {
+    /// Keeps the cached tokens that `prompt` starts with. A recurrent model cannot remove only the
+    /// end of a sequence, so it goes back to the last saved state that `prompt` starts with, or
+    /// keeps no tokens.
+    fn keep_start_of(&mut self, prompt: &[LlamaToken]) {
+        let count = kept_tokens(&self.tokens, prompt);
         if count == self.tokens.len() {
             return;
         }
@@ -432,10 +473,67 @@ impl<'model> PromptCache<'model> {
             .is_ok()
         {
             self.tokens.truncate(count);
-        } else {
+        } else if !self.restore_snapshot(common_tokens(&self.tokens, prompt)) {
             self.context.clear_kv_cache();
             self.tokens.clear();
         }
+        if let Some(snapshots) = &mut self.snapshots {
+            snapshots.retain(|snapshot| snapshot.tokens <= self.tokens.len());
+        }
+    }
+
+    /// Saves the state of the prompt sequence for a recurrent model, when it has no saved state for
+    /// it yet. It forgets the oldest saved state when it has too many.
+    fn save_snapshot(&mut self) -> Result<(), StateSeqError> {
+        let Some(snapshots) = &mut self.snapshots else {
+            return Ok(());
+        };
+        if snapshots
+            .last()
+            .is_some_and(|last| last.tokens == self.tokens.len())
+        {
+            return Ok(());
+        }
+        let state = self
+            .context
+            .state_seq_get(PROMPT_SEQUENCE, LlamaStateSeqFlags::PARTIAL_ONLY)?;
+        if snapshots.len() == MAX_SNAPSHOTS {
+            snapshots.remove(0);
+        }
+        snapshots.push(Snapshot {
+            tokens: self.tokens.len(),
+            state,
+            logits: self.logits.clone(),
+        });
+        Ok(())
+    }
+
+    /// Makes the prompt sequence go back to the last saved state with no more than the first
+    /// `common` tokens. Returns whether it went back.
+    fn restore_snapshot(&mut self, common: usize) -> bool {
+        let Some(snapshot) = self
+            .snapshots
+            .iter()
+            .flatten()
+            .rev()
+            .find(|snapshot| snapshot.tokens <= common)
+        else {
+            return false;
+        };
+        let start = u32::try_from(snapshot.tokens).expect("a prompt position fits in u32");
+        let is_restored = self
+            .context
+            .state_seq_set(&snapshot.state, PROMPT_SEQUENCE)
+            .is_ok()
+            && self
+                .context
+                .kv_cache_seq_rm(PROMPT_SEQUENCE, Some(start), None)
+                .is_ok();
+        if is_restored {
+            self.tokens.truncate(snapshot.tokens);
+            self.logits.clone_from(&snapshot.logits);
+        }
+        is_restored
     }
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
@@ -490,16 +588,21 @@ impl<'model> PromptCache<'model> {
 /// one less when `prompt` ends inside the cached tokens, because the output after its last token
 /// must be computed again.
 fn kept_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
-    let common = cached
-        .iter()
-        .zip(prompt)
-        .take_while(|(cached, prompt)| cached == prompt)
-        .count();
+    let common = common_tokens(cached, prompt);
     if common == prompt.len() && common < cached.len() {
         common.saturating_sub(1)
     } else {
         common
     }
+}
+
+/// Returns how many tokens `cached` and `prompt` both start with.
+fn common_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
+    cached
+        .iter()
+        .zip(prompt)
+        .take_while(|(cached, prompt)| cached == prompt)
+        .count()
 }
 
 /// Returns the position of the token at `index` in a sequence.
@@ -527,6 +630,14 @@ fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Vec<LlamaToke
         }
     }
     text
+}
+
+/// Returns the index of the token that starts the last word of `prompt_tokens`, as healing finds
+/// that word.
+fn last_word_start(vocab: &LlamaVocab<'_>, prompt_tokens: &[LlamaToken]) -> usize {
+    let mut before_last_word = prompt_tokens.to_vec();
+    take_back_last_word(vocab, &mut before_last_word);
+    before_last_word.len()
 }
 
 /// Returns the most likely token in `logits` whose text agrees with the `unwritten` text, or
