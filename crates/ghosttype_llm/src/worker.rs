@@ -14,12 +14,12 @@ use ghosttype_core::inference::{
     TokenCount,
 };
 use llama_cpp_2::context::LlamaContext;
+use llama_cpp_2::context::kv_cache::KvCacheConversionError;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::{FitError, LlamaModelParams};
-use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
@@ -30,7 +30,14 @@ use llama_cpp_2::{
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
 const CONTEXT_TOKENS: u32 = 2048;
-const SEQUENCE: i32 = 0;
+/// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
+/// whole batch while the model stays loaded, so a small batch keeps that memory small.
+const BATCH_TOKENS: u32 = 128;
+/// The sequence that keeps the last prompt between completions.
+const PROMPT_SEQUENCE: i32 = 0;
+/// The sequence that continues a copy of the prompt.
+const COMPLETION_SEQUENCE: i32 = 1;
+const SEQUENCES: u32 = 2;
 const LAST_OUTPUT: i32 = -1;
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
@@ -44,76 +51,113 @@ pub(crate) struct Job {
     pub(crate) sink: InferenceEventSink,
 }
 
+/// The jobs that wait, with the job that a step took and gave back.
+struct JobQueue<'jobs> {
+    jobs: &'jobs Receiver<Job>,
+    given_back: Option<Job>,
+}
+
+impl<'jobs> JobQueue<'jobs> {
+    fn new(jobs: &'jobs Receiver<Job>) -> Self {
+        Self {
+            jobs,
+            given_back: None,
+        }
+    }
+
+    /// Waits for the next job. Returns `None` when every sender is gone.
+    fn next(&mut self) -> Option<Job> {
+        self.given_back.take().or_else(|| self.jobs.recv().ok())
+    }
+
+    /// Makes `job` the next job again.
+    fn give_back(&mut self, job: Job) {
+        self.given_back = Some(job);
+    }
+}
+
 /// Runs each job in order until every sender is gone.
 pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &Receiver<Job>) {
-    let mut worker = Worker::default();
-    for Job { request, sink } in jobs {
-        let event = match request {
-            InferenceRequest::Load { file, backend } => InferenceEvent::Loaded {
-                result: worker.load(locate_model(&file), backend),
-                file,
-            },
-            InferenceRequest::Complete { prompt, max_tokens } => {
-                InferenceEvent::Completed(worker.complete(&prompt, max_tokens))
+    let mut queue = JobQueue::new(jobs);
+    let mut llama = None;
+    while let Some(Job { request, sink }) = queue.next() {
+        match request {
+            InferenceRequest::Load { file, backend } => {
+                let loaded = load(&mut llama, locate_model(&file), backend);
+                let result = loaded.as_ref().map(|_| ()).map_err(|error| *error);
+                sink(InferenceEvent::Loaded { file, result });
+                if let (Ok(model), Some(llama)) = (loaded, &llama) {
+                    serve(llama, &model, &mut queue);
+                }
             }
-            InferenceRequest::Unload => {
-                worker.model = None;
-                continue;
+            InferenceRequest::Complete { .. } => {
+                sink(InferenceEvent::Completed(Err(InferenceError::NoModel)));
             }
-        };
-        sink(event);
-    }
-}
-
-#[derive(Default)]
-struct Worker {
-    backend: Option<LlamaBackend>,
-    model: Option<LlamaModel>,
-}
-
-impl Worker {
-    fn load(&mut self, path: Option<PathBuf>, backend: Option<Backend>) -> Result<(), InferenceError> {
-        self.model = None;
-        let path = path
-            .filter(|path| path.is_file())
-            .ok_or(InferenceError::ModelMissing)?;
-        let llama = self.start_backend().map_err(|error| {
-            tracing::error!(%error, "failed to start llama.cpp");
-            InferenceError::Failed
-        })?;
-        let params = model_params(&path, backend)?;
-        let model =
-            LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
-                tracing::warn!(%error, "failed to load a model");
-                InferenceError::ModelInvalid
-            })?;
-        self.model = Some(model);
-        Ok(())
-    }
-
-    fn start_backend(&mut self) -> Result<&LlamaBackend, LlamaCppError> {
-        if self.backend.is_none() {
-            send_logs_to_tracing(LogOptions::default());
-            self.backend = Some(LlamaBackend::init()?);
+            InferenceRequest::Unload => {}
         }
-        Ok(self.backend.as_ref().expect("the backend started above"))
     }
+}
 
-    fn complete(&self, prompt: &Prompt, max_tokens: TokenCount) -> Result<Completion, InferenceError> {
-        let started = Instant::now();
-        let (Some(backend), Some(model)) = (&self.backend, &self.model) else {
-            return Err(InferenceError::NoModel);
-        };
-        let (text, tokens) = generate(backend, model, prompt, max_tokens).map_err(|error| {
-            tracing::warn!(%error, "failed to complete text");
-            error.to_inference_error()
-        })?;
-        Ok(Completion {
-            text,
-            tokens,
-            duration: started.elapsed(),
-        })
+/// Loads the model at `path` on `backend`. It starts llama.cpp in `llama` first, when it did not
+/// start before.
+fn load(
+    llama: &mut Option<LlamaBackend>,
+    path: Option<PathBuf>,
+    backend: Option<Backend>,
+) -> Result<LlamaModel, InferenceError> {
+    let path = path
+        .filter(|path| path.is_file())
+        .ok_or(InferenceError::ModelMissing)?;
+    let llama = start_backend(llama).map_err(|error| {
+        tracing::error!(%error, "failed to start llama.cpp");
+        InferenceError::Failed
+    })?;
+    let params = model_params(&path, backend)?;
+    LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
+        tracing::warn!(%error, "failed to load a model");
+        InferenceError::ModelInvalid
+    })
+}
+
+fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, LlamaCppError> {
+    if llama.is_none() {
+        send_logs_to_tracing(LogOptions::default());
+        *llama = Some(LlamaBackend::init()?);
     }
+    Ok(llama.as_ref().expect("the backend started above"))
+}
+
+/// Runs the completions for the loaded `model` until a job loads or unloads a model. It gives that
+/// job back to `queue`, so the model is gone before the next model loads.
+fn serve(llama: &LlamaBackend, model: &LlamaModel, queue: &mut JobQueue<'_>) {
+    let mut cache = None;
+    while let Some(job) = queue.next() {
+        let InferenceRequest::Complete { prompt, max_tokens } = &job.request else {
+            queue.give_back(job);
+            return;
+        };
+        let result = complete(llama, model, &mut cache, prompt, *max_tokens);
+        (job.sink)(InferenceEvent::Completed(result));
+    }
+}
+
+fn complete<'model>(
+    llama: &LlamaBackend,
+    model: &'model LlamaModel,
+    cache: &mut Option<PromptCache<'model>>,
+    prompt: &Prompt,
+    max_tokens: TokenCount,
+) -> Result<Completion, InferenceError> {
+    let started = Instant::now();
+    let (text, tokens) = generate(llama, model, cache, prompt, max_tokens).map_err(|error| {
+        tracing::warn!(%error, "failed to complete text");
+        error.to_inference_error()
+    })?;
+    Ok(Completion {
+        text,
+        tokens,
+        duration: started.elapsed(),
+    })
 }
 
 /// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
@@ -197,7 +241,10 @@ fn fit_verdict(fitted: Result<bool, FitError>) -> Result<(), InferenceError> {
 fn context_params(context_tokens: u32) -> LlamaContextParams {
     LlamaContextParams::default()
         .with_n_ctx(NonZeroU32::new(context_tokens))
-        .with_n_batch(context_tokens)
+        .with_n_batch(BATCH_TOKENS)
+        .with_n_ubatch(BATCH_TOKENS)
+        .with_n_seq_max(SEQUENCES)
+        .with_kv_unified(true)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -212,26 +259,32 @@ enum GenerateError {
     Batch(#[from] BatchAddError),
     #[error("failed to decode a batch")]
     Decode(#[from] DecodeError),
+    #[error("failed to change the cache of a sequence")]
+    Sequence(#[from] KvCacheConversionError),
 }
 
 impl GenerateError {
     fn to_inference_error(&self) -> InferenceError {
         match self {
             Self::PromptTooLong => InferenceError::PromptTooLong,
-            Self::EmptyPrompt | Self::Context(_) | Self::Batch(_) | Self::Decode(_) => InferenceError::Failed,
+            Self::EmptyPrompt | Self::Context(_) | Self::Batch(_) | Self::Decode(_) | Self::Sequence(_) => {
+                InferenceError::Failed
+            }
         }
     }
 }
 
 /// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or adds
-/// `max_tokens`.
+/// `max_tokens`. It keeps the prompt in `cache` for the next completion, and forgets the cache
+/// when llama.cpp fails.
 ///
 /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
 /// the first added tokens write that text again. A prompt that ends in a space or in a part of a
 /// word otherwise ends on tokens that the model seldom saw there, and the model continues it badly.
-fn generate(
-    backend: &LlamaBackend,
-    model: &LlamaModel,
+fn generate<'model>(
+    llama: &LlamaBackend,
+    model: &'model LlamaModel,
+    cache: &mut Option<PromptCache<'model>>,
     prompt: &Prompt,
     max_tokens: TokenCount,
 ) -> Result<(String, TokenCount), GenerateError> {
@@ -247,34 +300,162 @@ fn generate(
     if prompt_tokens.len().saturating_add(max_added) > capacity {
         return Err(GenerateError::PromptTooLong);
     }
-    let mut context = model.new_context(backend, context_params(context_tokens))?;
-    let mut batch = LlamaBatch::new(capacity, 1);
-    batch.add_sequence(&prompt_tokens, SEQUENCE, false)?;
-    context.decode(&mut batch)?;
-    let mut sampler = LlamaSampler::greedy();
-    let mut unwritten = healed_text.as_slice();
-    let mut added = Vec::new();
-    let mut position = i32::try_from(prompt_tokens.len()).expect("the prompt fits in the context");
-    while added.len() < max_added {
-        let token = best_token_agreeing_with(&context, &vocab, unwritten)
-            .unwrap_or_else(|| sampler.sample(&context, LAST_OUTPUT));
-        if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
-            break;
-        }
-        let piece = vocab.token_to_piece(token, false, None);
-        let ends_line = writes_line_break(&piece, unwritten);
-        unwritten = unwritten_after(unwritten, &piece);
-        added.push(token);
-        if ends_line || added.len() == max_added {
-            break;
-        }
-        batch.clear();
-        batch.add(token, position, &[SEQUENCE], true)?;
-        position = position.saturating_add(1);
-        context.decode(&mut batch)?;
+    if cache.is_none() {
+        *cache = Some(PromptCache::new(llama, model, context_tokens)?);
     }
+    let cached = cache.as_mut().expect("the cache exists above");
+    let added = match cached.complete(&vocab, &prompt_tokens, &healed_text, max_added) {
+        Ok(added) => added,
+        Err(error) => {
+            *cache = None;
+            return Err(error);
+        }
+    };
     let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
     Ok((added_text(&vocab, &prompt_tokens, &added, &healed_text), tokens))
+}
+
+/// A context that keeps the last prompt, so that a later prompt that starts with the same tokens
+/// decodes only the tokens that it adds.
+struct PromptCache<'model> {
+    context: LlamaContext<'model>,
+    /// The tokens in the prompt sequence.
+    tokens: Vec<LlamaToken>,
+    /// The output of the model after the last of `tokens`.
+    logits: Vec<f32>,
+}
+
+impl<'model> PromptCache<'model> {
+    fn new(
+        llama: &LlamaBackend,
+        model: &'model LlamaModel,
+        context_tokens: u32,
+    ) -> Result<Self, LlamaContextLoadError> {
+        Ok(Self {
+            context: model.new_context(llama, context_params(context_tokens))?,
+            tokens: Vec::new(),
+            logits: Vec::new(),
+        })
+    }
+
+    /// Continues `prompt`, whose first added tokens write `healed_text` again, and returns the
+    /// added tokens.
+    fn complete(
+        &mut self,
+        vocab: &LlamaVocab<'_>,
+        prompt: &[LlamaToken],
+        healed_text: &[u8],
+        max_added: usize,
+    ) -> Result<Vec<LlamaToken>, GenerateError> {
+        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
+        self.decode_prompt(prompt)?;
+        self.continue_prompt(vocab, healed_text, max_added)
+    }
+
+    /// Makes the prompt sequence hold `prompt`. It keeps the cached tokens that `prompt` starts
+    /// with, and decodes the rest in batches.
+    fn decode_prompt(&mut self, prompt: &[LlamaToken]) -> Result<(), GenerateError> {
+        self.keep(kept_tokens(&self.tokens, prompt));
+        let batch_size = usize::try_from(BATCH_TOKENS).expect("a u32 fits in usize");
+        for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
+            let mut batch = LlamaBatch::new(batch_tokens.len(), 1);
+            for (offset, &token) in batch_tokens.iter().enumerate() {
+                let is_last = offset + 1 == batch_tokens.len();
+                batch.add(
+                    token,
+                    position(self.tokens.len() + offset),
+                    &[PROMPT_SEQUENCE],
+                    is_last,
+                )?;
+            }
+            self.context.decode(&mut batch)?;
+            self.tokens.extend_from_slice(batch_tokens);
+            self.logits.clear();
+            self.logits
+                .extend_from_slice(self.context.get_logits_ith(LAST_OUTPUT));
+        }
+        Ok(())
+    }
+
+    /// Keeps the first `count` cached tokens. It keeps none when the model cannot remove only the
+    /// end of a sequence, as a recurrent model cannot.
+    fn keep(&mut self, count: usize) {
+        if count == self.tokens.len() {
+            return;
+        }
+        let start = u32::try_from(count).expect("a prompt position fits in u32");
+        if self
+            .context
+            .kv_cache_seq_rm(PROMPT_SEQUENCE, Some(start), None)
+            .is_ok()
+        {
+            self.tokens.truncate(count);
+        } else {
+            self.context.clear_kv_cache();
+            self.tokens.clear();
+        }
+    }
+
+    /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
+    /// for the next completion. Returns the added tokens.
+    fn continue_prompt(
+        &mut self,
+        vocab: &LlamaVocab<'_>,
+        healed_text: &[u8],
+        max_added: usize,
+    ) -> Result<Vec<LlamaToken>, GenerateError> {
+        self.context
+            .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
+        let mut batch = LlamaBatch::new(1, 1);
+        let mut logits = self.logits.as_slice();
+        let mut unwritten = healed_text;
+        let mut added = Vec::new();
+        while added.len() < max_added {
+            let token =
+                best_token_agreeing_with(logits, vocab, unwritten).unwrap_or_else(|| most_likely(logits));
+            if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
+                break;
+            }
+            let piece = vocab.token_to_piece(token, false, None);
+            let ends_line = writes_line_break(&piece, unwritten);
+            unwritten = unwritten_after(unwritten, &piece);
+            added.push(token);
+            if ends_line || added.len() == max_added {
+                break;
+            }
+            batch.clear();
+            batch.add(
+                token,
+                position(self.tokens.len() + added.len() - 1),
+                &[COMPLETION_SEQUENCE],
+                true,
+            )?;
+            self.context.decode(&mut batch)?;
+            logits = self.context.get_logits_ith(LAST_OUTPUT);
+        }
+        Ok(added)
+    }
+}
+
+/// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
+/// one less when `prompt` ends inside the cached tokens, because the output after its last token
+/// must be computed again.
+fn kept_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
+    let common = cached
+        .iter()
+        .zip(prompt)
+        .take_while(|(cached, prompt)| cached == prompt)
+        .count();
+    if common == prompt.len() && common < cached.len() {
+        common.saturating_sub(1)
+    } else {
+        common
+    }
+}
+
+/// Returns the position of the token at `index` in a sequence.
+fn position(index: usize) -> i32 {
+    i32::try_from(index).expect("the prompt fits in the context")
 }
 
 /// Removes the tokens of the last word from the end of `prompt_tokens`, and returns their text.
@@ -299,18 +480,14 @@ fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Vec<LlamaToke
     text
 }
 
-/// Returns the most likely next token whose text agrees with the `unwritten` text, or `None` when
-/// no text is unwritten.
-fn best_token_agreeing_with(
-    context: &LlamaContext<'_>,
-    vocab: &LlamaVocab<'_>,
-    unwritten: &[u8],
-) -> Option<LlamaToken> {
+/// Returns the most likely token in `logits` whose text agrees with the `unwritten` text, or
+/// `None` when no text is unwritten.
+fn best_token_agreeing_with(logits: &[f32], vocab: &LlamaVocab<'_>, unwritten: &[u8]) -> Option<LlamaToken> {
     if unwritten.is_empty() {
         return None;
     }
     let mut best: Option<(LlamaToken, f32)> = None;
-    for (index, &logit) in context.get_logits_ith(LAST_OUTPUT).iter().enumerate() {
+    for (index, &logit) in logits.iter().enumerate() {
         let is_better = best.is_none_or(|(_, best_logit)| logit > best_logit);
         let token = LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32"));
         if is_better && agrees_with(&vocab.token_to_piece(token, false, None), unwritten) {
@@ -329,6 +506,16 @@ fn agrees_with(piece: &[u8], unwritten: &[u8]) -> bool {
 /// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
 fn unwritten_after<'text>(unwritten: &'text [u8], piece: &[u8]) -> &'text [u8] {
     unwritten.strip_prefix(piece).unwrap_or_default()
+}
+
+/// Returns the most likely token in `logits`.
+fn most_likely(logits: &[f32]) -> LlamaToken {
+    let index = logits
+        .iter()
+        .enumerate()
+        .max_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map_or(0, |(index, _)| index);
+    LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32"))
 }
 
 /// Whether a token with `piece` as text adds a line break after it writes the `unwritten` text.
@@ -469,8 +656,8 @@ mod tests {
         const ALL_MEMORY_BYTES: usize = 1 << 50;
         let path =
             PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
-        let mut worker = Worker::default();
-        worker.start_backend().expect("llama.cpp starts");
+        let mut llama = None;
+        start_backend(&mut llama).expect("llama.cpp starts");
         let devices = list_llama_ggml_backend_devices();
         let device = gpu_device(&devices, Backend::Vulkan)
             .or_else(|| gpu_device(&devices, Backend::Cuda))
@@ -505,6 +692,39 @@ mod tests {
         let rests = cases.map(|(unwritten, piece, _)| unwritten_after(unwritten, piece));
 
         assert_eq!(rests, cases.map(|(_, _, rest)| rest));
+    }
+
+    fn tokens(ids: &[i32]) -> Vec<LlamaToken> {
+        ids.iter().copied().map(LlamaToken).collect()
+    }
+
+    #[test]
+    fn prompt_keeps_the_cached_tokens_it_starts_with() {
+        let cases = [
+            (&[1, 2, 3][..], &[1, 2, 3][..], 3),
+            (&[1, 2], &[1, 2, 3], 2),
+            (&[1, 2, 3], &[1, 4], 1),
+            (&[], &[1], 0),
+            (&[1, 2], &[3], 0),
+        ];
+
+        let kept = cases.map(|(cached, prompt, _)| kept_tokens(&tokens(cached), &tokens(prompt)));
+
+        assert_eq!(kept, cases.map(|(_, _, kept)| kept));
+    }
+
+    #[test]
+    fn prompt_that_ends_inside_the_cached_tokens_decodes_its_last_token_again() {
+        let kept = kept_tokens(&tokens(&[1, 2, 3]), &tokens(&[1, 2]));
+
+        assert_eq!(kept, 1);
+    }
+
+    #[test]
+    fn most_likely_token_has_the_highest_logit() {
+        let token = most_likely(&[0.5, 2.0, -1.0]);
+
+        assert_eq!(token, LlamaToken(1));
     }
 
     #[test]

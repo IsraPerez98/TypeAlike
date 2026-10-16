@@ -10,7 +10,8 @@ use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, Prompt,
+    TokenCount,
 };
 use ghosttype_core::key::Key;
 use ghosttype_llm::LlamaCpp;
@@ -75,6 +76,21 @@ impl LoadedModel {
     }
 }
 
+const SHORT_PROMPT: &str = "Thank you for the quick reply. I read the new terms with the";
+const LONG_PROMPT: &str =
+    "Thank you for the quick reply. I read the new terms with the finance team this morning, and we";
+
+fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
+    let request = InferenceRequest::Complete {
+        prompt: Prompt(prompt.to_owned()),
+        max_tokens: TokenCount(16),
+    };
+    model
+        .complete(Reaction::Request(request))
+        .expect("the model completes the prompt")
+        .text
+}
+
 /// Types `text` into `app` while `model` completes, and returns the reaction to the completion
 /// of all of it.
 fn suggest_after(model: &mut LoadedModel, app: &mut App, text: &str) -> Reaction {
@@ -107,4 +123,44 @@ fn real_model_finishes_a_word_cut_inside_a_token() {
         matches!(&reaction, Reaction::Show(text) if text.starts_with("ful")),
         "unexpected {reaction:?}"
     );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn prompt_that_extends_a_cached_prompt_completes_as_without_the_cache() {
+    let mut model = LoadedModel::load();
+    let without_cache = complete_text(&mut model, LONG_PROMPT);
+    complete_text(&mut model, SHORT_PROMPT);
+
+    let with_cache = complete_text(&mut model, LONG_PROMPT);
+
+    assert_eq!(with_cache, without_cache);
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn repeated_prompt_completes_as_the_first_time() {
+    let mut model = LoadedModel::load();
+    let first = complete_text(&mut model, LONG_PROMPT);
+
+    let repeated = complete_text(&mut model, LONG_PROMPT);
+
+    assert_eq!(repeated, first);
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn long_prompt_after_another_long_prompt_completes() {
+    let mut model = LoadedModel::load();
+    complete_text(
+        &mut model,
+        &"The quick brown fox jumps over the lazy dog. ".repeat(120),
+    );
+
+    let completion = model.complete(Reaction::Request(InferenceRequest::Complete {
+        prompt: Prompt("We hold these truths to be self-evident, that all are equal. ".repeat(110)),
+        max_tokens: TokenCount(16),
+    }));
+
+    assert!(completion.is_ok(), "unexpected {completion:?}");
 }
