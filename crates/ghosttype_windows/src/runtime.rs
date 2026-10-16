@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
+use ghosttype_core::app::{App, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::GeneralPane;
 use ghosttype_core::hub::{HubEventSink, ModelHub};
@@ -24,8 +24,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowsHookExW, ShowWindow, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
     WINDOWS_HOOK_ID, WM_APP, WM_CAPTURECHANGED, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT,
     WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_SETTINGCHANGE,
-    WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WS_OVERLAPPED,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN,
+    WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, PCWSTR, w};
 
@@ -44,6 +45,7 @@ use crate::window::{Window, WindowSpec};
 use crate::{RunError, Services};
 
 const GHOST_TIMER_ID: usize = 1;
+const SETTLE_TIMER_ID: usize = 2;
 const CARET_SETTLE_DELAY_MS: u32 = 40;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const PICKER_MENU_MESSAGE: u32 = WM_APP + 4;
@@ -235,6 +237,7 @@ impl Runtime {
         if event.dwExtraInfo == INJECTION_TAG {
             return Disposition::Pass;
         }
+        self.restart_settle_timer();
         let Ok(key) = u16::try_from(event.vkCode).map(VIRTUAL_KEY) else {
             return Disposition::Pass;
         };
@@ -266,6 +269,27 @@ impl Runtime {
     fn on_context_lost(&mut self) {
         let reaction = self.app.on_context_lost();
         self.apply(reaction);
+    }
+
+    fn restart_settle_timer(&mut self) {
+        let delay_ms = u32::try_from(INPUT_SETTLE_DELAY.as_millis()).expect("the settle delay fits in u32");
+        if !self.start_timer(SETTLE_TIMER_ID, delay_ms) {
+            tracing::warn!(error = %Error::from_thread(), "failed to schedule the prompt preparation");
+        }
+    }
+
+    fn on_input_settled(&mut self) {
+        self.stop_timer(SETTLE_TIMER_ID);
+        if self.focus.refresh() == FocusChange::Changed {
+            self.on_context_lost();
+        }
+        let desktop = ForegroundDesktop {
+            focus: &self.focus,
+            clipboard: &self.clipboard,
+        };
+        if let Some(request) = self.app.on_input_settled(&desktop) {
+            self.runner.submit(request, &self.suggestion_sink);
+        }
     }
 
     /// Starts the window timer `timer_id`, or restarts it when it runs. Returns whether it runs.
@@ -401,6 +425,7 @@ impl Runtime {
     fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
             WM_TIMER if wparam.0 == GHOST_TIMER_ID => self.show_pending_ghost(),
+            WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_input_settled(),
             WM_SETTINGCHANGE if is_appearance_change(wparam, lparam) => self.on_appearance_change(),
             DELIVERY_MESSAGE => self.take_deliveries(),
             WM_CLIPBOARDUPDATE => self.clipboard.on_update(),
@@ -791,8 +816,12 @@ extern "system" fn mouse_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) ->
         message,
         WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
     );
+    let is_button_up = matches!(message, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP);
     if code == HC_ACTION.cast_signed() && is_button_down {
         with_runtime(Runtime::on_context_lost);
+    }
+    if code == HC_ACTION.cast_signed() && is_button_up {
+        with_runtime(Runtime::restart_settle_timer);
     }
     // SAFETY: forwards the system's own arguments unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

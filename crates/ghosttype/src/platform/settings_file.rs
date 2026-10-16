@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SystemPrompt};
-use ghosttype_core::settings::{ClipboardAccess, Settings, SettingsStore};
+use ghosttype_core::settings::{ClipboardAccess, PromptPreparation, Settings, SettingsStore};
 use serde::{Deserialize, Serialize};
 
 /// The settings file: it gives the saved settings at start, and keeps each change.
@@ -66,6 +66,7 @@ struct StoredSettings {
     suggestion_model: Option<StoredModelFile>,
     system_prompt: Option<String>,
     clipboard_access: StoredClipboardAccess,
+    prompt_preparation: StoredPromptPreparation,
 }
 
 impl Default for StoredSettings {
@@ -90,6 +91,13 @@ enum StoredClipboardAccess {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredPromptPreparation {
+    OnFirstKey,
+    OnFocus,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct StoredModelFile {
     repo: String,
     name: String,
@@ -110,11 +118,16 @@ impl From<Settings> for StoredSettings {
             ClipboardAccess::Denied => StoredClipboardAccess::Denied,
             ClipboardAccess::Allowed => StoredClipboardAccess::Allowed,
         };
+        let prompt_preparation = match settings.prompt_preparation {
+            PromptPreparation::OnFirstKey => StoredPromptPreparation::OnFirstKey,
+            PromptPreparation::OnFocus => StoredPromptPreparation::OnFocus,
+        };
         Self {
             backend,
             suggestion_model,
             system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
             clipboard_access,
+            prompt_preparation,
         }
     }
 }
@@ -134,11 +147,16 @@ impl From<StoredSettings> for Settings {
             StoredClipboardAccess::Denied => ClipboardAccess::Denied,
             StoredClipboardAccess::Allowed => ClipboardAccess::Allowed,
         };
+        let prompt_preparation = match stored.prompt_preparation {
+            StoredPromptPreparation::OnFirstKey => PromptPreparation::OnFirstKey,
+            StoredPromptPreparation::OnFocus => PromptPreparation::OnFocus,
+        };
         Self {
             backend,
             suggestion_model,
             custom_system_prompt: stored.system_prompt.map(SystemPrompt),
             clipboard_access,
+            prompt_preparation,
         }
     }
 }
@@ -221,6 +239,24 @@ mod tests {
     }
 
     #[test]
+    fn prompt_preparation_reads_from_its_name() {
+        let files = [
+            r#"{ "prompt_preparation": "on_first_key" }"#,
+            r#"{ "prompt_preparation": "on_focus" }"#,
+        ];
+
+        let preparations = files.map(|json| parse(json).map(|settings| settings.prompt_preparation).ok());
+
+        assert_eq!(
+            preparations,
+            [
+                Some(PromptPreparation::OnFirstKey),
+                Some(PromptPreparation::OnFocus)
+            ]
+        );
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -244,6 +280,7 @@ mod tests {
             suggestion_model: Some(model_file()),
             custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
             clipboard_access: ClipboardAccess::Allowed,
+            prompt_preparation: PromptPreparation::OnFocus,
         };
 
         file.save(&settings);

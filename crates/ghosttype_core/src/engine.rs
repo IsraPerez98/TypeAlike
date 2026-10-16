@@ -9,6 +9,7 @@ use crate::prompt::{self, last_chars};
 use crate::settings::{ClipboardAccess, Settings};
 
 pub(crate) const MAX_SUGGESTION_TOKENS: TokenCount = TokenCount(16);
+const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text grows past
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
@@ -87,6 +88,21 @@ impl Engine {
             Key::Escape => self.dismiss(),
             Key::Char(_) | Key::Other => self.reset(),
         }
+    }
+
+    /// Starts the session for the focused field of `desktop` when none runs, and returns the
+    /// request that decodes its prompt before the first key. Its completion adds no text.
+    pub fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
+        if self.session.is_some() {
+            return None;
+        }
+        let session = self.start_session(desktop);
+        let prompt = prompt::prompt(&session.preface, &session.text_before);
+        self.unanswered_requests = self.unanswered_requests.saturating_add(1);
+        Some(InferenceRequest::Complete {
+            prompt,
+            max_tokens: PREPARATION_TOKENS,
+        })
     }
 
     /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
@@ -1014,6 +1030,81 @@ mod tests {
         let reaction = press(&mut engine, Key::Char('i'));
 
         assert_eq!(reaction, request("hi"));
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "prepare returns an Option")]
+    fn preparation(context: &str) -> Option<InferenceRequest> {
+        Some(InferenceRequest::Complete {
+            prompt: Prompt(context.to_owned()),
+            max_tokens: TokenCount(0),
+        })
+    }
+
+    #[test]
+    fn preparing_decodes_the_field_text_and_adds_no_tokens() {
+        let mut engine = Engine::default();
+
+        let request = engine.prepare(&FakeDesktop::with_field_text("Hello wor"));
+
+        assert_eq!(request, preparation("Hello wor"));
+    }
+
+    #[test]
+    fn preparing_an_empty_field_decodes_the_preface() {
+        let mut engine = engine_with(&Settings {
+            custom_system_prompt: Some(SystemPrompt("Formal.".to_owned())),
+            ..Settings::default()
+        });
+
+        let request = engine.prepare(&FakeDesktop::default());
+
+        assert_eq!(request, preparation("Formal.\n\n"));
+    }
+
+    #[test]
+    fn first_key_after_preparing_continues_the_prepared_session() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text("Hello wor");
+        engine.prepare(&desktop);
+
+        let reaction = engine.on_key(Key::Char('l'), &desktop);
+
+        assert_eq!(
+            (reaction, desktop.surroundings_reads.get()),
+            (request("Hello worl"), 1)
+        );
+    }
+
+    #[test]
+    fn preparing_during_a_session_does_nothing() {
+        let mut engine = engine_waiting_for("h");
+
+        let request = engine.prepare(&FakeDesktop::with_field_text("Hello"));
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn completion_of_the_preparation_shows_nothing() {
+        let mut engine = Engine::default();
+        engine.prepare(&FakeDesktop::with_field_text("Hello wor"));
+
+        let reaction = engine.on_completion(completion(""));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn completion_of_a_key_after_the_preparation_shows() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text("Hello wor");
+        engine.prepare(&desktop);
+        engine.on_key(Key::Char('l'), &desktop);
+        engine.on_completion(Err(InferenceError::Superseded));
+
+        let reaction = engine.on_completion(completion("d"));
+
+        assert_eq!(reaction, show("d"));
     }
 
     #[test]

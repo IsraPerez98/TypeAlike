@@ -1,5 +1,5 @@
-//! The General pane: the autostart switch, the clipboard switch and the suggestion model menu in
-//! one rounded group, then the system prompt editor.
+//! The General pane: the autostart switch, the clipboard switch, the prompt preparation switch
+//! and the suggestion model menu in one rounded group, then the system prompt editor.
 
 use ghosttype_core::general_pane::{GeneralView, SettingSwitch, SystemPromptEditor};
 use objc2::MainThreadMarker;
@@ -41,6 +41,8 @@ pub(super) struct GeneralPage {
     autostart_switch: Retained<NSSwitch>,
     clipboard_row: SettingRow,
     clipboard_switch: Retained<NSSwitch>,
+    preparation_row: SettingRow,
+    preparation_switch: Retained<NSSwitch>,
     suggestion_model_row: SettingRow,
     suggestion_model_note: NoteView,
     system_prompt: SystemPromptView,
@@ -48,7 +50,8 @@ pub(super) struct GeneralPage {
 
 impl GeneralPage {
     /// Builds the pane. The autostart switch sends `target.autostart_action`, the clipboard switch
-    /// sends `target.clipboard_action`, and the suggestion model menu sends
+    /// sends `target.clipboard_action`, the prompt preparation switch sends
+    /// `target.preparation_action`, and the suggestion model menu sends
     /// `target.suggestion_model_action`. Each edit of the system prompt sends
     /// `target.system_prompt_action` with the notification, and its reset button sends
     /// `target.reset_system_prompt_action`.
@@ -63,6 +66,7 @@ impl GeneralPage {
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
         let autostart_switch = switch(target, target.autostart_action, main_thread);
         let clipboard_switch = switch(target, target.clipboard_action, main_thread);
+        let preparation_switch = switch(target, target.preparation_action, main_thread);
         let suggestion_model_menu = ModelMenu::new(target, target.suggestion_model_action, main_thread);
         let rows_stack = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
@@ -73,6 +77,7 @@ impl GeneralPage {
         let autostart_row = SettingRow::add(&rows_stack, &autostart_switch, main_thread);
         autostart_row.row.separator.setHidden(true);
         let clipboard_row = SettingRow::add(&rows_stack, &clipboard_switch, main_thread);
+        let preparation_row = SettingRow::add(&rows_stack, &preparation_switch, main_thread);
         let suggestion_model_row = SettingRow::add(&rows_stack, &suggestion_model_menu.button, main_thread);
         let group = rounded_group(&rows_stack, main_thread);
         let suggestion_model_note = NoteView::new(main_thread);
@@ -96,6 +101,8 @@ impl GeneralPage {
             autostart_switch,
             clipboard_row,
             clipboard_switch,
+            preparation_row,
+            preparation_switch,
             suggestion_model_row,
             suggestion_model_note,
             system_prompt,
@@ -113,6 +120,8 @@ impl GeneralPage {
         self.render_autostart(view.autostart.as_ref());
         self.clipboard_row
             .render_switch(&self.clipboard_switch, &view.clipboard);
+        self.preparation_row
+            .render_switch(&self.preparation_switch, &view.prompt_preparation);
         let picker = &view.suggestion_model;
         self.suggestion_model_row
             .render(picker.menu.label, picker.description);

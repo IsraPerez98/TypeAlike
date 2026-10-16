@@ -5,7 +5,7 @@ use std::fmt;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SystemPrompt};
 use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
-use crate::settings::{Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, Settings};
+use crate::settings::{Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings};
 
 /// Something the user did in the General pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +24,12 @@ pub enum GeneralAction {
     AllowClipboard,
     /// Turned off the switch that lets suggestions use the text on the clipboard.
     DenyClipboard,
+    /// Turned on the switch that gives the text around the caret to the model before the user
+    /// types.
+    PrepareOnFocus,
+    /// Turned off the switch that gives the text around the caret to the model before the user
+    /// types.
+    PrepareOnFirstKey,
 }
 
 /// One entry of the backend menu.
@@ -102,6 +108,8 @@ pub struct GeneralView {
     pub suggestion_model: SuggestionModelPicker,
     /// The clipboard switch.
     pub clipboard: SettingSwitch,
+    /// The switch that gives the text around the caret to the model before the user types.
+    pub prompt_preparation: SettingSwitch,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<BackendPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
@@ -128,6 +136,11 @@ const SUGGESTION_MODEL_DESCRIPTION: &str =
 const CLIPBOARD_LABEL: &str = "Use copied text";
 const CLIPBOARD_DESCRIPTION: &str = "Suggestions can use the text that you copy. GhostType reads the \
      clipboard only when you start to type, and does not save the text.";
+const CLIPBOARD_ON_FOCUS_DESCRIPTION: &str = "Suggestions can use the text that you copy. GhostType reads \
+     the clipboard when you go to a text field, and does not save the text.";
+const PREPARATION_LABEL: &str = "Prepare before you type";
+const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model reads the text around the \
+     caret before you type. The first suggestion then shows sooner, but this uses more power.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -236,6 +249,8 @@ impl GeneralPane {
             GeneralAction::ResetSystemPrompt => self.change_system_prompt(None),
             GeneralAction::AllowClipboard => self.change_clipboard_access(ClipboardAccess::Allowed),
             GeneralAction::DenyClipboard => self.change_clipboard_access(ClipboardAccess::Denied),
+            GeneralAction::PrepareOnFocus => self.change_prompt_preparation(PromptPreparation::OnFocus),
+            GeneralAction::PrepareOnFirstKey => self.change_prompt_preparation(PromptPreparation::OnFirstKey),
         }
     }
 
@@ -254,8 +269,13 @@ impl GeneralPane {
             suggestion_model: suggestion_model_picker(playground, installed),
             clipboard: SettingSwitch {
                 label: CLIPBOARD_LABEL,
-                description: CLIPBOARD_DESCRIPTION,
+                description: self.clipboard_description(),
                 is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
+            },
+            prompt_preparation: SettingSwitch {
+                label: PREPARATION_LABEL,
+                description: PREPARATION_DESCRIPTION,
+                is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
             },
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
             backend_note: playground.load_note().filter(|_| self.has_backend_menu),
@@ -298,6 +318,14 @@ impl GeneralPane {
         self.changed_settings()
     }
 
+    fn change_prompt_preparation(&mut self, preparation: PromptPreparation) -> GeneralOutcome {
+        if preparation == self.settings.prompt_preparation {
+            return GeneralOutcome::default();
+        }
+        self.settings.prompt_preparation = preparation;
+        self.changed_settings()
+    }
+
     fn changed_settings(&self) -> GeneralOutcome {
         GeneralOutcome {
             settings: Some(self.settings.clone()),
@@ -310,6 +338,13 @@ impl GeneralPane {
             change(autostart.as_mut());
         }
         GeneralOutcome::default()
+    }
+
+    fn clipboard_description(&self) -> &'static str {
+        match self.settings.prompt_preparation {
+            PromptPreparation::OnFirstKey => CLIPBOARD_DESCRIPTION,
+            PromptPreparation::OnFocus => CLIPBOARD_ON_FOCUS_DESCRIPTION,
+        }
     }
 
     fn backend_picker(&self, playground: &PlaygroundPane) -> BackendPicker {
@@ -506,6 +541,11 @@ mod tests {
                 clipboard: SettingSwitch {
                     label: "Use copied text",
                     description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
+                    is_on: false,
+                },
+                prompt_preparation: SettingSwitch {
+                    label: "Prepare before you type",
+                    description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
                     is_on: false,
                 },
                 backend: Some(BackendPicker {
@@ -970,5 +1010,61 @@ mod tests {
         let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut PlaygroundPane::new());
 
         assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    fn preparation_settings(prompt_preparation: PromptPreparation) -> Settings {
+        Settings {
+            prompt_preparation,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn preparing_on_focus_keeps_it_and_turns_the_switch_on() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut playground);
+
+        let is_on = pane.view(&playground, &[]).prompt_preparation.is_on;
+        assert_eq!(
+            (outcome, is_on),
+            (
+                settings_outcome(preparation_settings(PromptPreparation::OnFocus)),
+                true
+            )
+        );
+    }
+
+    #[test]
+    fn preparing_on_the_first_key_keeps_it_and_turns_the_switch_off() {
+        let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(GeneralAction::PrepareOnFirstKey, &mut playground);
+
+        let is_on = pane.view(&playground, &[]).prompt_preparation.is_on;
+        assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    }
+
+    #[test]
+    fn choosing_the_current_preparation_does_nothing() {
+        let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
+
+        let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    #[test]
+    fn clipboard_description_tells_that_preparing_on_focus_reads_the_clipboard_before_a_key() {
+        let pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
+
+        let clipboard = pane.view(&PlaygroundPane::new(), &[]).clipboard;
+
+        assert_eq!(
+            clipboard.description,
+            "Suggestions can use the text that you copy. GhostType reads the clipboard when you go to a text field, and does not save the text."
+        );
     }
 }

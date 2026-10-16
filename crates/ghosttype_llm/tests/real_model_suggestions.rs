@@ -14,6 +14,7 @@ use ghosttype_core::inference::{
     TokenCount,
 };
 use ghosttype_core::key::Key;
+use ghosttype_core::settings::{PromptPreparation, Settings};
 use ghosttype_llm::LlamaCpp;
 
 struct Editor;
@@ -236,4 +237,40 @@ fn newer_completion_replaces_one_that_did_not_finish() {
         (replaced.err(), newest.is_ok()),
         (Some(InferenceError::Superseded), true)
     );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn completion_of_no_tokens_adds_no_text() {
+    let mut model = LoadedModel::load();
+
+    let completion = model.complete(Reaction::Request(InferenceRequest::Complete {
+        prompt: Prompt(SHORT_PROMPT.to_owned()),
+        max_tokens: TokenCount(0),
+    }));
+
+    assert!(
+        matches!(&completion, Ok(Completion { text, tokens: TokenCount(0), .. }) if text.is_empty()),
+        "unexpected {completion:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn first_key_in_a_prepared_field_suggests_text() {
+    let mut model = LoadedModel::load();
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        prompt_preparation: PromptPreparation::OnFocus,
+        ..Settings::default()
+    });
+    let preparation = app
+        .on_input_settled(&Editor)
+        .expect("the app prepares the open field");
+    model.runner.submit(preparation, &model.sink);
+    app.on_completion(model.next_completion());
+
+    let reaction = suggest_after(&mut model, &mut app, "Thank you for your");
+
+    assert!(matches!(reaction, Reaction::Show(_)), "unexpected {reaction:?}");
 }

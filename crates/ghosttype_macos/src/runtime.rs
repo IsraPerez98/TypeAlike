@@ -7,7 +7,7 @@ use std::ptr::{self, NonNull};
 use std::sync::Arc;
 
 use dispatch2::DispatchQueue;
-use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
+use ghosttype_core::app::{App, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
@@ -23,6 +23,7 @@ use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSControlStateValueOn, NSMenuItem,
     NSPopUpButton, NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
@@ -68,7 +69,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
         sel!(pickMenuItem:),
         main_thread,
     );
-    observe_space_changes(&target);
+    observe_workspace(&target);
     main_menu::install(main_thread);
     app.use_settings(&settings);
     let mut playground = PlaygroundPane::new();
@@ -90,6 +91,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
         tap,
         target,
         caret_timer: None,
+        settle_timer: None,
         pending_ghost: None,
         pending_injection: None,
         release_filter: ReleaseFilter::default(),
@@ -110,14 +112,20 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     Ok(())
 }
 
-fn observe_space_changes(target: &RuntimeTarget) {
+fn observe_workspace(target: &RuntimeTarget) {
     let center = NSWorkspace::sharedWorkspace().notificationCenter();
-    // SAFETY: the target implements the selector, and the center drops deallocated observers itself.
+    // SAFETY: the target implements each selector, and the center drops deallocated observers itself.
     unsafe {
         center.addObserver_selector_name_object(
             target,
             sel!(activeSpaceDidChange:),
             Some(NSWorkspaceActiveSpaceDidChangeNotification),
+            None,
+        );
+        center.addObserver_selector_name_object(
+            target,
+            sel!(applicationDidActivate:),
+            Some(NSWorkspaceDidActivateApplicationNotification),
             None,
         );
     }
@@ -148,6 +156,7 @@ struct Runtime {
     tap: EventTap,
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
+    settle_timer: Option<Retained<NSTimer>>,
     pending_ghost: Option<String>,
     pending_injection: Option<String>,
     release_filter: ReleaseFilter,
@@ -168,6 +177,7 @@ impl Runtime {
         if CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG {
             return Disposition::Pass;
         }
+        self.restart_settle_timer();
         match kind {
             CGEventType::KeyDown => self.on_key_down(event),
             CGEventType::KeyUp => {
@@ -207,6 +217,28 @@ impl Runtime {
         let reaction = self.app.on_context_lost();
         self.apply(reaction);
         self.render_badge(None);
+    }
+
+    fn restart_settle_timer(&mut self) {
+        if let Some(timer) = self.settle_timer.take() {
+            timer.invalidate();
+        }
+        self.settle_timer = Some(self.schedule(INPUT_SETTLE_DELAY.as_secs_f64(), sel!(inputDidSettle:)));
+    }
+
+    fn on_input_settled(&mut self) {
+        self.settle_timer = None;
+        if self.focus.refresh() == FocusChange::Changed {
+            self.on_context_lost();
+        }
+        if let Some(request) = self.app.on_input_settled(&self.focus) {
+            self.runner.submit(request, &self.suggestion_sink);
+        }
+    }
+
+    fn on_space_change(&mut self) {
+        self.on_context_lost();
+        self.restart_settle_timer();
     }
 
     fn apply(&mut self, reaction: Reaction) -> Disposition {
@@ -364,6 +396,7 @@ impl Runtime {
                 complete_action: sel!(completePlaygroundText:),
                 autostart_action: sel!(switchAutostart:),
                 clipboard_action: sel!(switchClipboard:),
+                preparation_action: sel!(switchPreparation:),
                 suggestion_model_action: sel!(pickSuggestionModel:),
                 system_prompt_action: sel!(systemPromptDidChange:),
                 reset_system_prompt_action: sel!(resetSystemPrompt:),
@@ -542,6 +575,17 @@ define_class!(
             with_runtime(|runtime| runtime.on_general_action(action));
         }
 
+        // SAFETY: matches the action signature, called with the General pane's prompt preparation switch.
+        #[unsafe(method(switchPreparation:))]
+        fn switch_preparation(&self, sender: &NSSwitch) {
+            let action = if sender.state() == NSControlStateValueOn {
+                GeneralAction::PrepareOnFocus
+            } else {
+                GeneralAction::PrepareOnFirstKey
+            };
+            with_runtime(|runtime| runtime.on_general_action(action));
+        }
+
         // SAFETY: matches the action signature, called with the General pane's suggestion model menu.
         #[unsafe(method(pickSuggestionModel:))]
         fn pick_suggestion_model(&self, sender: &NSPopUpButton) {
@@ -574,6 +618,12 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(inputDidSettle:))]
+        fn input_did_settle(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_input_settled);
+        }
+
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
             let text = with_runtime(|runtime| runtime.pending_injection.take()).flatten();
@@ -587,7 +637,13 @@ define_class!(
         // SAFETY: matches the notification observer signature.
         #[unsafe(method(activeSpaceDidChange:))]
         fn active_space_did_change(&self, _notification: &NSNotification) {
-            with_runtime(Runtime::on_context_lost);
+            with_runtime(Runtime::on_space_change);
+        }
+
+        // SAFETY: matches the notification observer signature.
+        #[unsafe(method(applicationDidActivate:))]
+        fn application_did_activate(&self, _notification: &NSNotification) {
+            with_runtime(Runtime::restart_settle_timer);
         }
     }
 );

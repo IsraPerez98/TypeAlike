@@ -19,6 +19,17 @@ pub enum ClipboardAccess {
     Allowed,
 }
 
+/// When GhostType gives the text around the caret to the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PromptPreparation {
+    /// At the first key that the user types in a field.
+    #[default]
+    OnFirstKey,
+    /// When the keys and clicks stop in a field, before the user types. The first suggestion then
+    /// shows sooner, but the model also works when the user does not type.
+    OnFocus,
+}
+
 /// Everything that GhostType keeps between runs.
 ///
 /// ```
@@ -37,6 +48,8 @@ pub struct Settings {
     pub custom_system_prompt: Option<SystemPrompt>,
     /// Whether suggestions may use the text on the clipboard.
     pub clipboard_access: ClipboardAccess,
+    /// When GhostType gives the text around the caret to the model.
+    pub prompt_preparation: PromptPreparation,
 }
 
 impl Settings {

@@ -1,10 +1,16 @@
 //! App lifecycle: whether suggestions are on, and the tray menu and caret badge that control it.
 
+use std::time::Duration;
+
 use crate::desktop::Desktop;
 use crate::engine::{Engine, Reaction};
-use crate::inference::{Completion, InferenceError};
+use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
-use crate::settings::Settings;
+use crate::settings::{PromptPreparation, Settings};
+
+/// The time without keys and clicks after which the caret is where the user types next. A short
+/// stop on the way to another field must not start the model.
+pub const INPUT_SETTLE_DELAY: Duration = Duration::from_millis(300);
 
 /// Whether GhostType is currently offering suggestions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -124,6 +130,7 @@ pub struct App {
     engine: Engine,
     status: Status,
     is_in_open_field: bool,
+    prompt_preparation: PromptPreparation,
 }
 
 impl App {
@@ -135,9 +142,23 @@ impl App {
     }
 
     /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
-    /// place on.
+    /// place on, and its prompt preparation from now on.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
+        self.prompt_preparation = settings.prompt_preparation;
+    }
+
+    /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. With
+    /// [`PromptPreparation::OnFocus`], it returns the request that decodes the prompt of the
+    /// focused field of `desktop` before the user types. Submit it as the request of a
+    /// [`Reaction::Request`]. Its completion goes to [`on_completion`](Self::on_completion).
+    pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
+        let prepares_on_focus =
+            self.status == Status::Active && self.prompt_preparation == PromptPreparation::OnFocus;
+        if !prepares_on_focus || desktop.field() == Field::Excluded {
+            return None;
+        }
+        self.engine.prepare(desktop)
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
@@ -235,12 +256,10 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
     use crate::desktop::Surroundings;
     use crate::engine::MAX_SUGGESTION_TOKENS;
-    use crate::inference::{InferenceRequest, Prompt, TokenCount};
+    use crate::inference::{Prompt, SystemPrompt, TokenCount};
 
     struct FakeDesktop(Field);
 
@@ -344,6 +363,59 @@ mod tests {
             reaction,
             request(&format!("{}\n\nB", crate::settings::DEFAULT_SYSTEM_PROMPT))
         );
+    }
+
+    fn app_preparing_on_focus() -> App {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            custom_system_prompt: Some(SystemPrompt(String::new())),
+            prompt_preparation: PromptPreparation::OnFocus,
+            ..Settings::default()
+        });
+        app
+    }
+
+    #[test]
+    fn settled_input_prepares_the_open_field() {
+        let mut app = app_preparing_on_focus();
+
+        let request = app.on_input_settled(&FakeDesktop(Field::Open));
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Complete {
+                prompt: Prompt(String::new()),
+                max_tokens: TokenCount(0),
+            })
+        );
+    }
+
+    #[test]
+    fn settled_input_prepares_nothing_when_preparation_waits_for_the_first_key() {
+        let mut app = App::new();
+
+        let request = app.on_input_settled(&FakeDesktop(Field::Open));
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn settled_input_prepares_no_excluded_field() {
+        let mut app = app_preparing_on_focus();
+
+        let request = app.on_input_settled(&FakeDesktop(Field::Excluded));
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn paused_app_prepares_nothing() {
+        let mut app = app_preparing_on_focus();
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        let request = app.on_input_settled(&FakeDesktop(Field::Open));
+
+        assert_eq!(request, None);
     }
 
     #[test]

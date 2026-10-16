@@ -69,7 +69,8 @@ pub enum InferenceRequest {
     },
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`], after zero or more
     /// [`InferenceEvent::Partial`]. The added text can also finish the last word of `prompt`. The
-    /// runner stops at the first line break that it adds.
+    /// runner stops at the first line break that it adds. With a `max_tokens` of zero, the runner
+    /// only decodes `prompt`, so that a later prompt that starts with it completes sooner.
     Complete {
         /// The text to continue.
         prompt: Prompt,
