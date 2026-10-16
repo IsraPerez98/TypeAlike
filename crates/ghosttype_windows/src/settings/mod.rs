@@ -1,5 +1,5 @@
 //! The settings window: a navigation list of panes, like the Settings app, that renders the core
-//! Models, Playground and General panes and reports user actions back.
+//! General, Models and Playground panes and reports user actions back.
 //!
 //! Mica fills the whole window: the frame extends over the client area, and every window in it
 //! draws with Direct2D into pixels with alpha. Transparent pixels show Mica, and cards and
@@ -113,13 +113,13 @@ pub(crate) enum MenuPicker {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
+    General,
     Models,
     Playground,
-    General,
 }
 
 /// The panes in the order of the navigation list.
-const PANES: [Pane; 3] = [Pane::Models, Pane::Playground, Pane::General];
+const PANES: [Pane; 3] = [Pane::General, Pane::Models, Pane::Playground];
 
 /// The title bar and taskbar icons of the window, kept alive while the window shows them.
 #[derive(Debug)]
@@ -175,7 +175,7 @@ impl SettingsWindow {
             models: ModelsPage::create(handle, procedures.models_page)?,
             playground: PlaygroundPage::create(handle, procedures.playground_page)?,
             general: GeneralPage::create(handle, procedures.general_page)?,
-            selected: Pane::Models,
+            selected: Pane::General,
             appearance,
             icons: None,
             window,
