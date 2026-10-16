@@ -268,6 +268,18 @@ impl Runtime {
         self.apply(reaction);
     }
 
+    /// Starts the window timer `timer_id`, or restarts it when it runs. Returns whether it runs.
+    fn start_timer(&self, timer_id: usize, delay_ms: u32) -> bool {
+        // SAFETY: plain call on our own window.
+        unsafe { SetTimer(Some(self.window.handle()), timer_id, delay_ms, None) != 0 }
+    }
+
+    fn stop_timer(&self, timer_id: usize) {
+        // Fails only when no timer is pending, which needs no handling.
+        // SAFETY: plain call on our own window.
+        let _ = unsafe { KillTimer(Some(self.window.handle()), timer_id) };
+    }
+
     fn apply(&mut self, reaction: Reaction) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
@@ -322,19 +334,11 @@ impl Runtime {
     }
 
     fn restart_ghost_timer(&mut self) {
-        // SAFETY: plain call on our own window.
-        let timer = unsafe {
-            SetTimer(
-                Some(self.window.handle()),
-                GHOST_TIMER_ID,
-                CARET_SETTLE_DELAY_MS,
-                None,
-            )
-        };
-        if timer == 0 {
+        let is_started = self.start_timer(GHOST_TIMER_ID, CARET_SETTLE_DELAY_MS);
+        if !is_started {
             tracing::warn!(error = %Error::from_thread(), "failed to schedule ghost text");
         }
-        self.is_ghost_timer_pending = timer != 0;
+        self.is_ghost_timer_pending = is_started;
     }
 
     fn hide_ghost(&mut self) {
@@ -345,9 +349,7 @@ impl Runtime {
 
     fn stop_ghost_timer(&mut self) {
         self.is_ghost_timer_pending = false;
-        // Fails only when no timer is pending, which needs no handling.
-        // SAFETY: plain call on our own window.
-        let _ = unsafe { KillTimer(Some(self.window.handle()), GHOST_TIMER_ID) };
+        self.stop_timer(GHOST_TIMER_ID);
     }
 
     fn show_pending_ghost(&mut self) {

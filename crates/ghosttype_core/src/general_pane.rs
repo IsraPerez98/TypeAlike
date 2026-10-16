@@ -50,20 +50,9 @@ pub struct BackendPicker {
     pub is_enabled: bool,
 }
 
-/// The switch that starts GhostType when the user logs in.
+/// A switch that turns a setting on and off.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AutostartSwitch {
-    /// Text before the switch, in sentence case.
-    pub label: &'static str,
-    /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
-    /// Whether the switch shows on.
-    pub is_on: bool,
-}
-
-/// The switch that lets suggestions use the text on the clipboard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClipboardSwitch {
+pub struct SettingSwitch {
     /// Text before the switch, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the setting changes.
@@ -108,11 +97,11 @@ pub struct GeneralView {
     /// One or two sentences under the title about what the pane is for.
     pub summary: &'static str,
     /// The autostart switch, or `None` when this platform cannot start GhostType at login.
-    pub autostart: Option<AutostartSwitch>,
+    pub autostart: Option<SettingSwitch>,
     /// The suggestion model menu.
     pub suggestion_model: SuggestionModelPicker,
     /// The clipboard switch.
-    pub clipboard: ClipboardSwitch,
+    pub clipboard: SettingSwitch,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<BackendPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
@@ -257,13 +246,13 @@ impl GeneralPane {
         GeneralView {
             title: PANE_TITLE,
             summary: PANE_SUMMARY,
-            autostart: self.autostart.as_ref().map(|autostart| AutostartSwitch {
+            autostart: self.autostart.as_ref().map(|autostart| SettingSwitch {
                 label: AUTOSTART_LABEL,
                 description: AUTOSTART_DESCRIPTION,
                 is_on: autostart.is_enabled(),
             }),
             suggestion_model: suggestion_model_picker(playground, installed),
-            clipboard: ClipboardSwitch {
+            clipboard: SettingSwitch {
                 label: CLIPBOARD_LABEL,
                 description: CLIPBOARD_DESCRIPTION,
                 is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
@@ -514,7 +503,7 @@ mod tests {
                         tone: NoteTone::Plain,
                     }),
                 },
-                clipboard: ClipboardSwitch {
+                clipboard: SettingSwitch {
                     label: "Use copied text",
                     description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
                     is_on: false,
@@ -671,7 +660,7 @@ mod tests {
 
         assert_eq!(
             view.autostart,
-            Some(AutostartSwitch {
+            Some(SettingSwitch {
                 label: "Open at login",
                 description: "Start GhostType when you log in to this computer.",
                 is_on: true,

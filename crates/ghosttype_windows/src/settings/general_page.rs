@@ -2,7 +2,7 @@
 //! backend the user picks, and the system prompt the user writes.
 
 use ghosttype_core::general_pane::{
-    BackendChoice, BackendPicker, ClipboardSwitch, GeneralAction, GeneralView, SystemPromptEditor,
+    BackendChoice, BackendPicker, GeneralAction, GeneralView, SettingSwitch, SystemPromptEditor,
 };
 use ghosttype_core::inference::SystemPrompt;
 use windows::Win32::Foundation::HWND;
@@ -31,10 +31,7 @@ const LINE_BREAK: &str = "\n";
 #[derive(Debug)]
 pub(crate) struct GeneralPage {
     header: Header,
-    clipboard_label: Control,
-    clipboard_description: Control,
-    clipboard_switch: Control,
-    is_clipboard_on: bool,
+    clipboard: SwitchCard,
     backend_label: Control,
     backend_description: Control,
     backend_note: Control,
@@ -55,10 +52,7 @@ impl GeneralPage {
         let control = |kind, role, style| Control::create(host, kind, role, style);
         Ok(Self {
             header: Header::create(host)?,
-            clipboard_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
-            clipboard_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
-            clipboard_switch: control(ControlKind::Switch, TextRole::Body, CARD_TEXT)?,
-            is_clipboard_on: false,
+            clipboard: SwitchCard::create(host)?,
             backend_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
             backend_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
@@ -84,7 +78,7 @@ impl GeneralPage {
     pub(crate) fn render(&mut self, view: &GeneralView, appearance: &Appearance) {
         self.page.set_title(view.title);
         self.header.render(view.title, view.summary);
-        self.render_clipboard(&view.clipboard);
+        self.clipboard.render(&view.clipboard);
         if let Some(backend) = &view.backend {
             self.render_backend(backend);
         }
@@ -94,19 +88,6 @@ impl GeneralPage {
         }
         self.render_system_prompt(&view.system_prompt);
         self.layout(appearance);
-    }
-
-    fn render_clipboard(&mut self, clipboard: &ClipboardSwitch) {
-        self.clipboard_label.set_text(clipboard.label);
-        self.clipboard_description.set_text(clipboard.description);
-        if clipboard.is_on {
-            self.clipboard_switch.set_text(SWITCH_ON_TEXT);
-            self.clipboard_switch.mark_selected();
-        } else {
-            self.clipboard_switch.set_text(SWITCH_OFF_TEXT);
-            self.clipboard_switch.mark_unselected();
-        }
-        self.is_clipboard_on = clipboard.is_on;
     }
 
     fn render_system_prompt(&mut self, editor: &SystemPromptEditor) {
@@ -139,13 +120,8 @@ impl GeneralPage {
             let mut shapes = Vec::new();
             self.header.layout(&mut column, &mut placer, appearance);
             column.skip(appearance.px(SECTION_GAP));
-            let clipboard_card = SettingCard {
-                label: &self.clipboard_label,
-                details: &[&self.clipboard_description],
-                control: &self.clipboard_switch,
-                control_width: SWITCH_WIDTH,
-            };
-            clipboard_card.layout(&mut column, &mut placer, appearance, &mut shapes);
+            self.clipboard
+                .layout(&mut column, &mut placer, appearance, &mut shapes);
             column.skip(appearance.px(SECTION_GAP));
             let with_note = [&self.backend_description, &self.backend_note];
             let details: &[&Control] = if self.has_note {
@@ -216,8 +192,8 @@ impl GeneralPage {
     /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard
     /// switch, an edit of the system prompt field, or a click of its reset button.
     pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
-        if control == self.clipboard_switch.handle() && notification == BN_CLICKED {
-            let action = if self.is_clipboard_on {
+        if self.clipboard.is_clicked(control, notification) {
+            let action = if self.clipboard.is_on {
                 GeneralAction::DenyClipboard
             } else {
                 GeneralAction::AllowClipboard
@@ -253,18 +229,77 @@ impl GeneralPage {
     }
 
     fn controls(&self) -> impl Iterator<Item = &Control> {
-        self.header.controls().into_iter().chain([
-            &self.clipboard_label,
-            &self.clipboard_description,
-            &self.clipboard_switch,
-            &self.backend_label,
-            &self.backend_description,
-            &self.backend_note,
-            &self.backend_picker,
-            &self.system_prompt_label,
-            &self.system_prompt_description,
-            &self.system_prompt_field,
-            &self.reset_system_prompt,
-        ])
+        self.header
+            .controls()
+            .into_iter()
+            .chain(self.clipboard.controls())
+            .chain([
+                &self.backend_label,
+                &self.backend_description,
+                &self.backend_note,
+                &self.backend_picker,
+                &self.system_prompt_label,
+                &self.system_prompt_description,
+                &self.system_prompt_field,
+                &self.reset_system_prompt,
+            ])
+    }
+}
+
+/// A card with a label, a description and a switch that turns the setting on and off.
+#[derive(Debug)]
+struct SwitchCard {
+    label: Control,
+    description: Control,
+    switch: Control,
+    is_on: bool,
+}
+
+impl SwitchCard {
+    fn create(host: HWND) -> Result<Self> {
+        let control = |kind, role, style| Control::create(host, kind, role, style);
+        Ok(Self {
+            label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
+            description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            switch: control(ControlKind::Switch, TextRole::Body, CARD_TEXT)?,
+            is_on: false,
+        })
+    }
+
+    fn render(&mut self, setting: &SettingSwitch) {
+        self.label.set_text(setting.label);
+        self.description.set_text(setting.description);
+        if setting.is_on {
+            self.switch.set_text(SWITCH_ON_TEXT);
+            self.switch.mark_selected();
+        } else {
+            self.switch.set_text(SWITCH_OFF_TEXT);
+            self.switch.mark_unselected();
+        }
+        self.is_on = setting.is_on;
+    }
+
+    fn layout(
+        &self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let card = SettingCard {
+            label: &self.label,
+            details: &[&self.description],
+            control: &self.switch,
+            control_width: SWITCH_WIDTH,
+        };
+        card.layout(column, placer, appearance, shapes);
+    }
+
+    fn is_clicked(&self, control: HWND, notification: u32) -> bool {
+        control == self.switch.handle() && notification == BN_CLICKED
+    }
+
+    fn controls(&self) -> [&Control; 3] {
+        [&self.label, &self.description, &self.switch]
     }
 }

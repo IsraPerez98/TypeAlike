@@ -1,7 +1,7 @@
 //! The General pane: the autostart switch, the clipboard switch and the suggestion model menu in
 //! one rounded group, then the system prompt editor.
 
-use ghosttype_core::general_pane::{AutostartSwitch, ClipboardSwitch, GeneralView, SystemPromptEditor};
+use ghosttype_core::general_pane::{GeneralView, SettingSwitch, SystemPromptEditor};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::Sel;
@@ -111,7 +111,8 @@ impl GeneralPage {
     pub(super) fn render(&mut self, view: &GeneralView) {
         set_text(&self.summary, view.summary);
         self.render_autostart(view.autostart.as_ref());
-        self.render_clipboard(&view.clipboard);
+        self.clipboard_row
+            .render_switch(&self.clipboard_switch, &view.clipboard);
         let picker = &view.suggestion_model;
         self.suggestion_model_row
             .render(picker.menu.label, picker.description);
@@ -120,30 +121,14 @@ impl GeneralPage {
         self.system_prompt.render(&view.system_prompt);
     }
 
-    fn render_autostart(&self, autostart: Option<&AutostartSwitch>) {
+    fn render_autostart(&self, autostart: Option<&SettingSwitch>) {
         self.autostart_row.row.container.setHidden(autostart.is_none());
         self.clipboard_row.row.separator.setHidden(autostart.is_none());
-        let Some(autostart) = autostart else {
-            return;
-        };
-        self.autostart_row.render(autostart.label, autostart.description);
-        render_switch(&self.autostart_switch, autostart.label, autostart.is_on);
+        if let Some(autostart) = autostart {
+            self.autostart_row
+                .render_switch(&self.autostart_switch, autostart);
+        }
     }
-
-    fn render_clipboard(&self, clipboard: &ClipboardSwitch) {
-        self.clipboard_row.render(clipboard.label, clipboard.description);
-        render_switch(&self.clipboard_switch, clipboard.label, clipboard.is_on);
-    }
-}
-
-fn render_switch(switch: &NSSwitch, label: &str, is_on: bool) {
-    switch.setAccessibilityLabel(Some(&NSString::from_str(label)));
-    let state = if is_on {
-        NSControlStateValueOn
-    } else {
-        NSControlStateValueOff
-    };
-    switch.setState(state);
 }
 
 /// A row of the group: a label over a description, and the control that changes the setting.
@@ -179,6 +164,18 @@ impl SettingRow {
     fn render(&self, label: &str, description: &str) {
         set_text(&self.label, label);
         set_text(&self.description, description);
+    }
+
+    /// Shows `setting` in the row and in its `switch`.
+    fn render_switch(&self, switch: &NSSwitch, setting: &SettingSwitch) {
+        self.render(setting.label, setting.description);
+        switch.setAccessibilityLabel(Some(&NSString::from_str(setting.label)));
+        let state = if setting.is_on {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        };
+        switch.setState(state);
     }
 }
 
