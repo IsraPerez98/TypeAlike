@@ -9,6 +9,10 @@ use crate::prompt::{self, last_chars};
 use crate::settings::{ClipboardAccess, Settings};
 
 pub(crate) const MAX_SUGGESTION_TOKENS: TokenCount = TokenCount(16);
+/// The characters before the caret that a session keeps when its text grows past
+/// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
+/// start of the prompt stays the same for many keys and the model runner can reuse its work.
+const TRIMMED_CHARS_BEFORE_CARET: usize = 750;
 
 /// What the platform must do after a key press, a context change or a completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,8 +215,10 @@ impl Engine {
     }
 
     fn keep_recent_text(&mut self) {
-        if let Some(session) = &mut self.session {
-            let kept = last_chars(&session.text_before, MAX_CHARS_BEFORE_CARET).len();
+        if let Some(session) = &mut self.session
+            && session.text_before.chars().count() > MAX_CHARS_BEFORE_CARET
+        {
+            let kept = last_chars(&session.text_before, TRIMMED_CHARS_BEFORE_CARET).len();
             session.text_before.drain(..session.text_before.len() - kept);
         }
     }
@@ -676,13 +682,26 @@ mod tests {
     }
 
     #[test]
-    fn context_keeps_only_recent_characters() {
+    fn context_past_the_limit_drops_old_characters_in_one_step() {
         let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
         engine.on_completion(completion(""));
 
         let reaction = press(&mut engine, Key::Char('y'));
 
-        assert_eq!(reaction, request(&"y".repeat(MAX_CHARS_BEFORE_CARET)));
+        assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET)));
+    }
+
+    #[test]
+    fn context_up_to_the_limit_keeps_its_start() {
+        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)));
+        engine.on_completion(completion(""));
+
+        let reaction = press(&mut engine, Key::Char('y'));
+
+        assert_eq!(
+            reaction,
+            request(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)))
+        );
     }
 
     #[test]
@@ -737,7 +756,7 @@ mod tests {
 
         let reaction = engine.on_key(Key::Char('y'), &FakeDesktop::with_field_text(&before_caret));
 
-        assert_eq!(reaction, request(&"y".repeat(MAX_CHARS_BEFORE_CARET)));
+        assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET)));
     }
 
     #[test]
