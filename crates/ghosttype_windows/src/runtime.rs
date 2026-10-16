@@ -83,7 +83,7 @@ thread_local! {
 pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Result<(), RunError> {
     let Services {
         hub,
-        runner,
+        mut runner,
         settings_store,
     } = services;
     let window = Window::create(WindowSpec {
@@ -109,6 +109,10 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     playground.use_settings(&settings);
     let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
     let general = GeneralPane::new(settings);
+    let runner_sink = mailbox.sink(Delivery::Playground);
+    if let Some(request) = general.load_suggestion_model(&mut playground) {
+        runner.submit(request, &runner_sink);
+    }
     STATE.with(|state| {
         state.runtime.replace(Some(Runtime {
             app,
@@ -128,7 +132,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
             general,
             settings_store,
             runner,
-            runner_sink: mailbox.sink(Delivery::Playground),
+            runner_sink,
             clipboard,
             suggestion_sink: mailbox.sink(Delivery::Suggestion),
             deliveries,
@@ -461,6 +465,9 @@ impl Runtime {
                 }
                 Delivery::Playground(event) => {
                     self.playground.on_event(event);
+                    if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
+                        self.settings_store.save(&settings);
+                    }
                     has_pane_changes = true;
                 }
                 Delivery::Suggestion(event) => self.on_suggestion_event(event),
