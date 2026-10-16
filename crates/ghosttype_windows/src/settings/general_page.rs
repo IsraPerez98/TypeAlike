@@ -3,7 +3,7 @@
 //! user writes.
 
 use ghosttype_core::general_pane::{
-    BackendChoice, BackendPicker, GeneralAction, GeneralView, SettingSwitch, SystemPromptEditor,
+    GeneralAction, GeneralView, SettingChoice, SettingPicker, SettingSwitch, SystemPromptEditor,
 };
 use ghosttype_core::inference::SystemPrompt;
 use windows::Win32::Foundation::HWND;
@@ -43,7 +43,7 @@ pub(crate) struct GeneralPage {
     system_prompt_description: Control,
     system_prompt_field: Control,
     reset_system_prompt: Control,
-    choices: Vec<BackendChoice>,
+    choices: Vec<SettingChoice>,
     has_note: bool,
     page: Page,
 }
@@ -106,7 +106,7 @@ impl GeneralPage {
         enable_if(&self.reset_system_prompt, editor.is_reset_enabled);
     }
 
-    fn render_backend(&mut self, backend: &BackendPicker) {
+    fn render_backend(&mut self, backend: &SettingPicker) {
         self.backend_label.set_text(backend.label);
         self.backend_description.set_text(backend.description);
         let titles: Vec<String> = backend

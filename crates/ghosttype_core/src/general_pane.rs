@@ -38,24 +38,24 @@ pub enum GeneralAction {
     ShowWhenComplete,
 }
 
-/// One entry of the backend menu.
+/// One entry of a setting menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendChoice {
+pub struct SettingChoice {
     /// Text shown for the entry.
     pub title: &'static str,
     /// What picking the entry does.
     pub action: GeneralAction,
 }
 
-/// The menu that picks the backend that runs models.
+/// A menu that picks the value of a setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendPicker {
+pub struct SettingPicker {
     /// Text before the menu, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the setting changes.
     pub description: &'static str,
     /// Menu entries, top to bottom. Never empty.
-    pub choices: Vec<BackendChoice>,
+    pub choices: Vec<SettingChoice>,
     /// Index of the entry the menu shows.
     pub selected: usize,
     /// Whether the user can open the menu.
@@ -119,7 +119,7 @@ pub struct GeneralView {
     /// The switch that shows each word of a suggestion as soon as the model writes it.
     pub suggestion_display: SettingSwitch,
     /// The backend menu, or `None` when the model runner picks the backend itself.
-    pub backend: Option<BackendPicker>,
+    pub backend: Option<SettingPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
     pub backend_note: Option<Note>,
     /// The system prompt editor.
@@ -369,15 +369,15 @@ impl GeneralPane {
         }
     }
 
-    fn backend_picker(&self, playground: &PlaygroundPane) -> BackendPicker {
-        let choices: Vec<BackendChoice> = BACKEND_CHOICES
+    fn backend_picker(&self, playground: &PlaygroundPane) -> SettingPicker {
+        let choices: Vec<SettingChoice> = BACKEND_CHOICES
             .iter()
-            .map(|&(backend, title)| BackendChoice {
+            .map(|&(backend, title)| SettingChoice {
                 title,
                 action: GeneralAction::SelectBackend(backend),
             })
             .collect();
-        BackendPicker {
+        SettingPicker {
             label: BACKEND_LABEL,
             description: BACKEND_DESCRIPTION,
             choices,
@@ -499,8 +499,8 @@ mod tests {
         )
     }
 
-    fn choice(title: &'static str, backend: Backend) -> BackendChoice {
-        BackendChoice {
+    fn backend_choice(title: &'static str, backend: Backend) -> SettingChoice {
+        SettingChoice {
             title,
             action: GeneralAction::SelectBackend(backend),
         }
@@ -575,13 +575,13 @@ mod tests {
                     description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                     is_on: false,
                 },
-                backend: Some(BackendPicker {
+                backend: Some(SettingPicker {
                     label: "Inference backend",
                     description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
                     choices: vec![
-                        choice("CPU", Backend::Cpu),
-                        choice("Vulkan (GPU)", Backend::Vulkan),
-                        choice("CUDA (NVIDIA GPU)", Backend::Cuda),
+                        backend_choice("CPU", Backend::Cpu),
+                        backend_choice("Vulkan (GPU)", Backend::Vulkan),
+                        backend_choice("CUDA (NVIDIA GPU)", Backend::Cuda),
                     ],
                     selected: 1,
                     is_enabled: true,
