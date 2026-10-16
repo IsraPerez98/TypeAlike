@@ -122,6 +122,8 @@ pub enum InferenceError {
     PromptTooLong,
     /// The runner failed while it computed the completion.
     Failed,
+    /// A newer completion request for the same sink replaced the request before it finished.
+    Superseded,
 }
 
 /// Receives inference events. The runner may call it from any thread.
@@ -130,5 +132,7 @@ pub type InferenceEventSink = Arc<dyn Fn(InferenceEvent) + Send + Sync>;
 /// Loads a language model and completes text with it, without blocking the caller.
 pub trait ModelRunner {
     /// Starts `request` and returns at once. Events reach `sink` in the order of the requests.
+    /// An [`InferenceRequest::Complete`] can stop the completion that runs for the same `sink`
+    /// (the same [`Arc`]), which then answers with [`InferenceError::Superseded`].
     fn submit(&mut self, request: InferenceRequest, sink: &InferenceEventSink);
 }

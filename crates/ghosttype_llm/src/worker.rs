@@ -5,6 +5,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str;
+use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
@@ -51,28 +52,37 @@ pub(crate) struct Job {
     pub(crate) sink: InferenceEventSink,
 }
 
-/// The jobs that wait, with the job that a step took and gave back.
+/// The jobs that wait.
 struct JobQueue<'jobs> {
     jobs: &'jobs Receiver<Job>,
-    given_back: Option<Job>,
+    /// The job that comes before the jobs in `jobs`: a job that a step looked at or gave back.
+    next_job: Option<Job>,
 }
 
 impl<'jobs> JobQueue<'jobs> {
     fn new(jobs: &'jobs Receiver<Job>) -> Self {
-        Self {
-            jobs,
-            given_back: None,
-        }
+        Self { jobs, next_job: None }
     }
 
     /// Waits for the next job. Returns `None` when every sender is gone.
     fn next(&mut self) -> Option<Job> {
-        self.given_back.take().or_else(|| self.jobs.recv().ok())
+        self.next_job.take().or_else(|| self.jobs.recv().ok())
     }
 
     /// Makes `job` the next job again.
     fn give_back(&mut self, job: Job) {
-        self.given_back = Some(job);
+        self.next_job = Some(job);
+    }
+
+    /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
+    /// completion for `sink` that runs now.
+    fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
+        if self.next_job.is_none() {
+            self.next_job = self.jobs.try_recv().ok();
+        }
+        self.next_job.as_ref().is_some_and(|job| {
+            matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.sink, sink)
+        })
     }
 }
 
@@ -130,34 +140,19 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Llam
 /// Runs the completions for the loaded `model` until a job loads or unloads a model. It gives that
 /// job back to `queue`, so the model is gone before the next model loads.
 fn serve(llama: &LlamaBackend, model: &LlamaModel, queue: &mut JobQueue<'_>) {
-    let mut cache = None;
+    let mut loaded = LoadedModel {
+        llama,
+        model,
+        cache: None,
+    };
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete { prompt, max_tokens } = &job.request else {
             queue.give_back(job);
             return;
         };
-        let result = complete(llama, model, &mut cache, prompt, *max_tokens);
+        let result = loaded.complete(prompt, *max_tokens, &mut || queue.has_newer_completion(&job.sink));
         (job.sink)(InferenceEvent::Completed(result));
     }
-}
-
-fn complete<'model>(
-    llama: &LlamaBackend,
-    model: &'model LlamaModel,
-    cache: &mut Option<PromptCache<'model>>,
-    prompt: &Prompt,
-    max_tokens: TokenCount,
-) -> Result<Completion, InferenceError> {
-    let started = Instant::now();
-    let (text, tokens) = generate(llama, model, cache, prompt, max_tokens).map_err(|error| {
-        tracing::warn!(%error, "failed to complete text");
-        error.to_inference_error()
-    })?;
-    Ok(Completion {
-        text,
-        tokens,
-        duration: started.elapsed(),
-    })
 }
 
 /// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
@@ -261,12 +256,15 @@ enum GenerateError {
     Decode(#[from] DecodeError),
     #[error("failed to change the cache of a sequence")]
     Sequence(#[from] KvCacheConversionError),
+    #[error("a newer completion waits")]
+    Superseded,
 }
 
 impl GenerateError {
     fn to_inference_error(&self) -> InferenceError {
         match self {
             Self::PromptTooLong => InferenceError::PromptTooLong,
+            Self::Superseded => InferenceError::Superseded,
             Self::EmptyPrompt | Self::Context(_) | Self::Batch(_) | Self::Decode(_) | Self::Sequence(_) => {
                 InferenceError::Failed
             }
@@ -274,45 +272,81 @@ impl GenerateError {
     }
 }
 
-/// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or adds
-/// `max_tokens`. It keeps the prompt in `cache` for the next completion, and forgets the cache
-/// when llama.cpp fails.
-///
-/// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
-/// the first added tokens write that text again. A prompt that ends in a space or in a part of a
-/// word otherwise ends on tokens that the model seldom saw there, and the model continues it badly.
-fn generate<'model>(
-    llama: &LlamaBackend,
+/// A loaded model, with the cache of its last prompt.
+struct LoadedModel<'model> {
+    llama: &'model LlamaBackend,
     model: &'model LlamaModel,
-    cache: &mut Option<PromptCache<'model>>,
-    prompt: &Prompt,
-    max_tokens: TokenCount,
-) -> Result<(String, TokenCount), GenerateError> {
-    let vocab = model.vocab();
-    let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
-    let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
-    let context_tokens = CONTEXT_TOKENS.min(model.n_ctx_train());
-    let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
-    let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
-    if prompt_tokens.is_empty() {
-        return Err(GenerateError::EmptyPrompt);
+    cache: Option<PromptCache<'model>>,
+}
+
+impl LoadedModel<'_> {
+    /// Completes `prompt`. It stops early when `is_outdated` tells that a newer completion waits.
+    fn complete(
+        &mut self,
+        prompt: &Prompt,
+        max_tokens: TokenCount,
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<Completion, InferenceError> {
+        let started = Instant::now();
+        let (text, tokens) = self.generate(prompt, max_tokens, is_outdated).map_err(|error| {
+            if !matches!(error, GenerateError::Superseded) {
+                tracing::warn!(%error, "failed to complete text");
+            }
+            error.to_inference_error()
+        })?;
+        Ok(Completion {
+            text,
+            tokens,
+            duration: started.elapsed(),
+        })
     }
-    if prompt_tokens.len().saturating_add(max_added) > capacity {
-        return Err(GenerateError::PromptTooLong);
-    }
-    if cache.is_none() {
-        *cache = Some(PromptCache::new(llama, model, context_tokens)?);
-    }
-    let cached = cache.as_mut().expect("the cache exists above");
-    let added = match cached.complete(&vocab, &prompt_tokens, &healed_text, max_added) {
-        Ok(added) => added,
-        Err(error) => {
-            *cache = None;
-            return Err(error);
+
+    /// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or
+    /// adds `max_tokens`. It keeps the prompt in the cache for the next completion, and forgets the
+    /// cache when llama.cpp fails.
+    ///
+    /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
+    /// the first added tokens write that text again. A prompt that ends in a space or in a part of
+    /// a word otherwise ends on tokens that the model seldom saw there, and the model continues it
+    /// badly.
+    fn generate(
+        &mut self,
+        prompt: &Prompt,
+        max_tokens: TokenCount,
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<(String, TokenCount), GenerateError> {
+        let model = self.model;
+        let vocab = model.vocab();
+        let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
+        let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
+        let context_tokens = CONTEXT_TOKENS.min(model.n_ctx_train());
+        let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
+        let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
+        if prompt_tokens.is_empty() {
+            return Err(GenerateError::EmptyPrompt);
         }
-    };
-    let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
-    Ok((added_text(&vocab, &prompt_tokens, &added, &healed_text), tokens))
+        if prompt_tokens.len().saturating_add(max_added) > capacity {
+            return Err(GenerateError::PromptTooLong);
+        }
+        if self.cache.is_none() {
+            self.cache = Some(PromptCache::new(self.llama, model, context_tokens)?);
+        }
+        let cache = self.cache.as_mut().expect("the cache exists above");
+        let added = cache
+            .decode_prompt(&prompt_tokens, is_outdated)
+            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, is_outdated));
+        match added {
+            Ok(added) => {
+                let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
+                Ok((added_text(&vocab, &prompt_tokens, &added, &healed_text), tokens))
+            }
+            Err(GenerateError::Superseded) => Err(GenerateError::Superseded),
+            Err(error) => {
+                self.cache = None;
+                Err(error)
+            }
+        }
+    }
 }
 
 /// A context that keeps the last prompt, so that a later prompt that starts with the same tokens
@@ -338,26 +372,21 @@ impl<'model> PromptCache<'model> {
         })
     }
 
-    /// Continues `prompt`, whose first added tokens write `healed_text` again, and returns the
-    /// added tokens.
-    fn complete(
+    /// Makes the prompt sequence hold `prompt`. It first frees the cache of the last completion. It
+    /// keeps the cached tokens that `prompt` starts with, and decodes the rest in batches. Before
+    /// each batch, it stops when `is_outdated` tells so, and keeps the batches that it decoded.
+    fn decode_prompt(
         &mut self,
-        vocab: &LlamaVocab<'_>,
         prompt: &[LlamaToken],
-        healed_text: &[u8],
-        max_added: usize,
-    ) -> Result<Vec<LlamaToken>, GenerateError> {
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<(), GenerateError> {
         self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
-        self.decode_prompt(prompt)?;
-        self.continue_prompt(vocab, healed_text, max_added)
-    }
-
-    /// Makes the prompt sequence hold `prompt`. It keeps the cached tokens that `prompt` starts
-    /// with, and decodes the rest in batches.
-    fn decode_prompt(&mut self, prompt: &[LlamaToken]) -> Result<(), GenerateError> {
         self.keep(kept_tokens(&self.tokens, prompt));
         let batch_size = usize::try_from(BATCH_TOKENS).expect("a u32 fits in usize");
         for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
+            if is_outdated() {
+                return Err(GenerateError::Superseded);
+            }
             let mut batch = LlamaBatch::new(batch_tokens.len(), 1);
             for (offset, &token) in batch_tokens.iter().enumerate() {
                 let is_last = offset + 1 == batch_tokens.len();
@@ -397,12 +426,14 @@ impl<'model> PromptCache<'model> {
     }
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
-    /// for the next completion. Returns the added tokens.
+    /// for the next completion. Its first added tokens write `healed_text` again. Before each
+    /// decode, it stops when `is_outdated` tells so. Returns the added tokens.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
         healed_text: &[u8],
         max_added: usize,
+        is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<Vec<LlamaToken>, GenerateError> {
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
@@ -422,6 +453,9 @@ impl<'model> PromptCache<'model> {
             added.push(token);
             if ends_line || added.len() == max_added {
                 break;
+            }
+            if is_outdated() {
+                return Err(GenerateError::Superseded);
             }
             batch.clear();
             batch.add(
@@ -567,6 +601,8 @@ fn text_without_cut_character(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+
     use super::*;
 
     fn device(index: usize, backend: &str, device_type: LlamaBackendDeviceType) -> LlamaBackendDevice {
@@ -692,6 +728,75 @@ mod tests {
         let rests = cases.map(|(unwritten, piece, _)| unwritten_after(unwritten, piece));
 
         assert_eq!(rests, cases.map(|(_, _, rest)| rest));
+    }
+
+    fn sink() -> InferenceEventSink {
+        Arc::new(|_| {})
+    }
+
+    fn complete_request() -> InferenceRequest {
+        InferenceRequest::Complete {
+            prompt: Prompt("Dear".to_owned()),
+            max_tokens: TokenCount(4),
+        }
+    }
+
+    fn has_newer_completion(
+        waiting: InferenceRequest,
+        waiting_sink: &InferenceEventSink,
+        running_sink: &InferenceEventSink,
+    ) -> bool {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: waiting,
+                sink: Arc::clone(waiting_sink),
+            })
+            .expect("the queue receives jobs");
+        JobQueue::new(&jobs).has_newer_completion(running_sink)
+    }
+
+    #[test]
+    fn only_a_waiting_completion_for_the_same_sink_is_newer() {
+        let running = sink();
+        let other = sink();
+        let cases = [
+            (complete_request(), &running, true),
+            (complete_request(), &other, false),
+            (InferenceRequest::Unload, &running, false),
+        ];
+
+        let newer = cases
+            .clone()
+            .map(|(request, waiting_sink, _)| has_newer_completion(request, waiting_sink, &running));
+
+        assert_eq!(newer, cases.map(|(_, _, is_newer)| is_newer));
+    }
+
+    #[test]
+    fn empty_queue_has_no_newer_completion() {
+        let (_sender, jobs) = mpsc::channel();
+
+        let is_newer = JobQueue::new(&jobs).has_newer_completion(&sink());
+
+        assert!(!is_newer);
+    }
+
+    #[test]
+    fn job_that_was_looked_at_comes_next() {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: complete_request(),
+                sink: sink(),
+            })
+            .expect("the queue receives jobs");
+        let mut queue = JobQueue::new(&jobs);
+        queue.has_newer_completion(&sink());
+
+        let next = queue.next().map(|job| job.request);
+
+        assert_eq!(next, Some(complete_request()));
     }
 
     fn tokens(ids: &[i32]) -> Vec<LlamaToken> {

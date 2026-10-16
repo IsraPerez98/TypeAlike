@@ -38,41 +38,63 @@ struct LoadedModel {
     events: mpsc::Receiver<InferenceEvent>,
 }
 
+fn model_file() -> ModelFile {
+    ModelFile {
+        repo: "test/model".to_owned(),
+        name: "model.gguf".to_owned(),
+    }
+}
+
 impl LoadedModel {
     fn load() -> Self {
         let path =
             PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
-        let mut runner = LlamaCpp::new(move |_| Some(path.clone()));
+        let runner = LlamaCpp::new(move |_| Some(path.clone()));
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();
         });
-        let file = ModelFile {
-            repo: "test/model".to_owned(),
-            name: "model.gguf".to_owned(),
-        };
-        runner.submit(
-            InferenceRequest::Load {
-                file: file.clone(),
-                backend: None,
-            },
-            &sink,
-        );
-        let loaded = events.recv().expect("the runner answers the load");
-        assert_eq!(loaded, InferenceEvent::Loaded { file, result: Ok(()) });
-        Self { runner, sink, events }
+        let mut model = Self { runner, sink, events };
+        model.reload();
+        model
     }
 
-    fn complete(&mut self, reaction: Reaction) -> Result<Completion, InferenceError> {
+    fn reload(&mut self) {
+        self.runner.submit(
+            InferenceRequest::Load {
+                file: model_file(),
+                backend: None,
+            },
+            &self.sink,
+        );
+        let loaded = self.events.recv().expect("the runner answers the load");
+        assert_eq!(
+            loaded,
+            InferenceEvent::Loaded {
+                file: model_file(),
+                result: Ok(())
+            }
+        );
+    }
+
+    fn submit(&mut self, reaction: Reaction) {
         let Reaction::Request(request) = reaction else {
             panic!("expected a request, got {reaction:?}");
         };
         self.runner.submit(request, &self.sink);
+    }
+
+    fn next_completion(&self) -> Result<Completion, InferenceError> {
         let event = self.events.recv().expect("the runner answers the completion");
         let InferenceEvent::Completed(result) = event else {
             panic!("expected a completion, got {event:?}");
         };
         result
+    }
+
+    fn complete(&mut self, reaction: Reaction) -> Result<Completion, InferenceError> {
+        self.submit(reaction);
+        self.next_completion()
     }
 }
 
@@ -80,13 +102,16 @@ const SHORT_PROMPT: &str = "Thank you for the quick reply. I read the new terms 
 const LONG_PROMPT: &str =
     "Thank you for the quick reply. I read the new terms with the finance team this morning, and we";
 
-fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
-    let request = InferenceRequest::Complete {
+fn completion_request(prompt: &str) -> Reaction {
+    Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
-    };
+    })
+}
+
+fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
     model
-        .complete(Reaction::Request(request))
+        .complete(completion_request(prompt))
         .expect("the model completes the prompt")
         .text
 }
@@ -94,12 +119,13 @@ fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
 /// Types `text` into `app` while `model` completes, and returns the reaction to the completion
 /// of all of it.
 fn suggest_after(model: &mut LoadedModel, app: &mut App, text: &str) -> Reaction {
-    let mut characters = text.chars();
-    let first = characters.next().expect("the text is not empty");
-    let first_request = app.on_key(Key::Char(first), &Editor);
-    characters.for_each(|character| assert_eq!(app.on_key(Key::Char(character), &Editor), Reaction::Hide));
-    let stale = app.on_completion(model.complete(first_request));
-    app.on_completion(model.complete(stale))
+    text.chars()
+        .map(|character| app.on_key(Key::Char(character), &Editor))
+        .for_each(|reaction| model.submit(reaction));
+    text.chars()
+        .map(|_| app.on_completion(model.next_completion()))
+        .last()
+        .expect("the text is not empty")
 }
 
 #[test]
@@ -163,4 +189,28 @@ fn long_prompt_after_another_long_prompt_completes() {
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn newer_completion_replaces_one_that_did_not_finish() {
+    let mut model = LoadedModel::load();
+    model.runner.submit(
+        InferenceRequest::Load {
+            file: model_file(),
+            backend: None,
+        },
+        &model.sink,
+    );
+    model.submit(completion_request(SHORT_PROMPT));
+    model.submit(completion_request(LONG_PROMPT));
+    model.events.recv().expect("the runner answers the load");
+
+    let replaced = model.next_completion();
+    let newest = model.next_completion();
+
+    assert_eq!(
+        (replaced.err(), newest.is_ok()),
+        (Some(InferenceError::Superseded), true)
+    );
 }

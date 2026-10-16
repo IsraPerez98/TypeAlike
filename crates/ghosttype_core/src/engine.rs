@@ -29,7 +29,8 @@ pub enum Reaction {
         rest: Option<String>,
     },
     /// Let the key through, hide any ghost text and submit this request to the model runner.
-    /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion).
+    /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion). It replaces
+    /// the requests that the runner did not answer yet.
     Request(InferenceRequest),
 }
 
@@ -38,6 +39,7 @@ pub enum Reaction {
 pub(crate) struct Engine {
     session: Option<Session>,
     offer: Offer,
+    unanswered_requests: usize,
     system_prompt: SystemPrompt,
     clipboard_access: ClipboardAccess,
 }
@@ -54,7 +56,6 @@ enum Offer {
     #[default]
     Idle,
     Requested {
-        prompt: Prompt,
         is_dismissed: bool,
     },
     Shown(String),
@@ -84,10 +85,14 @@ impl Engine {
         }
     }
 
-    /// Handles the completion of the last [`Reaction::Request`].
+    /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
+    /// Only the completion of the newest request can show.
     pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+        self.unanswered_requests = self.unanswered_requests.saturating_sub(1);
+        if self.unanswered_requests > 0 {
+            return Reaction::Hide;
+        }
         match mem::take(&mut self.offer) {
-            Offer::Requested { prompt, .. } if self.prompt().as_ref() != Some(&prompt) => self.request(),
             Offer::Requested {
                 is_dismissed: false, ..
             } => result
@@ -107,10 +112,7 @@ impl Engine {
     /// Ends the session, for when the caret moved somewhere unknown.
     pub fn reset(&mut self) -> Reaction {
         self.session = None;
-        // A request in flight stays tracked, so that the engine never has two.
-        if let Offer::Shown(_) = self.offer {
-            self.offer = Offer::Idle;
-        }
+        self.offer = Offer::Idle;
         Reaction::Hide
     }
 
@@ -179,17 +181,12 @@ impl Engine {
     }
 
     fn request(&mut self) -> Reaction {
-        if let Offer::Requested { .. } = self.offer {
-            return Reaction::Hide;
-        }
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
         };
-        self.offer = Offer::Requested {
-            prompt: prompt.clone(),
-            is_dismissed: false,
-        };
+        self.offer = Offer::Requested { is_dismissed: false };
+        self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Reaction::Request(InferenceRequest::Complete {
             prompt,
             max_tokens: MAX_SUGGESTION_TOKENS,
@@ -380,12 +377,12 @@ mod tests {
     }
 
     #[test]
-    fn typing_while_waiting_hides() {
+    fn typing_while_waiting_requests_the_new_context() {
         let mut engine = engine_waiting_for("h");
 
         let reaction = press(&mut engine, Key::Char('e'));
 
-        assert_eq!(reaction, Reaction::Hide);
+        assert_eq!(reaction, request("he"));
     }
 
     #[test]
@@ -407,13 +404,24 @@ mod tests {
     }
 
     #[test]
-    fn stale_completion_requests_current_context() {
+    fn completion_of_a_replaced_request_is_dropped() {
         let mut engine = engine_waiting_for("he");
         press(&mut engine, Key::Char('l'));
 
         let reaction = engine.on_completion(completion("llo"));
 
-        assert_eq!(reaction, request("hel"));
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn completion_of_the_newest_request_shows() {
+        let mut engine = engine_waiting_for("he");
+        press(&mut engine, Key::Char('l'));
+        engine.on_completion(Err(InferenceError::Superseded));
+
+        let reaction = engine.on_completion(completion("lo"));
+
+        assert_eq!(reaction, show("lo"));
     }
 
     #[test]
@@ -624,9 +632,8 @@ mod tests {
     fn typing_after_escape_while_waiting_requests_again() {
         let mut engine = engine_waiting_for("hel");
         press(&mut engine, Key::Escape);
-        press(&mut engine, Key::Char('p'));
 
-        let reaction = engine.on_completion(completion("lo"));
+        let reaction = press(&mut engine, Key::Char('p'));
 
         assert_eq!(reaction, request("help"));
     }
@@ -672,11 +679,22 @@ mod tests {
     }
 
     #[test]
-    fn reset_keeps_one_request_in_flight() {
+    fn typing_after_reset_while_waiting_requests_the_new_context() {
         let mut engine = engine_waiting_for("hel");
         engine.reset();
 
         let reaction = press(&mut engine, Key::Char('x'));
+
+        assert_eq!(reaction, request("x"));
+    }
+
+    #[test]
+    fn completion_from_before_a_reset_is_dropped_after_a_new_request() {
+        let mut engine = engine_waiting_for("hel");
+        engine.reset();
+        press(&mut engine, Key::Char('x'));
+
+        let reaction = engine.on_completion(completion("lo"));
 
         assert_eq!(reaction, Reaction::Hide);
     }
