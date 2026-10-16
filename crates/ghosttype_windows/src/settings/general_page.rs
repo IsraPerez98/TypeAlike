@@ -1,6 +1,6 @@
 //! The General pane: renders the core [`GeneralView`] and reports the clipboard access, the prompt
-//! preparation, the suggestion display and the backend the user picks, and the system prompt the
-//! user writes.
+//! preparation, the suggestion display, the suggestion length and the backend the user picks, and
+//! the system prompt the user writes.
 
 use ghosttype_core::general_pane::{
     GeneralAction, GeneralView, SettingChoice, SettingPicker, SettingSwitch, SystemPromptEditor,
@@ -35,15 +35,13 @@ pub(crate) struct GeneralPage {
     clipboard: SwitchCard,
     preparation: SwitchCard,
     display: SwitchCard,
-    backend_label: Control,
-    backend_description: Control,
+    length: PickerCard,
+    backend: PickerCard,
     backend_note: Control,
-    backend_picker: Control,
     system_prompt_label: Control,
     system_prompt_description: Control,
     system_prompt_field: Control,
     reset_system_prompt: Control,
-    choices: Vec<SettingChoice>,
     has_note: bool,
     page: Page,
 }
@@ -58,15 +56,13 @@ impl GeneralPage {
             clipboard: SwitchCard::create(host)?,
             preparation: SwitchCard::create(host)?,
             display: SwitchCard::create(host)?,
-            backend_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
-            backend_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            length: PickerCard::create(host)?,
+            backend: PickerCard::create(host)?,
             backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
-            backend_picker: control(ControlKind::Picker, TextRole::Body, CARD_TEXT)?,
             system_prompt_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
             system_prompt_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             system_prompt_field: control(ControlKind::TextArea, TextRole::Body, CARD_TEXT)?,
             reset_system_prompt: control(ControlKind::Button, TextRole::Body, CARD_TEXT)?,
-            choices: Vec::new(),
             has_note: false,
             page,
         })
@@ -86,8 +82,9 @@ impl GeneralPage {
         self.clipboard.render(&view.clipboard);
         self.preparation.render(&view.prompt_preparation);
         self.display.render(&view.suggestion_display);
+        self.length.render(&view.suggestion_length);
         if let Some(backend) = &view.backend {
-            self.render_backend(backend);
+            self.backend.render(backend);
         }
         self.has_note = view.backend_note.is_some();
         if let Some(note) = &view.backend_note {
@@ -106,19 +103,6 @@ impl GeneralPage {
         enable_if(&self.reset_system_prompt, editor.is_reset_enabled);
     }
 
-    fn render_backend(&mut self, backend: &SettingPicker) {
-        self.backend_label.set_text(backend.label);
-        self.backend_description.set_text(backend.description);
-        let titles: Vec<String> = backend
-            .choices
-            .iter()
-            .map(|choice| choice.title.to_owned())
-            .collect();
-        self.backend_picker.set_choices(&titles, backend.selected);
-        enable_if(&self.backend_picker, backend.is_enabled);
-        self.choices.clone_from(&backend.choices);
-    }
-
     /// Places every control for the page's size and scroll offset.
     pub(crate) fn layout(&mut self, appearance: &Appearance) {
         loop {
@@ -131,20 +115,15 @@ impl GeneralPage {
                 switch_card.layout(&mut column, &mut placer, appearance, &mut shapes);
                 column.skip(appearance.px(SECTION_GAP));
             }
-            let with_note = [&self.backend_description, &self.backend_note];
-            let details: &[&Control] = if self.has_note {
-                &with_note
-            } else {
+            self.length
+                .layout(None, &mut column, &mut placer, appearance, &mut shapes);
+            column.skip(appearance.px(SECTION_GAP));
+            if !self.has_note {
                 self.backend_note.hide();
-                &with_note[..1]
-            };
-            let card = SettingCard {
-                label: &self.backend_label,
-                details,
-                control: &self.backend_picker,
-                control_width: PICKER_WIDTH,
-            };
-            card.layout(&mut column, &mut placer, appearance, &mut shapes);
+            }
+            let backend_note = self.has_note.then_some(&self.backend_note);
+            self.backend
+                .layout(backend_note, &mut column, &mut placer, appearance, &mut shapes);
             column.skip(appearance.px(SECTION_GAP));
             self.layout_system_prompt(&mut column, &mut placer, appearance, &mut shapes);
             let content_height = column.top() + appearance.px(form::PAGE_PADDING);
@@ -193,8 +172,13 @@ impl GeneralPage {
     }
 
     /// The action of the backend at `index` of the backend menu.
-    pub(crate) fn choice_at(&self, index: usize) -> Option<GeneralAction> {
-        self.choices.get(index).map(|choice| choice.action.clone())
+    pub(crate) fn backend_choice_at(&self, index: usize) -> Option<GeneralAction> {
+        self.backend.choice_at(index)
+    }
+
+    /// The action of the suggestion length at `index` of the suggestion length menu.
+    pub(crate) fn length_choice_at(&self, index: usize) -> Option<GeneralAction> {
+        self.length.choice_at(index)
     }
 
     /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard,
@@ -237,12 +221,22 @@ impl GeneralPage {
 
     /// Whether `control` is the backend picker.
     pub(crate) fn is_backend_picker(&self, control: HWND) -> bool {
-        control == self.backend_picker.handle()
+        control == self.backend.picker.handle()
     }
 
     /// The menu that the backend picker opens, below the picker on the screen.
     pub(crate) fn backend_menu(&self) -> PickerMenu {
-        self.backend_picker.picker_menu()
+        self.backend.picker.picker_menu()
+    }
+
+    /// Whether `control` is the suggestion length picker.
+    pub(crate) fn is_length_picker(&self, control: HWND) -> bool {
+        control == self.length.picker.handle()
+    }
+
+    /// The menu that the suggestion length picker opens, below the picker on the screen.
+    pub(crate) fn length_menu(&self) -> PickerMenu {
+        self.length.picker.picker_menu()
     }
 
     pub(crate) fn apply(&self, appearance: &Appearance) {
@@ -259,11 +253,10 @@ impl GeneralPage {
             .chain(self.clipboard.controls())
             .chain(self.preparation.controls())
             .chain(self.display.controls())
+            .chain(self.length.controls())
+            .chain(self.backend.controls())
             .chain([
-                &self.backend_label,
-                &self.backend_description,
                 &self.backend_note,
-                &self.backend_picker,
                 &self.system_prompt_label,
                 &self.system_prompt_description,
                 &self.system_prompt_field,
@@ -327,5 +320,66 @@ impl SwitchCard {
 
     fn controls(&self) -> [&Control; 3] {
         [&self.label, &self.description, &self.switch]
+    }
+}
+
+/// A card with a label, a description and a picker that opens a menu of the setting's values.
+#[derive(Debug)]
+struct PickerCard {
+    label: Control,
+    description: Control,
+    picker: Control,
+    choices: Vec<SettingChoice>,
+}
+
+impl PickerCard {
+    fn create(host: HWND) -> Result<Self> {
+        let control = |kind, role, style| Control::create(host, kind, role, style);
+        Ok(Self {
+            label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
+            description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
+            picker: control(ControlKind::Picker, TextRole::Body, CARD_TEXT)?,
+            choices: Vec::new(),
+        })
+    }
+
+    fn render(&mut self, setting: &SettingPicker) {
+        self.label.set_text(setting.label);
+        self.description.set_text(setting.description);
+        let titles: Vec<String> = setting
+            .choices
+            .iter()
+            .map(|choice| choice.title.to_owned())
+            .collect();
+        self.picker.set_choices(&titles, setting.selected);
+        enable_if(&self.picker, setting.is_enabled);
+        self.choices.clone_from(&setting.choices);
+    }
+
+    /// Places the card, with `note` below the description when there is one.
+    fn layout(
+        &self,
+        note: Option<&Control>,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let details: Vec<&Control> = [&self.description].into_iter().chain(note).collect();
+        let card = SettingCard {
+            label: &self.label,
+            details: &details,
+            control: &self.picker,
+            control_width: PICKER_WIDTH,
+        };
+        card.layout(column, placer, appearance, shapes);
+    }
+
+    fn choice_at(&self, index: usize) -> Option<GeneralAction> {
+        self.choices.get(index).map(|choice| choice.action.clone())
+    }
+
+    fn controls(&self) -> [&Control; 3] {
+        [&self.label, &self.description, &self.picker]
     }
 }

@@ -398,6 +398,7 @@ impl Runtime {
                 clipboard_action: sel!(switchClipboard:),
                 preparation_action: sel!(switchPreparation:),
                 display_action: sel!(switchDisplay:),
+                suggestion_length_action: sel!(pickSuggestionLength:),
                 suggestion_model_action: sel!(pickSuggestionModel:),
                 system_prompt_action: sel!(systemPromptDidChange:),
                 reset_system_prompt_action: sel!(resetSystemPrompt:),
@@ -464,6 +465,17 @@ impl Runtime {
             .and_then(|settings| settings.suggestion_model_choice(index));
         match action {
             Some(action) => self.on_playground_action(action),
+            None => self.render_settings(),
+        }
+    }
+
+    fn on_suggestion_length_picked(&mut self, index: isize) {
+        let action = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.suggestion_length_choice(index));
+        match action {
+            Some(action) => self.on_general_action(action),
             None => self.render_settings(),
         }
     }
@@ -596,6 +608,13 @@ define_class!(
                 GeneralAction::ShowWhenComplete
             };
             with_runtime(|runtime| runtime.on_general_action(action));
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's suggestion length menu.
+        #[unsafe(method(pickSuggestionLength:))]
+        fn pick_suggestion_length(&self, sender: &NSPopUpButton) {
+            let index = sender.indexOfSelectedItem();
+            with_runtime(|runtime| runtime.on_suggestion_length_picked(index));
         }
 
         // SAFETY: matches the action signature, called with the General pane's suggestion model menu.

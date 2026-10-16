@@ -7,6 +7,7 @@ use crate::inference::{Backend, InferenceRequest, SystemPrompt};
 use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
 use crate::settings::{
     Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings, SuggestionDisplay,
+    SuggestionLength,
 };
 
 /// Something the user did in the General pane.
@@ -36,6 +37,8 @@ pub enum GeneralAction {
     ShowWordByWord,
     /// Turned off the switch that shows each word of a suggestion as soon as the model writes it.
     ShowWhenComplete,
+    /// Picked this suggestion length.
+    SelectSuggestionLength(SuggestionLength),
 }
 
 /// One entry of a setting menu.
@@ -118,6 +121,8 @@ pub struct GeneralView {
     pub prompt_preparation: SettingSwitch,
     /// The switch that shows each word of a suggestion as soon as the model writes it.
     pub suggestion_display: SettingSwitch,
+    /// The menu that picks the most text that one suggestion shows.
+    pub suggestion_length: SettingPicker,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<SettingPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
@@ -152,6 +157,9 @@ const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model re
 const DISPLAY_LABEL: &str = "Show words early";
 const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
      word then shows sooner, but the suggestion grows while you read it.";
+const LENGTH_LABEL: &str = "Suggestion length";
+const LENGTH_DESCRIPTION: &str = "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a \
+     long suggestion about 10. A shorter suggestion shows sooner.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -159,6 +167,11 @@ const SYSTEM_PROMPT_LABEL: &str = "System prompt";
 const SYSTEM_PROMPT_DESCRIPTION: &str = "The model reads this text before the text you type. Describe the \
      writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.";
 const RESET_SYSTEM_PROMPT_LABEL: &str = "Reset to default";
+const LENGTH_CHOICES: [(SuggestionLength, &str); 3] = [
+    (SuggestionLength::Short, "Short"),
+    (SuggestionLength::Medium, "Medium"),
+    (SuggestionLength::Long, "Long"),
+];
 const BACKEND_CHOICES: [(Backend, &str); 3] = [
     (Backend::Cpu, "CPU"),
     (Backend::Vulkan, "Vulkan (GPU)"),
@@ -266,6 +279,9 @@ impl GeneralPane {
             GeneralAction::ShowWhenComplete => {
                 self.change_suggestion_display(SuggestionDisplay::WhenComplete)
             }
+            GeneralAction::SelectSuggestionLength(length) => {
+                self.change_setting(length, |settings| &mut settings.suggestion_length)
+            }
         }
     }
 
@@ -297,6 +313,7 @@ impl GeneralPane {
                 description: DISPLAY_DESCRIPTION,
                 is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
             },
+            suggestion_length: self.suggestion_length_picker(),
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
             backend_note: playground.load_note().filter(|_| self.has_backend_menu),
             system_prompt: SystemPromptEditor {
@@ -366,6 +383,26 @@ impl GeneralPane {
         match self.settings.prompt_preparation {
             PromptPreparation::OnFirstKey => CLIPBOARD_DESCRIPTION,
             PromptPreparation::OnFocus => CLIPBOARD_ON_FOCUS_DESCRIPTION,
+        }
+    }
+
+    fn suggestion_length_picker(&self) -> SettingPicker {
+        let choices = LENGTH_CHOICES
+            .iter()
+            .map(|&(length, title)| SettingChoice {
+                title,
+                action: GeneralAction::SelectSuggestionLength(length),
+            })
+            .collect();
+        SettingPicker {
+            label: LENGTH_LABEL,
+            description: LENGTH_DESCRIPTION,
+            choices,
+            selected: LENGTH_CHOICES
+                .iter()
+                .position(|&(length, _)| length == self.settings.suggestion_length)
+                .expect("every suggestion length has a menu entry"),
+            is_enabled: true,
         }
     }
 
@@ -506,6 +543,13 @@ mod tests {
         }
     }
 
+    fn length_choice(title: &'static str, length: SuggestionLength) -> SettingChoice {
+        SettingChoice {
+            title,
+            action: GeneralAction::SelectSuggestionLength(length),
+        }
+    }
+
     fn model_choice(title: &str, file: &ModelFile) -> ModelChoice {
         ModelChoice {
             title: title.to_owned(),
@@ -574,6 +618,17 @@ mod tests {
                     label: "Show words early",
                     description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                     is_on: false,
+                },
+                suggestion_length: SettingPicker {
+                    label: "Suggestion length",
+                    description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
+                    choices: vec![
+                        length_choice("Short", SuggestionLength::Short),
+                        length_choice("Medium", SuggestionLength::Medium),
+                        length_choice("Long", SuggestionLength::Long),
+                    ],
+                    selected: 1,
+                    is_enabled: true,
                 },
                 backend: Some(SettingPicker {
                     label: "Inference backend",
@@ -1123,6 +1178,36 @@ mod tests {
         let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
 
         let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    #[test]
+    fn selecting_a_suggestion_length_keeps_it_and_selects_its_entry() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(
+            GeneralAction::SelectSuggestionLength(SuggestionLength::Short),
+            &mut playground,
+        );
+
+        let selected = pane.view(&playground, &[]).suggestion_length.selected;
+        let short_settings = Settings {
+            suggestion_length: SuggestionLength::Short,
+            ..Settings::default()
+        };
+        assert_eq!((outcome, selected), (settings_outcome(short_settings), 0));
+    }
+
+    #[test]
+    fn selecting_the_current_suggestion_length_does_nothing() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = pane.on_action(
+            GeneralAction::SelectSuggestionLength(SuggestionLength::Medium),
+            &mut PlaygroundPane::new(),
+        );
 
         assert_eq!(outcome, GeneralOutcome::default());
     }

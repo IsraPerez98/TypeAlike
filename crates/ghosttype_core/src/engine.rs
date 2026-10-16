@@ -6,9 +6,8 @@ use crate::desktop::{Desktop, MAX_CHARS_BEFORE_CARET};
 use crate::inference::{Completion, InferenceError, InferenceRequest, Prompt, SystemPrompt, TokenCount};
 use crate::key::Key;
 use crate::prompt::{self, last_chars};
-use crate::settings::{ClipboardAccess, Settings};
+use crate::settings::{ClipboardAccess, Settings, SuggestionLength};
 
-pub(crate) const MAX_SUGGESTION_TOKENS: TokenCount = TokenCount(16);
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text grows past
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
@@ -43,6 +42,7 @@ pub(crate) struct Engine {
     unanswered_requests: usize,
     system_prompt: SystemPrompt,
     clipboard_access: ClipboardAccess,
+    suggestion_length: SuggestionLength,
 }
 
 /// The typing in one place: what the model reads before the text, and the text before the caret.
@@ -67,10 +67,12 @@ enum Offer {
 }
 
 impl Engine {
-    /// Uses the system prompt and the clipboard access of `settings` from the next session on.
+    /// Uses the system prompt and the clipboard access of `settings` from the next session on, and
+    /// its suggestion length from the next request on.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.system_prompt = settings.system_prompt();
         self.clipboard_access = settings.clipboard_access;
+        self.suggestion_length = settings.suggestion_length;
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
@@ -238,7 +240,7 @@ impl Engine {
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Reaction::Request(InferenceRequest::Complete {
             prompt,
-            max_tokens: MAX_SUGGESTION_TOKENS,
+            max_tokens: self.suggestion_length.max_tokens(),
         })
     }
 
@@ -393,7 +395,7 @@ mod tests {
     fn request(context: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
             prompt: Prompt(context.to_owned()),
-            max_tokens: MAX_SUGGESTION_TOKENS,
+            max_tokens: SuggestionLength::default().max_tokens(),
         })
     }
 
@@ -1005,6 +1007,25 @@ mod tests {
         let reaction = engine.on_key(Key::Char('h'), &FakeDesktop::with_clipboard("1Z999"));
 
         assert_eq!(reaction, request("Text on the clipboard: “1Z999”\n\nh"));
+    }
+
+    #[test]
+    fn short_suggestion_length_asks_for_fewer_tokens() {
+        let mut engine = engine_with(&Settings {
+            custom_system_prompt: Some(SystemPrompt(String::new())),
+            suggestion_length: SuggestionLength::Short,
+            ..Settings::default()
+        });
+
+        let reaction = press(&mut engine, Key::Char('h'));
+
+        assert_eq!(
+            reaction,
+            Reaction::Request(InferenceRequest::Complete {
+                prompt: Prompt("h".to_owned()),
+                max_tokens: TokenCount(4),
+            })
+        );
     }
 
     #[test]

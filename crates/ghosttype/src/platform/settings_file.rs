@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SystemPrompt};
 use ghosttype_core::settings::{
-    ClipboardAccess, PromptPreparation, Settings, SettingsStore, SuggestionDisplay,
+    ClipboardAccess, PromptPreparation, Settings, SettingsStore, SuggestionDisplay, SuggestionLength,
 };
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +70,7 @@ struct StoredSettings {
     clipboard_access: StoredClipboardAccess,
     prompt_preparation: StoredPromptPreparation,
     suggestion_display: StoredSuggestionDisplay,
+    suggestion_length: StoredSuggestionLength,
 }
 
 impl Default for StoredSettings {
@@ -108,6 +109,14 @@ enum StoredSuggestionDisplay {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredSuggestionLength {
+    Short,
+    Medium,
+    Long,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct StoredModelFile {
     repo: String,
     name: String,
@@ -136,6 +145,11 @@ impl From<Settings> for StoredSettings {
             SuggestionDisplay::WhenComplete => StoredSuggestionDisplay::WhenComplete,
             SuggestionDisplay::WordByWord => StoredSuggestionDisplay::WordByWord,
         };
+        let suggestion_length = match settings.suggestion_length {
+            SuggestionLength::Short => StoredSuggestionLength::Short,
+            SuggestionLength::Medium => StoredSuggestionLength::Medium,
+            SuggestionLength::Long => StoredSuggestionLength::Long,
+        };
         Self {
             backend,
             suggestion_model,
@@ -143,6 +157,7 @@ impl From<Settings> for StoredSettings {
             clipboard_access,
             prompt_preparation,
             suggestion_display,
+            suggestion_length,
         }
     }
 }
@@ -170,6 +185,11 @@ impl From<StoredSettings> for Settings {
             StoredSuggestionDisplay::WhenComplete => SuggestionDisplay::WhenComplete,
             StoredSuggestionDisplay::WordByWord => SuggestionDisplay::WordByWord,
         };
+        let suggestion_length = match stored.suggestion_length {
+            StoredSuggestionLength::Short => SuggestionLength::Short,
+            StoredSuggestionLength::Medium => SuggestionLength::Medium,
+            StoredSuggestionLength::Long => SuggestionLength::Long,
+        };
         Self {
             backend,
             suggestion_model,
@@ -177,6 +197,7 @@ impl From<StoredSettings> for Settings {
             clipboard_access,
             prompt_preparation,
             suggestion_display,
+            suggestion_length,
         }
     }
 }
@@ -295,6 +316,26 @@ mod tests {
     }
 
     #[test]
+    fn suggestion_length_reads_from_its_name() {
+        let files = [
+            r#"{ "suggestion_length": "short" }"#,
+            r#"{ "suggestion_length": "medium" }"#,
+            r#"{ "suggestion_length": "long" }"#,
+        ];
+
+        let lengths = files.map(|json| parse(json).map(|settings| settings.suggestion_length).ok());
+
+        assert_eq!(
+            lengths,
+            [
+                Some(SuggestionLength::Short),
+                Some(SuggestionLength::Medium),
+                Some(SuggestionLength::Long)
+            ]
+        );
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -320,6 +361,7 @@ mod tests {
             clipboard_access: ClipboardAccess::Allowed,
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,
+            suggestion_length: SuggestionLength::Medium,
         };
 
         file.save(&settings);

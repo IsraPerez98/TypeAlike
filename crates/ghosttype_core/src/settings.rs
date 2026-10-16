@@ -1,7 +1,7 @@
 //! The settings that GhostType keeps between runs, and the seams to the services that keep them.
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, SystemPrompt};
+use crate::inference::{Backend, SystemPrompt, TokenCount};
 
 /// The system prompt until the user writes one. Base models continue text and do not follow
 /// orders, so it describes the text that follows instead of giving orders.
@@ -41,6 +41,29 @@ pub enum SuggestionDisplay {
     WordByWord,
 }
 
+/// The most text that one suggestion shows. A shorter suggestion shows sooner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SuggestionLength {
+    /// Two or three words.
+    Short,
+    /// About five words.
+    #[default]
+    Medium,
+    /// About ten words.
+    Long,
+}
+
+impl SuggestionLength {
+    /// The most tokens that the model adds for one suggestion.
+    pub(crate) fn max_tokens(self) -> TokenCount {
+        match self {
+            Self::Short => TokenCount(4),
+            Self::Medium => TokenCount(8),
+            Self::Long => TokenCount(16),
+        }
+    }
+}
+
 /// Everything that GhostType keeps between runs.
 ///
 /// ```
@@ -63,6 +86,8 @@ pub struct Settings {
     pub prompt_preparation: PromptPreparation,
     /// When the ghost text shows the words that the model writes.
     pub suggestion_display: SuggestionDisplay,
+    /// The most text that one suggestion shows.
+    pub suggestion_length: SuggestionLength,
 }
 
 impl Settings {
@@ -100,4 +125,22 @@ pub trait Autostart {
 
     /// Stops GhostType from starting at login.
     fn disable(&mut self);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_suggestion_length_allows_its_own_number_of_tokens() {
+        let lengths = [
+            SuggestionLength::Short,
+            SuggestionLength::Medium,
+            SuggestionLength::Long,
+        ];
+
+        let max_tokens = lengths.map(SuggestionLength::max_tokens);
+
+        assert_eq!(max_tokens, [TokenCount(4), TokenCount(8), TokenCount(16)]);
+    }
 }

@@ -107,6 +107,7 @@ pub(crate) enum SettingsInput {
 pub(crate) enum MenuPicker {
     Model,
     Backend,
+    SuggestionLength,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,6 +303,9 @@ impl SettingsWindow {
         if self.general.is_backend_picker(control) {
             return Some(SettingsInput::OpenMenu(MenuPicker::Backend));
         }
+        if self.general.is_length_picker(control) {
+            return Some(SettingsInput::OpenMenu(MenuPicker::SuggestionLength));
+        }
         self.models
             .action_for(control)
             .map(SettingsInput::Models)
@@ -334,6 +338,7 @@ impl SettingsWindow {
         match picker {
             MenuPicker::Model => self.playground.model_menu(),
             MenuPicker::Backend => self.general.backend_menu(),
+            MenuPicker::SuggestionLength => self.general.length_menu(),
         }
     }
 
@@ -341,7 +346,8 @@ impl SettingsWindow {
     pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<SettingsInput> {
         match picker {
             MenuPicker::Model => self.playground.choice_at(index).map(SettingsInput::Playground),
-            MenuPicker::Backend => self.general.choice_at(index).map(SettingsInput::General),
+            MenuPicker::Backend => self.general.backend_choice_at(index).map(SettingsInput::General),
+            MenuPicker::SuggestionLength => self.general.length_choice_at(index).map(SettingsInput::General),
         }
     }
 

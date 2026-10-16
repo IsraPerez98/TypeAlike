@@ -1,24 +1,26 @@
 //! The General pane: the autostart switch, the clipboard switch, the prompt preparation switch,
-//! the suggestion display switch and the suggestion model menu in one rounded group, then the
-//! system prompt editor.
+//! the suggestion display switch, the suggestion length menu and the suggestion model menu in one
+//! rounded group, then the system prompt editor.
 
-use ghosttype_core::general_pane::{GeneralView, SettingSwitch, SystemPromptEditor};
+use ghosttype_core::general_pane::{
+    GeneralAction, GeneralView, SettingPicker, SettingSwitch, SystemPromptEditor,
+};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::Sel;
 use objc2_app_kit::{
     NSAccessibility as _, NSBorderType, NSButton, NSControlStateValueOff, NSControlStateValueOn, NSFont,
-    NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSScrollView,
-    NSStackView, NSStackViewGravity, NSSwitch, NSTextDidChangeNotification, NSTextField, NSTextView,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton,
+    NSScrollView, NSStackView, NSStackViewGravity, NSSwitch, NSTextDidChangeNotification, NSTextField,
+    NSTextView, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSNotificationCenter, NSSize, NSString};
 
 use super::{
     ActionTarget, CONTENT_INSETS, GroupedRow, LIST_PART_SPACING, ModelMenu, NO_INSETS, NoteView,
-    SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, rounded_group, row_texts, scroll_view,
-    secondary_wrapping_label, set_text, stack, truncating_label,
+    SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, pop_up_button, rebuild_menu, rounded_group,
+    row_texts, scroll_view, secondary_wrapping_label, set_text, stack, truncating_label,
 };
 use crate::labels::title_case;
 
@@ -37,6 +39,7 @@ const SYSTEM_PROMPT_TEXT_INSETS: NSSize = NSSize::new(4.0, 6.0);
 pub(super) struct GeneralPage {
     pub(super) root: Retained<NSScrollView>,
     pub(super) suggestion_model_menu: ModelMenu,
+    pub(super) suggestion_length_menu: SettingMenu,
     summary: Retained<NSTextField>,
     autostart_row: SettingRow,
     autostart_switch: Retained<NSSwitch>,
@@ -46,6 +49,7 @@ pub(super) struct GeneralPage {
     preparation_switch: Retained<NSSwitch>,
     display_row: SettingRow,
     display_switch: Retained<NSSwitch>,
+    suggestion_length_row: SettingRow,
     suggestion_model_row: SettingRow,
     suggestion_model_note: NoteView,
     system_prompt: SystemPromptView,
@@ -55,8 +59,8 @@ impl GeneralPage {
     /// Builds the pane. The autostart switch sends `target.autostart_action`, the clipboard switch
     /// sends `target.clipboard_action`, the prompt preparation switch sends
     /// `target.preparation_action`, the suggestion display switch sends `target.display_action`,
-    /// and the suggestion model menu sends
-    /// `target.suggestion_model_action`. Each edit of the system prompt sends
+    /// the suggestion length menu sends `target.suggestion_length_action`, and the suggestion model
+    /// menu sends `target.suggestion_model_action`. Each edit of the system prompt sends
     /// `target.system_prompt_action` with the notification, and its reset button sends
     /// `target.reset_system_prompt_action`.
     pub(super) fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
@@ -72,6 +76,7 @@ impl GeneralPage {
         let clipboard_switch = switch(target, target.clipboard_action, main_thread);
         let preparation_switch = switch(target, target.preparation_action, main_thread);
         let display_switch = switch(target, target.display_action, main_thread);
+        let suggestion_length_menu = SettingMenu::new(target, main_thread);
         let suggestion_model_menu = ModelMenu::new(target, target.suggestion_model_action, main_thread);
         let rows_stack = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
@@ -84,6 +89,7 @@ impl GeneralPage {
         let clipboard_row = SettingRow::add(&rows_stack, &clipboard_switch, main_thread);
         let preparation_row = SettingRow::add(&rows_stack, &preparation_switch, main_thread);
         let display_row = SettingRow::add(&rows_stack, &display_switch, main_thread);
+        let suggestion_length_row = SettingRow::add(&rows_stack, &suggestion_length_menu.button, main_thread);
         let suggestion_model_row = SettingRow::add(&rows_stack, &suggestion_model_menu.button, main_thread);
         let group = rounded_group(&rows_stack, main_thread);
         let suggestion_model_note = NoteView::new(main_thread);
@@ -102,6 +108,7 @@ impl GeneralPage {
         Self {
             root: scroll_view(&content, main_thread),
             suggestion_model_menu,
+            suggestion_length_menu,
             summary,
             autostart_row,
             autostart_switch,
@@ -111,6 +118,7 @@ impl GeneralPage {
             preparation_switch,
             display_row,
             display_switch,
+            suggestion_length_row,
             suggestion_model_row,
             suggestion_model_note,
             system_prompt,
@@ -132,6 +140,10 @@ impl GeneralPage {
             .render_switch(&self.preparation_switch, &view.prompt_preparation);
         self.display_row
             .render_switch(&self.display_switch, &view.suggestion_display);
+        let length = &view.suggestion_length;
+        self.suggestion_length_row
+            .render(length.label, length.description);
+        self.suggestion_length_menu.render(length);
         let picker = &view.suggestion_model;
         self.suggestion_model_row
             .render(picker.menu.label, picker.description);
@@ -208,6 +220,54 @@ fn switch(target: &ActionTarget, action: Sel, main_thread: MainThreadMarker) -> 
         switch.setAction(Some(action));
     }
     switch
+}
+
+/// A pop-up menu of the values of a setting.
+#[derive(Debug)]
+pub(super) struct SettingMenu {
+    button: Retained<NSPopUpButton>,
+    titles: Vec<String>,
+    actions: Vec<GeneralAction>,
+}
+
+impl SettingMenu {
+    /// Builds a menu that sends `target.suggestion_length_action` when the user picks a value.
+    fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        Self {
+            button: pop_up_button(target, target.suggestion_length_action, main_thread),
+            titles: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    /// Shows `picker`, and keeps the actions of its entries for [`Self::action_at`].
+    fn render(&mut self, picker: &SettingPicker) {
+        self.button
+            .setAccessibilityLabel(Some(&NSString::from_str(picker.label)));
+        let titles: Vec<String> = picker
+            .choices
+            .iter()
+            .map(|choice| title_case(choice.title))
+            .collect();
+        if titles != self.titles {
+            rebuild_menu(&self.button, &titles);
+            self.titles = titles;
+        }
+        self.actions = picker
+            .choices
+            .iter()
+            .map(|choice| choice.action.clone())
+            .collect();
+        let selected = isize::try_from(picker.selected).expect("a menu never holds isize::MAX entries");
+        self.button.selectItemAtIndex(selected);
+        self.button.setEnabled(picker.is_enabled);
+    }
+
+    /// Returns the action of the entry at `index` in the last render.
+    pub(super) fn action_at(&self, index: isize) -> Option<GeneralAction> {
+        let index = usize::try_from(index).ok()?;
+        self.actions.get(index).cloned()
+    }
 }
 
 /// The system prompt editor: a heading, a description, the text field and the reset button.

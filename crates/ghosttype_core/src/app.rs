@@ -143,7 +143,7 @@ impl App {
     }
 
     /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
-    /// place on, and its prompt preparation and suggestion display from now on.
+    /// place on, and its prompt preparation, suggestion display and suggestion length from now on.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
@@ -264,8 +264,8 @@ impl App {
 mod tests {
     use super::*;
     use crate::desktop::Surroundings;
-    use crate::engine::MAX_SUGGESTION_TOKENS;
     use crate::inference::{Prompt, SystemPrompt, TokenCount};
+    use crate::settings::SuggestionLength;
 
     struct FakeDesktop(Field);
 
@@ -286,7 +286,7 @@ mod tests {
     fn request(context: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
             prompt: Prompt(context.to_owned()),
-            max_tokens: MAX_SUGGESTION_TOKENS,
+            max_tokens: SuggestionLength::default().max_tokens(),
         })
     }
 

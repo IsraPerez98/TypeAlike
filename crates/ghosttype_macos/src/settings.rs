@@ -7,7 +7,7 @@
 mod general;
 mod playground;
 
-use ghosttype_core::general_pane::GeneralView;
+use ghosttype_core::general_pane::{GeneralAction, GeneralView};
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
@@ -104,6 +104,7 @@ pub(crate) struct ActionTarget {
     pub(crate) clipboard_action: Sel,
     pub(crate) preparation_action: Sel,
     pub(crate) display_action: Sel,
+    pub(crate) suggestion_length_action: Sel,
     pub(crate) suggestion_model_action: Sel,
     pub(crate) system_prompt_action: Sel,
     pub(crate) reset_system_prompt_action: Sel,
@@ -137,7 +138,8 @@ impl SettingsWindow {
     /// button and prompt field send `target.complete_action`. The General autostart switch sends
     /// `target.autostart_action`, its clipboard switch sends `target.clipboard_action`, its prompt
     /// preparation switch sends `target.preparation_action`, its suggestion display switch sends
-    /// `target.display_action`, and its suggestion model menu sends
+    /// `target.display_action`, its suggestion length menu sends `target.suggestion_length_action`,
+    /// see [`Self::suggestion_length_choice`], and its suggestion model menu sends
     /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`]. Each edit of the
     /// General system prompt sends `target.system_prompt_action`, see [`Self::system_prompt`], and
     /// its reset button sends `target.reset_system_prompt_action`.
@@ -212,6 +214,11 @@ impl SettingsWindow {
     /// Returns the action of the General suggestion model menu entry at `index` in the last render.
     pub(crate) fn suggestion_model_choice(&self, index: isize) -> Option<PlaygroundAction> {
         self.general.suggestion_model_menu.action_at(index)
+    }
+
+    /// Returns the action of the General suggestion length menu entry at `index` in the last render.
+    pub(crate) fn suggestion_length_choice(&self, index: isize) -> Option<GeneralAction> {
+        self.general.suggestion_length_menu.action_at(index)
     }
 
     /// Returns the text in the General system prompt field.
@@ -565,16 +572,8 @@ struct ModelMenu {
 impl ModelMenu {
     /// Builds a menu that sends `action` to the target of `target` when the user picks a model.
     fn new(target: &ActionTarget, action: Sel, main_thread: MainThreadMarker) -> Self {
-        let button = NSPopUpButton::new(main_thread);
-        button.setPullsDown(false);
-        // SAFETY: the target implements `action`, taking the pop-up button, and `SettingsWindow`
-        // keeps the target alive as long as the button.
-        unsafe {
-            button.setTarget(Some(&target.target));
-            button.setAction(Some(action));
-        }
         Self {
-            button,
+            button: pop_up_button(target, action, main_thread),
             titles: Vec::new(),
             actions: Vec::new(),
         }
@@ -586,7 +585,7 @@ impl ModelMenu {
             .setAccessibilityLabel(Some(&NSString::from_str(picker.label)));
         let titles: Vec<String> = picker.choices.iter().map(|choice| choice.title.clone()).collect();
         if titles != self.titles {
-            self.rebuild(&titles);
+            rebuild_menu(&self.button, &titles);
             self.titles = titles;
         }
         self.actions = picker
@@ -604,24 +603,43 @@ impl ModelMenu {
         let index = usize::try_from(index).ok()?;
         self.actions.get(index).cloned().flatten()
     }
+}
 
-    fn rebuild(&self, titles: &[String]) {
-        self.button.removeAllItems();
-        let Some(menu) = self.button.menu() else {
-            return;
+/// Returns a pop-up button that sends `action` to the target of `target` when the user picks an
+/// entry.
+fn pop_up_button(
+    target: &ActionTarget,
+    action: Sel,
+    main_thread: MainThreadMarker,
+) -> Retained<NSPopUpButton> {
+    let button = NSPopUpButton::new(main_thread);
+    button.setPullsDown(false);
+    // SAFETY: the target implements `action`, taking the pop-up button, and `SettingsWindow`
+    // keeps the target alive as long as the button.
+    unsafe {
+        button.setTarget(Some(&target.target));
+        button.setAction(Some(action));
+    }
+    button
+}
+
+/// Replaces the entries of `button` with one entry for each of `titles`.
+fn rebuild_menu(button: &NSPopUpButton, titles: &[String]) {
+    button.removeAllItems();
+    let Some(menu) = button.menu() else {
+        return;
+    };
+    for title in titles {
+        // SAFETY: the item has no action, so the pop-up button sends its own action instead.
+        let item = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(button.mtm()),
+                &NSString::from_str(title),
+                None,
+                &NSString::new(),
+            )
         };
-        for title in titles {
-            // SAFETY: the item has no action, so the pop-up button sends its own action instead.
-            let item = unsafe {
-                NSMenuItem::initWithTitle_action_keyEquivalent(
-                    NSMenuItem::alloc(self.button.mtm()),
-                    &NSString::from_str(title),
-                    None,
-                    &NSString::new(),
-                )
-            };
-            menu.addItem(&item);
-        }
+        menu.addItem(&item);
     }
 }
 
