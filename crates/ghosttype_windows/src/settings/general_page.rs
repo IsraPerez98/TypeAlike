@@ -1,6 +1,6 @@
-//! The General pane: renders the core [`GeneralView`] and reports the clipboard access, the prompt
-//! preparation, the suggestion display, the suggestion length, the suggestion model and the
-//! backend the user picks, and the system prompt the user writes.
+//! The General pane: renders the core [`GeneralView`] and reports the autostart, the clipboard
+//! access, the prompt preparation, the suggestion display, the suggestion length, the suggestion
+//! model and the backend the user picks, and the system prompt the user writes.
 
 use ghosttype_core::general_pane::{
     GeneralAction, GeneralView, SettingChoice, SettingPicker, SettingSwitch, SuggestionModelPicker,
@@ -34,6 +34,8 @@ const LINE_BREAK: &str = "\n";
 #[derive(Debug)]
 pub(crate) struct GeneralPage {
     header: Header,
+    autostart: SwitchCard,
+    has_autostart: bool,
     clipboard: SwitchCard,
     preparation: SwitchCard,
     display: SwitchCard,
@@ -54,6 +56,8 @@ impl GeneralPage {
         let control = |kind, role, style| Control::create(host, kind, role, style);
         Ok(Self {
             header: Header::create(host)?,
+            autostart: SwitchCard::create(host)?,
+            has_autostart: false,
             clipboard: SwitchCard::create(host)?,
             preparation: SwitchCard::create(host)?,
             display: SwitchCard::create(host)?,
@@ -79,6 +83,10 @@ impl GeneralPage {
     pub(crate) fn render(&mut self, view: &GeneralView, appearance: &Appearance) {
         self.page.set_title(view.title);
         self.header.render(view.title, view.summary);
+        self.has_autostart = view.autostart.is_some();
+        if let Some(autostart) = &view.autostart {
+            self.autostart.render(autostart);
+        }
         self.clipboard.render(&view.clipboard);
         self.preparation.render(&view.prompt_preparation);
         self.display.render(&view.suggestion_display);
@@ -108,7 +116,15 @@ impl GeneralPage {
             let mut shapes = Vec::new();
             self.header.layout(&mut column, &mut placer, appearance);
             column.skip(appearance.px(SECTION_GAP));
-            for switch_card in [&self.clipboard, &self.preparation, &self.display] {
+            if !self.has_autostart {
+                self.autostart.hide();
+            }
+            let autostart = self.has_autostart.then_some(&self.autostart);
+            let switch_cards =
+                autostart
+                    .into_iter()
+                    .chain([&self.clipboard, &self.preparation, &self.display]);
+            for switch_card in switch_cards {
                 switch_card.layout(&mut column, &mut placer, appearance, &mut shapes);
                 column.skip(appearance.px(SECTION_GAP));
             }
@@ -183,11 +199,16 @@ impl GeneralPage {
         self.suggestion_model.choice_at(index)
     }
 
-    /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard,
-    /// prompt preparation or suggestion display switch, an edit of the system prompt field, or a
-    /// click of its reset button.
+    /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the autostart,
+    /// clipboard, prompt preparation or suggestion display switch, an edit of the system prompt
+    /// field, or a click of its reset button.
     pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
         let switches = [
+            (
+                &self.autostart,
+                GeneralAction::DisableAutostart,
+                GeneralAction::EnableAutostart,
+            ),
             (
                 &self.clipboard,
                 GeneralAction::DenyClipboard,
@@ -262,6 +283,7 @@ impl GeneralPage {
         self.header
             .controls()
             .into_iter()
+            .chain(self.autostart.controls())
             .chain(self.clipboard.controls())
             .chain(self.preparation.controls())
             .chain(self.display.controls())
@@ -328,6 +350,12 @@ impl SwitchCard {
 
     fn is_clicked(&self, control: HWND, notification: u32) -> bool {
         control == self.switch.handle() && notification == BN_CLICKED
+    }
+
+    fn hide(&self) {
+        for control in self.controls() {
+            control.hide();
+        }
     }
 
     fn controls(&self) -> [&Control; 3] {

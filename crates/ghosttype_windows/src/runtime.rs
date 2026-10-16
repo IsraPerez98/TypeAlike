@@ -85,6 +85,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
         hub,
         mut runner,
         settings_store,
+        autostart,
     } = services;
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
@@ -108,7 +109,7 @@ pub(crate) fn run(mut app: App, settings: Settings, services: Services) -> Resul
     let mut playground = PlaygroundPane::with_backend(settings.backend);
     playground.use_settings(&settings);
     let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
-    let general = GeneralPane::new(settings);
+    let general = GeneralPane::new(settings).with_autostart(autostart);
     let runner_sink = mailbox.sink(Delivery::Playground);
     if let Some(request) = general.load_suggestion_model(&mut playground) {
         runner.submit(request, &runner_sink);

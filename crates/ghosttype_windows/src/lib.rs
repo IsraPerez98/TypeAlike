@@ -1,7 +1,7 @@
 //! Windows platform layer of GhostType.
 //!
 //! Wraps Win32 behind safe types: keyboard and mouse hooks, reading the caret, the ghost-text
-//! overlay, text injection, the tray icon and the settings window.
+//! overlay, text injection, the tray icon, the settings window and the startup entry.
 
 #![cfg(windows)]
 
@@ -19,6 +19,7 @@ mod registry;
 mod runtime;
 mod settings;
 mod single_instance;
+mod startup;
 mod system_theme;
 mod tray;
 mod window;
@@ -28,8 +29,10 @@ use std::fmt;
 use ghosttype_core::app::App;
 use ghosttype_core::hub::ModelHub;
 use ghosttype_core::inference::ModelRunner;
-use ghosttype_core::settings::{Settings, SettingsStore};
+use ghosttype_core::settings::{Autostart, Settings, SettingsStore};
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
+
+pub use crate::startup::StartupEntry;
 
 /// A failure that stops GhostType from starting or running.
 #[derive(Debug, thiserror::Error)]
@@ -54,6 +57,8 @@ pub struct Services {
     pub runner: Box<dyn ModelRunner>,
     /// Keeps the settings that the user changes in the General pane.
     pub settings_store: Box<dyn SettingsStore>,
+    /// Starts GhostType at login when the user turns it on in the General pane.
+    pub autostart: Box<dyn Autostart>,
 }
 
 impl fmt::Debug for Services {

@@ -18,12 +18,14 @@ pub(crate) fn run(app: App) -> anyhow::Result<()> {
     let models_dir = data_dir.join("Models");
     let settings_file = settings_file::SettingsFile::new(data_dir.join("settings.json"));
     let settings = settings_file.load();
+    let program = std::env::current_exe().context("no path to the running program")?;
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
     let services = ghosttype_windows::Services {
         hub: Box::new(hub),
         runner: Box::new(runner),
         settings_store: Box::new(settings_file),
+        autostart: Box::new(ghosttype_windows::StartupEntry::new(&program)),
     };
     ghosttype_windows::run(app, settings, services).context("ghosttype stopped unexpectedly")
 }
