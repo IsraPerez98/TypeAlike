@@ -134,6 +134,7 @@ enum ModelState {
     Loading,
     Ready,
     Failed(InferenceError),
+    Unloaded,
 }
 
 #[derive(Debug)]
@@ -169,6 +170,10 @@ const NOTHING_ADDED_NOTE: Note = Note {
     text: "The model did not add text.",
     tone: NoteTone::Plain,
 };
+const UNLOADED_NOTE: Note = Note {
+    text: "Suggestions are paused. GhostType loads the model again when you resume them.",
+    tone: NoteTone::Plain,
+};
 const MAX_COMPLETION_TOKENS: TokenCount = TokenCount(32);
 
 impl PlaygroundPane {
@@ -187,12 +192,15 @@ impl PlaygroundPane {
         }
     }
 
-    /// Loads models on `backend` from now on, and loads the selected model again on it. Returns
-    /// the request to send, if any. Call it only while the pane is not busy, see
-    /// [`is_busy`](Self::is_busy), because a load that runs ignores the change.
+    /// Loads models on `backend` from now on, and loads the selected model again on it, unless
+    /// it is unloaded. Returns the request to send, if any. Call it only while the pane is not
+    /// busy, see [`is_busy`](Self::is_busy), because a load that runs ignores the change.
     pub fn change_backend(&mut self, backend: Backend) -> Option<InferenceRequest> {
         self.backend = Some(backend);
-        let model = self.model.as_mut()?;
+        let model = self
+            .model
+            .as_mut()
+            .filter(|model| model.state != ModelState::Unloaded)?;
         model.state = ModelState::Loading;
         self.completion = None;
         Some(InferenceRequest::Load {
@@ -231,8 +239,16 @@ impl PlaygroundPane {
         match self.model.as_ref()?.state {
             ModelState::Loading => Some(LOADING_NOTE),
             ModelState::Failed(error) => Some(error_note(error)),
-            ModelState::Ready => None,
+            ModelState::Ready | ModelState::Unloaded => None,
         }
+    }
+
+    /// Unloads the selected model to free its memory, while it stays selected, so that
+    /// selecting it again loads it again. Returns the request to send, if any.
+    pub fn unload_model(&mut self) -> Option<InferenceRequest> {
+        let model = self.model.as_mut()?;
+        model.state = ModelState::Unloaded;
+        Some(InferenceRequest::Unload)
     }
 
     /// Handles a user action; returns the request it needs, if any.
@@ -361,6 +377,7 @@ fn model_note(installed: &[ModelFile], selected_state: Option<ModelState>) -> Op
         Some(ModelState::Loading) => Some(LOADING_NOTE),
         Some(ModelState::Failed(error)) => Some(error_note(error)),
         Some(ModelState::Ready) => None,
+        Some(ModelState::Unloaded) => Some(UNLOADED_NOTE),
         None => installed.is_empty().then_some(NO_MODELS_NOTE),
     }
 }
@@ -833,6 +850,90 @@ mod tests {
                 backend: None,
             })
         );
+    }
+
+    const UNLOADED: Note = Note {
+        text: "Suggestions are paused. GhostType loads the model again when you resume them.",
+        tone: NoteTone::Plain,
+    };
+
+    #[test]
+    fn unloading_the_loaded_model_asks_the_runner_to_unload_it() {
+        let mut pane = ready_pane(&model_file("a.gguf"));
+
+        let request = pane.unload_model();
+
+        assert_eq!(request, Some(InferenceRequest::Unload));
+    }
+
+    #[test]
+    fn unloading_without_a_model_does_nothing() {
+        let mut pane = PlaygroundPane::new();
+
+        let request = pane.unload_model();
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn unloaded_model_stays_selected_and_tells_that_suggestions_are_paused() {
+        let file = model_file("a.gguf");
+        let mut pane = ready_pane(&file);
+
+        pane.unload_model();
+
+        let view = pane.view(std::slice::from_ref(&file));
+        assert_eq!(
+            (
+                pane.loaded_model(),
+                view.model.selected,
+                view.model_note,
+                view.is_complete_enabled
+            ),
+            (None, 0, Some(UNLOADED), false)
+        );
+    }
+
+    #[test]
+    fn unloaded_model_has_no_load_note() {
+        let mut pane = ready_pane(&model_file("a.gguf"));
+
+        pane.unload_model();
+
+        assert_eq!(pane.load_note(), None);
+    }
+
+    #[test]
+    fn selecting_the_unloaded_model_loads_it_again() {
+        let file = model_file("a.gguf");
+        let mut pane = ready_pane(&file);
+        pane.unload_model();
+
+        let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+
+        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+    }
+
+    #[test]
+    fn load_that_ends_after_an_unload_is_ignored() {
+        let file = model_file("a.gguf");
+        let mut pane = PlaygroundPane::new();
+        pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+        pane.unload_model();
+
+        pane.on_event(InferenceEvent::Loaded { file, result: Ok(()) });
+
+        assert_eq!(pane.loaded_model(), None);
+    }
+
+    #[test]
+    fn changing_the_backend_does_not_load_an_unloaded_model() {
+        let mut pane = ready_pane(&model_file("a.gguf"));
+        pane.unload_model();
+
+        let request = pane.change_backend(Backend::Vulkan);
+
+        assert_eq!(request, None);
     }
 
     #[test]

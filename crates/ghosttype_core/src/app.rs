@@ -59,8 +59,11 @@ pub struct TrayView {
 /// What the platform must do after a tray command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayOutcome {
-    /// The tray view changed and must be re-rendered; any ghost text must be hidden.
-    Updated,
+    /// Suggestions stopped: hide any ghost text, re-render the tray, and unload the suggestion
+    /// model to free its memory.
+    Paused,
+    /// Suggestions started again: re-render the tray, and load the suggestion model again.
+    Resumed,
     /// The settings window must show and come to the front.
     OpenSettings,
     /// The app must exit.
@@ -174,17 +177,20 @@ impl App {
     /// Runs a command picked from the tray menu.
     pub fn on_tray_command(&mut self, command: TrayCommand) -> TrayOutcome {
         match command {
-            TrayCommand::TogglePause => {
-                self.status = match self.status {
-                    Status::Active => Status::Paused,
-                    Status::Paused => Status::Active,
-                };
-                self.engine.reset();
-                TrayOutcome::Updated
-            }
+            TrayCommand::TogglePause => self.toggle_pause(),
             TrayCommand::OpenSettings => TrayOutcome::OpenSettings,
             TrayCommand::Quit => TrayOutcome::Quit,
         }
+    }
+
+    fn toggle_pause(&mut self) -> TrayOutcome {
+        self.engine.reset();
+        let (status, outcome) = match self.status {
+            Status::Active => (Status::Paused, TrayOutcome::Paused),
+            Status::Paused => (Status::Active, TrayOutcome::Resumed),
+        };
+        self.status = status;
+        outcome
     }
 }
 
@@ -330,12 +336,22 @@ mod tests {
     }
 
     #[test]
-    fn toggle_pause_updates_tray() {
+    fn pausing_reports_paused() {
         let mut app = App::new();
 
         let outcome = app.on_tray_command(TrayCommand::TogglePause);
 
-        assert_eq!(outcome, TrayOutcome::Updated);
+        assert_eq!(outcome, TrayOutcome::Paused);
+    }
+
+    #[test]
+    fn resuming_reports_resumed() {
+        let mut app = App::new();
+        app.on_tray_command(TrayCommand::TogglePause);
+
+        let outcome = app.on_tray_command(TrayCommand::TogglePause);
+
+        assert_eq!(outcome, TrayOutcome::Resumed);
     }
 
     #[test]

@@ -128,6 +128,21 @@ mod tests {
     }
 
     #[test]
+    fn unloading_answers_with_no_event() {
+        let mut runner = LlamaCpp::new(|_| None);
+        let (sender, events) = mpsc::channel();
+        let sink: InferenceEventSink = Arc::new(move |event| {
+            sender.send(event).ok();
+        });
+
+        runner.submit(InferenceRequest::Unload, &sink);
+        drop(sink);
+        drop(runner);
+
+        assert_eq!(events.recv().ok(), None);
+    }
+
+    #[test]
     fn completing_without_a_model_fails() {
         let runner = LlamaCpp::new(|_| None);
 

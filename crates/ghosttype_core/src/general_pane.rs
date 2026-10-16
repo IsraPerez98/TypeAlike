@@ -824,6 +824,37 @@ mod tests {
     }
 
     #[test]
+    fn unloaded_model_stays_the_suggestion_model() {
+        let mut pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+        let mut playground = loaded_playground(Backend::Cpu, Ok(()));
+        playground.unload_model();
+
+        let settings = pane.keep_suggestion_model(&playground);
+
+        assert_eq!(
+            (settings, pane.settings()),
+            (None, &suggestion_settings(Some(model_file())))
+        );
+    }
+
+    #[test]
+    fn unloaded_suggestion_model_loads_again() {
+        let pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+        let mut playground = loaded_playground(Backend::Cpu, Ok(()));
+        playground.unload_model();
+
+        let request = pane.load_suggestion_model(&mut playground);
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file: model_file(),
+                backend: Some(Backend::Cpu),
+            })
+        );
+    }
+
+    #[test]
     fn no_suggestion_model_loads_nothing() {
         let pane = GeneralPane::new(suggestion_settings(None));
         let mut playground = PlaygroundPane::new();

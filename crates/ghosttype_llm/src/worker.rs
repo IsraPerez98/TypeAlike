@@ -56,6 +56,10 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
             InferenceRequest::Complete { prompt, max_tokens } => {
                 InferenceEvent::Completed(worker.complete(&prompt, max_tokens))
             }
+            InferenceRequest::Unload => {
+                worker.model = None;
+                continue;
+            }
         };
         sink(event);
     }

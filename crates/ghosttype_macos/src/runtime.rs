@@ -6,11 +6,13 @@ use std::ptr::{self, NonNull};
 use std::sync::Arc;
 
 use dispatch2::DispatchQueue;
-use ghosttype_core::app::{App, TrayOutcome};
+use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
 use ghosttype_core::hub::{HubEvent, HubEventSink, ModelHub};
-use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner, SystemPrompt};
+use ghosttype_core::inference::{
+    InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, SystemPrompt,
+};
 use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
 use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -275,16 +277,33 @@ impl Runtime {
 
     fn on_menu_item(&mut self, tag: isize) -> Option<TrayOutcome> {
         let command = menu_bar::command_for_tag(&self.app.tray_view().items, tag)?;
+        Some(self.on_tray_command(command))
+    }
+
+    fn on_tray_command(&mut self, command: TrayCommand) -> TrayOutcome {
         let outcome = self.app.on_tray_command(command);
         match outcome {
-            TrayOutcome::Updated => {
+            TrayOutcome::Paused => {
                 self.hide_ghost();
-                self.menu_bar.update(&self.app.tray_view());
+                let request = self.playground.unload_model();
+                self.on_status_change(request);
+            }
+            TrayOutcome::Resumed => {
+                let request = self.general.load_suggestion_model(&mut self.playground);
+                self.on_status_change(request);
             }
             TrayOutcome::OpenSettings => self.open_settings(),
             TrayOutcome::Quit => {}
         }
-        Some(outcome)
+        outcome
+    }
+
+    fn on_status_change(&mut self, model_request: Option<InferenceRequest>) {
+        if let Some(request) = model_request {
+            self.runner.submit(request, &self.runner_sink);
+        }
+        self.menu_bar.update(&self.app.tray_view());
+        self.render_settings();
     }
 
     fn open_settings(&mut self) {

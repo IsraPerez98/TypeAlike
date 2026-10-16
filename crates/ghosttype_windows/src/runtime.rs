@@ -8,7 +8,7 @@ use ghosttype_core::app::{App, TrayCommand, TrayOutcome};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::general_pane::GeneralPane;
 use ghosttype_core::hub::{HubEventSink, ModelHub};
-use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, ModelRunner};
+use ghosttype_core::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use ghosttype_core::models_pane::ModelsPane;
 use ghosttype_core::playground::PlaygroundPane;
 use ghosttype_core::settings::{Settings, SettingsStore};
@@ -353,14 +353,27 @@ impl Runtime {
 
     fn on_tray_command(&mut self, command: TrayCommand) {
         match self.app.on_tray_command(command) {
-            TrayOutcome::Updated => {
+            TrayOutcome::Paused => {
                 self.hide_ghost();
-                self.refresh_tray();
+                let request = self.playground.unload_model();
+                self.on_status_change(request);
+            }
+            TrayOutcome::Resumed => {
+                let request = self.general.load_suggestion_model(&mut self.playground);
+                self.on_status_change(request);
             }
             TrayOutcome::OpenSettings => self.open_settings(),
             // SAFETY: plain call.
             TrayOutcome::Quit => unsafe { PostQuitMessage(0) },
         }
+    }
+
+    fn on_status_change(&mut self, model_request: Option<InferenceRequest>) {
+        if let Some(request) = model_request {
+            self.runner.submit(request, &self.runner_sink);
+        }
+        self.refresh_tray();
+        self.render_settings();
     }
 
     fn refresh_tray(&mut self) {

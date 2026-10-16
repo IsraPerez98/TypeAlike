@@ -75,6 +75,8 @@ pub enum InferenceRequest {
         /// The most tokens to add.
         max_tokens: TokenCount,
     },
+    /// Unloads the loaded model to free its memory.
+    Unload,
 }
 
 /// The outcome of an [`InferenceRequest`].
