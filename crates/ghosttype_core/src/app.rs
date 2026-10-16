@@ -6,7 +6,7 @@ use crate::desktop::Desktop;
 use crate::engine::{Engine, Reaction};
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
-use crate::settings::{PromptPreparation, Settings};
+use crate::settings::{PromptPreparation, Settings, SuggestionDisplay};
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
 /// stop on the way to another field must not start the model.
@@ -131,6 +131,7 @@ pub struct App {
     status: Status,
     is_in_open_field: bool,
     prompt_preparation: PromptPreparation,
+    suggestion_display: SuggestionDisplay,
 }
 
 impl App {
@@ -142,10 +143,11 @@ impl App {
     }
 
     /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
-    /// place on, and its prompt preparation from now on.
+    /// place on, and its prompt preparation and suggestion display from now on.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
+        self.suggestion_display = settings.suggestion_display;
     }
 
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. With
@@ -178,8 +180,12 @@ impl App {
     }
 
     /// Handles `text`, the text that the completion of the last [`Reaction::Request`] added so far.
-    /// Returns the reaction when the ghost text changes, or `None`.
+    /// Returns the reaction when the ghost text changes, or `None`. Only
+    /// [`SuggestionDisplay::WordByWord`] changes the ghost text before the completion finishes.
     pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
+        if self.suggestion_display != SuggestionDisplay::WordByWord {
+            return None;
+        }
         self.engine.on_partial_completion(text)
     }
 
@@ -323,14 +329,44 @@ mod tests {
         assert_eq!(reaction, Reaction::Show("est regards".to_owned()));
     }
 
-    #[test]
-    fn partial_completion_shows_in_active_app() {
+    fn app_showing_words_early() -> App {
         let mut app = App::new();
+        app.use_settings(&Settings {
+            suggestion_display: SuggestionDisplay::WordByWord,
+            ..Settings::default()
+        });
+        app
+    }
+
+    #[test]
+    fn partial_completion_shows_when_words_show_early() {
+        let mut app = app_showing_words_early();
         type_key(&mut app, 'B');
 
         let reaction = app.on_partial_completion("est regards");
 
         assert_eq!(reaction, Some(Reaction::Show("est".to_owned())));
+    }
+
+    #[test]
+    fn partial_completion_shows_nothing_when_suggestions_show_complete() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+
+        let reaction = app.on_partial_completion("est regards");
+
+        assert_eq!(reaction, None);
+    }
+
+    #[test]
+    fn completion_after_a_partial_completion_that_shows_nothing_shows_all_its_text() {
+        let mut app = App::new();
+        type_key(&mut app, 'B');
+        app.on_partial_completion("est regards");
+
+        let reaction = app.on_completion(completion("est regards"));
+
+        assert_eq!(reaction, Reaction::Show("est regards".to_owned()));
     }
 
     #[test]
@@ -616,7 +652,7 @@ mod tests {
 
     #[test]
     fn paused_app_drops_partial_completion() {
-        let mut app = App::new();
+        let mut app = app_showing_words_early();
         type_key(&mut app, 'B');
         app.on_tray_command(TrayCommand::TogglePause);
 

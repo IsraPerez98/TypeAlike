@@ -16,7 +16,7 @@ Virtual workspace, flat `crates/`.
 - `ghosttype_windows`: hooks, UIA, overlay, `SendInput`, tray, settings window. All FFI.
 - `ghosttype_macos`: event tap, Accessibility (AX), overlay panel, CGEvent injection, menu bar extra, settings window. All FFI. Needs Accessibility access (`cargo run` from a terminal: grant it to the terminal app).
 - `ghosttype_models`: Hugging Face search, downloads and the local models directory (`ModelHub`). HTTPS + file IO, no FFI.
-- `ghosttype_llm`: runs GGUF models with llama.cpp (`llama-cpp-2`) on one worker thread (`ModelRunner`), on the backend that each load names (CPU, Vulkan, CUDA). Metal on Apple silicon. Refuses a GPU load when the whole model does not fit in free GPU memory. Heals the last word of each prompt (token healing). Keeps the last prompt in the llama.cpp cache, so the next prompt decodes only the tokens that it adds. Sends the text of a completion while it grows, and the engine shows its complete words at once. Build needs CMake and libclang.
+- `ghosttype_llm`: runs GGUF models with llama.cpp (`llama-cpp-2`) on one worker thread (`ModelRunner`), on the backend that each load names (CPU, Vulkan, CUDA). Metal on Apple silicon. Refuses a GPU load when the whole model does not fit in free GPU memory. Heals the last word of each prompt (token healing). Keeps the last prompt in the llama.cpp cache, so the next prompt decodes only the tokens that it adds. Sends the text of a completion while it grows. With the "Show words early" setting, the engine shows its complete words at once. Build needs CMake and libclang.
 - `ghosttype`: bin. Wiring, config, logging, event loop.
 
 ## Rules

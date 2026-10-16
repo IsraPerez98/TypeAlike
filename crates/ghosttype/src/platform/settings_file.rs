@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SystemPrompt};
-use ghosttype_core::settings::{ClipboardAccess, PromptPreparation, Settings, SettingsStore};
+use ghosttype_core::settings::{
+    ClipboardAccess, PromptPreparation, Settings, SettingsStore, SuggestionDisplay,
+};
 use serde::{Deserialize, Serialize};
 
 /// The settings file: it gives the saved settings at start, and keeps each change.
@@ -67,6 +69,7 @@ struct StoredSettings {
     system_prompt: Option<String>,
     clipboard_access: StoredClipboardAccess,
     prompt_preparation: StoredPromptPreparation,
+    suggestion_display: StoredSuggestionDisplay,
 }
 
 impl Default for StoredSettings {
@@ -98,6 +101,13 @@ enum StoredPromptPreparation {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredSuggestionDisplay {
+    WhenComplete,
+    WordByWord,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct StoredModelFile {
     repo: String,
     name: String,
@@ -122,12 +132,17 @@ impl From<Settings> for StoredSettings {
             PromptPreparation::OnFirstKey => StoredPromptPreparation::OnFirstKey,
             PromptPreparation::OnFocus => StoredPromptPreparation::OnFocus,
         };
+        let suggestion_display = match settings.suggestion_display {
+            SuggestionDisplay::WhenComplete => StoredSuggestionDisplay::WhenComplete,
+            SuggestionDisplay::WordByWord => StoredSuggestionDisplay::WordByWord,
+        };
         Self {
             backend,
             suggestion_model,
             system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
             clipboard_access,
             prompt_preparation,
+            suggestion_display,
         }
     }
 }
@@ -151,12 +166,17 @@ impl From<StoredSettings> for Settings {
             StoredPromptPreparation::OnFirstKey => PromptPreparation::OnFirstKey,
             StoredPromptPreparation::OnFocus => PromptPreparation::OnFocus,
         };
+        let suggestion_display = match stored.suggestion_display {
+            StoredSuggestionDisplay::WhenComplete => SuggestionDisplay::WhenComplete,
+            StoredSuggestionDisplay::WordByWord => SuggestionDisplay::WordByWord,
+        };
         Self {
             backend,
             suggestion_model,
             custom_system_prompt: stored.system_prompt.map(SystemPrompt),
             clipboard_access,
             prompt_preparation,
+            suggestion_display,
         }
     }
 }
@@ -257,6 +277,24 @@ mod tests {
     }
 
     #[test]
+    fn suggestion_display_reads_from_its_name() {
+        let files = [
+            r#"{ "suggestion_display": "when_complete" }"#,
+            r#"{ "suggestion_display": "word_by_word" }"#,
+        ];
+
+        let displays = files.map(|json| parse(json).map(|settings| settings.suggestion_display).ok());
+
+        assert_eq!(
+            displays,
+            [
+                Some(SuggestionDisplay::WhenComplete),
+                Some(SuggestionDisplay::WordByWord)
+            ]
+        );
+    }
+
+    #[test]
     fn missing_field_takes_its_default() {
         let settings = parse("{}");
 
@@ -281,6 +319,7 @@ mod tests {
             custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
             clipboard_access: ClipboardAccess::Allowed,
             prompt_preparation: PromptPreparation::OnFocus,
+            suggestion_display: SuggestionDisplay::WordByWord,
         };
 
         file.save(&settings);

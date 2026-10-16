@@ -30,6 +30,17 @@ pub enum PromptPreparation {
     OnFocus,
 }
 
+/// When the ghost text shows the words that the model writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SuggestionDisplay {
+    /// After the model writes the full suggestion.
+    #[default]
+    WhenComplete,
+    /// As soon as the model writes each word. The first word then shows sooner, but the ghost text
+    /// grows while the user reads it.
+    WordByWord,
+}
+
 /// Everything that GhostType keeps between runs.
 ///
 /// ```
@@ -50,6 +61,8 @@ pub struct Settings {
     pub clipboard_access: ClipboardAccess,
     /// When GhostType gives the text around the caret to the model.
     pub prompt_preparation: PromptPreparation,
+    /// When the ghost text shows the words that the model writes.
+    pub suggestion_display: SuggestionDisplay,
 }
 
 impl Settings {

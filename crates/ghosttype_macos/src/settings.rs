@@ -103,6 +103,7 @@ pub(crate) struct ActionTarget {
     pub(crate) autostart_action: Sel,
     pub(crate) clipboard_action: Sel,
     pub(crate) preparation_action: Sel,
+    pub(crate) display_action: Sel,
     pub(crate) suggestion_model_action: Sel,
     pub(crate) system_prompt_action: Sel,
     pub(crate) reset_system_prompt_action: Sel,
@@ -135,7 +136,8 @@ impl SettingsWindow {
     /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
     /// button and prompt field send `target.complete_action`. The General autostart switch sends
     /// `target.autostart_action`, its clipboard switch sends `target.clipboard_action`, its prompt
-    /// preparation switch sends `target.preparation_action`, and its suggestion model menu sends
+    /// preparation switch sends `target.preparation_action`, its suggestion display switch sends
+    /// `target.display_action`, and its suggestion model menu sends
     /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`]. Each edit of the
     /// General system prompt sends `target.system_prompt_action`, see [`Self::system_prompt`], and
     /// its reset button sends `target.reset_system_prompt_action`.

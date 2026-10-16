@@ -397,6 +397,7 @@ impl Runtime {
                 autostart_action: sel!(switchAutostart:),
                 clipboard_action: sel!(switchClipboard:),
                 preparation_action: sel!(switchPreparation:),
+                display_action: sel!(switchDisplay:),
                 suggestion_model_action: sel!(pickSuggestionModel:),
                 system_prompt_action: sel!(systemPromptDidChange:),
                 reset_system_prompt_action: sel!(resetSystemPrompt:),
@@ -582,6 +583,17 @@ define_class!(
                 GeneralAction::PrepareOnFocus
             } else {
                 GeneralAction::PrepareOnFirstKey
+            };
+            with_runtime(|runtime| runtime.on_general_action(action));
+        }
+
+        // SAFETY: matches the action signature, called with the General pane's suggestion display switch.
+        #[unsafe(method(switchDisplay:))]
+        fn switch_display(&self, sender: &NSSwitch) {
+            let action = if sender.state() == NSControlStateValueOn {
+                GeneralAction::ShowWordByWord
+            } else {
+                GeneralAction::ShowWhenComplete
             };
             with_runtime(|runtime| runtime.on_general_action(action));
         }

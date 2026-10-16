@@ -1,5 +1,6 @@
 //! The General pane: renders the core [`GeneralView`] and reports the clipboard access, the prompt
-//! preparation and the backend the user picks, and the system prompt the user writes.
+//! preparation, the suggestion display and the backend the user picks, and the system prompt the
+//! user writes.
 
 use ghosttype_core::general_pane::{
     BackendChoice, BackendPicker, GeneralAction, GeneralView, SettingSwitch, SystemPromptEditor,
@@ -33,6 +34,7 @@ pub(crate) struct GeneralPage {
     header: Header,
     clipboard: SwitchCard,
     preparation: SwitchCard,
+    display: SwitchCard,
     backend_label: Control,
     backend_description: Control,
     backend_note: Control,
@@ -55,6 +57,7 @@ impl GeneralPage {
             header: Header::create(host)?,
             clipboard: SwitchCard::create(host)?,
             preparation: SwitchCard::create(host)?,
+            display: SwitchCard::create(host)?,
             backend_label: control(ControlKind::Label, TextRole::Body, CARD_TEXT)?,
             backend_description: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
             backend_note: control(ControlKind::Paragraph, TextRole::Caption, CARD_DETAIL)?,
@@ -82,6 +85,7 @@ impl GeneralPage {
         self.header.render(view.title, view.summary);
         self.clipboard.render(&view.clipboard);
         self.preparation.render(&view.prompt_preparation);
+        self.display.render(&view.suggestion_display);
         if let Some(backend) = &view.backend {
             self.render_backend(backend);
         }
@@ -123,7 +127,7 @@ impl GeneralPage {
             let mut shapes = Vec::new();
             self.header.layout(&mut column, &mut placer, appearance);
             column.skip(appearance.px(SECTION_GAP));
-            for switch_card in [&self.clipboard, &self.preparation] {
+            for switch_card in [&self.clipboard, &self.preparation, &self.display] {
                 switch_card.layout(&mut column, &mut placer, appearance, &mut shapes);
                 column.skip(appearance.px(SECTION_GAP));
             }
@@ -193,9 +197,9 @@ impl GeneralPage {
         self.choices.get(index).map(|choice| choice.action.clone())
     }
 
-    /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard
-    /// switch or of the prompt preparation switch, an edit of the system prompt field, or a click
-    /// of its reset button.
+    /// The action of a `WM_COMMAND` with `notification` from `control`: a click of the clipboard,
+    /// prompt preparation or suggestion display switch, an edit of the system prompt field, or a
+    /// click of its reset button.
     pub(crate) fn action_for(&self, control: HWND, notification: u32) -> Option<GeneralAction> {
         let switches = [
             (
@@ -207,6 +211,11 @@ impl GeneralPage {
                 &self.preparation,
                 GeneralAction::PrepareOnFirstKey,
                 GeneralAction::PrepareOnFocus,
+            ),
+            (
+                &self.display,
+                GeneralAction::ShowWhenComplete,
+                GeneralAction::ShowWordByWord,
             ),
         ];
         let clicked = switches
@@ -249,6 +258,7 @@ impl GeneralPage {
             .into_iter()
             .chain(self.clipboard.controls())
             .chain(self.preparation.controls())
+            .chain(self.display.controls())
             .chain([
                 &self.backend_label,
                 &self.backend_description,

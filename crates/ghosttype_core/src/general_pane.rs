@@ -5,7 +5,9 @@ use std::fmt;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SystemPrompt};
 use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
-use crate::settings::{Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings};
+use crate::settings::{
+    Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings, SuggestionDisplay,
+};
 
 /// Something the user did in the General pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +32,10 @@ pub enum GeneralAction {
     /// Turned off the switch that gives the text around the caret to the model before the user
     /// types.
     PrepareOnFirstKey,
+    /// Turned on the switch that shows each word of a suggestion as soon as the model writes it.
+    ShowWordByWord,
+    /// Turned off the switch that shows each word of a suggestion as soon as the model writes it.
+    ShowWhenComplete,
 }
 
 /// One entry of the backend menu.
@@ -110,6 +116,8 @@ pub struct GeneralView {
     pub clipboard: SettingSwitch,
     /// The switch that gives the text around the caret to the model before the user types.
     pub prompt_preparation: SettingSwitch,
+    /// The switch that shows each word of a suggestion as soon as the model writes it.
+    pub suggestion_display: SettingSwitch,
     /// The backend menu, or `None` when the model runner picks the backend itself.
     pub backend: Option<BackendPicker>,
     /// How the selected model loads on the backend, or why it did not load; `None` otherwise.
@@ -141,6 +149,9 @@ const CLIPBOARD_ON_FOCUS_DESCRIPTION: &str = "Suggestions can use the text that 
 const PREPARATION_LABEL: &str = "Prepare before you type";
 const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model reads the text around the \
      caret before you type. The first suggestion then shows sooner, but this uses more power.";
+const DISPLAY_LABEL: &str = "Show words early";
+const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
+     word then shows sooner, but the suggestion grows while you read it.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -251,6 +262,10 @@ impl GeneralPane {
             GeneralAction::DenyClipboard => self.change_clipboard_access(ClipboardAccess::Denied),
             GeneralAction::PrepareOnFocus => self.change_prompt_preparation(PromptPreparation::OnFocus),
             GeneralAction::PrepareOnFirstKey => self.change_prompt_preparation(PromptPreparation::OnFirstKey),
+            GeneralAction::ShowWordByWord => self.change_suggestion_display(SuggestionDisplay::WordByWord),
+            GeneralAction::ShowWhenComplete => {
+                self.change_suggestion_display(SuggestionDisplay::WhenComplete)
+            }
         }
     }
 
@@ -276,6 +291,11 @@ impl GeneralPane {
                 label: PREPARATION_LABEL,
                 description: PREPARATION_DESCRIPTION,
                 is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
+            },
+            suggestion_display: SettingSwitch {
+                label: DISPLAY_LABEL,
+                description: DISPLAY_DESCRIPTION,
+                is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
             },
             backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
             backend_note: playground.load_note().filter(|_| self.has_backend_menu),
@@ -312,6 +332,10 @@ impl GeneralPane {
 
     fn change_prompt_preparation(&mut self, preparation: PromptPreparation) -> GeneralOutcome {
         self.change_setting(preparation, |settings| &mut settings.prompt_preparation)
+    }
+
+    fn change_suggestion_display(&mut self, display: SuggestionDisplay) -> GeneralOutcome {
+        self.change_setting(display, |settings| &mut settings.suggestion_display)
     }
 
     /// Keeps `value` in the setting that `field` picks, and returns the settings when they changed.
@@ -544,6 +568,11 @@ mod tests {
                 prompt_preparation: SettingSwitch {
                     label: "Prepare before you type",
                     description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
+                    is_on: false,
+                },
+                suggestion_display: SettingSwitch {
+                    label: "Show words early",
+                    description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                     is_on: false,
                 },
                 backend: Some(BackendPicker {
@@ -1050,6 +1079,50 @@ mod tests {
         let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
 
         let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    fn display_settings(suggestion_display: SuggestionDisplay) -> Settings {
+        Settings {
+            suggestion_display,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn showing_word_by_word_keeps_it_and_turns_the_switch_on() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut playground);
+
+        let is_on = pane.view(&playground, &[]).suggestion_display.is_on;
+        assert_eq!(
+            (outcome, is_on),
+            (
+                settings_outcome(display_settings(SuggestionDisplay::WordByWord)),
+                true
+            )
+        );
+    }
+
+    #[test]
+    fn showing_when_complete_keeps_it_and_turns_the_switch_off() {
+        let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(GeneralAction::ShowWhenComplete, &mut playground);
+
+        let is_on = pane.view(&playground, &[]).suggestion_display.is_on;
+        assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    }
+
+    #[test]
+    fn choosing_the_current_suggestion_display_does_nothing() {
+        let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
+
+        let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
 
         assert_eq!(outcome, GeneralOutcome::default());
     }
