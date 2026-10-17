@@ -9,8 +9,8 @@ use ghosttype_core::settings_view::{
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, FontWeight, Grid, GridLength,
-    KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback, ScrollViewer,
-    StackPanel, Symbol, TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch,
+    KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback, ScrollBarVisibility,
+    ScrollViewer, StackPanel, Symbol, TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch,
     VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
@@ -68,10 +68,8 @@ impl Renderer<'_, '_> {
             .flat_map(|(section_index, section)| self.section(&format!("{index} {section_index}"), section));
         let column = StackPanel::new()
             .spacing(CARD_GAP)
-            .max_width(PAGE_MAX_WIDTH)
-            .margin(PAGE_MARGIN)
             .keyed_children(header.into_iter().chain(search).chain(sections));
-        ScrollViewer::new().content(column).into()
+        scrolling_page(column.into())
     }
 
     fn search(&self, field: &SearchField) -> View {
@@ -359,6 +357,19 @@ impl Renderer<'_, '_> {
             text: text.to_string(),
         })
     }
+}
+
+/// Puts `column` at the leading edge of a page that scrolls up and down, as wide as the page up to
+/// [`PAGE_MAX_WIDTH`]. The width limit is on a grid column, because WinUI places the direct child
+/// of a `ScrollViewer` past its right edge when that child has a `MaxWidth` smaller than the page.
+fn scrolling_page(column: View) -> View {
+    let limited = Grid::new()
+        .columns([GridLength::STAR.max(PAGE_MAX_WIDTH)])
+        .children((column,));
+    ScrollViewer::new()
+        .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
+        .content(Border::new().padding(PAGE_MARGIN).content(limited))
+        .into()
 }
 
 fn card(content: View) -> View {

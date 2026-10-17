@@ -26,6 +26,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 ## Geometry
 - Corner radius: 8 px top-level/transient (windows, flyouts, menus, dialogs). 4 px controls, cards, bars, tooltips. WinUI controls bring their own radius. Do not change it.
 - Spacing on a 4 px grid. Consistent gutters: the page margin is 56 px at the sides and 32 px at the top and bottom.
+- Page width: the page fills the window up to 1000 px, at the leading edge, like the Settings app. Build it as a `ScrollViewer` with horizontal scrolling off, a `Border` with the page margin, and a one-column `Grid` (`GridLength::STAR.max(1000.0)`). Never give the direct child of a `ScrollViewer` a `max_width`. WinUI then moves it past the right edge when the window is wider than the limit.
 
 ## Materials
 - Settings window: Mica through `WindowVisuals::backdrop(WindowBackdrop::Mica)`. Mica also shows in the title bar of `ViewContext::window_frame`. Keep every surface between the window and the Mica transparent, so the window looks like one surface.
