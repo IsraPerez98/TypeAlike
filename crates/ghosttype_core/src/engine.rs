@@ -14,6 +14,12 @@ const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
 const TRIMMED_CHARS_BEFORE_CARET: usize = 3000;
+/// The last words before the caret that a suggestion copies when it holds them in a row. Fewer
+/// words are often the correct phrase again.
+const COPIED_WORDS: usize = 4;
+const MAX_PATTERN_WORDS: usize = 3;
+const PATTERN_REPEATS: usize = 3;
+const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
 
 /// What the platform must do after a key press, a context change or a completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +57,7 @@ pub(crate) struct Engine {
 struct Session {
     preface: String,
     text_before: String,
+    text_after: String,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     is_excluded: bool,
 }
@@ -135,20 +142,20 @@ impl Engine {
     /// when the ghost text changes, or `None`.
     pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
         let is_newest = self.unanswered_requests == 1;
-        (is_newest && self.grow(complete_words(text))).then(|| Reaction::Show(self.shown().to_owned()))
+        (is_newest && self.grow(complete_words(text))).then(|| match self.shown() {
+            "" => Reaction::Hide,
+            shown => Reaction::Show(shown.to_owned()),
+        })
     }
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
-    /// text, when it has text there. Returns whether the ghost text changed.
+    /// text, when it has text there. A bad suggestion empties the ghost text. Returns whether the
+    /// ghost text changed.
     fn grow(&mut self, completion: &str) -> bool {
-        let text_before = self
-            .session
-            .as_ref()
-            .map_or("", |session| session.text_before.as_str());
-        let Offer::Growing { typed, shown } = &mut self.offer else {
+        let (Some(session), Offer::Growing { typed, shown }) = (&self.session, &mut self.offer) else {
             return false;
         };
-        match suggestion_after_typed(text_before, typed, completion) {
+        match suggestion_after_typed(session, typed, completion) {
             Some(grown) if grown != *shown => {
                 *shown = grown;
                 true
@@ -175,14 +182,20 @@ impl Engine {
                 ClipboardAccess::Allowed => desktop.clipboard_text(),
                 ClipboardAccess::Denied => None,
             };
-            let text_before = surroundings
+            let (text_before, text_after) = surroundings
                 .field_text
                 .as_ref()
-                .map(|field_text| recent_text(&field_text.before_caret).to_owned())
+                .map(|field_text| {
+                    (
+                        recent_text(&field_text.before_caret).to_owned(),
+                        field_text.after_caret.clone(),
+                    )
+                })
                 .unwrap_or_default();
             Session {
                 preface: prompt::preface(system_prompt, &surroundings, clipboard.as_deref()),
                 text_before,
+                text_after,
                 is_excluded: place::is_address_or_subject_field(&surroundings),
             }
         })
@@ -310,14 +323,67 @@ fn suggestion_after(context: &str, completion: &str) -> Option<String> {
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
 }
 
-/// Returns the ghost text that `completion` gives after the `typed` text, or `None` when it adds
-/// nothing after it. `text_before` ends with `typed`, and the request continued the text before
-/// `typed`.
-fn suggestion_after_typed(text_before: &str, typed: &str, completion: &str) -> Option<String> {
-    let context = text_before.strip_suffix(typed)?;
+/// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
+/// bad suggestion, or `None` when it adds nothing after `typed`. The text before the caret of
+/// `session` ends with `typed`, and the request continued the text before `typed`.
+fn suggestion_after_typed(session: &Session, typed: &str, completion: &str) -> Option<String> {
+    let context = session.text_before.strip_suffix(typed)?;
     let suggestion = suggestion_after(context, completion)?;
+    if is_bad_suggestion(&suggestion, context, &session.text_after) {
+        return Some(String::new());
+    }
     let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
     Some(rest.to_owned())
+}
+
+/// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
+/// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
+/// words of `context`, or a loop of a few words.
+fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str) -> bool {
+    let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
+    let closes_after_space =
+        context.ends_with(char::is_whitespace) && suggestion.starts_with(CLOSING_PUNCTUATION);
+    has_no_word
+        || closes_after_space
+        || repeats_text_after(suggestion, text_after)
+        || copies_last_words(suggestion, context)
+        || repeats_a_pattern(suggestion)
+}
+
+/// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
+fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
+    text.split(|character: char| !(character.is_alphanumeric() || matches!(character, '\'' | '’')))
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+}
+
+/// Whether the words of `suggestion` and of `text_after` are the same up to the end of the
+/// shorter.
+fn repeats_text_after(suggestion: &str, text_after: &str) -> bool {
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    let after = words(text_after).take(suggested.len()).collect::<Vec<_>>();
+    !after.is_empty() && suggested.starts_with(&after)
+}
+
+fn copies_last_words(suggestion: &str, context: &str) -> bool {
+    let mut last_words = words(context).rev().take(COPIED_WORDS).collect::<Vec<_>>();
+    last_words.reverse();
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    last_words.len() == COPIED_WORDS
+        && suggested
+            .windows(COPIED_WORDS)
+            .any(|run| run == last_words.as_slice())
+}
+
+/// Whether `suggestion` has a pattern of one to [`MAX_PATTERN_WORDS`] words
+/// [`PATTERN_REPEATS`] times in a row.
+fn repeats_a_pattern(suggestion: &str) -> bool {
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    (1..=MAX_PATTERN_WORDS).any(|pattern_words| {
+        suggested
+            .windows(pattern_words * PATTERN_REPEATS)
+            .any(|run| run[pattern_words..] == run[..run.len() - pattern_words])
+    })
 }
 
 /// Returns `text` up to its last whitespace, without the word after it, which can still grow.
@@ -363,11 +429,15 @@ mod tests {
 
     impl FakeDesktop {
         fn with_field_text(before_caret: &str) -> Self {
+            Self::with_text_around(before_caret, "")
+        }
+
+        fn with_text_around(before_caret: &str, after_caret: &str) -> Self {
             Self {
                 surroundings: Surroundings {
                     field_text: Some(FieldText {
                         before_caret: before_caret.to_owned(),
-                        after_caret: String::new(),
+                        after_caret: after_caret.to_owned(),
                     }),
                     ..Surroundings::default()
                 },
@@ -578,6 +648,105 @@ mod tests {
         let reaction = engine.on_completion(completion(" there"));
 
         assert_eq!(reaction, show(" there"));
+    }
+
+    #[test]
+    fn bad_completion_hides() {
+        let cases = [
+            ("Best", ","),
+            ("Best regards", " …"),
+            ("Best ", ", regards"),
+            ("I think", " no no no"),
+            ("Thanks.", " Hi S. Hi S. Hi S."),
+            ("Hi Sarah, thanks for s", "ending. Hi Sarah, thanks for s"),
+        ];
+
+        let reactions =
+            cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
+
+        assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[test]
+    fn completion_close_to_a_bad_one_shows() {
+        let cases = [
+            ("Best", ", regards", ", regards"),
+            ("I think", " no no", " no no"),
+            ("Thanks.", " Hi S. Hi S.", " Hi S. Hi S."),
+            (
+                "Hi Sarah, thanks for the",
+                " thanks for the help",
+                " thanks for the help",
+            ),
+        ];
+
+        let reactions =
+            cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
+
+        assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+    }
+
+    #[test]
+    fn completion_that_repeats_the_text_after_the_caret_hides() {
+        let cases = ["Update on the budget.", "update", "update on the budget. See you"];
+
+        let reactions = cases.map(|text| {
+            let mut engine = Engine::default();
+            engine.on_key(
+                Key::Char(' '),
+                &FakeDesktop::with_text_around("Thanks for the", "update on the budget."),
+            );
+            engine.on_completion(completion(text))
+        });
+
+        assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[test]
+    fn completion_that_starts_like_the_text_after_the_caret_shows() {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char(' '),
+            &FakeDesktop::with_text_around("Thanks for the", "update on the budget."),
+        );
+
+        let reaction = engine.on_completion(completion("update from Priya"));
+
+        assert_eq!(reaction, show("update from Priya"));
+    }
+
+    #[test]
+    fn bad_partial_completion_hides() {
+        let mut engine = engine_waiting_for("Thanks.");
+        engine.on_partial_completion(" Hi S. Hi S. Hi");
+
+        let reaction = engine.on_partial_completion(" Hi S. Hi S. Hi S. Hi");
+
+        assert_eq!(reaction, Some(Reaction::Hide));
+    }
+
+    #[test]
+    fn bad_completion_hides_the_shown_partial_completion() {
+        let mut engine = engine_waiting_for("Thanks.");
+        engine.on_partial_completion(" Hi S. Hi S. Hi");
+
+        let reaction = engine.on_completion(completion(" Hi S. Hi S. Hi S."));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn good_partial_completion_after_a_bad_one_shows() {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char(' '),
+            &FakeDesktop::with_text_around("I like it.", "The end."),
+        );
+        engine.on_partial_completion("The weat");
+
+        let reaction = engine.on_partial_completion("The weather is");
+
+        assert_eq!(reaction, Some(show("The weather")));
     }
 
     #[test]
