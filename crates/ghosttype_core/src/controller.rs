@@ -482,7 +482,7 @@ mod tests {
 
     use super::*;
     use crate::app::{Field, Status};
-    use crate::desktop::Surroundings;
+    use crate::desktop::{CopiedText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Backend, Completion, TokenCount};
@@ -536,7 +536,7 @@ mod tests {
             Surroundings::default()
         }
 
-        fn clipboard_text(&self) -> Option<String> {
+        fn copied_text(&self) -> Option<CopiedText> {
             None
         }
     }

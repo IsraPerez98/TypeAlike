@@ -1,5 +1,6 @@
 //! Decides what ghost text to show as the user types, and what Tab inserts.
 
+use std::time::Duration;
 use std::{fmt, mem};
 
 use crate::desktop::{Desktop, MAX_CHARS_BEFORE_CARET};
@@ -14,6 +15,8 @@ const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
 const TRIMMED_CHARS_BEFORE_CARET: usize = 3000;
+/// The age after which a copy has no relation to the text that the user types.
+const MAX_CLIPBOARD_AGE: Duration = Duration::from_mins(5);
 /// The last words before the caret that a suggestion copies when it holds them in a row. Fewer
 /// words are often the correct phrase again.
 const COPIED_WORDS: usize = 4;
@@ -178,8 +181,10 @@ impl Engine {
         let clipboard_access = self.clipboard_access;
         self.session.get_or_insert_with(|| {
             let surroundings = desktop.surroundings();
-            let clipboard = match clipboard_access {
-                ClipboardAccess::Allowed => desktop.clipboard_text(),
+            let recent_copy = match clipboard_access {
+                ClipboardAccess::Allowed => desktop
+                    .copied_text()
+                    .filter(|copied| copied.age.is_some_and(|age| age < MAX_CLIPBOARD_AGE)),
                 ClipboardAccess::Denied => None,
             };
             let (text_before, text_after) = surroundings
@@ -193,7 +198,11 @@ impl Engine {
                 })
                 .unwrap_or_default();
             Session {
-                preface: prompt::preface(system_prompt, &surroundings, clipboard.as_deref()),
+                preface: prompt::preface(
+                    system_prompt,
+                    &surroundings,
+                    recent_copy.map(|copied| copied.text).as_deref(),
+                ),
                 text_before,
                 text_after,
                 is_excluded: place::is_address_or_subject_field(&surroundings),
@@ -413,16 +422,15 @@ impl fmt::Debug for Engine {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::time::Duration;
 
     use super::*;
     use crate::app::Field;
-    use crate::desktop::{FieldText, Surroundings};
+    use crate::desktop::{CopiedText, FieldText, Surroundings};
 
     #[derive(Default)]
     struct FakeDesktop {
         surroundings: Surroundings,
-        clipboard: Option<String>,
+        copied: Option<CopiedText>,
         surroundings_reads: Cell<usize>,
         clipboard_reads: Cell<usize>,
     }
@@ -456,9 +464,12 @@ mod tests {
             }
         }
 
-        fn with_clipboard(text: &str) -> Self {
+        fn with_copy(text: &str, age: Option<Duration>) -> Self {
             Self {
-                clipboard: Some(text.to_owned()),
+                copied: Some(CopiedText {
+                    text: text.to_owned(),
+                    age,
+                }),
                 ..Self::default()
             }
         }
@@ -474,9 +485,9 @@ mod tests {
             self.surroundings.clone()
         }
 
-        fn clipboard_text(&self) -> Option<String> {
+        fn copied_text(&self) -> Option<CopiedText> {
             self.clipboard_reads.set(self.clipboard_reads.get() + 1);
-            self.clipboard.clone()
+            self.copied.clone()
         }
     }
 
@@ -1194,16 +1205,35 @@ mod tests {
     }
 
     #[test]
-    fn allowed_clipboard_text_comes_before_the_text() {
+    fn recent_copy_comes_before_the_text() {
         let mut engine = engine_with(&Settings {
             custom_system_prompt: Some(SystemPrompt(String::new())),
             clipboard_access: ClipboardAccess::Allowed,
             ..Settings::default()
         });
+        let desktop = FakeDesktop::with_copy(
+            "1Z999",
+            Some(MAX_CLIPBOARD_AGE.saturating_sub(Duration::from_secs(1))),
+        );
 
-        let reaction = engine.on_key(Key::Char('h'), &FakeDesktop::with_clipboard("1Z999"));
+        let reaction = engine.on_key(Key::Char('h'), &desktop);
 
         assert_eq!(reaction, request("Text on the clipboard: “1Z999”\n\nh"));
+    }
+
+    #[test]
+    fn old_copy_or_copy_from_before_the_start_stays_out() {
+        let settings = Settings {
+            custom_system_prompt: Some(SystemPrompt(String::new())),
+            clipboard_access: ClipboardAccess::Allowed,
+            ..Settings::default()
+        };
+        let ages = [Some(MAX_CLIPBOARD_AGE), None];
+
+        let reactions = ages
+            .map(|age| engine_with(&settings).on_key(Key::Char('h'), &FakeDesktop::with_copy("1Z999", age)));
+
+        assert_eq!(reactions, ages.map(|_| request("h")));
     }
 
     #[test]
@@ -1231,7 +1261,7 @@ mod tests {
             custom_system_prompt: Some(SystemPrompt(String::new())),
             ..Settings::default()
         });
-        let desktop = FakeDesktop::with_clipboard("1Z999");
+        let desktop = FakeDesktop::with_copy("1Z999", Some(Duration::ZERO));
 
         let reaction = engine.on_key(Key::Char('h'), &desktop);
 

@@ -18,12 +18,13 @@
 //! - `history`: earlier passages by the same writer.
 //! - `next`: the text that the writer typed next.
 //!
-//! The prompt does not read `screen` and `history` yet. The eval uses the default
-//! settings with the clipboard allowed. It opens a field that holds `before` without its last
-//! character, types that character and waits for the ghost text. A case matches when the word that
-//! the first Tab types is the first word of `next`. Signs after the word do not count. The report
-//! gives the score of the cases with the caret between two words, the score of the cases with the
-//! caret inside a word, and the median time from the key to the ghost text.
+//! The prompt does not read `screen` and `history` yet. The eval uses the default settings with
+//! the clipboard allowed, and `clipboard` is a copy that came just before. It opens a field that
+//! holds `before` without its last character, types that character and waits for the ghost text.
+//! A case matches when the word that the first Tab types is the first word of `next`. Signs after
+//! the word do not count. The report gives the score of the cases with the caret between two
+//! words, the score of the cases with the caret inside a word, and the median time from the key to
+//! the ghost text.
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
@@ -38,11 +39,11 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use ghosttype_core::app::{App, Field};
-use ghosttype_core::desktop::{Desktop, FieldText, Surroundings};
+use ghosttype_core::desktop::{CopiedText, Desktop, FieldText, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
@@ -125,8 +126,11 @@ impl Desktop for CaseField {
         self.surroundings.clone()
     }
 
-    fn clipboard_text(&self) -> Option<String> {
-        self.clipboard.clone()
+    fn copied_text(&self) -> Option<CopiedText> {
+        Some(CopiedText {
+            text: self.clipboard.clone()?,
+            age: Some(Duration::ZERO),
+        })
     }
 }
 

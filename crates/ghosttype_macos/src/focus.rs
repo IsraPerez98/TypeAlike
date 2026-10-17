@@ -5,9 +5,7 @@ use std::ptr::{self, NonNull};
 
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
-use ghosttype_core::desktop::{
-    Desktop, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings,
-};
+use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings};
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
@@ -15,8 +13,6 @@ use objc2_application_services::{
 use objc2_core_foundation::{
     CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat, CGRect, Type,
 };
-
-use crate::clipboard;
 
 const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
 const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
@@ -143,11 +139,9 @@ impl FocusTracker {
             .downcast::<AXUIElement>()
             .ok()
     }
-}
 
-impl Desktop for FocusTracker {
     /// Classifies the focused control right now: excluded for secure text and ineligible apps.
-    fn field(&self) -> Field {
+    pub(crate) fn field(&self) -> Field {
         if self.is_frontmost_eligible && !self.is_secure_text_focused() {
             Field::Open
         } else {
@@ -155,7 +149,7 @@ impl Desktop for FocusTracker {
         }
     }
 
-    fn surroundings(&self) -> Surroundings {
+    pub(crate) fn surroundings(&self) -> Surroundings {
         let element = self.focused_element();
         Surroundings {
             app_name: self.frontmost_name.clone(),
@@ -165,10 +159,6 @@ impl Desktop for FocusTracker {
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
         }
-    }
-
-    fn clipboard_text(&self) -> Option<String> {
-        clipboard::copied_text()
     }
 }
 

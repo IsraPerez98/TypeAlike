@@ -12,7 +12,7 @@ use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Services, Shell, Timer,
 };
-use ghosttype_core::desktop::{Desktop, Surroundings};
+use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -28,6 +28,7 @@ use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
 
 use crate::RunError;
 use crate::badge::Badge;
+use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::{self, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
@@ -72,6 +73,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         controller,
         shell: AppKitShell {
             focus: FocusTracker::new(),
+            clipboard: ClipboardWatch::start(),
             menu_bar,
             overlay: Overlay::new(main_thread),
             badge: Badge::new(main_thread),
@@ -127,6 +129,7 @@ impl Runtime {
         if CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG {
             return Disposition::Pass;
         }
+        self.shell.clipboard.on_input();
         self.controller.on_input(&mut self.shell);
         match kind {
             CGEventType::KeyDown => self.on_key_down(event),
@@ -198,6 +201,7 @@ impl Runtime {
 /// What the controller reads and does through Accessibility and AppKit.
 struct AppKitShell {
     focus: FocusTracker,
+    clipboard: ClipboardWatch,
     menu_bar: MenuBarItem,
     overlay: Overlay,
     badge: Badge,
@@ -239,8 +243,8 @@ impl Desktop for AppKitShell {
         self.focus.surroundings()
     }
 
-    fn clipboard_text(&self) -> Option<String> {
-        self.focus.clipboard_text()
+    fn copied_text(&self) -> Option<CopiedText> {
+        self.clipboard.copied_text()
     }
 }
 

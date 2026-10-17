@@ -1,6 +1,7 @@
 //! What GhostType reads from the desktop while the user types: the seam the platform implements.
 
 use std::fmt;
+use std::time::Duration;
 
 use crate::app::Field;
 
@@ -28,6 +29,27 @@ impl fmt::Debug for FieldText {
             .debug_struct("FieldText")
             .field("before_caret_chars", &self.before_caret.chars().count())
             .field("after_caret_chars", &self.after_caret.chars().count())
+            .finish()
+    }
+}
+
+/// The text on the clipboard. `Debug` shows only its length, so logs never hold what the user
+/// copied.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CopiedText {
+    /// The text that the user copied.
+    pub text: String,
+    /// The time since the copy, or `None` when the copy came before GhostType started and its
+    /// time is unknown.
+    pub age: Option<Duration>,
+}
+
+impl fmt::Debug for CopiedText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CopiedText")
+            .field("chars", &self.text.chars().count())
+            .field("age", &self.age)
             .finish()
     }
 }
@@ -75,7 +97,7 @@ pub trait Desktop {
     fn surroundings(&self) -> Surroundings;
 
     /// Reads the text on the clipboard. Core calls it only when the user allows it.
-    fn clipboard_text(&self) -> Option<String>;
+    fn copied_text(&self) -> Option<CopiedText>;
 }
 
 #[cfg(test)]
@@ -97,6 +119,18 @@ mod tests {
         };
 
         let debug = format!("{surroundings:?}");
+
+        assert!(!debug.contains("secret"), "{debug}");
+    }
+
+    #[test]
+    fn debug_does_not_reveal_copied_text() {
+        let copied = CopiedText {
+            text: "secret".to_owned(),
+            age: None,
+        };
+
+        let debug = format!("{copied:?}");
 
         assert!(!debug.contains("secret"), "{debug}");
     }

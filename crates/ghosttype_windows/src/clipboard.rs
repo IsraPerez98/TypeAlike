@@ -1,6 +1,9 @@
 //! The text that the user copied. Reading the clipboard can wait on the app that copied the text,
 //! so GhostType reads it when the clipboard changes, and never in the keyboard hook.
 
+use std::time::Instant;
+
+use ghosttype_core::desktop::CopiedText;
 use ghosttype_core::settings::ClipboardAccess;
 use windows::Win32::Foundation::{HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
@@ -27,6 +30,8 @@ pub(crate) struct ClipboardWatch {
     is_listening: bool,
     access: ClipboardAccess,
     copied_text: Option<String>,
+    /// When the last copy came, or `None` while the clipboard holds a copy from before the start.
+    copied_at: Option<Instant>,
 }
 
 impl ClipboardWatch {
@@ -43,30 +48,39 @@ impl ClipboardWatch {
             is_listening: listened.is_ok(),
             access,
             copied_text: None,
+            copied_at: None,
         };
-        watch.on_update();
+        watch.read();
         watch
     }
 
-    /// Reads the clipboard again when the access allows it. Call it after each
-    /// `WM_CLIPBOARDUPDATE`.
+    /// Notes the time of the copy, and reads the clipboard again when the access allows it. Call it
+    /// after each `WM_CLIPBOARDUPDATE`.
     pub(crate) fn on_update(&mut self) {
-        self.copied_text = match self.access {
-            ClipboardAccess::Allowed => read_text(self.window),
-            ClipboardAccess::Denied => None,
-        };
+        self.copied_at = Some(Instant::now());
+        self.read();
     }
 
     /// Reads the clipboard, or forgets its text, when `access` differs from the access before.
     pub(crate) fn use_access(&mut self, access: ClipboardAccess) {
         if access != self.access {
             self.access = access;
-            self.on_update();
+            self.read();
         }
     }
 
-    pub(crate) fn copied_text(&self) -> Option<&str> {
-        self.copied_text.as_deref()
+    pub(crate) fn copied_text(&self) -> Option<CopiedText> {
+        Some(CopiedText {
+            text: self.copied_text.clone()?,
+            age: self.copied_at.map(|copied_at| copied_at.elapsed()),
+        })
+    }
+
+    fn read(&mut self) {
+        self.copied_text = match self.access {
+            ClipboardAccess::Allowed => read_text(self.window),
+            ClipboardAccess::Denied => None,
+        };
     }
 }
 

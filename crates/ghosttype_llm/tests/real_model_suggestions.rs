@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
 use ghosttype_core::app::{App, Field};
-use ghosttype_core::desktop::{Desktop, Surroundings};
+use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
@@ -28,7 +28,7 @@ impl Desktop for Editor {
         Surroundings::default()
     }
 
-    fn clipboard_text(&self) -> Option<String> {
+    fn copied_text(&self) -> Option<CopiedText> {
         None
     }
 }

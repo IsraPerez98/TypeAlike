@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{BackendChoice, Controller, Delivery, FocusChange, Services, Shell, Timer};
-use ghosttype_core::desktop::{Desktop, Surroundings};
+use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -426,8 +426,8 @@ impl Desktop for Win32Shell {
         }
     }
 
-    fn clipboard_text(&self) -> Option<String> {
-        self.clipboard.copied_text().map(str::to_owned)
+    fn copied_text(&self) -> Option<CopiedText> {
+        self.clipboard.copied_text()
     }
 }
 

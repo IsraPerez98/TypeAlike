@@ -95,7 +95,7 @@ pub enum TrayOutcome {
 /// use std::time::Duration;
 ///
 /// use ghosttype_core::app::{App, Field};
-/// use ghosttype_core::desktop::{Desktop, Surroundings};
+/// use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 /// use ghosttype_core::engine::Reaction;
 /// use ghosttype_core::inference::{Completion, TokenCount};
 /// use ghosttype_core::key::Key;
@@ -105,7 +105,7 @@ pub enum TrayOutcome {
 /// impl Desktop for Editor {
 ///     fn field(&self) -> Field { Field::Open }
 ///     fn surroundings(&self) -> Surroundings { Surroundings::default() }
-///     fn clipboard_text(&self) -> Option<String> { None }
+///     fn copied_text(&self) -> Option<CopiedText> { None }
 /// }
 ///
 /// let mut app = App::new();
@@ -263,7 +263,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::Surroundings;
+    use crate::desktop::{CopiedText, Surroundings};
     use crate::inference::{Prompt, SystemPrompt, TokenCount};
     use crate::settings::SuggestionLength;
 
@@ -278,7 +278,7 @@ mod tests {
             Surroundings::default()
         }
 
-        fn clipboard_text(&self) -> Option<String> {
+        fn copied_text(&self) -> Option<CopiedText> {
             None
         }
     }
