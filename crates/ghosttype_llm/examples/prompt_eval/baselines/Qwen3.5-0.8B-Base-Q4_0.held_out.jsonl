@@ -1,0 +1,32 @@
+{"id":"en-email-04","kind":"next_word","suggestion":"renewal of the contract.","is_match":false,"millis":79}
+{"id":"en-email-08","kind":"next_word","suggestion":"documents for the apartment.","is_match":false,"millis":67}
+{"id":"en-email-12","kind":"next_word","suggestion":"let me know.","is_match":false,"millis":62}
+{"id":"en-email-16","kind":"partial_word","suggestion":"ternoon there.","is_match":true,"millis":52}
+{"id":"en-chat-04","kind":"partial_word","suggestion":"ere in time.","is_match":true,"millis":61}
+{"id":"en-chat-08","kind":"next_word","suggestion":"bit of a pain to get the team","is_match":false,"millis":79}
+{"id":"en-chat-12","kind":"next_word","suggestion":"renewal date for the Henderson account? I","is_match":false,"millis":78}
+{"id":"en-chat-16","kind":"next_word","suggestion":"everyone,","is_match":false,"millis":44}
+{"id":"en-doc-04","kind":"next_word","suggestion":"14 Orchard Lane, 1","is_match":true,"millis":80}
+{"id":"en-doc-08","kind":"partial_word","suggestion":"ter.","is_match":true,"millis":79}
+{"id":"en-doc-12","kind":"partial_word","suggestion":"ipt again.","is_match":true,"millis":53}
+{"id":"en-doc-16","kind":"partial_word","suggestion":"onia, visit the old town","is_match":false,"millis":76}
+{"id":"en-form-04","kind":"partial_word","suggestion":"or message \"Invalid invoice number\"","is_match":true,"millis":79}
+{"id":"en-form-08","kind":"next_word","suggestion":"I work with clients who are looking for","is_match":true,"millis":77}
+{"id":"en-form-12","kind":"next_word","suggestion":" that the presenter also talk about the","is_match":false,"millis":76}
+{"id":"en-form-16","kind":"next_word","suggestion":"page of the website is a simple page","is_match":false,"millis":76}
+{"id":"es-email-04","kind":"next_word","suggestion":"1234567","is_match":false,"millis":83}
+{"id":"es-email-08","kind":"partial_word","suggestion":"or.","is_match":true,"millis":49}
+{"id":"es-email-12","kind":"next_word","suggestion":". 100,0","is_match":false,"millis":84}
+{"id":"es-email-16","kind":"next_word","suggestion":"versión blanca.","is_match":false,"millis":57}
+{"id":"es-chat-04","kind":"partial_word","suggestion":"do 15 de mayo","is_match":true,"millis":80}
+{"id":"es-chat-08","kind":"next_word","suggestion":"la fiesta?","is_match":false,"millis":53}
+{"id":"es-chat-12","kind":"partial_word","suggestion":"ing.","is_match":true,"millis":48}
+{"id":"es-chat-16","kind":"next_word","suggestion":"los días en que no hay más que","is_match":false,"millis":78}
+{"id":"es-doc-04","kind":"next_word","suggestion":"arroz integral","is_match":false,"millis":47}
+{"id":"es-doc-08","kind":"partial_word","suggestion":"ños","is_match":true,"millis":43}
+{"id":"es-doc-12","kind":"next_word","suggestion":"la descripción de la vida en el colegio","is_match":true,"millis":92}
+{"id":"es-doc-16","kind":"partial_word","suggestion":"nterior relacionada.","is_match":false,"millis":57}
+{"id":"es-form-04","kind":"next_word","suggestion":"118734,","is_match":false,"millis":82}
+{"id":"es-form-08","kind":"next_word","suggestion":"2025","is_match":false,"millis":65}
+{"id":"es-form-12","kind":"partial_word","suggestion":"ndamientos de la Comunidad Autónoma","is_match":false,"millis":81}
+{"id":"es-form-16","kind":"next_word","suggestion":"he visto.","is_match":false,"millis":52}

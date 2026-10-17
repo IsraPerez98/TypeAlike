@@ -199,9 +199,12 @@ version = "0.1.0"
 name = "ghosttype_llm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "ghosttype_core",
  "llama-cpp-2",
  "llama-cpp-sys-2",
+ "serde",
+ "serde_json",
  "thiserror",
  "tracing",
 ]
