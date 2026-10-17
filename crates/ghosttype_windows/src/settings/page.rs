@@ -303,17 +303,17 @@ impl Renderer<'_, '_> {
     }
 
     fn message_card(&self, message: &view::Message) -> View {
-        let retry = message
-            .retry
+        let button = message
+            .button
             .as_ref()
-            .map(|retry| self.button(retry, ButtonStyle::Default));
+            .map(|button| self.button(button, ButtonStyle::Default));
         let text = secondary_text(&message.text).vertical_alignment(VerticalAlignment::Center);
         card(
             Grid::new()
                 .columns([GridLength::STAR, GridLength::Auto])
                 .column_spacing(CONTROL_GAP)
                 .children(
-                    [Some(text.grid_column(0).into()), retry.map(control_with_column)]
+                    [Some(text.grid_column(0).into()), button.map(control_with_column)]
                         .into_iter()
                         .flatten()
                         .collect::<Vec<View>>(),

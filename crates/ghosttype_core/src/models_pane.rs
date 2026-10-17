@@ -558,13 +558,13 @@ pub(crate) fn model_name(file: &ModelFile) -> String {
 }
 
 fn message(text: String) -> Vec<Row> {
-    vec![Row::Message(Message { text, retry: None })]
+    vec![Row::Message(Message { text, button: None })]
 }
 
 fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Buttons) -> Vec<Row> {
     vec![Row::Message(Message {
         text: error_message(error).to_owned(),
-        retry: Some(buttons.add("Try again", retry_action)),
+        button: Some(buttons.add("Try again", retry_action)),
     })]
 }
 
@@ -740,10 +740,10 @@ mod tests {
         items.into_iter().map(|item| item.title).collect()
     }
 
-    fn message(text: &str, retry: Option<Button>) -> Vec<Row> {
+    fn message(text: &str, button: Option<Button>) -> Vec<Row> {
         vec![Row::Message(Message {
             text: text.to_owned(),
-            retry,
+            button,
         })]
     }
 
@@ -761,7 +761,7 @@ mod tests {
     fn retry_button(section: Section) -> Button {
         match section.rows.into_iter().next() {
             Some(Row::Message(Message {
-                retry: Some(retry), ..
+                button: Some(retry), ..
             })) => retry,
             other => panic!("the list shows no retry: {other:?}"),
         }

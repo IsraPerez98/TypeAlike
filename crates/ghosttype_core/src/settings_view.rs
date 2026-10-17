@@ -272,8 +272,8 @@ pub struct Permille(pub u16);
 pub struct Message {
     /// The explanation.
     pub text: String,
-    /// Tries again, when trying again can help.
-    pub retry: Option<Button>,
+    /// A button that helps, such as one that tries again.
+    pub button: Option<Button>,
 }
 
 /// A push button.

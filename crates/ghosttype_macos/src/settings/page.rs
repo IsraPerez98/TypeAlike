@@ -649,12 +649,12 @@ impl ItemRow {
     }
 }
 
-/// What shows in a group instead of items: a spinner or a message, with an optional retry.
+/// What shows in a group instead of items: a spinner or a message, with an optional button.
 #[derive(Debug)]
 struct MessageRow {
     spinner: Retained<NSProgressIndicator>,
     text: Retained<NSTextField>,
-    retry: Retained<NSButton>,
+    button: Retained<NSButton>,
 }
 
 impl MessageRow {
@@ -663,34 +663,38 @@ impl MessageRow {
         let spinner = spinner(main_thread);
         let text = wrapping_label(main_thread);
         text.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        let retry = push_button(binder.target, main_thread);
+        let button = push_button(binder.target, main_thread);
         let container = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
             MESSAGE_SPACING,
             MESSAGE_INSETS,
             main_thread,
         );
-        let parts: [&NSView; 3] = [&spinner, &text, &retry];
+        let parts: [&NSView; 3] = [&spinner, &text, &button];
         for part in parts {
             container.addView_inGravity(part, NSStackViewGravity::Center);
         }
         rows_stack.addArrangedSubview(&container);
         fill_width(&container, rows_stack);
-        Self { spinner, text, retry }
+        Self {
+            spinner,
+            text,
+            button,
+        }
     }
 
     fn render_loading(&self, text: &str) {
         set_text(&self.text, text);
-        self.retry.setHidden(true);
+        self.button.setHidden(true);
         start_spinning(&self.spinner);
     }
 
     fn render_message(&self, message: &view::Message, binder: &mut Binder<'_>) {
         set_text(&self.text, &message.text);
         stop_spinning(&self.spinner);
-        match &message.retry {
-            Some(retry) => show_push_button(&self.retry, retry, None, binder),
-            None => self.retry.setHidden(true),
+        match &message.button {
+            Some(button) => show_push_button(&self.button, button, None, binder),
+            None => self.button.setHidden(true),
         }
     }
 }
