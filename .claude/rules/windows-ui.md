@@ -5,87 +5,59 @@ paths:
 # Windows 11 UI
 
 Look native: Fluent 2 / Windows 11 design. Principles: effortless, calm, personal, familiar, coherent. GhostType is a guest in other apps. Its UI recedes and never competes with host content.
-Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica` (2026-07), `signature-experiences/layering` (2026-02), `basics/titlebar-design` (2026-07), `desktop/modernize/ui/apply-mica-win32` (2026-07). Fluent 2: fluent2.microsoft.design. Color and control values: the WinUI 3 source, github.com/microsoft/microsoft-ui-xaml, `controls/dev/CommonStyles/Common_themeresources_any.xaml` and the control `*_themeresources.xaml` files.
+Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica` (2026-07), `signature-experiences/layering` (2026-02), `basics/titlebar-design` (2026-07). Fluent 2: fluent2.microsoft.design. windows-reactor: github.com/microsoft/windows-rs, `docs/crates/windows-reactor.md` and `crates/libs/reactor/public-api.txt`.
+
+## Two kinds of UI
+- Settings window: WinUI 3 controls through windows-reactor (`settings.rs`, `settings/page.rs`), on its own UI thread. WinUI draws the controls and follows the system.
+- Tray icon, tray menu and ghost text overlay: Win32 on the main thread, next to the hooks. This crate draws them and follows the system by hand.
 
 ## Follow the system, never hardcode a look
-- Theme: follow user light/dark (apps mode for windows, `SystemUsesLightTheme` for taskbar/tray). Re-read on `WM_SETTINGCHANGE` ("ImmersiveColorSet") and repaint live. No restart.
-- Accent: user accent color only, sparingly (focus, selected, primary action). No brand color for state.
-- High contrast: on, use system colors (`GetSysColor`) only. Drop materials and custom tints. Re-check on `WM_SETTINGCHANGE`.
-- Respect transparency off, battery saver, animations off (`SPI_GETCLIENTAREAANIMATION`): solid fallback, no motion.
-- Text scale and DPI: per-monitor DPI aware v2, design in effective px, rescale on `WM_DPICHANGED`. Never bitmap-stretch.
-- Core owns what is shown. This crate maps system appearance to drawing. Appearance values = named consts/types, not literals in paint code.
+- Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal.
+- Win32 parts: follow the apps theme for menus and `SystemUsesLightTheme` for the tray icon. Re-read on `WM_SETTINGCHANGE` ("ImmersiveColorSet", `SPI_SETHIGHCONTRAST`) and update live. No restart.
+- Accent: the user accent color only, sparingly (focus, selected, primary action). No brand color for state.
+- Per-monitor DPI aware v2 for the whole process. Physical px in the Win32 parts, effective px (DIPs) in reactor views.
+- Core owns what is shown. This crate maps it to controls. Sizes and spacing are named consts, not literals in view code.
 
 ## Layering and elevation
-- Two layers per window. Base layer = Mica, holds title bar, navigation and commands. Content layer = the main task, on top of the base layer.
-- Content layer patterns: standard (one contiguous surface, `LayerFillColorDefault`) or card (separate cards). Settings uses cards.
-- Card colors on Mica: light fill `#FFFFFF` at 70 %, dark fill `#FFFFFF` at 5 %, 1 px stroke (light `#000000` at 6 %, dark `#000000` at 10 %). When the surface must be opaque, use the blend over the Mica fallback (light `#FBFBFB` / `#E5E5E5`, dark `#2B2B2B` / `#1D1D1D`).
-- Elevation (shadow value, 1 px stroke): window and dialog 128, flyout 32, tooltip 16, card 8, control 2 (pressed 1), layer 1. Shadows only to separate surfaces, never as decoration. Let DWM draw window shadows.
+- Two layers per window. Base layer = Mica, holds the title bar and the navigation. Content layer = the pages, as cards on top of the base layer.
+- Card: `Border` with `ThemeBrush::CardBackground`, `ThemeBrush::CardStroke` at 1 px, radius 4, padding 16 x 12 px, at least 68 px high, 4 px apart. Section headings semibold, 28 px above the cards and 8 px over them.
+- Shadows only to separate surfaces, never as decoration. WinUI and DWM draw window and flyout shadows.
 
 ## Geometry
-- Corner radius: 8 px top-level/transient (windows, flyouts, menus, dialogs). 4 px controls, cards, bars, tooltips. 0 px where straight edges meet or the window is snapped/maximized.
-- Top-level windows: `DWMWA_WINDOW_CORNER_PREFERENCE` (`DWMWCP_ROUND`, `DWMWCP_ROUNDSMALL` for tooltip-sized popups). Let DWM draw corners, border, shadow.
-- Spacing on 4 px grid. Consistent gutters.
+- Corner radius: 8 px top-level/transient (windows, flyouts, menus, dialogs). 4 px controls, cards, bars, tooltips. WinUI controls bring their own radius. Do not change it.
+- Spacing on a 4 px grid. Consistent gutters: the page margin is 56 px at the sides and 32 px at the top and bottom.
 
 ## Materials
-- Mica: opaque, wallpaper-tinted base layer of long-lived windows (settings). Apply once per window, behind all content. It must also show in the title bar, so the window looks like one surface.
-- Every layer between the window and a spot where Mica must show is transparent. Never apply a material to a single UI element. It does not show there.
-- Mica Alt (`DWMSBT_TABBEDWINDOW`): stronger tint, only for a tabbed title bar or a commanding layer that needs more contrast. Not used now.
-- Acrylic (translucent blur): transient light-dismiss surfaces only (flyouts, context menus): `DWMSBT_TRANSIENTWINDOW`.
-- Smoke: only behind modal dialogs. Never stack materials.
-- The system replaces Mica with a solid color (`SolidBackgroundFillColorBase`: light `#F3F3F3`, dark `#202020`) when transparency is off, battery saver is on, hardware is low-end, the window is inactive, or the build is older than 22000. High contrast shows the user's background color. The layout must look right on the solid fallback too.
-
-## Drawing over Mica in Win32
-- Microsoft documents Mica for Win32 only through the Windows App SDK `MicaController`. We do not depend on it. We use DWM directly: `DWMWA_SYSTEMBACKDROP_TYPE` = `DWMSBT_MAINWINDOW`, `DWMWA_USE_IMMERSIVE_DARK_MODE` matching the theme, and `DwmExtendFrameIntoClientArea` with margins `-1`, so Mica fills the client area.
-- The extended frame blends client pixels with Mica by their alpha. GDI writes no alpha, so GDI output over the frame is see-through and broken.
-- Draw every surface with Direct2D and DirectWrite (`settings/canvas.rs`): a software DC render target with premultiplied alpha at 96 DPI, so one unit is one physical pixel. Draw into a 32-bit memory bitmap, then copy it to the window with `BitBlt`. The copy keeps the alpha, and DWM blends it with Mica.
-- Transparent pixels show Mica. Translucent Fluent fills (cards, controls) blend with it as WinUI does. Never draw an opaque copy of a translucent token.
-- A child window replaces the pixels under it. A control on a card first fills the card color, then draws itself. The two layers then blend the same as the card around them.
-- Text on alpha surfaces uses grayscale antialiasing, never ClearType.
-- The top-level window and every page use `WS_CLIPCHILDREN`, so a parent never paints over its controls.
-- Text fields stay `Edit` controls for typing, selection, IME and UIA. Each one is a layered child window (`WS_EX_LAYERED`) with `LWA_COLORKEY`. Its background is a key color one blue step off the field color, so only its text and caret show. The page draws the field frame and the placeholder under it.
-- Layered child windows need the Windows 10 `supportedOS` entry in the app manifest (`crates/ghosttype/compatibility.manifest`).
-- High contrast: `DWMSBT_NONE` and margins `0`. Every surface clears to the solid window color before it draws.
-
-## Fluent colors
-- One palette type (`settings/palette.rs`) holds the WinUI tokens for dark, light and high contrast. Paint code takes colors only from it, never literals.
-- Tokens use straight alpha (`#AARRGGBB`), as in the WinUI source. Main dark / light values:
-  - Text primary `#FFFFFF` / `#E4000000`, secondary `#C5FFFFFF` / `#9E000000`, disabled `#5DFFFFFF` / `#5C000000`.
-  - Control fill rest `#0FFFFFFF` / `#B3FFFFFF`, hover `#15FFFFFF` / `#80F9F9F9`, pressed `#08FFFFFF` / `#4DF9F9F9`.
-  - Control stroke `#12FFFFFF` / `#0F000000`, bottom edge `#18FFFFFF` / `#29000000`. Text field bottom edge `#8BFFFFFF` / `#72000000`.
-  - Card fill `#0DFFFFFF` / `#B3FFFFFF`, card stroke `#19000000` / `#0F000000`.
-  - Subtle fill (navigation hover, selected) `#0FFFFFFF` / `#09000000`, pressed `#0AFFFFFF` / `#06000000`.
-- Accent fill: dark theme uses `SystemAccentColorLight2`, light theme uses `SystemAccentColorDark1`. Hover is 90 % opacity, pressed is 80 %. Read the shades from the `AccentPalette` registry value (HKCU `...\Explorer\Accent`): eight `R G B _` entries, Light3 to Dark3. Text on the accent is black in dark theme and white in light theme.
-- High contrast maps tokens to system colors as WinUI does: text `COLOR_WINDOWTEXT`, controls `COLOR_BTNFACE` with `COLOR_BTNTEXT` borders, accent `COLOR_HIGHLIGHT`, disabled text `COLOR_GRAYTEXT`, surfaces `COLOR_WINDOW`.
+- Settings window: Mica through `WindowVisuals::backdrop(WindowBackdrop::Mica)`. Mica also shows in the title bar of `ViewContext::window_frame`. Keep every surface between the window and the Mica transparent, so the window looks like one surface.
+- Never paint an opaque background on the root or the navigation. An opaque application background covers Mica.
+- WinUI shows the solid fallback when transparency is off, battery saver is on, the window is inactive, or high contrast is on. The layout must look right on it too.
+- Acrylic only for transient light-dismiss surfaces (flyouts, menus). WinUI flyouts and the `ComboBox` drop-down use it already.
 
 ## Controls
-- Keep a standard window per control (`Static`, `Button`, `Edit`, `msctls_progress32`) for its UIA role, name, focus and keys. Draw it with owner draw (`SS_OWNERDRAW`, `BS_OWNERDRAW`). Store how it looks in its `GWLP_USERDATA`, so drawing needs only the window and the appearance.
-- Owner-drawn statics report `ODS_DISABLED` in their draw state. Labels ignore the draw state and take their color from their tone.
-- Control ids are never `IDOK` or `IDCANCEL`, so dialog keys never click a control.
-- Track hover with a comctl32 subclass (`SetWindowSubclass`) and `TrackMouseEvent`. Remove the subclass on `WM_NCDESTROY`.
-- Button: 32 px high, radius 4, padding 11 px, control fill per state, control stroke with a stronger 1 px bottom edge at rest and hover. Pressed text is secondary. Disabled text is disabled.
-- Primary button: the accent fill, the on-accent stroke, and on-accent text. Use it for one main action per page.
-- Text field: 32 px high, radius 4, control fill at rest and hover, `ControlFillColorInputActive` with focus. A 1 px strong bottom edge at rest, a 2 px accent bottom edge with focus. Text starts 11 px from the left. Placeholder in secondary text.
-- Menu button (a combo box): looks like a button with leading text, 12 px padding, and a 12 px `E70D` chevron in secondary text, 14 px from the right edge. A click, Space or Enter opens a menu of the choices with the current one checked.
-- Navigation item: 36 px high, radius 4, 4 px apart. Subtle fill on hover. Selected items get the subtle fill and a 3 x 16 px accent pill at the left edge. A 16 px glyph 12 px from the left, then the label 16 px after it.
-- Progress bar: a 1 px track in the strong stroke color and a 3 px accent pill as the indicator.
-- Scroll bar: a 12 px gutter at the right edge of the page. The thumb is a 2 px pill, 3 px from the edge, that grows to 6 px on hover and drag. The minimum thumb length is 24 px. A press in the gutter scrolls one page.
-- Card (settings row): radius 4, card fill, 1 px card stroke, 16 px padding, at least 68 px high, 4 px apart. Section headings in body strong, 28 px above the cards and 8 px over them.
-- Keyboard focus visual: a 2 px outer ring (`FocusStrokeColorOuter`) and a 1 px inner ring (`FocusStrokeColorInner`), only while the window shows keyboard cues (`ODS_NOFOCUSRECT` clear). Hide the cues when the window opens (`WM_CHANGEUISTATE`).
+- One reactor control for each core row kind (`settings/page.rs`). A new row kind needs one renderer here, never a hand-drawn control.
+  - Switch: `ToggleSwitch` at the trailing edge of a card.
+  - Picker: `ComboBox` at the trailing edge, at least 200 px wide.
+  - Text area: multi-line `TextBox` under the label, at least 160 px high, with its button below.
+  - Text field: `TextBox` and an accent `Button` that submits. The return key also submits.
+  - Search field: `AutoSuggestBox` with the `Find` symbol. The return key submits.
+  - Item: title and subtitle at the leading edge, the detail and the accessory at the trailing edge. Download progress is a `ProgressBar` with a cancel `Button`.
+  - Loading: a small `ProgressRing` and the text. Message: the text and an optional retry `Button`.
+  - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its symbol.
+- Primary action: `ButtonStyle::Accent`, at most one for each card. A back button in a section heading is `ButtonStyle::Subtle`.
+- Secondary text: reactor has no `TextFillColorSecondaryBrush` yet. Use the caption size (12 px) with 75 % opacity, and check its contrast. Error notes use `ThemeBrush::SystemCritical` at full opacity.
+- Controlled fields: declare the text of each field from state and send each change back as a message. The page keeps the text of the fields whose text the core view does not hold (search, text field).
+- Give each child a stable key (`keyed`): the page index, the section index, the row index and the control id. Reactor then keeps the focus and the caret of a control across renders.
+- `AutoSuggestBox` has no query event in reactor yet. A `Border` with `on_key_up` around the field turns the return key into a submit.
 
 ## Typography
-- Segoe UI Variable (Text optical size for UI, Display for titles), fallback Segoe UI. Icons: Segoe Fluent Icons, fallback Segoe MDL2 Assets. No bundled fonts.
-- Type ramp (size/line, epx): caption 12/16, body 14/20, body strong 14/20 semibold, subtitle 20/28 semibold, title 28/36 semibold.
-- Regular for text, Semibold for titles/emphasis. No Bold, no italic. Min 12 px regular, 14 px semibold.
-- Sentence case everywhere, titles and menu items included. Left aligned. Truncate with ellipsis.
-- Non-Latin scripts: system UI font per language, not Segoe UI Variable.
+- WinUI default fonts: Segoe UI Variable, and Segoe Fluent Icons for symbols. No bundled fonts.
+- Type ramp (size/line, epx): caption 12/16, body 14/20, body strong 14/20 semibold, subtitle 20/28 semibold, title 28/36 semibold. Page titles use title, section headings use body strong.
+- Regular for text, Semibold for titles and emphasis. No Bold, no italic.
+- Sentence case everywhere, titles and menu items included. Left aligned. Wrap long text, never cut it.
 
 ## Title bar
-- Standard height 32 px. Use 48 px only with a search box or a person picture in the title bar.
+- `ViewContext::window_frame` gives the standard title bar: the title, the system caption buttons, the drag region and snap layouts. Do not draw a title bar of your own.
 - The title bar sits on the base layer and blends with the rest of the window (Mica shows through).
-- Icon 16 × 16 px, 16 px from the left edge, centered vertically. Title 16 px after the icon, caption style, Segoe UI Variable, truncated with ellipsis. Caption buttons always fully visible.
-- Inactive window: title bar elements show semi-transparent.
-- Empty space and the title are draggable. Right-click shows the system menu. Double-click toggles maximize.
-- Prefer the system caption buttons. Custom caption buttons use Segoe Fluent Icons `E921` minimize, `E922` maximize, `E923` restore, `E8BB` close, full-bleed backplates, and keep snap layouts (`HTMAXBUTTON`) working.
 
 ## Ghost text overlay
 - Inline, not a popup: no chrome, no border, no shadow, no material. Reads as the host's own text.
@@ -102,13 +74,13 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - A menu runs a message loop of its own. Show it outside any borrow of the runtime: post a message, then show it from the window procedure.
 
 ## Windows (settings, dialogs)
-- Settings-app style: Mica base layer across the whole window and the title bar, left navigation on Mica if more than one page, content as cards.
-- Standard caption buttons and title bar. If extending into the title bar, keep snap layouts (`HTMAXBUTTON`) and the drag region working.
-- Single-instance. Reopen focuses the existing window.
+- Settings-app style: Mica base layer across the whole window and the title bar, the navigation at the left, content as cards.
+- Single instance. Reopen activates the open window. Close drops the window and its state. The reactor app keeps running for the next open.
+- The window opens at 1000 x 720 DIPs, at least 640 x 480 DIPs (`WindowPolicy`).
 
 ## Accessibility
-- Every control: UIA name, role, keyboard reachable, visible focus rect (2 px accent-aware). Tab order = visual order.
-- Owner draw keeps the standard window of each control, so its UIA role and name stay. Never replace a control with drawing only.
-- Enter clicks the focused button, like Space. The page scroll bar is drawing only. Keyboard users scroll as focus moves, so the page shows the focused control.
+- WinUI controls bring their UIA role, keyboard focus, focus visuals and Tab order. Never replace a control with drawing only.
+- Give each control without a visible label of its own an `automation_name` (switches, menus, fields).
+- Tab order = visual order, so build the view in reading order.
 - Contrast: text 4.5:1, UI parts 3:1, both themes, on Mica and on its solid fallback. Never color as sole signal.
-- Manual check per UI PR: light, dark, high contrast, 100/150/200 % scale, transparency off, inactive window, Narrator, hover and press on each control, typing and IME in text fields, and the menus in both themes.
+- Manual check per UI PR: light, dark, high contrast, 100/150/200 % scale, transparency off, inactive window, Narrator, keyboard only, typing and IME in text fields, and the tray menu in both themes.
