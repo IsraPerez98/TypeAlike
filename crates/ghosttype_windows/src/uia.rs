@@ -99,19 +99,28 @@ impl UiaCaret {
     /// Reads the visible text elements of the foreground window, and the frames of the focused
     /// control and its caret. `None` for a password field.
     pub(crate) fn screen_text(&self) -> Option<ScreenText> {
+        let field = self.focused_field()?;
+        // SAFETY: plain calls. UIA reads the window of another process without messages to it.
+        let window = unsafe { self.automation.ElementFromHandle(GetForegroundWindow()) }.ok()?;
+        Some(ScreenText {
+            lines: self.visible_texts(&window)?,
+            caret: field.caret,
+            field: field.frame,
+        })
+    }
+
+    /// Reads where the focused control and its caret are. `None` for a password field.
+    pub(crate) fn focused_field(&self) -> Option<FocusedField> {
         let focused = self.focused_element()?;
         if is_password(&focused) {
             return None;
         }
         // SAFETY: plain call on an interface of this thread.
-        let field = unsafe { focused.CurrentBoundingRectangle() }.ok()?;
+        let frame = unsafe { focused.CurrentBoundingRectangle() }.ok()?;
         let caret = focus::caret().or_else(|| caret_of(&focused));
-        // SAFETY: plain calls; UIA reads the window of another process without messages to it.
-        let window = unsafe { self.automation.ElementFromHandle(GetForegroundWindow()) }.ok()?;
-        Some(ScreenText {
-            lines: self.visible_texts(&window)?,
+        Some(FocusedField {
+            frame: screen_rect(frame),
             caret: caret.as_ref().map(caret_frame),
-            field: screen_rect(field),
         })
     }
 
@@ -165,6 +174,13 @@ impl UiaCaret {
         // SAFETY: plain call on an interface of this thread.
         unsafe { self.automation.GetFocusedElement() }.ok()
     }
+}
+
+/// Where the focused control, which does not hide its text, and its caret are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FocusedField {
+    pub(crate) frame: ScreenRect,
+    pub(crate) caret: Option<ScreenRect>,
 }
 
 /// A side of the selection.
@@ -280,7 +296,7 @@ fn caret_frame(caret: &Caret) -> ScreenRect {
     }
 }
 
-fn screen_rect(rect: RECT) -> ScreenRect {
+pub(crate) fn screen_rect(rect: RECT) -> ScreenRect {
     ScreenRect {
         left: rect.left,
         top: rect.top,

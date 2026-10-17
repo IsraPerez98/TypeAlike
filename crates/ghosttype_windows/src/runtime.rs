@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{BackendChoice, Controller, Delivery, FocusChange, Services, Shell, Timer};
-use ghosttype_core::desktop::{CopiedText, Desktop, ScreenRead, ScreenReadId, ScreenSource, Surroundings};
+use ghosttype_core::desktop::{
+    CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -36,8 +38,9 @@ use crate::focus::{Caret, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
 use crate::mailbox::Mailbox;
+use crate::ocr::OcrSupport;
 use crate::overlay::Overlay;
-use crate::screen_text::ScreenTextReader;
+use crate::screen_text::{ScreenAnswer, ScreenTextReader};
 use crate::settings::SettingsThread;
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
@@ -94,6 +97,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let (screen_mailbox, screen_reads) = Mailbox::new(window.handle(), SCREEN_READ_MESSAGE);
     let screen_text =
         ScreenTextReader::start(screen_mailbox).map_err(RunError::during("start the screen text reader"))?;
+    let ocr = OcrSupport::detect();
+    tracing::info!(?ocr, "found the OCR support");
     let (mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
@@ -121,6 +126,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 badge,
                 caret_reader,
                 screen_text,
+                ocr,
                 pending_view: PendingView::default(),
                 kept_field_text: KeptFieldText::default(),
                 tray,
@@ -209,7 +215,7 @@ struct Runtime {
     settings_inputs: mpsc::Receiver<SettingsInput>,
     caret_reads: mpsc::Receiver<CaretRead>,
     field_reads: mpsc::Receiver<FieldRead>,
-    screen_reads: mpsc::Receiver<ScreenRead>,
+    screen_reads: mpsc::Receiver<ScreenAnswer>,
 }
 
 impl Runtime {
@@ -336,9 +342,10 @@ impl Runtime {
     }
 
     fn take_screen_reads(&mut self) {
-        while let Ok(read) = self.screen_reads.try_recv() {
+        while let Ok(answer) = self.screen_reads.try_recv() {
+            tracing::debug!(read = ?answer.read.id, trip = ?answer.sent.elapsed(), "screen read reached the main thread");
             self.controller
-                .on_delivery(Delivery::Screen(read), &mut self.shell);
+                .on_delivery(Delivery::Screen(answer.read), &mut self.shell);
         }
     }
 }
@@ -351,6 +358,7 @@ struct Win32Shell {
     badge: Badge,
     caret_reader: CaretReader,
     screen_text: ScreenTextReader,
+    ocr: OcrSupport,
     /// What shows at the caret when the caret reader answers.
     pending_view: PendingView,
     /// The text around the caret that the hooks give to the controller.
@@ -446,6 +454,10 @@ impl Desktop for Win32Shell {
     fn copied_text(&self) -> Option<CopiedText> {
         self.clipboard.copied_text()
     }
+
+    fn ocr_availability(&self) -> OcrAvailability {
+        self.ocr.availability()
+    }
 }
 
 impl Shell for Win32Shell {
@@ -506,12 +518,11 @@ impl Shell for Win32Shell {
         self.clipboard.use_access(access);
     }
 
-    /// Windows has no OCR, so core asks only for the UIA text.
-    fn read_screen(&mut self, read: ScreenReadId, _source: ScreenSource) {
-        self.screen_text.read(read);
+    fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
+        self.screen_text.read(read, source);
     }
 
-    /// Windows has no OCR, so core never asks for its permission.
+    /// Windows asks for no permission to capture a window, so core never asks for it.
     fn ask_for_ocr_permission(&mut self) {}
 
     fn quit(&mut self) {

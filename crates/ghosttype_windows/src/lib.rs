@@ -16,6 +16,7 @@ mod injection;
 mod keys;
 mod mailbox;
 mod menu;
+mod ocr;
 mod overlay;
 mod pixels;
 mod registry;
