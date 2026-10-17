@@ -9,7 +9,7 @@ use crate::prompt::{self, last_chars};
 use crate::settings::{ClipboardAccess, Settings, SuggestionLength};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
-/// The characters before the caret that a session keeps when its text grows past
+/// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
 const TRIMMED_CHARS_BEFORE_CARET: usize = 750;
@@ -171,7 +171,7 @@ impl Engine {
             let text_before = surroundings
                 .field_text
                 .as_ref()
-                .map(|field_text| last_chars(&field_text.before_caret, MAX_CHARS_BEFORE_CARET).to_owned())
+                .map(|field_text| recent_text(&field_text.before_caret).to_owned())
                 .unwrap_or_default();
             Session {
                 preface: prompt::preface(system_prompt, &surroundings, clipboard.as_deref()),
@@ -271,12 +271,20 @@ impl Engine {
     }
 
     fn keep_recent_text(&mut self) {
-        if let Some(session) = &mut self.session
-            && session.text_before.chars().count() > MAX_CHARS_BEFORE_CARET
-        {
-            let kept = last_chars(&session.text_before, TRIMMED_CHARS_BEFORE_CARET).len();
+        if let Some(session) = &mut self.session {
+            let kept = recent_text(&session.text_before).len();
             session.text_before.drain(..session.text_before.len() - kept);
         }
+    }
+}
+
+/// Returns the end of `text` that a session keeps: all of it while it is shorter than
+/// [`MAX_CHARS_BEFORE_CARET`], else its last [`TRIMMED_CHARS_BEFORE_CARET`] characters.
+fn recent_text(text: &str) -> &str {
+    if text.chars().count() < MAX_CHARS_BEFORE_CARET {
+        text
+    } else {
+        last_chars(text, TRIMMED_CHARS_BEFORE_CARET)
     }
 }
 
@@ -907,8 +915,8 @@ mod tests {
     }
 
     #[test]
-    fn context_past_the_limit_drops_old_characters_in_one_step() {
-        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
+    fn context_that_reaches_the_limit_drops_old_characters_in_one_step() {
+        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)));
         engine.on_completion(completion(""));
 
         let reaction = press(&mut engine, Key::Char('y'));
@@ -917,15 +925,15 @@ mod tests {
     }
 
     #[test]
-    fn context_up_to_the_limit_keeps_its_start() {
-        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)));
+    fn context_below_the_limit_keeps_its_start() {
+        let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 3)));
         engine.on_completion(completion(""));
 
         let reaction = press(&mut engine, Key::Char('y'));
 
         assert_eq!(
             reaction,
-            request(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)))
+            request(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)))
         );
     }
 
@@ -981,7 +989,7 @@ mod tests {
 
         let reaction = engine.on_key(Key::Char('y'), &FakeDesktop::with_field_text(&before_caret));
 
-        assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET)));
+        assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET + 1)));
     }
 
     #[test]
@@ -1093,6 +1101,21 @@ mod tests {
         assert_eq!(
             (reaction, desktop.surroundings_reads.get()),
             (request("Hello worl"), 1)
+        );
+    }
+
+    #[test]
+    fn first_key_after_preparing_a_long_field_continues_the_prepared_text() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
+        let recent_text = "y".repeat(TRIMMED_CHARS_BEFORE_CARET);
+        let prepared = engine.prepare(&desktop);
+
+        let reaction = engine.on_key(Key::Char('z'), &desktop);
+
+        assert_eq!(
+            (prepared, reaction),
+            (preparation(&recent_text), request(&format!("{recent_text}z")))
         );
     }
 

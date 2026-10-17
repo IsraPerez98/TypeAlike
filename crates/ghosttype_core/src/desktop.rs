@@ -4,8 +4,8 @@ use std::fmt;
 
 use crate::app::Field;
 
-/// The most characters before the caret that a suggestion uses. A platform reads at most this
-/// many.
+/// The most characters before the caret that a platform reads. A suggestion uses fewer, because
+/// the text drops its oldest characters when it reaches this many.
 pub const MAX_CHARS_BEFORE_CARET: usize = 1000;
 
 /// The most characters after the caret that a suggestion uses. A platform reads at most this many.
