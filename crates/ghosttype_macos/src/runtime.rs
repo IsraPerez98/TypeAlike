@@ -10,21 +10,18 @@ use std::time::Duration;
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, PaneAction, Services, SettingsView,
-    Shell, Timer,
+    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
-use ghosttype_core::models_pane::ModelsAction;
 use ghosttype_core::settings::{ClipboardAccess, Settings};
-use ghosttype_core::settings_view::SettingsInput;
+use ghosttype_core::settings_view::{SettingsInput, SettingsView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton,
-    NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
-    NSWorkspaceDidActivateApplicationNotification,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton, NSSwitch,
+    NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
 use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
@@ -190,21 +187,6 @@ impl Runtime {
         self.controller.on_delivery(delivery, &mut self.shell);
     }
 
-    fn on_pane_action(&mut self, action: PaneAction) {
-        self.controller.on_pane_action(action, &mut self.shell);
-    }
-
-    fn on_settings_button(&mut self, tag: isize) {
-        let action = self
-            .shell
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.action_for_tag(tag));
-        if let Some(action) = action {
-            self.on_pane_action(PaneAction::Models(action));
-        }
-    }
-
     /// Handles the input that `read` reads from the settings window, if any.
     fn on_settings_control(&mut self, read: impl FnOnce(&SettingsWindow) -> Option<SettingsInput>) {
         if let Some(input) = self.shell.settings.as_ref().and_then(read) {
@@ -323,15 +305,13 @@ impl Shell for AppKitShell {
         let settings = self.settings.get_or_insert_with(|| {
             let action_target = ActionTarget {
                 target: Retained::into_super(target.clone()),
-                button_action: sel!(pickSettingsButton:),
-                search_action: sel!(searchModels:),
                 submit_action: sel!(submitSetting:),
                 toggle_action: sel!(toggleSetting:),
                 pick_action: sel!(pickSetting:),
                 press_action: sel!(pressSetting:),
                 edit_action: sel!(editSetting:),
             };
-            SettingsWindow::new(action_target, target.mtm())
+            SettingsWindow::new(action_target, view, target.mtm())
         });
         settings.render(view);
         settings.show();
@@ -359,20 +339,6 @@ define_class!(
         fn pick_menu_item(&self, sender: &NSMenuItem) {
             let tag = sender.tag();
             with_runtime(|runtime| runtime.on_menu_item(tag));
-        }
-
-        // SAFETY: matches the action signature, called with the clicked settings button.
-        #[unsafe(method(pickSettingsButton:))]
-        fn pick_settings_button(&self, sender: &NSButton) {
-            let tag = sender.tag();
-            with_runtime(|runtime| runtime.on_settings_button(tag));
-        }
-
-        // SAFETY: matches the action signature, called with the submitted search field.
-        #[unsafe(method(searchModels:))]
-        fn search_models(&self, sender: &NSSearchField) {
-            let action = PaneAction::Models(ModelsAction::Search(sender.stringValue().to_string()));
-            with_runtime(|runtime| runtime.on_pane_action(action));
         }
 
         // SAFETY: matches the action signature, called with a switch of a settings page.

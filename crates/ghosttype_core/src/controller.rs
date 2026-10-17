@@ -13,10 +13,10 @@ use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
-use crate::models_pane::{ModelsAction, ModelsPane, ModelsView};
-use crate::playground::PlaygroundPane;
+use crate::models_pane::{ModelsAction, ModelsPane};
+use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{Autostart, ClipboardAccess, Settings, SettingsStore};
-use crate::settings_view::{Page, SettingsInput};
+use crate::settings_view::{SettingsInput, SettingsView};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -49,22 +49,12 @@ pub enum BackendChoice {
     Runner,
 }
 
-/// Everything that the settings window shows, one view for each pane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingsView {
-    /// The General pane.
-    pub general: Page,
-    /// The Models pane.
-    pub models: ModelsView,
-    /// The Playground pane.
-    pub playground: Page,
-}
-
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PaneAction {
-    /// An action in the Models pane.
+enum PaneAction {
+    General(GeneralAction),
     Models(ModelsAction),
+    Playground(PlaygroundAction),
 }
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs
@@ -290,31 +280,39 @@ impl Controller {
         }
     }
 
-    /// Handles something that the user did in a pane of the settings window.
-    pub fn on_pane_action(&mut self, action: PaneAction, shell: &mut dyn Shell) {
-        match action {
-            PaneAction::Models(action) => {
-                if let Some(request) = self.models.on_action(action) {
-                    self.hub.submit(request, &self.hub_sink);
-                }
-            }
-        }
-        self.render_settings(shell);
-    }
-
     /// Handles something that the user did with a control of the settings window, then shows
     /// the panes as they are now. A menu then shows its selected entry again, also when the
     /// picked entry does nothing.
     pub fn on_settings_input(&mut self, input: &SettingsInput, shell: &mut dyn Shell) {
-        let installed = self.models.installed_files();
-        if let Some(action) = self.general.action_for(input, &self.playground, &installed) {
-            self.on_general_action(action, shell);
-        } else if let Some(action) = self.playground.action_for(input, &installed)
-            && let Some(request) = self.playground.on_action(action)
-        {
-            self.runner.submit(request, &self.playground_sink);
+        match self.pane_action(input) {
+            Some(PaneAction::General(action)) => self.on_general_action(action, shell),
+            Some(PaneAction::Models(action)) => {
+                if let Some(request) = self.models.on_action(action) {
+                    self.hub.submit(request, &self.hub_sink);
+                }
+            }
+            Some(PaneAction::Playground(action)) => {
+                if let Some(request) = self.playground.on_action(action) {
+                    self.runner.submit(request, &self.playground_sink);
+                }
+            }
+            None => {}
         }
         self.render_settings(shell);
+    }
+
+    /// The action of the pane that owns the control of `input`, if the input does something.
+    fn pane_action(&self, input: &SettingsInput) -> Option<PaneAction> {
+        let installed = self.models.installed_files();
+        self.general
+            .action_for(input, &self.playground, &installed)
+            .map(PaneAction::General)
+            .or_else(|| {
+                self.playground
+                    .action_for(input, &installed)
+                    .map(PaneAction::Playground)
+            })
+            .or_else(|| self.models.action_for(input).map(PaneAction::Models))
     }
 
     fn render_settings(&self, shell: &mut dyn Shell) {
@@ -432,9 +430,11 @@ impl Controller {
     fn settings_view(&self) -> SettingsView {
         let installed = self.models.installed_files();
         SettingsView {
-            general: self.general.page(&self.playground, &installed),
-            models: self.models.view(),
-            playground: self.playground.page(&installed),
+            pages: vec![
+                self.general.page(&self.playground, &installed),
+                self.models.page(),
+                self.playground.page(&installed),
+            ],
         }
     }
 
@@ -486,9 +486,10 @@ mod tests {
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Backend, Completion, TokenCount};
+    use crate::models_pane::SEARCH;
     use crate::playground::MODEL;
     use crate::settings::{PromptPreparation, SuggestionDisplay};
-    use crate::settings_view::ControlId;
+    use crate::settings_view::{ControlId, Page};
 
     const PAUSE_BADGE: BadgeView = BadgeView {
         status: Status::Active,
@@ -766,6 +767,13 @@ mod tests {
         }
     }
 
+    fn general_page(view: &SettingsView) -> &Page {
+        view.pages
+            .iter()
+            .find(|page| page.title == "General")
+            .expect("the settings window shows the General pane")
+    }
+
     fn model_file() -> ModelFile {
         ModelFile {
             repo: "owner/repo".to_owned(),
@@ -847,7 +855,7 @@ mod tests {
 
         let view = harness.shown_settings();
 
-        assert!(view.general.row(BACKEND).is_some());
+        assert!(general_page(&view).row(BACKEND).is_some());
     }
 
     #[test]
@@ -856,7 +864,7 @@ mod tests {
 
         let view = harness.shown_settings();
 
-        assert_eq!(view.general.row(BACKEND), None);
+        assert_eq!(general_page(&view).row(BACKEND), None);
     }
 
     #[test]
@@ -1364,13 +1372,14 @@ mod tests {
     }
 
     #[test]
-    fn models_action_asks_hub() {
+    fn search_asks_hub() {
         let mut harness = Harness::new(Settings::default());
+        let search = SettingsInput::Submitted {
+            id: ControlId::new(SEARCH),
+            text: "qwen".to_owned(),
+        };
 
-        harness.controller.on_pane_action(
-            PaneAction::Models(ModelsAction::Search("qwen".to_owned())),
-            &mut harness.shell,
-        );
+        harness.controller.on_settings_input(&search, &mut harness.shell);
 
         assert_eq!(
             harness.hub_requests(),

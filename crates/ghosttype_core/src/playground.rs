@@ -11,7 +11,8 @@ use crate::models_pane::model_name;
 use crate::prompt;
 use crate::settings::Settings;
 use crate::settings_view::{
-    ChoiceText, ControlId, Note, NoteTone, Output, Page, Picker, Row, Section, SettingsInput, TextField,
+    ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
+    TextField,
 };
 
 /// Something the user did in the Playground pane.
@@ -229,11 +230,13 @@ impl PlaygroundPane {
         })]);
         let output = self.completion.as_ref().map(|completion| Section {
             heading: Some(OUTPUT_HEADING.to_owned()),
-            rows: vec![completion_row(completion)],
+            ..Section::new(vec![completion_row(completion)])
         });
         Page {
             title: PANE_TITLE,
+            icon: PageIcon::TextCursor,
             summary: PANE_SUMMARY,
+            search: None,
             sections: [model, prompt].into_iter().chain(output).collect(),
         }
     }
@@ -500,7 +503,7 @@ mod tests {
     fn output_section(row: Row) -> Section {
         Section {
             heading: Some("Suggestion".to_owned()),
-            rows: vec![row],
+            ..Section::new(vec![row])
         }
     }
 
@@ -535,7 +538,9 @@ mod tests {
             shown,
             Page {
                 title: "Playground",
+                icon: PageIcon::TextCursor,
                 summary: "Select the model that suggests text as you type. Then type the start of a sentence to test the model.",
+                search: None,
                 sections: vec![
                     Section::new(vec![Row::Picker(Picker {
                         id: ControlId::new(MODEL),

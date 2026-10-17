@@ -4,6 +4,8 @@
 //! A text field lets the pointer through where it shows its color key, so the page gets most of
 //! the pointer input over a field. The page finds the field under the pointer for that input.
 
+use std::rc::Rc;
+
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     InvalidateRect, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow,
@@ -15,13 +17,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDPROC, WS_CHILD,
     WS_CLIPCHILDREN, WS_EX_CONTROLPARENT,
 };
-use windows::core::{HSTRING, PCWSTR, Result};
+use windows::core::{HSTRING, Result, w};
 
 use crate::settings::appearance::Appearance;
 use crate::settings::controls;
 use crate::settings::layout::{Bounds, Point, ScrollBar, ScrollBarSizes, ScrollMove, clamp_scroll, reveal};
 use crate::settings::paint::{self, FieldPaint, FieldState, PaintSession};
-use crate::window::{Window, WindowSpec};
+use crate::window::{Window, WindowClass, WindowSpec};
 
 const WHEEL_SCROLL: i32 = 120;
 const WHEEL_DELTA: i32 = 120;
@@ -108,15 +110,21 @@ pub(crate) struct Page {
 }
 
 impl Page {
-    pub(crate) fn create(class_name: PCWSTR, procedure: WNDPROC, parent: HWND) -> Result<Self> {
-        let window = Window::create(WindowSpec {
-            class_name,
+    /// Registers the class of the pages in `parent`, whose messages go to `procedure`.
+    pub(crate) fn register_class(procedure: WNDPROC, parent: HWND) -> Result<Rc<WindowClass>> {
+        WindowClass::register(WindowSpec {
+            class_name: w!("GhostType.SettingsPage"),
             procedure,
             class_style: CS_DBLCLKS,
             style: WS_CHILD | WS_CLIPCHILDREN,
             extended_style: WS_EX_CONTROLPARENT,
             parent: Some(parent),
-        })?;
+        })
+    }
+
+    /// Creates a hidden page of `class`, see [`Self::register_class`].
+    pub(crate) fn create(class: &Rc<WindowClass>) -> Result<Self> {
+        let window = class.create_window()?;
         Ok(Self {
             window,
             offset: 0,

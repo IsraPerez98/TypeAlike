@@ -1,5 +1,5 @@
-//! The settings window: a navigation list of panes, like the Settings app, that renders the core
-//! General, Models and Playground panes and reports user actions back.
+//! The settings window: a navigation list of pages, like the Settings app, that renders the pages
+//! of the core settings view and reports user actions back.
 //!
 //! Mica fills the whole window: the frame extends over the client area, and every window in it
 //! draws with Direct2D into pixels with alpha. Transparent pixels show Mica, and cards and
@@ -11,7 +11,6 @@ mod controls;
 mod form;
 mod layout;
 mod look;
-mod models_page;
 mod page;
 mod page_view;
 mod paint;
@@ -20,9 +19,7 @@ mod typography;
 
 use std::rc::Rc;
 
-use ghosttype_core::controller::PaneAction;
-use ghosttype_core::models_pane::ModelsView;
-use ghosttype_core::settings_view::{self as view, ControlId, SettingsInput};
+use ghosttype_core::settings_view::{ControlId, PageIcon, SettingsInput, SettingsView};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE, DWMSBT_MAINWINDOW, DWMSBT_NONE,
@@ -52,14 +49,13 @@ use crate::gdi::glyph_icon;
 use crate::settings::controls::{Control, ControlKind};
 use crate::settings::form::PAGE_TEXT;
 use crate::settings::layout::{Bounds, Dpi, Point, ScrollMove, centered_origin};
-use crate::settings::models_page::ModelsPage;
 use crate::settings::page::Page;
 use crate::settings::page_view::PageView;
 use crate::settings::paint::PaintSession;
 use crate::settings::palette::Backdrop;
 use crate::settings::typography::TextRole;
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
-use crate::window::{Window, WindowSpec};
+use crate::window::{Window, WindowClass, WindowSpec};
 
 pub(crate) use crate::settings::appearance::Appearance;
 pub(crate) use crate::settings::controls::PickerMenu;
@@ -77,24 +73,20 @@ const NAV_ITEM_HEIGHT: i32 = 36;
 const NAV_ITEM_GAP: i32 = 4;
 const WHOLE_WINDOW: i32 = -1;
 const APP_GLYPH: &str = "\u{E70F}";
-const MODELS_GLYPH: char = '\u{E896}';
-const PLAYGROUND_GLYPH: char = '\u{E70F}';
-const GENERAL_GLYPH: char = '\u{E713}';
+const GEAR_GLYPH: char = '\u{E713}';
+const CUBE_GLYPH: char = '\u{E896}';
+const TEXT_CURSOR_GLYPH: char = '\u{E70F}';
 
 /// The window procedures that receive the settings window's messages.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Procedures {
     pub(crate) window: WNDPROC,
-    pub(crate) models_page: WNDPROC,
-    pub(crate) playground_page: WNDPROC,
-    pub(crate) general_page: WNDPROC,
+    pub(crate) page: WNDPROC,
 }
 
 /// Something the user did in the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WindowInput {
-    /// An action that a core pane must handle.
-    Pane(PaneAction),
     /// An input of a control of a core settings page.
     Settings(SettingsInput),
     /// The user opened the picker with this id. Its menu must show outside any borrow of the
@@ -122,16 +114,6 @@ impl FieldInput {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pane {
-    General,
-    Models,
-    Playground,
-}
-
-/// The panes in the order of the navigation list.
-const PANES: [Pane; 3] = [Pane::General, Pane::Models, Pane::Playground];
-
 /// The title bar and taskbar icons of the window, kept alive while the window shows them.
 #[derive(Debug)]
 struct WindowIcons {
@@ -139,23 +121,22 @@ struct WindowIcons {
     _large: Owned<HICON>,
 }
 
-/// The settings window, hidden instead of destroyed when the user closes it.
+/// The settings window, hidden instead of destroyed when the user closes it. It shows one page
+/// for each page of the core settings view, and a navigation item for each page.
 #[derive(Debug)]
 pub(crate) struct SettingsWindow {
-    models_tab: Control,
-    playground_tab: Control,
-    general_tab: Control,
-    models: ModelsPage,
-    playground: PageView,
-    general: PageView,
-    selected: Pane,
+    tabs: Vec<Control>,
+    pages: Vec<PageView>,
+    page_class: Rc<WindowClass>,
+    selected: usize,
     appearance: Rc<Appearance>,
     icons: Option<WindowIcons>,
     window: Window,
 }
 
 impl SettingsWindow {
-    /// Creates the hidden window for the current system theme and the DPI where it opens.
+    /// Creates the hidden window for the current system theme and the DPI where it opens. The
+    /// pages come with the first render.
     pub(crate) fn create(procedures: Procedures) -> Result<Self> {
         let controls = INITCOMMONCONTROLSEX {
             dwSize: size_of::<INITCOMMONCONTROLSEX>()
@@ -179,20 +160,15 @@ impl SettingsWindow {
         // SAFETY: plain call on a window this function owns.
         unsafe { SetWindowTextW(handle, &HSTRING::from(WINDOW_TITLE)) }?;
         let appearance = Rc::new(Appearance::new(SystemTheme::read(), window_dpi(handle))?);
-        let tab = || Control::create(handle, ControlKind::NavigationButton, TextRole::Body, PAGE_TEXT);
         let mut settings = Self {
-            models_tab: tab()?.with_glyph(MODELS_GLYPH),
-            playground_tab: tab()?.with_glyph(PLAYGROUND_GLYPH),
-            general_tab: tab()?.with_glyph(GENERAL_GLYPH),
-            models: ModelsPage::create(handle, procedures.models_page)?,
-            playground: PageView::create(w!("GhostType.PlaygroundPage"), procedures.playground_page, handle)?,
-            general: PageView::create(w!("GhostType.GeneralPage"), procedures.general_page, handle)?,
-            selected: Pane::General,
+            tabs: Vec::new(),
+            pages: Vec::new(),
+            page_class: Page::register_class(procedures.page, handle)?,
+            selected: 0,
             appearance,
             icons: None,
             window,
         };
-        settings.mark_selected_tab();
         settings.apply_to_controls();
         settings.place_on_cursor_monitor()?;
         Ok(settings)
@@ -223,7 +199,9 @@ impl SettingsWindow {
         }
         if !self.contains_focus() {
             self.hide_keyboard_cues();
-            self.selected_tab().focus();
+            if let Some(tab) = self.tabs.get(self.selected) {
+                tab.focus();
+            }
         }
     }
 
@@ -249,20 +227,36 @@ impl SettingsWindow {
         let _ = unsafe { ShowWindow(self.handle(), SW_HIDE) };
     }
 
-    pub(crate) fn render(
-        &mut self,
-        models: &ModelsView,
-        playground: &view::Page,
-        general: &view::Page,
-    ) -> Result<()> {
-        self.models_tab.set_text(models.title);
-        self.playground_tab.set_text(playground.title);
-        self.general_tab.set_text(general.title);
+    /// Shows `view`: a navigation item and a page for each of its pages.
+    pub(crate) fn render(&mut self, view: &SettingsView) -> Result<()> {
         let appearance = Rc::clone(&self.appearance);
-        self.models.render(models, &appearance)?;
-        self.playground.render(playground, &appearance)?;
-        self.general.render(general, &appearance)?;
+        let has_new_pages = self.pages.len() < view.pages.len();
+        self.tabs.truncate(view.pages.len());
+        self.pages.truncate(view.pages.len());
+        for shown in view.pages.iter().skip(self.pages.len()) {
+            let tab = Control::create(
+                self.handle(),
+                ControlKind::NavigationButton,
+                TextRole::Body,
+                PAGE_TEXT,
+            )?
+            .with_glyph(glyph(shown.icon));
+            tab.apply(&appearance);
+            self.tabs.push(tab);
+            let page = PageView::create(&self.page_class)?;
+            page.apply(&appearance);
+            self.pages.push(page);
+        }
+        for ((tab, page), shown) in self.tabs.iter_mut().zip(&mut self.pages).zip(&view.pages) {
+            tab.set_text(shown.title);
+            page.render(shown, &appearance)?;
+        }
+        self.selected = self.selected.min(self.pages.len().saturating_sub(1));
+        self.mark_selected_tab();
         self.show_selected_page();
+        if has_new_pages {
+            self.layout();
+        }
         Ok(())
     }
 
@@ -280,75 +274,65 @@ impl SettingsWindow {
             height: item_height,
         };
         let mut previous = None;
-        for pane in PANES {
-            let tab = self.tab(pane);
+        for tab in &self.tabs {
             tab.place(item, previous);
             previous = Some(tab.handle());
             item.y += item_height + appearance.px(NAV_ITEM_GAP);
         }
-        let page = Bounds {
+        let bounds = Bounds {
             x: nav_width,
             y: 0,
             width: (client.width - nav_width).max(0),
             height: client.height,
         };
-        for pane in PANES {
-            move_window(self.page(pane).handle(), page);
-            self.layout_pane(pane);
+        for page in &mut self.pages {
+            move_window(page.page().handle(), bounds);
+            page.layout(&appearance);
         }
     }
 
     /// Reads a `WM_COMMAND` from `control` with `notification`.
     pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<WindowInput> {
         let page_input = self
-            .core_pages()
+            .pages
+            .iter()
             .find_map(|page| page.input_for(control, notification));
-        if page_input.is_some() {
+        if page_input.is_some() || notification != BN_CLICKED {
             return page_input;
         }
-        if notification != BN_CLICKED {
-            return None;
+        if let Some(index) = self.tabs.iter().position(|tab| tab.handle() == control) {
+            self.select(index);
         }
-        if let Some(pane) = PANES.into_iter().find(|&pane| self.tab(pane).handle() == control) {
-            self.select(pane);
-            return None;
-        }
-        self.models
-            .action_for(control)
-            .map(|action| WindowInput::Pane(PaneAction::Models(action)))
+        None
     }
 
-    /// Reads the Enter key: it clicks a focused button, or submits a search or a completion.
+    /// Reads the Enter key: it clicks a focused button, or submits a focused text field.
     pub(crate) fn input_for_enter(&mut self) -> Option<WindowInput> {
         // SAFETY: plain call.
         let focus = unsafe { GetFocus() };
         if controls::look_of(focus).is_some_and(|look| look.kind.is_button()) {
             return self.input_for(focus, BN_CLICKED);
         }
-        self.models
-            .search_for(focus)
-            .map(|action| WindowInput::Pane(PaneAction::Models(action)))
-            .or_else(|| self.core_pages().find_map(|page| page.submit_for(focus)))
+        self.pages.iter().find_map(|page| page.submit_for(focus))
     }
 
     /// The menu that the picker `id` opens, while the picker shows.
     pub(crate) fn picker_menu(&self, id: &ControlId) -> Option<PickerMenu> {
-        self.core_pages().find_map(|page| page.picker_menu(id))
-    }
-
-    /// The pages that show a page of the core settings view.
-    fn core_pages(&self) -> impl Iterator<Item = &PageView> {
-        [&self.general, &self.playground].into_iter()
+        self.pages.iter().find_map(|page| page.picker_menu(id))
     }
 
     /// Reacts to the pointer over the page `page_window`, which scrolls with its scroll bar.
     pub(crate) fn on_page_pointer(&mut self, page_window: HWND, pointer: Pointer) {
-        let Some(pane) = self.pane_of(page_window) else {
+        let Some(index) = self.page_index(page_window) else {
             return;
         };
         let appearance = Rc::clone(&self.appearance);
-        if let Some(scroll) = self.page_mut(pane).on_pointer(pointer, &appearance) {
-            self.scroll_pane(pane, scroll);
+        let scroll = self
+            .pages
+            .get_mut(index)
+            .and_then(|page| page.page_mut().on_pointer(pointer, &appearance));
+        if let Some(scroll) = scroll {
+            self.scroll_page(index, scroll);
         }
     }
 
@@ -361,7 +345,7 @@ impl SettingsWindow {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> Option<FieldInput> {
-        let page = self.page(self.pane_of(page_window)?);
+        let page = self.page_of(page_window)?.page();
         if message == WM_CONTEXTMENU {
             let field = page.field_at(client_point(page_window, pointer_position(lparam))?)?;
             return Some(FieldInput {
@@ -383,11 +367,11 @@ impl SettingsWindow {
     /// Shows the text cursor while the pointer is over a text field of the page `page_window`.
     /// Returns whether it did.
     pub(crate) fn show_field_cursor(&self, page_window: HWND) -> bool {
-        let Some(pane) = self.pane_of(page_window) else {
+        let Some(page) = self.page_of(page_window) else {
             return false;
         };
         let is_over_field = cursor_in(page_window)
-            .and_then(|point| self.page(pane).field_at(point))
+            .and_then(|point| page.page().field_at(point))
             .is_some();
         if !is_over_field {
             return false;
@@ -408,22 +392,24 @@ impl SettingsWindow {
 
     /// Scrolls the selected page by a mouse wheel rotation, in `WHEEL_DELTA` units up.
     pub(crate) fn scroll_by_wheel(&mut self, rotation: i32) {
-        let scroll = page::Page::wheel_move(rotation, &self.appearance);
-        self.scroll_pane(self.selected, scroll);
+        let scroll = Page::wheel_move(rotation, &self.appearance);
+        self.scroll_page(self.selected, scroll);
     }
 
     /// Scrolls the selected page so that the control with keyboard focus is visible.
     pub(crate) fn reveal_focus(&mut self) {
         // SAFETY: plain call.
         let focus = unsafe { GetFocus() };
-        let page = self.selected_page_handle();
+        let Some(page) = self.pages.get_mut(self.selected) else {
+            return;
+        };
+        let page_window = page.page().handle();
         // SAFETY: plain call on two window handles.
-        if focus.is_invalid() || !unsafe { IsChild(page, focus) }.as_bool() {
+        if focus.is_invalid() || !unsafe { IsChild(page_window, focus) }.as_bool() {
             return;
         }
-        let bounds = bounds_in(focus, page);
-        if self.page_mut(self.selected).reveal(bounds) {
-            self.layout_pane(self.selected);
+        if page.page_mut().reveal(bounds_in(focus, page_window)) {
+            page.layout(&self.appearance);
         }
     }
 
@@ -463,8 +449,8 @@ impl SettingsWindow {
 
     /// Paints the page `page_window`. Call only while handling `WM_PAINT`.
     pub(crate) fn paint_page(&self, page_window: HWND) {
-        if let Some(pane) = self.pane_of(page_window) {
-            self.page(pane).paint(&self.appearance);
+        if let Some(page) = self.page_of(page_window) {
+            page.page().paint(&self.appearance);
         }
     }
 
@@ -488,80 +474,49 @@ impl SettingsWindow {
         };
     }
 
-    fn select(&mut self, pane: Pane) {
-        self.selected = pane;
+    fn select(&mut self, index: usize) {
+        self.selected = index;
         self.mark_selected_tab();
         self.show_selected_page();
     }
 
     fn mark_selected_tab(&self) {
-        for pane in PANES {
-            if pane == self.selected {
-                self.tab(pane).mark_selected();
+        for (index, tab) in self.tabs.iter().enumerate() {
+            if index == self.selected {
+                tab.mark_selected();
             } else {
-                self.tab(pane).mark_unselected();
+                tab.mark_unselected();
             }
         }
     }
 
     fn show_selected_page(&self) {
-        self.page(self.selected).show();
-        for pane in PANES.into_iter().filter(|&pane| pane != self.selected) {
-            self.page(pane).hide();
+        for (index, page) in self.pages.iter().enumerate() {
+            if index == self.selected {
+                page.page().show();
+            } else {
+                page.page().hide();
+            }
         }
     }
 
-    fn scroll_pane(&mut self, pane: Pane, scroll: ScrollMove) {
-        if self.page_mut(pane).scroll(scroll) {
-            self.layout_pane(pane);
-        }
-    }
-
-    fn selected_tab(&self) -> &Control {
-        self.tab(self.selected)
-    }
-
-    fn selected_page_handle(&self) -> HWND {
-        self.page(self.selected).handle()
-    }
-
-    fn tab(&self, pane: Pane) -> &Control {
-        match pane {
-            Pane::Models => &self.models_tab,
-            Pane::Playground => &self.playground_tab,
-            Pane::General => &self.general_tab,
-        }
-    }
-
-    fn page(&self, pane: Pane) -> &Page {
-        match pane {
-            Pane::Models => self.models.page(),
-            Pane::Playground => self.playground.page(),
-            Pane::General => self.general.page(),
-        }
-    }
-
-    fn page_mut(&mut self, pane: Pane) -> &mut Page {
-        match pane {
-            Pane::Models => self.models.page_mut(),
-            Pane::Playground => self.playground.page_mut(),
-            Pane::General => self.general.page_mut(),
-        }
-    }
-
-    fn pane_of(&self, page_window: HWND) -> Option<Pane> {
-        PANES
-            .into_iter()
-            .find(|&pane| self.page(pane).handle() == page_window)
-    }
-
-    fn layout_pane(&mut self, pane: Pane) {
+    fn scroll_page(&mut self, index: usize, scroll: ScrollMove) {
         let appearance = Rc::clone(&self.appearance);
-        match pane {
-            Pane::Models => self.models.layout(&appearance),
-            Pane::Playground => self.playground.layout(&appearance),
-            Pane::General => self.general.layout(&appearance),
+        if let Some(page) = self.pages.get_mut(index)
+            && page.page_mut().scroll(scroll)
+        {
+            page.layout(&appearance);
         }
+    }
+
+    fn page_index(&self, page_window: HWND) -> Option<usize> {
+        self.pages
+            .iter()
+            .position(|page| page.page().handle() == page_window)
+    }
+
+    fn page_of(&self, page_window: HWND) -> Option<&PageView> {
+        self.pages.iter().find(|page| page.page().handle() == page_window)
     }
 
     fn contains_focus(&self) -> bool {
@@ -578,12 +533,12 @@ impl SettingsWindow {
             Ok(icons) => self.icons = Some(icons),
             Err(error) => tracing::warn!(%error, "failed to set window icons"),
         }
-        for pane in PANES {
-            self.tab(pane).apply(&appearance);
+        for tab in &self.tabs {
+            tab.apply(&appearance);
         }
-        self.models.apply(&appearance);
-        self.playground.apply(&appearance);
-        self.general.apply(&appearance);
+        for page in &self.pages {
+            page.apply(&appearance);
+        }
         // Returns whether it redrew; a failure only delays the repaint.
         // SAFETY: plain call on a window this type owns.
         let _ = unsafe {
@@ -767,6 +722,15 @@ fn set_icons(handle: HWND, appearance: &Appearance) -> Result<WindowIcons> {
         _small: small,
         _large: large,
     })
+}
+
+/// The glyph of Segoe Fluent Icons that shows `icon`.
+fn glyph(icon: PageIcon) -> char {
+    match icon {
+        PageIcon::Gear => GEAR_GLYPH,
+        PageIcon::Cube => CUBE_GLYPH,
+        PageIcon::TextCursor => TEXT_CURSOR_GLYPH,
+    }
 }
 
 fn window_dpi(handle: HWND) -> Dpi {

@@ -6,13 +6,11 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
-use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, FocusChange, Services, SettingsView, Shell, Timer,
-};
+use ghosttype_core::controller::{BackendChoice, Controller, Delivery, FocusChange, Services, Shell, Timer};
 use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
-use ghosttype_core::settings_view::{ControlId, SettingsInput};
+use ghosttype_core::settings_view::{ControlId, SettingsInput, SettingsView};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -57,9 +55,7 @@ const QUIT_RECEIVED: i32 = 0;
 const READ_FAILED: i32 = -1;
 const SETTINGS_PROCEDURES: Procedures = Procedures {
     window: Some(settings_window_procedure),
-    models_page: Some(settings_page_procedure),
-    playground_page: Some(settings_page_procedure),
-    general_page: Some(settings_page_procedure),
+    page: Some(settings_page_procedure),
 };
 
 /// Everything Win32 callbacks on this thread can reach. The appearance has its own cell because
@@ -278,7 +274,6 @@ impl Runtime {
 
     fn on_settings_input(&mut self, input: WindowInput) {
         match input {
-            WindowInput::Pane(action) => self.controller.on_pane_action(action, &mut self.shell),
             WindowInput::Settings(input) => self.controller.on_settings_input(&input, &mut self.shell),
             WindowInput::OpenMenu(picker) => self.post_picker_menu(picker),
         }
@@ -452,7 +447,7 @@ impl Shell for Win32Shell {
         let Some(settings) = &mut self.settings else {
             return;
         };
-        if let Err(error) = settings.render(&view.models, &view.playground, &view.general) {
+        if let Err(error) = settings.render(view) {
             tracing::warn!(%error, "failed to render settings");
         }
     }

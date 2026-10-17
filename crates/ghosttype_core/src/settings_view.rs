@@ -6,7 +6,8 @@ use std::borrow::Cow;
 use std::fmt;
 
 /// Names a control of the settings window. A control keeps its id from one render to the next,
-/// and the platform gives the id back with each input of the control.
+/// and the platform gives the id back with each input of the control. Two buttons can share an id
+/// when they do the same thing, such as the buttons of a model that shows in two lists.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ControlId(Cow<'static, str>);
 
@@ -24,30 +25,77 @@ impl ControlId {
     }
 }
 
+impl From<String> for ControlId {
+    fn from(name: String) -> Self {
+        Self(Cow::Owned(name))
+    }
+}
+
+/// Everything that the settings window shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsView {
+    /// The pages, in the order of the navigation. The first page shows when the window opens.
+    pub pages: Vec<Page>,
+}
+
 /// One page of the settings window, top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
     /// The title, in sentence case.
     pub title: &'static str,
+    /// The picture that stands for the page in the navigation.
+    pub icon: PageIcon,
     /// One or two sentences under the title about what the page is for.
     pub summary: &'static str,
+    /// A search field above the sections.
+    pub search: Option<SearchField>,
     /// The sections, top to bottom.
     pub sections: Vec<Section>,
+}
+
+/// The picture that stands for a page in the navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageIcon {
+    /// A gear, for settings.
+    Gear,
+    /// A cube, for things that the user downloads.
+    Cube,
+    /// A text cursor, for text that the user types.
+    TextCursor,
+}
+
+/// A field that searches for the text that the user submits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchField {
+    /// The field. The return key in the field, and the clear button of the field, give
+    /// [`SettingsInput::Submitted`].
+    pub id: ControlId,
+    /// The hint that the field shows while it is empty.
+    pub placeholder: &'static str,
 }
 
 /// Rows that belong together.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
-    /// Text above the rows, in sentence case.
+    /// Text above the rows, in sentence case. It can hold text that the user typed.
     pub heading: Option<String>,
+    /// A button before the heading that goes back to the section that this one came from.
+    pub back: Option<Button>,
     /// The rows, top to bottom.
     pub rows: Vec<Row>,
+    /// A line of help below the rows.
+    pub footer: Option<&'static str>,
 }
 
 impl Section {
     /// A section of `rows` with no heading.
     pub(crate) fn new(rows: Vec<Row>) -> Self {
-        Self { heading: None, rows }
+        Self {
+            heading: None,
+            back: None,
+            rows,
+            footer: None,
+        }
     }
 }
 
@@ -66,6 +114,12 @@ pub enum Row {
     Note(Note),
     /// Text that a model wrote.
     Output(Output),
+    /// One thing of a list, such as a model or a file.
+    Item(Item),
+    /// The rows of the section are on their way. The text tells what happens.
+    Loading(&'static str),
+    /// The section has no rows to show, and this tells why.
+    Message(Message),
 }
 
 impl Row {
@@ -77,7 +131,7 @@ impl Row {
             Self::Picker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
             Self::TextField(text_field) => Some(&text_field.id),
-            Self::Note(_) | Self::Output(_) => None,
+            Self::Note(_) | Self::Output(_) | Self::Item(_) | Self::Loading(_) | Self::Message(_) => None,
         }
     }
 }
@@ -164,6 +218,62 @@ pub struct Output {
     pub text: String,
     /// Facts about the text, such as how long the model took.
     pub detail: String,
+}
+
+/// One thing of a list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Item {
+    /// Main text.
+    pub title: String,
+    /// Secondary text below the title; empty when there is none.
+    pub subtitle: String,
+    /// Short facts at the trailing edge, such as the file size; empty when there are none.
+    pub detail: String,
+    /// What the user can do with the thing.
+    pub accessory: Accessory,
+}
+
+/// The control at the trailing edge of an item, which tells what the user can do with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Accessory {
+    /// The thing can be downloaded.
+    Download(Button),
+    /// The item leads to a list of its own, such as the files of a repository.
+    Open(Button),
+    /// The thing downloads.
+    Downloading {
+        /// How much of the thing arrived.
+        progress: Permille,
+        /// Stops the download.
+        cancel: Button,
+    },
+    /// The download stops.
+    Canceling,
+    /// The thing is downloaded.
+    Installed {
+        /// Deletes the thing.
+        delete: Button,
+    },
+    /// The download failed. The subtitle of the item tells why.
+    Failed {
+        /// Starts the download again.
+        retry: Button,
+    },
+    /// The item cannot be used. The subtitle of the item tells why.
+    Unavailable,
+}
+
+/// How far a download got, in thousandths of the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Permille(pub u16);
+
+/// Why a section has no rows to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message {
+    /// The explanation.
+    pub text: String,
+    /// Tries again, when trying again can help.
+    pub retry: Option<Button>,
 }
 
 /// A push button.

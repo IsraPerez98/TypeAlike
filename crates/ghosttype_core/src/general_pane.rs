@@ -10,7 +10,7 @@ use crate::settings::{
     SuggestionLength,
 };
 use crate::settings_view::{
-    Button, ChoiceText, ControlId, Page, Picker, Row, Section, SettingsInput, Switch, TextArea,
+    Button, ChoiceText, ControlId, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
 };
 
 /// Something the user did in the General pane.
@@ -279,7 +279,9 @@ impl GeneralPane {
             .then(|| Row::Picker(self.backend_picker(playground)));
         Page {
             title: PANE_TITLE,
+            icon: PageIcon::Gear,
             summary: PANE_SUMMARY,
+            search: None,
             sections: vec![
                 Section::new(autostart.into_iter().chain(settings).chain(backend).collect()),
                 Section::new(vec![Row::TextArea(self.system_prompt_area())]),
@@ -614,82 +616,78 @@ mod tests {
             shown,
             Page {
                 title: "General",
+                icon: PageIcon::Gear,
                 summary: "Change how GhostType runs on this computer.",
+                search: None,
                 sections: vec![
-                    Section {
-                        heading: None,
-                        rows: vec![
-                            Row::Switch(Switch {
-                                id: ControlId::new(CLIPBOARD),
-                                label: "Use copied text",
-                                description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
-                                is_on: false,
+                    Section::new(vec![
+                        Row::Switch(Switch {
+                            id: ControlId::new(CLIPBOARD),
+                            label: "Use copied text",
+                            description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
+                            is_on: false,
+                        }),
+                        Row::Switch(Switch {
+                            id: ControlId::new(PREPARATION),
+                            label: "Prepare before you type",
+                            description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
+                            is_on: false,
+                        }),
+                        Row::Switch(Switch {
+                            id: ControlId::new(DISPLAY),
+                            label: "Show words early",
+                            description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
+                            is_on: false,
+                        }),
+                        Row::Picker(Picker {
+                            id: ControlId::new(LENGTH),
+                            label: "Suggestion length",
+                            description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
+                            choices: vec!["Short".to_owned(), "Medium".to_owned(), "Long".to_owned()],
+                            choice_text: ChoiceText::Label,
+                            selected: 1,
+                            is_enabled: true,
+                            note: None,
+                        }),
+                        Row::Picker(Picker {
+                            id: ControlId::new(SUGGESTION_MODEL),
+                            label: "Suggestion model",
+                            description: "The model that suggests text as you type. GhostType loads it again when it starts.",
+                            choices: vec!["No downloaded models".to_owned()],
+                            choice_text: ChoiceText::Name,
+                            selected: 0,
+                            is_enabled: false,
+                            note: Some(Note {
+                                text: "Download a model in the Models pane.",
+                                tone: NoteTone::Plain,
                             }),
-                            Row::Switch(Switch {
-                                id: ControlId::new(PREPARATION),
-                                label: "Prepare before you type",
-                                description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
-                                is_on: false,
-                            }),
-                            Row::Switch(Switch {
-                                id: ControlId::new(DISPLAY),
-                                label: "Show words early",
-                                description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
-                                is_on: false,
-                            }),
-                            Row::Picker(Picker {
-                                id: ControlId::new(LENGTH),
-                                label: "Suggestion length",
-                                description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
-                                choices: vec!["Short".to_owned(), "Medium".to_owned(), "Long".to_owned()],
-                                choice_text: ChoiceText::Label,
-                                selected: 1,
-                                is_enabled: true,
-                                note: None,
-                            }),
-                            Row::Picker(Picker {
-                                id: ControlId::new(SUGGESTION_MODEL),
-                                label: "Suggestion model",
-                                description: "The model that suggests text as you type. GhostType loads it again when it starts.",
-                                choices: vec!["No downloaded models".to_owned()],
-                                choice_text: ChoiceText::Name,
-                                selected: 0,
-                                is_enabled: false,
-                                note: Some(Note {
-                                    text: "Download a model in the Models pane.",
-                                    tone: NoteTone::Plain,
-                                }),
-                            }),
-                            Row::Picker(Picker {
-                                id: ControlId::new(BACKEND),
-                                label: "Inference backend",
-                                description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
-                                choices: vec![
-                                    "CPU".to_owned(),
-                                    "Vulkan (GPU)".to_owned(),
-                                    "CUDA (NVIDIA GPU)".to_owned(),
-                                ],
-                                choice_text: ChoiceText::Label,
-                                selected: 1,
-                                is_enabled: true,
-                                note: None,
-                            }),
-                        ],
-                    },
-                    Section {
-                        heading: None,
-                        rows: vec![Row::TextArea(TextArea {
-                            id: ControlId::new(SYSTEM_PROMPT),
-                            label: "System prompt",
-                            description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
-                            text: DEFAULT_SYSTEM_PROMPT.to_owned(),
-                            button: Some(Button {
-                                id: ControlId::new(RESET_SYSTEM_PROMPT),
-                                label: "Reset to default",
-                                is_enabled: false,
-                            }),
-                        })],
-                    },
+                        }),
+                        Row::Picker(Picker {
+                            id: ControlId::new(BACKEND),
+                            label: "Inference backend",
+                            description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
+                            choices: vec![
+                                "CPU".to_owned(),
+                                "Vulkan (GPU)".to_owned(),
+                                "CUDA (NVIDIA GPU)".to_owned(),
+                            ],
+                            choice_text: ChoiceText::Label,
+                            selected: 1,
+                            is_enabled: true,
+                            note: None,
+                        }),
+                    ]),
+                    Section::new(vec![Row::TextArea(TextArea {
+                        id: ControlId::new(SYSTEM_PROMPT),
+                        label: "System prompt",
+                        description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
+                        text: DEFAULT_SYSTEM_PROMPT.to_owned(),
+                        button: Some(Button {
+                            id: ControlId::new(RESET_SYSTEM_PROMPT),
+                            label: "Reset to default",
+                            is_enabled: false,
+                        }),
+                    })]),
                 ],
             }
         );

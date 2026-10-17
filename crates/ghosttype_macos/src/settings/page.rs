@@ -1,32 +1,62 @@
-//! A settings page, rendered from its core tree: the summary, then each section under its
-//! heading. Switches, menus and model output sit in rounded groups like the grouped lists of
-//! System Settings. Text fields and status notes sit between the groups.
+//! A settings page, rendered from its core tree: the summary and the search field, then each
+//! section under its heading. Switches, menus, items and model output sit in rounded groups like
+//! the grouped lists of System Settings. Text fields and status notes sit between the groups.
+//!
+//! A page with a search field pins the summary and the search field above the sections, which
+//! scroll.
 
 use std::ptr;
 
-use ghosttype_core::settings_view::{self as view, ChoiceText, ControlId, Row, SettingsInput};
+use ghosttype_core::settings_view::{self as view, Accessory, ChoiceText, ControlId, Row, SettingsInput};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2_app_kit::{
-    NSAccessibility as _, NSBorderType, NSButton, NSControl, NSControlStateValueOff, NSControlStateValueOn,
-    NSFont, NSFontWeightRegular, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
-    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSPopUpButton, NSScrollView, NSStackView,
-    NSStackViewGravity, NSSwitch, NSTextField, NSTextView, NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSBorderType, NSButton, NSCellImagePosition, NSColor, NSControl, NSControlSize,
+    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImageView,
+    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
+    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSPopUpButton, NSProgressIndicator, NSScrollView,
+    NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity, NSSwitch, NSTextField,
+    NSTextView, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSSize, NSString};
+use objc2_foundation::{NSArray, NSEdgeInsets, NSSize, NSString};
 
 use super::{
-    ActionTarget, CONTENT_INSETS, DETAIL_FONT_SIZE, GroupedRow, LIST_PART_SPACING, NO_INSETS, NoteView,
-    SECTION_SPACING, SUMMARY_FONT_SIZE, fill_width, label, pop_up_button, rebuild_menu, rounded_group,
-    row_texts, scroll_view, secondary_wrapping_label, set_text, stack, truncating_label, wrapping_label,
+    ActionTarget, CONTENT_INSETS, DETAIL_FONT_SIZE, LIST_PART_SPACING, MESSAGE_SPACING, NO_INSETS, NoteView,
+    SECTION_SPACING, SUMMARY_FONT_SIZE, add_grouped_row, fill_width, label, pop_up_button, rebuild_menu,
+    rounded_group, row_texts, scroll_view, secondary_wrapping_label, separator, set_text, show_status,
+    spinner, stack, start_spinning, stop_spinning, symbol, truncating_label, wrapping_label,
 };
 use crate::labels::title_case;
 
 const TEXT_AREA_HEIGHT: CGFloat = 120.0;
 const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const TEXT_FIELD_HEIGHT: CGFloat = 88.0;
+const HEADER_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 20.0,
+    left: 24.0,
+    bottom: 16.0,
+    right: 24.0,
+};
+const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
+    top: 28.0,
+    left: 16.0,
+    bottom: 28.0,
+    right: 16.0,
+};
+const HEADER_SPACING: CGFloat = 4.0;
+const SEARCH_FIELD_TOP_SPACING: CGFloat = 14.0;
+const ACCESSORY_SPACING: CGFloat = 8.0;
+const ICON_BUTTON_SIDE: CGFloat = 24.0;
+const OPEN_SYMBOL: &str = "chevron.right";
+const BACK_SYMBOL: &str = "chevron.left";
+const CANCEL_SYMBOL: &str = "xmark.circle.fill";
+const DELETE_SYMBOL: &str = "trash";
+const INSTALLED_SYMBOL: &str = "checkmark.circle.fill";
+const INSTALLED_DESCRIPTION: &str = "Downloaded";
+const UNAVAILABLE_SYMBOL: &str = "lock.fill";
+const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
 
 /// Creates the controls of the settings pages, which report to the action target, and tags each
 /// control with the index of its id.
@@ -45,17 +75,20 @@ impl Binder<'_> {
     }
 }
 
-/// The views of a settings page, kept to update them on each render.
+/// The views of a settings page, kept to update them on each render. The page keeps the search
+/// field that it was made with.
 #[derive(Debug)]
 pub(super) struct PageView {
-    pub(super) root: Retained<NSScrollView>,
+    pub(super) root: Retained<NSView>,
     content: Retained<NSStackView>,
     summary: Retained<NSTextField>,
+    search: Option<SearchView>,
     sections: Vec<SectionView>,
 }
 
 impl PageView {
-    pub(super) fn new(main_thread: MainThreadMarker) -> Self {
+    /// Makes the views of `page`.
+    pub(super) fn new(page: &view::Page, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
         let content = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
             SECTION_SPACING,
@@ -64,27 +97,49 @@ impl PageView {
         );
         let summary = secondary_wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
-        content.addArrangedSubview(&summary);
-        fill_width(&summary, &content);
+        let (root, search) = if page.search.is_some() {
+            let search = SearchView::new(target, main_thread);
+            let header = stack(
+                NSUserInterfaceLayoutOrientation::Vertical,
+                HEADER_SPACING,
+                HEADER_INSETS,
+                main_thread,
+            );
+            let header_views: [&NSView; 2] = [&summary, &search.field];
+            for view in header_views {
+                header.addArrangedSubview(view);
+                fill_width(view, &header);
+            }
+            header.setCustomSpacing_afterView(SEARCH_FIELD_TOP_SPACING, &summary);
+            let root = pinned_root(&header, &content, main_thread);
+            (Retained::into_super(root), Some(search))
+        } else {
+            content.addArrangedSubview(&summary);
+            fill_width(&summary, &content);
+            (Retained::into_super(scroll_view(&content, main_thread)), None)
+        };
         Self {
-            root: scroll_view(&content, main_thread),
+            root,
             content,
             summary,
+            search,
             sections: Vec::new(),
         }
     }
 
     /// Shows `page`. A section keeps its views while its rows keep their kinds and controls, so
-    /// that an open menu, the focus and the typed text stay.
+    /// that an open menu, the focus, the typed text and a click in progress stay.
     pub(super) fn render(&mut self, page: &view::Page, binder: &mut Binder<'_>) {
         set_text(&self.summary, page.summary);
+        if let (Some(search), Some(field)) = (&mut self.search, &page.search) {
+            search.render(field, binder);
+        }
         let kept = page.sections.len().min(self.sections.len());
         for section in self.sections.drain(kept..) {
             section.container.removeFromSuperview();
         }
         while self.sections.len() < page.sections.len() {
-            self.sections
-                .push(SectionView::new(&self.content, binder.main_thread));
+            self.sections.push(SectionView::new(&self.content, binder));
         }
         for (section, shown) in self.sections.iter_mut().zip(&page.sections) {
             section.render(shown, binder);
@@ -99,13 +154,20 @@ impl PageView {
         })
     }
 
-    /// The text in the text field `id`, when it is on the page.
+    /// The text in the text field or the search field `id`, when it is on the page.
     pub(super) fn field_text(&self, id: &ControlId) -> Option<String> {
-        self.rows().find_map(|row| match row {
-            RowView::TextField(text_field) if text_field.id == *id => {
-                Some(text_field.field.stringValue().to_string())
-            }
-            _ => None,
+        let search = self
+            .search
+            .as_ref()
+            .filter(|search| search.id.as_ref() == Some(id))
+            .map(|search| search.field.stringValue().to_string());
+        search.or_else(|| {
+            self.rows().find_map(|row| match row {
+                RowView::TextField(text_field) if text_field.id == *id => {
+                    Some(text_field.field.stringValue().to_string())
+                }
+                _ => None,
+            })
         })
     }
 
@@ -114,45 +176,103 @@ impl PageView {
     }
 }
 
-/// The views of one section: its heading, then its rows.
+/// The search field of a page, which sends the submit action when the user submits or clears it.
+#[derive(Debug)]
+struct SearchView {
+    field: Retained<NSSearchField>,
+    id: Option<ControlId>,
+}
+
+impl SearchView {
+    fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        let field = NSSearchField::new(main_thread);
+        field.setControlSize(NSControlSize::Large);
+        field.setSendsWholeSearchString(true);
+        // SAFETY: the target implements the submit action, taking the field, and `SettingsWindow`
+        // keeps the target alive as long as the field.
+        unsafe {
+            field.setTarget(Some(&target.target));
+            field.setAction(Some(target.submit_action));
+        }
+        Self { field, id: None }
+    }
+
+    fn render(&mut self, shown: &view::SearchField, binder: &mut Binder<'_>) {
+        self.field
+            .setPlaceholderString(Some(&NSString::from_str(shown.placeholder)));
+        binder.bind(&self.field, &shown.id);
+        self.id = Some(shown.id.clone());
+    }
+}
+
+/// The views of one section: the back button and the heading, the rows, then the footer.
 #[derive(Debug)]
 struct SectionView {
     container: Retained<NSStackView>,
+    title_bar: Retained<NSStackView>,
+    back: Retained<NSButton>,
     heading: Retained<NSTextField>,
     rows_container: Retained<NSStackView>,
+    footer: Retained<NSTextField>,
     rows: Vec<RowView>,
 }
 
 impl SectionView {
-    fn new(content: &NSStackView, main_thread: MainThreadMarker) -> Self {
-        let container = stack(
-            NSUserInterfaceLayoutOrientation::Vertical,
-            LIST_PART_SPACING,
+    fn new(content: &NSStackView, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let back = icon_button(binder.target, main_thread);
+        back.setImagePosition(NSCellImagePosition::ImageLeading);
+        let heading = heading(main_thread);
+        let title_bar = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            ACCESSORY_SPACING,
             NO_INSETS,
             main_thread,
         );
-        let heading = heading(main_thread);
+        title_bar.addArrangedSubview(&back);
+        title_bar.addArrangedSubview(&heading);
         let rows_container = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
             LIST_PART_SPACING,
             NO_INSETS,
             main_thread,
         );
-        container.addArrangedSubview(&heading);
-        container.addArrangedSubview(&rows_container);
-        fill_width(&rows_container, &container);
+        let footer = secondary_wrapping_label(main_thread);
+        footer.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Vertical,
+            LIST_PART_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        container.addArrangedSubview(&title_bar);
+        let parts: [&NSView; 2] = [&rows_container, &footer];
+        for part in parts {
+            container.addArrangedSubview(part);
+            fill_width(part, &container);
+        }
         content.addArrangedSubview(&container);
         fill_width(&container, content);
         Self {
             container,
+            title_bar,
+            back,
             heading,
             rows_container,
+            footer,
             rows: Vec::new(),
         }
     }
 
     fn render(&mut self, section: &view::Section, binder: &mut Binder<'_>) {
         set_text(&self.heading, section.heading.as_deref().unwrap_or_default());
+        match &section.back {
+            Some(back) => show_back_button(&self.back, back, binder),
+            None => self.back.setHidden(true),
+        }
+        self.title_bar
+            .setHidden(section.heading.is_none() && section.back.is_none());
+        set_text(&self.footer, section.footer.unwrap_or_default());
         let has_same_rows = self.rows.len() == section.rows.len()
             && self
                 .rows
@@ -187,6 +307,14 @@ impl SectionView {
                 Row::Output(_) => {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Output(OutputRow::add(rows_stack, binder.main_thread))
+                }
+                Row::Item(_) => {
+                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
+                    RowView::Item(ItemRow::add(rows_stack, binder))
+                }
+                Row::Loading(_) | Row::Message(_) => {
+                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
+                    RowView::Message(MessageRow::add(rows_stack, binder))
                 }
                 Row::TextArea(text_area) => {
                     group = None;
@@ -232,6 +360,8 @@ enum RowView {
     TextField(TextFieldRow),
     Note(NoteView),
     Output(OutputRow),
+    Item(ItemRow),
+    Message(MessageRow),
 }
 
 impl RowView {
@@ -242,7 +372,10 @@ impl RowView {
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.id == picker.id,
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.id == text_area.id,
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.id == text_field.id,
-            (Self::Note(_), Row::Note(_)) | (Self::Output(_), Row::Output(_)) => true,
+            (Self::Note(_), Row::Note(_))
+            | (Self::Output(_), Row::Output(_))
+            | (Self::Item(_), Row::Item(_))
+            | (Self::Message(_), Row::Loading(_) | Row::Message(_)) => true,
             _ => false,
         }
     }
@@ -256,6 +389,9 @@ impl RowView {
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.render(text_field, binder),
             (Self::Note(row_view), Row::Note(note)) => row_view.render(Some(note)),
             (Self::Output(row_view), Row::Output(output)) => row_view.render(output),
+            (Self::Item(row_view), Row::Item(item)) => row_view.render(item, binder),
+            (Self::Message(row_view), Row::Loading(text)) => row_view.render_loading(text),
+            (Self::Message(row_view), Row::Message(message)) => row_view.render_message(message, binder),
             _ => {}
         }
     }
@@ -399,12 +535,7 @@ impl OutputRow {
     fn add(rows_stack: &NSStackView, main_thread: MainThreadMarker) -> Self {
         let text = wrapping_label(main_thread);
         let detail = secondary_wrapping_label(main_thread);
-        // SAFETY: reads an AppKit constant that is initialized before any code runs.
-        let regular_weight = unsafe { NSFontWeightRegular };
-        detail.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
-            DETAIL_FONT_SIZE,
-            regular_weight,
-        )));
+        detail.setFont(Some(&detail_font()));
         let texts = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
             LIST_PART_SPACING,
@@ -426,6 +557,141 @@ impl OutputRow {
     fn render(&self, shown: &view::Output) {
         set_text(&self.text, &shown.text);
         set_text(&self.detail, &shown.detail);
+    }
+}
+
+/// A row of a group with one thing of a list: texts, a trailing detail and the accessory controls.
+#[derive(Debug)]
+struct ItemRow {
+    title: Retained<NSTextField>,
+    subtitle: Retained<NSTextField>,
+    detail: Retained<NSTextField>,
+    progress: Retained<NSProgressIndicator>,
+    status: Retained<NSImageView>,
+    primary: Retained<NSButton>,
+    icon: Retained<NSButton>,
+}
+
+impl ItemRow {
+    fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let title = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
+        let subtitle = truncating_label(
+            &NSFont::systemFontOfSize(NSFont::smallSystemFontSize()),
+            main_thread,
+        );
+        let texts = row_texts(&title, &subtitle, main_thread);
+        let detail = label(&detail_font(), main_thread);
+        detail.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let progress = spinner(main_thread);
+        let status = NSImageView::new(main_thread);
+        let primary = push_button(binder.target, main_thread);
+        let icon = icon_button(binder.target, main_thread);
+        let controls: [&NSView; 5] = [&detail, &progress, &status, &primary, &icon];
+        add_grouped_row(rows_stack, &texts, &controls, main_thread);
+        Self {
+            title,
+            subtitle,
+            detail,
+            progress,
+            status,
+            primary,
+            icon,
+        }
+    }
+
+    fn render(&self, shown: &view::Item, binder: &mut Binder<'_>) {
+        set_text(&self.title, &shown.title);
+        set_text(&self.subtitle, &shown.subtitle);
+        set_text(&self.detail, &shown.detail);
+        let subtitle_color = match shown.accessory {
+            Accessory::Failed { .. } => NSColor::systemRedColor(),
+            _ => NSColor::secondaryLabelColor(),
+        };
+        self.subtitle.setTextColor(Some(&subtitle_color));
+        let controls: [&NSView; 4] = [&self.progress, &self.status, &self.primary, &self.icon];
+        for control in controls {
+            control.setHidden(true);
+        }
+        stop_spinning(&self.progress);
+        self.show_accessory(&shown.accessory, &shown.title, binder);
+    }
+
+    fn show_accessory(&self, accessory: &Accessory, subject: &str, binder: &mut Binder<'_>) {
+        match accessory {
+            Accessory::Download(button) | Accessory::Failed { retry: button } => {
+                show_push_button(&self.primary, button, Some(subject), binder);
+            }
+            Accessory::Open(button) => show_icon_button(&self.icon, OPEN_SYMBOL, button, subject, binder),
+            Accessory::Downloading { progress, cancel } => {
+                self.progress.setIndeterminate(false);
+                self.progress.setDoubleValue(f64::from(progress.0));
+                self.progress.setHidden(false);
+                show_icon_button(&self.icon, CANCEL_SYMBOL, cancel, subject, binder);
+            }
+            Accessory::Canceling => start_spinning(&self.progress),
+            Accessory::Installed { delete } => {
+                show_status(
+                    &self.status,
+                    INSTALLED_SYMBOL,
+                    INSTALLED_DESCRIPTION,
+                    &NSColor::systemGreenColor(),
+                );
+                show_icon_button(&self.icon, DELETE_SYMBOL, delete, subject, binder);
+            }
+            Accessory::Unavailable => show_status(
+                &self.status,
+                UNAVAILABLE_SYMBOL,
+                UNAVAILABLE_DESCRIPTION,
+                &NSColor::tertiaryLabelColor(),
+            ),
+        }
+    }
+}
+
+/// What shows in a group instead of items: a spinner or a message, with an optional retry.
+#[derive(Debug)]
+struct MessageRow {
+    spinner: Retained<NSProgressIndicator>,
+    text: Retained<NSTextField>,
+    retry: Retained<NSButton>,
+}
+
+impl MessageRow {
+    fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let spinner = spinner(main_thread);
+        let text = wrapping_label(main_thread);
+        text.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let retry = push_button(binder.target, main_thread);
+        let container = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            MESSAGE_SPACING,
+            MESSAGE_INSETS,
+            main_thread,
+        );
+        let parts: [&NSView; 3] = [&spinner, &text, &retry];
+        for part in parts {
+            container.addView_inGravity(part, NSStackViewGravity::Center);
+        }
+        rows_stack.addArrangedSubview(&container);
+        fill_width(&container, rows_stack);
+        Self { spinner, text, retry }
+    }
+
+    fn render_loading(&self, text: &str) {
+        set_text(&self.text, text);
+        self.retry.setHidden(true);
+        start_spinning(&self.spinner);
+    }
+
+    fn render_message(&self, message: &view::Message, binder: &mut Binder<'_>) {
+        set_text(&self.text, &message.text);
+        stop_spinning(&self.spinner);
+        match &message.retry {
+            Some(retry) => show_push_button(&self.retry, retry, None, binder),
+            None => self.retry.setHidden(true),
+        }
     }
 }
 
@@ -549,17 +815,89 @@ impl TextFieldRow {
     }
 }
 
-/// Adds a row of `texts`, then `controls`, at the bottom of the group `rows_stack`. The first row
-/// of a group has no separator above it.
-fn add_grouped_row(
-    rows_stack: &NSStackView,
-    texts: &NSView,
-    controls: &[&NSView],
+/// The layout of a page with a search field: the pinned `header`, a divider, and `content` that
+/// scrolls.
+fn pinned_root(
+    header: &NSView,
+    content: &NSStackView,
     main_thread: MainThreadMarker,
+) -> Retained<NSStackView> {
+    let scroll_view = scroll_view(content, main_thread);
+    let divider = separator(main_thread);
+    let root = stack(
+        NSUserInterfaceLayoutOrientation::Vertical,
+        0.0,
+        NO_INSETS,
+        main_thread,
+    );
+    let root_views: [&NSView; 3] = [header, &divider, &scroll_view];
+    for view in root_views {
+        root.addArrangedSubview(view);
+        fill_width(view, &root);
+    }
+    root.setDistribution(NSStackViewDistribution::Fill);
+    root
+}
+
+/// Shows `button` in `view`, a push button with a title. The screen reader names it after its
+/// `subject` when there is one.
+fn show_push_button(view: &NSButton, button: &view::Button, subject: Option<&str>, binder: &mut Binder<'_>) {
+    view.setTitle(&NSString::from_str(&title_case(button.label)));
+    let spoken_label = subject.map(|subject| NSString::from_str(&format!("{}, {subject}", button.label)));
+    view.setAccessibilityLabel(spoken_label.as_deref());
+    view.setEnabled(button.is_enabled);
+    binder.bind(view, &button.id);
+    view.setHidden(false);
+}
+
+/// Shows `button` in `view`, an icon button with the symbol `symbol_name`. The screen reader
+/// names it after its `subject`.
+fn show_icon_button(
+    view: &NSButton,
+    symbol_name: &str,
+    button: &view::Button,
+    subject: &str,
+    binder: &mut Binder<'_>,
 ) {
-    let row = GroupedRow::add(rows_stack, texts, controls, main_thread);
-    row.separator
-        .setHidden(rows_stack.arrangedSubviews().count() == 1);
+    let spoken_label = format!("{}, {subject}", button.label);
+    view.setImage(symbol(symbol_name, &spoken_label).as_deref());
+    view.setToolTip(Some(&NSString::from_str(button.label)));
+    view.setAccessibilityLabel(Some(&NSString::from_str(&spoken_label)));
+    view.setEnabled(button.is_enabled);
+    binder.bind(view, &button.id);
+    view.setHidden(false);
+}
+
+/// Shows `button` in `view`, the back button of a section title bar.
+fn show_back_button(view: &NSButton, button: &view::Button, binder: &mut Binder<'_>) {
+    view.setImage(symbol(BACK_SYMBOL, button.label).as_deref());
+    view.setTitle(&NSString::from_str(&title_case(button.label)));
+    view.setEnabled(button.is_enabled);
+    binder.bind(view, &button.id);
+    view.setHidden(false);
+}
+
+/// Returns a hidden push button that sends the press action to the target.
+fn push_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSButton> {
+    let button = button(target, target.press_action, main_thread);
+    button.setHidden(true);
+    button
+}
+
+/// Returns a hidden borderless button for a symbol, which sends the press action to the target.
+fn icon_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSButton> {
+    let button = push_button(target, main_thread);
+    button.setBordered(false);
+    button.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        button
+            .widthAnchor()
+            .constraintGreaterThanOrEqualToConstant(ICON_BUTTON_SIDE),
+        button
+            .heightAnchor()
+            .constraintGreaterThanOrEqualToConstant(ICON_BUTTON_SIDE),
+    ]));
+    button
 }
 
 /// Returns a push button that sends `action` to the target of `target`.
@@ -594,6 +932,13 @@ fn heading(main_thread: MainThreadMarker) -> Retained<NSTextField> {
         &NSFont::boldSystemFontOfSize(NSFont::systemFontSize()),
         main_thread,
     )
+}
+
+/// The font of short facts, such as sizes and timings, with digits of one width.
+fn detail_font() -> Retained<NSFont> {
+    // SAFETY: reads an AppKit constant that is initialized before any code runs.
+    let regular_weight = unsafe { NSFontWeightRegular };
+    NSFont::monospacedDigitSystemFontOfSize_weight(DETAIL_FONT_SIZE, regular_weight)
 }
 
 /// Returns a plain text view with a bezel, in the scroll view that holds it.

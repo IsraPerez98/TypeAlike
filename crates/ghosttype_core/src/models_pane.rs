@@ -1,10 +1,15 @@
 //! The Models pane of the settings window: suggested models, Hugging Face search and downloads.
 
 use std::collections::BTreeMap;
+use std::iter;
 
 use crate::catalog::SUGGESTED_MODELS;
 use crate::hub::{
     ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, rounded_quotient,
+};
+use crate::settings_view::{
+    Accessory, Button, ControlId, Item, Message, Page, PageIcon, Permille, Row, SearchField, Section,
+    SettingsInput,
 };
 
 /// Something the user did in the Models pane.
@@ -24,106 +29,7 @@ pub enum ModelsAction {
     Delete(ModelFile),
 }
 
-/// A button and the action it runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RowButton {
-    /// What the button does, in sentence case. Shown as its title or spoken for an icon button.
-    pub label: &'static str,
-    /// What clicking the button does.
-    pub action: ModelsAction,
-}
-
-/// How far a download got, in thousandths of the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Permille(pub u16);
-
-/// The control at the trailing edge of a row, which tells what the user can do with it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RowAccessory {
-    /// The file can be downloaded.
-    Download(RowButton),
-    /// The row leads to a list of its own, such as a repository's files.
-    Open(RowButton),
-    /// The file is downloading.
-    Downloading {
-        /// How much of the file arrived.
-        progress: Permille,
-        /// Stops the download.
-        cancel: RowButton,
-    },
-    /// The download is stopping.
-    Canceling,
-    /// The file is downloaded.
-    Installed {
-        /// Deletes the file.
-        delete: RowButton,
-    },
-    /// The download failed; the row's subtitle says why.
-    Failed {
-        /// Starts the download again.
-        retry: RowButton,
-    },
-    /// The row cannot be used; the row's subtitle says why.
-    Unavailable,
-}
-
-/// One model, file or repository in a list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelRow {
-    /// Main text.
-    pub title: String,
-    /// Secondary text below the title; empty when there is none.
-    pub subtitle: String,
-    /// Short facts at the trailing edge, such as the file size; empty when there are none.
-    pub detail: String,
-    /// What the user can do with the row.
-    pub accessory: RowAccessory,
-}
-
-/// What a list shows inside its group.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListContent {
-    /// Rows, top to bottom.
-    Rows(Vec<ModelRow>),
-    /// The rows are on their way; the text says what is happening.
-    Loading(&'static str),
-    /// No rows to show, and why.
-    Message {
-        /// The explanation.
-        text: String,
-        /// Tries again, when trying again can help.
-        retry: Option<RowButton>,
-    },
-}
-
-/// A titled group of rows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelList {
-    /// Group title, in sentence case. It can contain the user's search text.
-    pub heading: String,
-    /// Returns to the list this one was opened from.
-    pub back: Option<RowButton>,
-    /// The rows, or what shows instead of them.
-    pub content: ListContent,
-    /// A line of help below the group.
-    pub footer: Option<&'static str>,
-}
-
-/// Everything the Models pane shows, top to bottom.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelsView {
-    /// Pane title.
-    pub title: &'static str,
-    /// One or two sentences under the title about what the pane is for.
-    pub summary: &'static str,
-    /// The search field's placeholder. The search field stays above the browse list.
-    pub search_placeholder: &'static str,
-    /// Suggested models while the search is empty; otherwise search results or a repository's files.
-    pub browse: ModelList,
-    /// Downloaded and downloading files; `None` when there are none.
-    pub downloaded: Option<ModelList>,
-}
-
+pub(crate) const SEARCH: &str = "models-search";
 const PANE_TITLE: &str = "Models";
 const PANE_SUMMARY: &str = "GhostType uses a language model on this computer to suggest text.";
 const SEARCH_PLACEHOLDER: &str = "Search Hugging Face";
@@ -205,6 +111,31 @@ impl<T> From<Result<T, HubError>> for Fetch<T> {
     }
 }
 
+/// The buttons that a page shows, each with the action that a click on it runs.
+#[derive(Debug, Default)]
+struct Buttons(Vec<(ControlId, ModelsAction)>);
+
+impl Buttons {
+    /// Returns a button that runs `action`, and keeps the action for [`Self::action_of`].
+    fn add(&mut self, label: &'static str, action: ModelsAction) -> Button {
+        let id = button_id(&action);
+        self.0.push((id.clone(), action));
+        Button {
+            id,
+            label,
+            is_enabled: true,
+        }
+    }
+
+    /// The action of the button `id`.
+    fn action_of(self, id: &ControlId) -> Option<ModelsAction> {
+        self.0
+            .into_iter()
+            .find(|(button, _)| button == id)
+            .map(|(_, action)| action)
+    }
+}
+
 impl ModelsPane {
     /// Creates a pane that knows of no downloaded files and has no search.
     #[must_use]
@@ -235,6 +166,23 @@ impl ModelsPane {
         }
     }
 
+    /// Returns the action of `input`, when `input` is for a control of the pane: the search field
+    /// or a button that the pane shows now.
+    #[must_use]
+    pub fn action_for(&self, input: &SettingsInput) -> Option<ModelsAction> {
+        match input {
+            SettingsInput::Submitted { id, text } if id.as_str() == SEARCH => {
+                Some(ModelsAction::Search(text.clone()))
+            }
+            SettingsInput::Pressed(id) => {
+                let mut buttons = Buttons::default();
+                self.build_page(&mut buttons);
+                buttons.action_of(id)
+            }
+            _ => None,
+        }
+    }
+
     /// Handles the outcome of an earlier request.
     pub fn on_event(&mut self, event: HubEvent) {
         match event {
@@ -256,15 +204,26 @@ impl ModelsPane {
             .collect()
     }
 
-    /// Returns what the pane must show now.
+    /// Returns the page that the pane shows now: the search field, then the suggested models
+    /// while the search is empty, else the search results or the files of a repository, then the
+    /// downloaded and downloading files.
     #[must_use]
-    pub fn view(&self) -> ModelsView {
-        ModelsView {
+    pub fn page(&self) -> Page {
+        self.build_page(&mut Buttons::default())
+    }
+
+    fn build_page(&self, buttons: &mut Buttons) -> Page {
+        let browse = self.browse_section(buttons);
+        let downloaded = self.downloaded_section(buttons);
+        Page {
             title: PANE_TITLE,
+            icon: PageIcon::Cube,
             summary: PANE_SUMMARY,
-            search_placeholder: SEARCH_PLACEHOLDER,
-            browse: self.browse_list(),
-            downloaded: self.downloaded_list(),
+            search: Some(SearchField {
+                id: ControlId::new(SEARCH),
+                placeholder: SEARCH_PLACEHOLDER,
+            }),
+            sections: iter::once(browse).chain(downloaded).collect(),
         }
     }
 
@@ -400,171 +359,195 @@ impl ModelsPane {
         };
     }
 
-    fn browse_list(&self) -> ModelList {
+    fn browse_section(&self, buttons: &mut Buttons) -> Section {
         match &self.search {
-            None => self.suggested_list(),
+            None => self.suggested_section(buttons),
             Some(Search {
                 open_repo: Some(open_repo),
                 ..
-            }) => self.repo_files_list(open_repo),
+            }) => self.repo_files_section(open_repo, buttons),
             Some(Search {
                 query,
                 results,
                 open_repo: None,
-            }) => results_list(query, results),
+            }) => results_section(query, results, buttons),
         }
     }
 
-    fn suggested_list(&self) -> ModelList {
+    fn suggested_section(&self, buttons: &mut Buttons) -> Section {
         let rows = SUGGESTED_MODELS
             .iter()
-            .map(|model| self.file_row(model.name.to_owned(), model.description(), &model.sized_file()))
+            .map(|model| {
+                let shown = ShownFile {
+                    title: model.name.to_owned(),
+                    idle_subtitle: model.description(),
+                    sized: model.sized_file(),
+                };
+                self.file_row(shown, buttons)
+            })
             .collect();
-        ModelList {
-            heading: SUGGESTED_HEADING.to_owned(),
+        Section {
+            heading: Some(SUGGESTED_HEADING.to_owned()),
             back: None,
-            content: ListContent::Rows(rows),
+            rows,
             footer: Some(SUGGESTED_FOOTER),
         }
     }
 
-    fn repo_files_list(&self, open_repo: &OpenRepo) -> ModelList {
-        let content = match &open_repo.files {
-            Fetch::Pending => ListContent::Loading(LOADING_FILES_TEXT),
-            Fetch::Failed(error) => failure_message(*error, ModelsAction::ShowFiles(open_repo.id.clone())),
+    fn repo_files_section(&self, open_repo: &OpenRepo, buttons: &mut Buttons) -> Section {
+        let rows = match &open_repo.files {
+            Fetch::Pending => vec![Row::Loading(LOADING_FILES_TEXT)],
+            Fetch::Failed(error) => {
+                failure_message(*error, ModelsAction::ShowFiles(open_repo.id.clone()), buttons)
+            }
             Fetch::Done(files) if files.is_empty() => message(NO_USABLE_FILES_TEXT.to_owned()),
-            Fetch::Done(files) => ListContent::Rows(
-                files
-                    .iter()
-                    .map(|sized| self.file_row(model_name(&sized.file), String::new(), sized))
-                    .collect(),
-            ),
+            Fetch::Done(files) => files
+                .iter()
+                .map(|sized| {
+                    let shown = ShownFile {
+                        title: model_name(&sized.file),
+                        idle_subtitle: String::new(),
+                        sized: sized.clone(),
+                    };
+                    self.file_row(shown, buttons)
+                })
+                .collect(),
         };
-        ModelList {
-            heading: open_repo.id.clone(),
-            back: Some(RowButton {
-                label: "Results",
-                action: ModelsAction::BackToResults,
-            }),
-            content,
+        Section {
+            heading: Some(open_repo.id.clone()),
+            back: Some(buttons.add("Results", ModelsAction::BackToResults)),
+            rows,
             footer: Some(FILES_FOOTER),
         }
     }
 
-    fn downloaded_list(&self) -> Option<ModelList> {
-        let rows = self
+    fn downloaded_section(&self, buttons: &mut Buttons) -> Option<Section> {
+        let rows: Vec<Row> = self
             .files
             .iter()
             .map(|(file, tracked)| {
-                let sized = SizedFile {
-                    file: file.clone(),
-                    size: tracked.size,
+                let shown = ShownFile {
+                    title: model_name(file),
+                    idle_subtitle: file.repo.clone(),
+                    sized: SizedFile {
+                        file: file.clone(),
+                        size: tracked.size,
+                    },
                 };
-                self.file_row(model_name(file), file.repo.clone(), &sized)
+                self.file_row(shown, buttons)
             })
             .collect();
-        (!self.files.is_empty()).then(|| ModelList {
-            heading: DOWNLOADED_HEADING.to_owned(),
-            back: None,
-            content: ListContent::Rows(rows),
-            footer: None,
+        (!rows.is_empty()).then(|| Section {
+            heading: Some(DOWNLOADED_HEADING.to_owned()),
+            ..Section::new(rows)
         })
     }
 
-    fn file_row(&self, title: String, idle_subtitle: String, sized: &SizedFile) -> ModelRow {
+    fn file_row(&self, shown: ShownFile, buttons: &mut Buttons) -> Row {
+        let ShownFile {
+            title,
+            idle_subtitle,
+            sized,
+        } = shown;
         let Some(tracked) = self.files.get(&sized.file) else {
-            return ModelRow {
+            return Row::Item(Item {
                 title,
                 subtitle: idle_subtitle,
                 detail: sized.size.to_string(),
-                accessory: RowAccessory::Download(RowButton {
-                    label: "Download",
-                    action: ModelsAction::Download(sized.clone()),
-                }),
-            };
+                accessory: Accessory::Download(buttons.add("Download", ModelsAction::Download(sized))),
+            });
         };
         let subtitle = match tracked.state {
             FileState::Failed(error) => error_message(error).to_owned(),
             FileState::Downloading { .. } | FileState::Canceling | FileState::Installed => idle_subtitle,
         };
-        let (detail, accessory) = tracked_status(sized, tracked);
-        ModelRow {
+        let (detail, accessory) = tracked_status(&sized, tracked, buttons);
+        Row::Item(Item {
             title,
             subtitle,
             detail,
             accessory,
-        }
+        })
     }
 }
 
-fn tracked_status(sized: &SizedFile, tracked: &TrackedFile) -> (String, RowAccessory) {
+/// A file that a list shows: its title, the subtitle while it does not download, and its size.
+#[derive(Debug)]
+struct ShownFile {
+    title: String,
+    idle_subtitle: String,
+    sized: SizedFile,
+}
+
+fn tracked_status(sized: &SizedFile, tracked: &TrackedFile, buttons: &mut Buttons) -> (String, Accessory) {
     let size = tracked.size.to_string();
     match tracked.state {
         FileState::Downloading { received } => (
             format!("{received} of {size}"),
-            RowAccessory::Downloading {
+            Accessory::Downloading {
                 progress: permille(received, tracked.size),
-                cancel: RowButton {
-                    label: "Cancel download",
-                    action: ModelsAction::Cancel(sized.file.clone()),
-                },
+                cancel: buttons.add("Cancel download", ModelsAction::Cancel(sized.file.clone())),
             },
         ),
-        FileState::Canceling => (CANCELING_DETAIL.to_owned(), RowAccessory::Canceling),
+        FileState::Canceling => (CANCELING_DETAIL.to_owned(), Accessory::Canceling),
         FileState::Installed => (
             size,
-            RowAccessory::Installed {
-                delete: RowButton {
-                    label: "Delete",
-                    action: ModelsAction::Delete(sized.file.clone()),
-                },
+            Accessory::Installed {
+                delete: buttons.add("Delete", ModelsAction::Delete(sized.file.clone())),
             },
         ),
         FileState::Failed(_) => (
             size,
-            RowAccessory::Failed {
-                retry: RowButton {
-                    label: "Try again",
-                    action: ModelsAction::Download(sized.clone()),
-                },
+            Accessory::Failed {
+                retry: buttons.add("Try again", ModelsAction::Download(sized.clone())),
             },
         ),
     }
 }
 
-fn results_list(query: &str, results: &Fetch<Vec<RepoSummary>>) -> ModelList {
-    let content = match results {
-        Fetch::Pending => ListContent::Loading(SEARCHING_TEXT),
-        Fetch::Failed(error) => failure_message(*error, ModelsAction::Search(query.to_owned())),
+fn results_section(query: &str, results: &Fetch<Vec<RepoSummary>>, buttons: &mut Buttons) -> Section {
+    let rows = match results {
+        Fetch::Pending => vec![Row::Loading(SEARCHING_TEXT)],
+        Fetch::Failed(error) => failure_message(*error, ModelsAction::Search(query.to_owned()), buttons),
         Fetch::Done(repos) if repos.is_empty() => message(format!("No models match “{query}”.")),
-        Fetch::Done(repos) => ListContent::Rows(repos.iter().map(repo_row).collect()),
+        Fetch::Done(repos) => repos.iter().map(|repo| repo_row(repo, buttons)).collect(),
     };
-    ModelList {
-        heading: format!("Results for “{query}”"),
+    Section {
+        heading: Some(format!("Results for “{query}”")),
         back: None,
-        content,
+        rows,
         footer: Some(RESULTS_FOOTER),
     }
 }
 
-fn repo_row(repo: &RepoSummary) -> ModelRow {
+fn repo_row(repo: &RepoSummary, buttons: &mut Buttons) -> Row {
     let (owner, name) = repo.id.split_once('/').unwrap_or_default();
     let byline = format!("by {owner}");
     let (subtitle, accessory) = if repo.is_gated {
-        (format!("{byline} · {GATED_REPO_NOTE}"), RowAccessory::Unavailable)
+        (format!("{byline} · {GATED_REPO_NOTE}"), Accessory::Unavailable)
     } else {
-        let show_files = RowButton {
-            label: "Show files",
-            action: ModelsAction::ShowFiles(repo.id.clone()),
-        };
-        (byline, RowAccessory::Open(show_files))
+        let show_files = buttons.add("Show files", ModelsAction::ShowFiles(repo.id.clone()));
+        (byline, Accessory::Open(show_files))
     };
-    ModelRow {
+    Row::Item(Item {
         title: name.to_owned(),
         subtitle,
         detail: format!("{} downloads", compact_count(repo.downloads)),
         accessory,
-    }
+    })
+}
+
+/// The id of the button that runs `action`. It holds no text that the user typed.
+fn button_id(action: &ModelsAction) -> ControlId {
+    let name = match action {
+        ModelsAction::Search(_) => "search-again".to_owned(),
+        ModelsAction::ShowFiles(repo) => format!("show-files/{repo}"),
+        ModelsAction::BackToResults => "back-to-results".to_owned(),
+        ModelsAction::Download(sized) => format!("download/{}/{}", sized.file.repo, sized.file.name),
+        ModelsAction::Cancel(file) => format!("cancel/{}/{}", file.repo, file.name),
+        ModelsAction::Delete(file) => format!("delete/{}/{}", file.repo, file.name),
+    };
+    ControlId::from(name)
 }
 
 pub(crate) fn model_name(file: &ModelFile) -> String {
@@ -574,18 +557,15 @@ pub(crate) fn model_name(file: &ModelFile) -> String {
         .to_owned()
 }
 
-fn message(text: String) -> ListContent {
-    ListContent::Message { text, retry: None }
+fn message(text: String) -> Vec<Row> {
+    vec![Row::Message(Message { text, retry: None })]
 }
 
-fn failure_message(error: HubError, retry_action: ModelsAction) -> ListContent {
-    ListContent::Message {
+fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Buttons) -> Vec<Row> {
+    vec![Row::Message(Message {
         text: error_message(error).to_owned(),
-        retry: Some(RowButton {
-            label: "Try again",
-            action: retry_action,
-        }),
-    }
+        retry: Some(buttons.add("Try again", retry_action)),
+    })]
 }
 
 fn permille(received: ByteSize, total: ByteSize) -> Permille {
@@ -684,8 +664,12 @@ mod tests {
         }
     }
 
-    fn button(label: &'static str, action: ModelsAction) -> RowButton {
-        RowButton { label, action }
+    fn button(label: &'static str, action: &ModelsAction) -> Button {
+        Button {
+            id: button_id(action),
+            label,
+            is_enabled: true,
+        }
     }
 
     fn downloading(name: &str, size: u64) -> ModelsPane {
@@ -725,23 +709,76 @@ mod tests {
         pane
     }
 
-    fn rows(list: ModelList) -> Vec<ModelRow> {
-        let ListContent::Rows(rows) = list.content else {
-            panic!("list shows {:?}, not rows", list.content);
-        };
-        rows
+    fn items(section: Section) -> Vec<Item> {
+        section
+            .rows
+            .into_iter()
+            .map(|row| match row {
+                Row::Item(item) => item,
+                other => panic!("the list shows {other:?}, not items"),
+            })
+            .collect()
     }
 
-    fn browse_rows(pane: &ModelsPane) -> Vec<ModelRow> {
-        rows(pane.view().browse)
+    fn browse(pane: &ModelsPane) -> Section {
+        pane.page().sections.remove(0)
     }
 
-    fn downloaded_row(pane: &ModelsPane) -> ModelRow {
-        rows(pane.view().downloaded.expect("a file is tracked")).remove(0)
+    fn downloaded(pane: &ModelsPane) -> Option<Section> {
+        pane.page().sections.into_iter().nth(1)
     }
 
-    fn titles(rows: Vec<ModelRow>) -> Vec<String> {
-        rows.into_iter().map(|row| row.title).collect()
+    fn browse_rows(pane: &ModelsPane) -> Vec<Item> {
+        items(browse(pane))
+    }
+
+    fn downloaded_row(pane: &ModelsPane) -> Item {
+        items(downloaded(pane).expect("a file is tracked")).remove(0)
+    }
+
+    fn titles(items: Vec<Item>) -> Vec<String> {
+        items.into_iter().map(|item| item.title).collect()
+    }
+
+    fn message(text: &str, retry: Option<Button>) -> Vec<Row> {
+        vec![Row::Message(Message {
+            text: text.to_owned(),
+            retry,
+        })]
+    }
+
+    fn accessory_button(item: Item) -> Button {
+        match item.accessory {
+            Accessory::Download(button)
+            | Accessory::Open(button)
+            | Accessory::Downloading { cancel: button, .. }
+            | Accessory::Installed { delete: button }
+            | Accessory::Failed { retry: button } => button,
+            other => panic!("the item shows no button: {other:?}"),
+        }
+    }
+
+    fn retry_button(section: Section) -> Button {
+        match section.rows.into_iter().next() {
+            Some(Row::Message(Message {
+                retry: Some(retry), ..
+            })) => retry,
+            other => panic!("the list shows no retry: {other:?}"),
+        }
+    }
+
+    fn failed_search(error: HubError) -> ModelsPane {
+        let mut pane = ModelsPane::new();
+        pane.on_action(ModelsAction::Search("x".to_owned()));
+        pane.on_event(HubEvent::SearchFinished {
+            query: "x".to_owned(),
+            result: Err(error),
+        });
+        pane
+    }
+
+    fn press(pane: &ModelsPane, button: Button) -> Option<ModelsAction> {
+        pane.action_for(&SettingsInput::Pressed(button.id))
     }
 
     #[test]
@@ -753,26 +790,30 @@ mod tests {
 
     #[test]
     fn pane_explains_itself_above_the_search_field() {
-        let view = ModelsPane::new().view();
+        let shown = ModelsPane::new().page();
 
         assert_eq!(
-            (view.title, view.summary, view.search_placeholder),
+            (shown.title, shown.icon, shown.summary, shown.search),
             (
                 "Models",
+                PageIcon::Cube,
                 "GhostType uses a language model on this computer to suggest text.",
-                "Search Hugging Face"
+                Some(SearchField {
+                    id: ControlId::new(SEARCH),
+                    placeholder: "Search Hugging Face",
+                })
             )
         );
     }
 
     #[test]
     fn empty_search_browses_suggested_models() {
-        let browse = ModelsPane::new().view().browse;
+        let shown = browse(&ModelsPane::new());
 
         assert_eq!(
-            (browse.heading.as_str(), browse.back, browse.footer),
+            (shown.heading, shown.back, shown.footer),
             (
-                "Suggested models",
+                Some("Suggested models".to_owned()),
                 None,
                 Some("Smaller models are faster and use less memory. Larger models give better suggestions.")
             )
@@ -795,13 +836,13 @@ mod tests {
 
         assert_eq!(
             row,
-            ModelRow {
+            Item {
                 title: model.name.to_owned(),
                 subtitle: model.description(),
                 detail: model.size.to_string(),
-                accessory: RowAccessory::Download(button(
+                accessory: Accessory::Download(button(
                     "Download",
-                    ModelsAction::Download(model.sized_file())
+                    &ModelsAction::Download(model.sized_file())
                 )),
             }
         );
@@ -817,9 +858,9 @@ mod tests {
 
         assert_eq!(
             row.accessory,
-            RowAccessory::Downloading {
+            Accessory::Downloading {
                 progress: Permille(0),
-                cancel: button("Cancel download", ModelsAction::Cancel(model.sized_file().file)),
+                cancel: button("Cancel download", &ModelsAction::Cancel(model.sized_file().file)),
             }
         );
     }
@@ -837,11 +878,11 @@ mod tests {
     fn downloaded_list_has_a_heading_and_no_footer() {
         let pane = installed("a.gguf", 100);
 
-        let downloaded = pane.view().downloaded.expect("a file is installed");
+        let shown = downloaded(&pane).expect("a file is installed");
 
         assert_eq!(
-            (downloaded.heading.as_str(), downloaded.back, downloaded.footer),
-            ("Downloaded models", None, None)
+            (shown.heading, shown.back, shown.footer),
+            (Some("Downloaded models".to_owned()), None, None)
         );
     }
 
@@ -856,13 +897,13 @@ mod tests {
 
         assert_eq!(
             downloaded_row(&pane),
-            ModelRow {
+            Item {
                 title: "a".to_owned(),
                 subtitle: REPO.to_owned(),
                 detail: "500 KB of 2 MB".to_owned(),
-                accessory: RowAccessory::Downloading {
+                accessory: Accessory::Downloading {
                     progress: Permille(250),
-                    cancel: button("Cancel download", ModelsAction::Cancel(file("a.gguf"))),
+                    cancel: button("Cancel download", &ModelsAction::Cancel(file("a.gguf"))),
                 },
             }
         );
@@ -879,7 +920,7 @@ mod tests {
 
         assert!(matches!(
             downloaded_row(&pane).accessory,
-            RowAccessory::Downloading {
+            Accessory::Downloading {
                 progress: Permille(1000),
                 ..
             }
@@ -897,7 +938,7 @@ mod tests {
 
         assert!(matches!(
             downloaded_row(&pane).accessory,
-            RowAccessory::Downloading {
+            Accessory::Downloading {
                 progress: Permille(0),
                 ..
             }
@@ -931,7 +972,7 @@ mod tests {
         let row = downloaded_row(&pane);
         assert_eq!(
             (row.detail.as_str(), row.accessory),
-            ("Canceling…", RowAccessory::Canceling)
+            ("Canceling…", Accessory::Canceling)
         );
     }
 
@@ -954,7 +995,7 @@ mod tests {
             received: ByteSize(50),
         });
 
-        assert_eq!(downloaded_row(&pane).accessory, RowAccessory::Canceling);
+        assert_eq!(downloaded_row(&pane).accessory, Accessory::Canceling);
     }
 
     #[test]
@@ -967,7 +1008,7 @@ mod tests {
             result: Err(HubError::Canceled),
         });
 
-        assert_eq!(pane.view().downloaded, None);
+        assert_eq!(downloaded(&pane), None);
     }
 
     #[test]
@@ -980,7 +1021,7 @@ mod tests {
             result: Err(HubError::Offline),
         });
 
-        assert_eq!(pane.view().downloaded, None);
+        assert_eq!(downloaded(&pane), None);
     }
 
     #[test]
@@ -995,8 +1036,8 @@ mod tests {
 
         assert_eq!(
             downloaded_row(&pane).accessory,
-            RowAccessory::Installed {
-                delete: button("Delete", ModelsAction::Delete(file("a.gguf")))
+            Accessory::Installed {
+                delete: button("Delete", &ModelsAction::Delete(file("a.gguf")))
             }
         );
     }
@@ -1012,12 +1053,12 @@ mod tests {
 
         assert_eq!(
             downloaded_row(&pane),
-            ModelRow {
+            Item {
                 title: "a".to_owned(),
                 subtitle: REPO.to_owned(),
                 detail: "120 bytes".to_owned(),
-                accessory: RowAccessory::Installed {
-                    delete: button("Delete", ModelsAction::Delete(file("a.gguf")))
+                accessory: Accessory::Installed {
+                    delete: button("Delete", &ModelsAction::Delete(file("a.gguf")))
                 },
             }
         );
@@ -1034,13 +1075,13 @@ mod tests {
 
         assert_eq!(
             downloaded_row(&pane),
-            ModelRow {
+            Item {
                 title: "a".to_owned(),
                 subtitle: "GhostType cannot connect to Hugging Face. Check your internet connection."
                     .to_owned(),
                 detail: "100 bytes".to_owned(),
-                accessory: RowAccessory::Failed {
-                    retry: button("Try again", ModelsAction::Download(sized("a.gguf", 100)))
+                accessory: Accessory::Failed {
+                    retry: button("Try again", &ModelsAction::Download(sized("a.gguf", 100)))
                 },
             }
         );
@@ -1068,7 +1109,7 @@ mod tests {
             result: Ok(ByteSize(100)),
         });
 
-        assert_eq!(pane.view().downloaded, None);
+        assert_eq!(downloaded(&pane), None);
     }
 
     #[test]
@@ -1103,22 +1144,14 @@ mod tests {
             (HubError::Canceled, "You canceled the download."),
         ];
 
-        let messages = cases.map(|(error, _)| {
-            let mut pane = ModelsPane::new();
-            pane.on_action(ModelsAction::Search("x".to_owned()));
-            pane.on_event(HubEvent::SearchFinished {
-                query: "x".to_owned(),
-                result: Err(error),
-            });
-            pane.view().browse.content
-        });
+        let messages = cases.map(|(error, _)| browse(&failed_search(error)).rows);
 
         assert_eq!(
             messages,
-            cases.map(|(_, text)| ListContent::Message {
-                text: text.to_owned(),
-                retry: Some(button("Try again", ModelsAction::Search("x".to_owned()))),
-            })
+            cases.map(|(_, text)| message(
+                text,
+                Some(button("Try again", &ModelsAction::Search("x".to_owned())))
+            ))
         );
     }
 
@@ -1129,7 +1162,7 @@ mod tests {
         let request = pane.on_action(ModelsAction::Delete(file("a.gguf")));
 
         assert_eq!(
-            (request, pane.view().downloaded),
+            (request, downloaded(&pane)),
             (Some(HubRequest::Delete { file: file("a.gguf") }), None)
         );
     }
@@ -1147,7 +1180,7 @@ mod tests {
     fn nothing_downloaded_hides_downloaded_list() {
         let pane = ModelsPane::new();
 
-        assert_eq!(pane.view().downloaded, None);
+        assert_eq!(downloaded(&pane), None);
     }
 
     #[test]
@@ -1167,8 +1200,8 @@ mod tests {
             sized("a.gguf", 1),
         ]));
 
-        let downloaded = pane.view().downloaded.expect("files are installed");
-        assert_eq!(titles(rows(downloaded)), ["z", "a", "b"]);
+        let shown = downloaded(&pane).expect("files are installed");
+        assert_eq!(titles(items(shown)), ["z", "a", "b"]);
     }
 
     #[test]
@@ -1187,7 +1220,7 @@ mod tests {
 
         pane.on_event(HubEvent::Installed(Vec::new()));
 
-        assert_eq!(pane.view().downloaded, None);
+        assert_eq!(downloaded(&pane), None);
     }
 
     #[test]
@@ -1198,7 +1231,7 @@ mod tests {
 
         assert!(matches!(
             downloaded_row(&pane).accessory,
-            RowAccessory::Downloading { .. }
+            Accessory::Downloading { .. }
         ));
     }
 
@@ -1214,7 +1247,7 @@ mod tests {
 
         assert!(matches!(
             downloaded_row(&pane).accessory,
-            RowAccessory::Installed { .. }
+            Accessory::Installed { .. }
         ));
     }
 
@@ -1238,10 +1271,13 @@ mod tests {
 
         pane.on_action(ModelsAction::Search("qwen".to_owned()));
 
-        let browse = pane.view().browse;
+        let shown = browse(&pane);
         assert_eq!(
-            (browse.heading.as_str(), browse.content),
-            ("Results for “qwen”", ListContent::Loading("Searching…"))
+            (shown.heading, shown.rows),
+            (
+                Some("Results for “qwen”".to_owned()),
+                vec![Row::Loading("Searching…")]
+            )
         );
     }
 
@@ -1252,8 +1288,8 @@ mod tests {
         let request = pane.on_action(ModelsAction::Search(" ".to_owned()));
 
         assert_eq!(
-            (request, pane.view().browse.heading.as_str()),
-            (None, "Suggested models")
+            (request, browse(&pane).heading),
+            (None, Some("Suggested models".to_owned()))
         );
     }
 
@@ -1265,23 +1301,23 @@ mod tests {
 
         assert_eq!(
             rows,
-            [ModelRow {
+            [Item {
                 title: "Model-GGUF".to_owned(),
                 subtitle: "by owner".to_owned(),
                 detail: "1.2M downloads".to_owned(),
-                accessory: RowAccessory::Open(button("Show files", ModelsAction::ShowFiles(REPO.to_owned()))),
+                accessory: Accessory::Open(button("Show files", &ModelsAction::ShowFiles(REPO.to_owned()))),
             }]
         );
     }
 
     #[test]
     fn search_results_explain_their_order() {
-        let browse = searched("qwen", vec![repo(REPO, 1, false)]).view().browse;
+        let shown = browse(&searched("qwen", vec![repo(REPO, 1, false)]));
 
         assert_eq!(
-            (browse.heading.as_str(), browse.footer),
+            (shown.heading, shown.footer),
             (
-                "Results for “qwen”",
+                Some("Results for “qwen”".to_owned()),
                 Some("The list shows only GGUF models. The models with the most downloads are at the top.")
             )
         );
@@ -1319,10 +1355,7 @@ mod tests {
 
         assert_eq!(
             (row.subtitle.as_str(), row.accessory),
-            (
-                "by owner · Needs a Hugging Face account",
-                RowAccessory::Unavailable
-            )
+            ("by owner · Needs a Hugging Face account", Accessory::Unavailable)
         );
     }
 
@@ -1330,13 +1363,7 @@ mod tests {
     fn search_without_results_says_so() {
         let pane = searched("nothing", Vec::new());
 
-        assert_eq!(
-            pane.view().browse.content,
-            ListContent::Message {
-                text: "No models match “nothing”.".to_owned(),
-                retry: None,
-            }
-        );
+        assert_eq!(browse(&pane).rows, message("No models match “nothing”.", None));
     }
 
     #[test]
@@ -1350,7 +1377,7 @@ mod tests {
             result: Ok(vec![repo(REPO, 1, false)]),
         });
 
-        assert_eq!(pane.view().browse.content, ListContent::Loading("Searching…"));
+        assert_eq!(browse(&pane).rows, vec![Row::Loading("Searching…")]);
     }
 
     #[test]
@@ -1369,14 +1396,14 @@ mod tests {
 
     #[test]
     fn opened_repo_takes_over_the_browse_list() {
-        let browse = opening_repo().view().browse;
+        let shown = browse(&opening_repo());
 
         assert_eq!(
-            browse,
-            ModelList {
-                heading: REPO.to_owned(),
-                back: Some(button("Results", ModelsAction::BackToResults)),
-                content: ListContent::Loading("Loading the files…"),
+            shown,
+            Section {
+                heading: Some(REPO.to_owned()),
+                back: Some(button("Results", &ModelsAction::BackToResults)),
+                rows: vec![Row::Loading("Loading the files…")],
                 footer: Some(
                     "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file."
                 ),
@@ -1400,13 +1427,13 @@ mod tests {
 
         assert_eq!(
             browse_rows(&pane),
-            [ModelRow {
+            [Item {
                 title: "Model-Q4_K_M".to_owned(),
                 subtitle: String::new(),
                 detail: "2 MB".to_owned(),
-                accessory: RowAccessory::Download(button(
+                accessory: Accessory::Download(button(
                     "Download",
-                    ModelsAction::Download(sized("Model-Q4_K_M.gguf", 2_000_000))
+                    &ModelsAction::Download(sized("Model-Q4_K_M.gguf", 2_000_000))
                 )),
             }]
         );
@@ -1438,11 +1465,8 @@ mod tests {
         let pane = browsing(vec![sized("README.md", 1)]);
 
         assert_eq!(
-            pane.view().browse.content,
-            ListContent::Message {
-                text: "This model has no GGUF files that GhostType can use.".to_owned(),
-                retry: None,
-            }
+            browse(&pane).rows,
+            message("This model has no GGUF files that GhostType can use.", None)
         );
     }
 
@@ -1456,11 +1480,11 @@ mod tests {
         });
 
         assert_eq!(
-            pane.view().browse.content,
-            ListContent::Message {
-                text: "Hugging Face cannot find this model.".to_owned(),
-                retry: Some(button("Try again", ModelsAction::ShowFiles(REPO.to_owned()))),
-            }
+            browse(&pane).rows,
+            message(
+                "Hugging Face cannot find this model.",
+                Some(button("Try again", &ModelsAction::ShowFiles(REPO.to_owned())))
+            )
         );
     }
 
@@ -1475,12 +1499,12 @@ mod tests {
         let request = pane.on_action(ModelsAction::ShowFiles(REPO.to_owned()));
 
         assert_eq!(
-            (request, pane.view().browse.content),
+            (request, browse(&pane).rows),
             (
                 Some(HubRequest::ListFiles {
                     repo: REPO.to_owned()
                 }),
-                ListContent::Loading("Loading the files…")
+                vec![Row::Loading("Loading the files…")]
             )
         );
     }
@@ -1494,10 +1518,7 @@ mod tests {
             result: Ok(vec![sized("a.gguf", 1)]),
         });
 
-        assert_eq!(
-            pane.view().browse.content,
-            ListContent::Loading("Loading the files…")
-        );
+        assert_eq!(browse(&pane).rows, vec![Row::Loading("Loading the files…")]);
     }
 
     #[test]
@@ -1506,11 +1527,96 @@ mod tests {
 
         pane.on_action(ModelsAction::BackToResults);
 
-        let browse = pane.view().browse;
-        let back = browse.back.clone();
+        let shown = browse(&pane);
+        let back = shown.back.clone();
         assert_eq!(
-            (back, titles(rows(browse))),
+            (back, titles(items(shown))),
             (None, vec!["Model-GGUF".to_owned()])
         );
+    }
+
+    #[test]
+    fn submitting_the_search_field_searches() {
+        let pane = ModelsPane::new();
+        let input = SettingsInput::Submitted {
+            id: ControlId::new(SEARCH),
+            text: "qwen".to_owned(),
+        };
+
+        let action = pane.action_for(&input);
+
+        assert_eq!(action, Some(ModelsAction::Search("qwen".to_owned())));
+    }
+
+    #[test]
+    fn pressing_download_starts_download() {
+        let pane = ModelsPane::new();
+        let download = accessory_button(browse_rows(&pane).remove(0));
+
+        let action = press(&pane, download);
+
+        assert_eq!(
+            action,
+            Some(ModelsAction::Download(SUGGESTED_MODELS[0].sized_file()))
+        );
+    }
+
+    #[test]
+    fn pressing_cancel_cancels_the_download() {
+        let pane = downloading("a.gguf", 100);
+        let cancel = accessory_button(downloaded_row(&pane));
+
+        let action = press(&pane, cancel);
+
+        assert_eq!(action, Some(ModelsAction::Cancel(file("a.gguf"))));
+    }
+
+    #[test]
+    fn pressing_delete_deletes_the_file() {
+        let pane = installed("a.gguf", 100);
+        let delete = accessory_button(downloaded_row(&pane));
+
+        let action = press(&pane, delete);
+
+        assert_eq!(action, Some(ModelsAction::Delete(file("a.gguf"))));
+    }
+
+    #[test]
+    fn pressing_show_files_opens_the_repo() {
+        let pane = searched("qwen", vec![repo(REPO, 1, false)]);
+        let show_files = accessory_button(browse_rows(&pane).remove(0));
+
+        let action = press(&pane, show_files);
+
+        assert_eq!(action, Some(ModelsAction::ShowFiles(REPO.to_owned())));
+    }
+
+    #[test]
+    fn pressing_back_returns_to_results() {
+        let pane = browsing(vec![sized("a.gguf", 1)]);
+        let back = browse(&pane).back.expect("the files list goes back");
+
+        let action = press(&pane, back);
+
+        assert_eq!(action, Some(ModelsAction::BackToResults));
+    }
+
+    #[test]
+    fn pressing_retry_after_a_failed_search_searches_again() {
+        let pane = failed_search(HubError::Offline);
+        let retry = retry_button(browse(&pane));
+
+        let action = press(&pane, retry);
+
+        assert_eq!(action, Some(ModelsAction::Search("x".to_owned())));
+    }
+
+    #[test]
+    fn pressing_a_button_that_the_pane_does_not_show_does_nothing() {
+        let pane = ModelsPane::new();
+
+        let action = press(&pane, button("Delete", &ModelsAction::Delete(file("a.gguf"))));
+
+        assert_eq!(action, None);
     }
 }
