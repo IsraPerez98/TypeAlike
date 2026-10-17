@@ -5,6 +5,7 @@
 use std::sync::mpsc;
 use std::thread;
 
+use ghosttype_core::app::BadgeView;
 use windows::core::Result;
 
 use crate::focus::{self, Caret};
@@ -68,6 +69,7 @@ fn answer_reads(reads: &mpsc::Receiver<ReadId>, answers: &Mailbox<CaretRead>) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CaretView {
     pub(crate) ghost: Option<String>,
+    pub(crate) badge: Option<BadgeView>,
 }
 
 /// The view that waits for the newest read of the caret. The answer to an older read is stale.
@@ -92,6 +94,13 @@ impl PendingView {
         }
     }
 
+    /// Removes the badge from the waiting view.
+    pub(crate) fn forget_badge(&mut self) {
+        if let Some(view) = &mut self.view {
+            view.badge = None;
+        }
+    }
+
     /// Returns the waiting view when `read` is the newest read, one time only.
     pub(crate) fn take(&mut self, read: ReadId) -> Option<CaretView> {
         if read == self.newest {
@@ -104,29 +113,38 @@ impl PendingView {
 
 #[cfg(test)]
 mod tests {
+    use ghosttype_core::app::{Status, TrayCommand};
+
     use super::*;
 
-    fn ghost() -> CaretView {
+    const BADGE: BadgeView = BadgeView {
+        status: Status::Active,
+        label: "Pause suggestions",
+        command: TrayCommand::TogglePause,
+    };
+
+    fn ghost_and_badge() -> CaretView {
         CaretView {
             ghost: Some("world".to_owned()),
+            badge: Some(BADGE),
         }
     }
 
     #[test]
     fn newest_read_gives_waiting_view() {
         let mut pending = PendingView::default();
-        let read = pending.wait(ghost());
+        let read = pending.wait(ghost_and_badge());
 
         let view = pending.take(read);
 
-        assert_eq!(view, Some(ghost()));
+        assert_eq!(view, Some(ghost_and_badge()));
     }
 
     #[test]
     fn stale_read_gives_no_view() {
         let mut pending = PendingView::default();
-        let stale = pending.wait(ghost());
-        pending.wait(ghost());
+        let stale = pending.wait(ghost_and_badge());
+        pending.wait(ghost_and_badge());
 
         let view = pending.take(stale);
 
@@ -136,7 +154,7 @@ mod tests {
     #[test]
     fn view_is_given_one_time() {
         let mut pending = PendingView::default();
-        let read = pending.wait(ghost());
+        let read = pending.wait(ghost_and_badge());
         pending.take(read);
 
         let view = pending.take(read);
@@ -147,11 +165,34 @@ mod tests {
     #[test]
     fn forgotten_ghost_does_not_show_after_read() {
         let mut pending = PendingView::default();
-        let read = pending.wait(ghost());
+        let read = pending.wait(ghost_and_badge());
         pending.forget_ghost();
 
         let view = pending.take(read);
 
-        assert_eq!(view, Some(CaretView { ghost: None }));
+        assert_eq!(
+            view,
+            Some(CaretView {
+                ghost: None,
+                badge: Some(BADGE),
+            })
+        );
+    }
+
+    #[test]
+    fn forgotten_badge_does_not_show_after_read() {
+        let mut pending = PendingView::default();
+        let read = pending.wait(ghost_and_badge());
+        pending.forget_badge();
+
+        let view = pending.take(read);
+
+        assert_eq!(
+            view,
+            Some(CaretView {
+                ghost: Some("world".to_owned()),
+                badge: None,
+            })
+        );
     }
 }

@@ -1,11 +1,12 @@
 //! Windows platform layer of GhostType.
 //!
 //! Wraps Win32 behind safe types: keyboard and mouse hooks, reading the caret (the system caret,
-//! else UI Automation), the ghost-text overlay, text injection, the tray icon, the settings window
-//! and the startup entry.
+//! else UI Automation), the ghost-text overlay, the badge at the caret, text injection, the tray
+//! icon, the settings window and the startup entry.
 
 #![cfg(windows)]
 
+mod badge;
 mod caret_reader;
 mod clipboard;
 mod focus;

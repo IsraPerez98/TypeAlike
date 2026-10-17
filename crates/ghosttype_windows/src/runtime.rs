@@ -3,6 +3,7 @@
 //! settings window runs on a thread of its own, so that this loop never waits for drawing.
 
 use std::cell::RefCell;
+use std::mem;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -12,20 +13,21 @@ use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, HOOKPROC,
-    KBDLLHOOKSTRUCT, KillTimer, MSG, PostMessageW, PostQuitMessage, RegisterWindowMessageW, SetTimer,
-    SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID,
-    WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
-    WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
+    KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, PostMessageW, PostQuitMessage, RegisterWindowMessageW,
+    SetTimer, SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
+    WINDOWS_HOOK_ID, WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, w};
 
 use crate::RunError;
+use crate::badge::Badge;
 use crate::caret_reader::{CaretRead, CaretReader, CaretView, PendingView};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::{Caret, FocusTracker};
@@ -44,6 +46,7 @@ const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
 const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
+const BADGE_CLICK_MESSAGE: u32 = WM_APP + 6;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const QUIT_RECEIVED: i32 = 0;
@@ -73,6 +76,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     })
     .map_err(RunError::during("create the main window"))?;
     let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
+    let badge = Badge::create().map_err(RunError::during("create the badge"))?;
     system_theme::match_menus_to(SystemTheme::read());
     let (caret_mailbox, caret_reads) = Mailbox::new(window.handle(), CARET_READ_MESSAGE);
     let caret_reader =
@@ -98,6 +102,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 focus: FocusTracker::new(),
                 clipboard,
                 overlay,
+                badge,
                 caret_reader,
                 pending_view: PendingView::default(),
                 tray,
@@ -106,6 +111,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 settings: settings_thread,
             },
             release_filter: ReleaseFilter::default(),
+            is_badge_pressed: false,
             taskbar_created_message,
             deliveries,
             settings_inputs,
@@ -154,6 +160,8 @@ struct Runtime {
     controller: Controller,
     shell: Win32Shell,
     release_filter: ReleaseFilter<VIRTUAL_KEY>,
+    /// Whether the user pressed the left button on the badge and did not release it yet.
+    is_badge_pressed: bool,
     taskbar_created_message: u32,
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
@@ -183,12 +191,31 @@ impl Runtime {
         disposition
     }
 
-    fn on_click(&mut self) {
-        self.controller.on_context_lost(&mut self.shell);
-    }
-
-    fn on_click_release(&mut self) {
-        self.controller.on_input(&mut self.shell);
+    /// Takes the clicks on the badge, so that the app under it never gets them. The click itself
+    /// runs after the hook returns.
+    fn on_mouse(&mut self, message: u32, point: POINT) -> Disposition {
+        match message {
+            WM_LBUTTONDOWN if self.shell.badge.contains(point) => {
+                self.is_badge_pressed = true;
+                if let Err(error) = self.shell.post(BADGE_CLICK_MESSAGE) {
+                    tracing::warn!(%error, "failed to queue the badge click");
+                }
+                Disposition::Swallow
+            }
+            WM_LBUTTONUP if mem::take(&mut self.is_badge_pressed) => {
+                self.controller.on_input(&mut self.shell);
+                Disposition::Swallow
+            }
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
+                self.controller.on_context_lost(&mut self.shell);
+                Disposition::Pass
+            }
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
+                self.controller.on_input(&mut self.shell);
+                Disposition::Pass
+            }
+            _ => Disposition::Pass,
+        }
     }
 
     /// Window timers repeat, and the controller asks for one call for each start.
@@ -211,6 +238,7 @@ impl Runtime {
             DELIVERY_MESSAGE => self.take_deliveries(),
             SETTINGS_INPUT_MESSAGE => self.take_settings_inputs(),
             CARET_READ_MESSAGE => self.take_caret_reads(),
+            BADGE_CLICK_MESSAGE => self.controller.on_badge_click(&mut self.shell),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
@@ -253,6 +281,7 @@ struct Win32Shell {
     focus: FocusTracker,
     clipboard: ClipboardWatch,
     overlay: Overlay,
+    badge: Badge,
     caret_reader: CaretReader,
     /// What shows at the caret when the caret reader answers.
     pending_view: PendingView,
@@ -276,6 +305,7 @@ impl Win32Shell {
             return;
         };
         self.show_ghost(view.ghost.as_deref(), read.caret.as_ref());
+        self.show_badge(view.badge, read.caret.as_ref());
     }
 
     fn show_ghost(&mut self, ghost: Option<&str>, caret: Option<&Caret>) {
@@ -285,6 +315,17 @@ impl Win32Shell {
         };
         if let Err(error) = self.overlay.show(text, caret) {
             tracing::warn!(%error, "failed to show ghost text");
+        }
+    }
+
+    fn show_badge(&mut self, badge: Option<BadgeView>, caret: Option<&Caret>) {
+        let (Some(view), Some(caret)) = (badge, caret) else {
+            self.badge.hide();
+            return;
+        };
+        if let Err(error) = self.badge.show(&view, caret) {
+            tracing::warn!(%error, "failed to show the badge");
+            self.badge.hide();
         }
     }
 }
@@ -308,11 +349,12 @@ impl Shell for Win32Shell {
         self.focus.refresh()
     }
 
-    /// Asks the caret reader for the caret, then shows only the ghost text at it when the answer
-    /// comes: Windows has no badge yet.
-    fn render_at_caret(&mut self, ghost: Option<&str>, _badge: Option<BadgeView>) {
+    /// Asks the caret reader for the caret, then shows `ghost` and `badge` at it when the answer
+    /// comes.
+    fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>) {
         let read = self.pending_view.wait(CaretView {
             ghost: ghost.map(str::to_owned),
+            badge,
         });
         self.caret_reader.read(read);
     }
@@ -322,8 +364,10 @@ impl Shell for Win32Shell {
         self.pending_view.forget_ghost();
     }
 
-    /// Does nothing: Windows has no badge yet.
-    fn hide_badge(&mut self) {}
+    fn hide_badge(&mut self) {
+        self.badge.hide();
+        self.pending_view.forget_badge();
+    }
 
     fn type_text(&mut self, text: String) {
         self.pending_injection = Some(text);
@@ -435,17 +479,14 @@ extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM)
 }
 
 extern "system" fn mouse_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    let message = u32::try_from(wparam.0).unwrap_or_default();
-    let is_button_down = matches!(
-        message,
-        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
-    );
-    let is_button_up = matches!(message, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP);
-    if code == HC_ACTION.cast_signed() && is_button_down {
-        with_runtime(Runtime::on_click);
-    }
-    if code == HC_ACTION.cast_signed() && is_button_up {
-        with_runtime(Runtime::on_click_release);
+    if code == HC_ACTION.cast_signed() {
+        // SAFETY: for HC_ACTION, lparam points to this event's MSLLHOOKSTRUCT, valid during the call.
+        let event =
+            unsafe { &*std::ptr::with_exposed_provenance::<MSLLHOOKSTRUCT>(lparam.0.cast_unsigned()) };
+        let message = u32::try_from(wparam.0).unwrap_or_default();
+        if with_runtime(|runtime| runtime.on_mouse(message, event.pt)) == Some(Disposition::Swallow) {
+            return SWALLOW_EVENT;
+        }
     }
     // SAFETY: forwards the system's own arguments unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }

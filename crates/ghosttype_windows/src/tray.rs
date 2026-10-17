@@ -121,19 +121,23 @@ pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> R
     Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }
 
+/// The glyph of the system icon font that shows `status`.
+pub(crate) fn status_glyph(status: Status) -> &'static str {
+    match status {
+        Status::Active => ACTIVE_GLYPH,
+        Status::Paused => PAUSED_GLYPH,
+    }
+}
+
 fn render_icon(status: Status) -> Result<Owned<HICON>> {
     // SAFETY: plain calls.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
-    let glyph = match status {
-        Status::Active => ACTIVE_GLYPH,
-        Status::Paused => PAUSED_GLYPH,
-    };
     let color = if is_taskbar_light() {
         Rgb::BLACK
     } else {
         Rgb::WHITE
     };
-    glyph_icon(glyph, side, color)
+    glyph_icon(status_glyph(status), side, color)
 }
 
 fn fixed_units<const LENGTH: usize>(text: &str) -> [u16; LENGTH] {

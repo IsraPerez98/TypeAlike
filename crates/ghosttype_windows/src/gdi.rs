@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, HSTRING, Owned, Result};
 
-use crate::pixels::{Rgb, tint_by_coverage};
+use crate::pixels::{Rgb, lay_over, tint_by_coverage};
 
 const BITS_PER_PIXEL: u16 = 32;
 const MAX_FACE_NAME_UNITS: usize = 32;
@@ -104,7 +104,7 @@ pub(crate) enum TextLayout {
 /// A 32-bit bitmap holding text in a single color over transparency, premultiplied.
 #[derive(Debug)]
 pub(crate) struct TextBitmap {
-    bitmap: Owned<HBITMAP>,
+    section: PixelSection,
     size: SIZE,
 }
 
@@ -125,10 +125,13 @@ impl TextBitmap {
         unsafe { GdiFlush() }.ok()?;
         // SAFETY: the section is alive and GDI is done writing to it.
         tint_by_coverage(unsafe { section.pixels() }, color);
-        Ok(Self {
-            bitmap: section.bitmap,
-            size,
-        })
+        Ok(Self { section, size })
+    }
+
+    /// Puts `backdrop` behind the text: premultiplied BGRA pixels of the same size, top row first.
+    pub(crate) fn lay_over(&mut self, backdrop: &[u32]) {
+        // SAFETY: no device context has the bitmap selected, so GDI does not draw into it.
+        lay_over(unsafe { self.section.pixels() }, backdrop);
     }
 
     /// Size of the bitmap in physical pixels.
@@ -138,13 +141,13 @@ impl TextBitmap {
 
     /// Raw bitmap handle, valid while `self` lives.
     pub(crate) fn handle(&self) -> HBITMAP {
-        *self.bitmap
+        *self.section.bitmap
     }
 
     /// Makes this bitmap the whole content of the layered `window`, placing it at `origin`.
     pub(crate) fn present(&self, window: HWND, origin: POINT) -> Result<()> {
         let context = MemoryContext::new()?;
-        let _bitmap = context.select(HGDIOBJ(self.bitmap.0));
+        let _bitmap = context.select(HGDIOBJ(self.section.bitmap.0));
         let blend = BLENDFUNCTION {
             BlendOp: AC_SRC_OVER.try_into().expect("blend op fits in a byte"),
             BlendFlags: 0,
@@ -169,10 +172,16 @@ impl TextBitmap {
     }
 }
 
+/// Renders `glyph` of the system icon font in `color`, `glyph_side` pixels high, in the middle of
+/// a square of `side` pixels.
+pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
+    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side))?;
+    TextBitmap::render(glyph, &font, color, TextLayout::CenteredSquare(side))
+}
+
 /// Renders `glyph` of the system icon font as a square icon of `side` pixels in `color`.
 pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HICON>> {
-    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(side))?;
-    let bitmap = TextBitmap::render(glyph, &font, color, TextLayout::CenteredSquare(side))?;
+    let bitmap = glyph_bitmap(glyph, side, side, color)?;
     let bitmap_size = bitmap.size();
     // SAFETY: plain call; the bitmap is owned right after.
     let ignored_mask = unsafe {
@@ -239,6 +248,7 @@ fn draw(context: &MemoryContext, units: &mut [u16], size: SIZE, layout: TextLayo
 }
 
 /// A DIB section bitmap whose pixel memory this process can write.
+#[derive(Debug)]
 pub(crate) struct PixelSection {
     bitmap: Owned<HBITMAP>,
     bits: *mut u32,
