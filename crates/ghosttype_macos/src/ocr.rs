@@ -5,7 +5,7 @@
 use std::hash::{DefaultHasher, Hasher};
 use std::ptr::NonNull;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use ghosttype_core::desktop::{Confidence, OcrAvailability, ScreenLine, ScreenText};
@@ -99,12 +99,15 @@ impl Ocr {
     /// at `level`. `None` for a password field, or when the capture or the OCR fails.
     pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
         let field = screen_text::focused_field(process)?;
+        let started = Instant::now();
         let capture = capture_band(process, field.frame)?;
+        let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
             pixels: pixels_hash(&capture, field.frame)?,
             level,
         };
+        let hashed = Instant::now();
         let is_known = self.last.as_ref().is_some_and(|last| last.input == input);
         if !is_known {
             self.last = Some(Recognition {
@@ -112,6 +115,16 @@ impl Ocr {
                 input,
             });
         }
+        tracing::debug!(
+            capture = ?captured - started,
+            hash = ?hashed - captured,
+            vision = ?hashed.elapsed(),
+            is_cache_hit = is_known,
+            width = CGImage::width(Some(&capture.image)),
+            height = CGImage::height(Some(&capture.image)),
+            ?level,
+            "OCR read"
+        );
         let lines = self.last.as_ref()?.lines.iter();
         Some(screen_text_of(lines, capture.band.origin, &field))
     }

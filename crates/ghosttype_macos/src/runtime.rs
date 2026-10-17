@@ -5,7 +5,7 @@ use std::ffi::c_void;
 use std::mem;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeView, Field, TrayView};
@@ -60,7 +60,11 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(|delivery| {
+        let sent = Instant::now();
         DispatchQueue::main().exec_async(move || {
+            if let Delivery::Screen(read) = &delivery {
+                tracing::debug!(read = ?read.id, trip = ?sent.elapsed(), "screen read reached the main thread");
+            }
             with_runtime(|runtime| runtime.on_delivery(delivery));
         });
     });

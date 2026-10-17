@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::sync::mpsc;
+use std::time::Instant;
 
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use ghosttype_core::controller::{Delivery, DeliverySink};
@@ -43,6 +44,7 @@ struct ScreenRequest {
     read: ScreenReadId,
     source: ScreenSource,
     process: Option<i32>,
+    requested: Instant,
 }
 
 impl ScreenTextReader {
@@ -58,10 +60,12 @@ impl ScreenTextReader {
     /// Reads the text near the focused field of the app of `process` from `source`, as it is now.
     /// The answer has the id `read`, and has no text when no app has the focus.
     pub(crate) fn read(&self, read: ScreenReadId, source: ScreenSource, process: Option<i32>) {
+        tracing::debug!(?read, ?source, "screen read requested");
         let request = ScreenRequest {
             read,
             source,
             process,
+            requested: Instant::now(),
         };
         if self.requests.send(request).is_err() {
             tracing::warn!("the screen text reader stopped");
@@ -75,10 +79,19 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
     let mut ocr = Ocr::default();
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
+        let started = Instant::now();
         let text = newest.process.and_then(|process| match newest.source {
             ScreenSource::Accessibility => read_screen_text(process),
             ScreenSource::Ocr(level) => ocr.read(process, level),
         });
+        tracing::debug!(
+            read = ?newest.read,
+            source = ?newest.source,
+            waited = ?started - newest.requested,
+            duration = ?started.elapsed(),
+            lines = text.as_ref().map(|text| text.lines.len()),
+            "screen read answered"
+        );
         deliver(Delivery::Screen(ScreenRead {
             id: newest.read,
             text,
