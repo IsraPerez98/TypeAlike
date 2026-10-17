@@ -9,8 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-# Draws the settings window with WinUI 3 through windows-reactor. A prototype: it shows the first
-# page only, and it needs the Windows App Runtime 2 at run time.
+# Draws the settings window with WinUI 3 through windows-reactor. A prototype: it needs the Windows
+# App Runtime 2 at run time.
 reactor = ["dep:windows-reactor"]
 
 [target.'cfg(windows)'.dependencies]
