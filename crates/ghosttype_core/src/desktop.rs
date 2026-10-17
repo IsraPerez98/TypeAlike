@@ -124,6 +124,15 @@ pub enum OcrAvailability {
     Ready,
 }
 
+/// The recognition levels that the OCR of the platform has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcrLevels {
+    /// The OCR has one level, so the user does not pick a level.
+    One,
+    /// The user picks the level of the OCR: [`OcrLevel::Fast`] or [`OcrLevel::Accurate`].
+    Selectable,
+}
+
 impl fmt::Debug for ScreenLine {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -220,6 +229,12 @@ pub trait Desktop {
     /// this default.
     fn ocr_availability(&self) -> OcrAvailability {
         OcrAvailability::Unsupported
+    }
+
+    /// Tells which recognition levels the OCR of the platform has. A platform whose OCR has one
+    /// level, or that has no OCR, keeps this default.
+    fn ocr_levels(&self) -> OcrLevels {
+        OcrLevels::One
     }
 }
 

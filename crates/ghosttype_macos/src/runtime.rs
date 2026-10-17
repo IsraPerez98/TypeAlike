@@ -13,7 +13,7 @@ use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
-    CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
 };
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
@@ -259,6 +259,11 @@ impl Desktop for AppKitShell {
 
     fn ocr_availability(&self) -> OcrAvailability {
         ocr::availability()
+    }
+
+    /// Vision reads at the level `.fast` or `.accurate`.
+    fn ocr_levels(&self) -> OcrLevels {
+        OcrLevels::Selectable
     }
 }
 

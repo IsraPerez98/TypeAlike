@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::{fmt, mem};
 
 use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView};
-use crate::desktop::{Desktop, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::Reaction;
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
@@ -348,7 +348,7 @@ impl Controller {
     }
 
     fn render_settings(&self, shell: &mut dyn Shell) {
-        shell.render_settings(&self.settings_view(shell.ocr_availability()));
+        shell.render_settings(&self.settings_view(shell));
     }
 
     /// Handles the answer of a service.
@@ -495,15 +495,16 @@ impl Controller {
     fn open_settings(&mut self, shell: &mut dyn Shell) {
         let request = self.models.on_open();
         self.hub.submit(request, &self.hub_sink);
-        shell.show_settings(&self.settings_view(shell.ocr_availability()));
+        shell.show_settings(&self.settings_view(shell));
     }
 
-    fn settings_view(&self, ocr: OcrAvailability) -> SettingsView {
+    fn settings_view(&self, desktop: &dyn Desktop) -> SettingsView {
         let installed = self.models.installed_files();
         SettingsView {
             pages: vec![
                 self.general.page(&self.playground, &installed),
-                self.screen_text.page(ocr),
+                self.screen_text
+                    .page(desktop.ocr_availability(), desktop.ocr_levels()),
                 self.models.page(),
                 self.playground.page(&installed),
             ],
@@ -553,7 +554,7 @@ mod tests {
 
     use super::*;
     use crate::app::{Field, Status};
-    use crate::desktop::{CopiedText, FieldText, ScreenText, Surroundings};
+    use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Backend, Completion, TokenCount};

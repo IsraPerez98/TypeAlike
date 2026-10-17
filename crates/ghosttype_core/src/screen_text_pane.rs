@@ -1,7 +1,7 @@
 //! The Screen text pane of the settings window: where suggestions can use the text near the text
 //! field on the screen.
 
-use crate::desktop::OcrAvailability;
+use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
 use crate::settings_view::{
     AppSwitch, Button, ChoiceText, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput,
@@ -143,9 +143,10 @@ impl ScreenTextPane {
     }
 
     /// Returns the page that the pane shows now, with the menu of the OCR level when the platform
-    /// has an OCR, and a note that tells how to give the permission when `ocr` needs it.
+    /// has an OCR whose `levels` the user picks, and a note that tells how to give the permission
+    /// when `ocr` needs it.
     #[must_use]
-    pub fn page(&self, ocr: OcrAvailability) -> Page {
+    pub fn page(&self, ocr: OcrAvailability, levels: OcrLevels) -> Page {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
         let apps = self
             .settings
@@ -176,7 +177,8 @@ impl ScreenTextPane {
             description: SCREEN_TEXT_DESCRIPTION,
             is_on: is_allowed,
         });
-        let ocr_level = (ocr != OcrAvailability::Unsupported).then(|| Row::Picker(self.ocr_level_picker()));
+        let has_level_menu = ocr != OcrAvailability::Unsupported && levels == OcrLevels::Selectable;
+        let ocr_level = has_level_menu.then(|| Row::Picker(self.ocr_level_picker()));
         let main_section = Section::new([Some(main_switch), ocr_level].into_iter().flatten().collect());
         let needs_permission = is_allowed && ocr == OcrAvailability::NotPermitted;
         let permission_note = needs_permission.then(|| {
@@ -286,7 +288,7 @@ mod tests {
             vec![app("com.apple.mail", "Mail", false)],
         );
 
-        let shown = pane.page(OcrAvailability::Ready);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
 
         assert_eq!(
             (shown.row(SCREEN_TEXT), app_switches(&shown)),
@@ -316,7 +318,7 @@ mod tests {
             vec![app("com.apple.mail", "Mail", true)],
         );
 
-        let shown = pane.page(OcrAvailability::Ready);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
 
         assert_eq!(
             app_switches(&shown)
@@ -331,7 +333,7 @@ mod tests {
     fn empty_list_says_that_it_has_no_apps() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
 
         assert_eq!(
             shown.sections[1].rows,
@@ -357,7 +359,7 @@ mod tests {
     fn page_tells_how_to_give_the_ocr_permission() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::NotPermitted);
+        let shown = pane.page(OcrAvailability::NotPermitted, OcrLevels::Selectable);
 
         assert_eq!(
             permission_notes(&shown),
@@ -381,9 +383,9 @@ mod tests {
         let off = pane_with(ScreenTextAccess::Denied, Vec::new());
 
         let pages = [
-            ready.page(OcrAvailability::Ready),
-            ready.page(OcrAvailability::Unsupported),
-            off.page(OcrAvailability::NotPermitted),
+            ready.page(OcrAvailability::Ready, OcrLevels::Selectable),
+            ready.page(OcrAvailability::Unsupported, OcrLevels::Selectable),
+            off.page(OcrAvailability::NotPermitted, OcrLevels::Selectable),
         ];
 
         assert!(pages.iter().all(|page| permission_notes(page).is_empty()));
@@ -487,7 +489,7 @@ mod tests {
     fn ocr_level_menu_shows_fast_as_the_recommended_default() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
 
         assert_eq!(
             shown.sections[0].rows.get(1),
@@ -528,7 +530,7 @@ mod tests {
     fn ocr_level_menu_is_dimmed_when_screen_text_is_off() {
         let pane = pane_with(ScreenTextAccess::Denied, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
 
         assert_eq!(
             ocr_level_picker(&shown).map(|picker| picker.is_enabled),
@@ -540,7 +542,16 @@ mod tests {
     fn page_without_ocr_has_no_ocr_level_menu() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Unsupported);
+        let shown = pane.page(OcrAvailability::Unsupported, OcrLevels::Selectable);
+
+        assert_eq!(ocr_level_picker(&shown), None);
+    }
+
+    #[test]
+    fn ocr_with_one_level_has_no_ocr_level_menu() {
+        let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
+
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::One);
 
         assert_eq!(ocr_level_picker(&shown), None);
     }
