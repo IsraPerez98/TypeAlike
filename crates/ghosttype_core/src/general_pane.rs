@@ -232,6 +232,7 @@ impl GeneralPane {
             SettingsInput::Pressed(id) => {
                 (id.as_str() == RESET_SYSTEM_PROMPT).then_some(GeneralAction::ResetSystemPrompt)
             }
+            SettingsInput::Submitted { .. } => None,
         }
     }
 
@@ -280,12 +281,8 @@ impl GeneralPane {
             title: PANE_TITLE,
             summary: PANE_SUMMARY,
             sections: vec![
-                Section {
-                    rows: autostart.into_iter().chain(settings).chain(backend).collect(),
-                },
-                Section {
-                    rows: vec![Row::TextArea(self.system_prompt_area())],
-                },
+                Section::new(autostart.into_iter().chain(settings).chain(backend).collect()),
+                Section::new(vec![Row::TextArea(self.system_prompt_area())]),
             ],
         }
     }
@@ -620,6 +617,7 @@ mod tests {
                 summary: "Change how GhostType runs on this computer.",
                 sections: vec![
                     Section {
+                        heading: None,
                         rows: vec![
                             Row::Switch(Switch {
                                 id: ControlId::new(CLIPBOARD),
@@ -679,6 +677,7 @@ mod tests {
                         ],
                     },
                     Section {
+                        heading: None,
                         rows: vec![Row::TextArea(TextArea {
                             id: ControlId::new(SYSTEM_PROMPT),
                             label: "System prompt",

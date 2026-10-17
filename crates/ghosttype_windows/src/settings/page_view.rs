@@ -9,16 +9,16 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{BN_CLICKED, EN_CHANGE, WNDPROC};
 use windows::core::{PCWSTR, Result};
 
+use crate::settings::WindowInput;
 use crate::settings::appearance::Appearance;
 use crate::settings::controls::{Control, ControlKind, PickerMenu};
 use crate::settings::form::{
     self, CARD_DETAIL, CARD_GAP, CARD_PADDING_X, CARD_PADDING_Y, CARD_TEXT, CONTROL_GAP, CONTROL_HEIGHT,
-    Header, Placer, SECTION_GAP, SettingCard, enable_if, show_note,
+    HEADING_GAP, Header, PAGE_TEXT, Placer, SECTION_GAP, SettingCard, enable_if, show_note,
 };
 use crate::settings::layout::Column;
 use crate::settings::page::{Page, Shape};
 use crate::settings::typography::TextRole;
-use crate::settings::{MenuPicker, WindowInput};
 
 const PICKER_WIDTH: i32 = 280;
 const SWITCH_WIDTH: i32 = 88;
@@ -27,6 +27,7 @@ const SWITCH_OFF_TEXT: &str = "Off";
 const TEXT_AREA_LINES: i32 = 6;
 const EDIT_LINE_BREAK: &str = "\r\n";
 const LINE_BREAK: &str = "\n";
+const OUTPUT_DETAIL_GAP: i32 = 4;
 
 /// A page window that shows a core settings page.
 #[derive(Debug)]
@@ -58,9 +59,11 @@ impl PageView {
     pub(crate) fn render(&mut self, shown: &view::Page, appearance: &Appearance) -> Result<()> {
         self.page.set_title(shown.title);
         self.header.render(shown.title, shown.summary);
-        self.sections
-            .resize_with(shown.sections.len(), SectionView::default);
         let host = self.page.handle();
+        self.sections.truncate(shown.sections.len());
+        while self.sections.len() < shown.sections.len() {
+            self.sections.push(SectionView::create(host, appearance)?);
+        }
         for (section, shown_section) in self.sections.iter_mut().zip(&shown.sections) {
             section.render(shown_section, host, appearance)?;
         }
@@ -97,13 +100,18 @@ impl PageView {
         self.rows().find_map(|row| row.picker_menu(id))
     }
 
+    /// The input of the return key in `focus`, when `focus` is a text field of this page.
+    pub(crate) fn submit_for(&self, focus: HWND) -> Option<WindowInput> {
+        self.rows().find_map(|row| row.submit_for(focus))
+    }
+
     pub(crate) fn apply(&self, appearance: &Appearance) {
         self.page.apply();
         for control in self.header.controls() {
             control.apply(appearance);
         }
-        for row in self.rows() {
-            row.apply(appearance);
+        for section in &self.sections {
+            section.apply(appearance);
         }
     }
 
@@ -112,16 +120,32 @@ impl PageView {
     }
 }
 
-/// The cards of one section.
-#[derive(Debug, Default)]
+/// The heading and the cards of one section.
+#[derive(Debug)]
 struct SectionView {
+    heading: Control,
+    has_heading: bool,
     rows: Vec<RowView>,
 }
 
 impl SectionView {
+    fn create(host: HWND, appearance: &Appearance) -> Result<Self> {
+        let heading = Control::create(host, ControlKind::Label, TextRole::BodyStrong, PAGE_TEXT)?;
+        heading.apply(appearance);
+        Ok(Self {
+            heading,
+            has_heading: false,
+            rows: Vec::new(),
+        })
+    }
+
     /// Shows `shown` in the cards of its rows. A card that shows another kind of row or another
     /// control goes away, and a new card takes its place.
     fn render(&mut self, shown: &view::Section, host: HWND, appearance: &Appearance) -> Result<()> {
+        self.has_heading = shown.heading.is_some();
+        if let Some(heading) = &shown.heading {
+            self.heading.set_text(heading);
+        }
         let mut previous = mem::take(&mut self.rows).into_iter();
         for row in &shown.rows {
             let reused = previous
@@ -143,11 +167,27 @@ impl SectionView {
         appearance: &Appearance,
         shapes: &mut Vec<Shape>,
     ) {
+        if self.has_heading {
+            placer.place(
+                &self.heading,
+                column.take(appearance.line_height(TextRole::BodyStrong)),
+            );
+            column.skip(appearance.px(HEADING_GAP));
+        } else {
+            self.heading.hide();
+        }
         for (index, row) in self.rows.iter().enumerate() {
             if index > 0 {
                 column.skip(appearance.px(CARD_GAP));
             }
             row.layout(column, placer, appearance, shapes);
+        }
+    }
+
+    fn apply(&self, appearance: &Appearance) {
+        self.heading.apply(appearance);
+        for row in &self.rows {
+            row.apply(appearance);
         }
     }
 }
@@ -158,6 +198,9 @@ enum RowView {
     Switch(SwitchCard),
     Picker(PickerCard),
     TextArea(TextAreaCard),
+    TextField(TextFieldCard),
+    Note(NoteCard),
+    Output(OutputCard),
 }
 
 impl RowView {
@@ -167,6 +210,9 @@ impl RowView {
             Row::Switch(switch) => Self::Switch(SwitchCard::create(host, switch)?),
             Row::Picker(picker) => Self::Picker(PickerCard::create(host, picker)?),
             Row::TextArea(text_area) => Self::TextArea(TextAreaCard::create(host, text_area)?),
+            Row::TextField(text_field) => Self::TextField(TextFieldCard::create(host, text_field)?),
+            Row::Note(note) => Self::Note(NoteCard::create(host, note)?),
+            Row::Output(output) => Self::Output(OutputCard::create(host, output)?),
         };
         card.apply(appearance);
         Ok(card)
@@ -181,6 +227,11 @@ impl RowView {
             (Self::TextArea(card), Row::TextArea(text_area)) if card.shown.id == text_area.id => {
                 card.render(text_area);
             }
+            (Self::TextField(card), Row::TextField(text_field)) if card.shown.id == text_field.id => {
+                card.render(text_field);
+            }
+            (Self::Note(card), Row::Note(note)) => card.render(note),
+            (Self::Output(card), Row::Output(output)) => card.render(output),
             _ => return false,
         }
         true
@@ -197,6 +248,17 @@ impl RowView {
             Self::Switch(card) => card.layout(column, placer, appearance, shapes),
             Self::Picker(card) => card.layout(column, placer, appearance, shapes),
             Self::TextArea(card) => card.layout(column, placer, appearance, shapes),
+            Self::TextField(card) => card.layout(column, placer, appearance, shapes),
+            Self::Note(card) => TextCard {
+                text: &card.text,
+                detail: None,
+            }
+            .layout(column, placer, appearance, shapes),
+            Self::Output(card) => TextCard {
+                text: &card.text,
+                detail: Some(&card.detail),
+            }
+            .layout(column, placer, appearance, shapes),
         }
     }
 
@@ -205,13 +267,24 @@ impl RowView {
             Self::Switch(card) => card.input_for(control, notification),
             Self::Picker(card) => card.input_for(control, notification),
             Self::TextArea(card) => card.input_for(control, notification),
+            Self::TextField(card) => card.input_for(control, notification),
+            Self::Note(_) | Self::Output(_) => None,
         }
     }
 
     fn picker_menu(&self, id: &ControlId) -> Option<PickerMenu> {
         match self {
             Self::Picker(card) => (card.shown.id == *id).then(|| card.picker.picker_menu()),
-            Self::Switch(_) | Self::TextArea(_) => None,
+            Self::Switch(_) | Self::TextArea(_) | Self::TextField(_) | Self::Note(_) | Self::Output(_) => {
+                None
+            }
+        }
+    }
+
+    fn submit_for(&self, focus: HWND) -> Option<WindowInput> {
+        match self {
+            Self::TextField(card) => card.submit_for(focus),
+            Self::Switch(_) | Self::Picker(_) | Self::TextArea(_) | Self::Note(_) | Self::Output(_) => None,
         }
     }
 
@@ -220,6 +293,9 @@ impl RowView {
             Self::Switch(card) => &card.controls(),
             Self::Picker(card) => &card.controls(),
             Self::TextArea(card) => &card.controls(),
+            Self::TextField(card) => &card.controls(),
+            Self::Note(card) => &[&card.text],
+            Self::Output(card) => &[&card.text, &card.detail],
         };
         for control in controls {
             control.apply(appearance);
@@ -358,7 +434,7 @@ impl PickerCard {
 
     fn input_for(&self, control: HWND, notification: u32) -> Option<WindowInput> {
         let is_clicked = control == self.picker.handle() && notification == BN_CLICKED;
-        is_clicked.then(|| WindowInput::OpenMenu(MenuPicker::Control(self.shown.id.clone())))
+        is_clicked.then(|| WindowInput::OpenMenu(self.shown.id.clone()))
     }
 
     fn controls(&self) -> [&Control; 4] {
@@ -463,5 +539,158 @@ impl TextAreaCard {
 
     fn controls(&self) -> [&Control; 4] {
         [&self.label, &self.description, &self.field, &self.button]
+    }
+}
+
+/// A label above a card that holds a field of one line and the button that submits its text.
+#[derive(Debug)]
+struct TextFieldCard {
+    label: Control,
+    field: Control,
+    button: Control,
+    shown: view::TextField,
+}
+
+impl TextFieldCard {
+    fn create(host: HWND, shown: &view::TextField) -> Result<Self> {
+        let control = |kind, role, style| Control::create(host, kind, role, style);
+        let mut card = Self {
+            label: control(ControlKind::Label, TextRole::BodyStrong, PAGE_TEXT)?,
+            field: control(ControlKind::TextField, TextRole::Body, CARD_TEXT)?,
+            button: control(ControlKind::PrimaryButton, TextRole::Body, CARD_TEXT)?,
+            shown: shown.clone(),
+        };
+        card.render(shown);
+        Ok(card)
+    }
+
+    fn render(&mut self, shown: &view::TextField) {
+        self.label.set_text(shown.label);
+        self.field.set_placeholder(shown.placeholder);
+        self.button.set_text(shown.submit_label);
+        enable_if(&self.button, shown.is_submit_enabled);
+        self.shown.clone_from(shown);
+    }
+
+    /// Places the label, then the card with the field and the button. The label goes right
+    /// before the field in z-order, so it names the field for UI Automation.
+    fn layout(
+        &self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        placer.place(
+            &self.label,
+            column.take(appearance.line_height(TextRole::BodyStrong)),
+        );
+        column.skip(appearance.px(HEADING_GAP));
+        let card = column.take(form::card_height(appearance.px(CONTROL_HEIGHT), appearance));
+        shapes.push(Shape::Card(card));
+        let inner = card.inset(appearance.px(CARD_PADDING_X), 0);
+        let button_width = form::button_width(appearance, self.button.current_text());
+        let (field, button) = inner.split_trailing(button_width, appearance.px(CONTROL_GAP));
+        let band = appearance.px(CONTROL_HEIGHT);
+        placer.place_field(&self.field, field.centered_band(band), appearance, shapes);
+        placer.place(&self.button, button.centered_band(band));
+    }
+
+    fn input_for(&self, control: HWND, notification: u32) -> Option<WindowInput> {
+        let is_clicked = control == self.button.handle() && notification == BN_CLICKED;
+        is_clicked.then(|| self.submitted())
+    }
+
+    fn submit_for(&self, focus: HWND) -> Option<WindowInput> {
+        (focus == self.field.handle()).then(|| self.submitted())
+    }
+
+    fn submitted(&self) -> WindowInput {
+        WindowInput::Settings(SettingsInput::Submitted {
+            id: self.shown.id.clone(),
+            text: self.field.typed_text(),
+        })
+    }
+
+    fn controls(&self) -> [&Control; 3] {
+        [&self.label, &self.field, &self.button]
+    }
+}
+
+/// A card with a line of status in the color of its tone.
+#[derive(Debug)]
+struct NoteCard {
+    text: Control,
+}
+
+impl NoteCard {
+    fn create(host: HWND, shown: &view::Note) -> Result<Self> {
+        let mut card = Self {
+            text: Control::create(host, ControlKind::Paragraph, TextRole::Body, CARD_TEXT)?,
+        };
+        card.render(shown);
+        Ok(card)
+    }
+
+    fn render(&mut self, shown: &view::Note) {
+        show_note(&mut self.text, shown);
+    }
+}
+
+/// A card with the text that a model wrote, and the facts about it below the text.
+#[derive(Debug)]
+struct OutputCard {
+    text: Control,
+    detail: Control,
+}
+
+impl OutputCard {
+    fn create(host: HWND, shown: &view::Output) -> Result<Self> {
+        let mut card = Self {
+            text: Control::create(host, ControlKind::Paragraph, TextRole::Body, CARD_TEXT)?,
+            detail: Control::create(host, ControlKind::Label, TextRole::Caption, CARD_DETAIL)?,
+        };
+        card.render(shown);
+        Ok(card)
+    }
+
+    fn render(&mut self, shown: &view::Output) {
+        self.text.set_text(&shown.text);
+        self.detail.set_text(&shown.detail);
+    }
+}
+
+/// A card with a paragraph of text, and a line of detail below it when there is one.
+#[derive(Debug, Clone, Copy)]
+struct TextCard<'a> {
+    text: &'a Control,
+    detail: Option<&'a Control>,
+}
+
+impl TextCard<'_> {
+    /// Places the card's controls in a card that it takes from `column`, and adds the card to
+    /// `shapes`.
+    fn layout(
+        self,
+        column: &mut Column,
+        placer: &mut Placer,
+        appearance: &Appearance,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let padding_x = appearance.px(CARD_PADDING_X);
+        let padding_y = appearance.px(CARD_PADDING_Y);
+        let text_width = column.inner_width(padding_x);
+        let text_height = appearance.wrapped_height(self.text.current_text(), TextRole::Body, text_width);
+        let detail_height = self.detail.map_or(0, |_| {
+            appearance.px(OUTPUT_DETAIL_GAP) + appearance.line_height(TextRole::Caption)
+        });
+        let card = column.take(text_height + detail_height + 2 * padding_y);
+        shapes.push(Shape::Card(card));
+        let mut inner = Column::new(card.x + padding_x, card.y + padding_y, text_width);
+        placer.place(self.text, inner.take(text_height));
+        if let Some(detail) = self.detail {
+            inner.skip(appearance.px(OUTPUT_DETAIL_GAP));
+            placer.place(detail, inner.take(appearance.line_height(TextRole::Caption)));
+        }
     }
 }

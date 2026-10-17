@@ -16,14 +16,12 @@ mod page;
 mod page_view;
 mod paint;
 mod palette;
-mod playground_page;
 mod typography;
 
 use std::rc::Rc;
 
 use ghosttype_core::controller::PaneAction;
 use ghosttype_core::models_pane::ModelsView;
-use ghosttype_core::playground::PlaygroundView;
 use ghosttype_core::settings_view::{self as view, ControlId, SettingsInput};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -59,7 +57,6 @@ use crate::settings::page::Page;
 use crate::settings::page_view::PageView;
 use crate::settings::paint::PaintSession;
 use crate::settings::palette::Backdrop;
-use crate::settings::playground_page::PlaygroundPage;
 use crate::settings::typography::TextRole;
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
@@ -100,8 +97,9 @@ pub(crate) enum WindowInput {
     Pane(PaneAction),
     /// An input of a control of a core settings page.
     Settings(SettingsInput),
-    /// The user opened a picker; its menu must show outside any borrow of the runtime.
-    OpenMenu(MenuPicker),
+    /// The user opened the picker with this id. Its menu must show outside any borrow of the
+    /// runtime.
+    OpenMenu(ControlId),
 }
 
 /// Pointer input that the system gave to a page but that belongs to a text field on it. A field
@@ -122,15 +120,6 @@ impl FieldInput {
         // system made for the page, changed to the field.
         unsafe { SendMessageW(self.edit, self.message, Some(self.wparam), Some(self.lparam)) }
     }
-}
-
-/// A picker whose choices show in a menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MenuPicker {
-    /// The model picker of the Playground pane.
-    Model,
-    /// The picker of a core settings page with this id.
-    Control(ControlId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,7 +146,7 @@ pub(crate) struct SettingsWindow {
     playground_tab: Control,
     general_tab: Control,
     models: ModelsPage,
-    playground: PlaygroundPage,
+    playground: PageView,
     general: PageView,
     selected: Pane,
     appearance: Rc<Appearance>,
@@ -196,7 +185,7 @@ impl SettingsWindow {
             playground_tab: tab()?.with_glyph(PLAYGROUND_GLYPH),
             general_tab: tab()?.with_glyph(GENERAL_GLYPH),
             models: ModelsPage::create(handle, procedures.models_page)?,
-            playground: PlaygroundPage::create(handle, procedures.playground_page)?,
+            playground: PageView::create(w!("GhostType.PlaygroundPage"), procedures.playground_page, handle)?,
             general: PageView::create(w!("GhostType.GeneralPage"), procedures.general_page, handle)?,
             selected: Pane::General,
             appearance,
@@ -263,7 +252,7 @@ impl SettingsWindow {
     pub(crate) fn render(
         &mut self,
         models: &ModelsView,
-        playground: &PlaygroundView,
+        playground: &view::Page,
         general: &view::Page,
     ) -> Result<()> {
         self.models_tab.set_text(models.title);
@@ -271,7 +260,7 @@ impl SettingsWindow {
         self.general_tab.set_text(general.title);
         let appearance = Rc::clone(&self.appearance);
         self.models.render(models, &appearance)?;
-        self.playground.render(playground, &appearance);
+        self.playground.render(playground, &appearance)?;
         self.general.render(general, &appearance)?;
         self.show_selected_page();
         Ok(())
@@ -311,8 +300,11 @@ impl SettingsWindow {
 
     /// Reads a `WM_COMMAND` from `control` with `notification`.
     pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<WindowInput> {
-        if let Some(input) = self.general.input_for(control, notification) {
-            return Some(input);
+        let page_input = self
+            .core_pages()
+            .find_map(|page| page.input_for(control, notification));
+        if page_input.is_some() {
+            return page_input;
         }
         if notification != BN_CLICKED {
             return None;
@@ -321,18 +313,9 @@ impl SettingsWindow {
             self.select(pane);
             return None;
         }
-        if self.playground.is_model_picker(control) {
-            return Some(WindowInput::OpenMenu(MenuPicker::Model));
-        }
         self.models
             .action_for(control)
-            .map(PaneAction::Models)
-            .or_else(|| {
-                self.playground
-                    .completion_for(control)
-                    .map(PaneAction::Playground)
-            })
-            .map(WindowInput::Pane)
+            .map(|action| WindowInput::Pane(PaneAction::Models(action)))
     }
 
     /// Reads the Enter key: it clicks a focused button, or submits a search or a completion.
@@ -344,28 +327,18 @@ impl SettingsWindow {
         }
         self.models
             .search_for(focus)
-            .map(PaneAction::Models)
-            .or_else(|| self.playground.completion_for(focus).map(PaneAction::Playground))
-            .map(WindowInput::Pane)
+            .map(|action| WindowInput::Pane(PaneAction::Models(action)))
+            .or_else(|| self.core_pages().find_map(|page| page.submit_for(focus)))
     }
 
-    /// The menu that `picker` opens, while the picker shows.
-    pub(crate) fn picker_menu(&self, picker: &MenuPicker) -> Option<PickerMenu> {
-        match picker {
-            MenuPicker::Model => Some(self.playground.model_menu()),
-            MenuPicker::Control(id) => self.general.picker_menu(id),
-        }
+    /// The menu that the picker `id` opens, while the picker shows.
+    pub(crate) fn picker_menu(&self, id: &ControlId) -> Option<PickerMenu> {
+        self.core_pages().find_map(|page| page.picker_menu(id))
     }
 
-    /// Reads the pick of the entry at `index` of the menu of `picker`.
-    pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<WindowInput> {
-        match picker {
-            MenuPicker::Model => self
-                .playground
-                .choice_at(index)
-                .map(|action| WindowInput::Pane(PaneAction::Playground(action))),
-            MenuPicker::Control(id) => Some(WindowInput::Settings(SettingsInput::Picked { id, index })),
-        }
+    /// The pages that show a page of the core settings view.
+    fn core_pages(&self) -> impl Iterator<Item = &PageView> {
+        [&self.general, &self.playground].into_iter()
     }
 
     /// Reacts to the pointer over the page `page_window`, which scrolls with its scroll bar.

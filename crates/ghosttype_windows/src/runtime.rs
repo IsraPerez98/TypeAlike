@@ -12,6 +12,7 @@ use ghosttype_core::controller::{
 use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
+use ghosttype_core::settings_view::{ControlId, SettingsInput};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -38,7 +39,7 @@ use crate::keys;
 use crate::mailbox::{DELIVERY_MESSAGE, Mailbox};
 use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
-use crate::settings::{self, Appearance, MenuPicker, Pointer, Procedures, SettingsWindow, WindowInput};
+use crate::settings::{self, Appearance, Pointer, Procedures, SettingsWindow, WindowInput};
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
@@ -196,7 +197,7 @@ struct Runtime {
     taskbar_created_message: u32,
     deliveries: mpsc::Receiver<Delivery>,
     /// The picker whose menu must show once the runtime is free.
-    pending_menu: Option<MenuPicker>,
+    pending_menu: Option<ControlId>,
 }
 
 impl Runtime {
@@ -283,7 +284,7 @@ impl Runtime {
         }
     }
 
-    fn post_picker_menu(&mut self, picker: MenuPicker) {
+    fn post_picker_menu(&mut self, picker: ControlId) {
         let Some(settings) = &self.shell.settings else {
             return;
         };
@@ -296,15 +297,9 @@ impl Runtime {
         }
     }
 
-    fn on_menu_pick(&mut self, picker: MenuPicker, index: usize) {
-        let input = self
-            .shell
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.input_for_pick(picker, index));
-        if let Some(input) = input {
-            self.on_settings_input(input);
-        }
+    fn on_menu_pick(&mut self, picker: ControlId, index: usize) {
+        let input = SettingsInput::Picked { id: picker, index };
+        self.controller.on_settings_input(&input, &mut self.shell);
     }
 
     fn on_settings_message(

@@ -5,13 +5,12 @@
 //! rounded boxes with hairline separators between rows.
 
 mod page;
-mod playground;
 
+use ghosttype_core::controller::SettingsView;
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
-use ghosttype_core::playground::{ModelPicker, PlaygroundAction, PlaygroundView};
-use ghosttype_core::settings_view::{self as view, ControlId, Note, NoteTone, SettingsInput};
+use ghosttype_core::settings_view::{ControlId, Note, NoteTone, SettingsInput};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -33,7 +32,6 @@ use objc2_foundation::{
 
 use crate::labels::title_case;
 use crate::settings::page::{Binder, PageView};
-use crate::settings::playground::PlaygroundPage;
 
 const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
 const HEADER_INSETS: NSEdgeInsets = NSEdgeInsets {
@@ -101,8 +99,7 @@ pub(crate) struct ActionTarget {
     pub(crate) target: Retained<NSObject>,
     pub(crate) button_action: Sel,
     pub(crate) search_action: Sel,
-    pub(crate) model_picker_action: Sel,
-    pub(crate) complete_action: Sel,
+    pub(crate) submit_action: Sel,
     pub(crate) toggle_action: Sel,
     pub(crate) pick_action: Sel,
     pub(crate) press_action: Sel,
@@ -122,7 +119,7 @@ pub(crate) struct SettingsWindow {
     search_field: Retained<NSSearchField>,
     browse: ListView,
     downloaded: ListView,
-    playground: PlaygroundPage,
+    playground: PageView,
     actions: Vec<ModelsAction>,
     control_ids: Vec<ControlId>,
     target: ActionTarget,
@@ -133,13 +130,12 @@ impl SettingsWindow {
     /// Builds the window, hidden until [`Self::show`].
     ///
     /// A Models button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The
-    /// search field sends `target.search_action` when the user submits or clears it. The Playground
-    /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
-    /// button and prompt field send `target.complete_action`. On a page of the core settings
-    /// view, a switch sends `target.toggle_action`, see [`Self::toggled`], a menu sends
-    /// `target.pick_action`, see [`Self::picked`], and a button sends `target.press_action`, see
-    /// [`Self::pressed`]. Each change of the text of a text view sends `target.edit_action` with
-    /// the notification, see [`Self::edited`].
+    /// search field sends `target.search_action` when the user submits or clears it. On a page
+    /// of the core settings view, a switch sends `target.toggle_action`, see [`Self::toggled`], a
+    /// menu sends `target.pick_action`, see [`Self::picked`], and a button sends
+    /// `target.press_action`, see [`Self::pressed`]. A text field and its button send
+    /// `target.submit_action`, see [`Self::submitted`]. Each change of the text of a text view
+    /// sends `target.edit_action` with the notification, see [`Self::edited`].
     pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
         let summary = wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
@@ -166,7 +162,7 @@ impl SettingsWindow {
         );
         let browse = ListView::new(&content, &target, main_thread);
         let downloaded = ListView::new(&content, &target, main_thread);
-        let playground = PlaygroundPage::new(&target, main_thread);
+        let playground = PageView::new(main_thread);
         let general = PageView::new(main_thread);
         // SAFETY: the target implements the edit action, taking the notification, and the app
         // keeps the target alive for as long as it runs.
@@ -212,17 +208,20 @@ impl SettingsWindow {
         self.window.makeKeyAndOrderFront(None);
     }
 
-    /// Shows `page` in the General pane.
-    pub(crate) fn render_general(&mut self, page: &view::Page) {
-        self.general_pane.set_title(page.title);
-        self.show_selected_pane_title();
+    /// Shows `view` in the panes.
+    pub(crate) fn render(&mut self, view: &SettingsView) {
         self.control_ids.clear();
         let mut binder = Binder {
             target: &self.target,
             ids: &mut self.control_ids,
             main_thread: self.main_thread,
         };
-        self.general.render(page, &mut binder);
+        self.general_pane.set_title(view.general.title);
+        self.general.render(&view.general, &mut binder);
+        self.playground_pane.set_title(view.playground.title);
+        self.playground.render(&view.playground, &mut binder);
+        self.render_models(&view.models);
+        self.show_selected_pane_title();
     }
 
     /// Reads the input of `switch`, a switch of a core settings page.
@@ -246,11 +245,24 @@ impl SettingsWindow {
         self.control_id(button).map(SettingsInput::Pressed)
     }
 
+    /// Reads the input of `control`, a text field of a core settings page or the button that
+    /// submits its text.
+    pub(crate) fn submitted(&self, control: &NSControl) -> Option<SettingsInput> {
+        let id = self.control_id(control)?;
+        let text = self.core_pages().find_map(|page| page.field_text(&id))?;
+        Some(SettingsInput::Submitted { id, text })
+    }
+
     /// Reads the input of a change of the text in a text view, when the text view is a text area
     /// of a core settings page.
     pub(crate) fn edited(&self, notification: &NSNotification) -> Option<SettingsInput> {
         let object = notification.object()?;
-        self.general.edited(&object)
+        self.core_pages().find_map(|page| page.edited(&object))
+    }
+
+    /// The panes that show a page of the core settings view.
+    fn core_pages(&self) -> impl Iterator<Item = &PageView> {
+        [&self.general, &self.playground].into_iter()
     }
 
     /// The id that `control` carries in its tag since the last render.
@@ -260,9 +272,8 @@ impl SettingsWindow {
     }
 
     /// Shows `view` in the Models pane, reusing row views so clicks in progress are not lost.
-    pub(crate) fn render_models(&mut self, view: &ModelsView) {
+    fn render_models(&mut self, view: &ModelsView) {
         self.models_pane.set_title(view.title);
-        self.show_selected_pane_title();
         self.summary.setStringValue(&NSString::from_str(view.summary));
         self.search_field
             .setPlaceholderString(Some(&NSString::from_str(view.search_placeholder)));
@@ -282,28 +293,11 @@ impl SettingsWindow {
         self.actions.get(index).cloned()
     }
 
-    /// Shows `view` in the Playground pane.
-    pub(crate) fn render_playground(&mut self, view: &PlaygroundView) {
-        self.playground_pane.set_title(view.title);
-        self.show_selected_pane_title();
-        self.playground.render(view);
-    }
-
     /// Names the window after the selected pane, which the tab controller does only on a selection change.
     fn show_selected_pane_title(&self) {
         if let Some(selected) = self.tabs.tabView().selectedTabViewItem() {
             self.tabs.setTitle(Some(&selected.label()));
         }
-    }
-
-    /// Returns the action of the Playground model menu entry at `index` in the last render.
-    pub(crate) fn playground_choice(&self, index: isize) -> Option<PlaygroundAction> {
-        self.playground.model_menu.action_at(index)
-    }
-
-    /// Returns the text in the Playground prompt field.
-    pub(crate) fn playground_prompt(&self) -> String {
-        self.playground.prompt()
     }
 }
 
@@ -590,51 +584,6 @@ impl GroupedRow {
         fill_width(&separator, &container);
         fill_width(&content, &container);
         Self { container, separator }
-    }
-}
-
-/// A pop-up menu of models. It rebuilds its entries only when they change, so an open menu stays
-/// open.
-#[derive(Debug)]
-struct ModelMenu {
-    button: Retained<NSPopUpButton>,
-    titles: Vec<String>,
-    actions: Vec<Option<PlaygroundAction>>,
-}
-
-impl ModelMenu {
-    /// Builds a menu that sends `action` to the target of `target` when the user picks a model.
-    fn new(target: &ActionTarget, action: Sel, main_thread: MainThreadMarker) -> Self {
-        Self {
-            button: pop_up_button(target, action, main_thread),
-            titles: Vec::new(),
-            actions: Vec::new(),
-        }
-    }
-
-    /// Shows `picker`, and keeps the actions of its entries for [`Self::action_at`].
-    fn render(&mut self, picker: &ModelPicker) {
-        self.button
-            .setAccessibilityLabel(Some(&NSString::from_str(picker.label)));
-        let titles: Vec<String> = picker.choices.iter().map(|choice| choice.title.clone()).collect();
-        if titles != self.titles {
-            rebuild_menu(&self.button, &titles);
-            self.titles = titles;
-        }
-        self.actions = picker
-            .choices
-            .iter()
-            .map(|choice| choice.action.clone())
-            .collect();
-        let selected = isize::try_from(picker.selected).expect("a menu never holds isize::MAX entries");
-        self.button.selectItemAtIndex(selected);
-        self.button.setEnabled(picker.is_enabled);
-    }
-
-    /// Returns the action of the entry at `index` in the last render.
-    fn action_at(&self, index: isize) -> Option<PlaygroundAction> {
-        let index = usize::try_from(index).ok()?;
-        self.actions.get(index).cloned().flatten()
     }
 }
 

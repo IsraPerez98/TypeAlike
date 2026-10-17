@@ -14,7 +14,7 @@ use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::models_pane::{ModelsAction, ModelsPane, ModelsView};
-use crate::playground::{PlaygroundAction, PlaygroundPane, PlaygroundView};
+use crate::playground::PlaygroundPane;
 use crate::settings::{Autostart, ClipboardAccess, Settings, SettingsStore};
 use crate::settings_view::{Page, SettingsInput};
 
@@ -57,7 +57,7 @@ pub struct SettingsView {
     /// The Models pane.
     pub models: ModelsView,
     /// The Playground pane.
-    pub playground: PlaygroundView,
+    pub playground: Page,
 }
 
 /// Something that the user did in a pane of the settings window.
@@ -65,8 +65,6 @@ pub struct SettingsView {
 pub enum PaneAction {
     /// An action in the Models pane.
     Models(ModelsAction),
-    /// An action in the Playground pane.
-    Playground(PlaygroundAction),
 }
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs
@@ -300,11 +298,6 @@ impl Controller {
                     self.hub.submit(request, &self.hub_sink);
                 }
             }
-            PaneAction::Playground(action) => {
-                if let Some(request) = self.playground.on_action(action) {
-                    self.runner.submit(request, &self.playground_sink);
-                }
-            }
         }
         self.render_settings(shell);
     }
@@ -316,13 +309,15 @@ impl Controller {
         let installed = self.models.installed_files();
         if let Some(action) = self.general.action_for(input, &self.playground, &installed) {
             self.on_general_action(action, shell);
+        } else if let Some(action) = self.playground.action_for(input, &installed)
+            && let Some(request) = self.playground.on_action(action)
+        {
+            self.runner.submit(request, &self.playground_sink);
         }
         self.render_settings(shell);
     }
 
-    /// Shows the panes as they are now in the settings window. Use it when a control of the
-    /// window shows a pick that changes nothing.
-    pub fn render_settings(&self, shell: &mut dyn Shell) {
+    fn render_settings(&self, shell: &mut dyn Shell) {
         shell.render_settings(&self.settings_view());
     }
 
@@ -439,7 +434,7 @@ impl Controller {
         SettingsView {
             general: self.general.page(&self.playground, &installed),
             models: self.models.view(),
-            playground: self.playground.view(&installed),
+            playground: self.playground.page(&installed),
         }
     }
 
@@ -491,6 +486,7 @@ mod tests {
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Backend, Completion, TokenCount};
+    use crate::playground::MODEL;
     use crate::settings::{PromptPreparation, SuggestionDisplay};
     use crate::settings_view::ControlId;
 
@@ -1347,10 +1343,8 @@ mod tests {
     #[test]
     fn playground_load_keeps_suggestion_model() {
         let mut harness = Harness::new(Settings::default());
-        harness.controller.on_pane_action(
-            PaneAction::Playground(PlaygroundAction::SelectModel(model_file())),
-            &mut harness.shell,
-        );
+        harness.install(model_file());
+        harness.pick(MODEL, 1);
 
         harness.answer(loaded());
 
@@ -1393,18 +1387,6 @@ mod tests {
         harness
             .controller
             .on_delivery(Delivery::Hub(HubEvent::Installed(Vec::new())), &mut harness.shell);
-
-        assert!(matches!(
-            harness.take_calls().as_slice(),
-            [Call::RenderSettings(_)]
-        ));
-    }
-
-    #[test]
-    fn render_settings_shows_panes_as_they_are() {
-        let mut harness = Harness::new(Settings::default());
-
-        harness.controller.render_settings(&mut harness.shell);
 
         assert!(matches!(
             harness.take_calls().as_slice(),

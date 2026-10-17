@@ -38,8 +38,17 @@ pub struct Page {
 /// Rows that belong together.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
+    /// Text above the rows, in sentence case.
+    pub heading: Option<String>,
     /// The rows, top to bottom.
     pub rows: Vec<Row>,
+}
+
+impl Section {
+    /// A section of `rows` with no heading.
+    pub(crate) fn new(rows: Vec<Row>) -> Self {
+        Self { heading: None, rows }
+    }
 }
 
 /// One row of a section.
@@ -51,6 +60,12 @@ pub enum Row {
     Picker(Picker),
     /// Text of several lines that the user writes.
     TextArea(TextArea),
+    /// A line of text that the user submits.
+    TextField(TextField),
+    /// A line of status.
+    Note(Note),
+    /// Text that a model wrote.
+    Output(Output),
 }
 
 impl Row {
@@ -61,6 +76,8 @@ impl Row {
             Self::Switch(switch) => Some(&switch.id),
             Self::Picker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
+            Self::TextField(text_field) => Some(&text_field.id),
+            Self::Note(_) | Self::Output(_) => None,
         }
     }
 }
@@ -124,6 +141,31 @@ pub struct TextArea {
     pub button: Option<Button>,
 }
 
+/// A field that edits one line of text, and a button that submits the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextField {
+    /// The field. The return key in the field and a click of its button give
+    /// [`SettingsInput::Submitted`].
+    pub id: ControlId,
+    /// Text above the field, in sentence case.
+    pub label: &'static str,
+    /// The hint that the field shows while it is empty.
+    pub placeholder: &'static str,
+    /// What the button does, in sentence case.
+    pub submit_label: &'static str,
+    /// Whether the button and the return key submit the text.
+    pub is_submit_enabled: bool,
+}
+
+/// Text that a model wrote, and facts about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Output {
+    /// The text.
+    pub text: String,
+    /// Facts about the text, such as how long the model took.
+    pub detail: String,
+}
+
 /// A push button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Button {
@@ -179,6 +221,13 @@ pub enum SettingsInput {
         /// The text in the field now.
         text: String,
     },
+    /// Submitted the text of a field.
+    Submitted {
+        /// The field.
+        id: ControlId,
+        /// The text in the field.
+        text: String,
+    },
     /// Clicked a button.
     Pressed(ControlId),
 }
@@ -198,6 +247,11 @@ impl fmt::Debug for SettingsInput {
                 .finish(),
             Self::Edited { id, text } => formatter
                 .debug_struct("Edited")
+                .field("id", id)
+                .field("chars", &text.chars().count())
+                .finish(),
+            Self::Submitted { id, text } => formatter
+                .debug_struct("Submitted")
                 .field("id", id)
                 .field("chars", &text.chars().count())
                 .finish(),

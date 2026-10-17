@@ -10,7 +10,9 @@ use crate::inference::{
 use crate::models_pane::model_name;
 use crate::prompt;
 use crate::settings::Settings;
-use crate::settings_view::{ChoiceText, ControlId, Note, NoteTone, Picker};
+use crate::settings_view::{
+    ChoiceText, ControlId, Note, NoteTone, Output, Page, Picker, Row, Section, SettingsInput, TextField,
+};
 
 /// Something the user did in the Playground pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,67 +21,6 @@ pub enum PlaygroundAction {
     SelectModel(ModelFile),
     /// Asked the model to continue this text, as it continues the text that the user types.
     Complete(String),
-}
-
-/// One entry of the model menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelChoice {
-    /// Text shown for the entry.
-    pub title: String,
-    /// What picking the entry does; `None` for a placeholder entry.
-    pub action: Option<PlaygroundAction>,
-}
-
-/// The menu that picks the model to try.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelPicker {
-    /// Text before the menu, in sentence case.
-    pub label: &'static str,
-    /// Menu entries, top to bottom. Never empty.
-    pub choices: Vec<ModelChoice>,
-    /// Index of the entry the menu shows.
-    pub selected: usize,
-    /// Whether the user can open the menu.
-    pub is_enabled: bool,
-}
-
-/// What shows below the prompt after the user asks for a completion.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PlaygroundOutput {
-    /// Status instead of text: in progress, failed, or nothing added.
-    Note(Note),
-    /// The text the model added.
-    Completion {
-        /// The added text.
-        text: String,
-        /// How many tokens, and how long the model took.
-        detail: String,
-    },
-}
-
-/// Everything the Playground pane shows, top to bottom.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlaygroundView {
-    /// Pane title.
-    pub title: &'static str,
-    /// One or two sentences under the title about what the pane is for.
-    pub summary: &'static str,
-    /// The model menu.
-    pub model: ModelPicker,
-    /// Status of the selected model, or a hint when there is no model to select.
-    pub model_note: Option<Note>,
-    /// Text before the prompt field, in sentence case.
-    pub prompt_label: &'static str,
-    /// The prompt field's placeholder.
-    pub prompt_placeholder: &'static str,
-    /// The complete button's label, in sentence case.
-    pub complete_label: &'static str,
-    /// Whether the complete button and the prompt field's return key ask for a completion.
-    pub is_complete_enabled: bool,
-    /// Title above the output, in sentence case.
-    pub output_heading: &'static str,
-    /// The last completion or its status; `None` before the first request.
-    pub output: Option<PlaygroundOutput>,
 }
 
 /// State of the Playground pane: the selected model and the last completion.
@@ -125,6 +66,8 @@ enum CompletionState {
     Failed(InferenceError),
 }
 
+pub(crate) const MODEL: &str = "playground-model";
+pub(crate) const PROMPT: &str = "playground-prompt";
 const PANE_TITLE: &str = "Playground";
 const PANE_SUMMARY: &str =
     "Select the model that suggests text as you type. Then type the start of a sentence to test the model.";
@@ -252,21 +195,46 @@ impl PlaygroundPane {
         }
     }
 
-    /// Returns what the pane must show now, offering the downloaded `installed` model files.
+    /// Returns the action of `input`, when `input` is for a control of the pane. The downloaded
+    /// `installed` model files give the entries of the model menu.
     #[must_use]
-    pub fn view(&self, installed: &[ModelFile]) -> PlaygroundView {
-        let selected_state = self.selected_state(installed);
-        PlaygroundView {
+    pub fn action_for(&self, input: &SettingsInput, installed: &[ModelFile]) -> Option<PlaygroundAction> {
+        match input {
+            SettingsInput::Picked { id, index } if id.as_str() == MODEL => self
+                .model_at(installed, *index)
+                .map(PlaygroundAction::SelectModel),
+            SettingsInput::Submitted { id, text }
+                if id.as_str() == PROMPT && self.can_complete(installed) =>
+            {
+                Some(PlaygroundAction::Complete(text.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the page that the pane shows now, offering the downloaded `installed` model files.
+    #[must_use]
+    pub fn page(&self, installed: &[ModelFile]) -> Page {
+        let model = Section::new(vec![Row::Picker(self.model_picker(
+            installed,
+            ControlId::new(MODEL),
+            "",
+        ))]);
+        let prompt = Section::new(vec![Row::TextField(TextField {
+            id: ControlId::new(PROMPT),
+            label: PROMPT_LABEL,
+            placeholder: PROMPT_PLACEHOLDER,
+            submit_label: COMPLETE_LABEL,
+            is_submit_enabled: self.can_complete(installed),
+        })]);
+        let output = self.completion.as_ref().map(|completion| Section {
+            heading: Some(OUTPUT_HEADING.to_owned()),
+            rows: vec![completion_row(completion)],
+        });
+        Page {
             title: PANE_TITLE,
             summary: PANE_SUMMARY,
-            model: self.model_menu_view(installed),
-            model_note: model_note(installed, selected_state),
-            prompt_label: PROMPT_LABEL,
-            prompt_placeholder: PROMPT_PLACEHOLDER,
-            complete_label: COMPLETE_LABEL,
-            is_complete_enabled: selected_state == Some(ModelState::Ready) && !self.is_completing(),
-            output_heading: OUTPUT_HEADING,
-            output: self.completion.as_ref().map(completion_output),
+            sections: [model, prompt].into_iter().chain(output).collect(),
         }
     }
 
@@ -345,23 +313,9 @@ impl PlaygroundPane {
             .cloned()
     }
 
-    fn model_menu_view(&self, installed: &[ModelFile]) -> ModelPicker {
-        let menu = self.model_menu(installed);
-        let placeholder = placeholder_title(installed);
-        let choices = menu
-            .entries
-            .iter()
-            .map(|entry| ModelChoice {
-                title: entry.map_or_else(|| placeholder.to_owned(), model_name),
-                action: entry.map(|file| PlaygroundAction::SelectModel(file.clone())),
-            })
-            .collect();
-        ModelPicker {
-            label: MODEL_LABEL,
-            choices,
-            selected: menu.selected,
-            is_enabled: !installed.is_empty() && !self.is_busy(),
-        }
+    /// Whether the selected model is ready among the `installed` files, and no completion runs.
+    fn can_complete(&self, installed: &[ModelFile]) -> bool {
+        self.selected_state(installed) == Some(ModelState::Ready) && !self.is_completing()
     }
 
     fn model_menu<'files>(&self, installed: &'files [ModelFile]) -> ModelMenu<'files> {
@@ -416,17 +370,15 @@ fn model_note(installed: &[ModelFile], selected_state: Option<ModelState>) -> Op
     }
 }
 
-fn completion_output(completion: &CompletionState) -> PlaygroundOutput {
+fn completion_row(completion: &CompletionState) -> Row {
     match completion {
-        CompletionState::Running => PlaygroundOutput::Note(COMPLETING_NOTE),
-        CompletionState::Failed(error) => PlaygroundOutput::Note(error_note(*error)),
-        CompletionState::Done(completion) if completion.text.is_empty() => {
-            PlaygroundOutput::Note(NOTHING_ADDED_NOTE)
-        }
-        CompletionState::Done(completion) => PlaygroundOutput::Completion {
+        CompletionState::Running => Row::Note(COMPLETING_NOTE),
+        CompletionState::Failed(error) => Row::Note(error_note(*error)),
+        CompletionState::Done(completion) if completion.text.is_empty() => Row::Note(NOTHING_ADDED_NOTE),
+        CompletionState::Done(completion) => Row::Output(Output {
             text: completion.text.clone(),
             detail: completion_detail(completion),
-        },
+        }),
     }
 }
 
@@ -478,6 +430,11 @@ mod tests {
         tone: NoteTone::Busy,
     };
 
+    const UNLOADED: Note = Note {
+        text: "Suggestions are paused. GhostType loads the model again when you resume them.",
+        tone: NoteTone::Plain,
+    };
+
     fn model_file(name: &str) -> ModelFile {
         ModelFile {
             repo: "owner/repo".to_owned(),
@@ -493,18 +450,8 @@ mod tests {
         PlaygroundAction::Complete(text.to_owned())
     }
 
-    fn choice(file: &ModelFile, title: &str) -> ModelChoice {
-        ModelChoice {
-            title: title.to_owned(),
-            action: Some(PlaygroundAction::SelectModel(file.clone())),
-        }
-    }
-
-    fn placeholder(title: &str) -> ModelChoice {
-        ModelChoice {
-            title: title.to_owned(),
-            action: None,
-        }
+    fn titles(titles: &[&str]) -> Vec<String> {
+        titles.iter().map(|title| (*title).to_owned()).collect()
     }
 
     fn ready_pane(file: &ModelFile) -> PlaygroundPane {
@@ -531,69 +478,166 @@ mod tests {
         }
     }
 
-    fn completed_view(text: &str, tokens: u32, duration: Duration) -> Option<PlaygroundOutput> {
+    fn model_menu(page: &Page) -> Picker {
+        match page.row(MODEL) {
+            Some(Row::Picker(picker)) => picker.clone(),
+            other => panic!("the page shows no model menu: {other:?}"),
+        }
+    }
+
+    fn can_complete(page: &Page) -> bool {
+        match page.row(PROMPT) {
+            Some(Row::TextField(text_field)) => text_field.is_submit_enabled,
+            other => panic!("the page shows no prompt field: {other:?}"),
+        }
+    }
+
+    /// The section below the prompt field, which shows the last completion.
+    fn output(page: &Page) -> Option<Section> {
+        page.sections.get(2).cloned()
+    }
+
+    fn output_section(row: Row) -> Section {
+        Section {
+            heading: Some("Suggestion".to_owned()),
+            rows: vec![row],
+        }
+    }
+
+    fn completed_output(text: &str, tokens: u32, duration: Duration) -> Option<Section> {
         let file = model_file("a.gguf");
         let mut pane = completing_pane(&file);
         pane.on_event(InferenceEvent::Completed(Ok(completion(text, tokens, duration))));
-        pane.view(&[file]).output
+        output(&pane.page(&[file]))
+    }
+
+    fn submitted(text: &str) -> SettingsInput {
+        SettingsInput::Submitted {
+            id: ControlId::new(PROMPT),
+            text: text.to_owned(),
+        }
+    }
+
+    fn picked(index: usize) -> SettingsInput {
+        SettingsInput::Picked {
+            id: ControlId::new(MODEL),
+            index,
+        }
     }
 
     #[test]
     fn pane_without_downloads_asks_for_one() {
         let pane = PlaygroundPane::new();
 
-        let view = pane.view(&[]);
+        let shown = pane.page(&[]);
 
         assert_eq!(
-            view,
-            PlaygroundView {
+            shown,
+            Page {
                 title: "Playground",
                 summary: "Select the model that suggests text as you type. Then type the start of a sentence to test the model.",
-                model: ModelPicker {
-                    label: "Suggestion model",
-                    choices: vec![placeholder("No downloaded models")],
-                    selected: 0,
-                    is_enabled: false,
-                },
-                model_note: Some(Note {
-                    text: "Download a model in the Models pane.",
-                    tone: NoteTone::Plain,
-                }),
-                prompt_label: "Text",
-                prompt_placeholder: "Type the start of a sentence",
-                complete_label: "Complete text",
-                is_complete_enabled: false,
-                output_heading: "Suggestion",
-                output: None,
+                sections: vec![
+                    Section::new(vec![Row::Picker(Picker {
+                        id: ControlId::new(MODEL),
+                        label: "Suggestion model",
+                        description: "",
+                        choices: titles(&["No downloaded models"]),
+                        choice_text: ChoiceText::Name,
+                        selected: 0,
+                        is_enabled: false,
+                        note: Some(Note {
+                            text: "Download a model in the Models pane.",
+                            tone: NoteTone::Plain,
+                        }),
+                    })]),
+                    Section::new(vec![Row::TextField(TextField {
+                        id: ControlId::new(PROMPT),
+                        label: "Text",
+                        placeholder: "Type the start of a sentence",
+                        submit_label: "Complete text",
+                        is_submit_enabled: false,
+                    })]),
+                ],
             }
         );
     }
 
     #[test]
     fn downloaded_models_follow_a_placeholder_until_one_is_selected() {
-        let first = model_file("first.gguf");
-        let second = model_file("second.gguf");
         let pane = PlaygroundPane::new();
 
-        let view = pane.view(&[first.clone(), second.clone()]);
+        let shown = pane.page(&[model_file("first.gguf"), model_file("second.gguf")]);
 
+        let menu = model_menu(&shown);
         assert_eq!(
-            (view.model, view.model_note, view.is_complete_enabled),
             (
-                ModelPicker {
-                    label: "Suggestion model",
-                    choices: vec![
-                        placeholder("Select a model"),
-                        choice(&first, "first"),
-                        choice(&second, "second"),
-                    ],
-                    selected: 0,
-                    is_enabled: true,
-                },
+                menu.choices,
+                menu.selected,
+                menu.is_enabled,
+                menu.note,
+                can_complete(&shown)
+            ),
+            (
+                titles(&["Select a model", "first", "second"]),
+                0,
+                true,
                 None,
-                false,
+                false
             )
         );
+    }
+
+    #[test]
+    fn picking_a_model_selects_it() {
+        let file = model_file("a.gguf");
+        let pane = PlaygroundPane::new();
+
+        let action = pane.action_for(&picked(1), std::slice::from_ref(&file));
+
+        assert_eq!(action, Some(PlaygroundAction::SelectModel(file)));
+    }
+
+    #[test]
+    fn picking_the_placeholder_model_does_nothing() {
+        let pane = PlaygroundPane::new();
+
+        let action = pane.action_for(&picked(0), &[model_file("a.gguf")]);
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn submitting_the_prompt_completes_its_text() {
+        let file = model_file("a.gguf");
+        let pane = ready_pane(&file);
+
+        let action = pane.action_for(&submitted("Dear"), &[file]);
+
+        assert_eq!(action, Some(complete("Dear")));
+    }
+
+    #[test]
+    fn submitting_the_prompt_before_the_model_is_ready_does_nothing() {
+        let file = model_file("a.gguf");
+        let mut pane = PlaygroundPane::new();
+        pane.on_action(PlaygroundAction::SelectModel(file.clone()));
+
+        let action = pane.action_for(&submitted("Dear"), &[file]);
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn input_for_a_control_of_another_pane_is_not_for_this_pane() {
+        let pane = PlaygroundPane::new();
+        let input = SettingsInput::Picked {
+            id: ControlId::new("suggestion-length"),
+            index: 0,
+        };
+
+        let action = pane.action_for(&input, &[model_file("a.gguf")]);
+
+        assert_eq!(action, None);
     }
 
     #[test]
@@ -630,7 +674,7 @@ mod tests {
         let request = pane.change_backend(Backend::Cuda);
 
         assert_eq!(
-            (request, pane.view(std::slice::from_ref(&file)).model_note),
+            (request, model_menu(&pane.page(std::slice::from_ref(&file))).note),
             (
                 Some(InferenceRequest::Load {
                     file,
@@ -700,7 +744,7 @@ mod tests {
 
         pane.change_backend(Backend::Vulkan);
 
-        assert_eq!(pane.view(&[file]).output, None);
+        assert_eq!(output(&pane.page(&[file])), None);
     }
 
     #[test]
@@ -727,25 +771,22 @@ mod tests {
 
     #[test]
     fn loading_model_shows_status_and_locks_the_menu() {
-        let first = model_file("first.gguf");
         let second = model_file("second.gguf");
         let mut pane = PlaygroundPane::new();
         pane.on_action(PlaygroundAction::SelectModel(second.clone()));
 
-        let view = pane.view(&[first.clone(), second.clone()]);
+        let shown = pane.page(&[model_file("first.gguf"), second]);
 
+        let menu = model_menu(&shown);
         assert_eq!(
-            (view.model, view.model_note, view.is_complete_enabled),
             (
-                ModelPicker {
-                    label: "Suggestion model",
-                    choices: vec![choice(&first, "first"), choice(&second, "second")],
-                    selected: 1,
-                    is_enabled: false,
-                },
-                Some(LOADING),
-                false,
-            )
+                menu.choices,
+                menu.selected,
+                menu.is_enabled,
+                menu.note,
+                can_complete(&shown)
+            ),
+            (titles(&["first", "second"]), 1, false, Some(LOADING), false)
         );
     }
 
@@ -754,10 +795,11 @@ mod tests {
         let file = model_file("a.gguf");
         let pane = ready_pane(&file);
 
-        let view = pane.view(&[file]);
+        let shown = pane.page(&[file]);
 
+        let menu = model_menu(&shown);
         assert_eq!(
-            (view.model.is_enabled, view.model_note, view.is_complete_enabled),
+            (menu.is_enabled, menu.note, can_complete(&shown)),
             (true, None, true)
         );
     }
@@ -772,10 +814,11 @@ mod tests {
             result: Err(InferenceError::ModelInvalid),
         });
 
-        let view = pane.view(&[file]);
+        let shown = pane.page(&[file]);
 
+        let menu = model_menu(&shown);
         assert_eq!(
-            (view.model.is_enabled, view.model_note, view.is_complete_enabled),
+            (menu.is_enabled, menu.note, can_complete(&shown)),
             (
                 true,
                 Some(Note {
@@ -813,7 +856,7 @@ mod tests {
             result: Ok(()),
         });
 
-        assert_eq!(pane.view(&[file]).model_note, Some(LOADING));
+        assert_eq!(model_menu(&pane.page(&[file])).note, Some(LOADING));
     }
 
     #[test]
@@ -852,11 +895,6 @@ mod tests {
         );
     }
 
-    const UNLOADED: Note = Note {
-        text: "Suggestions are paused. GhostType loads the model again when you resume them.",
-        tone: NoteTone::Plain,
-    };
-
     #[test]
     fn unloading_the_loaded_model_asks_the_runner_to_unload_it() {
         let mut pane = ready_pane(&model_file("a.gguf"));
@@ -882,13 +920,14 @@ mod tests {
 
         pane.unload_model();
 
-        let view = pane.view(std::slice::from_ref(&file));
+        let shown = pane.page(std::slice::from_ref(&file));
+        let menu = model_menu(&shown);
         assert_eq!(
             (
                 pane.loaded_model(),
-                view.model.selected,
-                view.model_note,
-                view.is_complete_enabled
+                menu.selected,
+                menu.note,
+                can_complete(&shown)
             ),
             (None, 0, Some(UNLOADED), false)
         );
@@ -985,17 +1024,21 @@ mod tests {
         let file = model_file("a.gguf");
         let pane = completing_pane(&file);
 
-        let view = pane.view(&[file]);
+        let shown = pane.page(&[file]);
 
         assert_eq!(
-            (view.model.is_enabled, view.is_complete_enabled, view.output),
+            (
+                model_menu(&shown).is_enabled,
+                can_complete(&shown),
+                output(&shown)
+            ),
             (
                 false,
                 false,
-                Some(PlaygroundOutput::Note(Note {
+                Some(output_section(Row::Note(Note {
                     text: "Completing the text…",
                     tone: NoteTone::Busy,
-                })),
+                }))),
             )
         );
     }
@@ -1011,40 +1054,40 @@ mod tests {
 
     #[test]
     fn finished_completion_shows_text_and_timing() {
-        let output = completed_view(" Sir,", 12, Duration::from_millis(420));
+        let shown = completed_output(" Sir,", 12, Duration::from_millis(420));
 
         assert_eq!(
-            output,
-            Some(PlaygroundOutput::Completion {
+            shown,
+            Some(output_section(Row::Output(Output {
                 text: " Sir,".to_owned(),
                 detail: "12 tokens in 0.42 seconds".to_owned(),
-            })
+            })))
         );
     }
 
     #[test]
     fn one_token_completion_counts_in_singular() {
-        let output = completed_view(" Sir", 1, Duration::from_millis(50));
+        let shown = completed_output(" Sir", 1, Duration::from_millis(50));
 
         assert_eq!(
-            output,
-            Some(PlaygroundOutput::Completion {
+            shown,
+            Some(output_section(Row::Output(Output {
                 text: " Sir".to_owned(),
                 detail: "1 token in 0.05 seconds".to_owned(),
-            })
+            })))
         );
     }
 
     #[test]
     fn empty_completion_says_that_no_text_was_added() {
-        let output = completed_view("", 0, Duration::from_millis(30));
+        let shown = completed_output("", 0, Duration::from_millis(30));
 
         assert_eq!(
-            output,
-            Some(PlaygroundOutput::Note(Note {
+            shown,
+            Some(output_section(Row::Note(Note {
                 text: "The model did not add text.",
                 tone: NoteTone::Plain,
-            }))
+            })))
         );
     }
 
@@ -1054,16 +1097,16 @@ mod tests {
         let mut pane = completing_pane(&file);
         pane.on_event(InferenceEvent::Completed(Err(InferenceError::PromptTooLong)));
 
-        let view = pane.view(&[file]);
+        let shown = pane.page(&[file]);
 
         assert_eq!(
-            (view.is_complete_enabled, view.output),
+            (can_complete(&shown), output(&shown)),
             (
                 true,
-                Some(PlaygroundOutput::Note(Note {
+                Some(output_section(Row::Note(Note {
                     text: "The text is too long for this model. Use shorter text.",
                     tone: NoteTone::Error,
-                })),
+                }))),
             )
         );
     }
@@ -1079,7 +1122,7 @@ mod tests {
             Duration::ZERO,
         ))));
 
-        assert_eq!(pane.view(&[file]).output, None);
+        assert_eq!(output(&pane.page(&[file])), None);
     }
 
     #[test]
@@ -1094,24 +1137,19 @@ mod tests {
 
         pane.on_action(PlaygroundAction::SelectModel(model_file("b.gguf")));
 
-        assert_eq!(pane.view(&[file]).output, None);
+        assert_eq!(output(&pane.page(&[file])), None);
     }
 
     #[test]
     fn deleted_model_is_no_longer_selected() {
-        let deleted = model_file("a.gguf");
-        let remaining = model_file("b.gguf");
-        let pane = ready_pane(&deleted);
+        let pane = ready_pane(&model_file("a.gguf"));
 
-        let view = pane.view(std::slice::from_ref(&remaining));
+        let shown = pane.page(&[model_file("b.gguf")]);
 
+        let menu = model_menu(&shown);
         assert_eq!(
-            (view.model.choices, view.model.selected, view.is_complete_enabled),
-            (
-                vec![placeholder("Select a model"), choice(&remaining, "b")],
-                0,
-                false,
-            )
+            (menu.choices, menu.selected, can_complete(&shown)),
+            (titles(&["Select a model", "b"]), 0, false)
         );
     }
 
@@ -1123,7 +1161,7 @@ mod tests {
             file: file.clone(),
             result: Err(error),
         });
-        pane.view(&[file]).model_note.map(|note| note.text)
+        model_menu(&pane.page(&[file])).note.map(|note| note.text)
     }
 
     #[test]

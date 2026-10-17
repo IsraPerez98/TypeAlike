@@ -16,7 +16,6 @@ use ghosttype_core::controller::{
 use ghosttype_core::desktop::{Desktop, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::models_pane::ModelsAction;
-use ghosttype_core::playground::PlaygroundAction;
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::SettingsInput;
 use objc2::rc::Retained;
@@ -195,15 +194,6 @@ impl Runtime {
         self.controller.on_pane_action(action, &mut self.shell);
     }
 
-    /// Runs the action of the menu entry that `choose` reads from the settings window. For an
-    /// entry with no action, renders the panes again, so that the menu shows its selected entry.
-    fn on_menu_pick(&mut self, choose: impl FnOnce(&SettingsWindow) -> Option<PaneAction>) {
-        match self.shell.settings.as_ref().and_then(choose) {
-            Some(action) => self.on_pane_action(action),
-            None => self.controller.render_settings(&mut self.shell),
-        }
-    }
-
     fn on_settings_button(&mut self, tag: isize) {
         let action = self
             .shell
@@ -213,16 +203,6 @@ impl Runtime {
         if let Some(action) = action {
             self.on_pane_action(PaneAction::Models(action));
         }
-    }
-
-    fn on_playground_complete(&mut self) {
-        let prompt = self
-            .shell
-            .settings
-            .as_ref()
-            .map(SettingsWindow::playground_prompt)
-            .unwrap_or_default();
-        self.on_pane_action(PaneAction::Playground(PlaygroundAction::Complete(prompt)));
     }
 
     /// Handles the input that `read` reads from the settings window, if any.
@@ -334,7 +314,7 @@ impl Shell for AppKitShell {
 
     fn render_settings(&mut self, view: &SettingsView) {
         if let Some(settings) = &mut self.settings {
-            render_panes(settings, view);
+            settings.render(view);
         }
     }
 
@@ -345,8 +325,7 @@ impl Shell for AppKitShell {
                 target: Retained::into_super(target.clone()),
                 button_action: sel!(pickSettingsButton:),
                 search_action: sel!(searchModels:),
-                model_picker_action: sel!(pickPlaygroundModel:),
-                complete_action: sel!(completePlaygroundText:),
+                submit_action: sel!(submitSetting:),
                 toggle_action: sel!(toggleSetting:),
                 pick_action: sel!(pickSetting:),
                 press_action: sel!(pressSetting:),
@@ -354,7 +333,7 @@ impl Shell for AppKitShell {
             };
             SettingsWindow::new(action_target, target.mtm())
         });
-        render_panes(settings, view);
+        settings.render(view);
         settings.show();
     }
 
@@ -365,12 +344,6 @@ impl Shell for AppKitShell {
     fn quit(&mut self) {
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(quitApplication:));
     }
-}
-
-fn render_panes(settings: &mut SettingsWindow, view: &SettingsView) {
-    settings.render_general(&view.general);
-    settings.render_models(&view.models);
-    settings.render_playground(&view.playground);
 }
 
 define_class!(
@@ -402,17 +375,6 @@ define_class!(
             with_runtime(|runtime| runtime.on_pane_action(action));
         }
 
-        // SAFETY: matches the action signature, called with the playground's model menu.
-        #[unsafe(method(pickPlaygroundModel:))]
-        fn pick_playground_model(&self, sender: &NSPopUpButton) {
-            let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| {
-                runtime.on_menu_pick(|settings| {
-                    settings.playground_choice(index).map(PaneAction::Playground)
-                });
-            });
-        }
-
         // SAFETY: matches the action signature, called with a switch of a settings page.
         #[unsafe(method(toggleSetting:))]
         fn toggle_setting(&self, sender: &NSSwitch) {
@@ -438,10 +400,11 @@ define_class!(
             with_runtime(|runtime| runtime.on_settings_control(|settings| settings.edited(notification)));
         }
 
-        // SAFETY: matches the action signature, called with the playground's button or prompt field.
-        #[unsafe(method(completePlaygroundText:))]
-        fn complete_playground_text(&self, _sender: &NSControl) {
-            with_runtime(Runtime::on_playground_complete);
+        // SAFETY: matches the action signature, called with a text field of a settings page or its
+        // button.
+        #[unsafe(method(submitSetting:))]
+        fn submit_setting(&self, sender: &NSControl) {
+            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.submitted(sender)));
         }
 
         // SAFETY: matches the timer action signature.
