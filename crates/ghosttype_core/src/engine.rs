@@ -461,8 +461,9 @@ fn recent_text(text: &str, max_tokens: TokenCount) -> &str {
     last_tokens(last_chars(text, TRIMMED_CHARS_BEFORE_CARET), trimmed_tokens)
 }
 
-/// Returns the first line of `completion` as ghost text after `context`, or `None` when it has no
-/// text. Spaces that would double the space at the end of `context`, or trail, are dropped.
+/// Returns the first line of `completion` up to a placeholder as ghost text after `context`, or
+/// `None` when it has no text. Spaces that would double the space at the end of `context`, or
+/// trail, are dropped.
 fn suggestion_after(context: &str, completion: &str) -> Option<String> {
     let first_line = completion.lines().next().unwrap_or_default();
     let line = if context.ends_with(char::is_whitespace) {
@@ -470,8 +471,17 @@ fn suggestion_after(context: &str, completion: &str) -> Option<String> {
     } else {
         first_line
     };
-    let suggestion = line.trim_end();
+    let suggestion = before_placeholder(line).trim_end();
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
+}
+
+/// Returns `text` up to the first word after an opening square bracket, such as "[Your Name]",
+/// which a model writes in place of a fact that it does not know. The token limit can cut the
+/// placeholder before its closing bracket.
+fn before_placeholder(text: &str) -> &str {
+    text.match_indices('[')
+        .find(|&(start, _)| text[start + 1..].starts_with(char::is_alphanumeric))
+        .map_or(text, |(start, _)| &text[..start])
 }
 
 /// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
@@ -816,12 +826,28 @@ mod tests {
             ("I think", " no no no"),
             ("Thanks.", " Hi S. Hi S. Hi S."),
             ("Hi Sarah, thanks for s", "ending. Hi Sarah, thanks for s"),
+            ("My new address is", " [Your New Address]."),
+            ("Send it to 14 Orchard Lane,", " [City"),
         ];
 
         let reactions =
             cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
 
         assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[test]
+    fn completion_stops_before_a_placeholder() {
+        let cases = [
+            ("Send it to", " 14 Orchard Lane, [City", " 14 Orchard Lane,"),
+            ("See you at", " 5 on [day]", " 5 on"),
+            ("See [the docs", "] for details", "] for details"),
+        ];
+
+        let reactions =
+            cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
+
+        assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
     }
 
     #[test]

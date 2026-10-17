@@ -1,118 +1,118 @@
-{"id":"en-email-01","kind":"next_word","suggestion":"Q3 budget review, and it looks","is_match":true,"millis":337,"log_probability":-0.3775231933902145}
-{"id":"en-email-02","kind":"next_word","suggestion":"1Z999AA1","is_match":false,"millis":282,"log_probability":-0.00775610850136704}
-{"id":"en-email-03","kind":"partial_word","suggestion":"rt? Let me know what you think","is_match":true,"millis":277,"log_probability":-0.1768405117428615}
-{"id":"en-email-05","kind":"next_word","suggestion":"the team.","is_match":false,"millis":170,"log_probability":-20.848831436134738}
-{"id":"en-email-06","kind":"partial_word","suggestion":"ot?","is_match":true,"millis":152,"log_probability":-0.04659370608417804}
-{"id":"en-email-07","kind":"next_word","suggestion":"Tuesday, October 24th,","is_match":true,"millis":285,"log_probability":-1.1420624364097913}
-{"id":"en-email-09","kind":"partial_word","suggestion":"ish the paper as planned. I am","is_match":true,"millis":275,"log_probability":-5.370482149291977}
-{"id":"en-email-10","kind":"partial_word","suggestion":"ups to brainstorm ideas for the next quarter","is_match":true,"millis":285,"log_probability":-0.07383329828143531}
-{"id":"en-email-11","kind":"next_word","suggestion":"[Your New Address].","is_match":false,"millis":227,"log_probability":-14.524926119981984}
-{"id":"en-email-13","kind":"next_word","suggestion":"25 people.","is_match":false,"millis":224,"log_probability":-5.729583770876428}
-{"id":"en-email-14","kind":"partial_word","suggestion":"very schedule to be:","is_match":true,"millis":348,"log_probability":-0.3590024475184492}
-{"id":"en-email-15","kind":"partial_word","suggestion":"at, and the pricing is very competitive","is_match":true,"millis":273,"log_probability":-0.9128649585060954}
-{"id":"en-chat-01","kind":"next_word","suggestion":"new onboarding mockups for you. I","is_match":false,"millis":278,"log_probability":-1.7520628520205062}
-{"id":"en-chat-02","kind":"partial_word","suggestion":"ere. I'm looking forward to","is_match":true,"millis":275,"log_probability":-0.05783867376789091}
-{"id":"en-chat-03","kind":"next_word","suggestion":"3 then. Does 3:","is_match":true,"millis":277,"log_probability":-0.0014541793283958822}
-{"id":"en-chat-05","kind":"next_word","suggestion":" last update.","is_match":false,"millis":195,"log_probability":-1.8936451639629777}
-{"id":"en-chat-06","kind":"next_word","suggestion":"looks good. I'll merge it","is_match":false,"millis":274,"log_probability":-23.560574187890225}
-{"id":"en-chat-07","kind":"partial_word","suggestion":"rised me! What did you all think","is_match":true,"millis":280,"log_probability":-6.210800509004342}
-{"id":"en-chat-09","kind":"partial_word","suggestion":"nce. You deserve it! 🥳","is_match":true,"millis":281,"log_probability":-2.5799284992569786}
-{"id":"en-chat-10","kind":"next_word","suggestion":"Rosewood Bistro. It's at","is_match":true,"millis":277,"log_probability":-0.07173321399025219}
-{"id":"en-chat-11","kind":"partial_word","suggestion":"ver again if you want.","is_match":true,"millis":248,"log_probability":-3.482960549300962}
-{"id":"en-chat-13","kind":"next_word","suggestion":"45 minutes. Monitoring looks stable","is_match":false,"millis":277,"log_probability":-5.84397791019177}
-{"id":"en-chat-14","kind":"partial_word","suggestion":"ume. I was expecting something","is_match":true,"millis":274,"log_probability":-6.955944870032613}
-{"id":"en-chat-15","kind":"next_word","suggestion":"I think the pipe under the sink is","is_match":false,"millis":273,"log_probability":-6.193454011259344}
-{"id":"en-doc-01","kind":"next_word","suggestion":"office. After that, you'll","is_match":true,"millis":273,"log_probability":-0.08686773201898458}
-{"id":"en-doc-02","kind":"next_word","suggestion":"showed significantly impaired memory function compared to those","is_match":false,"millis":273,"log_probability":-4.098559115308459}
-{"id":"en-doc-03","kind":"partial_word","suggestion":"rkey","is_match":true,"millis":117,"log_probability":-1.483367292043654}
-{"id":"en-doc-05","kind":"next_word","suggestion":"deployment pipeline is brittle, the documentation is","is_match":false,"millis":273,"log_probability":-11.746916642835998}
-{"id":"en-doc-06","kind":"partial_word","suggestion":"om. The wind had died down to","is_match":true,"millis":282,"log_probability":-0.21819370723382756}
-{"id":"en-doc-07","kind":"next_word","suggestion":"next week.","is_match":false,"millis":178,"log_probability":-2.37455041014569}
-{"id":"en-doc-09","kind":"next_word","suggestion":"schedule a check-up","is_match":false,"millis":219,"log_probability":-4.162133078991957}
-{"id":"en-doc-10","kind":"next_word","suggestion":"have to manually re-enter delivery addresses","is_match":false,"millis":281,"log_probability":-4.3642471515987555}
-{"id":"en-doc-11","kind":"next_word","suggestion":"undergraduate students, which provided me with hands","is_match":false,"millis":290,"log_probability":-7.072397935427473}
+{"id":"en-email-01","kind":"next_word","suggestion":"Q3 budget review, and it looks","is_match":true,"millis":373,"log_probability":-0.3775231933902145}
+{"id":"en-email-02","kind":"next_word","suggestion":"1Z999AA1","is_match":false,"millis":309,"log_probability":-0.00775610850136704}
+{"id":"en-email-03","kind":"partial_word","suggestion":"rt? Let me know what you think","is_match":true,"millis":287,"log_probability":-0.1768405117428615}
+{"id":"en-email-05","kind":"next_word","suggestion":"the team.","is_match":false,"millis":171,"log_probability":-20.848831436134738}
+{"id":"en-email-06","kind":"partial_word","suggestion":"ot?","is_match":true,"millis":155,"log_probability":-0.04659370608417804}
+{"id":"en-email-07","kind":"next_word","suggestion":"Tuesday, October 24th,","is_match":true,"millis":296,"log_probability":-1.1420624364097913}
+{"id":"en-email-09","kind":"partial_word","suggestion":"ish the paper as planned. I am","is_match":true,"millis":283,"log_probability":-5.370482149291977}
+{"id":"en-email-10","kind":"partial_word","suggestion":"ups to brainstorm ideas for the next quarter","is_match":true,"millis":293,"log_probability":-0.07383329828143531}
+{"id":"en-email-11","kind":"next_word","suggestion":null,"is_match":false,"millis":231,"log_probability":-14.524926119981984}
+{"id":"en-email-13","kind":"next_word","suggestion":"25 people.","is_match":false,"millis":234,"log_probability":-5.729583770876428}
+{"id":"en-email-14","kind":"partial_word","suggestion":"very schedule to be:","is_match":true,"millis":354,"log_probability":-0.3590024475184492}
+{"id":"en-email-15","kind":"partial_word","suggestion":"at, and the pricing is very competitive","is_match":true,"millis":286,"log_probability":-0.9128649585060954}
+{"id":"en-chat-01","kind":"next_word","suggestion":"new onboarding mockups for you. I","is_match":false,"millis":285,"log_probability":-1.7520628520205062}
+{"id":"en-chat-02","kind":"partial_word","suggestion":"ere. I'm looking forward to","is_match":true,"millis":284,"log_probability":-0.05783867376789091}
+{"id":"en-chat-03","kind":"next_word","suggestion":"3 then. Does 3:","is_match":true,"millis":286,"log_probability":-0.0014541793283958822}
+{"id":"en-chat-05","kind":"next_word","suggestion":" last update.","is_match":false,"millis":200,"log_probability":-1.8936451639629777}
+{"id":"en-chat-06","kind":"next_word","suggestion":"looks good. I'll merge it","is_match":false,"millis":286,"log_probability":-23.560574187890225}
+{"id":"en-chat-07","kind":"partial_word","suggestion":"rised me! What did you all think","is_match":true,"millis":286,"log_probability":-6.210800509004342}
+{"id":"en-chat-09","kind":"partial_word","suggestion":"nce. You deserve it! 🥳","is_match":true,"millis":288,"log_probability":-2.5799284992569786}
+{"id":"en-chat-10","kind":"next_word","suggestion":"Rosewood Bistro. It's at","is_match":true,"millis":286,"log_probability":-0.07173321399025219}
+{"id":"en-chat-11","kind":"partial_word","suggestion":"ver again if you want.","is_match":true,"millis":252,"log_probability":-3.482960549300962}
+{"id":"en-chat-13","kind":"next_word","suggestion":"45 minutes. Monitoring looks stable","is_match":false,"millis":284,"log_probability":-5.84397791019177}
+{"id":"en-chat-14","kind":"partial_word","suggestion":"ume. I was expecting something","is_match":true,"millis":281,"log_probability":-6.955944870032613}
+{"id":"en-chat-15","kind":"next_word","suggestion":"I think the pipe under the sink is","is_match":false,"millis":279,"log_probability":-6.193454011259344}
+{"id":"en-doc-01","kind":"next_word","suggestion":"office. After that, you'll","is_match":true,"millis":281,"log_probability":-0.08686773201898458}
+{"id":"en-doc-02","kind":"next_word","suggestion":"showed significantly impaired memory function compared to those","is_match":false,"millis":283,"log_probability":-4.098559115308459}
+{"id":"en-doc-03","kind":"partial_word","suggestion":"rkey","is_match":true,"millis":119,"log_probability":-1.483367292043654}
+{"id":"en-doc-05","kind":"next_word","suggestion":"deployment pipeline is brittle, the documentation is","is_match":false,"millis":284,"log_probability":-11.746916642835998}
+{"id":"en-doc-06","kind":"partial_word","suggestion":"om. The wind had died down to","is_match":true,"millis":291,"log_probability":-0.21819370723382756}
+{"id":"en-doc-07","kind":"next_word","suggestion":"next week.","is_match":false,"millis":181,"log_probability":-2.37455041014569}
+{"id":"en-doc-09","kind":"next_word","suggestion":"schedule a check-up","is_match":false,"millis":225,"log_probability":-4.162133078991957}
+{"id":"en-doc-10","kind":"next_word","suggestion":"have to manually re-enter delivery addresses","is_match":false,"millis":310,"log_probability":-4.3642471515987555}
+{"id":"en-doc-11","kind":"next_word","suggestion":"undergraduate students, which provided me with hands","is_match":false,"millis":316,"log_probability":-7.072397935427473}
 {"id":"en-doc-13","kind":"next_word","suggestion":" I remember thinking she was the","is_match":true,"millis":284,"log_probability":-0.2451681244146452}
-{"id":"en-doc-14","kind":"next_word","suggestion":"Dr. Helena Vasquez, Chief Medical","is_match":true,"millis":283,"log_probability":-0.07008987061872576}
-{"id":"en-doc-15","kind":"partial_word","suggestion":"en the frontend candidates. Ana, we","is_match":true,"millis":276,"log_probability":-8.911049705282274}
-{"id":"en-form-01","kind":"next_word","suggestion":"NW-58214.","is_match":true,"millis":285,"log_probability":-0.1242315210575763}
-{"id":"en-form-02","kind":"partial_word","suggestion":"in, so we could hear everything from","is_match":true,"millis":282,"log_probability":-0.003154474200330427}
-{"id":"en-form-03","kind":"next_word","suggestion":"Brightwave because I see a lot of","is_match":true,"millis":275,"log_probability":-0.05497992222662398}
-{"id":"en-form-05","kind":"partial_word","suggestion":"on into wedges instead of slices.","is_match":true,"millis":299,"log_probability":-2.5637427321978605}
-{"id":"en-form-06","kind":"partial_word","suggestion":"ken.","is_match":true,"millis":153,"log_probability":-3.066897040843754}
-{"id":"en-form-07","kind":"partial_word","suggestion":"all. It fits like a small.","is_match":true,"millis":287,"log_probability":-0.3235461932127093}
-{"id":"en-form-09","kind":"next_word","suggestion":"I would definitely recommend this place.","is_match":false,"millis":280,"log_probability":-6.146608754614031}
-{"id":"en-form-10","kind":"next_word","suggestion":"Barista position at Bean & Bloom Coffee","is_match":false,"millis":286,"log_probability":-3.6808066466999665}
-{"id":"en-form-11","kind":"partial_word","suggestion":"ork error. I have tried restarting my","is_match":true,"millis":294,"log_probability":-5.38992927365095}
-{"id":"en-form-13","kind":"next_word","suggestion":"dimensions of the shade? I want to","is_match":false,"millis":296,"log_probability":-2.799242324179068}
-{"id":"en-form-14","kind":"next_word","suggestion":"playing.","is_match":true,"millis":143,"log_probability":-0.008516268928317357}
-{"id":"en-form-15","kind":"next_word","suggestion":"Thank you.","is_match":false,"millis":172,"log_probability":-7.101066507566301}
-{"id":"es-email-01","kind":"next_word","suggestion":"transporte y, en principio, nos parece","is_match":false,"millis":288,"log_probability":-1.3974196240701424}
-{"id":"es-email-02","kind":"partial_word","suggestion":"cia antes del miércoles para poder organizar los","is_match":true,"millis":282,"log_probability":-0.0003767359317181658}
-{"id":"es-email-03","kind":"partial_word","suggestion":"drigo","is_match":true,"millis":180,"log_probability":-10.936382392215647}
-{"id":"es-email-05","kind":"next_word","suggestion":"casa.","is_match":true,"millis":153,"log_probability":-0.4659402723329153}
-{"id":"es-email-06","kind":"next_word","suggestion":"de legal. Por favor, revís","is_match":false,"millis":282,"log_probability":-3.682512349089149}
-{"id":"es-email-07","kind":"next_word","suggestion":"Q3 para el lunes.","is_match":false,"millis":263,"log_probability":-7.396435591099001}
-{"id":"es-email-09","kind":"partial_word","suggestion":"da.","is_match":true,"millis":181,"log_probability":-0.9068876519069919}
-{"id":"es-email-10","kind":"next_word","suggestion":"\"Innovación Digital\". Los resultados son","is_match":false,"millis":275,"log_probability":-16.925287429625335}
+{"id":"en-doc-14","kind":"next_word","suggestion":"Dr. Helena Vasquez, Chief Medical","is_match":true,"millis":286,"log_probability":-0.07008987061872576}
+{"id":"en-doc-15","kind":"partial_word","suggestion":"en the frontend candidates. Ana, we","is_match":true,"millis":280,"log_probability":-8.911049705282274}
+{"id":"en-form-01","kind":"next_word","suggestion":"NW-58214.","is_match":true,"millis":290,"log_probability":-0.1242315210575763}
+{"id":"en-form-02","kind":"partial_word","suggestion":"in, so we could hear everything from","is_match":true,"millis":287,"log_probability":-0.003154474200330427}
+{"id":"en-form-03","kind":"next_word","suggestion":"Brightwave because I see a lot of","is_match":true,"millis":288,"log_probability":-0.05497992222662398}
+{"id":"en-form-05","kind":"partial_word","suggestion":"on into wedges instead of slices.","is_match":true,"millis":298,"log_probability":-2.5637427321978605}
+{"id":"en-form-06","kind":"partial_word","suggestion":"ken.","is_match":true,"millis":152,"log_probability":-3.066897040843754}
+{"id":"en-form-07","kind":"partial_word","suggestion":"all. It fits like a small.","is_match":true,"millis":285,"log_probability":-0.3235461932127093}
+{"id":"en-form-09","kind":"next_word","suggestion":"I would definitely recommend this place.","is_match":false,"millis":283,"log_probability":-6.146608754614031}
+{"id":"en-form-10","kind":"next_word","suggestion":"Barista position at Bean & Bloom Coffee","is_match":false,"millis":322,"log_probability":-3.6808066466999665}
+{"id":"en-form-11","kind":"partial_word","suggestion":"ork error. I have tried restarting my","is_match":true,"millis":297,"log_probability":-5.38992927365095}
+{"id":"en-form-13","kind":"next_word","suggestion":"dimensions of the shade? I want to","is_match":false,"millis":300,"log_probability":-2.799242324179068}
+{"id":"en-form-14","kind":"next_word","suggestion":"playing.","is_match":true,"millis":150,"log_probability":-0.008516268928317357}
+{"id":"en-form-15","kind":"next_word","suggestion":"Thank you.","is_match":false,"millis":175,"log_probability":-7.101066507566301}
+{"id":"es-email-01","kind":"next_word","suggestion":"transporte y, en principio, nos parece","is_match":false,"millis":305,"log_probability":-1.3974196240701424}
+{"id":"es-email-02","kind":"partial_word","suggestion":"cia antes del miércoles para poder organizar los","is_match":true,"millis":311,"log_probability":-0.0003767359317181658}
+{"id":"es-email-03","kind":"partial_word","suggestion":"drigo","is_match":true,"millis":213,"log_probability":-10.936382392215647}
+{"id":"es-email-05","kind":"next_word","suggestion":"casa.","is_match":true,"millis":161,"log_probability":-0.4659402723329153}
+{"id":"es-email-06","kind":"next_word","suggestion":"de legal. Por favor, revís","is_match":false,"millis":300,"log_probability":-3.682512349089149}
+{"id":"es-email-07","kind":"next_word","suggestion":"Q3 para el lunes.","is_match":false,"millis":265,"log_probability":-7.396435591099001}
+{"id":"es-email-09","kind":"partial_word","suggestion":"da.","is_match":true,"millis":180,"log_probability":-0.9068876519069919}
+{"id":"es-email-10","kind":"next_word","suggestion":"\"Innovación Digital\". Los resultados son","is_match":false,"millis":276,"log_probability":-16.925287429625335}
 {"id":"es-email-11","kind":"next_word","suggestion":"sorpresa. ¡Fue un detalle muy bonito","is_match":false,"millis":279,"log_probability":-3.7611217848773895}
-{"id":"es-email-13","kind":"partial_word","suggestion":"sos.","is_match":true,"millis":151,"log_probability":-0.03036730771210842}
-{"id":"es-email-14","kind":"partial_word","suggestion":"gar. Además, la ubicación es mucho","is_match":true,"millis":283,"log_probability":-0.14024081286081186}
-{"id":"es-email-15","kind":"next_word","suggestion":"martes 14 a las 1","is_match":true,"millis":286,"log_probability":-0.020727489777145506}
-{"id":"es-chat-01","kind":"next_word","suggestion":"8:40.","is_match":true,"millis":256,"log_probability":-0.4000296992755578}
-{"id":"es-chat-02","kind":"partial_word","suggestion":"zo y la dedicación. ¡Vamos","is_match":true,"millis":281,"log_probability":-0.1062809539382084}
-{"id":"es-chat-03","kind":"partial_word","suggestion":"és?","is_match":true,"millis":145,"log_probability":-2.9980230671187282}
-{"id":"es-chat-05","kind":"next_word","suggestion":"mucho. ❤️","is_match":true,"millis":173,"log_probability":-0.1943040728632802}
-{"id":"es-chat-06","kind":"next_word","suggestion":"jueves 21 de noviembre a las","is_match":true,"millis":287,"log_probability":-0.0747235590887067}
-{"id":"es-chat-07","kind":"next_word","suggestion":"en un momento.","is_match":false,"millis":198,"log_probability":-7.507866766646126}
-{"id":"es-chat-09","kind":"partial_word","suggestion":"ico para que arregle el","is_match":true,"millis":285,"log_probability":-8.798926706369485}
-{"id":"es-chat-10","kind":"next_word","suggestion":"47.000 a","is_match":false,"millis":274,"log_probability":-3.0952460682603404}
-{"id":"es-chat-11","kind":"partial_word","suggestion":"ones 1240,","is_match":true,"millis":277,"log_probability":-0.0005273949432108309}
-{"id":"es-chat-13","kind":"next_word","suggestion":"Martina, ¿cómo estás? Espero que","is_match":true,"millis":275,"log_probability":-0.038948626589996906}
-{"id":"es-chat-14","kind":"partial_word","suggestion":"ño? ¿Me lo podrías pasar","is_match":true,"millis":278,"log_probability":-0.25560499213027776}
-{"id":"es-chat-15","kind":"next_word","suggestion":"te confirmo el resto de los detalles","is_match":false,"millis":278,"log_probability":-13.632242681021959}
-{"id":"es-doc-01","kind":"partial_word","suggestion":"tivos y la expansión exitosa a","is_match":true,"millis":395,"log_probability":-0.9856683546003765}
-{"id":"es-doc-02","kind":"next_word","suggestion":"Fernanda revisará el borrador del acta","is_match":true,"millis":280,"log_probability":-0.5053455388741352}
-{"id":"es-doc-03","kind":"partial_word","suggestion":"res. A Isidora le encantaba","is_match":true,"millis":282,"log_probability":-0.06841740937408762}
-{"id":"es-doc-05","kind":"partial_word","suggestion":"cado. La selección de la muestra","is_match":true,"millis":279,"log_probability":-0.0001245396587991848}
-{"id":"es-doc-06","kind":"next_word","suggestion":"Clínica Vitalis.","is_match":true,"millis":199,"log_probability":-0.8819735715385102}
-{"id":"es-doc-07","kind":"next_word","suggestion":"de 85,2 puntos,","is_match":false,"millis":281,"log_probability":-4.497655384687785}
-{"id":"es-doc-09","kind":"partial_word","suggestion":"don","is_match":false,"millis":155,"log_probability":-8.265581390724767}
-{"id":"es-doc-10","kind":"next_word","suggestion":"continuación, analizaremos las dinámicas de","is_match":true,"millis":280,"log_probability":-0.030397990382557045}
-{"id":"es-doc-11","kind":"partial_word","suggestion":"tida.","is_match":true,"millis":200,"log_probability":-0.0007926933931434721}
-{"id":"es-doc-13","kind":"next_word","suggestion":"15 de abril. Los textos","is_match":true,"millis":285,"log_probability":-0.039916652168176026}
-{"id":"es-doc-14","kind":"next_word","suggestion":"Azure, optimizando procesos y mejorando","is_match":false,"millis":285,"log_probability":-1.2674859545061543}
-{"id":"es-doc-15","kind":"next_word","suggestion":"María","is_match":false,"millis":120,"log_probability":-4.86414062599243}
-{"id":"es-form-01","kind":"partial_word","suggestion":"do\".","is_match":true,"millis":185,"log_probability":-0.00013814312948576033}
-{"id":"es-form-02","kind":"next_word","suggestion":"el lugar es pequeño y puede llenarse","is_match":false,"millis":280,"log_probability":-3.158980726586992}
-{"id":"es-form-03","kind":"next_word","suggestion":"Analista Contable en Minera Cord","is_match":true,"millis":280,"log_probability":-0.008870727019995939}
-{"id":"es-form-05","kind":"partial_word","suggestion":"char? Gracias.","is_match":true,"millis":234,"log_probability":-2.6259020819151133}
-{"id":"es-form-06","kind":"partial_word","suggestion":"cir:","is_match":false,"millis":176,"log_probability":-6.427981814957671}
-{"id":"es-form-07","kind":"next_word","suggestion":"miércoles.","is_match":true,"millis":143,"log_probability":-0.42104942966151687}
-{"id":"es-form-09","kind":"next_word","suggestion":"oreja. El sonido es muy bueno","is_match":true,"millis":276,"log_probability":-0.4993681801466416}
-{"id":"es-form-10","kind":"partial_word","suggestion":"re. Gracias.","is_match":true,"millis":201,"log_probability":-0.44701083369378125}
-{"id":"es-form-11","kind":"next_word","suggestion":"del 15/05/","is_match":false,"millis":280,"log_probability":-4.044866566996765}
-{"id":"es-form-13","kind":"partial_word","suggestion":"view y la mentoría. He he","is_match":true,"millis":281,"log_probability":-0.01613667315782383}
-{"id":"es-form-14","kind":"next_word","suggestion":"municipalidad, pero no hemos tenido respuesta","is_match":true,"millis":277,"log_probability":-0.5159001725607141}
-{"id":"es-form-15","kind":"next_word","suggestion":"cancelar mi servicio?","is_match":true,"millis":202,"log_probability":-1.0359801995410625}
-{"id":"en-long-01","kind":"next_word","suggestion":"him to review the templates one last time","is_match":false,"millis":533,"log_probability":-1.0814921545000313}
-{"id":"en-long-02","kind":"next_word","suggestion":"Kestrel, focusing on the most complex","is_match":true,"millis":636,"log_probability":-0.07200912981080933}
-{"id":"en-long-03","kind":"partial_word","suggestion":"sera before merging.","is_match":true,"millis":482,"log_probability":-1.665457376469046}
-{"id":"en-long-05","kind":"next_word","suggestion":"Ingrid directly.","is_match":true,"millis":648,"log_probability":-0.4494372965178759}
-{"id":"en-long-06","kind":"next_word","suggestion":"Ashgrove Hall to book the spring fair","is_match":true,"millis":882,"log_probability":-0.0021423409667815714}
-{"id":"en-long-07","kind":"partial_word","suggestion":"rigold.","is_match":true,"millis":910,"log_probability":-0.1438962409555734}
-{"id":"en-long-09","kind":"next_word","suggestion":"questions.","is_match":true,"millis":432,"log_probability":-0.025626786296077342}
-{"id":"en-long-11","kind":"partial_word","suggestion":"ance,","is_match":true,"millis":527,"log_probability":-0.004408588313184925}
-{"id":"es-long-01","kind":"next_word","suggestion":"Itziar.","is_match":true,"millis":565,"log_probability":-0.0023632886280996255}
-{"id":"es-long-02","kind":"partial_word","suggestion":"tros.","is_match":true,"millis":802,"log_probability":-0.15864044989479012}
-{"id":"es-long-03","kind":"next_word","suggestion":"el pipeline.","is_match":false,"millis":1027,"log_probability":-17.653369945603508}
-{"id":"es-long-05","kind":"next_word","suggestion":"Zeltra R7.","is_match":true,"millis":623,"log_probability":-0.029963249609396468}
-{"id":"es-long-07","kind":"next_word","suggestion":"sesión a las 20:1","is_match":true,"millis":1127,"log_probability":-0.01997195603754173}
-{"id":"es-long-08","kind":"partial_word","suggestion":"újula.","is_match":true,"millis":556,"log_probability":-0.00001505189038454932}
-{"id":"es-long-10","kind":"partial_word","suggestion":"mano.","is_match":true,"millis":700,"log_probability":-0.003485888046955854}
-{"id":"es-long-11","kind":"next_word","suggestion":"Colibrí.","is_match":true,"millis":820,"log_probability":-0.10281508214131133}
-{"id":"en-chat-17","kind":"next_word","suggestion":"Q3 board deck. Let me know","is_match":true,"millis":294,"log_probability":-0.5628991416275809}
-{"id":"en-chat-18","kind":"next_word","suggestion":"4471. Thanks for","is_match":true,"millis":288,"log_probability":-0.0022064034945722464}
-{"id":"es-chat-17","kind":"next_word","suggestion":"17:15. ¡","is_match":false,"millis":291,"log_probability":-1.2049571174956155}
-{"id":"en-email-17","kind":"next_word","suggestion":"Wednesday at 2 pm in room","is_match":true,"millis":288,"log_probability":-0.0026895829118653214}
-{"id":"en-email-18","kind":"next_word","suggestion":"March 3rd. The payment was","is_match":true,"millis":297,"log_probability":-0.05460962273019762}
-{"id":"es-email-17","kind":"next_word","suggestion":"lunes 25.","is_match":true,"millis":237,"log_probability":-0.0490334260811319}
+{"id":"es-email-13","kind":"partial_word","suggestion":"sos.","is_match":true,"millis":152,"log_probability":-0.03036730771210842}
+{"id":"es-email-14","kind":"partial_word","suggestion":"gar. Además, la ubicación es mucho","is_match":true,"millis":315,"log_probability":-0.14024081286081186}
+{"id":"es-email-15","kind":"next_word","suggestion":"martes 14 a las 1","is_match":true,"millis":322,"log_probability":-0.020727489777145506}
+{"id":"es-chat-01","kind":"next_word","suggestion":"8:40.","is_match":true,"millis":277,"log_probability":-0.4000296992755578}
+{"id":"es-chat-02","kind":"partial_word","suggestion":"zo y la dedicación. ¡Vamos","is_match":true,"millis":294,"log_probability":-0.1062809539382084}
+{"id":"es-chat-03","kind":"partial_word","suggestion":"és?","is_match":true,"millis":150,"log_probability":-2.9980230671187282}
+{"id":"es-chat-05","kind":"next_word","suggestion":"mucho. ❤️","is_match":true,"millis":175,"log_probability":-0.1943040728632802}
+{"id":"es-chat-06","kind":"next_word","suggestion":"jueves 21 de noviembre a las","is_match":true,"millis":297,"log_probability":-0.0747235590887067}
+{"id":"es-chat-07","kind":"next_word","suggestion":"en un momento.","is_match":false,"millis":203,"log_probability":-7.507866766646126}
+{"id":"es-chat-09","kind":"partial_word","suggestion":"ico para que arregle el","is_match":true,"millis":295,"log_probability":-8.798926706369485}
+{"id":"es-chat-10","kind":"next_word","suggestion":"47.000 a","is_match":false,"millis":286,"log_probability":-3.0952460682603404}
+{"id":"es-chat-11","kind":"partial_word","suggestion":"ones 1240,","is_match":true,"millis":289,"log_probability":-0.0005273949432108309}
+{"id":"es-chat-13","kind":"next_word","suggestion":"Martina, ¿cómo estás? Espero que","is_match":true,"millis":282,"log_probability":-0.038948626589996906}
+{"id":"es-chat-14","kind":"partial_word","suggestion":"ño? ¿Me lo podrías pasar","is_match":true,"millis":287,"log_probability":-0.25560499213027776}
+{"id":"es-chat-15","kind":"next_word","suggestion":"te confirmo el resto de los detalles","is_match":false,"millis":285,"log_probability":-13.632242681021959}
+{"id":"es-doc-01","kind":"partial_word","suggestion":"tivos y la expansión exitosa a","is_match":true,"millis":422,"log_probability":-0.9856683546003765}
+{"id":"es-doc-02","kind":"next_word","suggestion":"Fernanda revisará el borrador del acta","is_match":true,"millis":294,"log_probability":-0.5053455388741352}
+{"id":"es-doc-03","kind":"partial_word","suggestion":"res. A Isidora le encantaba","is_match":true,"millis":292,"log_probability":-0.06841740937408762}
+{"id":"es-doc-05","kind":"partial_word","suggestion":"cado. La selección de la muestra","is_match":true,"millis":292,"log_probability":-0.0001245396587991848}
+{"id":"es-doc-06","kind":"next_word","suggestion":"Clínica Vitalis.","is_match":true,"millis":214,"log_probability":-0.8819735715385102}
+{"id":"es-doc-07","kind":"next_word","suggestion":"de 85,2 puntos,","is_match":false,"millis":301,"log_probability":-4.497655384687785}
+{"id":"es-doc-09","kind":"partial_word","suggestion":"don","is_match":false,"millis":160,"log_probability":-8.265581390724767}
+{"id":"es-doc-10","kind":"next_word","suggestion":"continuación, analizaremos las dinámicas de","is_match":true,"millis":295,"log_probability":-0.030397990382557045}
+{"id":"es-doc-11","kind":"partial_word","suggestion":"tida.","is_match":true,"millis":216,"log_probability":-0.0007926933931434721}
+{"id":"es-doc-13","kind":"next_word","suggestion":"15 de abril. Los textos","is_match":true,"millis":296,"log_probability":-0.039916652168176026}
+{"id":"es-doc-14","kind":"next_word","suggestion":"Azure, optimizando procesos y mejorando","is_match":false,"millis":297,"log_probability":-1.2674859545061543}
+{"id":"es-doc-15","kind":"next_word","suggestion":"María","is_match":false,"millis":123,"log_probability":-4.86414062599243}
+{"id":"es-form-01","kind":"partial_word","suggestion":"do\".","is_match":true,"millis":204,"log_probability":-0.00013814312948576033}
+{"id":"es-form-02","kind":"next_word","suggestion":"el lugar es pequeño y puede llenarse","is_match":false,"millis":313,"log_probability":-3.158980726586992}
+{"id":"es-form-03","kind":"next_word","suggestion":"Analista Contable en Minera Cord","is_match":true,"millis":300,"log_probability":-0.008870727019995939}
+{"id":"es-form-05","kind":"partial_word","suggestion":"char? Gracias.","is_match":true,"millis":249,"log_probability":-2.6259020819151133}
+{"id":"es-form-06","kind":"partial_word","suggestion":"cir:","is_match":false,"millis":185,"log_probability":-6.427981814957671}
+{"id":"es-form-07","kind":"next_word","suggestion":"miércoles.","is_match":true,"millis":148,"log_probability":-0.42104942966151687}
+{"id":"es-form-09","kind":"next_word","suggestion":"oreja. El sonido es muy bueno","is_match":true,"millis":290,"log_probability":-0.4993681801466416}
+{"id":"es-form-10","kind":"partial_word","suggestion":"re. Gracias.","is_match":true,"millis":214,"log_probability":-0.44701083369378125}
+{"id":"es-form-11","kind":"next_word","suggestion":"del 15/05/","is_match":false,"millis":303,"log_probability":-4.044866566996765}
+{"id":"es-form-13","kind":"partial_word","suggestion":"view y la mentoría. He he","is_match":true,"millis":286,"log_probability":-0.01613667315782383}
+{"id":"es-form-14","kind":"next_word","suggestion":"municipalidad, pero no hemos tenido respuesta","is_match":true,"millis":288,"log_probability":-0.5159001725607141}
+{"id":"es-form-15","kind":"next_word","suggestion":"cancelar mi servicio?","is_match":true,"millis":209,"log_probability":-1.0359801995410625}
+{"id":"en-long-01","kind":"next_word","suggestion":"him to review the templates one last time","is_match":false,"millis":545,"log_probability":-1.0814921545000313}
+{"id":"en-long-02","kind":"next_word","suggestion":"Kestrel, focusing on the most complex","is_match":true,"millis":654,"log_probability":-0.07200912981080933}
+{"id":"en-long-03","kind":"partial_word","suggestion":"sera before merging.","is_match":true,"millis":495,"log_probability":-1.665457376469046}
+{"id":"en-long-05","kind":"next_word","suggestion":"Ingrid directly.","is_match":true,"millis":665,"log_probability":-0.4494372965178759}
+{"id":"en-long-06","kind":"next_word","suggestion":"Ashgrove Hall to book the spring fair","is_match":true,"millis":950,"log_probability":-0.0021423409667815714}
+{"id":"en-long-07","kind":"partial_word","suggestion":"rigold.","is_match":true,"millis":927,"log_probability":-0.1438962409555734}
+{"id":"en-long-09","kind":"next_word","suggestion":"questions.","is_match":true,"millis":441,"log_probability":-0.025626786296077342}
+{"id":"en-long-11","kind":"partial_word","suggestion":"ance,","is_match":true,"millis":538,"log_probability":-0.004408588313184925}
+{"id":"es-long-01","kind":"next_word","suggestion":"Itziar.","is_match":true,"millis":575,"log_probability":-0.0023632886280996255}
+{"id":"es-long-02","kind":"partial_word","suggestion":"tros.","is_match":true,"millis":817,"log_probability":-0.15864044989479012}
+{"id":"es-long-03","kind":"next_word","suggestion":"el pipeline.","is_match":false,"millis":1044,"log_probability":-17.653369945603508}
+{"id":"es-long-05","kind":"next_word","suggestion":"Zeltra R7.","is_match":true,"millis":640,"log_probability":-0.029963249609396468}
+{"id":"es-long-07","kind":"next_word","suggestion":"sesión a las 20:1","is_match":true,"millis":1155,"log_probability":-0.01997195603754173}
+{"id":"es-long-08","kind":"partial_word","suggestion":"újula.","is_match":true,"millis":572,"log_probability":-0.00001505189038454932}
+{"id":"es-long-10","kind":"partial_word","suggestion":"mano.","is_match":true,"millis":706,"log_probability":-0.003485888046955854}
+{"id":"es-long-11","kind":"next_word","suggestion":"Colibrí.","is_match":true,"millis":818,"log_probability":-0.10281508214131133}
+{"id":"en-chat-17","kind":"next_word","suggestion":"Q3 board deck. Let me know","is_match":true,"millis":295,"log_probability":-0.5628991416275809}
+{"id":"en-chat-18","kind":"next_word","suggestion":"4471. Thanks for","is_match":true,"millis":293,"log_probability":-0.0022064034945722464}
+{"id":"es-chat-17","kind":"next_word","suggestion":"17:15. ¡","is_match":false,"millis":300,"log_probability":-1.2049571174956155}
+{"id":"en-email-17","kind":"next_word","suggestion":"Wednesday at 2 pm in room","is_match":true,"millis":300,"log_probability":-0.0026895829118653214}
+{"id":"en-email-18","kind":"next_word","suggestion":"March 3rd. The payment was","is_match":true,"millis":304,"log_probability":-0.05460962273019762}
+{"id":"es-email-17","kind":"next_word","suggestion":"lunes 25.","is_match":true,"millis":247,"log_probability":-0.0490334260811319}
