@@ -9,7 +9,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 
 ## Two kinds of UI
 - Settings window: WinUI 3 controls through windows-reactor (`settings.rs`, `settings/page.rs`), on its own UI thread. WinUI draws the controls and follows the system.
-- Tray icon, tray menu and ghost text overlay: Win32 on the main thread, next to the hooks. This crate draws them and follows the system by hand.
+- Tray icon, tray menu, ghost text overlay and caret badge: Win32 on the main thread, next to the hooks. This crate draws them and follows the system by hand.
 
 ## Follow the system, never hardcode a look
 - Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal.
@@ -66,6 +66,12 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Color: host text color at reduced emphasis (Fluent secondary/tertiary text). It must stay legible on the host background. High contrast: `COLOR_GRAYTEXT`.
 - Never takes focus or input: `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`. Excluded from taskbar and Alt+Tab.
 - No animation beyond a subtle fade, and none when animations are off. Hide instantly on caret move, focus change, or fullscreen exclusive app.
+
+## Caret badge
+- A small button above the caret, on its left, where the ghost text never goes. A click pauses or resumes suggestions (`BadgeView`). The glyph is the tray glyph of the status.
+- 20 x 20 DIPs, 4 DIPs above the caret, radius 4, a 1 DIP border, a 12 DIP glyph. Scale with the DPI of the monitor at the caret.
+- Colors of the Fluent tooltip for the apps theme: the fill, the surface stroke and the secondary text. High contrast: `COLOR_WINDOW` fill, `COLOR_WINDOWTEXT` border and glyph.
+- Same window styles as the ghost text overlay. The mouse hook swallows a left click on the badge and posts it to the main window. The app under the badge never gets the click.
 
 ## Tray & menus
 - Tray icon: theme-aware glyph (light variant on dark taskbar, dark on light), swap on theme change. Multi-resolution `.ico` (16/20/24/32 px), crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone.

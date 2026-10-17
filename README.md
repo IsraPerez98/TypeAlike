@@ -27,7 +27,7 @@ cargo clippy --workspace --all-targets # lints
 |---|---|
 | `crates/ghosttype` | The `GhostType` binary: wiring, configuration, logging |
 | `crates/ghosttype_core` | Platform-independent suggestion and acceptance logic |
-| `crates/ghosttype_windows` | Win32 / UI Automation integration: hooks, caret reading, overlay, input, tray, settings window |
+| `crates/ghosttype_windows` | Win32 / UI Automation integration: hooks, caret reading, overlay, caret badge, input, tray, settings window |
 | `crates/ghosttype_macos` | AppKit / Accessibility integration: event tap, caret reading, overlay, input, menu bar |
 | `crates/ghosttype_models` | Hugging Face search, model downloads and the local models directory |
 | `crates/ghosttype_llm` | Runs GGUF language models with llama.cpp |

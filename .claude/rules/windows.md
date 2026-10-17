@@ -14,10 +14,10 @@ paths:
 - Pure logic (geometry, key mapping, DPI math) out of FFI code, unit-tested.
 
 ## Threads & runtime invariants
-- Hooks, timers, overlay, tray and the core `Controller` on the main thread (`runtime.rs`). Never block its message loop. The hook decides at once whether to swallow a key, so the controller stays on the hook thread.
+- Hooks, timers, overlay, badge, tray and the core `Controller` on the main thread (`runtime.rs`). Never block its message loop. The hook decides at once whether to swallow a key, so the controller stays on the hook thread.
 - Settings window on its own UI thread (`settings.rs`), so WinUI work never delays a hook. The UI thread runs the windows-reactor app (`App::run_with`). The threads only exchange messages: the main thread sends each `SettingsView` through `AppProxy::dispatch`, the UI thread sends back each `SettingsInput` through a `Mailbox` (channel + posted window message). Neither thread waits for the other.
 - Hook callbacks fast (Windows drops slow LL hooks): no UIA, no `SendInput`, no alloc-heavy work inside; post msg, return.
-- UIA on worker thread (COM MTA, init/uninit via guard). Requests carry ID; stale results dropped.
+- UIA on worker thread (COM MTA, init/uninit via guard). Requests carry ID; stale results dropped. The caret reader (`caret_reader.rs`) is this thread: the shell asks it for the caret, and shows the ghost text and the badge when the answer comes.
 - Callback thread-local state: one place per thread (`runtime.rs` for Win32 callbacks, `settings.rs` for reactor callbacks).
 - `HWND` not `Send`: cross threads as `isize`.
 - Tag own `SendInput` via `dwExtraInfo`; ignore only those (not all injected).
