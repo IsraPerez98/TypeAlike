@@ -204,10 +204,11 @@ impl App {
         let is_active = self.status == Status::Active && desktop.field() == Field::Open;
         let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
         let is_ocr_due = is_active && !has_lines && desktop.ocr_availability() == OcrAvailability::Ready;
-        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id) {
+        let level = self.screen_text.ocr_level;
+        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id, level) {
             return Some(SettledWork::ReadScreen {
                 read: ocr,
-                source: ScreenSource::Ocr,
+                source: ScreenSource::Ocr(level),
             });
         }
         let is_newest = self.engine.on_screen_read(read, desktop);
@@ -347,7 +348,7 @@ mod tests {
     };
     use crate::inference::TokenCount;
     use crate::prompt::framed_prompt;
-    use crate::settings::{ScreenTextAccess, SuggestionLength, WriterNotes};
+    use crate::settings::{OcrLevel, ScreenTextAccess, SuggestionLength, WriterNotes};
 
     struct FakeDesktop(Field);
 
@@ -901,7 +902,7 @@ mod tests {
             prompt_preparation: PromptPreparation::OnFocus,
             screen_text: ScreenTextSettings {
                 access: ScreenTextAccess::Denied,
-                apps: Vec::new(),
+                ..ScreenTextSettings::default()
             },
             ..Settings::default()
         });
@@ -968,7 +969,7 @@ mod tests {
             prompt_preparation: PromptPreparation::OnFocus,
             screen_text: ScreenTextSettings {
                 access: ScreenTextAccess::Denied,
-                apps: Vec::new(),
+                ..ScreenTextSettings::default()
             },
             ..Settings::default()
         });
@@ -1054,7 +1055,33 @@ mod tests {
             matches!(
                 work,
                 Some(SettledWork::ReadScreen {
-                    source: ScreenSource::Ocr,
+                    source: ScreenSource::Ocr(_),
+                    ..
+                })
+            ),
+            "{work:?}"
+        );
+    }
+
+    #[test]
+    fn ocr_read_uses_the_level_of_the_settings() {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            screen_text: ScreenTextSettings {
+                ocr_level: OcrLevel::Accurate,
+                ..ScreenTextSettings::default()
+            },
+            ..Settings::default()
+        });
+        let read = screen_read(&mut app);
+
+        let work = app.on_screen_read(answer(read), &MAIL_WITH_OCR);
+
+        assert!(
+            matches!(
+                work,
+                Some(SettledWork::ReadScreen {
+                    source: ScreenSource::Ocr(OcrLevel::Accurate),
                     ..
                 })
             ),

@@ -70,6 +70,16 @@ impl ScreenTextApp {
     }
 }
 
+/// How the OCR recognizes the text in a capture of a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OcrLevel {
+    /// Fast, for clean text in a few languages.
+    #[default]
+    Fast,
+    /// Slower, with fewer errors and more languages.
+    Accurate,
+}
+
 /// Where GhostType reads the text near the text field on the screen.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ScreenTextSettings {
@@ -77,6 +87,8 @@ pub struct ScreenTextSettings {
     pub access: ScreenTextAccess,
     /// The apps where the user typed, in alphabetical order of their names.
     pub apps: Vec<ScreenTextApp>,
+    /// How the OCR recognizes the text of a window that gives no text.
+    pub ocr_level: OcrLevel,
 }
 
 impl ScreenTextSettings {
@@ -309,6 +321,7 @@ mod tests {
                 app("com.apple.mail", "Mail", false),
                 app("com.1password.1password", "1Password", true),
             ],
+            ..ScreenTextSettings::default()
         };
 
         let allowed = ["com.apple.mail", "com.1password.1password", "com.apple.notes"]
@@ -322,6 +335,7 @@ mod tests {
         let settings = ScreenTextSettings {
             access: ScreenTextAccess::Denied,
             apps: vec![app("com.apple.mail", "Mail", true)],
+            ..ScreenTextSettings::default()
         };
 
         let allowed = ["com.apple.mail", "com.apple.notes"].map(|app_id| settings.allows(app_id));
@@ -356,6 +370,7 @@ mod tests {
         let mut settings = ScreenTextSettings {
             access: ScreenTextAccess::Allowed,
             apps: vec![app("com.apple.mail", "Mail", false)],
+            ..ScreenTextSettings::default()
         };
 
         let added = settings.add(&app("com.apple.mail", "Mail", true));

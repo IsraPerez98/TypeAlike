@@ -77,7 +77,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let text = newest.process.and_then(|process| match newest.source {
             ScreenSource::Accessibility => read_screen_text(process),
-            ScreenSource::Ocr => ocr.read(process),
+            ScreenSource::Ocr(level) => ocr.read(process, level),
         });
         deliver(Delivery::Screen(ScreenRead {
             id: newest.read,

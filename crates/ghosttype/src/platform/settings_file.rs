@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
-    ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings,
-    SettingsStore, SuggestionDisplay, SuggestionLength, WriterNotes,
+    ClipboardAccess, OcrLevel, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
+    Settings, SettingsStore, SuggestionDisplay, SuggestionLength, WriterNotes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -105,6 +105,7 @@ enum StoredClipboardAccess {
 struct StoredScreenText {
     access: StoredScreenTextAccess,
     apps: Vec<StoredScreenTextApp>,
+    ocr_level: StoredOcrLevel,
 }
 
 impl Default for StoredScreenText {
@@ -118,6 +119,13 @@ impl Default for StoredScreenText {
 enum StoredScreenTextAccess {
     Allowed,
     Denied,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredOcrLevel {
+    Fast,
+    Accurate,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -145,7 +153,15 @@ impl From<ScreenTextSettings> for StoredScreenText {
                 is_on: app.is_on,
             })
             .collect();
-        Self { access, apps }
+        let ocr_level = match settings.ocr_level {
+            OcrLevel::Fast => StoredOcrLevel::Fast,
+            OcrLevel::Accurate => StoredOcrLevel::Accurate,
+        };
+        Self {
+            access,
+            apps,
+            ocr_level,
+        }
     }
 }
 
@@ -165,7 +181,15 @@ impl From<StoredScreenText> for ScreenTextSettings {
                 is_on: app.is_on,
             })
             .collect();
-        Self { access, apps }
+        let ocr_level = match stored.ocr_level {
+            StoredOcrLevel::Fast => OcrLevel::Fast,
+            StoredOcrLevel::Accurate => OcrLevel::Accurate,
+        };
+        Self {
+            access,
+            apps,
+            ocr_level,
+        }
     }
 }
 
@@ -420,8 +444,35 @@ mod tests {
                         is_on: true,
                     },
                 ],
+                ..ScreenTextSettings::default()
             })
         );
+    }
+
+    #[test]
+    fn settings_file_without_an_ocr_level_reads_as_fast() {
+        let json = r#"{ "screen_text": { "access": "allowed", "apps": [] } }"#;
+
+        let level = parse(json).map(|settings| settings.screen_text.ocr_level).ok();
+
+        assert_eq!(level, Some(OcrLevel::Fast));
+    }
+
+    #[test]
+    fn ocr_level_survives_a_save_and_a_load() {
+        let settings = Settings {
+            screen_text: ScreenTextSettings {
+                ocr_level: OcrLevel::Accurate,
+                ..ScreenTextSettings::default()
+            },
+            ..Settings::default()
+        };
+
+        let loaded = parse(&to_json(&settings))
+            .map(|loaded| loaded.screen_text.ocr_level)
+            .ok();
+
+        assert_eq!(loaded, Some(OcrLevel::Accurate));
     }
 
     #[test]
@@ -512,6 +563,7 @@ mod tests {
                     app_path: Some("C:\\Slack\\slack.exe".to_owned()),
                     is_on: false,
                 }],
+                ocr_level: OcrLevel::Accurate,
             },
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,

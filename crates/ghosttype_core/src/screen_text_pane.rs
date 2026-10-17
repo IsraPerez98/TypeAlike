@@ -2,9 +2,10 @@
 //! field on the screen.
 
 use crate::desktop::OcrAvailability;
-use crate::settings::{ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
+use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
 use crate::settings_view::{
-    AppSwitch, Button, ControlId, Message, Page, PageIcon, Row, Section, SettingsInput, Switch,
+    AppSwitch, Button, ChoiceText, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput,
+    Switch,
 };
 
 /// Something the user did in the Screen text pane.
@@ -23,17 +24,28 @@ pub enum ScreenTextAction {
     },
     /// Asked for the permission that the OCR needs.
     AskForOcrPermission,
+    /// Picked this level of the OCR.
+    SelectOcrLevel(OcrLevel),
 }
 
 pub(crate) const SCREEN_TEXT: &str = "screen-text";
 const APP_SWITCH_PREFIX: &str = "screen-text-app:";
 const OCR_PERMISSION: &str = "screen-text-ocr-permission";
+const OCR_LEVEL: &str = "screen-text-ocr-level";
 const PANE_TITLE: &str = "Screen text";
 const PANE_SUMMARY: &str = "Suggestions can use the text near the text field where you type, for example, \
      the last messages of a chat. GhostType reads this text on this computer and does not save the text.";
 const SCREEN_TEXT_LABEL: &str = "Use screen text";
 const SCREEN_TEXT_DESCRIPTION: &str =
     "When this switch is off, GhostType does not read screen text in any app.";
+const OCR_LEVEL_LABEL: &str = "Text recognition";
+const OCR_LEVEL_DESCRIPTION: &str = "When GhostType cannot get the text of a window, it reads the text from an \
+     image of the window. “Fast” reads English, French, German, Italian, Portuguese and Spanish. “Accurate” \
+     reads more languages with fewer errors, but it is slower.";
+const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
+    (OcrLevel::Fast, "Fast (recommended)"),
+    (OcrLevel::Accurate, "Accurate"),
+];
 const APPS_HEADING: &str = "Apps";
 const APPS_FOOTER: &str = "When you type in an app for the first time, GhostType adds the app to this list.";
 const NO_APPS: &str = "This list has no apps.";
@@ -93,6 +105,11 @@ impl ScreenTextPane {
                 is_changed
             }
             ScreenTextAction::AskForOcrPermission => false,
+            ScreenTextAction::SelectOcrLevel(level) => {
+                let is_changed = self.settings.ocr_level != level;
+                self.settings.ocr_level = level;
+                is_changed
+            }
         }
     }
 
@@ -102,6 +119,11 @@ impl ScreenTextPane {
         let (id, is_on) = match input {
             SettingsInput::Pressed(id) if id.as_str() == OCR_PERMISSION => {
                 return Some(ScreenTextAction::AskForOcrPermission);
+            }
+            SettingsInput::Picked { id, index } if id.as_str() == OCR_LEVEL => {
+                return OCR_LEVEL_CHOICES
+                    .get(*index)
+                    .map(|&(level, _)| ScreenTextAction::SelectOcrLevel(level));
             }
             SettingsInput::Toggled { id, is_on } => (id, is_on),
             _ => return None,
@@ -120,8 +142,8 @@ impl ScreenTextPane {
         })
     }
 
-    /// Returns the page that the pane shows now, with a note that tells how to give the permission
-    /// when `ocr` needs it.
+    /// Returns the page that the pane shows now, with the menu of the OCR level when the platform
+    /// has an OCR, and a note that tells how to give the permission when `ocr` needs it.
     #[must_use]
     pub fn page(&self, ocr: OcrAvailability) -> Page {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
@@ -148,12 +170,14 @@ impl ScreenTextPane {
         } else {
             apps
         };
-        let main_switch = Section::new(vec![Row::Switch(Switch {
+        let main_switch = Row::Switch(Switch {
             id: ControlId::new(SCREEN_TEXT),
             label: SCREEN_TEXT_LABEL,
             description: SCREEN_TEXT_DESCRIPTION,
             is_on: is_allowed,
-        })]);
+        });
+        let ocr_level = (ocr != OcrAvailability::Unsupported).then(|| Row::Picker(self.ocr_level_picker()));
+        let main_section = Section::new([Some(main_switch), ocr_level].into_iter().flatten().collect());
         let needs_permission = is_allowed && ocr == OcrAvailability::NotPermitted;
         let permission_note = needs_permission.then(|| {
             Section::new(vec![Row::Message(Message {
@@ -176,10 +200,29 @@ impl ScreenTextPane {
             icon: PageIcon::TextViewfinder,
             summary: PANE_SUMMARY,
             search: None,
-            sections: [Some(main_switch), permission_note, Some(app_list)]
+            sections: [Some(main_section), permission_note, Some(app_list)]
                 .into_iter()
                 .flatten()
                 .collect(),
+        }
+    }
+
+    fn ocr_level_picker(&self) -> Picker {
+        Picker {
+            id: ControlId::new(OCR_LEVEL),
+            label: OCR_LEVEL_LABEL,
+            description: OCR_LEVEL_DESCRIPTION,
+            choices: OCR_LEVEL_CHOICES
+                .iter()
+                .map(|&(_, title)| title.to_owned())
+                .collect(),
+            choice_text: ChoiceText::Label,
+            selected: OCR_LEVEL_CHOICES
+                .iter()
+                .position(|&(level, _)| level == self.settings.ocr_level)
+                .expect("every OCR level has a menu entry"),
+            is_enabled: self.settings.access == ScreenTextAccess::Allowed,
+            note: None,
         }
     }
 
@@ -204,7 +247,18 @@ mod tests {
     }
 
     fn pane_with(access: ScreenTextAccess, apps: Vec<ScreenTextApp>) -> ScreenTextPane {
-        ScreenTextPane::new(ScreenTextSettings { access, apps })
+        ScreenTextPane::new(ScreenTextSettings {
+            access,
+            apps,
+            ..ScreenTextSettings::default()
+        })
+    }
+
+    fn ocr_level_picker(page: &Page) -> Option<&Picker> {
+        match page.row(OCR_LEVEL) {
+            Some(Row::Picker(picker)) => Some(picker),
+            _ => None,
+        }
     }
 
     fn toggled(id: &str, is_on: bool) -> SettingsInput {
@@ -427,6 +481,68 @@ mod tests {
         let changes = actions.map(|action| pane.on_action(action));
 
         assert_eq!(changes, [false; 3]);
+    }
+
+    #[test]
+    fn ocr_level_menu_shows_fast_as_the_recommended_default() {
+        let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
+
+        let shown = pane.page(OcrAvailability::Ready);
+
+        assert_eq!(
+            shown.sections[0].rows.get(1),
+            Some(&Row::Picker(Picker {
+                id: ControlId::new(OCR_LEVEL),
+                label: "Text recognition",
+                description: "When GhostType cannot get the text of a window, it reads the text from an image \
+                     of the window. “Fast” reads English, French, German, Italian, Portuguese and Spanish. \
+                     “Accurate” reads more languages with fewer errors, but it is slower.",
+                choices: vec!["Fast (recommended)".to_owned(), "Accurate".to_owned()],
+                choice_text: ChoiceText::Label,
+                selected: 0,
+                is_enabled: true,
+                note: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn picking_accurate_selects_the_accurate_level() {
+        let mut pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
+        let action = pane
+            .action_for(&SettingsInput::Picked {
+                id: ControlId::new(OCR_LEVEL),
+                index: 1,
+            })
+            .expect("the menu has a second entry");
+
+        let is_changed = pane.on_action(action);
+
+        assert_eq!(
+            (is_changed, pane.settings().ocr_level),
+            (true, OcrLevel::Accurate)
+        );
+    }
+
+    #[test]
+    fn ocr_level_menu_is_dimmed_when_screen_text_is_off() {
+        let pane = pane_with(ScreenTextAccess::Denied, Vec::new());
+
+        let shown = pane.page(OcrAvailability::Ready);
+
+        assert_eq!(
+            ocr_level_picker(&shown).map(|picker| picker.is_enabled),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn page_without_ocr_has_no_ocr_level_menu() {
+        let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
+
+        let shown = pane.page(OcrAvailability::Unsupported);
+
+        assert_eq!(ocr_level_picker(&shown), None);
     }
 
     #[test]

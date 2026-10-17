@@ -10,7 +10,7 @@ use crate::inference::{CONTEXT_TOKENS, Completion, InferenceError, InferenceRequ
 use crate::key::Key;
 use crate::place;
 use crate::prompt::{self, estimated_tokens, last_chars, last_tokens};
-use crate::settings::{ClipboardAccess, ScreenTextApp, Settings, SuggestionLength, WriterNotes};
+use crate::settings::{ClipboardAccess, OcrLevel, ScreenTextApp, Settings, SuggestionLength, WriterNotes};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text reaches
@@ -235,14 +235,14 @@ impl Engine {
         Some(self.start_read(ScreenSource::Accessibility))
     }
 
-    /// Starts an OCR read in place of `read`, when `read` is the newest read and reads the
-    /// accessibility tree, and returns its id.
-    pub fn start_ocr_after(&mut self, read: ScreenReadId) -> Option<ScreenReadId> {
+    /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
+    /// the accessibility tree, and returns its id.
+    pub fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
         let is_newest_tree_read = matches!(
             self.screen,
             Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
         );
-        is_newest_tree_read.then(|| self.start_read(ScreenSource::Ocr))
+        is_newest_tree_read.then(|| self.start_read(ScreenSource::Ocr(level)))
     }
 
     fn start_read(&mut self, source: ScreenSource) -> ScreenReadId {
@@ -1735,7 +1735,7 @@ mod tests {
         let mut engine = Engine::default();
         let read = engine.start_screen_read().expect("no session runs");
 
-        let ocr = engine.start_ocr_after(read);
+        let ocr = engine.start_ocr_after(read, OcrLevel::Fast);
 
         assert!(ocr.is_some());
     }
@@ -1746,7 +1746,7 @@ mod tests {
         let older = engine.start_screen_read().expect("no session runs");
         engine.start_screen_read();
 
-        let ocr = engine.start_ocr_after(older);
+        let ocr = engine.start_ocr_after(older, OcrLevel::Fast);
 
         assert_eq!(ocr, None);
     }
@@ -1755,9 +1755,11 @@ mod tests {
     fn no_ocr_read_starts_after_an_ocr_read() {
         let mut engine = Engine::default();
         let read = engine.start_screen_read().expect("no session runs");
-        let ocr = engine.start_ocr_after(read).expect("the read is the newest");
+        let ocr = engine
+            .start_ocr_after(read, OcrLevel::Fast)
+            .expect("the read is the newest");
 
-        let next = engine.start_ocr_after(ocr);
+        let next = engine.start_ocr_after(ocr, OcrLevel::Fast);
 
         assert_eq!(next, None);
     }
@@ -1766,7 +1768,7 @@ mod tests {
     fn answer_to_the_read_before_an_ocr_read_is_dropped() {
         let mut engine = Engine::default();
         let read = engine.start_screen_read().expect("no session runs");
-        engine.start_ocr_after(read);
+        engine.start_ocr_after(read, OcrLevel::Fast);
 
         let is_kept = engine.on_screen_read(
             ScreenRead {

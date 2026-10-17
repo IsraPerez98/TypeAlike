@@ -4,6 +4,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::app::Field;
+use crate::settings::OcrLevel;
 
 /// The most characters before the caret that a platform reads. A suggestion uses fewer, because
 /// the text drops its oldest characters when it reaches this many.
@@ -106,8 +107,8 @@ impl Confidence {
 pub enum ScreenSource {
     /// The accessibility tree of the window: the text that the app gives as text.
     Accessibility,
-    /// Optical character recognition (OCR) of a capture of the window.
-    Ocr,
+    /// Optical character recognition (OCR) of a capture of the window, at this level.
+    Ocr(OcrLevel),
 }
 
 /// Whether the platform can read the screen with OCR now.

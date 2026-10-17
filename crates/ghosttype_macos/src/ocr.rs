@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use block2::RcBlock;
 use ghosttype_core::desktop::{Confidence, OcrAvailability, ScreenLine, ScreenText};
+use ghosttype_core::settings::OcrLevel;
 use objc2::AllocAnyThread;
 use objc2::rc::Retained;
 use objc2_app_kit::NSWorkspace;
@@ -58,7 +59,7 @@ pub(crate) fn ask_for_permission() {
 }
 
 /// The OCR of the focused window. It keeps the lines of its last OCR, so that a capture with the
-/// same pixels needs no other OCR.
+/// same pixels at the same level needs no other OCR.
 #[derive(Default)]
 pub(crate) struct Ocr {
     last: Option<Recognition>,
@@ -66,9 +67,16 @@ pub(crate) struct Ocr {
 
 /// The lines of one OCR of a window.
 struct Recognition {
+    input: RecognitionInput,
+    lines: Vec<RecognizedLine>,
+}
+
+/// What gives the lines of an OCR: the window, the hash of its pixels and the level.
+#[derive(PartialEq, Eq)]
+struct RecognitionInput {
     window: u32,
     pixels: u64,
-    lines: Vec<RecognizedLine>,
+    level: OcrLevel,
 }
 
 /// A line that the OCR recognized, with its frame in points from the top left corner of the band.
@@ -87,21 +95,21 @@ struct Capture {
 }
 
 impl Ocr {
-    /// Reads the text near the focused field of the app of `process` from a capture of its window.
-    /// `None` for a password field, or when the capture or the OCR fails.
-    pub(crate) fn read(&mut self, process: i32) -> Option<ScreenText> {
+    /// Reads the text near the focused field of the app of `process` from a capture of its window,
+    /// at `level`. `None` for a password field, or when the capture or the OCR fails.
+    pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
         let field = screen_text::focused_field(process)?;
         let capture = capture_band(process, field.frame)?;
-        let pixels = pixels_hash(&capture, field.frame)?;
-        let is_known = self
-            .last
-            .as_ref()
-            .is_some_and(|last| last.window == capture.window && last.pixels == pixels);
+        let input = RecognitionInput {
+            window: capture.window,
+            pixels: pixels_hash(&capture, field.frame)?,
+            level,
+        };
+        let is_known = self.last.as_ref().is_some_and(|last| last.input == input);
         if !is_known {
             self.last = Some(Recognition {
-                window: capture.window,
-                pixels,
-                lines: recognize(&capture.image, capture.band.size)?,
+                lines: recognize(&capture.image, capture.band.size, level)?,
+                input,
             });
         }
         let lines = self.last.as_ref()?.lines.iter();
@@ -327,11 +335,14 @@ fn masked_hash(pixels: &[u8], layout: &PixelLayout, mask: &PixelRect) -> u64 {
     hasher.finish()
 }
 
-/// Recognizes the lines of text in `image`, which shows `size` points of the screen.
-fn recognize(image: &CGImage, size: CGSize) -> Option<Vec<RecognizedLine>> {
+/// Recognizes the lines of text in `image`, which shows `size` points of the screen, at `level`.
+fn recognize(image: &CGImage, size: CGSize, level: OcrLevel) -> Option<Vec<RecognizedLine>> {
     // SAFETY: plain calls on new objects.
     let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
-    request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+    request.setRecognitionLevel(match level {
+        OcrLevel::Fast => VNRequestTextRecognitionLevel::Fast,
+        OcrLevel::Accurate => VNRequestTextRecognitionLevel::Accurate,
+    });
     request.setUsesLanguageCorrection(true);
     request.setAutomaticallyDetectsLanguage(true);
     // SAFETY: an empty dictionary is a valid set of options.

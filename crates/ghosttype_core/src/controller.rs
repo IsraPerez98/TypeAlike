@@ -1545,7 +1545,7 @@ mod tests {
 
         assert!(matches!(
             harness.take_calls()[..],
-            [Call::ReadScreen(_, ScreenSource::Ocr)]
+            [Call::ReadScreen(_, ScreenSource::Ocr(_))]
         ));
     }
 
@@ -1612,8 +1612,8 @@ mod tests {
             harness.saved(),
             vec![Settings {
                 screen_text: ScreenTextSettings {
-                    access: ScreenTextAccess::Allowed,
                     apps: vec![mail_app(true)],
+                    ..ScreenTextSettings::default()
                 },
                 ..Settings::default()
             }]
@@ -1635,7 +1635,7 @@ mod tests {
                 clipboard_access: ClipboardAccess::Allowed,
                 screen_text: ScreenTextSettings {
                     access: ScreenTextAccess::Denied,
-                    apps: Vec::new(),
+                    ..ScreenTextSettings::default()
                 },
                 ..Settings::default()
             }]
@@ -1663,8 +1663,8 @@ mod tests {
     fn app_switched_off_reads_no_screen() {
         let mut harness = Harness::new(Settings {
             screen_text: ScreenTextSettings {
-                access: ScreenTextAccess::Allowed,
                 apps: vec![mail_app(true)],
+                ..ScreenTextSettings::default()
             },
             ..Settings::default()
         });
