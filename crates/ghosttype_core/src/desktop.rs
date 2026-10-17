@@ -38,8 +38,15 @@ impl fmt::Debug for FieldText {
 pub struct Surroundings {
     /// The name of the app, as the user knows it, for example "Mail".
     pub app_name: Option<String>,
+    /// The id of the app: its bundle identifier on macOS, for example "com.apple.mail", or the
+    /// file name of its program on Windows, for example "OUTLOOK.EXE".
+    pub app_id: Option<String>,
     /// The title of the focused window, for example "Re: Q3 budget review".
     pub window_title: Option<String>,
+    /// The label of the focused field, for example "Message" or "Subject".
+    pub field_label: Option<String>,
+    /// The host of the web page that holds the focused field, for example "mail.google.com".
+    pub domain: Option<String>,
     /// The text of the focused field, or `None` when the platform cannot read the field.
     pub field_text: Option<FieldText>,
 }
@@ -49,7 +56,10 @@ impl fmt::Debug for Surroundings {
         formatter
             .debug_struct("Surroundings")
             .field("has_app_name", &self.app_name.is_some())
+            .field("has_app_id", &self.app_id.is_some())
             .field("has_window_title", &self.window_title.is_some())
+            .field("has_field_label", &self.field_label.is_some())
+            .field("has_domain", &self.domain.is_some())
             .field("field_text", &self.field_text)
             .finish()
     }
@@ -76,7 +86,10 @@ mod tests {
     fn debug_does_not_reveal_text_or_window() {
         let surroundings = Surroundings {
             app_name: Some("Mail".to_owned()),
+            app_id: Some("com.apple.mail".to_owned()),
             window_title: Some("secret title".to_owned()),
+            field_label: Some("secret label".to_owned()),
+            domain: Some("secret.example.com".to_owned()),
             field_text: Some(FieldText {
                 before_caret: "secret before".to_owned(),
                 after_caret: "secret after".to_owned(),

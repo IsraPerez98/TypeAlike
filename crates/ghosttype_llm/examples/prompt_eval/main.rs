@@ -9,14 +9,16 @@
 //! Each line of the case file is one JSON object with these keys:
 //!
 //! - `id`: a unique name.
-//! - `app`, `window_title`, `field_label`: the place where the writer types, or `null`.
+//! - `app`, `app_id`, `window_title`, `domain`, `field_label`: the place where the writer types,
+//!   or `null`. `app_id` is a bundle identifier on macOS or a program file name on Windows.
+//!   `domain` is the host of the web page.
 //! - `before`, `after`: the text of the field before and after the caret.
 //! - `clipboard`: the text on the clipboard, or `null`.
 //! - `screen`: the lines of text near the field, outside of it.
 //! - `history`: earlier passages by the same writer.
 //! - `next`: the text that the writer typed next.
 //!
-//! The prompt does not read `field_label`, `screen` and `history` yet. The eval uses the default
+//! The prompt does not read `screen` and `history` yet. The eval uses the default
 //! settings with the clipboard allowed. It opens a field that holds `before` without its last
 //! character, types that character and waits for the ghost text. A case matches when the word that
 //! the first Tab types is the first word of `next`. Signs after the word do not count. The report
@@ -93,8 +95,9 @@ impl Arguments {
 struct Case {
     id: String,
     app: Option<String>,
+    app_id: Option<String>,
     window_title: Option<String>,
-    #[expect(dead_code, reason = "the prompt does not read the field label yet")]
+    domain: Option<String>,
     field_label: Option<String>,
     before: String,
     after: String,
@@ -175,7 +178,10 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
     let field = CaseField {
         surroundings: Surroundings {
             app_name: case.app.clone(),
+            app_id: case.app_id.clone(),
             window_title: case.window_title.clone(),
+            field_label: case.field_label.clone(),
+            domain: case.domain.clone(),
             field_text: Some(FieldText {
                 before_caret: before,
                 after_caret: case.after.clone(),

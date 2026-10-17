@@ -57,6 +57,17 @@ impl UiaCaret {
         field_text_of(&self.focused_element()?)
     }
 
+    /// Reads the label of the focused control: its name, else its help text.
+    pub(crate) fn field_label(&self) -> Option<String> {
+        let element = self.focused_element()?;
+        // SAFETY: plain calls on an interface of this thread.
+        let labels = unsafe { [element.CurrentName(), element.CurrentHelpText()] };
+        labels
+            .into_iter()
+            .filter_map(|label| label.ok().map(|label| label.to_string()))
+            .find(|label| !label.trim().is_empty())
+    }
+
     fn focused_element(&self) -> Option<IUIAutomationElement> {
         // SAFETY: plain call on an interface of this thread.
         unsafe { self.automation.GetFocusedElement() }.ok()

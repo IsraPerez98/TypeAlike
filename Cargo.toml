@@ -118,6 +118,7 @@ objc2-core-foundation = { version = "0.3.2", default-features = false, features 
     "CFNumber",
     "CFRunLoop",
     "CFString",
+    "CFURL",
 ] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = [
     "std",

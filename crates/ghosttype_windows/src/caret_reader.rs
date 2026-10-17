@@ -43,6 +43,8 @@ pub(crate) struct FieldRead {
     pub(crate) window: WindowId,
     /// The text around the caret of the focused field, or `None` when GhostType cannot read it.
     pub(crate) text: Option<FieldText>,
+    /// The label of the focused field, or `None` when it has none.
+    pub(crate) label: Option<String>,
 }
 
 /// A read that the shell asks for.
@@ -110,7 +112,13 @@ fn answer_reads(
                 .as_ref()
                 .and_then(UiaCaret::field_text)
                 .or_else(focus::edit_field_text);
-            field_texts.send(FieldRead { id, window, text });
+            let label = uia.as_ref().and_then(UiaCaret::field_label);
+            field_texts.send(FieldRead {
+                id,
+                window,
+                text,
+                label,
+            });
         }
     }
 }
@@ -140,8 +148,8 @@ impl NewestReads {
     }
 }
 
-/// The field text of the newest read, kept while no input or focus change can have changed the
-/// field. The hooks use it, because they cannot wait for UIA.
+/// The newest read of the field text and label, kept while no input or focus change can have
+/// changed the field. The hooks use it, because they cannot wait for UIA.
 #[derive(Debug, Default)]
 pub(crate) struct KeptFieldText {
     newest: FieldReadId,
@@ -168,13 +176,9 @@ impl KeptFieldText {
         }
     }
 
-    /// Returns the kept text when it is the text of a field in `window`.
-    pub(crate) fn text_in(&self, window: WindowId) -> Option<FieldText> {
-        self.kept
-            .as_ref()
-            .filter(|read| read.window == window)?
-            .text
-            .clone()
+    /// Returns the kept read when it is the read of a field in `window`.
+    pub(crate) fn read_in(&self, window: WindowId) -> Option<&FieldRead> {
+        self.kept.as_ref().filter(|read| read.window == window)
     }
 }
 
@@ -307,6 +311,7 @@ mod tests {
                 before_caret: "Dear Ana,".to_owned(),
                 after_caret: String::new(),
             }),
+            label: Some("Message".to_owned()),
         }
     }
 
@@ -318,7 +323,7 @@ mod tests {
 
         kept.keep(read.clone());
 
-        assert_eq!(kept.text_in(window(1)), read.text);
+        assert_eq!(kept.read_in(window(1)), Some(&read));
     }
 
     #[test]
@@ -329,7 +334,7 @@ mod tests {
 
         kept.keep(stale);
 
-        assert_eq!(kept.text_in(window(1)), None);
+        assert_eq!(kept.read_in(window(1)), None);
     }
 
     #[test]
@@ -339,7 +344,7 @@ mod tests {
 
         kept.forget();
 
-        assert_eq!(kept.text_in(window(1)), None);
+        assert_eq!(kept.read_in(window(1)), None);
     }
 
     #[test]
@@ -347,9 +352,9 @@ mod tests {
         let mut kept = KeptFieldText::default();
         kept.keep(field_read(kept.newest(), window(1)));
 
-        let text = kept.text_in(window(2));
+        let read = kept.read_in(window(2));
 
-        assert_eq!(text, None);
+        assert_eq!(read, None);
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod hub;
 pub mod inference;
 pub mod key;
 pub mod models_pane;
+mod place;
 pub mod playground;
 mod prompt;
 pub mod settings;

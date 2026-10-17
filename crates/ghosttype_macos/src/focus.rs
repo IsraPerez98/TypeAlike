@@ -13,7 +13,7 @@ use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
-    CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CGFloat, CGRect,
+    CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat, CGRect, Type,
 };
 
 use crate::clipboard;
@@ -28,6 +28,15 @@ const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const VALUE_ATTRIBUTE: &str = "AXValue";
 const WINDOW_ATTRIBUTE: &str = "AXWindow";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
+const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
+const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
+const ROLE_ATTRIBUTE: &str = "AXRole";
+const PARENT_ATTRIBUTE: &str = "AXParent";
+const URL_ATTRIBUTE: &str = "AXURL";
+const WEB_AREA_ROLE: &str = "AXWebArea";
+const WINDOW_ROLE: &str = "AXWindow";
+/// The most elements that GhostType reads on the way up from the focused field to its web area.
+const MAX_WEB_AREA_DISTANCE: usize = 64;
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
 const ENHANCED_USER_INTERFACE_ATTRIBUTE: &str = "AXEnhancedUserInterface";
 const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
@@ -66,6 +75,7 @@ pub(crate) struct FocusTracker {
     system_wide: CFRetained<AXUIElement>,
     frontmost_process: Option<i32>,
     frontmost_name: Option<String>,
+    frontmost_app_id: Option<String>,
     is_frontmost_eligible: bool,
 }
 
@@ -82,6 +92,7 @@ impl FocusTracker {
             system_wide,
             frontmost_process: None,
             frontmost_name: None,
+            frontmost_app_id: None,
             is_frontmost_eligible: false,
         }
     }
@@ -100,6 +111,10 @@ impl FocusTracker {
             .as_ref()
             .and_then(|application| application.localizedName())
             .map(|name| name.to_string());
+        self.frontmost_app_id = frontmost
+            .as_ref()
+            .and_then(|application| application.bundleIdentifier())
+            .map(|identifier| identifier.to_string());
         self.is_frontmost_eligible = frontmost_process.is_some_and(|process| !is_own_process(process));
         if let Some(application) = frontmost.filter(|_| self.is_frontmost_eligible) {
             wake_web_accessibility(&application);
@@ -144,7 +159,10 @@ impl Desktop for FocusTracker {
         let element = self.focused_element();
         Surroundings {
             app_name: self.frontmost_name.clone(),
+            app_id: self.frontmost_app_id.clone(),
             window_title: element.as_deref().and_then(window_title),
+            field_label: element.as_deref().and_then(field_label),
+            domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
         }
     }
@@ -221,6 +239,33 @@ fn window_title(element: &AXUIElement) -> Option<String> {
         .downcast::<AXUIElement>()
         .ok()?;
     copy_string(&window, TITLE_ATTRIBUTE)
+}
+
+/// Reads the label of `element`: its placeholder, else its description, else its title.
+fn field_label(element: &AXUIElement) -> Option<String> {
+    [PLACEHOLDER_ATTRIBUTE, DESCRIPTION_ATTRIBUTE, TITLE_ATTRIBUTE]
+        .into_iter()
+        .filter_map(|attribute| copy_string(element, attribute))
+        .find(|label| !label.trim().is_empty())
+}
+
+/// Reads the host of the web page that holds `element`, from the URL of the nearest web area
+/// above it in its window.
+fn web_domain(element: &AXUIElement) -> Option<String> {
+    let mut current = element.retain();
+    for _ in 0..MAX_WEB_AREA_DISTANCE {
+        match copy_string(&current, ROLE_ATTRIBUTE).as_deref() {
+            Some(WEB_AREA_ROLE) => return url_host(&current),
+            Some(WINDOW_ROLE) | None => return None,
+            Some(_) => current = copy_attribute(&current, PARENT_ATTRIBUTE)?.downcast().ok()?,
+        }
+    }
+    None
+}
+
+fn url_host(element: &AXUIElement) -> Option<String> {
+    let url = copy_attribute(element, URL_ATTRIBUTE)?.downcast::<CFURL>().ok()?;
+    url.host_name().map(|host| host.to_string())
 }
 
 /// Reads the text around the selection of `element`, by range, or from its whole value when it

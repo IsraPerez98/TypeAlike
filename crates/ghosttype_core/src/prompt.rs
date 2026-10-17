@@ -5,12 +5,14 @@
 
 use crate::desktop::{MAX_CHARS_AFTER_CARET, Surroundings};
 use crate::inference::{Prompt, SystemPrompt};
+use crate::place::Format;
 
 const MAX_WINDOW_TITLE_CHARS: usize = 120;
+const MAX_FIELD_LABEL_CHARS: usize = 120;
 const MAX_CLIPBOARD_CHARS: usize = 500;
 
-/// Returns what the model reads before the text: the system prompt, the app and window, the
-/// `clipboard` text and the text after the caret. Each part that is empty is left out.
+/// Returns what the model reads before the text: the system prompt, the place where the user
+/// types, the `clipboard` text and the text after the caret. Each part that is empty is left out.
 pub(crate) fn preface(
     system_prompt: &SystemPrompt,
     surroundings: &Surroundings,
@@ -53,26 +55,38 @@ pub(crate) fn last_chars(text: &str, count: usize) -> &str {
         .map_or("", |(start, _)| &text[start..])
 }
 
-/// The app and the window, as one line. A window title that names the app stands alone.
+/// Where the user types, as one line of labeled parts. A window title that names the app stands
+/// without the app.
 fn place(surroundings: &Surroundings) -> Option<String> {
-    let app = surroundings
-        .app_name
-        .as_deref()
-        .map(str::trim)
-        .and_then(non_empty);
-    let window = surroundings
-        .window_title
-        .as_deref()
-        .map(|title| first_chars(title.trim(), MAX_WINDOW_TITLE_CHARS))
-        .and_then(non_empty);
-    match (app, window) {
-        (Some(app), Some(window)) if window.to_lowercase().contains(&app.to_lowercase()) => {
-            Some(window.to_owned())
-        }
-        (Some(app), Some(window)) => Some(format!("{app} - {window}")),
-        (Some(name), None) | (None, Some(name)) => Some(name.to_owned()),
-        (None, None) => None,
-    }
+    let app = one_line(surroundings.app_name.as_deref(), usize::MAX);
+    let title = one_line(surroundings.window_title.as_deref(), MAX_WINDOW_TITLE_CHARS);
+    let names_app = matches!((&app, &title), (Some(app), Some(title))
+        if title.to_lowercase().contains(&app.to_lowercase()));
+    let parts = [
+        (
+            "Format",
+            Format::of(surroundings).map(|format| format.name().to_owned()),
+        ),
+        ("App", app.filter(|_| !names_app)),
+        ("Title", title),
+        (
+            "Field",
+            one_line(surroundings.field_label.as_deref(), MAX_FIELD_LABEL_CHARS),
+        ),
+    ];
+    let line = parts
+        .into_iter()
+        .filter_map(|(name, value)| Some(format!("{name}: {}", value?)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    (!line.is_empty()).then_some(line)
+}
+
+/// Returns the first `count` characters of `text` with each run of whitespace as one space, or
+/// `None` when it has no other characters.
+fn one_line(text: Option<&str>, count: usize) -> Option<String> {
+    let line = text?.split_whitespace().collect::<Vec<_>>().join(" ");
+    non_empty(first_chars(&line, count)).map(str::to_owned)
 }
 
 fn first_chars(text: &str, count: usize) -> &str {
@@ -98,7 +112,7 @@ mod tests {
         Surroundings {
             app_name: app_name.map(str::to_owned),
             window_title: window_title.map(str::to_owned),
-            field_text: None,
+            ..Surroundings::default()
         }
     }
 
@@ -115,6 +129,8 @@ mod tests {
     #[test]
     fn preface_goes_from_system_prompt_to_text_after_the_caret() {
         let surroundings = Surroundings {
+            app_id: Some("com.apple.mail".to_owned()),
+            field_label: Some("Message".to_owned()),
             field_text: Some(FieldText {
                 before_caret: "Hi ".to_owned(),
                 after_caret: "\n\n> Priya wrote\n".to_owned(),
@@ -126,7 +142,7 @@ mod tests {
 
         assert_eq!(
             preface,
-            "Formal.\nMail - Re: Budget\nText on the clipboard: “1Z999”\nText after the caret: “> Priya wrote”"
+            "Formal.\nFormat: email; App: Mail; Title: Re: Budget; Field: Message\nText on the clipboard: “1Z999”\nText after the caret: “> Priya wrote”"
         );
     }
 
@@ -140,15 +156,15 @@ mod tests {
     #[test]
     fn place_names_the_app_and_the_window() {
         let cases = [
-            (Some("Mail"), Some("Re: Budget"), "Mail - Re: Budget"),
+            (Some("Mail"), Some("Re: Budget"), "App: Mail; Title: Re: Budget"),
             (
                 Some("Slack"),
                 Some("#design - Acme - Slack"),
-                "#design - Acme - Slack",
+                "Title: #design - Acme - Slack",
             ),
-            (Some("Notes"), None, "Notes"),
-            (None, Some("Re: Budget"), "Re: Budget"),
-            (Some(" "), Some("Re: Budget"), "Re: Budget"),
+            (Some("Notes"), None, "App: Notes"),
+            (None, Some("Re: Budget"), "Title: Re: Budget"),
+            (Some(" "), Some("Re: Budget"), "Title: Re: Budget"),
         ];
 
         let prefaces =
@@ -158,12 +174,43 @@ mod tests {
     }
 
     #[test]
+    fn web_page_gives_the_format_of_the_place() {
+        let surroundings = Surroundings {
+            app_id: Some("com.google.Chrome".to_owned()),
+            domain: Some("mail.google.com".to_owned()),
+            field_label: Some("Message Body".to_owned()),
+            ..surroundings(Some("Google Chrome"), Some("Inbox - Gmail - Google Chrome"))
+        };
+
+        let preface = preface(&SystemPrompt::default(), &surroundings, None);
+
+        assert_eq!(
+            preface,
+            "Format: email; Title: Inbox - Gmail - Google Chrome; Field: Message Body"
+        );
+    }
+
+    #[test]
+    fn place_stays_on_one_line() {
+        let surroundings = Surroundings {
+            field_label: Some(" Message\n  body ".to_owned()),
+            ..surroundings(None, Some("Re:\tBudget"))
+        };
+
+        let preface = preface(&SystemPrompt::default(), &surroundings, None);
+
+        assert_eq!(preface, "Title: Re: Budget; Field: Message body");
+    }
+
+    #[test]
     fn long_parts_keep_their_start() {
         let title = "t".repeat(MAX_WINDOW_TITLE_CHARS + 1);
+        let label = "l".repeat(MAX_FIELD_LABEL_CHARS + 1);
         let clipboard = "c".repeat(MAX_CLIPBOARD_CHARS + 1);
         let after = "a".repeat(MAX_CHARS_AFTER_CARET + 1);
         let surroundings = Surroundings {
             window_title: Some(title),
+            field_label: Some(label),
             ..with_text_after(&after)
         };
 
@@ -172,8 +219,9 @@ mod tests {
         assert_eq!(
             preface,
             format!(
-                "{}\nText on the clipboard: “{}”\nText after the caret: “{}”",
+                "Title: {}; Field: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
                 "t".repeat(MAX_WINDOW_TITLE_CHARS),
+                "l".repeat(MAX_FIELD_LABEL_CHARS),
                 "c".repeat(MAX_CLIPBOARD_CHARS),
                 "a".repeat(MAX_CHARS_AFTER_CARET)
             )

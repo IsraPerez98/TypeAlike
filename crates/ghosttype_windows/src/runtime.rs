@@ -418,8 +418,12 @@ impl Desktop for Win32Shell {
     }
 
     fn surroundings(&self) -> Surroundings {
-        let field_text = self.kept_field_text.text_in(self.focus.foreground());
-        self.focus.surroundings(field_text)
+        let field = self.kept_field_text.read_in(self.focus.foreground());
+        Surroundings {
+            field_text: field.and_then(|read| read.text.clone()),
+            field_label: field.and_then(|read| read.label.clone()),
+            ..self.focus.surroundings()
+        }
     }
 
     fn clipboard_text(&self) -> Option<String> {

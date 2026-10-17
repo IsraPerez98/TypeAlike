@@ -5,6 +5,7 @@ use std::{fmt, mem};
 use crate::desktop::{Desktop, MAX_CHARS_BEFORE_CARET};
 use crate::inference::{Completion, InferenceError, InferenceRequest, Prompt, SystemPrompt, TokenCount};
 use crate::key::Key;
+use crate::place;
 use crate::prompt::{self, last_chars};
 use crate::settings::{ClipboardAccess, Settings, SuggestionLength};
 
@@ -50,6 +51,8 @@ pub(crate) struct Engine {
 struct Session {
     preface: String,
     text_before: String,
+    /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
+    is_excluded: bool,
 }
 
 #[derive(Default)]
@@ -93,12 +96,16 @@ impl Engine {
     }
 
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
-    /// request that decodes its prompt before the first key. Its completion adds no text.
+    /// request that decodes its prompt before the first key. Its completion adds no text. `None`
+    /// when a session runs or the field gets no suggestions.
     pub fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
         if self.session.is_some() {
             return None;
         }
         let session = self.start_session(desktop);
+        if session.is_excluded {
+            return None;
+        }
         let prompt = prompt::prompt(&session.preface, &session.text_before);
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Some(InferenceRequest::Complete {
@@ -176,6 +183,7 @@ impl Engine {
             Session {
                 preface: prompt::preface(system_prompt, &surroundings, clipboard.as_deref()),
                 text_before,
+                is_excluded: place::is_address_or_subject_field(&surroundings),
             }
         })
     }
@@ -244,9 +252,10 @@ impl Engine {
         })
     }
 
-    /// Returns the prompt for the text before the caret, or `None` when that text has no words.
+    /// Returns the prompt for the text before the caret, or `None` when that text has no words or
+    /// the field gets no suggestions.
     fn prompt(&self) -> Option<Prompt> {
-        let session = self.session.as_ref()?;
+        let session = self.session.as_ref().filter(|session| !session.is_excluded)?;
         let has_words = !session.text_before.trim().is_empty();
         has_words.then(|| prompt::prompt(&session.preface, &session.text_before))
     }
@@ -360,6 +369,17 @@ mod tests {
                         before_caret: before_caret.to_owned(),
                         after_caret: String::new(),
                     }),
+                    ..Surroundings::default()
+                },
+                ..Self::default()
+            }
+        }
+
+        fn in_field(app_id: &str, field_label: &str) -> Self {
+            Self {
+                surroundings: Surroundings {
+                    app_id: Some(app_id.to_owned()),
+                    field_label: Some(field_label.to_owned()),
                     ..Surroundings::default()
                 },
                 ..Self::default()
@@ -1149,6 +1169,36 @@ mod tests {
         let reaction = engine.on_completion(completion("d"));
 
         assert_eq!(reaction, show("d"));
+    }
+
+    #[test]
+    fn address_field_of_an_email_gets_no_request() {
+        let mut engine = Engine::default();
+
+        let reaction = engine.on_key(Key::Char('a'), &FakeDesktop::in_field("com.apple.mail", "To:"));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn subject_field_of_an_email_is_not_prepared() {
+        let mut engine = Engine::default();
+
+        let request = engine.prepare(&FakeDesktop::in_field("com.apple.mail", "Subject"));
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn body_of_an_email_gets_a_request() {
+        let mut engine = Engine::default();
+
+        let reaction = engine.on_key(
+            Key::Char('a'),
+            &FakeDesktop::in_field("com.apple.mail", "Message"),
+        );
+
+        assert!(matches!(reaction, Reaction::Request(_)), "{reaction:?}");
     }
 
     #[test]

@@ -74,6 +74,7 @@ impl From<HWND> for WindowId {
 pub(crate) struct FocusTracker {
     foreground: HWND,
     foreground_app_name: Option<String>,
+    foreground_app_id: Option<String>,
     is_foreground_eligible: bool,
     is_self_elevated: bool,
 }
@@ -85,6 +86,7 @@ impl FocusTracker {
         Self {
             foreground: HWND::default(),
             foreground_app_name: None,
+            foreground_app_id: None,
             is_foreground_eligible: false,
             is_self_elevated,
         }
@@ -100,9 +102,12 @@ impl FocusTracker {
         self.foreground = foreground;
         let process_id = process_id(foreground);
         self.is_foreground_eligible = self.is_eligible_process(process_id);
-        self.foreground_app_name = process_image_path(process_id)
-            .ok()
-            .and_then(|path| app_name(&path));
+        let image_path = process_image_path(process_id).ok();
+        self.foreground_app_name = image_path.as_deref().and_then(app_name);
+        self.foreground_app_id = image_path
+            .as_deref()
+            .and_then(program_file_name)
+            .map(str::to_owned);
         FocusChange::Changed
     }
 
@@ -120,13 +125,14 @@ impl FocusTracker {
         self.foreground.into()
     }
 
-    /// Reads the app and the title of the foreground window, around the `field_text` of its
-    /// focused field.
-    pub(crate) fn surroundings(&self, field_text: Option<FieldText>) -> Surroundings {
+    /// Reads the app and the title of the foreground window. The focused field is for the caller
+    /// to read.
+    pub(crate) fn surroundings(&self) -> Surroundings {
         Surroundings {
             app_name: self.foreground_app_name.clone(),
+            app_id: self.foreground_app_id.clone(),
             window_title: window_title(self.foreground),
-            field_text,
+            ..Surroundings::default()
         }
     }
 
@@ -188,9 +194,16 @@ fn process_image_path(process_id: u32) -> Result<String> {
 
 /// Names an app by the file name of its program, without the extension.
 fn app_name(image_path: &str) -> Option<String> {
-    let file_name = image_path.rsplit(['\\', '/']).next()?;
+    let file_name = program_file_name(image_path)?;
     let name = file_name.rsplit_once('.').map_or(file_name, |(stem, _)| stem);
     (!name.is_empty()).then(|| name.to_owned())
+}
+
+fn program_file_name(image_path: &str) -> Option<&str> {
+    image_path
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|name| !name.is_empty())
 }
 
 /// Locates the system caret of the focused control in the foreground window, when it has one.
@@ -445,6 +458,22 @@ mod tests {
         let names = cases.map(|(path, _)| app_name(path));
 
         assert_eq!(names, cases.map(|(_, name)| name.map(str::to_owned)));
+    }
+
+    #[test]
+    fn app_id_is_the_file_name_of_its_program() {
+        let cases = [
+            (
+                r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE",
+                Some("OUTLOOK.EXE"),
+            ),
+            ("slack.exe", Some("slack.exe")),
+            (r"C:\Apps\", None),
+        ];
+
+        let ids = cases.map(|(path, _)| program_file_name(path));
+
+        assert_eq!(ids, cases.map(|(_, id)| id));
     }
 
     #[test]

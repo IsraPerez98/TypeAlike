@@ -1,40 +1,40 @@
-{"id":"en-email-04","kind":"next_word","suggestion":"proposed terms. We're happy to","is_match":false,"millis":321}
-{"id":"en-email-08","kind":"next_word","suggestion":"documents for the apartment. Please take a","is_match":false,"millis":277}
-{"id":"en-email-12","kind":"next_word","suggestion":"feel free to reach out to Aisha.","is_match":false,"millis":280}
-{"id":"en-email-16","kind":"partial_word","suggestion":"ternoon there. I'm just settling","is_match":true,"millis":272}
-{"id":"en-chat-04","kind":"partial_word","suggestion":"is.","is_match":false,"millis":147}
-{"id":"en-chat-08","kind":"next_word","suggestion":"go.","is_match":true,"millis":149}
-{"id":"en-chat-12","kind":"next_word","suggestion":"renewal date for the Henderson account? I","is_match":false,"millis":275}
-{"id":"en-chat-16","kind":"next_word","suggestion":"[Name],","is_match":false,"millis":170}
-{"id":"en-doc-04","kind":"next_word","suggestion":"14 Orchard Lane, [City","is_match":true,"millis":276}
-{"id":"en-doc-08","kind":"partial_word","suggestion":"ter.","is_match":true,"millis":265}
+{"id":"en-email-04","kind":"next_word","suggestion":"proposed terms. We're happy to","is_match":false,"millis":324}
+{"id":"en-email-08","kind":"next_word","suggestion":"documents for the apartment. Please take a","is_match":false,"millis":281}
+{"id":"en-email-12","kind":"next_word","suggestion":"reach out to Aisha. She has access","is_match":true,"millis":287}
+{"id":"en-email-16","kind":"partial_word","suggestion":"ternoon there. I'm just settling","is_match":true,"millis":277}
+{"id":"en-chat-04","kind":"partial_word","suggestion":"is.","is_match":false,"millis":148}
+{"id":"en-chat-08","kind":"next_word","suggestion":"go.","is_match":true,"millis":145}
+{"id":"en-chat-12","kind":"next_word","suggestion":"renewal date for the Henderson account? I","is_match":false,"millis":278}
+{"id":"en-chat-16","kind":"next_word","suggestion":"Priya, hope you're having a","is_match":true,"millis":276}
+{"id":"en-doc-04","kind":"next_word","suggestion":"14 Orchard Lane, [City","is_match":true,"millis":277}
+{"id":"en-doc-08","kind":"partial_word","suggestion":"ter, and we saw a 1","is_match":true,"millis":400}
 {"id":"en-doc-12","kind":"partial_word","suggestion":"ipt.","is_match":true,"millis":144}
-{"id":"en-doc-16","kind":"partial_word","suggestion":"ra.","is_match":true,"millis":169}
-{"id":"en-form-04","kind":"partial_word","suggestion":"or message and the invoice is not sent","is_match":true,"millis":277}
-{"id":"en-form-08","kind":"next_word","suggestion":"I am passionate about creating intuitive and beautiful","is_match":true,"millis":275}
-{"id":"en-form-12","kind":"next_word","suggestion":" that future workshops could benefit from more","is_match":false,"millis":272}
-{"id":"en-form-16","kind":"next_word","suggestion":"page of the SafeRoad Insurance website is","is_match":false,"millis":273}
-{"id":"es-email-04","kind":"next_word","suggestion":"CL-482109","is_match":false,"millis":283}
-{"id":"es-email-08","kind":"partial_word","suggestion":"or.","is_match":true,"millis":145}
-{"id":"es-email-12","kind":"next_word","suggestion":"XXX.","is_match":false,"millis":175}
-{"id":"es-email-16","kind":"next_word","suggestion":"versión roja. El azul transmite una sensación","is_match":false,"millis":277}
-{"id":"es-chat-04","kind":"partial_word","suggestion":"do, ¿o no?","is_match":true,"millis":273}
-{"id":"es-chat-08","kind":"next_word","suggestion":"casa?","is_match":true,"millis":144}
-{"id":"es-chat-12","kind":"partial_word","suggestion":"ing. ¿Hay alguien que pueda ayudar","is_match":true,"millis":273}
-{"id":"es-chat-16","kind":"next_word","suggestion":"los detalles.","is_match":false,"millis":134}
-{"id":"es-doc-04","kind":"next_word","suggestion":"huevos","is_match":true,"millis":119}
-{"id":"es-doc-08","kind":"partial_word","suggestion":"ños","is_match":true,"millis":124}
-{"id":"es-doc-12","kind":"next_word","suggestion":"la atmósfera opresiva y la tensión","is_match":true,"millis":282}
-{"id":"es-doc-16","kind":"partial_word","suggestion":"fín.","is_match":true,"millis":175}
+{"id":"en-doc-16","kind":"partial_word","suggestion":"ra.","is_match":true,"millis":170}
+{"id":"en-form-04","kind":"partial_word","suggestion":"or message and the invoice is not sent","is_match":true,"millis":280}
+{"id":"en-form-08","kind":"next_word","suggestion":"I am passionate about creating intuitive and beautiful","is_match":true,"millis":274}
+{"id":"en-form-12","kind":"next_word","suggestion":" that future workshops could benefit from more","is_match":false,"millis":281}
+{"id":"en-form-16","kind":"next_word","suggestion":"bumper has a noticeable scuff mark on","is_match":true,"millis":274}
+{"id":"es-email-04","kind":"next_word","suggestion":"CL-482109","is_match":false,"millis":281}
+{"id":"es-email-08","kind":"partial_word","suggestion":"or.","is_match":true,"millis":147}
+{"id":"es-email-12","kind":"next_word","suggestion":"XXX.","is_match":false,"millis":177}
+{"id":"es-email-16","kind":"next_word","suggestion":"anterior. Tiene un toque más moderno y","is_match":false,"millis":278}
+{"id":"es-chat-04","kind":"partial_word","suggestion":"do, ¿o no?","is_match":true,"millis":274}
+{"id":"es-chat-08","kind":"next_word","suggestion":"casa? Yo llegué como a las","is_match":true,"millis":274}
+{"id":"es-chat-12","kind":"partial_word","suggestion":"ing. ¿Hay alguien que pueda ayudar","is_match":true,"millis":279}
+{"id":"es-chat-16","kind":"next_word","suggestion":"los puntos.","is_match":false,"millis":170}
+{"id":"es-doc-04","kind":"next_word","suggestion":"huevos","is_match":true,"millis":116}
+{"id":"es-doc-08","kind":"partial_word","suggestion":"ños","is_match":true,"millis":123}
+{"id":"es-doc-12","kind":"next_word","suggestion":"la atmósfera opresiva y la jer","is_match":true,"millis":285}
+{"id":"es-doc-16","kind":"partial_word","suggestion":"fín.","is_match":true,"millis":177}
 {"id":"es-form-04","kind":"next_word","suggestion":"SOL-2024-1","is_match":false,"millis":278}
-{"id":"es-form-08","kind":"next_word","suggestion":"2024","is_match":false,"millis":221}
-{"id":"es-form-12","kind":"partial_word","suggestion":"nes - 1234","is_match":false,"millis":273}
-{"id":"es-form-16","kind":"next_word","suggestion":"hice.","is_match":false,"millis":143}
+{"id":"es-form-08","kind":"next_word","suggestion":"2024.","is_match":false,"millis":254}
+{"id":"es-form-12","kind":"partial_word","suggestion":"ndajes","is_match":false,"millis":199}
+{"id":"es-form-16","kind":"next_word","suggestion":"recomendaría. Creo que es muy rápido","is_match":true,"millis":274}
 {"id":"en-long-04","kind":"next_word","suggestion":"Winnipeg.","is_match":true,"millis":626}
-{"id":"en-long-08","kind":"next_word","suggestion":"Fernwood, and I believe it would","is_match":true,"millis":898}
-{"id":"en-long-10","kind":"partial_word","suggestion":"tate to ask.","is_match":true,"millis":934}
-{"id":"en-long-12","kind":"next_word","suggestion":"recommend the Northfield ProBlend 9","is_match":true,"millis":898}
+{"id":"en-long-08","kind":"next_word","suggestion":"Fernwood, and I believe it would","is_match":true,"millis":902}
+{"id":"en-long-10","kind":"partial_word","suggestion":"tate to ask.","is_match":true,"millis":933}
+{"id":"en-long-12","kind":"next_word","suggestion":"recommend the Northfield ProBlend 9","is_match":true,"millis":905}
 {"id":"es-long-04","kind":"partial_word","suggestion":"puesta.","is_match":true,"millis":498}
-{"id":"es-long-06","kind":"next_word","suggestion":"Rancagua, con un correo específico que","is_match":true,"millis":877}
-{"id":"es-long-09","kind":"next_word","suggestion":"picnómetro. Anotad la","is_match":true,"millis":1128}
-{"id":"es-long-12","kind":"next_word","suggestion":"fiesta.","is_match":false,"millis":628}
+{"id":"es-long-06","kind":"next_word","suggestion":"Rancagua, en la dirección [Dire","is_match":true,"millis":876}
+{"id":"es-long-09","kind":"next_word","suggestion":"picnómetro. Anotad la","is_match":true,"millis":1129}
+{"id":"es-long-12","kind":"next_word","suggestion":"fiesta.","is_match":false,"millis":635}
