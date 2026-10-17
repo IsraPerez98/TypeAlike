@@ -49,11 +49,6 @@ impl Font {
         Err(Error::new(E_FAIL, "none of the font faces is installed"))
     }
 
-    /// Raw font handle, valid while `self` lives.
-    pub(crate) fn handle(&self) -> HFONT {
-        *self.0
-    }
-
     fn create(face: &str, height: FontHeight) -> Result<Self> {
         let height = match height {
             FontHeight::Cell(pixels) => pixels,
@@ -281,11 +276,6 @@ impl PixelSection {
         })
     }
 
-    /// The bitmap as a GDI object to select into a device context, valid while `self` lives.
-    pub(crate) fn object(&self) -> HGDIOBJ {
-        HGDIOBJ(self.bitmap.0)
-    }
-
     /// Pixels of the section, top row first.
     ///
     /// # Safety
@@ -310,11 +300,6 @@ impl MemoryContext {
             return Err(Error::from_thread());
         }
         Ok(Self { handle })
-    }
-
-    /// Raw context handle, valid while `self` lives.
-    pub(crate) fn handle(&self) -> HDC {
-        self.handle
     }
 
     /// Selects `object` until the returned selection drops.

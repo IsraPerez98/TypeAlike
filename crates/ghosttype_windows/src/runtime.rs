@@ -16,11 +16,12 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DefWindowProcW, HC_ACTION, HHOOK, HOOKPROC, KBDLLHOOKSTRUCT, KillTimer, PostMessageW,
-    PostQuitMessage, RegisterWindowMessageW, SetTimer, SetWindowsHookExW, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINDOW_EX_STYLE, WINDOWS_HOOK_ID, WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASS_STYLES, WS_OVERLAPPED,
+    CallNextHookEx, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, HOOKPROC,
+    KBDLLHOOKSTRUCT, KillTimer, MSG, PostMessageW, PostQuitMessage, RegisterWindowMessageW, SetTimer,
+    SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID,
+    WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, w};
 
@@ -31,13 +32,10 @@ use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
 use crate::mailbox::Mailbox;
 use crate::overlay::Overlay;
-#[cfg(feature = "reactor")]
-use crate::reactor_settings::SettingsThread;
-#[cfg(not(feature = "reactor"))]
-use crate::settings_thread::SettingsThread;
+use crate::settings::SettingsThread;
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
-use crate::window::{self, Window, WindowSpec};
+use crate::window::{Window, WindowSpec};
 
 const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
@@ -46,6 +44,8 @@ const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
+const QUIT_RECEIVED: i32 = 0;
+const READ_FAILED: i32 = -1;
 
 /// Everything Win32 callbacks on this thread can reach.
 struct ThreadState {
@@ -66,10 +66,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let window = Window::create(WindowSpec {
         class_name: w!("GhostType.Main"),
         procedure: Some(main_window_procedure),
-        class_style: WNDCLASS_STYLES::default(),
         style: WS_OVERLAPPED,
         extended_style: WINDOW_EX_STYLE::default(),
-        parent: None,
     })
     .map_err(RunError::during("create the main window"))?;
     let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
@@ -107,7 +105,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         }))
     });
     tracing::info!("running in the tray");
-    let result = window::pump_messages(|_| false).map_err(RunError::during("read the message queue"));
+    let result = pump_messages();
     drop((keyboard_hook, mouse_hook));
     STATE.with(|state| state.runtime.take());
     result
@@ -120,6 +118,24 @@ fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Re
     let hook = unsafe { SetWindowsHookExW(kind, procedure, Some(module.into()), 0) }?;
     // SAFETY: SetWindowsHookExW returned a valid hook that nothing else owns.
     Ok(unsafe { Owned::new(hook) })
+}
+
+fn pump_messages() -> Result<(), RunError> {
+    let mut message = MSG::default();
+    loop {
+        // SAFETY: `message` is a local the call fills in.
+        match unsafe { GetMessageW(&raw mut message, None, 0, 0) }.0 {
+            QUIT_RECEIVED => return Ok(()),
+            READ_FAILED => return Err(RunError::during("read the message queue")(Error::from_thread())),
+            _ => {}
+        }
+        // SAFETY: `message` was just filled in by GetMessageW.
+        unsafe {
+            // Returns whether a character message was produced, not an error.
+            let _ = TranslateMessage(&raw const message);
+            DispatchMessageW(&raw const message);
+        }
+    }
 }
 
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {

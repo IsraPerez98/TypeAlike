@@ -1,55 +1,23 @@
-//! Windows owned by GhostType, and the classes that GhostType registers for them.
-
-use std::rc::Rc;
+//! Windows owned by GhostType, each with a class of its own.
 
 use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, IDC_ARROW, LoadCursorW, MSG,
-    RegisterClassExW, TranslateMessage, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES,
-    WNDCLASSEXW, WNDPROC,
+    CreateWindowExW, DestroyWindow, IDC_ARROW, LoadCursorW, RegisterClassExW, UnregisterClassW,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC,
 };
 use windows::core::{Error, PCWSTR, Result};
-
-const QUIT_RECEIVED: i32 = 0;
-const READ_FAILED: i32 = -1;
-
-/// Runs the message loop of this thread until it gets `WM_QUIT`. `pre_translate` sees each
-/// message first, and the loop skips the messages that it handles.
-pub(crate) fn pump_messages(mut pre_translate: impl FnMut(&MSG) -> bool) -> Result<()> {
-    let mut message = MSG::default();
-    loop {
-        // SAFETY: `message` is a local the call fills in.
-        match unsafe { GetMessageW(&raw mut message, None, 0, 0) }.0 {
-            QUIT_RECEIVED => return Ok(()),
-            READ_FAILED => return Err(Error::from_thread()),
-            _ => {}
-        }
-        if pre_translate(&message) {
-            continue;
-        }
-        // SAFETY: `message` was just filled in by GetMessageW.
-        unsafe {
-            // Returns whether a character message was produced, not an error.
-            let _ = TranslateMessage(&raw const message);
-            DispatchMessageW(&raw const message);
-        }
-    }
-}
 
 /// What a window looks like to the system.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WindowSpec {
     pub(crate) class_name: PCWSTR,
     pub(crate) procedure: WNDPROC,
-    pub(crate) class_style: WNDCLASS_STYLES,
     pub(crate) style: WINDOW_STYLE,
     pub(crate) extended_style: WINDOW_EX_STYLE,
-    /// The window that contains this one, for a child window.
-    pub(crate) parent: Option<HWND>,
 }
 
-/// A window, destroyed on drop. Its class goes away with the last window of it.
+/// A top-level window, destroyed on drop. Its class goes away with it.
 #[derive(Debug)]
 pub(crate) struct Window {
     handle: HWND,
@@ -57,13 +25,31 @@ pub(crate) struct Window {
         dead_code,
         reason = "held to unregister the class after the window is destroyed"
     )]
-    class: Rc<WindowClass>,
+    class: WindowClass,
 }
 
 impl Window {
     /// Registers a class of its own and creates a hidden window of it.
     pub(crate) fn create(spec: WindowSpec) -> Result<Self> {
-        WindowClass::register(spec)?.create_window()
+        let class = WindowClass::register(&spec)?;
+        // SAFETY: the class is registered while `class` lives; the static names outlive the call.
+        let handle = unsafe {
+            CreateWindowExW(
+                spec.extended_style,
+                spec.class_name,
+                spec.class_name,
+                spec.style,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                Some(class.instance),
+                None,
+            )
+        }?;
+        Ok(Self { handle, class })
     }
 
     /// Raw window handle, valid while `self` lives.
@@ -81,17 +67,16 @@ impl Drop for Window {
     }
 }
 
-/// A registered class, and how its windows look to the system. It is unregistered when it and
-/// all of its windows are gone.
+/// A registered window class, unregistered on drop.
 #[derive(Debug)]
-pub(crate) struct WindowClass {
-    spec: WindowSpec,
+struct WindowClass {
+    name: PCWSTR,
     instance: HINSTANCE,
 }
 
 impl WindowClass {
     /// Registers the class of `spec`.
-    pub(crate) fn register(spec: WindowSpec) -> Result<Rc<Self>> {
+    fn register(spec: &WindowSpec) -> Result<Self> {
         // SAFETY: plain call.
         let instance: HINSTANCE = unsafe { GetModuleHandleW(None) }?.into();
         // SAFETY: plain call that loads a shared system cursor, which is never freed.
@@ -100,7 +85,6 @@ impl WindowClass {
             cbSize: size_of::<WNDCLASSEXW>()
                 .try_into()
                 .expect("class size fits in u32"),
-            style: spec.class_style,
             lpfnWndProc: spec.procedure,
             hInstance: instance,
             hCursor: cursor,
@@ -111,41 +95,17 @@ impl WindowClass {
         if unsafe { RegisterClassExW(&raw const class) } == 0 {
             return Err(Error::from_thread());
         }
-        Ok(Rc::new(Self { spec, instance }))
-    }
-
-    /// Creates a hidden window of this class, with the styles and the parent of its spec.
-    pub(crate) fn create_window(self: &Rc<Self>) -> Result<Window> {
-        let spec = self.spec;
-        // SAFETY: the class is registered while `self` lives; the static names outlive the call.
-        let handle = unsafe {
-            CreateWindowExW(
-                spec.extended_style,
-                spec.class_name,
-                spec.class_name,
-                spec.style,
-                0,
-                0,
-                0,
-                0,
-                spec.parent,
-                None,
-                Some(self.instance),
-                None,
-            )
-        }?;
-        Ok(Window {
-            handle,
-            class: Rc::clone(self),
+        Ok(Self {
+            name: spec.class_name,
+            instance,
         })
     }
 }
 
 impl Drop for WindowClass {
     fn drop(&mut self) {
-        // SAFETY: the class was registered by this type, and each of its windows holds it, so
-        // they are all destroyed.
-        if let Err(error) = unsafe { UnregisterClassW(self.spec.class_name, Some(self.instance)) } {
+        // SAFETY: the class was registered by this type, and its window is destroyed before it.
+        if let Err(error) = unsafe { UnregisterClassW(self.name, Some(self.instance)) } {
             tracing::warn!(%error, "failed to unregister window class");
         }
     }

@@ -17,8 +17,6 @@ path = "src/main.rs"
 # Vulkan SDK, the CUDA Toolkit) and its runtime at run time (a GPU driver, the CUDA DLLs).
 vulkan = ["ghosttype_llm/vulkan"]
 cuda = ["ghosttype_llm/cuda"]
-# Draws the Windows settings window with WinUI 3 (a prototype, see docs/gui-unification-plan.md).
-reactor = ["ghosttype_windows/reactor"]
 
 [dependencies]
 anyhow.workspace = true

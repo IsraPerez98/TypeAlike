@@ -1,6 +1,6 @@
-//! Embeds the Windows application manifest. It selects version 6 of the common controls, so
-//! settings controls draw with the current visual styles. It also declares Windows 10 and 11
-//! support, which layered child windows need to show Mica behind the settings controls.
+//! Embeds the Windows application manifest. It selects version 6 of the common controls, so the
+//! tray menu and dialogs draw with the current visual styles. It also declares Windows 10 and 11
+//! support, so Windows runs GhostType without the compatibility mode for older apps.
 
 fn main() {
     let is_windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")

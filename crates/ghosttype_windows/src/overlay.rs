@@ -4,8 +4,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, GetSysColor};
 use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, HWND_TOPMOST, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-    SetWindowPos, ShowWindow, WNDCLASS_STYLES, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    SetWindowPos, ShowWindow, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{Result, w};
 
@@ -26,14 +26,12 @@ impl Overlay {
         let window = Window::create(WindowSpec {
             class_name: w!("GhostType.Overlay"),
             procedure: Some(overlay_procedure),
-            class_style: WNDCLASS_STYLES::default(),
             style: WS_POPUP,
             extended_style: WS_EX_NOACTIVATE
                 | WS_EX_TRANSPARENT
                 | WS_EX_LAYERED
                 | WS_EX_TOOLWINDOW
                 | WS_EX_TOPMOST,
-            parent: None,
         })?;
         Ok(Self { window })
     }

@@ -12,7 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{HICON, SM_CXSMICON, WM_APP, WM_CON
 use windows::core::{Owned, Result};
 
 use crate::gdi::glyph_icon;
-use crate::menu::{self, MenuPlacement};
+use crate::menu;
 use crate::pixels::Rgb;
 use crate::system_theme::is_taskbar_light;
 
@@ -117,7 +117,7 @@ impl Drop for Tray {
 /// Shows the tray menu at `anchor` and returns the picked command, if any.
 pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> Result<Option<TrayCommand>> {
     let labels: Vec<&str> = items.iter().map(|item| item.label).collect();
-    let picked = menu::pick(window, &labels, None, MenuPlacement::AboveCursor(anchor))?;
+    let picked = menu::pick(window, &labels, anchor)?;
     Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }
 

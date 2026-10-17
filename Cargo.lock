@@ -242,7 +242,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "windows",
- "windows-numerics",
  "windows-reactor",
 ]
 

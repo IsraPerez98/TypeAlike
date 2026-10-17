@@ -1,514 +1,460 @@
-//! A scrolling child window that holds the controls of one settings pane, and draws its cards,
-//! the frames of its text fields and its scroll bar.
-//!
-//! A text field lets the pointer through where it shows its color key, so the page gets most of
-//! the pointer input over a field. The page finds the field under the pointer for that input.
+//! The controls of one settings page, built from the sections and rows of the core view.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
-use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::Graphics::Gdi::{
-    InvalidateRect, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RedrawWindow,
+use ghosttype_core::settings_view::{
+    self as view, Accessory, ControlId, Item, Note, NoteTone, Output, Page, Picker, Row, SearchField,
+    Section, SettingsInput, Switch, TextArea, TextField,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+use windows_reactor::{
+    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, FontWeight, Grid, GridLength,
+    KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback, ScrollViewer,
+    StackPanel, Symbol, TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch,
+    VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, GetClientRect, SW_HIDE, SW_SHOWNA, SetWindowTextW, ShowWindow, WNDPROC, WS_CHILD,
-    WS_CLIPCHILDREN, WS_EX_CONTROLPARENT,
-};
-use windows::core::{HSTRING, Result, w};
 
-use crate::settings::appearance::Appearance;
-use crate::settings::controls;
-use crate::settings::layout::{Bounds, Point, ScrollBar, ScrollBarSizes, ScrollMove, clamp_scroll, reveal};
-use crate::settings::paint::{self, FieldPaint, FieldState, PaintSession};
-use crate::window::{Window, WindowClass, WindowSpec};
+use super::{PageMessage, SettingsPage};
 
-const WHEEL_SCROLL: i32 = 120;
-const WHEEL_DELTA: i32 = 120;
-const SCROLL_GUTTER: i32 = 12;
-const THUMB_WIDTH: i32 = 2;
-const EXPANDED_THUMB_WIDTH: i32 = 6;
-const THUMB_EDGE_GAP: i32 = 3;
-const MIN_THUMB: i32 = 24;
+const PAGE_MARGIN: Thickness = Thickness::new(56.0, 32.0, 56.0, 32.0);
+const PAGE_MAX_WIDTH: f64 = 1000.0;
+const TITLE_SIZE: f64 = 28.0;
+const CAPTION_SIZE: f64 = 12.0;
+const SECONDARY_OPACITY: f64 = 0.75;
+const SECTION_GAP: f64 = 28.0;
+const HEADING_GAP: f64 = 8.0;
+const CARD_GAP: f64 = 4.0;
+const CARD_PADDING: Thickness = Thickness::xy(16.0, 12.0);
+const CARD_MIN_HEIGHT: f64 = 68.0;
+const CARD_RADIUS: f64 = 4.0;
+const CARD_STROKE: f64 = 1.0;
+const CONTROL_GAP: f64 = 16.0;
+const PICKER_MIN_WIDTH: f64 = 200.0;
+const TEXT_AREA_MIN_HEIGHT: f64 = 160.0;
+const PROGRESS_WIDTH: f64 = 120.0;
+const PERMILLE_MAX: f64 = 1000.0;
+const RING_SIZE: f64 = 16.0;
 
-/// Something the page draws behind its controls, in content coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Shape {
-    /// The surface of a group of controls.
-    Card(Bounds),
-    /// The frame of a text field.
-    Field(FieldShape),
+/// Builds the controls of a page from its core sections and rows.
+pub(super) struct Renderer<'page, 'view> {
+    pub(super) context: &'page ViewContext<'view, SettingsPage>,
+    pub(super) typed: &'page HashMap<ControlId, String>,
 }
 
-/// The frame around the edit control of a text field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FieldShape {
-    pub(crate) frame: Bounds,
-    /// Where the edit control shows its text.
-    pub(crate) text_area: Bounds,
-    pub(crate) edit: HWND,
-    pub(crate) placeholder: &'static str,
-}
-
-impl Shape {
-    fn scrolled(self, offset: i32) -> Self {
-        match self {
-            Self::Card(card) => Self::Card(card.scrolled(offset)),
-            Self::Field(field) => Self::Field(FieldShape {
-                frame: field.frame.scrolled(offset),
-                text_area: field.text_area.scrolled(offset),
-                ..field
-            }),
-        }
-    }
-}
-
-/// A text field under the pointer, with the pointer in the coordinates of its edit control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FieldPoint {
-    pub(crate) edit: HWND,
-    pub(crate) point: Point,
-}
-
-/// The part of the page that shows the pointer over it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Hover {
-    Gutter,
-    /// The frame of the text field with this edit control.
-    Field(HWND),
-}
-
-/// What the pointer did over the page itself, outside its controls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Pointer {
-    Move(Point),
-    Press(Point),
-    Release,
-    Leave,
-    /// Another window took the mouse capture.
-    CaptureLost,
-}
-
-/// A drag of the scroll bar thumb: where the pointer and the offset were when it started.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ThumbDrag {
-    start_y: i32,
-    start_offset: i32,
-}
-
-/// The window of one pane, with the scroll offset and shapes of its last layout.
-#[derive(Debug)]
-pub(crate) struct Page {
-    window: Window,
-    offset: i32,
-    content_height: i32,
-    shapes: Vec<Shape>,
-    hover: Option<Hover>,
-    drag: Option<ThumbDrag>,
-}
-
-impl Page {
-    /// Registers the class of the pages in `parent`, whose messages go to `procedure`.
-    pub(crate) fn register_class(procedure: WNDPROC, parent: HWND) -> Result<Rc<WindowClass>> {
-        WindowClass::register(WindowSpec {
-            class_name: w!("GhostType.SettingsPage"),
-            procedure,
-            class_style: CS_DBLCLKS,
-            style: WS_CHILD | WS_CLIPCHILDREN,
-            extended_style: WS_EX_CONTROLPARENT,
-            parent: Some(parent),
-        })
+impl Renderer<'_, '_> {
+    /// The page at `index` of the view, with its header, its search field and its sections.
+    pub(super) fn page(&self, index: usize, page: &Page) -> View {
+        let header = [
+            keyed(
+                format!("{index} title"),
+                TextBlock::new()
+                    .text(page.title)
+                    .font_size(TITLE_SIZE)
+                    .font_weight(FontWeight::SEMI_BOLD),
+            ),
+            keyed(
+                format!("{index} summary"),
+                secondary_text(page.summary).margin(Thickness::new(0.0, 0.0, 0.0, HEADING_GAP)),
+            ),
+        ];
+        let search = page
+            .search
+            .as_ref()
+            .map(|field| keyed(format!("{index} search"), self.search(field)));
+        let sections = page
+            .sections
+            .iter()
+            .enumerate()
+            .flat_map(|(section_index, section)| self.section(&format!("{index} {section_index}"), section));
+        let column = StackPanel::new()
+            .spacing(CARD_GAP)
+            .max_width(PAGE_MAX_WIDTH)
+            .margin(PAGE_MARGIN)
+            .keyed_children(header.into_iter().chain(search).chain(sections));
+        ScrollViewer::new().content(column).into()
     }
 
-    /// Creates a hidden page of `class`, see [`Self::register_class`].
-    pub(crate) fn create(class: &Rc<WindowClass>) -> Result<Self> {
-        let window = class.create_window()?;
-        Ok(Self {
-            window,
-            offset: 0,
-            content_height: 0,
-            shapes: Vec::new(),
-            hover: None,
-            drag: None,
-        })
+    fn search(&self, field: &SearchField) -> View {
+        let box_view = AutoSuggestBox::new()
+            .text(self.typed_text(&field.id))
+            .placeholder_text(field.placeholder)
+            .query_icon(Symbol::Find)
+            .automation_name(field.placeholder)
+            .on_text_changed(self.typed_callback(&field.id));
+        self.submit_on_enter(&field.id, box_view.into())
     }
 
-    pub(crate) fn handle(&self) -> HWND {
-        self.window.handle()
-    }
-
-    /// Names the page for screen readers.
-    pub(crate) fn set_title(&self, title: &str) {
-        // SAFETY: plain call on a window this type owns.
-        if let Err(error) = unsafe { SetWindowTextW(self.handle(), &HSTRING::from(title)) } {
-            tracing::warn!(%error, "failed to name settings page");
-        }
-    }
-
-    pub(crate) fn show(&self) {
-        // Returns the previous visibility, not an error.
-        // SAFETY: plain call on a window this type owns.
-        let _ = unsafe { ShowWindow(self.handle(), SW_SHOWNA) };
-    }
-
-    pub(crate) fn hide(&self) {
-        // Returns the previous visibility, not an error.
-        // SAFETY: plain call on a window this type owns.
-        let _ = unsafe { ShowWindow(self.handle(), SW_HIDE) };
-    }
-
-    /// The client area, where the controls go.
-    pub(crate) fn viewport(&self) -> Bounds {
-        let mut client = RECT::default();
-        // SAFETY: plain call on a window this type owns; `client` is a local the call fills in.
-        if let Err(error) = unsafe { GetClientRect(self.handle(), &raw mut client) } {
-            tracing::warn!(%error, "failed to read settings page size");
-        }
-        Bounds {
-            x: 0,
-            y: 0,
-            width: client.right,
-            height: client.bottom,
-        }
-    }
-
-    /// The offset that the next layout must move the controls up by.
-    pub(crate) fn offset(&self) -> i32 {
-        self.offset
-    }
-
-    /// Stores the result of a layout made at [`Self::offset`]. Returns whether the offset had to
-    /// change to fit the content, in which case the layout must run again.
-    pub(crate) fn finish_layout(&mut self, content_height: i32, shapes: Vec<Shape>) -> bool {
-        self.content_height = content_height;
-        self.shapes = shapes;
-        let fitted = clamp_scroll(self.offset, content_height, self.viewport().height);
-        let has_moved = fitted != self.offset;
-        self.offset = fitted;
-        self.repaint();
-        has_moved
-    }
-
-    /// Applies a scroll request. Returns whether the offset changed, in which case the layout must run again.
-    pub(crate) fn scroll(&mut self, scroll: ScrollMove) -> bool {
-        let viewport_height = self.viewport().height;
-        let target = clamp_scroll(
-            scroll.target(self.offset, viewport_height),
-            self.content_height,
-            viewport_height,
-        );
-        let has_moved = target != self.offset;
-        self.offset = target;
-        has_moved
-    }
-
-    /// Scrolls so that `bounds`, placed at the current offset, is fully visible.
-    pub(crate) fn reveal(&mut self, bounds: Bounds) -> bool {
-        let target = reveal(self.offset, bounds, self.viewport().height);
-        self.scroll(ScrollMove::To(target))
-    }
-
-    /// The text field whose frame contains `point`, a point of the page.
-    pub(crate) fn field_at(&self, point: Point) -> Option<FieldPoint> {
-        field_at(&self.shapes, self.offset, point)
-    }
-
-    /// Converts a mouse wheel rotation, in `WHEEL_DELTA` units up, to a scroll.
-    pub(crate) fn wheel_move(rotation: i32, appearance: &Appearance) -> ScrollMove {
-        ScrollMove::By(-rotation * appearance.px(WHEEL_SCROLL) / WHEEL_DELTA)
-    }
-
-    /// Reacts to the pointer over the page: it hovers and drags the scroll bar. Returns the
-    /// scroll it asks for.
-    pub(crate) fn on_pointer(&mut self, pointer: Pointer, appearance: &Appearance) -> Option<ScrollMove> {
-        match pointer {
-            Pointer::Move(point) => {
-                if let Some(drag) = self.drag {
-                    let bar = self.scroll_bar(appearance)?;
-                    return Some(ScrollMove::To(
-                        bar.offset_after_drag(drag.start_offset, point.y - drag.start_y),
-                    ));
-                }
-                let hover = self.hover_at(point, appearance);
-                if hover.is_some() && hover != self.hover {
-                    self.watch_pointer_leave();
-                }
-                self.show_hover(hover);
-                None
-            }
-            Pointer::Press(point) => {
-                let bar = self.scroll_bar(appearance)?;
-                if bar.thumb_band().contains(point) {
-                    self.drag = Some(ThumbDrag {
-                        start_y: point.y,
-                        start_offset: self.offset,
-                    });
-                    // SAFETY: plain call on a window this type owns; it returns the previous capture.
-                    unsafe { SetCapture(self.handle()) };
-                    None
-                } else if bar.gutter.contains(point) {
-                    Some(if point.y < bar.thumb.y {
-                        ScrollMove::PageUp
-                    } else {
-                        ScrollMove::PageDown
-                    })
-                } else {
-                    None
-                }
-            }
-            Pointer::Release => {
-                if self.drag.take().is_some() {
-                    // SAFETY: plain call; it releases the capture this page took for the drag.
-                    if let Err(error) = unsafe { ReleaseCapture() } {
-                        tracing::debug!(%error, "failed to release the mouse capture");
-                    }
-                    self.repaint();
-                }
-                None
-            }
-            Pointer::Leave => {
-                if self.drag.is_none() {
-                    self.show_hover(None);
-                }
-                None
-            }
-            Pointer::CaptureLost => {
-                self.drag = None;
-                self.repaint();
-                None
-            }
-        }
-    }
-
-    fn hover_at(&self, point: Point, appearance: &Appearance) -> Option<Hover> {
-        if self
-            .scroll_bar(appearance)
-            .is_some_and(|bar| bar.gutter.contains(point))
-        {
-            return Some(Hover::Gutter);
-        }
-        self.field_at(point).map(|field| Hover::Field(field.edit))
-    }
-
-    fn show_hover(&mut self, hover: Option<Hover>) {
-        if self.hover != hover {
-            self.hover = hover;
-            self.repaint();
-        }
-    }
-
-    fn watch_pointer_leave(&self) {
-        let mut tracking = TRACKMOUSEEVENT {
-            cbSize: size_of::<TRACKMOUSEEVENT>()
-                .try_into()
-                .expect("tracking size fits in u32"),
-            dwFlags: TME_LEAVE,
-            hwndTrack: self.handle(),
-            dwHoverTime: 0,
-        };
-        // SAFETY: `tracking` is a local whose size is set as the call requires.
-        if let Err(error) = unsafe { TrackMouseEvent(&raw mut tracking) } {
-            tracing::debug!(%error, "failed to track the pointer leaving");
-        }
-    }
-
-    fn scroll_bar(&self, appearance: &Appearance) -> Option<ScrollBar> {
-        let is_expanded = self.hover == Some(Hover::Gutter) || self.drag.is_some();
-        let thumb_width = if is_expanded {
-            EXPANDED_THUMB_WIDTH
-        } else {
-            THUMB_WIDTH
-        };
-        let sizes = ScrollBarSizes {
-            gutter: appearance.px(SCROLL_GUTTER),
-            thumb_width: appearance.px(thumb_width),
-            edge_gap: appearance.px(THUMB_EDGE_GAP),
-            min_thumb: appearance.px(MIN_THUMB),
-        };
-        ScrollBar::place(self.viewport(), self.content_height, self.offset, sizes)
-    }
-
-    fn repaint(&self) {
-        // Returns whether it invalidated; a failure only delays the repaint.
-        // SAFETY: plain call on a window this type owns; the repaint happens later in WM_PAINT.
-        let _ = unsafe { InvalidateRect(Some(self.handle()), None, false) };
-    }
-
-    /// Repaints the page and its controls with a new appearance.
-    pub(crate) fn apply(&self) {
-        // Returns whether it redrew; a failure only delays the repaint.
-        // SAFETY: plain call on a window this type owns.
-        let _ = unsafe {
-            RedrawWindow(
-                Some(self.handle()),
-                None,
-                None,
-                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+    fn section(&self, key: &str, section: &Section) -> Vec<KeyedView> {
+        let heading = (section.heading.is_some() || section.back.is_some()).then(|| {
+            let back = section
+                .back
+                .as_ref()
+                .map(|back| self.button(back, ButtonStyle::Subtle));
+            let title = section.heading.as_ref().map(|heading| {
+                TextBlock::new()
+                    .text(heading)
+                    .font_weight(FontWeight::SEMI_BOLD)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .text_wrapping(TextWrapping::Wrap)
+                    .into()
+            });
+            keyed(
+                format!("{key} heading"),
+                StackPanel::new()
+                    .orientation(Orientation::Horizontal)
+                    .spacing(HEADING_GAP)
+                    .margin(Thickness::new(0.0, SECTION_GAP, 0.0, HEADING_GAP))
+                    .children(back.into_iter().chain(title).collect::<Vec<View>>()),
             )
-        };
-    }
-
-    /// Paints the cards, the text field frames and the scroll bar. Call only while handling `WM_PAINT`.
-    pub(crate) fn paint(&self, appearance: &Appearance) {
-        let session = PaintSession::begin(self.handle());
-        let scroll_bar = self.scroll_bar(appearance);
-        appearance.paint(session.context(), self.viewport(), |painter| {
-            for shape in &self.shapes {
-                match shape.scrolled(self.offset) {
-                    Shape::Card(card) => paint::card(painter, card, appearance)?,
-                    Shape::Field(field) => {
-                        let is_empty = controls::is_field_empty(field.edit);
-                        let frame = FieldPaint {
-                            frame: field.frame,
-                            text_area: field.text_area,
-                            placeholder: (is_empty && !field.placeholder.is_empty())
-                                .then_some(field.placeholder),
-                            state: self.field_state(field.edit),
-                        };
-                        paint::text_field(painter, &frame, appearance)?;
-                    }
-                }
-            }
-            match scroll_bar {
-                Some(bar) => paint::scroll_thumb(painter, bar.thumb, appearance),
-                None => Ok(()),
-            }
         });
+        let rows = section.rows.iter().enumerate().map(|(row_index, row)| {
+            let id = row.id().map_or("", ControlId::as_str);
+            keyed(format!("{key} {row_index} {id}"), self.row(row))
+        });
+        let footer = section.footer.map(|footer| {
+            keyed(
+                format!("{key} footer"),
+                secondary_text(footer).margin(Thickness::new(0.0, CARD_GAP, 0.0, 0.0)),
+            )
+        });
+        heading.into_iter().chain(rows).chain(footer).collect()
     }
 
-    /// How the text field `edit` draws: hovered also while the pointer is over its frame on the page.
-    fn field_state(&self, edit: HWND) -> FieldState {
-        match controls::field_state(edit) {
-            FieldState::Rest if self.hover == Some(Hover::Field(edit)) => FieldState::Hover,
-            state => state,
+    fn row(&self, row: &Row) -> View {
+        match row {
+            Row::Switch(switch) => self.switch_card(switch),
+            Row::Picker(picker) => self.picker_card(picker),
+            Row::TextArea(area) => self.text_area_card(area),
+            Row::TextField(field) => self.text_field_card(field),
+            Row::Note(note) => card(note_text(note).into()),
+            Row::Output(output) => output_card(output),
+            Row::Item(item) => self.item_card(item),
+            Row::Loading(text) => loading_card(text),
+            Row::Message(message) => self.message_card(message),
         }
     }
-}
 
-/// The text field whose frame, at the scroll `offset`, contains `point`.
-fn field_at(shapes: &[Shape], offset: i32, point: Point) -> Option<FieldPoint> {
-    shapes.iter().find_map(|shape| match shape.scrolled(offset) {
-        Shape::Field(field) if field.frame.contains(point) => Some(FieldPoint {
-            edit: field.edit,
-            point: Point {
-                x: point.x - field.text_area.x,
-                y: point.y - field.text_area.y,
-            },
-        }),
-        Shape::Card(_) | Shape::Field(_) => None,
-    })
-}
+    fn switch_card(&self, switch: &Switch) -> View {
+        let id = switch.id.clone();
+        let toggle = ToggleSwitch::new()
+            .is_on(switch.is_on)
+            .automation_name(switch.label)
+            .on_toggled(self.context.callback(move |is_on| {
+                PageMessage::Input(SettingsInput::Toggled {
+                    id: id.clone(),
+                    is_on,
+                })
+            }));
+        control_card(switch.label, switch.description, None, toggle.into())
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    fn picker_card(&self, picker: &Picker) -> View {
+        let id = picker.id.clone();
+        let menu = ComboBox::new()
+            .items_source(picker.choices.iter().map(String::as_str))
+            .selected_index(picker.selected)
+            .is_enabled(picker.is_enabled)
+            .min_width(PICKER_MIN_WIDTH)
+            .automation_name(picker.label)
+            .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
+                selection.map_or(PageMessage::Ignore, |index| {
+                    PageMessage::Input(SettingsInput::Picked {
+                        id: id.clone(),
+                        index,
+                    })
+                })
+            }));
+        control_card(
+            picker.label,
+            picker.description,
+            picker.note.as_ref(),
+            menu.into(),
+        )
+    }
 
-    const SEARCH: HWND = HWND(std::ptr::without_provenance_mut(1));
-    const PROMPT: HWND = HWND(std::ptr::without_provenance_mut(2));
+    fn text_area_card(&self, area: &TextArea) -> View {
+        let id = area.id.clone();
+        let field = TextBox::new()
+            .text(&area.text)
+            .accepts_return(true)
+            .text_wrapping(TextWrapping::Wrap)
+            .min_height(TEXT_AREA_MIN_HEIGHT)
+            .automation_name(area.label)
+            .on_text_changed(self.context.callback(move |text: Rc<str>| {
+                PageMessage::Input(SettingsInput::Edited {
+                    id: id.clone(),
+                    text: text.to_string(),
+                })
+            }));
+        let button = area
+            .button
+            .as_ref()
+            .map(|button| self.button(button, ButtonStyle::Default));
+        let rows: Vec<View> = [
+            Some(TextBlock::new().text(area.label).into()),
+            (!area.description.is_empty()).then(|| secondary_text(area.description).into()),
+            Some(field.into()),
+            button,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        card(StackPanel::new().spacing(HEADING_GAP).children(rows).into())
+    }
 
-    fn field(edit: HWND, frame: Bounds, text_area: Bounds) -> Shape {
-        Shape::Field(FieldShape {
-            frame,
-            text_area,
-            edit,
-            placeholder: "",
+    fn text_field_card(&self, field: &TextField) -> View {
+        let text_box = TextBox::new()
+            .text(self.typed_text(&field.id))
+            .placeholder_text(field.placeholder)
+            .automation_name(field.label)
+            .on_text_changed(self.typed_callback(&field.id));
+        let input: View = if field.is_submit_enabled {
+            self.submit_on_enter(&field.id, text_box.into())
+        } else {
+            text_box.into()
+        };
+        let submit = Button::new()
+            .content(field.submit_label)
+            .is_enabled(field.is_submit_enabled)
+            .style(ButtonStyle::Accent)
+            .on_click(self.context.message(PageMessage::Submit(field.id.clone())));
+        let line = Grid::new()
+            .columns([GridLength::STAR, GridLength::Auto])
+            .column_spacing(HEADING_GAP)
+            .children((Border::new().grid_column(0).content(input), submit.grid_column(1)));
+        card(
+            StackPanel::new()
+                .spacing(HEADING_GAP)
+                .children((TextBlock::new().text(field.label), line))
+                .into(),
+        )
+    }
+
+    fn item_card(&self, item: &Item) -> View {
+        let texts: Vec<View> = [
+            Some(
+                TextBlock::new()
+                    .text(&item.title)
+                    .text_wrapping(TextWrapping::Wrap)
+                    .into(),
+            ),
+            (!item.subtitle.is_empty()).then(|| secondary_text(&item.subtitle).into()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let trailing: Vec<View> = [
+            (!item.detail.is_empty()).then(|| {
+                secondary_text(&item.detail)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .into()
+            }),
+            self.accessory(&item.accessory),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let trailing = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(CONTROL_GAP)
+            .children(trailing);
+        card(
+            Grid::new()
+                .columns([GridLength::STAR, GridLength::Auto])
+                .column_spacing(CONTROL_GAP)
+                .children((
+                    StackPanel::new()
+                        .vertical_alignment(VerticalAlignment::Center)
+                        .children(texts)
+                        .grid_column(0),
+                    control_with_column(trailing.into()),
+                ))
+                .into(),
+        )
+    }
+
+    fn accessory(&self, accessory: &Accessory) -> Option<View> {
+        match accessory {
+            Accessory::Download(button)
+            | Accessory::Open(button)
+            | Accessory::Installed { delete: button }
+            | Accessory::Failed { retry: button } => Some(self.button(button, ButtonStyle::Default)),
+            Accessory::Downloading { progress, cancel } => Some(
+                StackPanel::new()
+                    .orientation(Orientation::Horizontal)
+                    .spacing(CONTROL_GAP)
+                    .children((
+                        ProgressBar::new()
+                            .maximum(PERMILLE_MAX)
+                            .value(f64::from(progress.0))
+                            .width(PROGRESS_WIDTH)
+                            .vertical_alignment(VerticalAlignment::Center),
+                        self.button(cancel, ButtonStyle::Default),
+                    ))
+                    .into(),
+            ),
+            Accessory::Canceling => Some(
+                ProgressBar::new()
+                    .is_indeterminate(true)
+                    .width(PROGRESS_WIDTH)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .into(),
+            ),
+            Accessory::Unavailable => None,
+        }
+    }
+
+    fn message_card(&self, message: &view::Message) -> View {
+        let retry = message
+            .retry
+            .as_ref()
+            .map(|retry| self.button(retry, ButtonStyle::Default));
+        let text = secondary_text(&message.text).vertical_alignment(VerticalAlignment::Center);
+        card(
+            Grid::new()
+                .columns([GridLength::STAR, GridLength::Auto])
+                .column_spacing(CONTROL_GAP)
+                .children(
+                    [Some(text.grid_column(0).into()), retry.map(control_with_column)]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<View>>(),
+                )
+                .into(),
+        )
+    }
+
+    fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
+        Button::new()
+            .content(button.label)
+            .is_enabled(button.is_enabled)
+            .style(style)
+            .on_click(
+                self.context
+                    .message(PageMessage::Input(SettingsInput::Pressed(button.id.clone()))),
+            )
+            .into()
+    }
+
+    /// Wraps `field` so that the return key in it submits the text of the field `id`.
+    fn submit_on_enter(&self, id: &ControlId, field: View) -> View {
+        let sender = self.context.sender();
+        let id = id.clone();
+        Border::new()
+            .on_key_up(RoutedCallback::new(move |event: KeyEventInfo| {
+                event.key == VirtualKey::ENTER && sender.send(PageMessage::Submit(id.clone()))
+            }))
+            .content(field)
+            .into()
+    }
+
+    fn typed_text(&self, id: &ControlId) -> &str {
+        self.typed.get(id).map_or("", String::as_str)
+    }
+
+    fn typed_callback(&self, id: &ControlId) -> Callback<Rc<str>> {
+        let id = id.clone();
+        self.context.callback(move |text: Rc<str>| PageMessage::Typed {
+            id: id.clone(),
+            text: text.to_string(),
         })
     }
+}
 
-    fn shapes() -> Vec<Shape> {
-        vec![
-            Shape::Card(Bounds {
-                x: 0,
-                y: 0,
-                width: 400,
-                height: 300,
-            }),
-            field(
-                SEARCH,
-                Bounds {
-                    x: 10,
-                    y: 20,
-                    width: 200,
-                    height: 32,
-                },
-                Bounds {
-                    x: 21,
-                    y: 26,
-                    width: 181,
-                    height: 20,
-                },
-            ),
-            field(
-                PROMPT,
-                Bounds {
-                    x: 10,
-                    y: 100,
-                    width: 200,
-                    height: 80,
-                },
-                Bounds {
-                    x: 21,
-                    y: 106,
-                    width: 181,
-                    height: 68,
-                },
-            ),
-        ]
-    }
+fn card(content: View) -> View {
+    Border::new()
+        .background(ThemeBrush::CardBackground)
+        .border_brush(ThemeBrush::CardStroke)
+        .border_thickness(CARD_STROKE)
+        .corner_radius(CARD_RADIUS)
+        .padding(CARD_PADDING)
+        .min_height(CARD_MIN_HEIGHT)
+        .content(content)
+        .into()
+}
 
-    #[test]
-    fn field_at_finds_the_field_under_the_point_in_its_own_coordinates() {
-        let shapes = shapes();
-
-        let found = field_at(&shapes, 0, Point { x: 50, y: 120 });
-
-        assert_eq!(
-            found,
-            Some(FieldPoint {
-                edit: PROMPT,
-                point: Point { x: 29, y: 14 },
-            })
+/// A card with the label and the description at the leading edge and `control` at the trailing
+/// edge.
+fn control_card(label: &str, description: &str, note: Option<&Note>, control: View) -> View {
+    let texts = StackPanel::new()
+        .vertical_alignment(VerticalAlignment::Center)
+        .children(
+            [
+                Some(
+                    TextBlock::new()
+                        .text(label)
+                        .text_wrapping(TextWrapping::Wrap)
+                        .into(),
+                ),
+                (!description.is_empty()).then(|| secondary_text(description).into()),
+                note.map(|note| note_text(note).into()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<View>>(),
         );
-    }
+    card(
+        Grid::new()
+            .columns([GridLength::STAR, GridLength::Auto])
+            .column_spacing(CONTROL_GAP)
+            .children((texts.grid_column(0), control_with_column(control)))
+            .into(),
+    )
+}
 
-    #[test]
-    fn field_at_includes_the_frame_around_the_text() {
-        let shapes = shapes();
+fn control_with_column(control: View) -> View {
+    Border::new()
+        .grid_column(1)
+        .vertical_alignment(VerticalAlignment::Center)
+        .content(control)
+        .into()
+}
 
-        let found = field_at(&shapes, 0, Point { x: 12, y: 22 });
+fn output_card(output: &Output) -> View {
+    card(
+        StackPanel::new()
+            .spacing(CARD_GAP)
+            .children((
+                TextBlock::new()
+                    .text(&output.text)
+                    .text_wrapping(TextWrapping::Wrap)
+                    .is_text_selection_enabled(true),
+                secondary_text(&output.detail),
+            ))
+            .into(),
+    )
+}
 
-        assert_eq!(
-            found,
-            Some(FieldPoint {
-                edit: SEARCH,
-                point: Point { x: -9, y: -4 },
-            })
-        );
-    }
+fn loading_card(text: &str) -> View {
+    card(
+        StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(HEADING_GAP)
+            .vertical_alignment(VerticalAlignment::Center)
+            .children((
+                ProgressRing::new()
+                    .is_active(true)
+                    .is_indeterminate(true)
+                    .width(RING_SIZE)
+                    .height(RING_SIZE),
+                secondary_text(text).vertical_alignment(VerticalAlignment::Center),
+            ))
+            .into(),
+    )
+}
 
-    #[test]
-    fn field_at_follows_the_scroll_offset() {
-        let shapes = shapes();
+fn secondary_text(text: &str) -> TextBlock {
+    TextBlock::new()
+        .text(text)
+        .font_size(CAPTION_SIZE)
+        .opacity(SECONDARY_OPACITY)
+        .text_wrapping(TextWrapping::Wrap)
+}
 
-        let found = field_at(&shapes, 90, Point { x: 50, y: 30 });
-
-        assert_eq!(
-            found,
-            Some(FieldPoint {
-                edit: PROMPT,
-                point: Point { x: 29, y: 14 },
-            })
-        );
-    }
-
-    #[test]
-    fn field_at_ignores_points_outside_every_frame() {
-        let shapes = shapes();
-
-        let found = field_at(&shapes, 0, Point { x: 300, y: 60 });
-
-        assert_eq!(found, None);
+fn note_text(note: &Note) -> TextBlock {
+    let text = secondary_text(note.text);
+    match note.tone {
+        NoteTone::Plain | NoteTone::Busy => text,
+        NoteTone::Error => text.foreground(ThemeBrush::SystemCritical).opacity(1.0),
     }
 }

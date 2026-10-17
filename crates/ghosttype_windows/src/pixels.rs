@@ -21,26 +21,6 @@ impl Rgb {
         blue: 255,
     };
 
-    /// A gray with all three channels at `level`.
-    pub(crate) const fn gray(level: u8) -> Self {
-        Self {
-            red: level,
-            green: level,
-            blue: level,
-        }
-    }
-
-    /// A color one blue step away, which looks the same but never compares equal.
-    #[must_use]
-    pub(crate) const fn neighbor(self) -> Self {
-        let blue = if self.blue == u8::MAX {
-            self.blue - 1
-        } else {
-            self.blue + 1
-        };
-        Self { blue, ..self }
-    }
-
     /// Reads a Win32 `COLORREF` value laid out as `0x00BBGGRR`.
     pub(crate) fn from_colorref(value: u32) -> Self {
         let [red, green, blue, _] = value.to_le_bytes();
@@ -50,51 +30,6 @@ impl Rgb {
     /// Returns the `COLORREF` value laid out as `0x00BBGGRR`.
     pub(crate) fn to_colorref(self) -> u32 {
         u32::from_le_bytes([self.red, self.green, self.blue, 0])
-    }
-}
-
-/// A color with straight (not premultiplied) alpha, as Fluent design tokens give it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Color {
-    pub(crate) rgb: Rgb,
-    pub(crate) alpha: u8,
-}
-
-impl Color {
-    pub(crate) const TRANSPARENT: Self = Self::argb(0);
-
-    /// Reads `0xAARRGGBB`, the order of Fluent and XAML color literals.
-    pub(crate) const fn argb(value: u32) -> Self {
-        let [blue, green, red, alpha] = value.to_le_bytes();
-        Self {
-            rgb: Rgb { red, green, blue },
-            alpha,
-        }
-    }
-
-    pub(crate) const fn opaque(rgb: Rgb) -> Self {
-        Self { rgb, alpha: u8::MAX }
-    }
-
-    /// The same color at `alpha`.
-    #[must_use]
-    pub(crate) const fn with_alpha(self, alpha: u8) -> Self {
-        Self { alpha, ..self }
-    }
-
-    /// The opaque color seen where this color covers `base`.
-    pub(crate) fn over(self, base: Rgb) -> Rgb {
-        let alpha = u16::from(self.alpha);
-        let full = u16::from(u8::MAX);
-        let blend = |top: u8, bottom: u8| {
-            let mixed = (u16::from(top) * alpha + u16::from(bottom) * (full - alpha)) / full;
-            u8::try_from(mixed).expect("a weighted mean of bytes fits in a byte")
-        };
-        Rgb {
-            red: blend(self.rgb.red, base.red),
-            green: blend(self.rgb.green, base.green),
-            blue: blend(self.rgb.blue, base.blue),
-        }
     }
 }
 
@@ -160,52 +95,5 @@ mod tests {
         let color = Rgb::from_colorref(0x0040_6080);
 
         assert_eq!((color, color.to_colorref()), (GRAY, 0x0040_6080));
-    }
-
-    #[test]
-    fn argb_reads_fluent_color_literal() {
-        let color = Color::argb(0xC580_6040);
-
-        assert_eq!(
-            color,
-            Color {
-                rgb: GRAY,
-                alpha: 0xC5
-            }
-        );
-    }
-
-    #[test]
-    fn translucent_color_blends_over_base() {
-        let card = Color::argb(0x0DFF_FFFF);
-
-        assert_eq!(card.over(Rgb::gray(0x20)), Rgb::gray(0x2B));
-    }
-
-    #[test]
-    fn opaque_color_hides_base() {
-        assert_eq!(Color::opaque(GRAY).over(Rgb::WHITE), GRAY);
-    }
-
-    #[test]
-    fn transparent_color_shows_base() {
-        assert_eq!(Color::TRANSPARENT.over(GRAY), GRAY);
-    }
-
-    #[test]
-    fn neighbor_differs_by_one_blue_step() {
-        assert_eq!(
-            (Rgb::gray(0x20).neighbor(), Rgb::WHITE.neighbor()),
-            (
-                Rgb {
-                    blue: 0x21,
-                    ..Rgb::gray(0x20)
-                },
-                Rgb {
-                    blue: 0xFE,
-                    ..Rgb::WHITE
-                }
-            )
-        );
     }
 }
