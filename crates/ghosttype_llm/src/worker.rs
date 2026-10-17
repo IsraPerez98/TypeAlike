@@ -31,7 +31,8 @@ use llama_cpp_2::{
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
-const CONTEXT_TOKENS: u32 = 2048;
+/// Room for the longest prompt also in a script with few characters for each token, such as Chinese.
+const CONTEXT_TOKENS: u32 = 4096;
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
 /// whole batch while the model stays loaded, so a small batch keeps that memory small.
 const BATCH_TOKENS: u32 = 128;

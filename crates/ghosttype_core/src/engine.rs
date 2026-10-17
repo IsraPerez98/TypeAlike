@@ -12,7 +12,7 @@ const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
-const TRIMMED_CHARS_BEFORE_CARET: usize = 750;
+const TRIMMED_CHARS_BEFORE_CARET: usize = 3000;
 
 /// What the platform must do after a key press, a context change or a completion.
 #[derive(Debug, Clone, PartialEq, Eq)]

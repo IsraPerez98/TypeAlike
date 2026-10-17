@@ -419,13 +419,17 @@ mod tests {
 
     #[test]
     fn ranges_reach_the_limits_around_the_caret() {
-        let ranges = SurroundingRanges::new(range(1500, 0), Some(2000));
+        let max_before = isize::try_from(MAX_CHARS_BEFORE_CARET).unwrap();
+        let max_after = isize::try_from(MAX_CHARS_AFTER_CARET).unwrap();
+        let caret = max_before + 500;
+
+        let ranges = SurroundingRanges::new(range(caret, 0), Some(caret + max_after + 500));
 
         assert_eq!(
             ranges,
             Some(SurroundingRanges {
-                before: range(1500 - 1000, 1000),
-                after: range(1500, 300),
+                before: range(500, max_before),
+                after: range(caret, max_after),
             })
         );
     }
