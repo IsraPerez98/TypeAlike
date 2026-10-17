@@ -4,13 +4,20 @@
 //! most.
 
 use crate::desktop::{ScreenText, Surroundings};
-use crate::inference::{Prompt, SystemPrompt, TokenCount};
+use crate::inference::{Prompt, TokenCount};
 use crate::place::Format;
 use crate::screen;
+use crate::settings::WriterNotes;
 
+/// The start of each preface. The labels of the lines after it depend on it, so the user does not
+/// change it. The user writes [`WriterNotes`] instead.
+pub(crate) const FRAME: &str = "A person types the text below on their computer, for example an email, \
+     a chat message, a note or a document. The writing is clear, natural and correct. It keeps the \
+     language, tone and style of the person who writes it.";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 pub(crate) const PREFACE_TOKENS: TokenCount = TokenCount(2000);
+const NOTES_TOKENS: TokenCount = TokenCount(300);
 const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
 const FIELD_LABEL_TOKENS: TokenCount = TokenCount(40);
 const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
@@ -18,19 +25,21 @@ const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
 const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 
-/// Returns what the model reads before the text: the system prompt, the place where the user
-/// types, the `clipboard` text, the text near the field on the `screen` and the text after the
-/// caret. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in the order of
-/// their priority: the system prompt, the text after the caret, the place, the screen and the
-/// clipboard.
+/// Returns what the model reads before the text: the [`FRAME`], the `notes` of the writer on one
+/// line, the place where the user types, the `clipboard` text, the text near the field on the
+/// `screen` and the text after the caret. Each part that is empty is left out. The parts fill
+/// [`PREFACE_TOKENS`] in the order of their priority: the frame, the notes, the text after the
+/// caret, the place, the screen and the clipboard.
 pub(crate) fn preface(
-    system_prompt: &SystemPrompt,
+    notes: &WriterNotes,
     surroundings: &Surroundings,
     clipboard: Option<&str>,
     screen: Option<&ScreenText>,
 ) -> String {
     let mut budget = Budget(PREFACE_TOKENS);
-    let system_prompt = budget.take_start(system_prompt.0.trim(), PREFACE_TOKENS);
+    budget.spend(FRAME);
+    let notes =
+        one_line(Some(&notes.0), NOTES_TOKENS).map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
     let after_caret = surroundings
         .field_text
         .as_ref()
@@ -48,7 +57,8 @@ pub(crate) fn preface(
     });
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
     let lines = [
-        non_empty(system_prompt).map(str::to_owned),
+        Some(FRAME.to_owned()),
+        notes.map(|text| format!("Notes from the writer: “{text}”")),
         place.filter(|line| !line.is_empty()),
         clipboard
             .and_then(non_empty)
@@ -87,9 +97,6 @@ impl Budget {
 /// Returns the prompt that continues `text_before` after `preface`, with a blank line between
 /// them and no label that the model could copy into its suggestion.
 pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
-    if preface.is_empty() {
-        return Prompt(text_before.to_owned());
-    }
     Prompt(format!("{preface}\n\n{text_before}"))
 }
 
@@ -181,13 +188,33 @@ fn non_empty(text: &str) -> Option<&str> {
     (!text.is_empty()).then_some(text)
 }
 
+/// Returns the prompt with the `lines` of the preface after the [`FRAME`], then `text_before`.
+#[cfg(test)]
+pub(crate) fn framed_prompt(lines: &[&str], text_before: &str) -> Prompt {
+    let preface = [FRAME].iter().chain(lines).copied().collect::<Vec<_>>();
+    prompt(&preface.join("\n"), text_before)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect};
 
-    fn system_prompt(text: &str) -> SystemPrompt {
-        SystemPrompt(text.to_owned())
+    fn notes(text: &str) -> WriterNotes {
+        WriterNotes(text.to_owned())
+    }
+
+    /// Returns the preface that has `lines` after the frame.
+    fn framed(lines: &str) -> String {
+        format!("{FRAME}\n{lines}")
+    }
+
+    /// Returns surroundings whose place line leaves `tokens` of the preface for the parts after
+    /// it.
+    fn surroundings_leaving(tokens: u32) -> Surroundings {
+        let place_tokens = PREFACE_TOKENS.0 - estimated_tokens(FRAME).0 - tokens;
+        let app_name = "a".repeat(3 * usize::try_from(place_tokens).unwrap() - "App: ".len());
+        surroundings(Some(&app_name), None)
     }
 
     fn surroundings(app_name: Option<&str>, window_title: Option<&str>) -> Surroundings {
@@ -216,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn preface_goes_from_system_prompt_to_text_after_the_caret() {
+    fn preface_goes_from_the_frame_to_text_after_the_caret() {
         let surroundings = Surroundings {
             app_id: Some("com.apple.mail".to_owned()),
             field_label: Some("Message".to_owned()),
@@ -227,19 +254,51 @@ mod tests {
             ..surroundings(Some("Mail"), Some("Re: Budget"))
         };
 
-        let preface = preface(&system_prompt(" Formal. "), &surroundings, Some(" 1Z999 "), None);
+        let preface = preface(&notes(" I am a nurse. "), &surroundings, Some(" 1Z999 "), None);
 
         assert_eq!(
             preface,
-            "Formal.\nFormat: email; App: Mail; Title: Re: Budget; Field: Message\nText on the clipboard: “1Z999”\nText after the caret: “> Priya wrote”"
+            framed(
+                "Notes from the writer: “I am a nurse.”\nFormat: email; App: Mail; Title: Re: Budget; Field: Message\nText on the clipboard: “1Z999”\nText after the caret: “> Priya wrote”"
+            )
         );
     }
 
     #[test]
     fn empty_parts_are_left_out() {
-        let preface = preface(&system_prompt(" "), &with_text_after(" \n "), Some(" "), None);
+        let preface = preface(&notes(" \n "), &with_text_after(" \n "), Some(" "), None);
 
-        assert_eq!(preface, "");
+        assert_eq!(preface, FRAME);
+    }
+
+    #[test]
+    fn notes_stay_on_one_line() {
+        let preface = preface(
+            &notes("I am a nurse.\n\n  I write in Spanish."),
+            &Surroundings::default(),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            preface,
+            framed("Notes from the writer: “I am a nurse. I write in Spanish.”")
+        );
+    }
+
+    #[test]
+    fn long_notes_keep_their_start() {
+        let long_notes = ascii_text('n', NOTES_TOKENS, 1);
+
+        let preface = preface(&notes(&long_notes), &Surroundings::default(), None, None);
+
+        assert_eq!(
+            preface,
+            framed(&format!(
+                "Notes from the writer: “{}”",
+                ascii_text('n', NOTES_TOKENS, 0)
+            ))
+        );
     }
 
     #[test]
@@ -256,11 +315,10 @@ mod tests {
             (Some(" "), Some("Re: Budget"), "Title: Re: Budget"),
         ];
 
-        let prefaces = cases.map(|(app, window, _)| {
-            preface(&SystemPrompt::default(), &surroundings(app, window), None, None)
-        });
+        let prefaces = cases
+            .map(|(app, window, _)| preface(&WriterNotes::default(), &surroundings(app, window), None, None));
 
-        assert_eq!(prefaces, cases.map(|(_, _, place)| place.to_owned()));
+        assert_eq!(prefaces, cases.map(|(_, _, place)| framed(place)));
     }
 
     #[test]
@@ -272,11 +330,11 @@ mod tests {
             ..surroundings(Some("Google Chrome"), Some("Inbox - Gmail - Google Chrome"))
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, None, None);
+        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
 
         assert_eq!(
             preface,
-            "Format: email; Title: Inbox - Gmail - Google Chrome; Field: Message Body"
+            framed("Format: email; Title: Inbox - Gmail - Google Chrome; Field: Message Body")
         );
     }
 
@@ -287,9 +345,9 @@ mod tests {
             ..surroundings(None, Some("Re:\tBudget"))
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, None, None);
+        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
 
-        assert_eq!(preface, "Title: Re: Budget; Field: Message body");
+        assert_eq!(preface, framed("Title: Re: Budget; Field: Message body"));
     }
 
     #[test]
@@ -304,17 +362,17 @@ mod tests {
             ..with_text_after(&after)
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, Some(&clipboard), None);
+        let preface = preface(&WriterNotes::default(), &surroundings, Some(&clipboard), None);
 
         assert_eq!(
             preface,
-            format!(
+            framed(&format!(
                 "Title: {}; Field: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
                 ascii_text('t', WINDOW_TITLE_TOKENS, 0),
                 ascii_text('l', FIELD_LABEL_TOKENS, 0),
                 ascii_text('c', CLIPBOARD_TOKENS, 0),
                 ascii_text('a', AFTER_CARET_TOKENS, 0)
-            )
+            ))
         );
     }
 
@@ -346,7 +404,7 @@ mod tests {
         let screen = screen(&[("See you at 7?", 400), ("From: Sam", 300)]);
 
         let preface = preface(
-            &SystemPrompt::default(),
+            &WriterNotes::default(),
             &with_text_after("Best, Ana"),
             Some("1Z999"),
             Some(&screen),
@@ -354,26 +412,36 @@ mod tests {
 
         assert_eq!(
             preface,
-            "Text on the clipboard: “1Z999”\nNearby on screen: “From: Sam\nSee you at 7?”\nText after the caret: “Best, Ana”"
+            framed(
+                "Text on the clipboard: “1Z999”\nNearby on screen: “From: Sam\nSee you at 7?”\nText after the caret: “Best, Ana”"
+            )
         );
     }
 
     #[test]
     fn screen_text_fits_in_what_the_preface_has_left() {
-        let system_prompt = SystemPrompt("s".repeat(3 * usize::try_from(PREFACE_TOKENS.0 - 2).unwrap()));
         let screen = screen(&[("Dinner on Saturday?", 300), ("Hi", 480)]);
 
-        let preface = preface(&system_prompt, &Surroundings::default(), None, Some(&screen));
+        let preface = preface(
+            &WriterNotes::default(),
+            &surroundings_leaving(2),
+            None,
+            Some(&screen),
+        );
 
         assert!(preface.ends_with("\nNearby on screen: “Hi”"), "{preface}");
     }
 
     #[test]
     fn screen_text_keeps_whole_lines() {
-        let system_prompt = SystemPrompt("s".repeat(3 * usize::try_from(PREFACE_TOKENS.0 - 2).unwrap()));
         let screen = screen(&[("abc", 400), ("def", 420)]);
 
-        let preface = preface(&system_prompt, &Surroundings::default(), None, Some(&screen));
+        let preface = preface(
+            &WriterNotes::default(),
+            &surroundings_leaving(2),
+            None,
+            Some(&screen),
+        );
 
         assert!(preface.ends_with("\nNearby on screen: “abc\ndef”"), "{preface}");
     }
@@ -381,13 +449,13 @@ mod tests {
     #[test]
     fn screen_without_lines_adds_nothing() {
         let preface = preface(
-            &SystemPrompt::default(),
+            &WriterNotes::default(),
             &Surroundings::default(),
             None,
             Some(&screen(&[])),
         );
 
-        assert_eq!(preface, "");
+        assert_eq!(preface, FRAME);
     }
 
     #[test]
@@ -395,13 +463,6 @@ mod tests {
         let prompt = prompt("Formal.", "Dear Sir");
 
         assert_eq!(prompt, Prompt("Formal.\n\nDear Sir".to_owned()));
-    }
-
-    #[test]
-    fn prompt_without_preface_is_the_text() {
-        let prompt = prompt("", "Dear Sir");
-
-        assert_eq!(prompt, Prompt("Dear Sir".to_owned()));
     }
 
     #[test]

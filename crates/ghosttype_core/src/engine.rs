@@ -6,13 +6,11 @@ use std::{fmt, mem};
 use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
-use crate::inference::{
-    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, SystemPrompt, TokenCount,
-};
+use crate::inference::{CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, TokenCount};
 use crate::key::Key;
 use crate::place;
 use crate::prompt::{self, estimated_tokens, last_chars, last_tokens};
-use crate::settings::{ClipboardAccess, ScreenTextApp, Settings, SuggestionLength};
+use crate::settings::{ClipboardAccess, ScreenTextApp, Settings, SuggestionLength, WriterNotes};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text reaches
@@ -54,7 +52,7 @@ pub(crate) struct Engine {
     session: Option<Session>,
     offer: Offer,
     unanswered_requests: usize,
-    system_prompt: SystemPrompt,
+    writer_notes: WriterNotes,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
     screen: Screen,
@@ -120,10 +118,10 @@ enum Offer {
 }
 
 impl Engine {
-    /// Uses the system prompt and the clipboard access of `settings` from the next session on, and
+    /// Uses the writer notes and the clipboard access of `settings` from the next session on, and
     /// its suggestion length from the next request on.
     pub fn use_settings(&mut self, settings: &Settings) {
-        self.system_prompt = settings.system_prompt();
+        self.writer_notes = settings.writer_notes.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length;
     }
@@ -338,7 +336,7 @@ impl Engine {
             Screen::Unknown | Screen::Reading { .. } => None,
         };
         prompt::preface(
-            &self.system_prompt,
+            &self.writer_notes,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
             screen,
@@ -645,11 +643,15 @@ mod tests {
         engine
     }
 
-    fn request(context: &str) -> Reaction {
+    fn request_with(lines: &[&str], text_before: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
-            prompt: Prompt(context.to_owned()),
+            prompt: prompt::framed_prompt(lines, text_before),
             max_tokens: SuggestionLength::default().max_tokens(),
         })
+    }
+
+    fn request(text_before: &str) -> Reaction {
+        request_with(&[], text_before)
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
@@ -1337,21 +1339,23 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_comes_before_the_text() {
+    fn writer_notes_come_after_the_frame() {
         let mut engine = engine_with(&Settings {
-            custom_system_prompt: Some(SystemPrompt("Formal.".to_owned())),
+            writer_notes: WriterNotes("I am a nurse.".to_owned()),
             ..Settings::default()
         });
 
         let reaction = press(&mut engine, Key::Char('h'));
 
-        assert_eq!(reaction, request("Formal.\n\nh"));
+        assert_eq!(
+            reaction,
+            request_with(&["Notes from the writer: “I am a nurse.”"], "h")
+        );
     }
 
     #[test]
     fn recent_copy_comes_before_the_text() {
         let mut engine = engine_with(&Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             clipboard_access: ClipboardAccess::Allowed,
             ..Settings::default()
         });
@@ -1362,13 +1366,12 @@ mod tests {
 
         let reaction = engine.on_key(Key::Char('h'), &desktop);
 
-        assert_eq!(reaction, request("Text on the clipboard: “1Z999”\n\nh"));
+        assert_eq!(reaction, request_with(&["Text on the clipboard: “1Z999”"], "h"));
     }
 
     #[test]
     fn old_copy_or_copy_from_before_the_start_stays_out() {
         let settings = Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             clipboard_access: ClipboardAccess::Allowed,
             ..Settings::default()
         };
@@ -1383,7 +1386,6 @@ mod tests {
     #[test]
     fn short_suggestion_length_asks_for_fewer_tokens() {
         let mut engine = engine_with(&Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             suggestion_length: SuggestionLength::Short,
             ..Settings::default()
         });
@@ -1393,7 +1395,7 @@ mod tests {
         assert_eq!(
             reaction,
             Reaction::Request(InferenceRequest::Complete {
-                prompt: Prompt("h".to_owned()),
+                prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
             })
         );
@@ -1402,7 +1404,6 @@ mod tests {
     #[test]
     fn denied_clipboard_is_never_read() {
         let mut engine = engine_with(&Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             ..Settings::default()
         });
         let desktop = FakeDesktop::with_copy("1Z999", Some(Duration::ZERO));
@@ -1427,7 +1428,7 @@ mod tests {
     #[expect(clippy::unnecessary_wraps, reason = "prepare returns an Option")]
     fn preparation(context: &str) -> Option<InferenceRequest> {
         Some(InferenceRequest::Complete {
-            prompt: Prompt(context.to_owned()),
+            prompt: prompt::framed_prompt(&[], context),
             max_tokens: TokenCount(0),
         })
     }
@@ -1443,14 +1444,11 @@ mod tests {
 
     #[test]
     fn preparing_an_empty_field_decodes_the_preface() {
-        let mut engine = engine_with(&Settings {
-            custom_system_prompt: Some(SystemPrompt("Formal.".to_owned())),
-            ..Settings::default()
-        });
+        let mut engine = Engine::default();
 
         let request = engine.prepare(&FakeDesktop::default());
 
-        assert_eq!(request, preparation("Formal.\n\n"));
+        assert_eq!(request, preparation(""));
     }
 
     #[test]
@@ -1602,7 +1600,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Char('S'));
 
-        assert_eq!(reaction, request("Nearby on screen: “Dinner at 7?”\n\nS"));
+        assert_eq!(reaction, request_with(&["Nearby on screen: “Dinner at 7?”"], "S"));
     }
 
     #[test]
@@ -1630,7 +1628,10 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Char('u'));
 
-        assert_eq!(reaction, request("Nearby on screen: “Dinner at 7?”\n\nSu"));
+        assert_eq!(
+            reaction,
+            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+        );
     }
 
     #[test]

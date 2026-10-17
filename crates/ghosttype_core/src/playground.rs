@@ -4,12 +4,10 @@ use std::iter;
 
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
-use crate::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, SystemPrompt, TokenCount,
-};
+use crate::inference::{Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, TokenCount};
 use crate::models_pane::model_name;
 use crate::prompt;
-use crate::settings::Settings;
+use crate::settings::{Settings, WriterNotes};
 use crate::settings_view::{
     ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
     TextField,
@@ -43,7 +41,7 @@ pub struct PlaygroundPane {
     model: Option<SelectedModel>,
     completion: Option<CompletionState>,
     backend: Option<Backend>,
-    system_prompt: SystemPrompt,
+    writer_notes: WriterNotes,
 }
 
 #[derive(Debug)]
@@ -134,9 +132,9 @@ impl PlaygroundPane {
         })
     }
 
-    /// Puts the system prompt of `settings` before the text of each later completion.
+    /// Puts the writer notes of `settings` before the text of each later completion.
     pub fn use_settings(&mut self, settings: &Settings) {
-        self.system_prompt = settings.system_prompt();
+        self.writer_notes = settings.writer_notes.clone();
     }
 
     /// Whether a model loads or a completion runs now.
@@ -269,7 +267,7 @@ impl PlaygroundPane {
             return None;
         }
         self.completion = Some(CompletionState::Running);
-        let preface = prompt::preface(&self.system_prompt, &Surroundings::default(), None, None);
+        let preface = prompt::preface(&self.writer_notes, &Surroundings::default(), None, None);
         Some(InferenceRequest::Complete {
             prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,
@@ -446,7 +444,7 @@ mod tests {
     }
 
     fn prompt(text: &str) -> Prompt {
-        Prompt(text.to_owned())
+        prompt::framed_prompt(&[], text)
     }
 
     fn complete(text: &str) -> PlaygroundAction {
@@ -987,10 +985,10 @@ mod tests {
     }
 
     #[test]
-    fn completing_puts_the_system_prompt_before_the_text() {
+    fn completing_puts_the_writer_notes_before_the_text() {
         let mut pane = ready_pane(&model_file("a.gguf"));
         pane.use_settings(&Settings {
-            custom_system_prompt: Some(SystemPrompt("Formal.".to_owned())),
+            writer_notes: WriterNotes("I am a nurse.".to_owned()),
             ..Settings::default()
         });
 
@@ -999,7 +997,7 @@ mod tests {
         assert_eq!(
             request,
             Some(InferenceRequest::Complete {
-                prompt: prompt("Formal.\n\nDear "),
+                prompt: prompt::framed_prompt(&["Notes from the writer: “I am a nurse.”"], "Dear "),
                 max_tokens: TokenCount(32),
             })
         );

@@ -153,13 +153,13 @@ pub struct App {
 
 impl App {
     /// Creates an active app with no typed context. Until [`use_settings`](Self::use_settings),
-    /// the model reads no system prompt and no clipboard text.
+    /// the model reads no writer notes and no clipboard text.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
+    /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
     /// place on, and its prompt preparation, suggestion display, suggestion length and screen
     /// text from now on.
     pub fn use_settings(&mut self, settings: &Settings) {
@@ -345,8 +345,9 @@ mod tests {
     use crate::desktop::{
         Confidence, CopiedText, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings,
     };
-    use crate::inference::{Prompt, SystemPrompt, TokenCount};
-    use crate::settings::{ScreenTextAccess, SuggestionLength};
+    use crate::inference::TokenCount;
+    use crate::prompt::framed_prompt;
+    use crate::settings::{ScreenTextAccess, SuggestionLength, WriterNotes};
 
     struct FakeDesktop(Field);
 
@@ -404,18 +405,22 @@ mod tests {
         ..MAIL
     };
 
-    fn preparation(prompt: &str) -> InferenceRequest {
+    fn preparation(lines: &[&str], text_before: &str) -> InferenceRequest {
         InferenceRequest::Complete {
-            prompt: Prompt(prompt.to_owned()),
+            prompt: framed_prompt(lines, text_before),
             max_tokens: TokenCount(0),
         }
     }
 
-    fn request(context: &str) -> Reaction {
+    fn request_with(lines: &[&str], text_before: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
-            prompt: Prompt(context.to_owned()),
+            prompt: framed_prompt(lines, text_before),
             max_tokens: SuggestionLength::default().max_tokens(),
         })
+    }
+
+    fn request(text_before: &str) -> Reaction {
+        request_with(&[], text_before)
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
@@ -517,22 +522,24 @@ mod tests {
     }
 
     #[test]
-    fn settings_give_the_system_prompt() {
+    fn settings_give_the_writer_notes() {
         let mut app = App::new();
-        app.use_settings(&Settings::default());
+        app.use_settings(&Settings {
+            writer_notes: WriterNotes("I am a nurse.".to_owned()),
+            ..Settings::default()
+        });
 
         let reaction = type_key(&mut app, 'B');
 
         assert_eq!(
             reaction,
-            request(&format!("{}\n\nB", crate::settings::DEFAULT_SYSTEM_PROMPT))
+            request_with(&["Notes from the writer: “I am a nurse.”"], "B")
         );
     }
 
     fn app_preparing_on_focus() -> App {
         let mut app = App::new();
         app.use_settings(&Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             prompt_preparation: PromptPreparation::OnFocus,
             ..Settings::default()
         });
@@ -545,7 +552,7 @@ mod tests {
 
         let request = app.on_input_settled(&FakeDesktop(Field::Open));
 
-        assert_eq!(request, Some(SettledWork::Prepare(preparation(""))));
+        assert_eq!(request, Some(SettledWork::Prepare(preparation(&[], ""))));
     }
 
     #[test]
@@ -891,7 +898,6 @@ mod tests {
     fn screen_text_off_prepares_on_focus_at_once() {
         let mut app = App::new();
         app.use_settings(&Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             prompt_preparation: PromptPreparation::OnFocus,
             screen_text: ScreenTextSettings {
                 access: ScreenTextAccess::Denied,
@@ -902,7 +908,10 @@ mod tests {
 
         let work = app.on_input_settled(&MAIL);
 
-        assert_eq!(work, Some(SettledWork::Prepare(preparation("Format: email\n\n"))));
+        assert_eq!(
+            work,
+            Some(SettledWork::Prepare(preparation(&["Format: email"], "")))
+        );
     }
 
     fn answer_with(read: ScreenReadId, line: &str) -> ScreenRead {
@@ -983,7 +992,8 @@ mod tests {
         assert_eq!(
             request,
             Some(SettledWork::Prepare(preparation(
-                "Format: email\nNearby on screen: “Dinner at 7?”\n\nH"
+                &["Format: email", "Nearby on screen: “Dinner at 7?”"],
+                "H"
             )))
         );
     }
@@ -1008,7 +1018,7 @@ mod tests {
 
         assert_eq!(
             request,
-            Some(SettledWork::Prepare(preparation("Format: email\n\n")))
+            Some(SettledWork::Prepare(preparation(&["Format: email"], "")))
         );
     }
 
@@ -1108,7 +1118,8 @@ mod tests {
         assert_eq!(
             work,
             Some(SettledWork::Prepare(preparation(
-                "Format: email\nNearby on screen: “Dinner at 7?”\n\n"
+                &["Format: email", "Nearby on screen: “Dinner at 7?”"],
+                ""
             )))
         );
     }

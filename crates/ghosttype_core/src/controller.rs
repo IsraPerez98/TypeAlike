@@ -553,7 +553,7 @@ mod tests {
     use crate::desktop::{CopiedText, FieldText, ScreenText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Backend, Completion, Prompt, SystemPrompt, TokenCount};
+    use crate::inference::{Backend, Completion, TokenCount};
     use crate::models_pane::SEARCH;
     use crate::playground::MODEL;
     use crate::screen_text_pane::SCREEN_TEXT;
@@ -1564,7 +1564,6 @@ mod tests {
     #[test]
     fn screen_answer_prepares_the_prompt_on_focus() {
         let mut harness = Harness::new(Settings {
-            custom_system_prompt: Some(SystemPrompt(String::new())),
             prompt_preparation: PromptPreparation::OnFocus,
             ..Settings::default()
         });
@@ -1582,7 +1581,7 @@ mod tests {
         assert_eq!(
             harness.last_request(),
             Some(InferenceRequest::Complete {
-                prompt: Prompt("Format: email; App: Mail\n\n".to_owned()),
+                prompt: crate::prompt::framed_prompt(&["Format: email; App: Mail"], ""),
                 max_tokens: TokenCount(0),
             })
         );

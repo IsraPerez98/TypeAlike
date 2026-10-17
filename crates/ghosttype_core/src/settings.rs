@@ -1,14 +1,27 @@
 //! The settings that GhostType keeps between runs, and the seams to the services that keep them.
 
+use std::fmt;
+
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
-use crate::inference::{Backend, SystemPrompt, TokenCount};
+use crate::inference::{Backend, TokenCount};
 
-/// The system prompt until the user writes one. Base models continue text and do not follow
-/// orders, so it describes the text that follows instead of giving orders.
-pub const DEFAULT_SYSTEM_PROMPT: &str = "A person types the text below on their computer, for example an \
-     email, a chat message, a note or a document. The writing is clear, natural and correct. It keeps \
-     the language, tone and style of the person who writes it.";
+/// What the user writes about themself and how they write, which suggestions use. `Debug` shows
+/// only its length, so logs never hold what the user wrote.
+///
+/// ```
+/// use ghosttype_core::settings::WriterNotes;
+///
+/// assert_eq!(format!("{:?}", WriterNotes("I am a nurse".to_owned())), "WriterNotes(12 chars)");
+/// ```
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct WriterNotes(pub String);
+
+impl fmt::Debug for WriterNotes {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "WriterNotes({} chars)", self.0.chars().count())
+    }
+}
 
 /// Whether suggestions may use the text on the clipboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -195,8 +208,8 @@ pub struct Settings {
     pub backend: Backend,
     /// The model that suggests text as the user types, and that GhostType loads when it starts.
     pub suggestion_model: Option<ModelFile>,
-    /// The system prompt that the user wrote, or `None` for [`DEFAULT_SYSTEM_PROMPT`].
-    pub custom_system_prompt: Option<SystemPrompt>,
+    /// What the user writes about themself and how they write.
+    pub writer_notes: WriterNotes,
     /// Whether suggestions may use the text on the clipboard.
     pub clipboard_access: ClipboardAccess,
     /// Where suggestions may use the text near the text field on the screen.
@@ -207,22 +220,6 @@ pub struct Settings {
     pub suggestion_display: SuggestionDisplay,
     /// The most text that one suggestion shows.
     pub suggestion_length: SuggestionLength,
-}
-
-impl Settings {
-    /// Returns the system prompt that the model reads before the typed text.
-    ///
-    /// ```
-    /// use ghosttype_core::settings::{DEFAULT_SYSTEM_PROMPT, Settings};
-    ///
-    /// assert_eq!(Settings::default().system_prompt().0, DEFAULT_SYSTEM_PROMPT);
-    /// ```
-    #[must_use]
-    pub fn system_prompt(&self) -> SystemPrompt {
-        self.custom_system_prompt
-            .clone()
-            .unwrap_or_else(|| SystemPrompt(DEFAULT_SYSTEM_PROMPT.to_owned()))
-    }
 }
 
 /// Keeps the settings between runs.

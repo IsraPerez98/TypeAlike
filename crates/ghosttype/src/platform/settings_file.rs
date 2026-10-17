@@ -5,10 +5,10 @@ use std::io;
 use std::path::PathBuf;
 
 use ghosttype_core::hub::ModelFile;
-use ghosttype_core::inference::{Backend, SystemPrompt};
+use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
     ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings,
-    SettingsStore, SuggestionDisplay, SuggestionLength,
+    SettingsStore, SuggestionDisplay, SuggestionLength, WriterNotes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +67,10 @@ impl SettingsStore for SettingsFile {
 struct StoredSettings {
     backend: StoredBackend,
     suggestion_model: Option<StoredModelFile>,
+    writer_notes: String,
+    /// The text that older versions used in place of the frame of the prompt. It becomes the
+    /// writer notes, so that the user keeps the text.
+    #[serde(skip_serializing)]
     system_prompt: Option<String>,
     clipboard_access: StoredClipboardAccess,
     screen_text: StoredScreenText,
@@ -224,7 +228,8 @@ impl From<Settings> for StoredSettings {
         Self {
             backend,
             suggestion_model,
-            system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
+            writer_notes: settings.writer_notes.0,
+            system_prompt: None,
             clipboard_access,
             screen_text: settings.screen_text.into(),
             prompt_preparation,
@@ -262,10 +267,14 @@ impl From<StoredSettings> for Settings {
             StoredSuggestionLength::Medium => SuggestionLength::Medium,
             StoredSuggestionLength::Long => SuggestionLength::Long,
         };
+        let writer_notes = match stored.system_prompt {
+            Some(system_prompt) if stored.writer_notes.is_empty() => system_prompt,
+            _ => stored.writer_notes,
+        };
         Self {
             backend,
             suggestion_model,
-            custom_system_prompt: stored.system_prompt.map(SystemPrompt),
+            writer_notes: WriterNotes(writer_notes),
             clipboard_access,
             screen_text: stored.screen_text.into(),
             prompt_preparation,
@@ -327,14 +336,46 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_reads_as_the_custom_system_prompt() {
-        let json = r#"{ "system_prompt": "Formal Spanish." }"#;
+    fn writer_notes_read_from_their_text() {
+        let json = r#"{ "writer_notes": "I am a nurse." }"#;
 
-        let system_prompt = parse(json)
-            .ok()
-            .and_then(|settings| settings.custom_system_prompt);
+        let notes = parse(json).map(|settings| settings.writer_notes).ok();
 
-        assert_eq!(system_prompt, Some(SystemPrompt("Formal Spanish.".to_owned())));
+        assert_eq!(notes, Some(WriterNotes("I am a nurse.".to_owned())));
+    }
+
+    #[test]
+    fn system_prompt_of_an_older_version_becomes_the_writer_notes() {
+        let files = [
+            r#"{ "system_prompt": "Formal Spanish." }"#,
+            r#"{ "system_prompt": "Formal Spanish.", "writer_notes": "" }"#,
+        ];
+
+        let notes = files.map(|json| parse(json).ok().map(|settings| settings.writer_notes.0));
+
+        assert_eq!(
+            notes.each_ref().map(Option::as_deref),
+            [Some("Formal Spanish."); 2]
+        );
+    }
+
+    #[test]
+    fn writer_notes_win_over_an_older_system_prompt() {
+        let json = r#"{ "system_prompt": "Formal Spanish.", "writer_notes": "I am a nurse." }"#;
+
+        let notes = parse(json).map(|settings| settings.writer_notes).ok();
+
+        assert_eq!(notes, Some(WriterNotes("I am a nurse.".to_owned())));
+    }
+
+    #[test]
+    fn saved_file_has_no_system_prompt() {
+        let json = to_json(&Settings {
+            writer_notes: WriterNotes("Formal Spanish.".to_owned()),
+            ..Settings::default()
+        });
+
+        assert!(!json.contains("system_prompt"), "{json}");
     }
 
     #[test]
@@ -461,7 +502,7 @@ mod tests {
         let settings = Settings {
             backend: Backend::Cuda,
             suggestion_model: Some(model_file()),
-            custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
+            writer_notes: WriterNotes("I am a nurse.".to_owned()),
             clipboard_access: ClipboardAccess::Allowed,
             screen_text: ScreenTextSettings {
                 access: ScreenTextAccess::Denied,

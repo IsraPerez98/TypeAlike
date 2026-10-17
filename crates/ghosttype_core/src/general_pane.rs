@@ -3,14 +3,13 @@
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, InferenceRequest, SystemPrompt};
+use crate::inference::{Backend, InferenceRequest};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{
-    Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings, SuggestionDisplay,
-    SuggestionLength,
+    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, WriterNotes,
 };
 use crate::settings_view::{
-    Button, ChoiceText, ControlId, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
+    ChoiceText, ControlId, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
 };
 
 /// Something the user did in the General pane.
@@ -22,10 +21,8 @@ pub enum GeneralAction {
     EnableAutostart,
     /// Turned off the switch that starts GhostType at login.
     DisableAutostart,
-    /// Changed the text of the system prompt to this text.
-    EditSystemPrompt(SystemPrompt),
-    /// Asked for the default system prompt again.
-    ResetSystemPrompt,
+    /// Changed the notes about the user to this text.
+    EditWriterNotes(WriterNotes),
     /// Turned on the switch that lets suggestions use the text on the clipboard.
     AllowClipboard,
     /// Turned off the switch that lets suggestions use the text on the clipboard.
@@ -62,8 +59,7 @@ pub(crate) const DISPLAY: &str = "suggestion-display";
 pub(crate) const LENGTH: &str = "suggestion-length";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
-pub(crate) const SYSTEM_PROMPT: &str = "system-prompt";
-pub(crate) const RESET_SYSTEM_PROMPT: &str = "reset-system-prompt";
+pub(crate) const WRITER_NOTES: &str = "writer-notes";
 const PANE_TITLE: &str = "General";
 const PANE_SUMMARY: &str = "Change how GhostType runs on this computer.";
 const AUTOSTART_LABEL: &str = "Open at login";
@@ -87,10 +83,10 @@ const LENGTH_DESCRIPTION: &str = "A short suggestion has 2 or 3 words, a medium 
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
-const SYSTEM_PROMPT_LABEL: &str = "System prompt";
-const SYSTEM_PROMPT_DESCRIPTION: &str = "The model reads this text before the text you type. Describe the \
-     writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.";
-const RESET_SYSTEM_PROMPT_LABEL: &str = "Reset to default";
+const WRITER_NOTES_LABEL: &str = "Notes about you";
+const WRITER_NOTES_DESCRIPTION: &str = "Suggestions use these notes. Write facts about you and how you \
+     write, for example your job, your languages and the names that you often use. A fact such as “I keep \
+     my emails short” works better than an instruction such as “Keep emails short”.";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 3] = [
     (SuggestionLength::Short, "Short"),
     (SuggestionLength::Medium, "Medium"),
@@ -193,8 +189,9 @@ impl GeneralPane {
             GeneralAction::SelectBackend(backend) => self.select_backend(backend, playground),
             GeneralAction::EnableAutostart => self.change_autostart(|autostart| autostart.enable()),
             GeneralAction::DisableAutostart => self.change_autostart(|autostart| autostart.disable()),
-            GeneralAction::EditSystemPrompt(system_prompt) => self.change_system_prompt(Some(system_prompt)),
-            GeneralAction::ResetSystemPrompt => self.change_system_prompt(None),
+            GeneralAction::EditWriterNotes(notes) => {
+                self.change_setting(notes, |settings| &mut settings.writer_notes)
+            }
             GeneralAction::AllowClipboard => self.change_clipboard_access(ClipboardAccess::Allowed),
             GeneralAction::DenyClipboard => self.change_clipboard_access(ClipboardAccess::Denied),
             GeneralAction::PrepareOnFocus => self.change_prompt_preparation(PromptPreparation::OnFocus),
@@ -227,12 +224,9 @@ impl GeneralPane {
             SettingsInput::Picked { id, index } => {
                 self.pick_action(id.as_str(), *index, playground, installed)
             }
-            SettingsInput::Edited { id, text } => (id.as_str() == SYSTEM_PROMPT)
-                .then(|| GeneralAction::EditSystemPrompt(SystemPrompt(text.clone()))),
-            SettingsInput::Pressed(id) => {
-                (id.as_str() == RESET_SYSTEM_PROMPT).then_some(GeneralAction::ResetSystemPrompt)
-            }
-            SettingsInput::Submitted { .. } => None,
+            SettingsInput::Edited { id, text } => (id.as_str() == WRITER_NOTES)
+                .then(|| GeneralAction::EditWriterNotes(WriterNotes(text.clone()))),
+            SettingsInput::Pressed(_) | SettingsInput::Submitted { .. } => None,
         }
     }
 
@@ -284,7 +278,7 @@ impl GeneralPane {
             search: None,
             sections: vec![
                 Section::new(autostart.into_iter().chain(settings).chain(backend).collect()),
-                Section::new(vec![Row::TextArea(self.system_prompt_area())]),
+                Section::new(vec![Row::TextArea(self.writer_notes_area())]),
             ],
         }
     }
@@ -298,12 +292,6 @@ impl GeneralPane {
             settings: Some(self.settings.clone()),
             request: playground.change_backend(backend),
         }
-    }
-
-    /// Keeps `custom` as the system prompt, or the default for `None` or a copy of the default.
-    fn change_system_prompt(&mut self, custom: Option<SystemPrompt>) -> GeneralOutcome {
-        let custom = custom.filter(|system_prompt| system_prompt.0 != DEFAULT_SYSTEM_PROMPT);
-        self.change_setting(custom, |settings| &mut settings.custom_system_prompt)
     }
 
     fn change_clipboard_access(&mut self, access: ClipboardAccess) -> GeneralOutcome {
@@ -402,17 +390,13 @@ impl GeneralPane {
         }
     }
 
-    fn system_prompt_area(&self) -> TextArea {
+    fn writer_notes_area(&self) -> TextArea {
         TextArea {
-            id: ControlId::new(SYSTEM_PROMPT),
-            label: SYSTEM_PROMPT_LABEL,
-            description: SYSTEM_PROMPT_DESCRIPTION,
-            text: self.settings.system_prompt().0,
-            button: Some(Button {
-                id: ControlId::new(RESET_SYSTEM_PROMPT),
-                label: RESET_SYSTEM_PROMPT_LABEL,
-                is_enabled: self.settings.custom_system_prompt.is_some(),
-            }),
+            id: ControlId::new(WRITER_NOTES),
+            label: WRITER_NOTES_LABEL,
+            description: WRITER_NOTES_DESCRIPTION,
+            text: self.settings.writer_notes.0.clone(),
+            button: None,
         }
     }
 }
@@ -498,9 +482,9 @@ mod tests {
         }
     }
 
-    fn custom_settings(system_prompt: &str) -> Settings {
+    fn notes_settings(notes: &str) -> Settings {
         Settings {
-            custom_system_prompt: Some(SystemPrompt(system_prompt.to_owned())),
+            writer_notes: WriterNotes(notes.to_owned()),
             ..Settings::default()
         }
     }
@@ -533,9 +517,9 @@ mod tests {
         }
     }
 
-    fn edit_system_prompt(pane: &mut GeneralPane, text: &str) -> GeneralOutcome {
+    fn edit_writer_notes(pane: &mut GeneralPane, text: &str) -> GeneralOutcome {
         pane.on_action(
-            GeneralAction::EditSystemPrompt(SystemPrompt(text.to_owned())),
+            GeneralAction::EditWriterNotes(WriterNotes(text.to_owned())),
             &mut PlaygroundPane::new(),
         )
     }
@@ -607,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn page_shows_the_settings_and_then_the_system_prompt() {
+    fn page_shows_the_settings_and_then_the_writer_notes() {
         let pane = GeneralPane::new(settings(Backend::Vulkan));
 
         let shown = pane.page(&PlaygroundPane::with_backend(Backend::Vulkan), &[]);
@@ -678,15 +662,11 @@ mod tests {
                         }),
                     ]),
                     Section::new(vec![Row::TextArea(TextArea {
-                        id: ControlId::new(SYSTEM_PROMPT),
-                        label: "System prompt",
-                        description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
-                        text: DEFAULT_SYSTEM_PROMPT.to_owned(),
-                        button: Some(Button {
-                            id: ControlId::new(RESET_SYSTEM_PROMPT),
-                            label: "Reset to default",
-                            is_enabled: false,
-                        }),
+                        id: ControlId::new(WRITER_NOTES),
+                        label: "Notes about you",
+                        description: "Suggestions use these notes. Write facts about you and how you write, for example your job, your languages and the names that you often use. A fact such as “I keep my emails short” works better than an instruction such as “Keep emails short”.",
+                        text: String::new(),
+                        button: None,
                     })]),
                 ],
             }
@@ -804,33 +784,21 @@ mod tests {
     }
 
     #[test]
-    fn editing_the_system_prompt_field_edits_the_system_prompt() {
+    fn editing_the_notes_field_edits_the_writer_notes() {
         let pane = GeneralPane::new(Settings::default());
         let input = SettingsInput::Edited {
-            id: ControlId::new(SYSTEM_PROMPT),
-            text: "Formal Spanish.".to_owned(),
+            id: ControlId::new(WRITER_NOTES),
+            text: "I am a nurse.".to_owned(),
         };
 
         let action = action_for(&pane, &input);
 
         assert_eq!(
             action,
-            Some(GeneralAction::EditSystemPrompt(SystemPrompt(
-                "Formal Spanish.".to_owned()
+            Some(GeneralAction::EditWriterNotes(WriterNotes(
+                "I am a nurse.".to_owned()
             )))
         );
-    }
-
-    #[test]
-    fn pressing_reset_resets_the_system_prompt() {
-        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
-
-        let action = action_for(
-            &pane,
-            &SettingsInput::Pressed(ControlId::new(RESET_SYSTEM_PROMPT)),
-        );
-
-        assert_eq!(action, Some(GeneralAction::ResetSystemPrompt));
     }
 
     #[test]
@@ -1141,85 +1109,43 @@ mod tests {
     }
 
     #[test]
-    fn custom_system_prompt_shows_with_reset_enabled() {
-        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
+    fn notes_field_shows_the_writer_notes() {
+        let pane = GeneralPane::new(notes_settings("I am a nurse."));
 
-        let editor = text_area(&default_page(&pane), SYSTEM_PROMPT);
+        let field = text_area(&default_page(&pane), WRITER_NOTES);
 
-        assert_eq!(
-            (
-                editor.text.as_str(),
-                editor.button.map(|button| button.is_enabled)
-            ),
-            ("Formal Spanish.", Some(true))
-        );
+        assert_eq!(field.text, "I am a nurse.");
     }
 
     #[test]
-    fn editing_the_system_prompt_keeps_it() {
+    fn editing_the_writer_notes_keeps_them() {
         let mut pane = GeneralPane::new(Settings::default());
 
-        let outcome = edit_system_prompt(&mut pane, "Formal Spanish.");
+        let outcome = edit_writer_notes(&mut pane, "I am a nurse.");
 
         assert_eq!(
             (outcome, pane.settings()),
             (
-                settings_outcome(custom_settings("Formal Spanish.")),
-                &custom_settings("Formal Spanish."),
+                settings_outcome(notes_settings("I am a nurse.")),
+                &notes_settings("I am a nurse."),
             )
         );
     }
 
     #[test]
-    fn emptied_system_prompt_is_kept_as_empty() {
-        let mut pane = GeneralPane::new(Settings::default());
+    fn emptied_writer_notes_are_the_default() {
+        let mut pane = GeneralPane::new(notes_settings("I am a nurse."));
 
-        let outcome = edit_system_prompt(&mut pane, "");
+        let outcome = edit_writer_notes(&mut pane, "");
 
-        assert_eq!(outcome, settings_outcome(custom_settings("")));
+        assert_eq!(outcome, settings_outcome(Settings::default()));
     }
 
     #[test]
-    fn editing_the_system_prompt_to_the_same_text_does_nothing() {
-        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
+    fn editing_the_writer_notes_to_the_same_text_does_nothing() {
+        let mut pane = GeneralPane::new(notes_settings("I am a nurse."));
 
-        let outcome = edit_system_prompt(&mut pane, "Formal Spanish.");
-
-        assert_eq!(outcome, GeneralOutcome::default());
-    }
-
-    #[test]
-    fn system_prompt_edited_back_to_the_default_is_the_default() {
-        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
-
-        let outcome = edit_system_prompt(&mut pane, DEFAULT_SYSTEM_PROMPT);
-
-        let is_reset_enabled = text_area(&default_page(&pane), SYSTEM_PROMPT)
-            .button
-            .map(|button| button.is_enabled);
-        assert_eq!(
-            (outcome, is_reset_enabled),
-            (settings_outcome(Settings::default()), Some(false))
-        );
-    }
-
-    #[test]
-    fn resetting_the_system_prompt_keeps_the_default() {
-        let mut pane = GeneralPane::new(custom_settings("Formal Spanish."));
-
-        let outcome = pane.on_action(GeneralAction::ResetSystemPrompt, &mut PlaygroundPane::new());
-
-        assert_eq!(
-            (outcome, pane.settings()),
-            (settings_outcome(Settings::default()), &Settings::default())
-        );
-    }
-
-    #[test]
-    fn resetting_the_default_system_prompt_does_nothing() {
-        let mut pane = GeneralPane::new(Settings::default());
-
-        let outcome = pane.on_action(GeneralAction::ResetSystemPrompt, &mut PlaygroundPane::new());
+        let outcome = edit_writer_notes(&mut pane, "I am a nurse.");
 
         assert_eq!(outcome, GeneralOutcome::default());
     }

@@ -31,23 +31,6 @@ impl fmt::Debug for Prompt {
     }
 }
 
-/// Text the model reads before each prompt: what the user wants the text to be like. `Debug`
-/// shows only its length, so logs never hold what the user wrote.
-///
-/// ```
-/// use ghosttype_core::inference::SystemPrompt;
-///
-/// assert_eq!(format!("{:?}", SystemPrompt("Formal".to_owned())), "SystemPrompt(6 chars)");
-/// ```
-#[derive(Clone, PartialEq, Eq, Default)]
-pub struct SystemPrompt(pub String);
-
-impl fmt::Debug for SystemPrompt {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "SystemPrompt({} chars)", self.0.chars().count())
-    }
-}
-
 /// The hardware that runs a model, and the interface that drives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Backend {
