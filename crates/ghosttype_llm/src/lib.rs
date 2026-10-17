@@ -5,6 +5,7 @@
 
 mod worker;
 
+use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -17,9 +18,13 @@ use crate::worker::Job;
 /// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
 /// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
 /// GPU supports it, and only when the whole model fits in the free memory of that GPU.
+///
+/// A drop waits until the worker finishes the submitted requests and frees the model. On Metal,
+/// llama.cpp stops the process with an assert when the process exits while a model is loaded.
 #[derive(Debug)]
 pub struct LlamaCpp {
     jobs: mpsc::Sender<Job>,
+    worker: Option<thread::JoinHandle<()>>,
 }
 
 impl LlamaCpp {
@@ -28,8 +33,23 @@ impl LlamaCpp {
     #[must_use]
     pub fn new(locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static) -> Self {
         let (jobs, received_jobs) = mpsc::channel();
-        thread::spawn(move || worker::run(&locate_model, &received_jobs));
-        Self { jobs }
+        let worker = thread::spawn(move || worker::run(&locate_model, &received_jobs));
+        Self {
+            jobs,
+            worker: Some(worker),
+        }
+    }
+}
+
+impl Drop for LlamaCpp {
+    fn drop(&mut self) {
+        let (closed_queue, _) = mpsc::channel();
+        drop(mem::replace(&mut self.jobs, closed_queue));
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            tracing::warn!("the model worker panicked");
+        }
     }
 }
 
@@ -140,6 +160,24 @@ mod tests {
         drop(runner);
 
         assert_eq!(events.recv().ok(), None);
+    }
+
+    #[test]
+    fn dropping_the_runner_waits_until_its_worker_stops() {
+        let (worker_alive, worker_signals) = mpsc::channel();
+        let mut runner = LlamaCpp::new(move |_| {
+            worker_alive.send(()).ok();
+            None
+        });
+        let sink: InferenceEventSink = Arc::new(|_| {});
+        runner.submit(load_request(), &sink);
+
+        drop(runner);
+
+        assert_eq!(
+            (worker_signals.try_recv(), worker_signals.try_recv()),
+            (Ok(()), Err(mpsc::TryRecvError::Disconnected))
+        );
     }
 
     #[test]

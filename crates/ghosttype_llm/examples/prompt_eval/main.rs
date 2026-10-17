@@ -44,8 +44,7 @@ use ghosttype_core::desktop::{Desktop, FieldText, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, Prompt,
-    TokenCount,
+    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{ClipboardAccess, Settings};
@@ -166,17 +165,6 @@ impl Model {
             }
         }
     }
-
-    /// Frees the model and waits until the worker did it. On Metal, llama.cpp stops the process
-    /// with an assert when the process exits while a model is still loaded.
-    fn unload(mut self) -> anyhow::Result<()> {
-        self.runner.submit(InferenceRequest::Unload, &self.sink);
-        let after_unload = InferenceRequest::Complete {
-            prompt: Prompt(String::new()),
-            max_tokens: TokenCount(0),
-        };
-        self.complete(after_unload).map(drop)
-    }
 }
 
 fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
@@ -288,7 +276,6 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .map(|case| run_case(&mut model, case))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    model.unload()?;
 
     if let Some(path) = &arguments.save {
         write_json_lines(path, &outcomes)?;
