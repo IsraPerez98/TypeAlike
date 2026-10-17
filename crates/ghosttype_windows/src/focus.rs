@@ -75,6 +75,7 @@ pub(crate) struct FocusTracker {
     foreground: HWND,
     foreground_app_name: Option<String>,
     foreground_app_id: Option<String>,
+    foreground_app_path: Option<String>,
     is_foreground_eligible: bool,
     is_self_elevated: bool,
 }
@@ -87,6 +88,7 @@ impl FocusTracker {
             foreground: HWND::default(),
             foreground_app_name: None,
             foreground_app_id: None,
+            foreground_app_path: None,
             is_foreground_eligible: false,
             is_self_elevated,
         }
@@ -108,6 +110,7 @@ impl FocusTracker {
             .as_deref()
             .and_then(program_file_name)
             .map(str::to_owned);
+        self.foreground_app_path = image_path;
         FocusChange::Changed
     }
 
@@ -131,6 +134,7 @@ impl FocusTracker {
         Surroundings {
             app_name: self.foreground_app_name.clone(),
             app_id: self.foreground_app_id.clone(),
+            app_path: self.foreground_app_path.clone(),
             window_title: window_title(self.foreground),
             ..Surroundings::default()
         }

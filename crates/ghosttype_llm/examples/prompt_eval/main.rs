@@ -14,13 +14,16 @@
 //!   `domain` is the host of the web page.
 //! - `before`, `after`: the text of the field before and after the caret.
 //! - `clipboard`: the text on the clipboard, or `null`.
-//! - `screen`: the lines of text near the field, outside of it.
+//! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
+//!   are the frames of the field and the caret, and each of `lines` has a `text` outside of the
+//!   field and its `frame`. A frame is `[left, top, right, bottom]` in pixels of the window.
 //! - `history`: earlier passages by the same writer.
 //! - `next`: the text that the writer typed next.
 //!
-//! The prompt does not read `screen` and `history` yet. The eval uses the default settings with
-//! the clipboard allowed, and `clipboard` is a copy that came just before. It opens a field that
-//! holds `before` without its last character, types that character and waits for the ghost text.
+//! The prompt does not read `history` yet. The eval uses the default settings with the clipboard
+//! allowed, and `clipboard` is a copy that came just before. It opens a field that holds `before`
+//! without its last character, lets the input settle so that the screen text is read, types that
+//! character and waits for the ghost text.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
 //! the word do not count. The report gives the score of the cases with the caret between two
 //! words, the score of the cases with the caret inside a word, and the median time from the key to
@@ -42,8 +45,10 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use ghosttype_core::app::{App, Field};
-use ghosttype_core::desktop::{CopiedText, Desktop, FieldText, Surroundings};
+use ghosttype_core::app::{App, Field, SettledWork};
+use ghosttype_core::desktop::{
+    Confidence, CopiedText, Desktop, FieldText, ScreenLine, ScreenRead, ScreenRect, ScreenText, Surroundings,
+};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
@@ -103,11 +108,55 @@ struct Case {
     before: String,
     after: String,
     clipboard: Option<String>,
-    #[expect(dead_code, reason = "the prompt does not read the text on the screen yet")]
-    screen: Vec<String>,
+    screen: Option<CaseScreen>,
     #[expect(dead_code, reason = "the prompt does not read earlier writing yet")]
     history: Vec<String>,
     next: String,
+}
+
+/// A frame as `[left, top, right, bottom]`.
+type CaseFrame = [i32; 4];
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaseScreen {
+    field: CaseFrame,
+    caret: Option<CaseFrame>,
+    lines: Vec<CaseLine>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaseLine {
+    text: String,
+    frame: CaseFrame,
+}
+
+impl CaseScreen {
+    fn to_screen_text(&self) -> ScreenText {
+        ScreenText {
+            lines: self
+                .lines
+                .iter()
+                .map(|line| ScreenLine {
+                    text: line.text.clone(),
+                    confidence: Confidence::CERTAIN,
+                    frame: screen_rect(line.frame),
+                })
+                .collect(),
+            caret: self.caret.map(screen_rect),
+            field: screen_rect(self.field),
+        }
+    }
+}
+
+fn screen_rect([left, top, right, bottom]: CaseFrame) -> ScreenRect {
+    ScreenRect {
+        left,
+        top,
+        right,
+        bottom,
+    }
 }
 
 /// The focused field of a case, before the writer types the last character of `before`.
@@ -186,6 +235,7 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
             window_title: case.window_title.clone(),
             field_label: case.field_label.clone(),
             domain: case.domain.clone(),
+            app_path: None,
             field_text: Some(FieldText {
                 before_caret: before,
                 after_caret: case.after.clone(),
@@ -198,6 +248,16 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
         clipboard_access: ClipboardAccess::Allowed,
         ..Settings::default()
     });
+    if let Some(screen) = &case.screen {
+        let Some(SettledWork::ReadScreen { read: id, .. }) = app.on_input_settled(&field) else {
+            bail!("case {} reads no screen text", case.id);
+        };
+        let read = ScreenRead {
+            id,
+            text: Some(screen.to_screen_text()),
+        };
+        app.on_screen_read(read, &field);
+    }
 
     let start = Instant::now();
     let reaction = match app.on_key(Key::Char(last_character), &field) {

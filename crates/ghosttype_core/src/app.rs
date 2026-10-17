@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Engine, Reaction};
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
-use crate::settings::{PromptPreparation, Settings, SuggestionDisplay};
+use crate::settings::{PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings, SuggestionDisplay};
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
 /// stop on the way to another field must not start the model.
@@ -89,6 +89,22 @@ pub enum TrayOutcome {
     Quit,
 }
 
+/// What GhostType does when the input settles in a field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettledWork {
+    /// Read the text near the focused field on the screen from `source`, off the thread of the
+    /// keys. Give the answer with the id `read` to [`App::on_screen_read`].
+    ReadScreen {
+        /// The id of the answer.
+        read: ScreenReadId,
+        /// Where to read the text.
+        source: ScreenSource,
+    },
+    /// Decode the prompt of the focused field before the user types. Submit it as the request of
+    /// a [`Reaction::Request`]. Its completion goes to [`App::on_completion`].
+    Prepare(InferenceRequest),
+}
+
 /// GhostType's state while running: suggestion engine plus on/off status.
 ///
 /// ```
@@ -132,6 +148,7 @@ pub struct App {
     is_in_open_field: bool,
     prompt_preparation: PromptPreparation,
     suggestion_display: SuggestionDisplay,
+    screen_text: ScreenTextSettings,
 }
 
 impl App {
@@ -143,24 +160,84 @@ impl App {
     }
 
     /// Uses the system prompt and the clipboard access of `settings` from the next key in a new
-    /// place on, and its prompt preparation, suggestion display and suggestion length from now on.
+    /// place on, and its prompt preparation, suggestion display, suggestion length and screen
+    /// text from now on.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
         self.suggestion_display = settings.suggestion_display;
+        if self.screen_text != settings.screen_text {
+            self.engine.forget_screen();
+            self.screen_text = settings.screen_text.clone();
+        }
     }
 
-    /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. With
-    /// [`PromptPreparation::OnFocus`], it returns the request that decodes the prompt of the
-    /// focused field of `desktop` before the user types. Submit it as the request of a
-    /// [`Reaction::Request`]. Its completion goes to [`on_completion`](Self::on_completion).
-    pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
-        let prepares_on_focus =
-            self.status == Status::Active && self.prompt_preparation == PromptPreparation::OnFocus;
-        if !prepares_on_focus || desktop.field() == Field::Excluded {
+    /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. In a text field of an app where
+    /// the screen text is on, it starts a read of the screen, unless the session has screen text.
+    /// Else, with [`PromptPreparation::OnFocus`] and no session, it prepares the prompt of the
+    /// focused field of `desktop`.
+    pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
+        if self.status == Status::Paused || desktop.field() == Field::Excluded {
             return None;
         }
-        self.engine.prepare(desktop)
+        if self.reads_screen_in(desktop) {
+            return self
+                .engine
+                .start_screen_read()
+                .map(|read| SettledWork::ReadScreen {
+                    read,
+                    source: ScreenSource::Accessibility,
+                });
+        }
+        if self.engine.has_session() {
+            return None;
+        }
+        self.prepare_on_focus(desktop).map(SettledWork::Prepare)
+    }
+
+    /// Handles the answer to a read of the screen. When the accessibility tree gives no lines and
+    /// `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
+    /// session when it has none, or into the next session. With [`PromptPreparation::OnFocus`],
+    /// it then returns the request that prepares the prompt of the focused field of `desktop` with
+    /// the new screen text.
+    pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
+        let is_active = self.status == Status::Active && desktop.field() == Field::Open;
+        let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
+        let is_ocr_due = is_active && !has_lines && desktop.ocr_availability() == OcrAvailability::Ready;
+        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id) {
+            return Some(SettledWork::ReadScreen {
+                read: ocr,
+                source: ScreenSource::Ocr,
+            });
+        }
+        let is_newest = self.engine.on_screen_read(read, desktop);
+        if !is_newest || !is_active {
+            return None;
+        }
+        self.prepare_on_focus(desktop).map(SettledWork::Prepare)
+    }
+
+    /// The app where the user types now, when it has an id. The first key in a field starts the
+    /// typing there.
+    #[must_use]
+    pub fn typed_app(&self) -> Option<&ScreenTextApp> {
+        self.engine.session_app()
+    }
+
+    fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
+        let surroundings = desktop.surroundings();
+        let is_text_field = surroundings.field_text.is_some();
+        is_text_field
+            && surroundings
+                .app_id
+                .is_some_and(|app_id| self.screen_text.allows(&app_id))
+    }
+
+    fn prepare_on_focus(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
+        match self.prompt_preparation {
+            PromptPreparation::OnFocus => self.engine.prepare(desktop),
+            PromptPreparation::OnFirstKey => None,
+        }
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
@@ -189,9 +266,11 @@ impl App {
         self.engine.on_partial_completion(text)
     }
 
-    /// Handles the caret moving somewhere unknown: focus change, mouse click.
+    /// Handles the caret moving somewhere unknown: focus change, mouse click. The screen text
+    /// of the last field is not used again.
     pub fn on_context_lost(&mut self) -> Reaction {
         self.is_in_open_field = false;
+        self.engine.forget_screen();
         self.engine.reset()
     }
 
@@ -263,9 +342,11 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::{CopiedText, Surroundings};
+    use crate::desktop::{
+        Confidence, CopiedText, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings,
+    };
     use crate::inference::{Prompt, SystemPrompt, TokenCount};
-    use crate::settings::SuggestionLength;
+    use crate::settings::{ScreenTextAccess, SuggestionLength};
 
     struct FakeDesktop(Field);
 
@@ -280,6 +361,53 @@ mod tests {
 
         fn copied_text(&self) -> Option<CopiedText> {
             None
+        }
+    }
+
+    /// A text field of the app `app_id`.
+    struct TextField {
+        app_id: &'static str,
+        field: Field,
+        ocr: OcrAvailability,
+    }
+
+    impl Desktop for TextField {
+        fn field(&self) -> Field {
+            self.field
+        }
+
+        fn surroundings(&self) -> Surroundings {
+            Surroundings {
+                app_id: Some(self.app_id.to_owned()),
+                field_text: Some(FieldText::default()),
+                ..Surroundings::default()
+            }
+        }
+
+        fn copied_text(&self) -> Option<CopiedText> {
+            None
+        }
+
+        fn ocr_availability(&self) -> OcrAvailability {
+            self.ocr
+        }
+    }
+
+    const MAIL: TextField = TextField {
+        app_id: "com.apple.mail",
+        field: Field::Open,
+        ocr: OcrAvailability::Unsupported,
+    };
+
+    const MAIL_WITH_OCR: TextField = TextField {
+        ocr: OcrAvailability::Ready,
+        ..MAIL
+    };
+
+    fn preparation(prompt: &str) -> InferenceRequest {
+        InferenceRequest::Complete {
+            prompt: Prompt(prompt.to_owned()),
+            max_tokens: TokenCount(0),
         }
     }
 
@@ -417,13 +545,7 @@ mod tests {
 
         let request = app.on_input_settled(&FakeDesktop(Field::Open));
 
-        assert_eq!(
-            request,
-            Some(InferenceRequest::Complete {
-                prompt: Prompt(String::new()),
-                max_tokens: TokenCount(0),
-            })
-        );
+        assert_eq!(request, Some(SettledWork::Prepare(preparation(""))));
     }
 
     #[test]
@@ -699,5 +821,307 @@ mod tests {
         let outcome = app.on_tray_command(TrayCommand::Quit);
 
         assert_eq!(outcome, TrayOutcome::Quit);
+    }
+    fn screen_read(app: &mut App) -> ScreenReadId {
+        match app.on_input_settled(&MAIL) {
+            Some(SettledWork::ReadScreen {
+                read,
+                source: ScreenSource::Accessibility,
+            }) => read,
+            work => panic!("a settled text field reads the screen: {work:?}"),
+        }
+    }
+
+    fn answer(read: ScreenReadId) -> ScreenRead {
+        ScreenRead {
+            id: read,
+            text: Some(ScreenText::default()),
+        }
+    }
+
+    #[test]
+    fn settled_text_field_reads_the_screen_with_each_preparation() {
+        let mut first_key = App::new();
+        let mut on_focus = app_preparing_on_focus();
+
+        let works = [&mut first_key, &mut on_focus].map(|app| app.on_input_settled(&MAIL));
+
+        assert!(
+            works
+                .iter()
+                .all(|work| matches!(work, Some(SettledWork::ReadScreen { .. }))),
+            "{works:?}"
+        );
+    }
+
+    #[test]
+    fn settled_field_without_text_reads_no_screen() {
+        let mut app = App::new();
+
+        let work = app.on_input_settled(&FakeDesktop(Field::Open));
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn settled_password_field_reads_no_screen() {
+        let mut app = App::new();
+
+        let work = app.on_input_settled(&TextField {
+            field: Field::Excluded,
+            ..MAIL
+        });
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn settled_field_of_a_password_manager_reads_no_screen() {
+        let mut app = App::new();
+
+        let work = app.on_input_settled(&TextField {
+            app_id: "com.1password.1password",
+            ..MAIL
+        });
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn screen_text_off_prepares_on_focus_at_once() {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            custom_system_prompt: Some(SystemPrompt(String::new())),
+            prompt_preparation: PromptPreparation::OnFocus,
+            screen_text: ScreenTextSettings {
+                access: ScreenTextAccess::Denied,
+                apps: Vec::new(),
+            },
+            ..Settings::default()
+        });
+
+        let work = app.on_input_settled(&MAIL);
+
+        assert_eq!(work, Some(SettledWork::Prepare(preparation("Format: email\n\n"))));
+    }
+
+    fn answer_with(read: ScreenReadId, line: &str) -> ScreenRead {
+        ScreenRead {
+            id: read,
+            text: Some(ScreenText {
+                lines: vec![ScreenLine {
+                    text: line.to_owned(),
+                    confidence: Confidence::CERTAIN,
+                    frame: ScreenRect {
+                        left: 0,
+                        top: 100,
+                        right: 500,
+                        bottom: 120,
+                    },
+                }],
+                caret: None,
+                field: ScreenRect {
+                    left: 0,
+                    top: 200,
+                    right: 500,
+                    bottom: 240,
+                },
+            }),
+        }
+    }
+
+    #[test]
+    fn settled_input_during_a_session_without_screen_text_reads_the_screen() {
+        let mut app = App::new();
+        app.on_key(Key::Char('H'), &MAIL);
+
+        let work = app.on_input_settled(&MAIL);
+
+        assert!(matches!(work, Some(SettledWork::ReadScreen { .. })), "{work:?}");
+    }
+
+    #[test]
+    fn settled_input_during_a_session_with_screen_text_reads_no_screen() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+        app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+        app.on_key(Key::Char('H'), &MAIL);
+
+        let work = app.on_input_settled(&MAIL);
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn settled_input_during_a_session_prepares_nothing() {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            prompt_preparation: PromptPreparation::OnFocus,
+            screen_text: ScreenTextSettings {
+                access: ScreenTextAccess::Denied,
+                apps: Vec::new(),
+            },
+            ..Settings::default()
+        });
+        app.on_key(Key::Char('H'), &MAIL);
+        app.on_completion(completion(""));
+
+        let work = app.on_input_settled(&MAIL);
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
+        let mut app = app_preparing_on_focus();
+        app.on_key(Key::Char('H'), &MAIL);
+        app.on_completion(completion(""));
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+        assert_eq!(
+            request,
+            Some(SettledWork::Prepare(preparation(
+                "Format: email\nNearby on screen: “Dinner at 7?”\n\nH"
+            )))
+        );
+    }
+
+    #[test]
+    fn answer_during_a_running_completion_prepares_nothing() {
+        let mut app = app_preparing_on_focus();
+        app.on_key(Key::Char('H'), &MAIL);
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn answer_to_the_screen_read_prepares_on_focus() {
+        let mut app = app_preparing_on_focus();
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(
+            request,
+            Some(SettledWork::Prepare(preparation("Format: email\n\n")))
+        );
+    }
+
+    #[test]
+    fn answer_to_the_screen_read_prepares_nothing_before_the_first_key() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn answer_after_a_lost_context_is_dropped() {
+        let mut app = app_preparing_on_focus();
+        let read = screen_read(&mut app);
+        app.on_context_lost();
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn answer_without_lines_starts_an_ocr_read() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+
+        let work = app.on_screen_read(answer(read), &MAIL_WITH_OCR);
+
+        assert!(
+            matches!(
+                work,
+                Some(SettledWork::ReadScreen {
+                    source: ScreenSource::Ocr,
+                    ..
+                })
+            ),
+            "{work:?}"
+        );
+    }
+
+    #[test]
+    fn answer_with_lines_starts_no_ocr_read() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+
+        let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL_WITH_OCR);
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn answer_without_lines_starts_no_ocr_read_when_the_ocr_cannot_run() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+
+        let work = app.on_screen_read(
+            answer(read),
+            &TextField {
+                ocr: OcrAvailability::NotPermitted,
+                ..MAIL
+            },
+        );
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn answer_of_the_ocr_without_lines_starts_no_other_read() {
+        let mut app = App::new();
+        let read = screen_read(&mut app);
+        let Some(SettledWork::ReadScreen { read: ocr, .. }) =
+            app.on_screen_read(answer(read), &MAIL_WITH_OCR)
+        else {
+            panic!("an answer without lines starts an OCR read");
+        };
+
+        let work = app.on_screen_read(answer(ocr), &MAIL_WITH_OCR);
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn answer_of_the_ocr_goes_into_the_prompt() {
+        let mut app = app_preparing_on_focus();
+        let read = screen_read(&mut app);
+        let Some(SettledWork::ReadScreen { read: ocr, .. }) =
+            app.on_screen_read(answer(read), &MAIL_WITH_OCR)
+        else {
+            panic!("an answer without lines starts an OCR read");
+        };
+
+        let work = app.on_screen_read(answer_with(ocr, "Dinner at 7?"), &MAIL_WITH_OCR);
+
+        assert_eq!(
+            work,
+            Some(SettledWork::Prepare(preparation(
+                "Format: email\nNearby on screen: “Dinner at 7?”\n\n"
+            )))
+        );
+    }
+
+    #[test]
+    fn typing_names_the_typed_app() {
+        let mut app = App::new();
+
+        app.on_key(Key::Char('H'), &MAIL);
+
+        assert_eq!(
+            app.typed_app().map(|typed| typed.app_id.as_str()),
+            Some("com.apple.mail")
+        );
     }
 }

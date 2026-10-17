@@ -12,7 +12,9 @@ use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Services, Shell, Timer,
 };
-use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
+use ghosttype_core::desktop::{
+    CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -35,7 +37,9 @@ use crate::injection::{self, INJECTION_TAG};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
+use crate::ocr;
 use crate::overlay::Overlay;
+use crate::screen_text::ScreenTextReader;
 use crate::settings::{ActionTarget, SettingsWindow};
 
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
@@ -73,6 +77,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         controller,
         shell: AppKitShell {
             focus: FocusTracker::new(),
+            screen_text: ScreenTextReader::new(Arc::clone(&deliver)),
             clipboard: ClipboardWatch::start(),
             menu_bar,
             overlay: Overlay::new(main_thread),
@@ -201,6 +206,7 @@ impl Runtime {
 /// What the controller reads and does through Accessibility and AppKit.
 struct AppKitShell {
     focus: FocusTracker,
+    screen_text: ScreenTextReader,
     clipboard: ClipboardWatch,
     menu_bar: MenuBarItem,
     overlay: Overlay,
@@ -245,6 +251,10 @@ impl Desktop for AppKitShell {
 
     fn copied_text(&self) -> Option<CopiedText> {
         self.clipboard.copied_text()
+    }
+
+    fn ocr_availability(&self) -> OcrAvailability {
+        ocr::availability()
     }
 }
 
@@ -323,6 +333,15 @@ impl Shell for AppKitShell {
 
     /// macOS reads the clipboard only when core asks for its text, so it keeps no copied text.
     fn use_clipboard_access(&mut self, _access: ClipboardAccess) {}
+
+    fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
+        self.screen_text
+            .read(read, source, self.focus.frontmost_process());
+    }
+
+    fn ask_for_ocr_permission(&mut self) {
+        ocr::ask_for_permission();
+    }
 
     /// Ends the app from a timer, outside the borrow of the runtime that the end of the app drops.
     fn quit(&mut self) {

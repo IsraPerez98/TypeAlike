@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
-use ghosttype_core::app::{App, Field};
+use ghosttype_core::app::{App, Field, SettledWork};
 use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
@@ -305,9 +305,9 @@ fn first_key_in_a_prepared_field_suggests_text() {
         prompt_preparation: PromptPreparation::OnFocus,
         ..Settings::default()
     });
-    let preparation = app
-        .on_input_settled(&Editor)
-        .expect("the app prepares the open field");
+    let Some(SettledWork::Prepare(preparation)) = app.on_input_settled(&Editor) else {
+        panic!("the app prepares the open field");
+    };
     model.runner.submit(preparation, &model.sink);
     app.on_completion(model.next_completion());
 

@@ -10,6 +10,10 @@ use crate::hub::ModelFile;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TokenCount(pub u32);
 
+/// The tokens of one prompt and its completion that the model runner keeps. Core keeps each
+/// prompt in this room with the longest completion.
+pub const CONTEXT_TOKENS: TokenCount = TokenCount(4096);
+
 /// The text the model continues: what it knows about the writing, then the text before the caret.
 /// `Debug` shows only its length, so logs never hold what the user wrote.
 ///

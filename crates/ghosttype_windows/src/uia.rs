@@ -4,26 +4,36 @@
 
 use std::marker::PhantomData;
 use std::ptr;
+use std::time::Duration;
 
-use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
-use windows::Win32::Foundation::POINT;
+use ghosttype_core::desktop::{
+    Confidence, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, ScreenLine, ScreenRect, ScreenText,
+};
+use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize, SAFEARRAY,
 };
 use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayUnaccessData};
+use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern, IUIAutomationTextRange,
-    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, UIA_TextPatternId,
+    CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCondition, IUIAutomationElement,
+    IUIAutomationTextPattern, IUIAutomationTextRange, TextPatternRangeEndpoint_End,
+    TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
+    UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId,
+    UIA_NamePropertyId, UIA_TextControlTypeId, UIA_TextPatternId,
 };
-use windows::core::{BOOL, Result};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+use windows::core::{BOOL, Interface, Result};
 
-use crate::focus::{Caret, whole_chars};
+use crate::focus::{self, Caret, whole_chars};
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
 const VALUES_PER_RECTANGLE: usize = 4;
 const CHARACTERS_BEFORE_CARET: i32 = -1;
 /// The length that asks `GetText` for all the text of a range.
 const WHOLE_RANGE: i32 = -1;
+/// The most text elements that one read of the screen keeps.
+const MAX_TEXT_ELEMENTS: i32 = 2000;
 
 /// A connection to UIA, usable only on the thread that made it.
 #[derive(Debug)]
@@ -43,6 +53,24 @@ impl UiaCaret {
             automation,
             _apartment: apartment,
         })
+    }
+
+    /// Makes each request to an app fail after `connection` without an answer to the connection,
+    /// or after `transaction` without the answer to the request, so that a busy app does not
+    /// hold this thread.
+    pub(crate) fn limit_waits(&self, connection: Duration, transaction: Duration) {
+        let to_ms = |wait: Duration| u32::try_from(wait.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: plain calls on interfaces of this thread.
+        let limited = self
+            .automation
+            .cast::<IUIAutomation2>()
+            .and_then(|automation| unsafe {
+                automation.SetConnectionTimeout(to_ms(connection))?;
+                automation.SetTransactionTimeout(to_ms(transaction))
+            });
+        if let Err(error) = limited {
+            tracing::warn!(%error, "failed to limit the waits for UI Automation");
+        }
     }
 
     /// Locates the caret of the focused control from the bounds of the character before it.
@@ -66,6 +94,71 @@ impl UiaCaret {
             .into_iter()
             .filter_map(|label| label.ok().map(|label| label.to_string()))
             .find(|label| !label.trim().is_empty())
+    }
+
+    /// Reads the visible text elements of the foreground window, and the frames of the focused
+    /// control and its caret. `None` for a password field.
+    pub(crate) fn screen_text(&self) -> Option<ScreenText> {
+        let focused = self.focused_element()?;
+        if is_password(&focused) {
+            return None;
+        }
+        // SAFETY: plain call on an interface of this thread.
+        let field = unsafe { focused.CurrentBoundingRectangle() }.ok()?;
+        let caret = focus::caret().or_else(|| caret_of(&focused));
+        // SAFETY: plain calls; UIA reads the window of another process without messages to it.
+        let window = unsafe { self.automation.ElementFromHandle(GetForegroundWindow()) }.ok()?;
+        Some(ScreenText {
+            lines: self.visible_texts(&window)?,
+            caret: caret.as_ref().map(caret_frame),
+            field: screen_rect(field),
+        })
+    }
+
+    /// Reads each text element of `window` that shows on the screen, in one request to its app.
+    fn visible_texts(&self, window: &IUIAutomationElement) -> Option<Vec<ScreenLine>> {
+        let condition = self.visible_text_condition()?;
+        // SAFETY: plain calls on interfaces of this thread.
+        let elements = unsafe {
+            let cache = self.automation.CreateCacheRequest().ok()?;
+            cache.AddProperty(UIA_NamePropertyId).ok()?;
+            cache.AddProperty(UIA_BoundingRectanglePropertyId).ok()?;
+            window
+                .FindAllBuildCache(TreeScope_Descendants, &condition, &cache)
+                .ok()?
+        };
+        // SAFETY: plain call on an interface of this thread.
+        let count = unsafe { elements.Length() }.ok()?.min(MAX_TEXT_ELEMENTS);
+        let lines = (0..count)
+            .filter_map(|index| {
+                // SAFETY: plain calls on interfaces of this thread, with an index below the length.
+                unsafe {
+                    let element = elements.GetElement(index).ok()?;
+                    Some(ScreenLine {
+                        text: element.CachedName().ok()?.to_string(),
+                        confidence: Confidence::CERTAIN,
+                        frame: screen_rect(element.CachedBoundingRectangle().ok()?),
+                    })
+                }
+            })
+            .collect();
+        Some(lines)
+    }
+
+    /// The condition of a text element that shows on the screen.
+    fn visible_text_condition(&self) -> Option<IUIAutomationCondition> {
+        // SAFETY: plain calls on an interface of this thread.
+        unsafe {
+            let is_text = self
+                .automation
+                .CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_TextControlTypeId.0))
+                .ok()?;
+            let is_on_screen = self
+                .automation
+                .CreatePropertyCondition(UIA_IsOffscreenPropertyId, &VARIANT::from(false))
+                .ok()?;
+            self.automation.CreateAndCondition(&is_text, &is_on_screen).ok()
+        }
     }
 
     fn focused_element(&self) -> Option<IUIAutomationElement> {
@@ -177,6 +270,25 @@ fn caret_from_rectangles(rectangles: &[f64]) -> Option<Caret> {
     Caret::from_corners(top_left, bottom_right, None)
 }
 
+/// The frame of `caret`: a line of one pixel at the right edge of the text before it.
+fn caret_frame(caret: &Caret) -> ScreenRect {
+    ScreenRect {
+        left: caret.origin.x,
+        top: caret.origin.y,
+        right: caret.origin.x.saturating_add(1),
+        bottom: caret.origin.y.saturating_add(caret.height),
+    }
+}
+
+fn screen_rect(rect: RECT) -> ScreenRect {
+    ScreenRect {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    }
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     reason = "no conversion from f64 to i32 exists without `as`, and `as` saturates"
@@ -276,6 +388,27 @@ mod tests {
                 height: 18,
                 font_face: None,
             })
+        );
+    }
+
+    #[test]
+    fn caret_frame_is_one_pixel_wide_at_the_caret() {
+        let caret = Caret {
+            origin: POINT { x: 107, y: 40 },
+            height: 18,
+            font_face: None,
+        };
+
+        let frame = caret_frame(&caret);
+
+        assert_eq!(
+            frame,
+            ScreenRect {
+                left: 107,
+                top: 40,
+                right: 108,
+                bottom: 58,
+            }
         );
     }
 

@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SystemPrompt};
 use ghosttype_core::settings::{
-    ClipboardAccess, PromptPreparation, Settings, SettingsStore, SuggestionDisplay, SuggestionLength,
+    ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings,
+    SettingsStore, SuggestionDisplay, SuggestionLength,
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +69,7 @@ struct StoredSettings {
     suggestion_model: Option<StoredModelFile>,
     system_prompt: Option<String>,
     clipboard_access: StoredClipboardAccess,
+    screen_text: StoredScreenText,
     prompt_preparation: StoredPromptPreparation,
     suggestion_display: StoredSuggestionDisplay,
     suggestion_length: StoredSuggestionLength,
@@ -92,6 +94,75 @@ enum StoredBackend {
 enum StoredClipboardAccess {
     Denied,
     Allowed,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
+struct StoredScreenText {
+    access: StoredScreenTextAccess,
+    apps: Vec<StoredScreenTextApp>,
+}
+
+impl Default for StoredScreenText {
+    fn default() -> Self {
+        ScreenTextSettings::default().into()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredScreenTextAccess {
+    Allowed,
+    Denied,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredScreenTextApp {
+    app_id: String,
+    app_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_path: Option<String>,
+    is_on: bool,
+}
+
+impl From<ScreenTextSettings> for StoredScreenText {
+    fn from(settings: ScreenTextSettings) -> Self {
+        let access = match settings.access {
+            ScreenTextAccess::Allowed => StoredScreenTextAccess::Allowed,
+            ScreenTextAccess::Denied => StoredScreenTextAccess::Denied,
+        };
+        let apps = settings
+            .apps
+            .into_iter()
+            .map(|app| StoredScreenTextApp {
+                app_id: app.app_id,
+                app_name: app.app_name,
+                app_path: app.app_path,
+                is_on: app.is_on,
+            })
+            .collect();
+        Self { access, apps }
+    }
+}
+
+impl From<StoredScreenText> for ScreenTextSettings {
+    fn from(stored: StoredScreenText) -> Self {
+        let access = match stored.access {
+            StoredScreenTextAccess::Allowed => ScreenTextAccess::Allowed,
+            StoredScreenTextAccess::Denied => ScreenTextAccess::Denied,
+        };
+        let apps = stored
+            .apps
+            .into_iter()
+            .map(|app| ScreenTextApp {
+                app_id: app.app_id,
+                app_name: app.app_name,
+                app_path: app.app_path,
+                is_on: app.is_on,
+            })
+            .collect();
+        Self { access, apps }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -155,6 +226,7 @@ impl From<Settings> for StoredSettings {
             suggestion_model,
             system_prompt: settings.custom_system_prompt.map(|system_prompt| system_prompt.0),
             clipboard_access,
+            screen_text: settings.screen_text.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,
@@ -195,6 +267,7 @@ impl From<StoredSettings> for Settings {
             suggestion_model,
             custom_system_prompt: stored.system_prompt.map(SystemPrompt),
             clipboard_access,
+            screen_text: stored.screen_text.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,
@@ -280,6 +353,37 @@ mod tests {
     }
 
     #[test]
+    fn screen_text_reads_its_switch_and_its_apps() {
+        let json = r#"{ "screen_text": { "access": "denied", "apps": [
+            { "app_id": "slack.exe", "app_name": "Slack", "app_path": "C:\\Slack\\slack.exe", "is_on": false },
+            { "app_id": "com.apple.mail", "app_name": "Mail", "is_on": true }
+        ] } }"#;
+
+        let screen_text = parse(json).map(|settings| settings.screen_text).ok();
+
+        assert_eq!(
+            screen_text,
+            Some(ScreenTextSettings {
+                access: ScreenTextAccess::Denied,
+                apps: vec![
+                    ScreenTextApp {
+                        app_id: "slack.exe".to_owned(),
+                        app_name: "Slack".to_owned(),
+                        app_path: Some("C:\\Slack\\slack.exe".to_owned()),
+                        is_on: false,
+                    },
+                    ScreenTextApp {
+                        app_id: "com.apple.mail".to_owned(),
+                        app_name: "Mail".to_owned(),
+                        app_path: None,
+                        is_on: true,
+                    },
+                ],
+            })
+        );
+    }
+
+    #[test]
     fn prompt_preparation_reads_from_its_name() {
         let files = [
             r#"{ "prompt_preparation": "on_first_key" }"#,
@@ -359,6 +463,15 @@ mod tests {
             suggestion_model: Some(model_file()),
             custom_system_prompt: Some(SystemPrompt("Formal Spanish.".to_owned())),
             clipboard_access: ClipboardAccess::Allowed,
+            screen_text: ScreenTextSettings {
+                access: ScreenTextAccess::Denied,
+                apps: vec![ScreenTextApp {
+                    app_id: "slack.exe".to_owned(),
+                    app_name: "Slack".to_owned(),
+                    app_path: Some("C:\\Slack\\slack.exe".to_owned()),
+                    is_on: false,
+                }],
+            },
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,
             suggestion_length: SuggestionLength::Medium,

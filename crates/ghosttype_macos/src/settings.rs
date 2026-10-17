@@ -63,6 +63,7 @@ const PROGRESS_FULL: f64 = 1000.0;
 const GEAR_SYMBOL: &str = "gearshape";
 const CUBE_SYMBOL: &str = "cube";
 const TEXT_CURSOR_SYMBOL: &str = "text.cursor";
+const TEXT_VIEWFINDER_SYMBOL: &str = "text.viewfinder";
 
 /// The object and selectors every settings control reports to.
 #[derive(Debug)]
@@ -231,6 +232,7 @@ fn page_symbol(icon: PageIcon) -> &'static str {
         PageIcon::Gear => GEAR_SYMBOL,
         PageIcon::Cube => CUBE_SYMBOL,
         PageIcon::TextCursor => TEXT_CURSOR_SYMBOL,
+        PageIcon::TextViewfinder => TEXT_VIEWFINDER_SYMBOL,
     }
 }
 

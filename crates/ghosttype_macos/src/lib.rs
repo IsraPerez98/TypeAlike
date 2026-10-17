@@ -15,8 +15,10 @@ mod keys;
 mod labels;
 mod main_menu;
 mod menu_bar;
+mod ocr;
 mod overlay;
 mod runtime;
+mod screen_text;
 mod settings;
 mod single_instance;
 

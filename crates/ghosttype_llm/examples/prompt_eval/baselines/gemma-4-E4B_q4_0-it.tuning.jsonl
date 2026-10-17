@@ -1,112 +1,118 @@
-{"id":"en-email-01","kind":"next_word","suggestion":"Q3 budget review, and it looks","is_match":true,"millis":312}
-{"id":"en-email-02","kind":"next_word","suggestion":"1Z999AA1","is_match":false,"millis":280}
-{"id":"en-email-03","kind":"partial_word","suggestion":"rt or some brownies. Let me know","is_match":true,"millis":275}
-{"id":"en-email-05","kind":"next_word","suggestion":"the team.","is_match":false,"millis":167}
-{"id":"en-email-06","kind":"partial_word","suggestion":"ot?","is_match":true,"millis":150}
-{"id":"en-email-07","kind":"next_word","suggestion":"Tuesday, October 24th,","is_match":true,"millis":282}
-{"id":"en-email-09","kind":"partial_word","suggestion":"ish the paper as planned. I am","is_match":true,"millis":274}
-{"id":"en-email-10","kind":"partial_word","suggestion":"ups to brainstorm ideas for the next quarter","is_match":true,"millis":274}
-{"id":"en-email-11","kind":"next_word","suggestion":"[Your New Address].","is_match":false,"millis":221}
-{"id":"en-email-13","kind":"next_word","suggestion":"15 people.","is_match":false,"millis":219}
-{"id":"en-email-14","kind":"partial_word","suggestion":"very schedule to be:","is_match":true,"millis":342}
-{"id":"en-email-15","kind":"partial_word","suggestion":"at, and the pricing is very competitive","is_match":true,"millis":271}
-{"id":"en-chat-01","kind":"next_word","suggestion":"mockups for the new landing page when","is_match":false,"millis":268}
-{"id":"en-chat-02","kind":"partial_word","suggestion":"ere in 10 minutes. Don","is_match":true,"millis":304}
-{"id":"en-chat-03","kind":"next_word","suggestion":"work instead? I'm free around","is_match":false,"millis":288}
-{"id":"en-chat-05","kind":"next_word","suggestion":" last update.","is_match":false,"millis":207}
-{"id":"en-chat-06","kind":"next_word","suggestion":"and it looks like the backend logic is","is_match":false,"millis":281}
-{"id":"en-chat-07","kind":"partial_word","suggestion":"rised me! 🤯 What did you","is_match":true,"millis":283}
-{"id":"en-chat-09","kind":"partial_word","suggestion":"nce. You deserve it! 🥳","is_match":true,"millis":284}
-{"id":"en-chat-10","kind":"next_word","suggestion":"Rosewood Bistro. It's at","is_match":true,"millis":279}
-{"id":"en-chat-11","kind":"partial_word","suggestion":"ver again if you want.","is_match":true,"millis":245}
-{"id":"en-chat-13","kind":"next_word","suggestion":"45 minutes. Monitoring looks stable","is_match":false,"millis":282}
-{"id":"en-chat-14","kind":"partial_word","suggestion":"ume. 🤣 I thought it was","is_match":true,"millis":297}
-{"id":"en-chat-15","kind":"next_word","suggestion":"it seems like the pipe is still dripping","is_match":false,"millis":278}
-{"id":"en-doc-01","kind":"next_word","suggestion":"office. After that, you'll","is_match":true,"millis":275}
-{"id":"en-doc-02","kind":"next_word","suggestion":"showed significantly impaired memory function compared to those","is_match":false,"millis":299}
-{"id":"en-doc-03","kind":"partial_word","suggestion":"rkey","is_match":true,"millis":119}
-{"id":"en-doc-05","kind":"next_word","suggestion":"deployment pipeline is brittle, the documentation is","is_match":false,"millis":281}
-{"id":"en-doc-06","kind":"partial_word","suggestion":"om. The wind had died down to","is_match":true,"millis":283}
-{"id":"en-doc-07","kind":"next_word","suggestion":"next week.","is_match":false,"millis":181}
-{"id":"en-doc-09","kind":"next_word","suggestion":"schedule a check-up","is_match":false,"millis":221}
-{"id":"en-doc-10","kind":"next_word","suggestion":"are often underutilized or idle during their","is_match":false,"millis":277}
-{"id":"en-doc-11","kind":"next_word","suggestion":"undergraduate students, which provided me with hands","is_match":false,"millis":278}
-{"id":"en-doc-13","kind":"next_word","suggestion":" I remember thinking she was the","is_match":true,"millis":283}
-{"id":"en-doc-14","kind":"next_word","suggestion":"Dr. Helena Vasquez, Chief Medical","is_match":true,"millis":292}
-{"id":"en-doc-15","kind":"partial_word","suggestion":"en the frontend candidates. Ana, we","is_match":true,"millis":284}
-{"id":"en-form-01","kind":"next_word","suggestion":"NW-58214.","is_match":true,"millis":293}
-{"id":"en-form-02","kind":"partial_word","suggestion":"in, which meant we could hear everything","is_match":true,"millis":336}
-{"id":"en-form-03","kind":"next_word","suggestion":"Brightwave because I see a lot of","is_match":true,"millis":286}
-{"id":"en-form-05","kind":"partial_word","suggestion":"on into wedges instead of slices.","is_match":true,"millis":278}
-{"id":"en-form-06","kind":"partial_word","suggestion":"ken.","is_match":true,"millis":154}
-{"id":"en-form-07","kind":"partial_word","suggestion":"all. I think it might be a","is_match":true,"millis":285}
-{"id":"en-form-09","kind":"next_word","suggestion":"I would definitely recommend this place.","is_match":false,"millis":300}
-{"id":"en-form-10","kind":"next_word","suggestion":"Barista position at Bean & Bloom Coffee","is_match":false,"millis":276}
-{"id":"en-form-11","kind":"partial_word","suggestion":"ork error. I have tried restarting my","is_match":true,"millis":282}
-{"id":"en-form-13","kind":"next_word","suggestion":"dimensions of the shade? I want to","is_match":false,"millis":286}
-{"id":"en-form-14","kind":"next_word","suggestion":"playing.","is_match":true,"millis":150}
-{"id":"en-form-15","kind":"next_word","suggestion":"Thank you.","is_match":false,"millis":173}
-{"id":"es-email-01","kind":"next_word","suggestion":"Transportes Lircay y, en","is_match":false,"millis":273}
-{"id":"es-email-02","kind":"partial_word","suggestion":"cia antes del miércoles para poder organizar los","is_match":true,"millis":281}
-{"id":"es-email-03","kind":"partial_word","suggestion":"drigo","is_match":true,"millis":178}
-{"id":"es-email-05","kind":"next_word","suggestion":"casa.","is_match":true,"millis":150}
+{"id":"en-email-01","kind":"next_word","suggestion":"Q3 budget review, and it looks","is_match":true,"millis":330}
+{"id":"en-email-02","kind":"next_word","suggestion":"1Z999AA1","is_match":false,"millis":284}
+{"id":"en-email-03","kind":"partial_word","suggestion":"rt? Let me know what you think","is_match":true,"millis":284}
+{"id":"en-email-05","kind":"next_word","suggestion":"the team.","is_match":false,"millis":176}
+{"id":"en-email-06","kind":"partial_word","suggestion":"ot?","is_match":true,"millis":159}
+{"id":"en-email-07","kind":"next_word","suggestion":"Tuesday, October 24th,","is_match":true,"millis":296}
+{"id":"en-email-09","kind":"partial_word","suggestion":"ish the paper as planned. I am","is_match":true,"millis":294}
+{"id":"en-email-10","kind":"partial_word","suggestion":"ups to brainstorm ideas for the next quarter","is_match":true,"millis":287}
+{"id":"en-email-11","kind":"next_word","suggestion":"[Your New Address].","is_match":false,"millis":230}
+{"id":"en-email-13","kind":"next_word","suggestion":"25 people.","is_match":false,"millis":236}
+{"id":"en-email-14","kind":"partial_word","suggestion":"very schedule to be:","is_match":true,"millis":360}
+{"id":"en-email-15","kind":"partial_word","suggestion":"at, and the pricing is very competitive","is_match":true,"millis":275}
+{"id":"en-chat-01","kind":"next_word","suggestion":"new onboarding mockups for you. I","is_match":false,"millis":279}
+{"id":"en-chat-02","kind":"partial_word","suggestion":"ere. I'm looking forward to","is_match":true,"millis":276}
+{"id":"en-chat-03","kind":"next_word","suggestion":"3 then. Does 3:","is_match":true,"millis":278}
+{"id":"en-chat-05","kind":"next_word","suggestion":" last update.","is_match":false,"millis":197}
+{"id":"en-chat-06","kind":"next_word","suggestion":"looks good. I'll merge it","is_match":false,"millis":275}
+{"id":"en-chat-07","kind":"partial_word","suggestion":"rised me! What did you all think","is_match":true,"millis":281}
+{"id":"en-chat-09","kind":"partial_word","suggestion":"nce. You deserve it! 🥳","is_match":true,"millis":282}
+{"id":"en-chat-10","kind":"next_word","suggestion":"Rosewood Bistro. It's at","is_match":true,"millis":277}
+{"id":"en-chat-11","kind":"partial_word","suggestion":"ver again if you want.","is_match":true,"millis":247}
+{"id":"en-chat-13","kind":"next_word","suggestion":"45 minutes. Monitoring looks stable","is_match":false,"millis":277}
+{"id":"en-chat-14","kind":"partial_word","suggestion":"ume. I was expecting something","is_match":true,"millis":280}
+{"id":"en-chat-15","kind":"next_word","suggestion":"I think the pipe under the sink is","is_match":false,"millis":275}
+{"id":"en-doc-01","kind":"next_word","suggestion":"office. After that, you'll","is_match":true,"millis":274}
+{"id":"en-doc-02","kind":"next_word","suggestion":"showed significantly impaired memory function compared to those","is_match":false,"millis":280}
+{"id":"en-doc-03","kind":"partial_word","suggestion":"rkey","is_match":true,"millis":117}
+{"id":"en-doc-05","kind":"next_word","suggestion":"deployment pipeline is brittle, the documentation is","is_match":false,"millis":273}
+{"id":"en-doc-06","kind":"partial_word","suggestion":"om. The wind had died down to","is_match":true,"millis":285}
+{"id":"en-doc-07","kind":"next_word","suggestion":"next week.","is_match":false,"millis":179}
+{"id":"en-doc-09","kind":"next_word","suggestion":"schedule a check-up","is_match":false,"millis":220}
+{"id":"en-doc-10","kind":"next_word","suggestion":"have to manually re-enter delivery addresses","is_match":false,"millis":281}
+{"id":"en-doc-11","kind":"next_word","suggestion":"undergraduate students, which provided me with hands","is_match":false,"millis":280}
+{"id":"en-doc-13","kind":"next_word","suggestion":" I remember thinking she was the","is_match":true,"millis":275}
+{"id":"en-doc-14","kind":"next_word","suggestion":"Dr. Helena Vasquez, Chief Medical","is_match":true,"millis":281}
+{"id":"en-doc-15","kind":"partial_word","suggestion":"en the frontend candidates. Ana, we","is_match":true,"millis":273}
+{"id":"en-form-01","kind":"next_word","suggestion":"NW-58214.","is_match":true,"millis":283}
+{"id":"en-form-02","kind":"partial_word","suggestion":"in, which meant we could hear everything","is_match":true,"millis":275}
+{"id":"en-form-03","kind":"next_word","suggestion":"Brightwave because I see a lot of","is_match":true,"millis":276}
+{"id":"en-form-05","kind":"partial_word","suggestion":"on into wedges instead of slices.","is_match":true,"millis":285}
+{"id":"en-form-06","kind":"partial_word","suggestion":"ken.","is_match":true,"millis":153}
+{"id":"en-form-07","kind":"partial_word","suggestion":"all. It fits like a small.","is_match":true,"millis":279}
+{"id":"en-form-09","kind":"next_word","suggestion":"I would definitely recommend this place.","is_match":false,"millis":274}
+{"id":"en-form-10","kind":"next_word","suggestion":"Barista position at Bean & Bloom Coffee","is_match":false,"millis":273}
+{"id":"en-form-11","kind":"partial_word","suggestion":"ork error. I have tried restarting my","is_match":true,"millis":281}
+{"id":"en-form-13","kind":"next_word","suggestion":"dimensions of the shade? I want to","is_match":false,"millis":281}
+{"id":"en-form-14","kind":"next_word","suggestion":"playing.","is_match":true,"millis":142}
+{"id":"en-form-15","kind":"next_word","suggestion":"Thank you.","is_match":false,"millis":172}
+{"id":"es-email-01","kind":"next_word","suggestion":"transporte y, en principio, nos parece","is_match":false,"millis":295}
+{"id":"es-email-02","kind":"partial_word","suggestion":"cia antes del miércoles para poder organizar los","is_match":true,"millis":282}
+{"id":"es-email-03","kind":"partial_word","suggestion":"drigo","is_match":true,"millis":180}
+{"id":"es-email-05","kind":"next_word","suggestion":"casa.","is_match":true,"millis":151}
 {"id":"es-email-06","kind":"next_word","suggestion":"de legal. Por favor, revís","is_match":false,"millis":279}
-{"id":"es-email-07","kind":"next_word","suggestion":"Q3.","is_match":false,"millis":167}
-{"id":"es-email-09","kind":"partial_word","suggestion":"da.","is_match":true,"millis":169}
+{"id":"es-email-07","kind":"next_word","suggestion":"Q3 para el lunes.","is_match":false,"millis":263}
+{"id":"es-email-09","kind":"partial_word","suggestion":"da.","is_match":true,"millis":178}
 {"id":"es-email-10","kind":"next_word","suggestion":"\"Innovación Digital\". Los resultados son","is_match":false,"millis":274}
-{"id":"es-email-11","kind":"next_word","suggestion":"sorpresa. ¡Fue un detalle muy bonito","is_match":false,"millis":275}
+{"id":"es-email-11","kind":"next_word","suggestion":"sorpresa. ¡Fue un detalle muy bonito","is_match":false,"millis":276}
 {"id":"es-email-13","kind":"partial_word","suggestion":"sos.","is_match":true,"millis":150}
-{"id":"es-email-14","kind":"partial_word","suggestion":"gar. Además, la ubicación es mucho","is_match":true,"millis":280}
-{"id":"es-email-15","kind":"next_word","suggestion":"día 15.","is_match":false,"millis":218}
-{"id":"es-chat-01","kind":"next_word","suggestion":"10.","is_match":false,"millis":196}
-{"id":"es-chat-02","kind":"partial_word","suggestion":"zo y la dedicación. ¡Vamos","is_match":true,"millis":314}
-{"id":"es-chat-03","kind":"partial_word","suggestion":"és?","is_match":true,"millis":149}
-{"id":"es-chat-05","kind":"next_word","suggestion":"mucho. ❤️","is_match":true,"millis":170}
-{"id":"es-chat-06","kind":"next_word","suggestion":"día 25 de noviembre a las","is_match":false,"millis":273}
-{"id":"es-chat-07","kind":"next_word","suggestion":"en el chat.","is_match":false,"millis":193}
-{"id":"es-chat-09","kind":"partial_word","suggestion":"ico para que arregle el","is_match":true,"millis":285}
-{"id":"es-chat-10","kind":"next_word","suggestion":"47.000 a","is_match":false,"millis":277}
-{"id":"es-chat-11","kind":"partial_word","suggestion":"ones 1240,","is_match":true,"millis":278}
-{"id":"es-chat-13","kind":"next_word","suggestion":"Martina, ¿cómo estás? Espero que","is_match":true,"millis":274}
-{"id":"es-chat-14","kind":"partial_word","suggestion":"ño? ¿Me lo podrías pasar","is_match":true,"millis":274}
-{"id":"es-chat-15","kind":"next_word","suggestion":"te confirmo el resto de los detalles","is_match":false,"millis":278}
-{"id":"es-doc-01","kind":"partial_word","suggestion":"tivos y la expansión exitosa a","is_match":true,"millis":403}
-{"id":"es-doc-02","kind":"next_word","suggestion":"María revisará el borrador del acta","is_match":false,"millis":270}
+{"id":"es-email-14","kind":"partial_word","suggestion":"gar. Además, la ubicación es mucho","is_match":true,"millis":282}
+{"id":"es-email-15","kind":"next_word","suggestion":"martes 14 a las 1","is_match":true,"millis":285}
+{"id":"es-chat-01","kind":"next_word","suggestion":"8:40.","is_match":true,"millis":259}
+{"id":"es-chat-02","kind":"partial_word","suggestion":"zo y la dedicación. ¡Vamos","is_match":true,"millis":282}
+{"id":"es-chat-03","kind":"partial_word","suggestion":"és?","is_match":true,"millis":146}
+{"id":"es-chat-05","kind":"next_word","suggestion":"mucho. ❤️","is_match":true,"millis":178}
+{"id":"es-chat-06","kind":"next_word","suggestion":"jueves 21 de noviembre a las","is_match":true,"millis":293}
+{"id":"es-chat-07","kind":"next_word","suggestion":"en un momento.","is_match":false,"millis":198}
+{"id":"es-chat-09","kind":"partial_word","suggestion":"ico para que arregle el","is_match":true,"millis":297}
+{"id":"es-chat-10","kind":"next_word","suggestion":"47.000 a","is_match":false,"millis":284}
+{"id":"es-chat-11","kind":"partial_word","suggestion":"ones 1240,","is_match":true,"millis":287}
+{"id":"es-chat-13","kind":"next_word","suggestion":"Martina, ¿cómo estás? Espero que","is_match":true,"millis":289}
+{"id":"es-chat-14","kind":"partial_word","suggestion":"ño? ¿Me lo podrías pasar","is_match":true,"millis":288}
+{"id":"es-chat-15","kind":"next_word","suggestion":"te confirmo el resto de los detalles","is_match":false,"millis":283}
+{"id":"es-doc-01","kind":"partial_word","suggestion":"tivos y la expansión exitosa a","is_match":true,"millis":398}
+{"id":"es-doc-02","kind":"next_word","suggestion":"Fernanda revisará el borrador del acta","is_match":true,"millis":283}
 {"id":"es-doc-03","kind":"partial_word","suggestion":"res. A Isidora le encantaba","is_match":true,"millis":278}
-{"id":"es-doc-05","kind":"partial_word","suggestion":"cado. La selección de la muestra","is_match":true,"millis":279}
-{"id":"es-doc-06","kind":"next_word","suggestion":"Clínica Vitalis.","is_match":true,"millis":198}
-{"id":"es-doc-07","kind":"next_word","suggestion":"de 85,2 puntos,","is_match":false,"millis":281}
+{"id":"es-doc-05","kind":"partial_word","suggestion":"cado. La selección de la muestra","is_match":true,"millis":277}
+{"id":"es-doc-06","kind":"next_word","suggestion":"Clínica Vitalis.","is_match":true,"millis":199}
+{"id":"es-doc-07","kind":"next_word","suggestion":"de 85,2 puntos,","is_match":false,"millis":283}
 {"id":"es-doc-09","kind":"partial_word","suggestion":"don","is_match":false,"millis":153}
 {"id":"es-doc-10","kind":"next_word","suggestion":"continuación, analizaremos las dinámicas de","is_match":true,"millis":279}
-{"id":"es-doc-11","kind":"partial_word","suggestion":"tida.","is_match":true,"millis":201}
-{"id":"es-doc-13","kind":"next_word","suggestion":"viernes. Necesito que me enví","is_match":false,"millis":273}
-{"id":"es-doc-14","kind":"next_word","suggestion":"Azure, optimizando procesos y mejorando","is_match":false,"millis":281}
-{"id":"es-doc-15","kind":"next_word","suggestion":"María","is_match":false,"millis":120}
-{"id":"es-form-01","kind":"partial_word","suggestion":"do\".","is_match":true,"millis":177}
-{"id":"es-form-02","kind":"next_word","suggestion":"el lugar es pequeño y puede llenarse","is_match":false,"millis":277}
-{"id":"es-form-03","kind":"next_word","suggestion":"Analista Contable en Minera Cord","is_match":true,"millis":275}
-{"id":"es-form-05","kind":"partial_word","suggestion":"char? Gracias.","is_match":true,"millis":223}
+{"id":"es-doc-11","kind":"partial_word","suggestion":"tida.","is_match":true,"millis":198}
+{"id":"es-doc-13","kind":"next_word","suggestion":"15 de abril. Los textos","is_match":true,"millis":281}
+{"id":"es-doc-14","kind":"next_word","suggestion":"Azure, optimizando procesos y mejorando","is_match":false,"millis":283}
+{"id":"es-doc-15","kind":"next_word","suggestion":"María","is_match":false,"millis":119}
+{"id":"es-form-01","kind":"partial_word","suggestion":"do\".","is_match":true,"millis":184}
+{"id":"es-form-02","kind":"next_word","suggestion":"el lugar es pequeño y puede llenarse","is_match":false,"millis":280}
+{"id":"es-form-03","kind":"next_word","suggestion":"Analista Contable en Minera Cord","is_match":true,"millis":274}
+{"id":"es-form-05","kind":"partial_word","suggestion":"char? Gracias.","is_match":true,"millis":233}
 {"id":"es-form-06","kind":"partial_word","suggestion":"cir:","is_match":false,"millis":175}
-{"id":"es-form-07","kind":"next_word","suggestion":"miércoles.","is_match":true,"millis":143}
+{"id":"es-form-07","kind":"next_word","suggestion":"miércoles.","is_match":true,"millis":144}
 {"id":"es-form-09","kind":"next_word","suggestion":"oreja. El sonido es muy bueno","is_match":true,"millis":279}
-{"id":"es-form-10","kind":"partial_word","suggestion":"re. Gracias.","is_match":true,"millis":202}
-{"id":"es-form-11","kind":"next_word","suggestion":"del 15/05/","is_match":false,"millis":280}
-{"id":"es-form-13","kind":"partial_word","suggestion":"view y la mentoría. He he","is_match":true,"millis":277}
+{"id":"es-form-10","kind":"partial_word","suggestion":"re. Gracias.","is_match":true,"millis":204}
+{"id":"es-form-11","kind":"next_word","suggestion":"del 15/05/","is_match":false,"millis":287}
+{"id":"es-form-13","kind":"partial_word","suggestion":"view y la mentoría. He he","is_match":true,"millis":279}
 {"id":"es-form-14","kind":"next_word","suggestion":"municipalidad, pero no hemos tenido respuesta","is_match":true,"millis":277}
-{"id":"es-form-15","kind":"next_word","suggestion":"cancelar mi servicio?","is_match":true,"millis":198}
-{"id":"en-long-01","kind":"next_word","suggestion":"him to review the templates one last time","is_match":false,"millis":525}
-{"id":"en-long-02","kind":"next_word","suggestion":"Kestrel, focusing on the most complex","is_match":true,"millis":630}
-{"id":"en-long-03","kind":"partial_word","suggestion":"sera before merging.","is_match":true,"millis":480}
-{"id":"en-long-05","kind":"next_word","suggestion":"Ingrid directly.","is_match":true,"millis":648}
-{"id":"en-long-06","kind":"next_word","suggestion":"Ashgrove Hall to book the spring fair","is_match":true,"millis":877}
+{"id":"es-form-15","kind":"next_word","suggestion":"cancelar mi servicio?","is_match":true,"millis":203}
+{"id":"en-long-01","kind":"next_word","suggestion":"him to review the templates one last time","is_match":false,"millis":527}
+{"id":"en-long-02","kind":"next_word","suggestion":"Kestrel, focusing on the most complex","is_match":true,"millis":631}
+{"id":"en-long-03","kind":"partial_word","suggestion":"sera before merging.","is_match":true,"millis":481}
+{"id":"en-long-05","kind":"next_word","suggestion":"Ingrid directly.","is_match":true,"millis":647}
+{"id":"en-long-06","kind":"next_word","suggestion":"Ashgrove Hall to book the spring fair","is_match":true,"millis":876}
 {"id":"en-long-07","kind":"partial_word","suggestion":"rigold.","is_match":true,"millis":905}
-{"id":"en-long-09","kind":"next_word","suggestion":"questions.","is_match":true,"millis":430}
-{"id":"en-long-11","kind":"partial_word","suggestion":"ance,","is_match":true,"millis":526}
-{"id":"es-long-01","kind":"next_word","suggestion":"Itziar.","is_match":true,"millis":562}
-{"id":"es-long-02","kind":"partial_word","suggestion":"tros.","is_match":true,"millis":793}
-{"id":"es-long-03","kind":"next_word","suggestion":"el pipeline.","is_match":false,"millis":1020}
-{"id":"es-long-05","kind":"next_word","suggestion":"Zeltra R7.","is_match":true,"millis":624}
-{"id":"es-long-07","kind":"next_word","suggestion":"sesión a las 20:1","is_match":true,"millis":1134}
-{"id":"es-long-08","kind":"partial_word","suggestion":"újula.","is_match":true,"millis":557}
-{"id":"es-long-10","kind":"partial_word","suggestion":"mano.","is_match":true,"millis":685}
-{"id":"es-long-11","kind":"next_word","suggestion":"Colibrí.","is_match":true,"millis":798}
+{"id":"en-long-09","kind":"next_word","suggestion":"questions.","is_match":true,"millis":432}
+{"id":"en-long-11","kind":"partial_word","suggestion":"ance,","is_match":true,"millis":541}
+{"id":"es-long-01","kind":"next_word","suggestion":"Itziar.","is_match":true,"millis":592}
+{"id":"es-long-02","kind":"partial_word","suggestion":"tros.","is_match":true,"millis":829}
+{"id":"es-long-03","kind":"next_word","suggestion":"el pipeline.","is_match":false,"millis":1042}
+{"id":"es-long-05","kind":"next_word","suggestion":"Zeltra R7.","is_match":true,"millis":636}
+{"id":"es-long-07","kind":"next_word","suggestion":"sesión a las 20:1","is_match":true,"millis":1183}
+{"id":"es-long-08","kind":"partial_word","suggestion":"újula.","is_match":true,"millis":572}
+{"id":"es-long-10","kind":"partial_word","suggestion":"mano.","is_match":true,"millis":701}
+{"id":"es-long-11","kind":"next_word","suggestion":"Colibrí.","is_match":true,"millis":809}
+{"id":"en-chat-17","kind":"next_word","suggestion":"Q3 board deck. Let me know","is_match":true,"millis":295}
+{"id":"en-chat-18","kind":"next_word","suggestion":"4471. Thanks for","is_match":true,"millis":321}
+{"id":"es-chat-17","kind":"next_word","suggestion":"17:15. ¡","is_match":false,"millis":318}
+{"id":"en-email-17","kind":"next_word","suggestion":"Wednesday at 2 pm in room","is_match":true,"millis":306}
+{"id":"en-email-18","kind":"next_word","suggestion":"March 3rd. The payment was","is_match":true,"millis":329}
+{"id":"es-email-17","kind":"next_word","suggestion":"lunes 25.","is_match":true,"millis":242}

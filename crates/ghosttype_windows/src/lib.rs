@@ -6,6 +6,7 @@
 
 #![cfg(windows)]
 
+mod app_icon;
 mod badge;
 mod caret_reader;
 mod clipboard;
@@ -19,6 +20,7 @@ mod overlay;
 mod pixels;
 mod registry;
 mod runtime;
+mod screen_text;
 mod settings;
 mod single_instance;
 mod startup;

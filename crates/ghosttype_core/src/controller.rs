@@ -2,12 +2,12 @@
 //! settings window and the answers of the services. The platform reports its events to the
 //! [`Controller`] and does what the controller asks through the [`Shell`].
 
-use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fmt, mem};
 
-use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome, TrayView};
-use crate::desktop::Desktop;
+use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView};
+use crate::desktop::{Desktop, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::Reaction;
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
@@ -15,6 +15,7 @@ use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, Mod
 use crate::key::{Disposition, Key};
 use crate::models_pane::{ModelsAction, ModelsPane};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
+use crate::screen_text_pane::{ScreenTextAction, ScreenTextPane};
 use crate::settings::{Autostart, ClipboardAccess, Settings, SettingsStore};
 use crate::settings_view::{SettingsInput, SettingsView};
 
@@ -53,6 +54,7 @@ pub enum BackendChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PaneAction {
     General(GeneralAction),
+    ScreenText(ScreenTextAction),
     Models(ModelsAction),
     Playground(PlaygroundAction),
 }
@@ -67,6 +69,8 @@ pub enum Delivery {
     Playground(InferenceEvent),
     /// For the ghost text at the caret.
     Suggestion(InferenceEvent),
+    /// The answer to a read of the screen that [`Shell::read_screen`] started.
+    Screen(ScreenRead),
 }
 
 /// Takes a delivery from any thread to the thread that runs the controller, and gives it to
@@ -133,6 +137,15 @@ pub trait Shell: Desktop {
     /// Keeps the text that the user copies while `access` allows it, and forgets it when not.
     fn use_clipboard_access(&mut self, access: ClipboardAccess);
 
+    /// Reads the text near the focused field on the screen, off the thread of the keys, without
+    /// password fields. Gives the answer with the id `read` to [`Controller::on_delivery`] as a
+    /// [`Delivery::Screen`].
+    fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource);
+
+    /// Asks the user for the permission that the OCR needs: shows the prompt of the system, or the
+    /// place in the system settings where the user gives it.
+    fn ask_for_ocr_permission(&mut self);
+
     /// Ends GhostType after the event that the controller handles now.
     fn quit(&mut self);
 }
@@ -144,6 +157,7 @@ pub struct Controller {
     models: ModelsPane,
     playground: PlaygroundPane,
     general: GeneralPane,
+    screen_text: ScreenTextPane,
     hub: Box<dyn ModelHub>,
     runner: Box<dyn ModelRunner>,
     settings_store: Box<dyn SettingsStore>,
@@ -152,6 +166,8 @@ pub struct Controller {
     suggestion_sink: InferenceEventSink,
     pending_ghost: Option<String>,
     is_caret_timer_pending: bool,
+    /// Whether the Screen text pane has an app that the settings store does not have yet.
+    has_unsaved_app: bool,
 }
 
 impl fmt::Debug for Controller {
@@ -183,6 +199,7 @@ impl Controller {
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
+        let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let (mut playground, general) = match backends {
             BackendChoice::User => (
                 PlaygroundPane::with_backend(settings.backend),
@@ -204,6 +221,7 @@ impl Controller {
             models: ModelsPane::new(),
             playground,
             general,
+            screen_text,
             hub,
             runner,
             settings_store,
@@ -212,6 +230,7 @@ impl Controller {
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             pending_ghost: None,
             is_caret_timer_pending: false,
+            has_unsaved_app: false,
         }
     }
 
@@ -237,6 +256,7 @@ impl Controller {
         let reaction = self.app.on_key(key, &*shell);
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
+        self.add_typed_app();
         disposition
     }
 
@@ -286,6 +306,14 @@ impl Controller {
     pub fn on_settings_input(&mut self, input: &SettingsInput, shell: &mut dyn Shell) {
         match self.pane_action(input) {
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
+            Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
+                shell.ask_for_ocr_permission();
+            }
+            Some(PaneAction::ScreenText(action)) => {
+                if self.screen_text.on_action(action) {
+                    self.keep_screen_text();
+                }
+            }
             Some(PaneAction::Models(action)) => {
                 if let Some(request) = self.models.on_action(action) {
                     self.hub.submit(request, &self.hub_sink);
@@ -307,6 +335,7 @@ impl Controller {
         self.general
             .action_for(input, &self.playground, &installed)
             .map(PaneAction::General)
+            .or_else(|| self.screen_text.action_for(input).map(PaneAction::ScreenText))
             .or_else(|| {
                 self.playground
                     .action_for(input, &installed)
@@ -316,7 +345,7 @@ impl Controller {
     }
 
     fn render_settings(&self, shell: &mut dyn Shell) {
-        shell.render_settings(&self.settings_view());
+        shell.render_settings(&self.settings_view(shell.ocr_availability()));
     }
 
     /// Handles the answer of a service.
@@ -328,6 +357,10 @@ impl Controller {
             }
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
+            Delivery::Screen(read) => {
+                let work = self.app.on_screen_read(read, &*shell);
+                self.do_settled_work(work, shell);
+            }
         }
     }
 
@@ -344,8 +377,42 @@ impl Controller {
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
         self.refresh_focus(shell);
-        if let Some(request) = self.app.on_input_settled(&*shell) {
-            self.runner.submit(request, &self.suggestion_sink);
+        if mem::take(&mut self.has_unsaved_app) {
+            self.keep_screen_text();
+            self.render_settings(shell);
+        }
+        let work = self.app.on_input_settled(&*shell);
+        self.do_settled_work(work, shell);
+    }
+
+    fn do_settled_work(&mut self, work: Option<SettledWork>, shell: &mut dyn Shell) {
+        match work {
+            Some(SettledWork::ReadScreen { read, source }) => shell.read_screen(read, source),
+            Some(SettledWork::Prepare(request)) => self.runner.submit(request, &self.suggestion_sink),
+            None => {}
+        }
+    }
+
+    /// Adds the app where the user types to the Screen text pane, when the pane does not have it.
+    /// The settings are saved when the input settles, because a key must not wait for the disk.
+    fn add_typed_app(&mut self) {
+        if let Some(app) = self.app.typed_app() {
+            self.has_unsaved_app |= self.screen_text.add_app(app);
+        }
+    }
+
+    /// Keeps the settings of the Screen text pane for the next run, and uses them.
+    fn keep_screen_text(&mut self) {
+        let settings = self.with_screen_text(self.general.settings().clone());
+        self.settings_store.save(&settings);
+        self.app.use_settings(&settings);
+    }
+
+    /// Returns `settings` of the General pane with the settings of the Screen text pane.
+    fn with_screen_text(&self, settings: Settings) -> Settings {
+        Settings {
+            screen_text: self.screen_text.settings().clone(),
+            ..settings
         }
     }
 
@@ -394,7 +461,7 @@ impl Controller {
     fn on_playground_event(&mut self, event: InferenceEvent, shell: &mut dyn Shell) {
         self.playground.on_event(event);
         if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
-            self.settings_store.save(&settings);
+            self.settings_store.save(&self.with_screen_text(settings));
         }
         self.render_settings(shell);
     }
@@ -402,6 +469,7 @@ impl Controller {
     fn on_general_action(&mut self, action: GeneralAction, shell: &mut dyn Shell) {
         let outcome = self.general.on_action(action, &mut self.playground);
         if let Some(settings) = outcome.settings {
+            let settings = self.with_screen_text(settings);
             self.settings_store.save(&settings);
             self.app.use_settings(&settings);
             self.playground.use_settings(&settings);
@@ -424,14 +492,15 @@ impl Controller {
     fn open_settings(&mut self, shell: &mut dyn Shell) {
         let request = self.models.on_open();
         self.hub.submit(request, &self.hub_sink);
-        shell.show_settings(&self.settings_view());
+        shell.show_settings(&self.settings_view(shell.ocr_availability()));
     }
 
-    fn settings_view(&self) -> SettingsView {
+    fn settings_view(&self, ocr: OcrAvailability) -> SettingsView {
         let installed = self.models.installed_files();
         SettingsView {
             pages: vec![
                 self.general.page(&self.playground, &installed),
+                self.screen_text.page(ocr),
                 self.models.page(),
                 self.playground.page(&installed),
             ],
@@ -476,19 +545,21 @@ fn delivering_sink<Event: 'static>(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::mem;
     use std::rc::Rc;
     use std::sync::Mutex;
 
     use super::*;
     use crate::app::{Field, Status};
-    use crate::desktop::{CopiedText, Surroundings};
+    use crate::desktop::{CopiedText, FieldText, ScreenText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Backend, Completion, TokenCount};
+    use crate::inference::{Backend, Completion, Prompt, SystemPrompt, TokenCount};
     use crate::models_pane::SEARCH;
     use crate::playground::MODEL;
-    use crate::settings::{PromptPreparation, SuggestionDisplay};
+    use crate::screen_text_pane::SCREEN_TEXT;
+    use crate::settings::{
+        PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionDisplay,
+    };
     use crate::settings_view::{ControlId, Page};
 
     const PAUSE_BADGE: BadgeView = BadgeView {
@@ -518,12 +589,16 @@ mod tests {
         RenderSettings(Box<SettingsView>),
         ShowSettings(Box<SettingsView>),
         UseClipboardAccess(ClipboardAccess),
+        ReadScreen(ScreenReadId, ScreenSource),
+        AskForOcrPermission,
         Quit,
     }
 
     struct FakeShell {
         field: Field,
+        surroundings: Surroundings,
         focus_change: FocusChange,
+        ocr: OcrAvailability,
         calls: Vec<Call>,
     }
 
@@ -533,11 +608,15 @@ mod tests {
         }
 
         fn surroundings(&self) -> Surroundings {
-            Surroundings::default()
+            self.surroundings.clone()
         }
 
         fn copied_text(&self) -> Option<CopiedText> {
             None
+        }
+
+        fn ocr_availability(&self) -> OcrAvailability {
+            self.ocr
         }
     }
 
@@ -587,6 +666,14 @@ mod tests {
 
         fn use_clipboard_access(&mut self, access: ClipboardAccess) {
             self.calls.push(Call::UseClipboardAccess(access));
+        }
+
+        fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
+            self.calls.push(Call::ReadScreen(read, source));
+        }
+
+        fn ask_for_ocr_permission(&mut self) {
+            self.calls.push(Call::AskForOcrPermission);
         }
 
         fn quit(&mut self) {
@@ -669,7 +756,9 @@ mod tests {
                 controller: Controller::new(settings, services, backends, &deliver),
                 shell: FakeShell {
                     field: Field::Open,
+                    surroundings: Surroundings::default(),
                     focus_change: FocusChange::Unchanged,
+                    ocr: OcrAvailability::Unsupported,
                     calls: Vec::new(),
                 },
                 recorder,
@@ -755,6 +844,25 @@ mod tests {
             }]);
             self.controller
                 .on_delivery(Delivery::Hub(installed), &mut self.shell);
+        }
+
+        /// Puts the focus in the text field of an app.
+        fn focus_text_field_of(&mut self, app_id: &str, app_name: &str) {
+            self.shell.surroundings = Surroundings {
+                app_id: Some(app_id.to_owned()),
+                app_name: Some(app_name.to_owned()),
+                field_text: Some(FieldText::default()),
+                ..Surroundings::default()
+            };
+        }
+
+        /// Settles the input, and returns the read of the screen that the controller started.
+        fn settle_input_to_read_screen(&mut self) -> ScreenReadId {
+            self.controller.on_timer(Timer::InputSettle, &mut self.shell);
+            match self.take_calls().pop() {
+                Some(Call::ReadScreen(read, ScreenSource::Accessibility)) => read,
+                other => panic!("the controller did not read the screen: {other:?}"),
+            }
         }
 
         fn shown_settings(&mut self) -> SettingsView {
@@ -1401,5 +1509,190 @@ mod tests {
             harness.take_calls().as_slice(),
             [Call::RenderSettings(_)]
         ));
+    }
+    fn mail_app(is_on: bool) -> ScreenTextApp {
+        ScreenTextApp {
+            app_id: "com.apple.mail".to_owned(),
+            app_name: "Mail".to_owned(),
+            app_path: None,
+            is_on,
+        }
+    }
+
+    #[test]
+    fn settled_input_in_a_text_field_reads_the_screen() {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+
+        harness
+            .controller
+            .on_timer(Timer::InputSettle, &mut harness.shell);
+
+        assert!(matches!(harness.take_calls()[..], [Call::ReadScreen(..)]));
+    }
+
+    #[test]
+    fn screen_answer_without_lines_reads_the_screen_with_ocr() {
+        let mut harness = Harness::new(Settings::default());
+        harness.shell.ocr = OcrAvailability::Ready;
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        let read = harness.settle_input_to_read_screen();
+
+        harness.controller.on_delivery(
+            Delivery::Screen(ScreenRead { id: read, text: None }),
+            &mut harness.shell,
+        );
+
+        assert!(matches!(
+            harness.take_calls()[..],
+            [Call::ReadScreen(_, ScreenSource::Ocr)]
+        ));
+    }
+
+    #[test]
+    fn permission_button_asks_for_the_ocr_permission() {
+        let mut harness = Harness::new(Settings::default());
+
+        harness.controller.on_settings_input(
+            &SettingsInput::Pressed(ControlId::new("screen-text-ocr-permission")),
+            &mut harness.shell,
+        );
+
+        assert!(harness.take_calls().contains(&Call::AskForOcrPermission));
+    }
+
+    #[test]
+    fn screen_answer_prepares_the_prompt_on_focus() {
+        let mut harness = Harness::new(Settings {
+            custom_system_prompt: Some(SystemPrompt(String::new())),
+            prompt_preparation: PromptPreparation::OnFocus,
+            ..Settings::default()
+        });
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        let read = harness.settle_input_to_read_screen();
+
+        harness.controller.on_delivery(
+            Delivery::Screen(ScreenRead {
+                id: read,
+                text: Some(ScreenText::default()),
+            }),
+            &mut harness.shell,
+        );
+
+        assert_eq!(
+            harness.last_request(),
+            Some(InferenceRequest::Complete {
+                prompt: Prompt("Format: email; App: Mail\n\n".to_owned()),
+                max_tokens: TokenCount(0),
+            })
+        );
+    }
+
+    #[test]
+    fn key_in_a_new_app_saves_nothing_before_the_input_settles() {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+
+        harness.press(Key::Char('H'));
+
+        assert_eq!(harness.saved(), Vec::new());
+    }
+
+    #[test]
+    fn typing_in_a_new_app_adds_the_app_to_the_screen_text_pane_and_keeps_it() {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.press(Key::Char('H'));
+        harness.press(Key::Char('i'));
+
+        harness
+            .controller
+            .on_timer(Timer::InputSettle, &mut harness.shell);
+
+        assert_eq!(
+            harness.saved(),
+            vec![Settings {
+                screen_text: ScreenTextSettings {
+                    access: ScreenTextAccess::Allowed,
+                    apps: vec![mail_app(true)],
+                },
+                ..Settings::default()
+            }]
+        );
+    }
+
+    #[test]
+    fn screen_text_switch_keeps_the_general_settings() {
+        let mut harness = Harness::new(Settings {
+            clipboard_access: ClipboardAccess::Allowed,
+            ..Settings::default()
+        });
+
+        harness.toggle(SCREEN_TEXT, false);
+
+        assert_eq!(
+            harness.saved(),
+            vec![Settings {
+                clipboard_access: ClipboardAccess::Allowed,
+                screen_text: ScreenTextSettings {
+                    access: ScreenTextAccess::Denied,
+                    apps: Vec::new(),
+                },
+                ..Settings::default()
+            }]
+        );
+    }
+
+    #[test]
+    fn general_setting_keeps_the_screen_text_apps() {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.press(Key::Char('H'));
+        harness
+            .controller
+            .on_timer(Timer::InputSettle, &mut harness.shell);
+
+        harness.toggle(CLIPBOARD, true);
+
+        assert_eq!(
+            harness.saved().pop().map(|settings| settings.screen_text.apps),
+            Some(vec![mail_app(true)])
+        );
+    }
+
+    #[test]
+    fn app_switched_off_reads_no_screen() {
+        let mut harness = Harness::new(Settings {
+            screen_text: ScreenTextSettings {
+                access: ScreenTextAccess::Allowed,
+                apps: vec![mail_app(true)],
+            },
+            ..Settings::default()
+        });
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        let input = SettingsInput::Toggled {
+            id: ControlId::from("screen-text-app:com.apple.mail".to_owned()),
+            is_on: false,
+        };
+        harness.controller.on_settings_input(&input, &mut harness.shell);
+        harness.take_calls();
+
+        harness
+            .controller
+            .on_timer(Timer::InputSettle, &mut harness.shell);
+
+        assert_eq!(harness.take_calls(), Vec::new());
+    }
+
+    #[test]
+    fn screen_text_pane_follows_the_general_pane() {
+        let mut harness = Harness::new(Settings::default());
+
+        let view = harness.shown_settings();
+
+        assert_eq!(
+            view.pages.iter().map(|page| page.title).collect::<Vec<_>>(),
+            ["General", "Screen text", "Models", "Playground"]
+        );
     }
 }

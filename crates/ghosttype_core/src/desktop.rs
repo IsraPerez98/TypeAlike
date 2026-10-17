@@ -54,6 +54,118 @@ impl fmt::Debug for CopiedText {
     }
 }
 
+/// A rectangle on the screen, with the origin at the top left of the main display and y down: in
+/// physical pixels on Windows and in points on macOS. Core compares only the rectangles of one
+/// read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScreenRect {
+    /// The left edge.
+    pub left: i32,
+    /// The top edge.
+    pub top: i32,
+    /// The right edge, after the last column of the rectangle.
+    pub right: i32,
+    /// The bottom edge, after the last row of the rectangle.
+    pub bottom: i32,
+}
+
+/// One line of text on the screen, outside of the focused field. `Debug` shows only its length
+/// and frame, so logs never hold what the screen shows.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ScreenLine {
+    /// The text of the line.
+    pub text: String,
+    /// Where the line shows.
+    pub frame: ScreenRect,
+    /// How sure the platform is that `text` is what the screen shows.
+    pub confidence: Confidence,
+}
+
+/// How sure the platform is of the text of a line, in percent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Confidence(pub(crate) u8);
+
+impl Confidence {
+    /// The confidence of text that an app gives as text, not as pixels.
+    pub const CERTAIN: Self = Self(100);
+
+    /// The confidence of a recognized line, from a `fraction` between 0 and 1.
+    #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the percent is rounded into 0 to 100 first, and `as` gives 0 for NaN"
+    )]
+    pub fn from_fraction(fraction: f32) -> Self {
+        Self((fraction * 100.0).round().clamp(0.0, 100.0) as u8)
+    }
+}
+
+/// Where the platform reads the text near the focused field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenSource {
+    /// The accessibility tree of the window: the text that the app gives as text.
+    Accessibility,
+    /// Optical character recognition (OCR) of a capture of the window.
+    Ocr,
+}
+
+/// Whether the platform can read the screen with OCR now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcrAvailability {
+    /// The platform has no OCR.
+    Unsupported,
+    /// The user did not give GhostType the permission to capture the screen.
+    NotPermitted,
+    /// The device saves power, so GhostType does no OCR.
+    SavingPower,
+    /// The platform can do an OCR.
+    Ready,
+}
+
+impl fmt::Debug for ScreenLine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ScreenLine")
+            .field("chars", &self.text.chars().count())
+            .field("frame", &self.frame)
+            .field("confidence", &self.confidence)
+            .finish()
+    }
+}
+
+/// The text near the focused field on the screen, from one read of the focused window.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScreenText {
+    /// The lines of text in the window, in any order.
+    pub lines: Vec<ScreenLine>,
+    /// Where the caret is, or `None` when the platform cannot find it.
+    pub caret: Option<ScreenRect>,
+    /// Where the focused field is.
+    pub field: ScreenRect,
+}
+
+/// Names one read of the screen. Core makes it, and the platform gives it back with the answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScreenReadId(u64);
+
+impl ScreenReadId {
+    /// The id of the read after this one.
+    #[must_use]
+    pub(crate) fn next(self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+}
+
+/// The answer to one read of the screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenRead {
+    /// The read that this answer is for.
+    pub id: ScreenReadId,
+    /// The text near the focused field, or `None` when the platform cannot read the window.
+    pub text: Option<ScreenText>,
+}
+
 /// What surrounds the caret in the focused app. `Debug` shows only what is known, so logs never
 /// hold what the user wrote or which document is open.
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -63,6 +175,9 @@ pub struct Surroundings {
     /// The id of the app: its bundle identifier on macOS, for example "com.apple.mail", or the
     /// file name of its program on Windows, for example "OUTLOOK.EXE".
     pub app_id: Option<String>,
+    /// The full path of the program of the app, which only the platform reads, for example to
+    /// show the icon of the app. `None` when the platform finds the app from its id.
+    pub app_path: Option<String>,
     /// The title of the focused window, for example "Re: Q3 budget review".
     pub window_title: Option<String>,
     /// The label of the focused field, for example "Message" or "Subject".
@@ -79,6 +194,7 @@ impl fmt::Debug for Surroundings {
             .debug_struct("Surroundings")
             .field("has_app_name", &self.app_name.is_some())
             .field("has_app_id", &self.app_id.is_some())
+            .field("has_app_path", &self.app_path.is_some())
             .field("has_window_title", &self.window_title.is_some())
             .field("has_field_label", &self.field_label.is_some())
             .field("has_domain", &self.domain.is_some())
@@ -98,6 +214,12 @@ pub trait Desktop {
 
     /// Reads the text on the clipboard. Core calls it only when the user allows it.
     fn copied_text(&self) -> Option<CopiedText>;
+
+    /// Tells whether the platform can read the screen with OCR now. A platform without OCR keeps
+    /// this default.
+    fn ocr_availability(&self) -> OcrAvailability {
+        OcrAvailability::Unsupported
+    }
 }
 
 #[cfg(test)]
@@ -105,10 +227,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn confidence_takes_a_fraction_in_percent() {
+        let fractions = [0.0, 0.304, 0.5, 1.0, 1.7, -0.2, f32::NAN];
+
+        let confidences = fractions.map(Confidence::from_fraction);
+
+        assert_eq!(confidences, [0, 30, 50, 100, 100, 0, 0].map(Confidence));
+    }
+
+    #[test]
     fn debug_does_not_reveal_text_or_window() {
         let surroundings = Surroundings {
             app_name: Some("Mail".to_owned()),
             app_id: Some("com.apple.mail".to_owned()),
+            app_path: Some("C:\\secret\\MAIL.EXE".to_owned()),
             window_title: Some("secret title".to_owned()),
             field_label: Some("secret label".to_owned()),
             domain: Some("secret.example.com".to_owned()),
@@ -119,6 +251,19 @@ mod tests {
         };
 
         let debug = format!("{surroundings:?}");
+
+        assert!(!debug.contains("secret"), "{debug}");
+    }
+
+    #[test]
+    fn debug_does_not_reveal_screen_text() {
+        let line = ScreenLine {
+            text: "secret".to_owned(),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect::default(),
+        };
+
+        let debug = format!("{line:?}");
 
         assert!(!debug.contains("secret"), "{debug}");
     }

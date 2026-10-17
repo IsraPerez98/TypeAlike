@@ -4,14 +4,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ghosttype_core::settings_view::{
-    self as view, Accessory, ControlId, Item, Note, NoteTone, Output, Page, Picker, Row, SearchField,
-    Section, SettingsInput, Switch, TextArea, TextField,
+    self as view, Accessory, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker, Row,
+    SearchField, Section, SettingsInput, Switch, TextArea, TextField,
 };
 use windows_reactor::{
-    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, FontWeight, Grid, GridLength,
-    KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback, ScrollBarVisibility,
-    ScrollViewer, StackPanel, Symbol, TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch,
-    VerticalAlignment, View, ViewContext, VirtualKey, keyed,
+    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
+    GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
+    ScrollBarVisibility, ScrollViewer, StackPanel, Symbol, SymbolIcon, TextBlock, TextBox, TextWrapping,
+    ThemeBrush, Thickness, ToggleSwitch, VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
 use super::{PageMessage, SettingsPage};
@@ -34,11 +34,13 @@ const TEXT_AREA_MIN_HEIGHT: f64 = 160.0;
 const PROGRESS_WIDTH: f64 = 120.0;
 const PERMILLE_MAX: f64 = 1000.0;
 const RING_SIZE: f64 = 16.0;
+const APP_ICON_SIZE: f64 = 24.0;
 
 /// Builds the controls of a page from its core sections and rows.
 pub(super) struct Renderer<'page, 'view> {
     pub(super) context: &'page ViewContext<'view, SettingsPage>,
     pub(super) typed: &'page HashMap<ControlId, String>,
+    pub(super) app_icons: &'page HashMap<String, Option<EncodedImage>>,
 }
 
 impl Renderer<'_, '_> {
@@ -121,6 +123,7 @@ impl Renderer<'_, '_> {
     fn row(&self, row: &Row) -> View {
         match row {
             Row::Switch(switch) => self.switch_card(switch),
+            Row::AppSwitch(switch) => self.app_switch_card(switch),
             Row::Picker(picker) => self.picker_card(picker),
             Row::TextArea(area) => self.text_area_card(area),
             Row::TextField(field) => self.text_field_card(field),
@@ -144,6 +147,54 @@ impl Renderer<'_, '_> {
                 })
             }));
         control_card(switch.label, switch.description, None, toggle.into())
+    }
+
+    /// A card with the icon and the name of an app at the leading edge and its switch at the
+    /// trailing edge.
+    fn app_switch_card(&self, switch: &AppSwitch) -> View {
+        let id = switch.id.clone();
+        let toggle = ToggleSwitch::new()
+            .is_on(switch.is_on)
+            .is_enabled(switch.is_enabled)
+            .automation_name(&switch.app_name)
+            .on_toggled(self.context.callback(move |is_on| {
+                PageMessage::Input(SettingsInput::Toggled {
+                    id: id.clone(),
+                    is_on,
+                })
+            }));
+        let icon = switch
+            .app_path
+            .as_ref()
+            .and_then(|path| self.app_icons.get(path).cloned().flatten());
+        let icon: View = match icon {
+            Some(icon) => Image::new()
+                .source_data(icon)
+                .width(APP_ICON_SIZE)
+                .height(APP_ICON_SIZE)
+                .into(),
+            None => SymbolIcon::new().symbol(Symbol::AllApps).into(),
+        };
+        let name = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(CONTROL_GAP)
+            .vertical_alignment(VerticalAlignment::Center)
+            .children((
+                Border::new()
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .content(icon),
+                TextBlock::new()
+                    .text(&switch.app_name)
+                    .vertical_alignment(VerticalAlignment::Center)
+                    .text_wrapping(TextWrapping::Wrap),
+            ));
+        card(
+            Grid::new()
+                .columns([GridLength::STAR, GridLength::Auto])
+                .column_spacing(CONTROL_GAP)
+                .children((name.grid_column(0), control_with_column(toggle.into())))
+                .into(),
+        )
     }
 
     fn picker_card(&self, picker: &Picker) -> View {

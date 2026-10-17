@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, Prompt,
-    TokenCount,
+    Backend, CONTEXT_TOKENS, Completion, InferenceError, InferenceEvent, InferenceEventSink,
+    InferenceRequest, Prompt, TokenCount,
 };
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
@@ -31,8 +31,6 @@ use llama_cpp_2::{
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
-/// Room for the longest prompt also in a script with few characters for each token, such as Chinese.
-const CONTEXT_TOKENS: u32 = 4096;
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
 /// whole batch while the model stays loaded, so a small batch keeps that memory small.
 const BATCH_TOKENS: u32 = 128;
@@ -228,13 +226,13 @@ fn check_fit(path: &Path, device: usize, margin_bytes: usize) -> Result<(), Infe
         .ok_or(InferenceError::ModelInvalid)?;
     let mut params = on_devices(&[device])?;
     let all_layers = params.n_gpu_layers();
-    let mut context = context_params(CONTEXT_TOKENS);
+    let mut context = context_params(CONTEXT_TOKENS.0);
     let mut margins = vec![margin_bytes; max_devices()];
     let fitted = Pin::new(&mut params).fit_params(
         &model_path,
         &mut context,
         &mut margins,
-        CONTEXT_TOKENS,
+        CONTEXT_TOKENS.0,
         GGML_LOG_LEVEL_WARN,
     );
     fit_verdict(fitted.map(|_| params.n_gpu_layers() == all_layers))
@@ -343,7 +341,7 @@ impl LoadedModel<'_> {
         let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
         let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
         let last_word_start = last_word_start(&vocab, &prompt_tokens);
-        let context_tokens = CONTEXT_TOKENS.min(model.n_ctx_train());
+        let context_tokens = CONTEXT_TOKENS.0.min(model.n_ctx_train());
         let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
         let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
         if prompt_tokens.is_empty() {

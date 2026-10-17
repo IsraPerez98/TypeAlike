@@ -3,12 +3,16 @@
 use std::time::Duration;
 use std::{fmt, mem};
 
-use crate::desktop::{Desktop, MAX_CHARS_BEFORE_CARET};
-use crate::inference::{Completion, InferenceError, InferenceRequest, Prompt, SystemPrompt, TokenCount};
+use crate::desktop::{
+    Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
+};
+use crate::inference::{
+    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, SystemPrompt, TokenCount,
+};
 use crate::key::Key;
 use crate::place;
-use crate::prompt::{self, last_chars};
-use crate::settings::{ClipboardAccess, Settings, SuggestionLength};
+use crate::prompt::{self, estimated_tokens, last_chars, last_tokens};
+use crate::settings::{ClipboardAccess, ScreenTextApp, Settings, SuggestionLength};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text reaches
@@ -53,6 +57,8 @@ pub(crate) struct Engine {
     system_prompt: SystemPrompt,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
+    screen: Screen,
+    newest_screen_read: ScreenReadId,
 }
 
 /// The typing in one place: what the model reads before the text, and the text before the caret.
@@ -60,9 +66,43 @@ pub(crate) struct Engine {
 struct Session {
     preface: String,
     text_before: String,
+    /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
+    max_tokens_before: TokenCount,
     text_after: String,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     is_excluded: bool,
+    /// The app where the user types, if it has an id.
+    app: Option<ScreenTextApp>,
+    /// Whether the preface holds the answer to a read of the screen. The session then starts no
+    /// other read, so that the start of its prompt stays the same.
+    has_screen_read: bool,
+}
+
+impl Session {
+    /// Makes `preface` what the model reads before the text, and drops the oldest text before the
+    /// caret that does not fit after it.
+    fn use_preface(&mut self, preface: String) {
+        self.max_tokens_before = tokens_before_caret(&preface);
+        self.preface = preface;
+        self.keep_recent_text();
+    }
+
+    fn keep_recent_text(&mut self) {
+        let kept = recent_text(&self.text_before, self.max_tokens_before).len();
+        self.text_before.drain(..self.text_before.len() - kept);
+    }
+}
+
+/// What the engine knows of the text near the field on the screen.
+#[derive(Default)]
+enum Screen {
+    #[default]
+    Unknown,
+    /// The platform reads the screen from `source`. A session that starts now gets the text when
+    /// the answer comes.
+    Reading { id: ScreenReadId, source: ScreenSource },
+    /// The newest read, for the next session.
+    Read(ScreenText),
 }
 
 #[derive(Default)]
@@ -106,10 +146,11 @@ impl Engine {
     }
 
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
-    /// request that decodes its prompt before the first key. Its completion adds no text. `None`
-    /// when a session runs or the field gets no suggestions.
+    /// request that decodes its prompt before the next key. Its completion adds no text. `None`
+    /// when a completion of the session runs or the field gets no suggestions.
     pub fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
-        if self.session.is_some() {
+        let is_completing = self.session.is_some() && self.unanswered_requests > 0;
+        if is_completing {
             return None;
         }
         let session = self.start_session(desktop);
@@ -174,40 +215,134 @@ impl Engine {
         Reaction::Hide
     }
 
+    /// Whether a session runs.
+    pub fn has_session(&self) -> bool {
+        self.session.is_some()
+    }
+
+    /// The app of the session, if a session runs in an app with an id.
+    pub fn session_app(&self) -> Option<&ScreenTextApp> {
+        self.session.as_ref()?.app.as_ref()
+    }
+
+    /// Starts a read of the accessibility tree of the screen, and returns its id. A session that
+    /// has screen text or waits for a read starts none.
+    pub fn start_screen_read(&mut self) -> Option<ScreenReadId> {
+        if let Some(session) = &self.session {
+            let is_reading = matches!(self.screen, Screen::Reading { .. });
+            if session.has_screen_read || is_reading {
+                return None;
+            }
+        }
+        Some(self.start_read(ScreenSource::Accessibility))
+    }
+
+    /// Starts an OCR read in place of `read`, when `read` is the newest read and reads the
+    /// accessibility tree, and returns its id.
+    pub fn start_ocr_after(&mut self, read: ScreenReadId) -> Option<ScreenReadId> {
+        let is_newest_tree_read = matches!(
+            self.screen,
+            Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
+        );
+        is_newest_tree_read.then(|| self.start_read(ScreenSource::Ocr))
+    }
+
+    fn start_read(&mut self, source: ScreenSource) -> ScreenReadId {
+        self.newest_screen_read = self.newest_screen_read.next();
+        self.screen = Screen::Reading {
+            id: self.newest_screen_read,
+            source,
+        };
+        self.newest_screen_read
+    }
+
+    /// Keeps the text of `read` when it answers the newest read, and returns whether it does. A
+    /// session that runs without screen text gets it, with what else surrounds the caret in
+    /// `desktop` now. A session that has screen text keeps it, and the next session gets the new
+    /// text.
+    pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
+        if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
+            return false;
+        }
+        self.screen = read.text.map_or(Screen::Unknown, Screen::Read);
+        self.add_screen_to_session(desktop);
+        true
+    }
+
+    fn add_screen_to_session(&mut self, desktop: &dyn Desktop) {
+        let is_waiting = self
+            .session
+            .as_ref()
+            .is_some_and(|session| !session.has_screen_read);
+        let has_text = matches!(self.screen, Screen::Read(_));
+        let preface = (is_waiting && has_text).then(|| self.preface(&desktop.surroundings(), desktop));
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        session.has_screen_read = true;
+        if let Some(preface) = preface {
+            session.use_preface(preface);
+        }
+    }
+
+    /// Forgets the screen text and the read that runs, for when another field can have the focus.
+    pub fn forget_screen(&mut self) {
+        self.screen = Screen::Unknown;
+    }
+
     /// Returns the session, and starts it with what surrounds the caret in `desktop` when there
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {
-        let system_prompt = &self.system_prompt;
-        let clipboard_access = self.clipboard_access;
-        self.session.get_or_insert_with(|| {
-            let surroundings = desktop.surroundings();
-            let recent_copy = match clipboard_access {
-                ClipboardAccess::Allowed => desktop
-                    .copied_text()
-                    .filter(|copied| copied.age.is_some_and(|age| age < MAX_CLIPBOARD_AGE)),
-                ClipboardAccess::Denied => None,
-            };
-            let (text_before, text_after) = surroundings
-                .field_text
-                .as_ref()
-                .map(|field_text| {
-                    (
-                        recent_text(&field_text.before_caret).to_owned(),
-                        field_text.after_caret.clone(),
-                    )
-                })
-                .unwrap_or_default();
-            Session {
-                preface: prompt::preface(
-                    system_prompt,
-                    &surroundings,
-                    recent_copy.map(|copied| copied.text).as_deref(),
-                ),
-                text_before,
-                text_after,
-                is_excluded: place::is_address_or_subject_field(&surroundings),
-            }
-        })
+        let session = match self.session.take() {
+            Some(session) => session,
+            None => self.new_session(desktop),
+        };
+        self.session.insert(session)
+    }
+
+    fn new_session(&self, desktop: &dyn Desktop) -> Session {
+        let surroundings = desktop.surroundings();
+        let preface = self.preface(&surroundings, desktop);
+        let max_tokens_before = tokens_before_caret(&preface);
+        let (text_before, text_after) = surroundings
+            .field_text
+            .as_ref()
+            .map(|field_text| {
+                (
+                    recent_text(&field_text.before_caret, max_tokens_before).to_owned(),
+                    field_text.after_caret.clone(),
+                )
+            })
+            .unwrap_or_default();
+        Session {
+            preface,
+            text_before,
+            max_tokens_before,
+            text_after,
+            is_excluded: place::is_address_or_subject_field(&surroundings),
+            app: ScreenTextApp::of(&surroundings),
+            has_screen_read: matches!(self.screen, Screen::Read(_)),
+        }
+    }
+
+    /// Returns what the model reads before the text of the field in `surroundings`.
+    fn preface(&self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
+        let recent_copy = match self.clipboard_access {
+            ClipboardAccess::Allowed => desktop
+                .copied_text()
+                .filter(|copied| copied.age.is_some_and(|age| age < MAX_CLIPBOARD_AGE)),
+            ClipboardAccess::Denied => None,
+        };
+        let screen = match &self.screen {
+            Screen::Read(text) => Some(text),
+            Screen::Unknown | Screen::Reading { .. } => None,
+        };
+        prompt::preface(
+            &self.system_prompt,
+            surroundings,
+            recent_copy.map(|copied| copied.text).as_deref(),
+            screen,
+        )
     }
 
     fn on_typed(&mut self, character: char) -> Reaction {
@@ -303,20 +438,29 @@ impl Engine {
 
     fn keep_recent_text(&mut self) {
         if let Some(session) = &mut self.session {
-            let kept = recent_text(&session.text_before).len();
-            session.text_before.drain(..session.text_before.len() - kept);
+            session.keep_recent_text();
         }
     }
 }
 
+/// Returns the most estimated tokens of the text before the caret after `preface`, so that the
+/// prompt leaves room for the longest completion.
+fn tokens_before_caret(preface: &str) -> TokenCount {
+    let room = CONTEXT_TOKENS
+        .0
+        .saturating_sub(SuggestionLength::Long.max_tokens().0);
+    TokenCount(room.saturating_sub(estimated_tokens(preface).0))
+}
+
 /// Returns the end of `text` that a session keeps: all of it while it is shorter than
-/// [`MAX_CHARS_BEFORE_CARET`], else its last [`TRIMMED_CHARS_BEFORE_CARET`] characters.
-fn recent_text(text: &str) -> &str {
-    if text.chars().count() < MAX_CHARS_BEFORE_CARET {
-        text
-    } else {
-        last_chars(text, TRIMMED_CHARS_BEFORE_CARET)
+/// [`MAX_CHARS_BEFORE_CARET`] and `max_tokens`, else its last [`TRIMMED_CHARS_BEFORE_CARET`]
+/// characters, within three quarters of `max_tokens`.
+fn recent_text(text: &str, max_tokens: TokenCount) -> &str {
+    if text.chars().count() < MAX_CHARS_BEFORE_CARET && estimated_tokens(text) < max_tokens {
+        return text;
     }
+    let trimmed_tokens = TokenCount(max_tokens.0 / 4 * 3);
+    last_tokens(last_chars(text, TRIMMED_CHARS_BEFORE_CARET), trimmed_tokens)
 }
 
 /// Returns the first line of `completion` as ghost text after `context`, or `None` when it has no
@@ -425,7 +569,7 @@ mod tests {
 
     use super::*;
     use crate::app::Field;
-    use crate::desktop::{CopiedText, FieldText, Surroundings};
+    use crate::desktop::{Confidence, CopiedText, FieldText, ScreenLine, ScreenRect};
 
     #[derive(Default)]
     struct FakeDesktop {
@@ -1339,12 +1483,21 @@ mod tests {
     }
 
     #[test]
-    fn preparing_during_a_session_does_nothing() {
+    fn preparing_while_a_completion_runs_does_nothing() {
         let mut engine = engine_waiting_for("h");
 
         let request = engine.prepare(&FakeDesktop::with_field_text("Hello"));
 
         assert_eq!(request, None);
+    }
+
+    #[test]
+    fn preparing_an_idle_session_decodes_its_prompt() {
+        let mut engine = engine_showing("h", "ello");
+
+        let request = engine.prepare(&FakeDesktop::with_field_text("Hello"));
+
+        assert_eq!(request, preparation("h"));
     }
 
     #[test]
@@ -1407,5 +1560,264 @@ mod tests {
         let debug = format!("{engine:?}");
 
         assert!(!debug.contains("secret") && !debug.contains("word"));
+    }
+    fn screen_with(line: &str) -> ScreenText {
+        ScreenText {
+            lines: vec![ScreenLine {
+                text: line.to_owned(),
+                confidence: Confidence::CERTAIN,
+                frame: ScreenRect {
+                    left: 0,
+                    top: 100,
+                    right: 500,
+                    bottom: 120,
+                },
+            }],
+            caret: None,
+            field: ScreenRect {
+                left: 0,
+                top: 200,
+                right: 500,
+                bottom: 240,
+            },
+        }
+    }
+
+    fn engine_that_read(line: &str) -> Engine {
+        let mut engine = Engine::default();
+        let id = engine.start_screen_read().expect("no session runs");
+        engine.on_screen_read(
+            ScreenRead {
+                id,
+                text: Some(screen_with(line)),
+            },
+            &FakeDesktop::default(),
+        );
+        engine
+    }
+
+    #[test]
+    fn session_shows_the_screen_text_of_the_read_before_it() {
+        let mut engine = engine_that_read("Dinner at 7?");
+
+        let reaction = press(&mut engine, Key::Char('S'));
+
+        assert_eq!(reaction, request("Nearby on screen: “Dinner at 7?”\n\nS"));
+    }
+
+    #[test]
+    fn session_that_starts_during_a_read_has_no_screen_text() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        engine.start_screen_read();
+
+        let reaction = press(&mut engine, Key::Char('S'));
+
+        assert_eq!(reaction, request("S"));
+    }
+
+    #[test]
+    fn read_that_comes_during_a_session_goes_into_it() {
+        let mut engine = Engine::default();
+        let id = engine.start_screen_read().expect("no session runs");
+        press(&mut engine, Key::Char('S'));
+        engine.on_screen_read(
+            ScreenRead {
+                id,
+                text: Some(screen_with("Dinner at 7?")),
+            },
+            &FakeDesktop::default(),
+        );
+
+        let reaction = press(&mut engine, Key::Char('u'));
+
+        assert_eq!(reaction, request("Nearby on screen: “Dinner at 7?”\n\nSu"));
+    }
+
+    #[test]
+    fn screen_text_that_comes_during_a_session_keeps_room_for_the_completion() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text(&"字".repeat(MAX_CHARS_BEFORE_CARET - 1));
+        let id = engine.start_screen_read().expect("no session runs");
+        engine.on_key(Key::Char('字'), &desktop);
+        engine.on_completion(completion(""));
+        engine.on_screen_read(
+            ScreenRead {
+                id,
+                text: Some(screen_with(&"屏".repeat(1100))),
+            },
+            &desktop,
+        );
+
+        let request = engine.prepare(&desktop);
+
+        let Some(InferenceRequest::Complete { prompt, .. }) = request else {
+            panic!("an idle session prepares its prompt: {request:?}");
+        };
+        let room = CONTEXT_TOKENS.0 - SuggestionLength::Long.max_tokens().0;
+        assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
+    }
+
+    #[test]
+    fn answer_to_an_older_read_is_dropped() {
+        let mut engine = Engine::default();
+        let older = engine.start_screen_read().expect("no session runs");
+        engine.start_screen_read();
+
+        let is_kept = engine.on_screen_read(
+            ScreenRead {
+                id: older,
+                text: Some(screen_with("Dinner at 7?")),
+            },
+            &FakeDesktop::default(),
+        );
+
+        assert!(!is_kept);
+    }
+
+    #[test]
+    fn no_read_starts_during_a_session_with_screen_text() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        press(&mut engine, Key::Char('S'));
+
+        let read = engine.start_screen_read();
+
+        assert_eq!(read, None);
+    }
+
+    #[test]
+    fn read_starts_during_a_session_without_screen_text() {
+        let mut engine = engine_waiting_for("S");
+
+        let read = engine.start_screen_read();
+
+        assert!(read.is_some());
+    }
+
+    #[test]
+    fn no_read_starts_while_a_read_of_the_session_runs() {
+        let mut engine = engine_waiting_for("S");
+        engine.start_screen_read();
+
+        let read = engine.start_screen_read();
+
+        assert_eq!(read, None);
+    }
+
+    #[test]
+    fn ocr_read_starts_after_the_newest_read() {
+        let mut engine = Engine::default();
+        let read = engine.start_screen_read().expect("no session runs");
+
+        let ocr = engine.start_ocr_after(read);
+
+        assert!(ocr.is_some());
+    }
+
+    #[test]
+    fn no_ocr_read_starts_after_an_older_read() {
+        let mut engine = Engine::default();
+        let older = engine.start_screen_read().expect("no session runs");
+        engine.start_screen_read();
+
+        let ocr = engine.start_ocr_after(older);
+
+        assert_eq!(ocr, None);
+    }
+
+    #[test]
+    fn no_ocr_read_starts_after_an_ocr_read() {
+        let mut engine = Engine::default();
+        let read = engine.start_screen_read().expect("no session runs");
+        let ocr = engine.start_ocr_after(read).expect("the read is the newest");
+
+        let next = engine.start_ocr_after(ocr);
+
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn answer_to_the_read_before_an_ocr_read_is_dropped() {
+        let mut engine = Engine::default();
+        let read = engine.start_screen_read().expect("no session runs");
+        engine.start_ocr_after(read);
+
+        let is_kept = engine.on_screen_read(
+            ScreenRead {
+                id: read,
+                text: Some(screen_with("Dinner at 7?")),
+            },
+            &FakeDesktop::default(),
+        );
+
+        assert!(!is_kept);
+    }
+
+    #[test]
+    fn session_that_got_an_answer_without_text_starts_no_other_read() {
+        let mut engine = engine_waiting_for("S");
+        let id = engine
+            .start_screen_read()
+            .expect("the session has no screen text");
+        engine.on_screen_read(ScreenRead { id, text: None }, &FakeDesktop::default());
+
+        let read = engine.start_screen_read();
+
+        assert_eq!(read, None);
+    }
+
+    #[test]
+    fn forgotten_screen_text_is_not_used() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        engine.forget_screen();
+
+        let reaction = press(&mut engine, Key::Char('S'));
+
+        assert_eq!(reaction, request("S"));
+    }
+
+    #[test]
+    fn answer_to_a_forgotten_read_is_dropped() {
+        let mut engine = Engine::default();
+        let id = engine.start_screen_read().expect("no session runs");
+        engine.forget_screen();
+
+        let is_kept = engine.on_screen_read(
+            ScreenRead {
+                id,
+                text: Some(screen_with("Dinner at 7?")),
+            },
+            &FakeDesktop::default(),
+        );
+
+        assert!(!is_kept);
+    }
+
+    #[test]
+    fn session_knows_its_app() {
+        let mut engine = Engine::default();
+
+        engine.on_key(
+            Key::Char('S'),
+            &FakeDesktop::in_field("com.apple.mail", "Message"),
+        );
+
+        assert_eq!(
+            engine.session_app().map(|app| app.app_id.as_str()),
+            Some("com.apple.mail")
+        );
+    }
+
+    #[test]
+    fn text_with_few_characters_for_each_token_keeps_room_for_the_completion() {
+        let mut engine = engine_that_read(&"屏".repeat(1100));
+        let desktop = FakeDesktop::with_field_text(&"字".repeat(MAX_CHARS_BEFORE_CARET - 1));
+
+        let reaction = engine.on_key(Key::Char('字'), &desktop);
+
+        let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
+            panic!("a key in an open field requests a completion: {reaction:?}");
+        };
+        let room = CONTEXT_TOKENS.0 - SuggestionLength::Long.max_tokens().0;
+        assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
     }
 }

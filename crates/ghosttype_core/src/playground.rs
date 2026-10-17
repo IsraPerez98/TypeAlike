@@ -269,7 +269,7 @@ impl PlaygroundPane {
             return None;
         }
         self.completion = Some(CompletionState::Running);
-        let preface = prompt::preface(&self.system_prompt, &Surroundings::default(), None);
+        let preface = prompt::preface(&self.system_prompt, &Surroundings::default(), None, None);
         Some(InferenceRequest::Complete {
             prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,

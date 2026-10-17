@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{BackendChoice, Controller, Delivery, FocusChange, Services, Shell, Timer};
-use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
+use ghosttype_core::desktop::{CopiedText, Desktop, ScreenRead, ScreenReadId, ScreenSource, Surroundings};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -37,6 +37,7 @@ use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
 use crate::mailbox::Mailbox;
 use crate::overlay::Overlay;
+use crate::screen_text::ScreenTextReader;
 use crate::settings::SettingsThread;
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
@@ -51,6 +52,7 @@ const CARET_READ_MESSAGE: u32 = WM_APP + 4;
 const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
 const BADGE_CLICK_MESSAGE: u32 = WM_APP + 6;
 const FIELD_READ_MESSAGE: u32 = WM_APP + 7;
+const SCREEN_READ_MESSAGE: u32 = WM_APP + 8;
 /// The time that the focused app takes to handle a key, a click or a move of the focus. The caret
 /// reader reads the field text after it.
 const FIELD_READ_DELAY: Duration = Duration::from_millis(40);
@@ -89,6 +91,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let (field_mailbox, field_reads) = Mailbox::new(window.handle(), FIELD_READ_MESSAGE);
     let caret_reader = CaretReader::start(caret_mailbox, field_mailbox)
         .map_err(RunError::during("start the caret reader"))?;
+    let (screen_mailbox, screen_reads) = Mailbox::new(window.handle(), SCREEN_READ_MESSAGE);
+    let screen_text =
+        ScreenTextReader::start(screen_mailbox).map_err(RunError::during("start the screen text reader"))?;
     let (mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
@@ -115,6 +120,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 overlay,
                 badge,
                 caret_reader,
+                screen_text,
                 pending_view: PendingView::default(),
                 kept_field_text: KeptFieldText::default(),
                 tray,
@@ -129,6 +135,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             settings_inputs,
             caret_reads,
             field_reads,
+            screen_reads,
         }))
     });
     tracing::info!("running in the tray");
@@ -202,6 +209,7 @@ struct Runtime {
     settings_inputs: mpsc::Receiver<SettingsInput>,
     caret_reads: mpsc::Receiver<CaretRead>,
     field_reads: mpsc::Receiver<FieldRead>,
+    screen_reads: mpsc::Receiver<ScreenRead>,
 }
 
 impl Runtime {
@@ -283,6 +291,7 @@ impl Runtime {
             SETTINGS_INPUT_MESSAGE => self.take_settings_inputs(),
             CARET_READ_MESSAGE => self.take_caret_reads(),
             FIELD_READ_MESSAGE => self.take_field_reads(),
+            SCREEN_READ_MESSAGE => self.take_screen_reads(),
             BADGE_CLICK_MESSAGE => self.controller.on_badge_click(&mut self.shell),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
@@ -325,6 +334,13 @@ impl Runtime {
             self.shell.kept_field_text.keep(read);
         }
     }
+
+    fn take_screen_reads(&mut self) {
+        while let Ok(read) = self.screen_reads.try_recv() {
+            self.controller
+                .on_delivery(Delivery::Screen(read), &mut self.shell);
+        }
+    }
 }
 
 /// What the controller reads and does through Win32.
@@ -334,6 +350,7 @@ struct Win32Shell {
     overlay: Overlay,
     badge: Badge,
     caret_reader: CaretReader,
+    screen_text: ScreenTextReader,
     /// What shows at the caret when the caret reader answers.
     pending_view: PendingView,
     /// The text around the caret that the hooks give to the controller.
@@ -488,6 +505,14 @@ impl Shell for Win32Shell {
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
         self.clipboard.use_access(access);
     }
+
+    /// Windows has no OCR, so core asks only for the UIA text.
+    fn read_screen(&mut self, read: ScreenReadId, _source: ScreenSource) {
+        self.screen_text.read(read);
+    }
+
+    /// Windows has no OCR, so core never asks for its permission.
+    fn ask_for_ocr_permission(&mut self) {}
 
     fn quit(&mut self) {
         // SAFETY: plain call.

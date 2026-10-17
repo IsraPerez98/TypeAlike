@@ -11,10 +11,11 @@ use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
-    CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat, CGRect, Type,
+    CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat, CGPoint,
+    CGRect, CGSize, Type,
 };
 
-const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
+pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
 const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
 const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
@@ -22,15 +23,17 @@ const BOUNDS_FOR_RANGE_ATTRIBUTE: &str = "AXBoundsForRange";
 const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const VALUE_ATTRIBUTE: &str = "AXValue";
-const WINDOW_ATTRIBUTE: &str = "AXWindow";
+pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
+const POSITION_ATTRIBUTE: &str = "AXPosition";
+const SIZE_ATTRIBUTE: &str = "AXSize";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
 const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
-const ROLE_ATTRIBUTE: &str = "AXRole";
-const PARENT_ATTRIBUTE: &str = "AXParent";
+pub(crate) const ROLE_ATTRIBUTE: &str = "AXRole";
+pub(crate) const PARENT_ATTRIBUTE: &str = "AXParent";
 const URL_ATTRIBUTE: &str = "AXURL";
 const WEB_AREA_ROLE: &str = "AXWebArea";
-const WINDOW_ROLE: &str = "AXWindow";
+pub(crate) const WINDOW_ROLE: &str = "AXWindow";
 /// The most elements that GhostType reads on the way up from the focused field to its web area.
 const MAX_WEB_AREA_DISTANCE: usize = 64;
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
@@ -44,7 +47,7 @@ const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
     "com.vivaldi.vivaldi",
     "com.operasoftware.opera",
 ];
-const ACCESSIBILITY_QUERY_TIMEOUT_SECONDS: f32 = 0.1;
+pub(crate) const ACCESSIBILITY_QUERY_TIMEOUT_SECONDS: f32 = 0.1;
 
 /// Where ghost text starts: just right of the caret, in global points with a top-left origin.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -118,20 +121,19 @@ impl FocusTracker {
         FocusChange::Changed
     }
 
+    /// The process of the frontmost app when [`refresh`](Self::refresh) looked last.
+    pub(crate) fn frontmost_process(&self) -> Option<i32> {
+        self.frontmost_process
+    }
+
     /// Locates the caret of the focused control, when it exposes one through Accessibility.
     pub(crate) fn caret(&self) -> Option<Caret> {
-        let element = self.focused_element()?;
-        let selection = selected_range(&element)?;
-        let caret_index = selection.location.checked_add(selection.length)?;
-        // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
-        bounds_for_range(&element, previous_unit_range(caret_index)?).and_then(Caret::from_bounds)
+        caret_bounds(&*self.focused_element()?).and_then(Caret::from_bounds)
     }
 
     fn is_secure_text_focused(&self) -> bool {
         self.focused_element()
-            .and_then(|element| copy_attribute(&element, SUBROLE_ATTRIBUTE))
-            .and_then(|subrole| subrole.downcast::<CFString>().ok())
-            .is_some_and(|subrole| subrole.to_string() == SECURE_TEXT_FIELD_SUBROLE)
+            .is_some_and(|element| is_secure_text(&element))
     }
 
     fn focused_element(&self) -> Option<CFRetained<AXUIElement>> {
@@ -154,6 +156,7 @@ impl FocusTracker {
         Surroundings {
             app_name: self.frontmost_name.clone(),
             app_id: self.frontmost_app_id.clone(),
+            app_path: None,
             window_title: element.as_deref().and_then(window_title),
             field_label: element.as_deref().and_then(field_label),
             domain: element.as_deref().and_then(web_domain),
@@ -204,6 +207,19 @@ fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str 
     } else {
         MANUAL_ACCESSIBILITY_ATTRIBUTE
     }
+}
+
+/// Whether `element` hides its text, as a password field does.
+pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
+    copy_string(element, SUBROLE_ATTRIBUTE).is_some_and(|subrole| subrole == SECURE_TEXT_FIELD_SUBROLE)
+}
+
+/// The bounds of the text that ends at the caret of `element`.
+pub(crate) fn caret_bounds(element: &AXUIElement) -> Option<CGRect> {
+    let selection = selected_range(element)?;
+    let caret_index = selection.location.checked_add(selection.length)?;
+    // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
+    bounds_for_range(element, previous_unit_range(caret_index)?)
 }
 
 fn previous_unit_range(caret_index: isize) -> Option<CFRange> {
@@ -338,7 +354,7 @@ impl SurroundingRanges {
     }
 }
 
-fn copy_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
+pub(crate) fn copy_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
     copy_attribute(element, attribute)?
         .downcast::<CFString>()
         .ok()
@@ -365,7 +381,7 @@ fn copy_attribute_for_range(
     unsafe { take_copied_value(error, value) }
 }
 
-fn copy_attribute(element: &AXUIElement, attribute: &'static str) -> Option<CFRetained<CFType>> {
+pub(crate) fn copy_attribute(element: &AXUIElement, attribute: &'static str) -> Option<CFRetained<CFType>> {
     let mut value: *const CFType = ptr::null();
     // SAFETY: the output pointer refers to a local.
     let error = unsafe {
@@ -398,6 +414,24 @@ fn read_range(value: &AXValue) -> Option<CFRange> {
     is_read.then_some(range)
 }
 
+/// The frame of `element` on the screen, in global points with a top-left origin.
+pub(crate) fn frame(element: &AXUIElement) -> Option<CGRect> {
+    let position = copy_attribute(element, POSITION_ATTRIBUTE)?
+        .downcast::<AXValue>()
+        .ok()?;
+    let size = copy_attribute(element, SIZE_ATTRIBUTE)?
+        .downcast::<AXValue>()
+        .ok()?;
+    let mut origin = CGPoint::ZERO;
+    let mut extent = CGSize::ZERO;
+    // SAFETY: `origin` and `extent` are a local CGPoint and CGSize, which is what the value types describe.
+    let is_read = unsafe {
+        position.value(AXValueType::CGPoint, NonNull::from(&mut origin).cast())
+            && size.value(AXValueType::CGSize, NonNull::from(&mut extent).cast())
+    };
+    is_read.then_some(CGRect::new(origin, extent))
+}
+
 fn read_rect(value: &AXValue) -> Option<CGRect> {
     let mut rect = CGRect::ZERO;
     // SAFETY: `rect` is a local CGRect, which is what the CGRect value type describes.
@@ -407,8 +441,6 @@ fn read_rect(value: &AXValue) -> Option<CGRect> {
 
 #[cfg(test)]
 mod tests {
-    use objc2_core_foundation::{CGPoint, CGSize};
-
     use super::*;
 
     #[test]

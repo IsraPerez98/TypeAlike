@@ -11,15 +11,16 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use ghosttype_core::settings_view::{ControlId, PageIcon, SettingsInput, SettingsView};
+use ghosttype_core::settings_view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
 use windows::Win32::Foundation::E_UNEXPECTED;
 use windows::core::{Error, HRESULT, Result};
 use windows_reactor::{
-    App, AppContext, AppProxy, Component, ComponentContext, LocalSender, NavigationView,
+    App, AppContext, AppProxy, Component, ComponentContext, EncodedImage, LocalSender, NavigationView,
     NavigationViewBackButtonVisible, NavigationViewItem, NavigationViewPaneDisplayMode, StackPanel, Symbol,
     View, ViewContext, WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
 };
 
+use crate::app_icon;
 use crate::mailbox::Mailbox;
 use crate::settings::page::Renderer;
 
@@ -223,6 +224,32 @@ struct SettingsPage {
     selected: usize,
     /// The text in each field that submits its text. The view does not hold it.
     typed: HashMap<ControlId, String>,
+    /// The icon of each app of the view, by the path of its program, or `None` when the program
+    /// has no icon.
+    app_icons: HashMap<String, Option<EncodedImage>>,
+}
+
+impl SettingsPage {
+    /// Shows `view`, and loads the icons of its apps that the page does not have yet.
+    fn show(&mut self, view: SettingsView) {
+        self.view = view;
+        let app_paths = self
+            .view
+            .pages
+            .iter()
+            .flat_map(|page| &page.sections)
+            .flat_map(|section| &section.rows)
+            .filter_map(|row| match row {
+                Row::AppSwitch(switch) => switch.app_path.as_deref(),
+                _ => None,
+            });
+        for path in app_paths {
+            if !self.app_icons.contains_key(path) {
+                let icon = app_icon::app_icon_file(path).map(EncodedImage::new);
+                self.app_icons.insert(path.to_owned(), icon);
+            }
+        }
+    }
 }
 
 impl Component for SettingsPage {
@@ -234,16 +261,21 @@ impl Component for SettingsPage {
             host.page = PageState::Open(context.sender());
             host.view.clone()
         });
-        Self {
-            view: view.unwrap_or(SettingsView { pages: Vec::new() }),
+        let mut page = Self {
+            view: SettingsView { pages: Vec::new() },
             selected: 0,
             typed: HashMap::new(),
+            app_icons: HashMap::new(),
+        };
+        if let Some(view) = view {
+            page.show(view);
         }
+        page
     }
 
     fn update(&mut self, message: PageMessage, context: &ComponentContext<Self>) {
         match message {
-            PageMessage::Show(view) => self.view = view,
+            PageMessage::Show(view) => self.show(view),
             PageMessage::Activate => {
                 if !context.activate_window() {
                     tracing::warn!("failed to bring the settings window to the front");
@@ -272,6 +304,7 @@ impl Component for SettingsPage {
         let renderer = Renderer {
             context,
             typed: &self.typed,
+            app_icons: &self.app_icons,
         };
         let items = self.view.pages.iter().enumerate().map(|(index, page)| {
             keyed(
@@ -318,5 +351,6 @@ fn page_symbol(icon: PageIcon) -> Symbol {
         PageIcon::Gear => Symbol::Setting,
         PageIcon::Cube => Symbol::Download,
         PageIcon::TextCursor => Symbol::Edit,
+        PageIcon::TextViewfinder => Symbol::Scan,
     }
 }

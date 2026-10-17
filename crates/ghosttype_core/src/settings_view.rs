@@ -62,6 +62,8 @@ pub enum PageIcon {
     Cube,
     /// A text cursor, for text that the user types.
     TextCursor,
+    /// Text in a viewfinder, for text that GhostType reads on the screen.
+    TextViewfinder,
 }
 
 /// A field that searches for the text that the user submits.
@@ -104,6 +106,8 @@ impl Section {
 pub enum Row {
     /// A setting that is on or off.
     Switch(Switch),
+    /// A setting that is on or off for one app.
+    AppSwitch(AppSwitch),
     /// A setting that takes one value of a list.
     Picker(Picker),
     /// Text of several lines that the user writes.
@@ -128,6 +132,7 @@ impl Row {
     pub fn id(&self) -> Option<&ControlId> {
         match self {
             Self::Switch(switch) => Some(&switch.id),
+            Self::AppSwitch(switch) => Some(&switch.id),
             Self::Picker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
             Self::TextField(text_field) => Some(&text_field.id),
@@ -147,6 +152,24 @@ pub struct Switch {
     pub description: &'static str,
     /// Whether the switch shows on.
     pub is_on: bool,
+}
+
+/// A switch that turns a setting on and off for one app, after the icon and the name of the app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppSwitch {
+    /// The switch. Turning it gives [`SettingsInput::Toggled`].
+    pub id: ControlId,
+    /// The id of the app, from which the platform finds the app and its icon on macOS.
+    pub app_id: String,
+    /// The full path of the program of the app, from which the platform loads its icon on
+    /// Windows.
+    pub app_path: Option<String>,
+    /// The name of the app, as the user knows it.
+    pub app_name: String,
+    /// Whether the switch shows on.
+    pub is_on: bool,
+    /// Whether the user can turn the switch. A switch that the user cannot turn shows dimmed.
+    pub is_enabled: bool,
 }
 
 /// A menu that picks the value of a setting.

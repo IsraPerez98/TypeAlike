@@ -3,39 +3,85 @@
 //! and does not follow orders. It goes from the part that changes least to the part that changes
 //! most.
 
-use crate::desktop::{MAX_CHARS_AFTER_CARET, Surroundings};
-use crate::inference::{Prompt, SystemPrompt};
+use crate::desktop::{ScreenText, Surroundings};
+use crate::inference::{Prompt, SystemPrompt, TokenCount};
 use crate::place::Format;
+use crate::screen;
 
-const MAX_WINDOW_TITLE_CHARS: usize = 120;
-const MAX_FIELD_LABEL_CHARS: usize = 120;
-const MAX_CLIPBOARD_CHARS: usize = 500;
+/// The most estimated tokens of the preface. The text before the caret can use the rest of the
+/// context, so a long preface never pushes it out.
+pub(crate) const PREFACE_TOKENS: TokenCount = TokenCount(2000);
+const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
+const FIELD_LABEL_TOKENS: TokenCount = TokenCount(40);
+const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
+/// More screen text is too slow to decode on the CPU: 1200 tokens add about 6 s with a 4B model.
+const SCREEN_TOKENS: TokenCount = TokenCount(300);
+const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 
 /// Returns what the model reads before the text: the system prompt, the place where the user
-/// types, the `clipboard` text and the text after the caret. Each part that is empty is left out.
+/// types, the `clipboard` text, the text near the field on the `screen` and the text after the
+/// caret. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in the order of
+/// their priority: the system prompt, the text after the caret, the place, the screen and the
+/// clipboard.
 pub(crate) fn preface(
     system_prompt: &SystemPrompt,
     surroundings: &Surroundings,
     clipboard: Option<&str>,
+    screen: Option<&ScreenText>,
 ) -> String {
+    let mut budget = Budget(PREFACE_TOKENS);
+    let system_prompt = budget.take_start(system_prompt.0.trim(), PREFACE_TOKENS);
     let after_caret = surroundings
         .field_text
         .as_ref()
-        .map(|field_text| first_chars(field_text.after_caret.trim(), MAX_CHARS_AFTER_CARET));
+        .map(|field_text| budget.take_start(field_text.after_caret.trim(), AFTER_CARET_TOKENS));
+    let place = place(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
+    let nearby = screen.map(|screen| {
+        let lines = screen::nearby_lines(
+            screen,
+            surroundings.field_text.as_ref(),
+            budget.left(SCREEN_TOKENS),
+        );
+        let text = lines.join("\n");
+        budget.spend(&text);
+        text
+    });
+    let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
     let lines = [
-        non_empty(system_prompt.0.trim()).map(str::to_owned),
-        place(surroundings),
-        clipboard.and_then(|text| non_empty(text.trim())).map(|text| {
-            format!(
-                "Text on the clipboard: “{}”",
-                first_chars(text, MAX_CLIPBOARD_CHARS)
-            )
-        }),
+        non_empty(system_prompt).map(str::to_owned),
+        place.filter(|line| !line.is_empty()),
+        clipboard
+            .and_then(non_empty)
+            .map(|text| format!("Text on the clipboard: “{text}”")),
+        nearby
+            .filter(|text| !text.is_empty())
+            .map(|text| format!("Nearby on screen: “{text}”")),
         after_caret
             .and_then(non_empty)
             .map(|text| format!("Text after the caret: “{text}”")),
     ];
     lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
+}
+
+/// The estimated tokens that the preface can still use.
+struct Budget(TokenCount);
+
+impl Budget {
+    /// Returns the tokens that a part with the most tokens `cap` can use.
+    fn left(&self, cap: TokenCount) -> TokenCount {
+        cap.min(self.0)
+    }
+
+    /// Returns the start of `text` that fits in `cap` and in the budget, and spends its tokens.
+    fn take_start<'text>(&mut self, text: &'text str, cap: TokenCount) -> &'text str {
+        let kept = first_tokens(text, self.left(cap));
+        self.spend(kept);
+        kept
+    }
+
+    fn spend(&mut self, text: &str) {
+        self.0 = TokenCount(self.0.0.saturating_sub(estimated_tokens(text).0));
+    }
 }
 
 /// Returns the prompt that continues `text_before` after `preface`, with a blank line between
@@ -55,11 +101,53 @@ pub(crate) fn last_chars(text: &str, count: usize) -> &str {
         .map_or("", |(start, _)| &text[start..])
 }
 
+/// Returns about the most tokens that `text` takes in the models that GhostType runs. The real
+/// count is lower for most text, so that a prompt within a budget fits in the context.
+pub(crate) fn estimated_tokens(text: &str) -> TokenCount {
+    let thirds = text.chars().map(token_thirds).sum::<usize>();
+    TokenCount(u32::try_from(thirds.div_ceil(3)).unwrap_or(u32::MAX))
+}
+
+/// Returns the start of `text` that takes at most `budget` estimated tokens.
+pub(crate) fn first_tokens(text: &str, budget: TokenCount) -> &str {
+    &text[..fitting_bytes(text.chars(), budget)]
+}
+
+/// Returns the end of `text` that takes at most `budget` estimated tokens.
+pub(crate) fn last_tokens(text: &str, budget: TokenCount) -> &str {
+    &text[text.len() - fitting_bytes(text.chars().rev(), budget)..]
+}
+
+/// The thirds of a token that `character` takes at most. Code has about 3 ASCII characters for
+/// each token and Chinese about 2 characters, but an emoji can take two tokens.
+fn token_thirds(character: char) -> usize {
+    match character.len_utf8() {
+        1 => 1,
+        4 => 6,
+        _ => 3,
+    }
+}
+
+/// Returns the bytes of the first of `characters` that fit in `budget`.
+fn fitting_bytes(characters: impl Iterator<Item = char>, budget: TokenCount) -> usize {
+    let mut thirds_left = usize::try_from(budget.0).unwrap_or(usize::MAX).saturating_mul(3);
+    characters
+        .take_while(|&character| {
+            let Some(left) = thirds_left.checked_sub(token_thirds(character)) else {
+                return false;
+            };
+            thirds_left = left;
+            true
+        })
+        .map(char::len_utf8)
+        .sum()
+}
+
 /// Where the user types, as one line of labeled parts. A window title that names the app stands
 /// without the app.
 fn place(surroundings: &Surroundings) -> Option<String> {
-    let app = one_line(surroundings.app_name.as_deref(), usize::MAX);
-    let title = one_line(surroundings.window_title.as_deref(), MAX_WINDOW_TITLE_CHARS);
+    let app = one_line(surroundings.app_name.as_deref(), PREFACE_TOKENS);
+    let title = one_line(surroundings.window_title.as_deref(), WINDOW_TITLE_TOKENS);
     let names_app = matches!((&app, &title), (Some(app), Some(title))
         if title.to_lowercase().contains(&app.to_lowercase()));
     let parts = [
@@ -71,7 +159,7 @@ fn place(surroundings: &Surroundings) -> Option<String> {
         ("Title", title),
         (
             "Field",
-            one_line(surroundings.field_label.as_deref(), MAX_FIELD_LABEL_CHARS),
+            one_line(surroundings.field_label.as_deref(), FIELD_LABEL_TOKENS),
         ),
     ];
     let line = parts
@@ -82,17 +170,11 @@ fn place(surroundings: &Surroundings) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-/// Returns the first `count` characters of `text` with each run of whitespace as one space, or
+/// Returns the start of `text` that fits in `budget`, with each run of whitespace as one space, or
 /// `None` when it has no other characters.
-fn one_line(text: Option<&str>, count: usize) -> Option<String> {
+fn one_line(text: Option<&str>, budget: TokenCount) -> Option<String> {
     let line = text?.split_whitespace().collect::<Vec<_>>().join(" ");
-    non_empty(first_chars(&line, count)).map(str::to_owned)
-}
-
-fn first_chars(text: &str, count: usize) -> &str {
-    text.char_indices()
-        .nth(count)
-        .map_or(text, |(end, _)| &text[..end])
+    non_empty(first_tokens(&line, budget)).map(str::to_owned)
 }
 
 fn non_empty(text: &str) -> Option<&str> {
@@ -102,7 +184,7 @@ fn non_empty(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::FieldText;
+    use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect};
 
     fn system_prompt(text: &str) -> SystemPrompt {
         SystemPrompt(text.to_owned())
@@ -114,6 +196,13 @@ mod tests {
             window_title: window_title.map(str::to_owned),
             ..Surroundings::default()
         }
+    }
+
+    /// Returns `character` as many times as fit in `tokens`, then `extra` times more.
+    fn ascii_text(character: char, tokens: TokenCount, extra: usize) -> String {
+        character
+            .to_string()
+            .repeat(3 * usize::try_from(tokens.0).unwrap() + extra)
     }
 
     fn with_text_after(text: &str) -> Surroundings {
@@ -138,7 +227,7 @@ mod tests {
             ..surroundings(Some("Mail"), Some("Re: Budget"))
         };
 
-        let preface = preface(&system_prompt(" Formal. "), &surroundings, Some(" 1Z999 "));
+        let preface = preface(&system_prompt(" Formal. "), &surroundings, Some(" 1Z999 "), None);
 
         assert_eq!(
             preface,
@@ -148,7 +237,7 @@ mod tests {
 
     #[test]
     fn empty_parts_are_left_out() {
-        let preface = preface(&system_prompt(" "), &with_text_after(" \n "), Some(" "));
+        let preface = preface(&system_prompt(" "), &with_text_after(" \n "), Some(" "), None);
 
         assert_eq!(preface, "");
     }
@@ -167,8 +256,9 @@ mod tests {
             (Some(" "), Some("Re: Budget"), "Title: Re: Budget"),
         ];
 
-        let prefaces =
-            cases.map(|(app, window, _)| preface(&SystemPrompt::default(), &surroundings(app, window), None));
+        let prefaces = cases.map(|(app, window, _)| {
+            preface(&SystemPrompt::default(), &surroundings(app, window), None, None)
+        });
 
         assert_eq!(prefaces, cases.map(|(_, _, place)| place.to_owned()));
     }
@@ -182,7 +272,7 @@ mod tests {
             ..surroundings(Some("Google Chrome"), Some("Inbox - Gmail - Google Chrome"))
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, None);
+        let preface = preface(&SystemPrompt::default(), &surroundings, None, None);
 
         assert_eq!(
             preface,
@@ -197,35 +287,107 @@ mod tests {
             ..surroundings(None, Some("Re:\tBudget"))
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, None);
+        let preface = preface(&SystemPrompt::default(), &surroundings, None, None);
 
         assert_eq!(preface, "Title: Re: Budget; Field: Message body");
     }
 
     #[test]
     fn long_parts_keep_their_start() {
-        let title = "t".repeat(MAX_WINDOW_TITLE_CHARS + 1);
-        let label = "l".repeat(MAX_FIELD_LABEL_CHARS + 1);
-        let clipboard = "c".repeat(MAX_CLIPBOARD_CHARS + 1);
-        let after = "a".repeat(MAX_CHARS_AFTER_CARET + 1);
+        let title = ascii_text('t', WINDOW_TITLE_TOKENS, 1);
+        let label = ascii_text('l', FIELD_LABEL_TOKENS, 1);
+        let clipboard = ascii_text('c', CLIPBOARD_TOKENS, 1);
+        let after = ascii_text('a', AFTER_CARET_TOKENS, 1);
         let surroundings = Surroundings {
             window_title: Some(title),
             field_label: Some(label),
             ..with_text_after(&after)
         };
 
-        let preface = preface(&SystemPrompt::default(), &surroundings, Some(&clipboard));
+        let preface = preface(&SystemPrompt::default(), &surroundings, Some(&clipboard), None);
 
         assert_eq!(
             preface,
             format!(
                 "Title: {}; Field: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
-                "t".repeat(MAX_WINDOW_TITLE_CHARS),
-                "l".repeat(MAX_FIELD_LABEL_CHARS),
-                "c".repeat(MAX_CLIPBOARD_CHARS),
-                "a".repeat(MAX_CHARS_AFTER_CARET)
+                ascii_text('t', WINDOW_TITLE_TOKENS, 0),
+                ascii_text('l', FIELD_LABEL_TOKENS, 0),
+                ascii_text('c', CLIPBOARD_TOKENS, 0),
+                ascii_text('a', AFTER_CARET_TOKENS, 0)
             )
         );
+    }
+
+    fn screen(lines: &[(&str, i32)]) -> ScreenText {
+        let line = |&(text, top): &(&str, i32)| ScreenLine {
+            text: text.to_owned(),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect {
+                left: 0,
+                top,
+                right: 600,
+                bottom: top + 20,
+            },
+        };
+        ScreenText {
+            lines: lines.iter().map(line).collect(),
+            caret: None,
+            field: ScreenRect {
+                left: 0,
+                top: 500,
+                right: 600,
+                bottom: 540,
+            },
+        }
+    }
+
+    #[test]
+    fn screen_text_goes_between_the_clipboard_and_the_text_after_the_caret() {
+        let screen = screen(&[("See you at 7?", 400), ("From: Sam", 300)]);
+
+        let preface = preface(
+            &SystemPrompt::default(),
+            &with_text_after("Best, Ana"),
+            Some("1Z999"),
+            Some(&screen),
+        );
+
+        assert_eq!(
+            preface,
+            "Text on the clipboard: “1Z999”\nNearby on screen: “From: Sam\nSee you at 7?”\nText after the caret: “Best, Ana”"
+        );
+    }
+
+    #[test]
+    fn screen_text_fits_in_what_the_preface_has_left() {
+        let system_prompt = SystemPrompt("s".repeat(3 * usize::try_from(PREFACE_TOKENS.0 - 2).unwrap()));
+        let screen = screen(&[("Dinner on Saturday?", 300), ("Hi", 480)]);
+
+        let preface = preface(&system_prompt, &Surroundings::default(), None, Some(&screen));
+
+        assert!(preface.ends_with("\nNearby on screen: “Hi”"), "{preface}");
+    }
+
+    #[test]
+    fn screen_text_keeps_whole_lines() {
+        let system_prompt = SystemPrompt("s".repeat(3 * usize::try_from(PREFACE_TOKENS.0 - 2).unwrap()));
+        let screen = screen(&[("abc", 400), ("def", 420)]);
+
+        let preface = preface(&system_prompt, &Surroundings::default(), None, Some(&screen));
+
+        assert!(preface.ends_with("\nNearby on screen: “abc\ndef”"), "{preface}");
+    }
+
+    #[test]
+    fn screen_without_lines_adds_nothing() {
+        let preface = preface(
+            &SystemPrompt::default(),
+            &Surroundings::default(),
+            None,
+            Some(&screen(&[])),
+        );
+
+        assert_eq!(preface, "");
     }
 
     #[test]
@@ -240,6 +402,48 @@ mod tests {
         let prompt = prompt("", "Dear Sir");
 
         assert_eq!(prompt, Prompt("Dear Sir".to_owned()));
+    }
+
+    #[test]
+    fn estimate_counts_three_ascii_characters_one_other_character_or_half_an_emoji_as_a_token() {
+        let cases = [
+            ("", 0),
+            ("abc", 1),
+            ("abcd", 2),
+            ("你好", 2),
+            ("café", 2),
+            ("👍", 2),
+        ];
+
+        let estimates = cases.map(|(text, _)| estimated_tokens(text));
+
+        assert_eq!(estimates, cases.map(|(_, tokens)| TokenCount(tokens)));
+    }
+
+    #[test]
+    fn first_tokens_keeps_the_start_that_fits() {
+        let cases = [
+            ("abcdefg", 2, "abcdef"),
+            ("你好世界", 3, "你好世"),
+            ("ab你好", 1, "ab"),
+        ];
+
+        let kept = cases.map(|(text, budget, _)| first_tokens(text, TokenCount(budget)));
+
+        assert_eq!(kept, cases.map(|(_, _, start)| start));
+    }
+
+    #[test]
+    fn last_tokens_keeps_the_end_that_fits() {
+        let cases = [
+            ("abcdefg", 2, "bcdefg"),
+            ("你好世界", 3, "好世界"),
+            ("你好ab", 1, "ab"),
+        ];
+
+        let kept = cases.map(|(text, budget, _)| last_tokens(text, TokenCount(budget)));
+
+        assert_eq!(kept, cases.map(|(_, _, end)| end));
     }
 
     #[test]

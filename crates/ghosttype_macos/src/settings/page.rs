@@ -13,11 +13,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2_app_kit::{
     NSAccessibility as _, NSBorderType, NSButton, NSCellImagePosition, NSColor, NSControl, NSControlSize,
-    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImageView,
+    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage, NSImageView,
     NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
     NSLayoutPriorityDefaultLow, NSLineBreakMode, NSPopUpButton, NSProgressIndicator, NSScrollView,
     NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity, NSSwitch, NSTextField,
-    NSTextView, NSUserInterfaceLayoutOrientation, NSView,
+    NSTextView, NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSEdgeInsets, NSSize, NSString};
@@ -57,6 +57,9 @@ const INSTALLED_SYMBOL: &str = "checkmark.circle.fill";
 const INSTALLED_DESCRIPTION: &str = "Downloaded";
 const UNAVAILABLE_SYMBOL: &str = "lock.fill";
 const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
+const APP_ICON_SIDE: CGFloat = 20.0;
+const UNKNOWN_APP_SYMBOL: &str = "app.dashed";
+const UNKNOWN_APP_DESCRIPTION: &str = "App";
 
 /// Creates the controls of the settings pages, which report to the action target, and tags each
 /// control with the index of its id.
@@ -300,6 +303,10 @@ impl SectionView {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Switch(SwitchRow::add(rows_stack, &switch.id, binder))
                 }
+                Row::AppSwitch(switch) => {
+                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
+                    RowView::AppSwitch(AppSwitchRow::add(rows_stack, &switch.id, binder))
+                }
                 Row::Picker(picker) => {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Picker(PickerRow::add(rows_stack, &picker.id, binder))
@@ -355,6 +362,7 @@ impl SectionView {
 #[derive(Debug)]
 enum RowView {
     Switch(SwitchRow),
+    AppSwitch(AppSwitchRow),
     Picker(PickerRow),
     TextArea(TextAreaRow),
     TextField(TextFieldRow),
@@ -369,6 +377,7 @@ impl RowView {
     fn shows(&self, row: &Row) -> bool {
         match (self, row) {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.id == switch.id,
+            (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.id == switch.id,
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.id == picker.id,
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.id == text_area.id,
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.id == text_field.id,
@@ -384,6 +393,7 @@ impl RowView {
     fn render(&mut self, row: &Row, binder: &mut Binder<'_>) {
         match (self, row) {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.render(switch, binder),
+            (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.render(switch, binder),
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.render(picker, binder),
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.render(text_area, binder),
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.render(text_field, binder),
@@ -470,6 +480,92 @@ impl SwitchRow {
         };
         self.switch.setState(state);
         binder.bind(&self.switch, &shown.id);
+    }
+}
+
+/// A row with the icon and the name of an app, and a switch that turns a setting on and off for
+/// the app.
+#[derive(Debug)]
+struct AppSwitchRow {
+    icon: Retained<NSImageView>,
+    name: Retained<NSTextField>,
+    switch: Retained<NSSwitch>,
+    id: ControlId,
+    /// The app whose icon shows, so that a render loads the icon only for another app.
+    icon_app_id: Option<String>,
+}
+
+impl AppSwitchRow {
+    fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let switch = NSSwitch::new(main_thread);
+        // SAFETY: the target implements the toggle action, taking the switch, and `SettingsWindow`
+        // keeps the target alive as long as the switch.
+        unsafe {
+            switch.setTarget(Some(&binder.target.target));
+            switch.setAction(Some(binder.target.toggle_action));
+        }
+        let icon = NSImageView::new(main_thread);
+        NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+            icon.widthAnchor().constraintEqualToConstant(APP_ICON_SIDE),
+            icon.heightAnchor().constraintEqualToConstant(APP_ICON_SIDE),
+        ]));
+        let name = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
+        let texts = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            ACCESSORY_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        texts.addArrangedSubview(&icon);
+        texts.addArrangedSubview(&name);
+        texts.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultLow,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        switch.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultHigh,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        add_grouped_row(rows_stack, &texts, &[&switch], main_thread);
+        Self {
+            icon,
+            name,
+            switch,
+            id: id.clone(),
+            icon_app_id: None,
+        }
+    }
+
+    fn render(&mut self, shown: &view::AppSwitch, binder: &mut Binder<'_>) {
+        set_text(&self.name, &shown.app_name);
+        if self.icon_app_id.as_deref() != Some(shown.app_id.as_str()) {
+            self.icon.setImage(app_icon(&shown.app_id).as_deref());
+            self.icon_app_id = Some(shown.app_id.clone());
+        }
+        self.switch
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
+        let state = if shown.is_on {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        };
+        self.switch.setState(state);
+        self.switch.setEnabled(shown.is_enabled);
+        binder.bind(&self.switch, &shown.id);
+    }
+}
+
+/// The icon of the app with the bundle identifier `app_id`, or a plain app symbol when no app on
+/// this computer has it.
+fn app_icon(app_id: &str) -> Option<Retained<NSImage>> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let path = workspace
+        .URLForApplicationWithBundleIdentifier(&NSString::from_str(app_id))
+        .and_then(|url| url.path());
+    match path {
+        Some(path) => Some(workspace.iconForFile(&path)),
+        None => symbol(UNKNOWN_APP_SYMBOL, UNKNOWN_APP_DESCRIPTION),
     }
 }
 

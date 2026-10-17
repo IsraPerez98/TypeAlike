@@ -312,6 +312,10 @@ impl MemoryContext {
         Ok(Self { handle })
     }
 
+    pub(crate) fn handle(&self) -> HDC {
+        self.handle
+    }
+
     /// Selects `object` until the returned selection drops.
     pub(crate) fn select(&self, object: HGDIOBJ) -> Selection<'_> {
         // SAFETY: `object` is a live GDI object owned by the caller for the selection's lifetime.
