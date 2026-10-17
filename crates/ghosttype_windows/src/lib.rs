@@ -17,6 +17,7 @@ mod pixels;
 mod registry;
 mod runtime;
 mod settings;
+mod settings_thread;
 mod single_instance;
 mod startup;
 mod system_theme;

@@ -5,10 +5,37 @@ use std::rc::Rc;
 use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, IDC_ARROW, LoadCursorW, RegisterClassExW, UnregisterClassW,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES, WNDCLASSEXW, WNDPROC,
+    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, IDC_ARROW, LoadCursorW, MSG,
+    RegisterClassExW, TranslateMessage, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASS_STYLES,
+    WNDCLASSEXW, WNDPROC,
 };
 use windows::core::{Error, PCWSTR, Result};
+
+const QUIT_RECEIVED: i32 = 0;
+const READ_FAILED: i32 = -1;
+
+/// Runs the message loop of this thread until it gets `WM_QUIT`. `pre_translate` sees each
+/// message first, and the loop skips the messages that it handles.
+pub(crate) fn pump_messages(mut pre_translate: impl FnMut(&MSG) -> bool) -> Result<()> {
+    let mut message = MSG::default();
+    loop {
+        // SAFETY: `message` is a local the call fills in.
+        match unsafe { GetMessageW(&raw mut message, None, 0, 0) }.0 {
+            QUIT_RECEIVED => return Ok(()),
+            READ_FAILED => return Err(Error::from_thread()),
+            _ => {}
+        }
+        if pre_translate(&message) {
+            continue;
+        }
+        // SAFETY: `message` was just filled in by GetMessageW.
+        unsafe {
+            // Returns whether a character message was produced, not an error.
+            let _ = TranslateMessage(&raw const message);
+            DispatchMessageW(&raw const message);
+        }
+    }
+}
 
 /// What a window looks like to the system.
 #[derive(Debug, Clone, Copy)]

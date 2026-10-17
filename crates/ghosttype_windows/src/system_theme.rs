@@ -1,6 +1,7 @@
 //! The user's appearance settings: light or dark mode, accent color and high contrast, and the
 //! menu theme that follows them.
 
+use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW,
     COLOR_WINDOWTEXT, GetSysColor,
@@ -9,7 +10,7 @@ use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_
 use windows::Win32::System::Registry::{RRF_RT_REG_BINARY, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
+    SPI_GETHIGHCONTRAST, SPI_SETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
 };
 use windows::core::{PCSTR, PCWSTR, w};
 
@@ -41,6 +42,7 @@ const PALETTE_ENTRY_BYTES: usize = 4;
 const PALETTE_BYTES: usize = 8 * PALETTE_ENTRY_BYTES;
 const LIGHT2_ENTRY: usize = 1;
 const DARK1_ENTRY: usize = 4;
+const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
 
 /// Light or dark mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +178,21 @@ pub(crate) fn match_menus_to(theme: SystemTheme) {
         set_mode(mode);
         flush();
     }
+}
+
+/// Whether a `WM_SETTINGCHANGE` with `wparam` and `lparam` tells that the theme or the contrast
+/// changed.
+pub(crate) fn is_appearance_change(wparam: WPARAM, lparam: LPARAM) -> bool {
+    u32::try_from(wparam.0) == Ok(SPI_SETHIGHCONTRAST.0) || is_color_set_change(lparam)
+}
+
+fn is_color_set_change(lparam: LPARAM) -> bool {
+    if lparam.0 == 0 {
+        return false;
+    }
+    let area = PCWSTR(std::ptr::with_exposed_provenance(lparam.0.cast_unsigned()));
+    // SAFETY: for WM_SETTINGCHANGE a non-zero lparam is a nul-terminated string valid for the message.
+    unsafe { area.to_string() }.is_ok_and(|area| area == COLOR_SET_CHANGE)
 }
 
 fn ordinal(value: usize) -> PCSTR {

@@ -14,10 +14,11 @@ paths:
 - Pure logic (geometry, key mapping, DPI math) out of FFI code, unit-tested.
 
 ## Threads & runtime invariants
-- Hooks, timers, window msgs on main thread. Never block the message loop.
+- Hooks, timers, overlay, tray and the core `Controller` on the main thread (`runtime.rs`). Never block its message loop. The hook decides at once whether to swallow a key, so the controller stays on the hook thread.
+- Settings window on its own UI thread (`settings_thread.rs`), so drawing never delays a hook. The threads only exchange messages: the main thread sends each `SettingsView`, the UI thread sends back each `SettingsInput` (`Mailbox`: channel + posted window message). Neither thread waits for the other.
 - Hook callbacks fast (Windows drops slow LL hooks): no UIA, no `SendInput`, no alloc-heavy work inside; post msg, return.
 - UIA on worker thread (COM MTA, init/uninit via guard). Requests carry ID; stale results dropped.
-- Win32 callback thread-local state: one place only.
+- Win32 callback thread-local state: one place per thread (`runtime.rs`, `settings_thread.rs`).
 - `HWND` not `Send`: cross threads as `isize`.
 - Tag own `SendInput` via `dwExtraInfo`; ignore only those (not all injected).
 - Skip password fields, own process, elevated windows (UIPI), secure desktop.
