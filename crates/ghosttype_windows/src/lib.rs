@@ -7,16 +7,32 @@
 
 mod clipboard;
 mod focus;
+#[cfg_attr(
+    feature = "reactor",
+    expect(dead_code, reason = "parts serve only the Win32 settings window")
+)]
 mod gdi;
 mod injection;
 mod keys;
 mod mailbox;
+#[cfg_attr(
+    feature = "reactor",
+    expect(dead_code, reason = "parts serve only the Win32 settings window")
+)]
 mod menu;
 mod overlay;
+#[cfg_attr(
+    feature = "reactor",
+    expect(dead_code, reason = "parts serve only the Win32 settings window")
+)]
 mod pixels;
+#[cfg(feature = "reactor")]
+mod reactor_settings;
 mod registry;
 mod runtime;
+#[cfg(not(feature = "reactor"))]
 mod settings;
+#[cfg(not(feature = "reactor"))]
 mod settings_thread;
 mod single_instance;
 mod startup;

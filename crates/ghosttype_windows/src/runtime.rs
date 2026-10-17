@@ -31,6 +31,9 @@ use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
 use crate::mailbox::Mailbox;
 use crate::overlay::Overlay;
+#[cfg(feature = "reactor")]
+use crate::reactor_settings::SettingsThread;
+#[cfg(not(feature = "reactor"))]
 use crate::settings_thread::SettingsThread;
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};

@@ -50,6 +50,8 @@ windows = { version = "=0.62.2", default-features = false, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 windows-numerics = { version = "=0.3.1", default-features = false }
+# Prototype of the WinUI 3 settings window. The release 0.100.0 has no AppProxy and no public App::run_with.
+windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "02ec1f06fcf9643f6dbcf1fe36f6668911c5c126", default-features = false }
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
 objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
