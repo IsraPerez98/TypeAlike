@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
-//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl]
+//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -21,21 +21,26 @@
 //! - `next`: the text that the writer typed next.
 //!
 //! The prompt does not read `history` yet. The eval uses the default settings with the clipboard
-//! allowed, and `clipboard` is a copy that came just before. It opens a field that holds `before`
+//! allowed, and `clipboard` is a copy that came just before. `--notes` gives the notes about the
+//! writer, which are empty by default. It opens a field that holds `before`
 //! without its last character, lets the input settle so that the screen text is read, types that
 //! character and waits for the ghost text.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
 //! the word do not count. The report gives the score of the cases with the caret between two
 //! words, the score of the cases with the caret inside a word, and the median time from the key to
-//! the ghost text.
+//! the ghost text. It also gives the mean log probability of the first word of `next` after the
+//! prompt. This value moves a little for a small change of the prompt, while the score often stays
+//! the same.
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
-//! names the cases that the change helped or harmed. Compare only runs on the same computer and
-//! backend. `baselines/` keeps the results of the main branch for each model.
+//! names the cases that the change helped or harmed, and the mean change of the log probability.
+//! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
+//! branch for each model.
 
+mod likelihood;
 mod score;
 
 use std::fs;
@@ -55,15 +60,16 @@ use ghosttype_core::inference::{
     Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
 use ghosttype_core::key::Key;
-use ghosttype_core::settings::{ClipboardAccess, Settings};
+use ghosttype_core::settings::{ClipboardAccess, Settings, WriterNotes};
 use ghosttype_llm::LlamaCpp;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word};
+use crate::likelihood::Continuation;
+use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word, next_word};
 
-const USAGE: &str =
-    "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl]";
+const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
+     [--notes TEXT]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -71,6 +77,7 @@ struct Arguments {
     cases: PathBuf,
     baseline: Option<PathBuf>,
     save: Option<PathBuf>,
+    notes: String,
 }
 
 impl Arguments {
@@ -84,11 +91,13 @@ impl Arguments {
             cases: PathBuf::from(cases),
             baseline: None,
             save: None,
+            notes: String::new(),
         };
         for option in options.chunks(2) {
             match option {
                 [name, path] if name == "--baseline" => parsed.baseline = Some(PathBuf::from(path)),
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
+                [name, text] if name == "--notes" => parsed.notes.clone_from(text),
                 _ => return None,
             }
         }
@@ -223,7 +232,13 @@ impl Model {
     }
 }
 
-fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
+/// What one case gave, and the prompt with the next word for its log probability.
+struct CaseRun {
+    outcome: Outcome,
+    continuation: Option<Continuation>,
+}
+
+fn run_case(model: &mut Model, case: &Case, settings: &Settings) -> anyhow::Result<CaseRun> {
     let mut before = case.before.clone();
     let last_character = before
         .pop()
@@ -244,10 +259,7 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
         clipboard: case.clipboard.clone(),
     };
     let mut app = App::new();
-    app.use_settings(&Settings {
-        clipboard_access: ClipboardAccess::Allowed,
-        ..Settings::default()
-    });
+    app.use_settings(settings);
     if let Some(screen) = &case.screen {
         let Some(SettledWork::ReadScreen { read: id, .. }) = app.on_input_settled(&field) else {
             bail!("case {} reads no screen text", case.id);
@@ -260,9 +272,15 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
     }
 
     let start = Instant::now();
-    let reaction = match app.on_key(Key::Char(last_character), &field) {
-        Reaction::Request(request) => app.on_completion(model.complete(request)?),
-        reaction => reaction,
+    let (reaction, prompt) = match app.on_key(Key::Char(last_character), &field) {
+        Reaction::Request(request) => {
+            let prompt = match &request {
+                InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
+                _ => None,
+            };
+            (app.on_completion(model.complete(request)?), prompt)
+        }
+        reaction => (reaction, None),
     };
     let millis = u64::try_from(start.elapsed().as_millis())?;
     let suggestion = match reaction {
@@ -274,12 +292,19 @@ fn run_case(model: &mut Model, case: &Case) -> anyhow::Result<Outcome> {
         _ => String::new(),
     };
 
-    Ok(Outcome {
-        id: case.id.clone(),
-        kind: CaseKind::of(&case.before, &case.next),
-        suggestion,
-        is_match: is_next_word(&accepted, &case.next),
-        millis,
+    Ok(CaseRun {
+        outcome: Outcome {
+            id: case.id.clone(),
+            kind: CaseKind::of(&case.before, &case.next),
+            suggestion,
+            is_match: is_next_word(&accepted, &case.next),
+            millis,
+            log_probability: None,
+        },
+        continuation: prompt.map(|prompt| Continuation {
+            prompt,
+            text: next_word(&case.next).to_owned(),
+        }),
     })
 }
 
@@ -311,6 +336,9 @@ fn write_report(
     writeln!(output, "partial word:  {}", summary.partial_word)?;
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {} ms", summary.median_millis)?;
+    if let Some(mean) = summary.mean_log_probability {
+        writeln!(output, "log prob:      {mean:.3}")?;
+    }
     let Some(comparison) = comparison else {
         return Ok(());
     };
@@ -326,7 +354,15 @@ fn write_report(
         comparison.harmed.len(),
         comparison.harmed
     )?;
-    writeln!(output, "unchanged:     {}", comparison.unchanged)
+    writeln!(output, "unchanged:     {}", comparison.unchanged)?;
+    let Some(change) = comparison.log_probability else {
+        return Ok(());
+    };
+    writeln!(
+        output,
+        "log prob diff: {:+.3} (higher {}, lower {})",
+        change.mean, change.higher, change.lower
+    )
 }
 
 fn main() -> anyhow::Result<()> {
@@ -341,11 +377,30 @@ fn main() -> anyhow::Result<()> {
         .map(read_json_lines::<Outcome>)
         .transpose()?;
 
+    let settings = Settings {
+        clipboard_access: ClipboardAccess::Allowed,
+        writer_notes: WriterNotes(arguments.notes.clone()),
+        ..Settings::default()
+    };
     let mut model = Model::load(&arguments.model)?;
-    let outcomes = cases
+    let runs = cases
         .iter()
-        .map(|case| run_case(&mut model, case))
+        .map(|case| run_case(&mut model, case, &settings))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    drop(model);
+    let continuations = runs
+        .iter()
+        .map(|run| run.continuation.as_ref())
+        .collect::<Vec<_>>();
+    let log_probabilities = likelihood::log_probabilities(&arguments.model, &continuations)?;
+    let outcomes = runs
+        .into_iter()
+        .zip(log_probabilities)
+        .map(|(run, log_probability)| Outcome {
+            log_probability,
+            ..run.outcome
+        })
+        .collect::<Vec<_>>();
 
     if let Some(path) = &arguments.save {
         write_json_lines(path, &outcomes)?;
@@ -378,6 +433,7 @@ mod tests {
                 cases: PathBuf::from("cases.jsonl"),
                 baseline: None,
                 save: None,
+                notes: String::new(),
             })
         );
     }
@@ -396,6 +452,16 @@ mod tests {
         assert_eq!(
             arguments.map(|arguments| (arguments.baseline, arguments.save)),
             Some((Some(PathBuf::from("old.jsonl")), Some(PathBuf::from("new.jsonl"))))
+        );
+    }
+
+    #[test]
+    fn notes_option_gives_the_writer_notes() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--notes", "I am a nurse."]);
+
+        assert_eq!(
+            arguments.map(|arguments| arguments.notes),
+            Some("I am a nurse.".to_owned())
         );
     }
 

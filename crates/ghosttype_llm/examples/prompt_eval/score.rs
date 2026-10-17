@@ -32,7 +32,12 @@ impl CaseKind {
 /// Signs after the word, such as a period or a comma, do not count.
 pub fn is_next_word(accepted: &str, next: &str) -> bool {
     let word = without_trailing_signs(accepted);
-    !word.trim().is_empty() && word == without_trailing_signs(first_word(next))
+    !word.trim().is_empty() && word == next_word(next)
+}
+
+/// Returns the first word of `next`, with the whitespace before it and without signs after it.
+pub fn next_word(next: &str) -> &str {
+    without_trailing_signs(first_word(next))
 }
 
 /// Returns the first word of `text`, with the whitespace before it.
@@ -51,7 +56,7 @@ fn without_trailing_signs(word: &str) -> &str {
 }
 
 /// What one case gave.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
     /// The id of the case.
     pub id: String,
@@ -63,6 +68,10 @@ pub struct Outcome {
     pub is_match: bool,
     /// The milliseconds from the key to the ghost text.
     pub millis: u64,
+    /// The natural log of the probability of the next word after the prompt, or `None` when the
+    /// case has no prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_probability: Option<f64>,
 }
 
 /// How many cases matched.
@@ -100,7 +109,7 @@ impl fmt::Display for Score {
 }
 
 /// The scores of one run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Summary {
     /// The cases with the caret between two words.
     pub next_word: Score,
@@ -110,6 +119,8 @@ pub struct Summary {
     pub without_suggestion: usize,
     /// The median milliseconds from the key to the ghost text.
     pub median_millis: u64,
+    /// The mean log probability of the next word, of the cases that have one.
+    pub mean_log_probability: Option<f64>,
 }
 
 impl Summary {
@@ -123,12 +134,18 @@ impl Summary {
                 .filter(|outcome| outcome.suggestion.is_none())
                 .count(),
             median_millis: median(outcomes.iter().map(|outcome| outcome.millis).collect()),
+            mean_log_probability: mean(
+                &outcomes
+                    .iter()
+                    .filter_map(|outcome| outcome.log_probability)
+                    .collect::<Vec<_>>(),
+            ),
         }
     }
 }
 
 /// The cases that changed against an earlier run of the same cases.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Comparison {
     /// The ids of the cases that match now and did not match before.
     pub helped: Vec<String>,
@@ -136,26 +153,62 @@ pub struct Comparison {
     pub harmed: Vec<String>,
     /// The cases that match now as before, or miss now as before.
     pub unchanged: usize,
+    /// The change of the log probability of the next word, of the cases that have one in both
+    /// runs.
+    pub log_probability: Option<LogProbabilityChange>,
 }
 
 impl Comparison {
     /// Compares `outcomes` with `baseline`. A case that only one of them has does not count.
     pub fn of(baseline: &[Outcome], outcomes: &[Outcome]) -> Self {
-        let matched_before = baseline
+        let before_by_id = baseline
             .iter()
-            .map(|outcome| (outcome.id.as_str(), outcome.is_match))
+            .map(|outcome| (outcome.id.as_str(), outcome))
             .collect::<HashMap<_, _>>();
         let mut comparison = Self::default();
+        let mut changes = Vec::new();
         for outcome in outcomes {
-            match (matched_before.get(outcome.id.as_str()), outcome.is_match) {
-                (None, _) => {}
-                (Some(false), true) => comparison.helped.push(outcome.id.clone()),
-                (Some(true), false) => comparison.harmed.push(outcome.id.clone()),
-                (Some(_), _) => comparison.unchanged += 1,
+            let Some(before) = before_by_id.get(outcome.id.as_str()) else {
+                continue;
+            };
+            match (before.is_match, outcome.is_match) {
+                (false, true) => comparison.helped.push(outcome.id.clone()),
+                (true, false) => comparison.harmed.push(outcome.id.clone()),
+                _ => comparison.unchanged += 1,
+            }
+            if let (Some(before), Some(now)) = (before.log_probability, outcome.log_probability) {
+                changes.push(now - before);
             }
         }
+        comparison.log_probability = LogProbabilityChange::of(&changes);
         comparison
     }
+}
+
+/// How the log probability of the next word changed against an earlier run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LogProbabilityChange {
+    /// The mean change. A positive change makes the next word more likely.
+    pub mean: f64,
+    /// The cases that make the next word more likely now.
+    pub higher: usize,
+    /// The cases that make the next word less likely now.
+    pub lower: usize,
+}
+
+impl LogProbabilityChange {
+    fn of(changes: &[f64]) -> Option<Self> {
+        Some(Self {
+            mean: mean(changes)?,
+            higher: changes.iter().filter(|&&change| change > 0.0).count(),
+            lower: changes.iter().filter(|&&change| change < 0.0).count(),
+        })
+    }
+}
+
+fn mean(values: &[f64]) -> Option<f64> {
+    let count = u32::try_from(values.len()).ok().filter(|&count| count > 0)?;
+    Some(values.iter().sum::<f64>() / f64::from(count))
 }
 
 fn median(mut values: Vec<u64>) -> u64 {
@@ -179,6 +232,14 @@ mod tests {
             suggestion: Some("text".to_owned()),
             is_match,
             millis,
+            log_probability: None,
+        }
+    }
+
+    fn scored(id: &str, is_match: bool, log_probability: f64) -> Outcome {
+        Outcome {
+            log_probability: Some(log_probability),
+            ..outcome(id, CaseKind::NextWord, is_match, 10)
         }
     }
 
@@ -260,6 +321,20 @@ mod tests {
     }
 
     #[test]
+    fn next_word_keeps_the_space_before_it_and_drops_the_signs_after_it() {
+        let cases = [
+            (" meeting at noon", " meeting"),
+            ("ción que", "ción"),
+            ("tomorrow.", "tomorrow"),
+            ("? Let", "?"),
+        ];
+
+        let words = cases.map(|(next, _)| next_word(next));
+
+        assert_eq!(words, cases.map(|(_, word)| word));
+    }
+
+    #[test]
     fn summary_scores_each_kind_of_case() {
         let outcomes = [
             outcome("a", CaseKind::NextWord, true, 10),
@@ -308,6 +383,26 @@ mod tests {
     }
 
     #[test]
+    fn summary_log_probability_is_the_mean_of_the_cases_that_have_one() {
+        let outcomes = [
+            scored("a", true, -1.0),
+            scored("b", false, -3.0),
+            without_suggestion("c", 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(summary.mean_log_probability, Some(-2.0));
+    }
+
+    #[test]
+    fn summary_of_cases_without_log_probability_has_none() {
+        let summary = Summary::of(&[without_suggestion("a", 10)]);
+
+        assert_eq!(summary.mean_log_probability, None);
+    }
+
+    #[test]
     fn score_shows_the_matches_and_the_share() {
         let score = Score { matches: 2, cases: 3 };
 
@@ -342,8 +437,43 @@ mod tests {
                 helped: vec!["helped".to_owned()],
                 harmed: vec!["harmed".to_owned()],
                 unchanged: 2,
+                log_probability: None,
             }
         );
+    }
+
+    #[test]
+    fn comparison_gives_the_mean_change_of_the_log_probability() {
+        let baseline = [
+            scored("up", true, -2.0),
+            scored("down", true, -1.0),
+            scored("same", true, -1.0),
+        ];
+        let outcomes = [
+            scored("up", true, -1.0),
+            scored("down", true, -3.0),
+            scored("same", true, -1.0),
+        ];
+
+        let comparison = Comparison::of(&baseline, &outcomes);
+
+        assert_eq!(
+            comparison.log_probability,
+            Some(LogProbabilityChange {
+                mean: -1.0 / 3.0,
+                higher: 1,
+                lower: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn log_probability_reads_back_from_json_as_written() {
+        let outcome = scored("a", true, -1.142_062_436_409_791_3);
+
+        let read_back = serde_json::from_str::<Outcome>(&serde_json::to_string(&outcome).unwrap()).unwrap();
+
+        assert_eq!(read_back, outcome);
     }
 
     #[test]

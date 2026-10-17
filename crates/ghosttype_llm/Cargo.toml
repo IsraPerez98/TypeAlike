@@ -24,7 +24,8 @@ tracing.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# The eval compares log probabilities that it reads back from its own result files.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 
 [[example]]
 name = "prompt_eval"
