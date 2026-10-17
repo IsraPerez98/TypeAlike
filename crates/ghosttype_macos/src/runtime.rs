@@ -14,18 +14,17 @@ use ghosttype_core::controller::{
     Shell, Timer,
 };
 use ghosttype_core::desktop::{Desktop, Surroundings};
-use ghosttype_core::general_pane::GeneralAction;
-use ghosttype_core::inference::SystemPrompt;
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::models_pane::ModelsAction;
 use ghosttype_core::playground::PlaygroundAction;
 use ghosttype_core::settings::{ClipboardAccess, Settings};
+use ghosttype_core::settings_view::SettingsInput;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSControlStateValueOn, NSMenuItem,
-    NSPopUpButton, NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton,
+    NSSearchField, NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
     NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
@@ -226,13 +225,11 @@ impl Runtime {
         self.on_pane_action(PaneAction::Playground(PlaygroundAction::Complete(prompt)));
     }
 
-    fn on_system_prompt_edit(&mut self) {
-        let Some(text) = self.shell.settings.as_ref().map(SettingsWindow::system_prompt) else {
-            return;
-        };
-        self.on_pane_action(PaneAction::General(GeneralAction::EditSystemPrompt(
-            SystemPrompt(text),
-        )));
+    /// Handles the input that `read` reads from the settings window, if any.
+    fn on_settings_control(&mut self, read: impl FnOnce(&SettingsWindow) -> Option<SettingsInput>) {
+        if let Some(input) = self.shell.settings.as_ref().and_then(read) {
+            self.controller.on_settings_input(&input, &mut self.shell);
+        }
     }
 }
 
@@ -350,14 +347,10 @@ impl Shell for AppKitShell {
                 search_action: sel!(searchModels:),
                 model_picker_action: sel!(pickPlaygroundModel:),
                 complete_action: sel!(completePlaygroundText:),
-                autostart_action: sel!(switchAutostart:),
-                clipboard_action: sel!(switchClipboard:),
-                preparation_action: sel!(switchPreparation:),
-                display_action: sel!(switchDisplay:),
-                suggestion_length_action: sel!(pickSuggestionLength:),
-                suggestion_model_action: sel!(pickSuggestionModel:),
-                system_prompt_action: sel!(systemPromptDidChange:),
-                reset_system_prompt_action: sel!(resetSystemPrompt:),
+                toggle_action: sel!(toggleSetting:),
+                pick_action: sel!(pickSetting:),
+                press_action: sel!(pressSetting:),
+                edit_action: sel!(editSetting:),
             };
             SettingsWindow::new(action_target, target.mtm())
         });
@@ -420,84 +413,29 @@ define_class!(
             });
         }
 
-        // SAFETY: matches the action signature, called with the General pane's autostart switch.
-        #[unsafe(method(switchAutostart:))]
-        fn switch_autostart(&self, sender: &NSSwitch) {
-            let action = if sender.state() == NSControlStateValueOn {
-                GeneralAction::EnableAutostart
-            } else {
-                GeneralAction::DisableAutostart
-            };
-            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
+        // SAFETY: matches the action signature, called with a switch of a settings page.
+        #[unsafe(method(toggleSetting:))]
+        fn toggle_setting(&self, sender: &NSSwitch) {
+            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.toggled(sender)));
         }
 
-        // SAFETY: matches the action signature, called with the General pane's clipboard switch.
-        #[unsafe(method(switchClipboard:))]
-        fn switch_clipboard(&self, sender: &NSSwitch) {
-            let action = if sender.state() == NSControlStateValueOn {
-                GeneralAction::AllowClipboard
-            } else {
-                GeneralAction::DenyClipboard
-            };
-            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
+        // SAFETY: matches the action signature, called with a menu of a settings page.
+        #[unsafe(method(pickSetting:))]
+        fn pick_setting(&self, sender: &NSPopUpButton) {
+            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.picked(sender)));
         }
 
-        // SAFETY: matches the action signature, called with the General pane's prompt preparation switch.
-        #[unsafe(method(switchPreparation:))]
-        fn switch_preparation(&self, sender: &NSSwitch) {
-            let action = if sender.state() == NSControlStateValueOn {
-                GeneralAction::PrepareOnFocus
-            } else {
-                GeneralAction::PrepareOnFirstKey
-            };
-            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
+        // SAFETY: matches the action signature, called with a button of a settings page.
+        #[unsafe(method(pressSetting:))]
+        fn press_setting(&self, sender: &NSButton) {
+            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.pressed(sender)));
         }
 
-        // SAFETY: matches the action signature, called with the General pane's suggestion display switch.
-        #[unsafe(method(switchDisplay:))]
-        fn switch_display(&self, sender: &NSSwitch) {
-            let action = if sender.state() == NSControlStateValueOn {
-                GeneralAction::ShowWordByWord
-            } else {
-                GeneralAction::ShowWhenComplete
-            };
-            with_runtime(|runtime| runtime.on_pane_action(PaneAction::General(action)));
-        }
-
-        // SAFETY: matches the action signature, called with the General pane's suggestion length menu.
-        #[unsafe(method(pickSuggestionLength:))]
-        fn pick_suggestion_length(&self, sender: &NSPopUpButton) {
-            let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| {
-                runtime.on_menu_pick(|settings| {
-                    settings.suggestion_length_choice(index).map(PaneAction::General)
-                });
-            });
-        }
-
-        // SAFETY: matches the action signature, called with the General pane's suggestion model menu.
-        #[unsafe(method(pickSuggestionModel:))]
-        fn pick_suggestion_model(&self, sender: &NSPopUpButton) {
-            let index = sender.indexOfSelectedItem();
-            with_runtime(|runtime| {
-                runtime.on_menu_pick(|settings| {
-                    settings.suggestion_model_choice(index).map(PaneAction::Playground)
-                });
-            });
-        }
-
-        // SAFETY: matches the notification observer signature, called for each edit of the system prompt.
-        #[unsafe(method(systemPromptDidChange:))]
-        fn system_prompt_did_change(&self, _notification: &NSNotification) {
-            with_runtime(Runtime::on_system_prompt_edit);
-        }
-
-        // SAFETY: matches the action signature, called with the General pane's reset button.
-        #[unsafe(method(resetSystemPrompt:))]
-        fn reset_system_prompt(&self, _sender: &NSButton) {
-            with_runtime(|runtime| {
-                runtime.on_pane_action(PaneAction::General(GeneralAction::ResetSystemPrompt));
-            });
+        // SAFETY: matches the notification observer signature, called for each change of the text
+        // of a text view.
+        #[unsafe(method(editSetting:))]
+        fn edit_setting(&self, notification: &NSNotification) {
+            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.edited(notification)));
         }
 
         // SAFETY: matches the action signature, called with the playground's button or prompt field.

@@ -9,13 +9,14 @@ use std::time::Duration;
 use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, TrayCommand, TrayOutcome, TrayView};
 use crate::desktop::Desktop;
 use crate::engine::Reaction;
-use crate::general_pane::{GeneralAction, GeneralPane, GeneralView};
+use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::models_pane::{ModelsAction, ModelsPane, ModelsView};
 use crate::playground::{PlaygroundAction, PlaygroundPane, PlaygroundView};
 use crate::settings::{Autostart, ClipboardAccess, Settings, SettingsStore};
+use crate::settings_view::{Page, SettingsInput};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -52,7 +53,7 @@ pub enum BackendChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsView {
     /// The General pane.
-    pub general: GeneralView,
+    pub general: Page,
     /// The Models pane.
     pub models: ModelsView,
     /// The Playground pane.
@@ -62,8 +63,6 @@ pub struct SettingsView {
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaneAction {
-    /// An action in the General pane.
-    General(GeneralAction),
     /// An action in the Models pane.
     Models(ModelsAction),
     /// An action in the Playground pane.
@@ -296,7 +295,6 @@ impl Controller {
     /// Handles something that the user did in a pane of the settings window.
     pub fn on_pane_action(&mut self, action: PaneAction, shell: &mut dyn Shell) {
         match action {
-            PaneAction::General(action) => self.on_general_action(action, shell),
             PaneAction::Models(action) => {
                 if let Some(request) = self.models.on_action(action) {
                     self.hub.submit(request, &self.hub_sink);
@@ -307,6 +305,17 @@ impl Controller {
                     self.runner.submit(request, &self.playground_sink);
                 }
             }
+        }
+        self.render_settings(shell);
+    }
+
+    /// Handles something that the user did with a control of the settings window, then shows
+    /// the panes as they are now. A menu then shows its selected entry again, also when the
+    /// picked entry does nothing.
+    pub fn on_settings_input(&mut self, input: &SettingsInput, shell: &mut dyn Shell) {
+        let installed = self.models.installed_files();
+        if let Some(action) = self.general.action_for(input, &self.playground, &installed) {
+            self.on_general_action(action, shell);
         }
         self.render_settings(shell);
     }
@@ -428,7 +437,7 @@ impl Controller {
     fn settings_view(&self) -> SettingsView {
         let installed = self.models.installed_files();
         SettingsView {
-            general: self.general.view(&self.playground, &installed),
+            general: self.general.page(&self.playground, &installed),
             models: self.models.view(),
             playground: self.playground.view(&installed),
         }
@@ -479,9 +488,11 @@ mod tests {
     use super::*;
     use crate::app::{Field, Status};
     use crate::desktop::Surroundings;
-    use crate::hub::{HubRequest, ModelFile};
+    use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
+    use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Backend, Completion, TokenCount};
     use crate::settings::{PromptPreparation, SuggestionDisplay};
+    use crate::settings_view::ControlId;
 
     const PAUSE_BADGE: BadgeView = BadgeView {
         status: Status::Active,
@@ -724,6 +735,31 @@ mod tests {
             self.recorder.borrow().saved.clone()
         }
 
+        fn toggle(&mut self, id: &'static str, is_on: bool) {
+            let input = SettingsInput::Toggled {
+                id: ControlId::new(id),
+                is_on,
+            };
+            self.controller.on_settings_input(&input, &mut self.shell);
+        }
+
+        fn pick(&mut self, id: &'static str, index: usize) {
+            let input = SettingsInput::Picked {
+                id: ControlId::new(id),
+                index,
+            };
+            self.controller.on_settings_input(&input, &mut self.shell);
+        }
+
+        fn install(&mut self, file: ModelFile) {
+            let installed = HubEvent::Installed(vec![SizedFile {
+                file,
+                size: ByteSize(1),
+            }]);
+            self.controller
+                .on_delivery(Delivery::Hub(installed), &mut self.shell);
+        }
+
         fn shown_settings(&mut self) -> SettingsView {
             self.controller
                 .on_tray_command(TrayCommand::OpenSettings, &mut self.shell);
@@ -815,7 +851,7 @@ mod tests {
 
         let view = harness.shown_settings();
 
-        assert!(view.general.backend.is_some());
+        assert!(view.general.row(BACKEND).is_some());
     }
 
     #[test]
@@ -824,7 +860,7 @@ mod tests {
 
         let view = harness.shown_settings();
 
-        assert_eq!(view.general.backend, None);
+        assert_eq!(view.general.row(BACKEND), None);
     }
 
     #[test]
@@ -1204,10 +1240,7 @@ mod tests {
     fn general_change_saves_settings() {
         let mut harness = Harness::new(Settings::default());
 
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::AllowClipboard),
-            &mut harness.shell,
-        );
+        harness.toggle(CLIPBOARD, true);
 
         assert_eq!(
             harness.saved(),
@@ -1222,10 +1255,7 @@ mod tests {
     fn general_change_gives_clipboard_access_to_shell() {
         let mut harness = Harness::new(Settings::default());
 
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::AllowClipboard),
-            &mut harness.shell,
-        );
+        harness.toggle(CLIPBOARD, true);
 
         assert!(
             harness
@@ -1237,10 +1267,7 @@ mod tests {
     #[test]
     fn general_change_applies_to_suggestions() {
         let mut harness = Harness::new(Settings::default());
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::PrepareOnFocus),
-            &mut harness.shell,
-        );
+        harness.toggle(PREPARATION, true);
 
         harness
             .controller
@@ -1256,10 +1283,7 @@ mod tests {
     fn unchanged_general_setting_saves_nothing() {
         let mut harness = Harness::new(Settings::default());
 
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::DenyClipboard),
-            &mut harness.shell,
-        );
+        harness.toggle(CLIPBOARD, false);
 
         assert_eq!(harness.saved(), Vec::new());
     }
@@ -1268,10 +1292,7 @@ mod tests {
     fn general_change_renders_settings() {
         let mut harness = Harness::new(Settings::default());
 
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::AllowClipboard),
-            &mut harness.shell,
-        );
+        harness.toggle(CLIPBOARD, true);
 
         assert!(matches!(
             harness.take_calls().last(),
@@ -1284,10 +1305,7 @@ mod tests {
         let mut harness = Harness::with_backends(suggestion_settings(), BackendChoice::User);
         harness.answer(loaded());
 
-        harness.controller.on_pane_action(
-            PaneAction::General(GeneralAction::SelectBackend(Backend::Vulkan)),
-            &mut harness.shell,
-        );
+        harness.pick(BACKEND, 1);
 
         assert_eq!(
             harness.last_request(),
@@ -1296,6 +1314,34 @@ mod tests {
                 backend: Some(Backend::Vulkan),
             })
         );
+    }
+
+    #[test]
+    fn picking_suggestion_model_loads_it() {
+        let mut harness = Harness::new(Settings::default());
+        harness.install(model_file());
+
+        harness.pick(SUGGESTION_MODEL, 1);
+
+        assert_eq!(
+            harness.last_request(),
+            Some(InferenceRequest::Load {
+                file: model_file(),
+                backend: None,
+            })
+        );
+    }
+
+    #[test]
+    fn pick_that_does_nothing_renders_settings() {
+        let mut harness = Harness::new(Settings::default());
+
+        harness.pick(SUGGESTION_MODEL, 0);
+
+        assert!(matches!(
+            harness.take_calls().as_slice(),
+            [Call::RenderSettings(_)]
+        ));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::inference::{
 use crate::models_pane::model_name;
 use crate::prompt;
 use crate::settings::Settings;
+use crate::settings_view::{ChoiceText, ControlId, Note, NoteTone, Picker};
 
 /// Something the user did in the Playground pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,26 +41,6 @@ pub struct ModelPicker {
     pub selected: usize,
     /// Whether the user can open the menu.
     pub is_enabled: bool,
-}
-
-/// How a note reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoteTone {
-    /// Plain information.
-    Plain,
-    /// Work is in progress.
-    Busy,
-    /// Something failed.
-    Error,
-}
-
-/// A short line of status text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Note {
-    /// The text.
-    pub text: &'static str,
-    /// How the text reads.
-    pub tone: NoteTone,
 }
 
 /// What shows below the prompt after the user asks for a completion.
@@ -274,15 +255,11 @@ impl PlaygroundPane {
     /// Returns what the pane must show now, offering the downloaded `installed` model files.
     #[must_use]
     pub fn view(&self, installed: &[ModelFile]) -> PlaygroundView {
-        let selected = self.model.as_ref().and_then(|model| {
-            let index = installed.iter().position(|file| *file == model.file)?;
-            Some((index, model.state))
-        });
-        let selected_state = selected.map(|(_, state)| state);
+        let selected_state = self.selected_state(installed);
         PlaygroundView {
             title: PANE_TITLE,
             summary: PANE_SUMMARY,
-            model: self.model_picker(installed, selected.map(|(index, _)| index)),
+            model: self.model_menu_view(installed),
             model_note: model_note(installed, selected_state),
             prompt_label: PROMPT_LABEL,
             prompt_placeholder: PROMPT_PLACEHOLDER,
@@ -332,27 +309,93 @@ impl PlaygroundPane {
         matches!(self.completion, Some(CompletionState::Running))
     }
 
-    fn model_picker(&self, installed: &[ModelFile], selected: Option<usize>) -> ModelPicker {
-        let models = installed.iter().map(|file| ModelChoice {
-            title: model_name(file),
-            action: Some(PlaygroundAction::SelectModel(file.clone())),
-        });
-        let (choices, selected) = if let Some(index) = selected {
-            (models.collect(), index)
-        } else {
-            let placeholder = ModelChoice {
-                title: placeholder_title(installed).to_owned(),
-                action: None,
-            };
-            (iter::once(placeholder).chain(models).collect(), 0)
-        };
+    /// The menu that picks the model, as control `id`, with `description` below its label.
+    pub(crate) fn model_picker(
+        &self,
+        installed: &[ModelFile],
+        id: ControlId,
+        description: &'static str,
+    ) -> Picker {
+        let menu = self.model_menu(installed);
+        let placeholder = placeholder_title(installed);
+        Picker {
+            id,
+            label: MODEL_LABEL,
+            description,
+            choices: menu
+                .entries
+                .iter()
+                .map(|entry| entry.map_or_else(|| placeholder.to_owned(), model_name))
+                .collect(),
+            choice_text: ChoiceText::Name,
+            selected: menu.selected,
+            is_enabled: !installed.is_empty() && !self.is_busy(),
+            note: model_note(installed, self.selected_state(installed)),
+        }
+    }
+
+    /// The model of the entry at `index` of [`Self::model_picker`], unless the entry is the
+    /// placeholder.
+    pub(crate) fn model_at(&self, installed: &[ModelFile], index: usize) -> Option<ModelFile> {
+        self.model_menu(installed)
+            .entries
+            .get(index)
+            .copied()
+            .flatten()
+            .cloned()
+    }
+
+    fn model_menu_view(&self, installed: &[ModelFile]) -> ModelPicker {
+        let menu = self.model_menu(installed);
+        let placeholder = placeholder_title(installed);
+        let choices = menu
+            .entries
+            .iter()
+            .map(|entry| ModelChoice {
+                title: entry.map_or_else(|| placeholder.to_owned(), model_name),
+                action: entry.map(|file| PlaygroundAction::SelectModel(file.clone())),
+            })
+            .collect();
         ModelPicker {
             label: MODEL_LABEL,
             choices,
-            selected,
+            selected: menu.selected,
             is_enabled: !installed.is_empty() && !self.is_busy(),
         }
     }
+
+    fn model_menu<'files>(&self, installed: &'files [ModelFile]) -> ModelMenu<'files> {
+        let models = installed.iter().map(Some);
+        match self.selected_index(installed) {
+            Some(index) => ModelMenu {
+                entries: models.collect(),
+                selected: index,
+            },
+            None => ModelMenu {
+                entries: iter::once(None).chain(models).collect(),
+                selected: 0,
+            },
+        }
+    }
+
+    /// The index of the selected model among the `installed` files.
+    fn selected_index(&self, installed: &[ModelFile]) -> Option<usize> {
+        let model = self.model.as_ref()?;
+        installed.iter().position(|file| *file == model.file)
+    }
+
+    /// The state of the selected model, while it is among the `installed` files.
+    fn selected_state(&self, installed: &[ModelFile]) -> Option<ModelState> {
+        self.selected_index(installed)?;
+        self.model.as_ref().map(|model| model.state)
+    }
+}
+
+/// The entries of the model menu, top to bottom: `None` is the placeholder that shows while no
+/// downloaded model is selected.
+struct ModelMenu<'files> {
+    entries: Vec<Option<&'files ModelFile>>,
+    selected: usize,
 }
 
 fn placeholder_title(installed: &[ModelFile]) -> &'static str {

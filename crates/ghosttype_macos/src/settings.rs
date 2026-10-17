@@ -4,32 +4,35 @@
 //! Layout follows System Settings: a pinned header with the search field, then grouped lists in
 //! rounded boxes with hairline separators between rows.
 
-mod general;
+mod page;
 mod playground;
 
-use ghosttype_core::general_pane::{GeneralAction, GeneralView};
 use ghosttype_core::models_pane::{
     ListContent, ModelList, ModelRow, ModelsAction, ModelsView, RowAccessory, RowButton,
 };
-use ghosttype_core::playground::{ModelPicker, Note, NoteTone, PlaygroundAction, PlaygroundView};
+use ghosttype_core::playground::{ModelPicker, PlaygroundAction, PlaygroundView};
+use ghosttype_core::settings_view::{self as view, ControlId, Note, NoteTone, SettingsInput};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSAccessibility as _, NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSCellImagePosition,
-    NSColor, NSControl, NSControlSize, NSFont, NSFontWeightRegular, NSImage, NSImageView, NSLayoutAttribute,
-    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
-    NSMenuItem, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution,
-    NSStackViewGravity, NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextField,
-    NSTitleBinding, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow,
-    NSWindowStyleMask, NSWindowToolbarStyle,
+    NSColor, NSControl, NSControlSize, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage,
+    NSImageView, NSLayoutAttribute, NSLayoutConstraint, NSLayoutConstraintOrientation,
+    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSMenuItem, NSObjectNSKeyValueBindingCreation as _,
+    NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSearchField,
+    NSStackView, NSStackViewDistribution, NSStackViewGravity, NSSwitch, NSTabViewController,
+    NSTabViewControllerTabStyle, NSTabViewItem, NSTextDidChangeNotification, NSTextField, NSTitleBinding,
+    NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow, NSWindowStyleMask,
+    NSWindowToolbarStyle,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSArray, NSEdgeInsets, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSArray, NSEdgeInsets, NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString,
+};
 
 use crate::labels::title_case;
-use crate::settings::general::GeneralPage;
+use crate::settings::page::{Binder, PageView};
 use crate::settings::playground::PlaygroundPage;
 
 const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
@@ -100,14 +103,10 @@ pub(crate) struct ActionTarget {
     pub(crate) search_action: Sel,
     pub(crate) model_picker_action: Sel,
     pub(crate) complete_action: Sel,
-    pub(crate) autostart_action: Sel,
-    pub(crate) clipboard_action: Sel,
-    pub(crate) preparation_action: Sel,
-    pub(crate) display_action: Sel,
-    pub(crate) suggestion_length_action: Sel,
-    pub(crate) suggestion_model_action: Sel,
-    pub(crate) system_prompt_action: Sel,
-    pub(crate) reset_system_prompt_action: Sel,
+    pub(crate) toggle_action: Sel,
+    pub(crate) pick_action: Sel,
+    pub(crate) press_action: Sel,
+    pub(crate) edit_action: Sel,
 }
 
 /// The settings window, kept alive and reused after the user closes it.
@@ -118,13 +117,14 @@ pub(crate) struct SettingsWindow {
     general_pane: Pane,
     models_pane: Pane,
     playground_pane: Pane,
-    general: GeneralPage,
+    general: PageView,
     summary: Retained<NSTextField>,
     search_field: Retained<NSSearchField>,
     browse: ListView,
     downloaded: ListView,
     playground: PlaygroundPage,
     actions: Vec<ModelsAction>,
+    control_ids: Vec<ControlId>,
     target: ActionTarget,
     main_thread: MainThreadMarker,
 }
@@ -135,14 +135,11 @@ impl SettingsWindow {
     /// A Models button sends `target.button_action` with its tag; see [`Self::action_for_tag`]. The
     /// search field sends `target.search_action` when the user submits or clears it. The Playground
     /// model menu sends `target.model_picker_action`, see [`Self::playground_choice`]; its complete
-    /// button and prompt field send `target.complete_action`. The General autostart switch sends
-    /// `target.autostart_action`, its clipboard switch sends `target.clipboard_action`, its prompt
-    /// preparation switch sends `target.preparation_action`, its suggestion display switch sends
-    /// `target.display_action`, its suggestion length menu sends `target.suggestion_length_action`,
-    /// see [`Self::suggestion_length_choice`], and its suggestion model menu sends
-    /// `target.suggestion_model_action`, see [`Self::suggestion_model_choice`]. Each edit of the
-    /// General system prompt sends `target.system_prompt_action`, see [`Self::system_prompt`], and
-    /// its reset button sends `target.reset_system_prompt_action`.
+    /// button and prompt field send `target.complete_action`. On a page of the core settings
+    /// view, a switch sends `target.toggle_action`, see [`Self::toggled`], a menu sends
+    /// `target.pick_action`, see [`Self::picked`], and a button sends `target.press_action`, see
+    /// [`Self::pressed`]. Each change of the text of a text view sends `target.edit_action` with
+    /// the notification, see [`Self::edited`].
     pub(crate) fn new(target: ActionTarget, main_thread: MainThreadMarker) -> Self {
         let summary = wrapping_label(main_thread);
         summary.setFont(Some(&NSFont::systemFontOfSize(SUMMARY_FONT_SIZE)));
@@ -170,7 +167,17 @@ impl SettingsWindow {
         let browse = ListView::new(&content, &target, main_thread);
         let downloaded = ListView::new(&content, &target, main_thread);
         let playground = PlaygroundPage::new(&target, main_thread);
-        let general = GeneralPage::new(&target, main_thread);
+        let general = PageView::new(main_thread);
+        // SAFETY: the target implements the edit action, taking the notification, and the app
+        // keeps the target alive for as long as it runs.
+        unsafe {
+            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                &target.target,
+                target.edit_action,
+                Some(NSTextDidChangeNotification),
+                None,
+            );
+        }
         let general_pane = Pane::new(&general.root, GENERAL_SYMBOL, main_thread);
         let models_pane = Pane::new(
             &models_root(&header, &content, main_thread),
@@ -193,6 +200,7 @@ impl SettingsWindow {
             downloaded,
             playground,
             actions: Vec::new(),
+            control_ids: Vec::new(),
             target,
             main_thread,
         }
@@ -204,26 +212,51 @@ impl SettingsWindow {
         self.window.makeKeyAndOrderFront(None);
     }
 
-    /// Shows `view` in the General pane.
-    pub(crate) fn render_general(&mut self, view: &GeneralView) {
-        self.general_pane.set_title(view.title);
+    /// Shows `page` in the General pane.
+    pub(crate) fn render_general(&mut self, page: &view::Page) {
+        self.general_pane.set_title(page.title);
         self.show_selected_pane_title();
-        self.general.render(view);
+        self.control_ids.clear();
+        let mut binder = Binder {
+            target: &self.target,
+            ids: &mut self.control_ids,
+            main_thread: self.main_thread,
+        };
+        self.general.render(page, &mut binder);
     }
 
-    /// Returns the action of the General suggestion model menu entry at `index` in the last render.
-    pub(crate) fn suggestion_model_choice(&self, index: isize) -> Option<PlaygroundAction> {
-        self.general.suggestion_model_menu.action_at(index)
+    /// Reads the input of `switch`, a switch of a core settings page.
+    pub(crate) fn toggled(&self, switch: &NSSwitch) -> Option<SettingsInput> {
+        Some(SettingsInput::Toggled {
+            id: self.control_id(switch)?,
+            is_on: switch.state() == NSControlStateValueOn,
+        })
     }
 
-    /// Returns the action of the General suggestion length menu entry at `index` in the last render.
-    pub(crate) fn suggestion_length_choice(&self, index: isize) -> Option<GeneralAction> {
-        self.general.suggestion_length_menu.action_at(index)
+    /// Reads the input of `menu`, a menu of a core settings page.
+    pub(crate) fn picked(&self, menu: &NSPopUpButton) -> Option<SettingsInput> {
+        Some(SettingsInput::Picked {
+            id: self.control_id(menu)?,
+            index: usize::try_from(menu.indexOfSelectedItem()).ok()?,
+        })
     }
 
-    /// Returns the text in the General system prompt field.
-    pub(crate) fn system_prompt(&self) -> String {
-        self.general.system_prompt()
+    /// Reads the input of `button`, a button of a core settings page.
+    pub(crate) fn pressed(&self, button: &NSButton) -> Option<SettingsInput> {
+        self.control_id(button).map(SettingsInput::Pressed)
+    }
+
+    /// Reads the input of a change of the text in a text view, when the text view is a text area
+    /// of a core settings page.
+    pub(crate) fn edited(&self, notification: &NSNotification) -> Option<SettingsInput> {
+        let object = notification.object()?;
+        self.general.edited(&object)
+    }
+
+    /// The id that `control` carries in its tag since the last render.
+    fn control_id(&self, control: &NSControl) -> Option<ControlId> {
+        let index = usize::try_from(control.tag()).ok()?;
+        self.control_ids.get(index).cloned()
     }
 
     /// Shows `view` in the Models pane, reusing row views so clicks in progress are not lost.

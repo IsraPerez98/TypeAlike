@@ -38,7 +38,7 @@ use crate::keys;
 use crate::mailbox::{DELIVERY_MESSAGE, Mailbox};
 use crate::menu::{self, MenuPlacement};
 use crate::overlay::Overlay;
-use crate::settings::{self, Appearance, MenuPicker, Pointer, Procedures, SettingsInput, SettingsWindow};
+use crate::settings::{self, Appearance, MenuPicker, Pointer, Procedures, SettingsWindow, WindowInput};
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
@@ -275,10 +275,11 @@ impl Runtime {
         }
     }
 
-    fn on_settings_input(&mut self, input: SettingsInput) {
+    fn on_settings_input(&mut self, input: WindowInput) {
         match input {
-            SettingsInput::Pane(action) => self.controller.on_pane_action(action, &mut self.shell),
-            SettingsInput::OpenMenu(picker) => self.post_picker_menu(picker),
+            WindowInput::Pane(action) => self.controller.on_pane_action(action, &mut self.shell),
+            WindowInput::Settings(input) => self.controller.on_settings_input(&input, &mut self.shell),
+            WindowInput::OpenMenu(picker) => self.post_picker_menu(picker),
         }
     }
 
@@ -650,7 +651,7 @@ fn repaint_field_frames(page: HWND) {
 fn show_picker_menu(window: HWND) -> LRESULT {
     let pending = with_runtime(|runtime| {
         let picker = runtime.pending_menu.take()?;
-        let menu = runtime.shell.settings.as_ref()?.picker_menu(picker);
+        let menu = runtime.shell.settings.as_ref()?.picker_menu(&picker)?;
         Some((picker, menu))
     })
     .flatten();

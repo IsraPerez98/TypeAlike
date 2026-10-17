@@ -9,11 +9,11 @@ mod appearance;
 mod canvas;
 mod controls;
 mod form;
-mod general_page;
 mod layout;
 mod look;
 mod models_page;
 mod page;
+mod page_view;
 mod paint;
 mod palette;
 mod playground_page;
@@ -22,9 +22,9 @@ mod typography;
 use std::rc::Rc;
 
 use ghosttype_core::controller::PaneAction;
-use ghosttype_core::general_pane::GeneralView;
 use ghosttype_core::models_pane::ModelsView;
 use ghosttype_core::playground::PlaygroundView;
+use ghosttype_core::settings_view::{self as view, ControlId, SettingsInput};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE, DWMSBT_MAINWINDOW, DWMSBT_NONE,
@@ -53,10 +53,10 @@ use windows::core::{BOOL, HSTRING, Owned, Result, w};
 use crate::gdi::glyph_icon;
 use crate::settings::controls::{Control, ControlKind};
 use crate::settings::form::PAGE_TEXT;
-use crate::settings::general_page::GeneralPage;
 use crate::settings::layout::{Bounds, Dpi, Point, ScrollMove, centered_origin};
 use crate::settings::models_page::ModelsPage;
 use crate::settings::page::Page;
+use crate::settings::page_view::PageView;
 use crate::settings::paint::PaintSession;
 use crate::settings::palette::Backdrop;
 use crate::settings::playground_page::PlaygroundPage;
@@ -95,9 +95,11 @@ pub(crate) struct Procedures {
 
 /// Something the user did in the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SettingsInput {
+pub(crate) enum WindowInput {
     /// An action that a core pane must handle.
     Pane(PaneAction),
+    /// An input of a control of a core settings page.
+    Settings(SettingsInput),
     /// The user opened a picker; its menu must show outside any borrow of the runtime.
     OpenMenu(MenuPicker),
 }
@@ -123,12 +125,12 @@ impl FieldInput {
 }
 
 /// A picker whose choices show in a menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MenuPicker {
+    /// The model picker of the Playground pane.
     Model,
-    Backend,
-    SuggestionLength,
-    SuggestionModel,
+    /// The picker of a core settings page with this id.
+    Control(ControlId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +158,7 @@ pub(crate) struct SettingsWindow {
     general_tab: Control,
     models: ModelsPage,
     playground: PlaygroundPage,
-    general: GeneralPage,
+    general: PageView,
     selected: Pane,
     appearance: Rc<Appearance>,
     icons: Option<WindowIcons>,
@@ -195,7 +197,7 @@ impl SettingsWindow {
             general_tab: tab()?.with_glyph(GENERAL_GLYPH),
             models: ModelsPage::create(handle, procedures.models_page)?,
             playground: PlaygroundPage::create(handle, procedures.playground_page)?,
-            general: GeneralPage::create(handle, procedures.general_page)?,
+            general: PageView::create(w!("GhostType.GeneralPage"), procedures.general_page, handle)?,
             selected: Pane::General,
             appearance,
             icons: None,
@@ -262,7 +264,7 @@ impl SettingsWindow {
         &mut self,
         models: &ModelsView,
         playground: &PlaygroundView,
-        general: &GeneralView,
+        general: &view::Page,
     ) -> Result<()> {
         self.models_tab.set_text(models.title);
         self.playground_tab.set_text(playground.title);
@@ -270,7 +272,7 @@ impl SettingsWindow {
         let appearance = Rc::clone(&self.appearance);
         self.models.render(models, &appearance)?;
         self.playground.render(playground, &appearance);
-        self.general.render(general, &appearance);
+        self.general.render(general, &appearance)?;
         self.show_selected_page();
         Ok(())
     }
@@ -308,9 +310,9 @@ impl SettingsWindow {
     }
 
     /// Reads a `WM_COMMAND` from `control` with `notification`.
-    pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<SettingsInput> {
-        if let Some(action) = self.general.action_for(control, notification) {
-            return Some(SettingsInput::Pane(PaneAction::General(action)));
+    pub(crate) fn input_for(&mut self, control: HWND, notification: u32) -> Option<WindowInput> {
+        if let Some(input) = self.general.input_for(control, notification) {
+            return Some(input);
         }
         if notification != BN_CLICKED {
             return None;
@@ -320,16 +322,7 @@ impl SettingsWindow {
             return None;
         }
         if self.playground.is_model_picker(control) {
-            return Some(SettingsInput::OpenMenu(MenuPicker::Model));
-        }
-        if self.general.is_backend_picker(control) {
-            return Some(SettingsInput::OpenMenu(MenuPicker::Backend));
-        }
-        if self.general.is_length_picker(control) {
-            return Some(SettingsInput::OpenMenu(MenuPicker::SuggestionLength));
-        }
-        if self.general.is_suggestion_model_picker(control) {
-            return Some(SettingsInput::OpenMenu(MenuPicker::SuggestionModel));
+            return Some(WindowInput::OpenMenu(MenuPicker::Model));
         }
         self.models
             .action_for(control)
@@ -339,11 +332,11 @@ impl SettingsWindow {
                     .completion_for(control)
                     .map(PaneAction::Playground)
             })
-            .map(SettingsInput::Pane)
+            .map(WindowInput::Pane)
     }
 
     /// Reads the Enter key: it clicks a focused button, or submits a search or a completion.
-    pub(crate) fn input_for_enter(&mut self) -> Option<SettingsInput> {
+    pub(crate) fn input_for_enter(&mut self) -> Option<WindowInput> {
         // SAFETY: plain call.
         let focus = unsafe { GetFocus() };
         if controls::look_of(focus).is_some_and(|look| look.kind.is_button()) {
@@ -353,31 +346,26 @@ impl SettingsWindow {
             .search_for(focus)
             .map(PaneAction::Models)
             .or_else(|| self.playground.completion_for(focus).map(PaneAction::Playground))
-            .map(SettingsInput::Pane)
+            .map(WindowInput::Pane)
     }
 
-    /// The menu that `picker` opens.
-    pub(crate) fn picker_menu(&self, picker: MenuPicker) -> PickerMenu {
+    /// The menu that `picker` opens, while the picker shows.
+    pub(crate) fn picker_menu(&self, picker: &MenuPicker) -> Option<PickerMenu> {
         match picker {
-            MenuPicker::Model => self.playground.model_menu(),
-            MenuPicker::Backend => self.general.backend_menu(),
-            MenuPicker::SuggestionLength => self.general.length_menu(),
-            MenuPicker::SuggestionModel => self.general.suggestion_model_menu(),
+            MenuPicker::Model => Some(self.playground.model_menu()),
+            MenuPicker::Control(id) => self.general.picker_menu(id),
         }
     }
 
     /// Reads the pick of the entry at `index` of the menu of `picker`.
-    pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<SettingsInput> {
-        let action = match picker {
-            MenuPicker::Model => self.playground.choice_at(index).map(PaneAction::Playground),
-            MenuPicker::Backend => self.general.backend_choice_at(index).map(PaneAction::General),
-            MenuPicker::SuggestionLength => self.general.length_choice_at(index).map(PaneAction::General),
-            MenuPicker::SuggestionModel => self
-                .general
-                .suggestion_model_choice_at(index)
-                .map(PaneAction::Playground),
-        };
-        action.map(SettingsInput::Pane)
+    pub(crate) fn input_for_pick(&self, picker: MenuPicker, index: usize) -> Option<WindowInput> {
+        match picker {
+            MenuPicker::Model => self
+                .playground
+                .choice_at(index)
+                .map(|action| WindowInput::Pane(PaneAction::Playground(action))),
+            MenuPicker::Control(id) => Some(WindowInput::Settings(SettingsInput::Picked { id, index })),
+        }
     }
 
     /// Reacts to the pointer over the page `page_window`, which scrolls with its scroll bar.

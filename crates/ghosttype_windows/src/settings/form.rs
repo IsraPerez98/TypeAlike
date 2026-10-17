@@ -1,6 +1,6 @@
 //! Spacing and controls that every settings pane shares: the header and the tab-ordered placement.
 
-use ghosttype_core::playground::{Note, NoteTone};
+use ghosttype_core::settings_view::{Note, NoteTone};
 use windows::Win32::Foundation::HWND;
 use windows::core::Result;
 

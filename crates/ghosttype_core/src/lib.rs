@@ -16,3 +16,4 @@ pub mod models_pane;
 pub mod playground;
 mod prompt;
 pub mod settings;
+pub mod settings_view;

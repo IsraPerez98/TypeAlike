@@ -4,10 +4,13 @@ use std::fmt;
 
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SystemPrompt};
-use crate::playground::{ModelPicker, Note, PlaygroundAction, PlaygroundPane};
+use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{
     Autostart, ClipboardAccess, DEFAULT_SYSTEM_PROMPT, PromptPreparation, Settings, SuggestionDisplay,
     SuggestionLength,
+};
+use crate::settings_view::{
+    Button, ChoiceText, ControlId, Page, Picker, Row, Section, SettingsInput, Switch, TextArea,
 };
 
 /// Something the user did in the General pane.
@@ -39,94 +42,8 @@ pub enum GeneralAction {
     ShowWhenComplete,
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),
-}
-
-/// One entry of a setting menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingChoice {
-    /// Text shown for the entry.
-    pub title: &'static str,
-    /// What picking the entry does.
-    pub action: GeneralAction,
-}
-
-/// A menu that picks the value of a setting.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingPicker {
-    /// Text before the menu, in sentence case.
-    pub label: &'static str,
-    /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
-    /// Menu entries, top to bottom. Never empty.
-    pub choices: Vec<SettingChoice>,
-    /// Index of the entry the menu shows.
-    pub selected: usize,
-    /// Whether the user can open the menu.
-    pub is_enabled: bool,
-}
-
-/// A switch that turns a setting on and off.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingSwitch {
-    /// Text before the switch, in sentence case.
-    pub label: &'static str,
-    /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
-    /// Whether the switch shows on.
-    pub is_on: bool,
-}
-
-/// The menu that picks the model that suggests text: the model menu of the Playground pane, with
-/// a description.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SuggestionModelPicker {
-    /// The menu, as the Playground pane shows it. Its entries are Playground actions.
-    pub menu: ModelPicker,
-    /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
-    /// Status of the selected model, or a hint when there is no model to select.
-    pub note: Option<Note>,
-}
-
-/// The field that edits the system prompt, and the button that resets it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SystemPromptEditor {
-    /// Text before the field, in sentence case.
-    pub label: &'static str,
-    /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
-    /// The system prompt in the field. Change the field only when it shows other text, so that
-    /// the caret and the undo history of the user stay.
-    pub text: String,
-    /// The reset button's label, in sentence case.
-    pub reset_label: &'static str,
-    /// Whether the reset button can reset, because the field does not show the default.
-    pub is_reset_enabled: bool,
-}
-
-/// Everything the General pane shows, top to bottom.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GeneralView {
-    /// Pane title.
-    pub title: &'static str,
-    /// One or two sentences under the title about what the pane is for.
-    pub summary: &'static str,
-    /// The autostart switch, or `None` when this platform cannot start GhostType at login.
-    pub autostart: Option<SettingSwitch>,
-    /// The suggestion model menu.
-    pub suggestion_model: SuggestionModelPicker,
-    /// The clipboard switch.
-    pub clipboard: SettingSwitch,
-    /// The switch that gives the text around the caret to the model before the user types.
-    pub prompt_preparation: SettingSwitch,
-    /// The switch that shows each word of a suggestion as soon as the model writes it.
-    pub suggestion_display: SettingSwitch,
-    /// The menu that picks the most text that one suggestion shows.
-    pub suggestion_length: SettingPicker,
-    /// The backend menu, or `None` when the model runner picks the backend itself.
-    pub backend: Option<SettingPicker>,
-    /// The system prompt editor.
-    pub system_prompt: SystemPromptEditor,
+    /// Picked this downloaded model to suggest text.
+    SelectSuggestionModel(ModelFile),
 }
 
 /// What the platform must do after a General action.
@@ -138,6 +55,15 @@ pub struct GeneralOutcome {
     pub request: Option<InferenceRequest>,
 }
 
+pub(crate) const AUTOSTART: &str = "autostart";
+pub(crate) const CLIPBOARD: &str = "clipboard";
+pub(crate) const PREPARATION: &str = "prompt-preparation";
+pub(crate) const DISPLAY: &str = "suggestion-display";
+pub(crate) const LENGTH: &str = "suggestion-length";
+pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
+pub(crate) const BACKEND: &str = "backend";
+pub(crate) const SYSTEM_PROMPT: &str = "system-prompt";
+pub(crate) const RESET_SYSTEM_PROMPT: &str = "reset-system-prompt";
 const PANE_TITLE: &str = "General";
 const PANE_SUMMARY: &str = "Change how GhostType runs on this computer.";
 const AUTOSTART_LABEL: &str = "Open at login";
@@ -260,8 +186,8 @@ impl GeneralPane {
         Some(self.settings.clone())
     }
 
-    /// Handles a user action. The Playground pane `playground` loads its model again when the
-    /// backend changes.
+    /// Handles a user action. The Playground pane `playground` loads the model that the user
+    /// picks, and loads its model again when the backend changes.
     pub fn on_action(&mut self, action: GeneralAction, playground: &mut PlaygroundPane) -> GeneralOutcome {
         match action {
             GeneralAction::SelectBackend(backend) => self.select_backend(backend, playground),
@@ -280,46 +206,87 @@ impl GeneralPane {
             GeneralAction::SelectSuggestionLength(length) => {
                 self.change_setting(length, |settings| &mut settings.suggestion_length)
             }
+            GeneralAction::SelectSuggestionModel(file) => GeneralOutcome {
+                settings: None,
+                request: playground.on_action(PlaygroundAction::SelectModel(file)),
+            },
         }
     }
 
-    /// Returns what the pane must show now, with the load state of the model that `playground`
-    /// selected and the downloaded `installed` model files.
+    /// Returns the action of `input`, when `input` is for a control of the pane. `playground`
+    /// and the downloaded `installed` model files give the entries of the suggestion model menu.
     #[must_use]
-    pub fn view(&self, playground: &PlaygroundPane, installed: &[ModelFile]) -> GeneralView {
-        GeneralView {
-            title: PANE_TITLE,
-            summary: PANE_SUMMARY,
-            autostart: self.autostart.as_ref().map(|autostart| SettingSwitch {
+    pub fn action_for(
+        &self,
+        input: &SettingsInput,
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+    ) -> Option<GeneralAction> {
+        match input {
+            SettingsInput::Toggled { id, is_on } => switch_action(id.as_str(), *is_on),
+            SettingsInput::Picked { id, index } => {
+                self.pick_action(id.as_str(), *index, playground, installed)
+            }
+            SettingsInput::Edited { id, text } => (id.as_str() == SYSTEM_PROMPT)
+                .then(|| GeneralAction::EditSystemPrompt(SystemPrompt(text.clone()))),
+            SettingsInput::Pressed(id) => {
+                (id.as_str() == RESET_SYSTEM_PROMPT).then_some(GeneralAction::ResetSystemPrompt)
+            }
+        }
+    }
+
+    /// Returns the page that the pane shows now, with the load state of the model that
+    /// `playground` selected and the downloaded `installed` model files.
+    #[must_use]
+    pub fn page(&self, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
+        let autostart = self.autostart.as_ref().map(|autostart| {
+            Row::Switch(Switch {
+                id: ControlId::new(AUTOSTART),
                 label: AUTOSTART_LABEL,
                 description: AUTOSTART_DESCRIPTION,
                 is_on: autostart.is_enabled(),
-            }),
-            suggestion_model: suggestion_model_picker(playground, installed),
-            clipboard: SettingSwitch {
+            })
+        });
+        let settings = [
+            Row::Switch(Switch {
+                id: ControlId::new(CLIPBOARD),
                 label: CLIPBOARD_LABEL,
                 description: self.clipboard_description(),
                 is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
-            },
-            prompt_preparation: SettingSwitch {
+            }),
+            Row::Switch(Switch {
+                id: ControlId::new(PREPARATION),
                 label: PREPARATION_LABEL,
                 description: PREPARATION_DESCRIPTION,
                 is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
-            },
-            suggestion_display: SettingSwitch {
+            }),
+            Row::Switch(Switch {
+                id: ControlId::new(DISPLAY),
                 label: DISPLAY_LABEL,
                 description: DISPLAY_DESCRIPTION,
                 is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
-            },
-            suggestion_length: self.suggestion_length_picker(),
-            backend: self.has_backend_menu.then(|| self.backend_picker(playground)),
-            system_prompt: SystemPromptEditor {
-                label: SYSTEM_PROMPT_LABEL,
-                description: SYSTEM_PROMPT_DESCRIPTION,
-                text: self.settings.system_prompt().0,
-                reset_label: RESET_SYSTEM_PROMPT_LABEL,
-                is_reset_enabled: self.settings.custom_system_prompt.is_some(),
-            },
+            }),
+            Row::Picker(self.suggestion_length_picker()),
+            Row::Picker(playground.model_picker(
+                installed,
+                ControlId::new(SUGGESTION_MODEL),
+                SUGGESTION_MODEL_DESCRIPTION,
+            )),
+        ];
+        let backend = self
+            .has_backend_menu
+            .then(|| Row::Picker(self.backend_picker(playground)));
+        Page {
+            title: PANE_TITLE,
+            summary: PANE_SUMMARY,
+            sections: vec![
+                Section {
+                    rows: autostart.into_iter().chain(settings).chain(backend).collect(),
+                },
+                Section {
+                    rows: vec![Row::TextArea(self.system_prompt_area())],
+                },
+            ],
         }
     }
 
@@ -383,68 +350,95 @@ impl GeneralPane {
         }
     }
 
-    fn suggestion_length_picker(&self) -> SettingPicker {
-        let choices = LENGTH_CHOICES
-            .iter()
-            .map(|&(length, title)| SettingChoice {
-                title,
-                action: GeneralAction::SelectSuggestionLength(length),
-            })
-            .collect();
-        SettingPicker {
+    fn pick_action(
+        &self,
+        id: &str,
+        index: usize,
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+    ) -> Option<GeneralAction> {
+        match id {
+            LENGTH => LENGTH_CHOICES
+                .get(index)
+                .map(|&(length, _)| GeneralAction::SelectSuggestionLength(length)),
+            BACKEND if self.has_backend_menu => BACKEND_CHOICES
+                .get(index)
+                .map(|&(backend, _)| GeneralAction::SelectBackend(backend)),
+            SUGGESTION_MODEL => playground
+                .model_at(installed, index)
+                .map(GeneralAction::SelectSuggestionModel),
+            _ => None,
+        }
+    }
+
+    fn suggestion_length_picker(&self) -> Picker {
+        Picker {
+            id: ControlId::new(LENGTH),
             label: LENGTH_LABEL,
             description: LENGTH_DESCRIPTION,
-            choices,
+            choices: choice_titles(&LENGTH_CHOICES),
+            choice_text: ChoiceText::Label,
             selected: LENGTH_CHOICES
                 .iter()
                 .position(|&(length, _)| length == self.settings.suggestion_length)
                 .expect("every suggestion length has a menu entry"),
             is_enabled: true,
+            note: None,
         }
     }
 
-    fn backend_picker(&self, playground: &PlaygroundPane) -> SettingPicker {
-        let choices: Vec<SettingChoice> = BACKEND_CHOICES
-            .iter()
-            .map(|&(backend, title)| SettingChoice {
-                title,
-                action: GeneralAction::SelectBackend(backend),
-            })
-            .collect();
-        SettingPicker {
+    fn backend_picker(&self, playground: &PlaygroundPane) -> Picker {
+        Picker {
+            id: ControlId::new(BACKEND),
             label: BACKEND_LABEL,
             description: BACKEND_DESCRIPTION,
-            choices,
-            selected: menu_position(self.settings.backend),
+            choices: choice_titles(&BACKEND_CHOICES),
+            choice_text: ChoiceText::Label,
+            selected: BACKEND_CHOICES
+                .iter()
+                .position(|&(backend, _)| backend == self.settings.backend)
+                .expect("every backend has a menu entry"),
             is_enabled: !playground.is_busy(),
+            note: None,
+        }
+    }
+
+    fn system_prompt_area(&self) -> TextArea {
+        TextArea {
+            id: ControlId::new(SYSTEM_PROMPT),
+            label: SYSTEM_PROMPT_LABEL,
+            description: SYSTEM_PROMPT_DESCRIPTION,
+            text: self.settings.system_prompt().0,
+            button: Some(Button {
+                id: ControlId::new(RESET_SYSTEM_PROMPT),
+                label: RESET_SYSTEM_PROMPT_LABEL,
+                is_enabled: self.settings.custom_system_prompt.is_some(),
+            }),
         }
     }
 }
 
-/// The Playground model menu of `playground` over the `installed` files, with its description.
-fn suggestion_model_picker(playground: &PlaygroundPane, installed: &[ModelFile]) -> SuggestionModelPicker {
-    let playground_view = playground.view(installed);
-    SuggestionModelPicker {
-        menu: playground_view.model,
-        description: SUGGESTION_MODEL_DESCRIPTION,
-        note: playground_view.model_note,
-    }
+/// The action of turning the switch `id` on or off.
+fn switch_action(id: &str, is_on: bool) -> Option<GeneralAction> {
+    let (turn_on, turn_off) = match id {
+        AUTOSTART => (GeneralAction::EnableAutostart, GeneralAction::DisableAutostart),
+        CLIPBOARD => (GeneralAction::AllowClipboard, GeneralAction::DenyClipboard),
+        PREPARATION => (GeneralAction::PrepareOnFocus, GeneralAction::PrepareOnFirstKey),
+        DISPLAY => (GeneralAction::ShowWordByWord, GeneralAction::ShowWhenComplete),
+        _ => return None,
+    };
+    Some(if is_on { turn_on } else { turn_off })
 }
 
-/// The index of `backend` in [`BACKEND_CHOICES`].
-fn menu_position(backend: Backend) -> usize {
-    match backend {
-        Backend::Cpu => 0,
-        Backend::Vulkan => 1,
-        Backend::Cuda => 2,
-    }
+fn choice_titles<Value>(choices: &[(Value, &str)]) -> Vec<String> {
+    choices.iter().map(|(_, title)| (*title).to_owned()).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::inference::{InferenceError, InferenceEvent};
-    use crate::playground::{ModelChoice, NoteTone};
+    use crate::settings_view::{Note, NoteTone};
 
     #[derive(Debug)]
     struct FakeAutostart {
@@ -526,32 +520,25 @@ mod tests {
         }
     }
 
+    fn preparation_settings(prompt_preparation: PromptPreparation) -> Settings {
+        Settings {
+            prompt_preparation,
+            ..Settings::default()
+        }
+    }
+
+    fn display_settings(suggestion_display: SuggestionDisplay) -> Settings {
+        Settings {
+            suggestion_display,
+            ..Settings::default()
+        }
+    }
+
     fn edit_system_prompt(pane: &mut GeneralPane, text: &str) -> GeneralOutcome {
         pane.on_action(
             GeneralAction::EditSystemPrompt(SystemPrompt(text.to_owned())),
             &mut PlaygroundPane::new(),
         )
-    }
-
-    fn backend_choice(title: &'static str, backend: Backend) -> SettingChoice {
-        SettingChoice {
-            title,
-            action: GeneralAction::SelectBackend(backend),
-        }
-    }
-
-    fn length_choice(title: &'static str, length: SuggestionLength) -> SettingChoice {
-        SettingChoice {
-            title,
-            action: GeneralAction::SelectSuggestionLength(length),
-        }
-    }
-
-    fn model_choice(title: &str, file: &ModelFile) -> ModelChoice {
-        ModelChoice {
-            title: title.to_owned(),
-            action: Some(PlaygroundAction::SelectModel(file.clone())),
-        }
     }
 
     fn autostart_pane(is_enabled: bool) -> GeneralPane {
@@ -573,78 +560,138 @@ mod tests {
         playground
     }
 
+    fn default_page(pane: &GeneralPane) -> Page {
+        pane.page(&PlaygroundPane::new(), &[])
+    }
+
+    fn row(page: &Page, id: &str) -> Row {
+        page.row(id).cloned().expect("the page shows the control")
+    }
+
+    fn switch(page: &Page, id: &str) -> Switch {
+        match row(page, id) {
+            Row::Switch(switch) => switch,
+            other => panic!("the control is not a switch: {other:?}"),
+        }
+    }
+
+    fn picker(page: &Page, id: &str) -> Picker {
+        match row(page, id) {
+            Row::Picker(picker) => picker,
+            other => panic!("the control is not a menu: {other:?}"),
+        }
+    }
+
+    fn text_area(page: &Page, id: &str) -> TextArea {
+        match row(page, id) {
+            Row::TextArea(text_area) => text_area,
+            other => panic!("the control is not a text area: {other:?}"),
+        }
+    }
+
+    fn toggled(id: &'static str, is_on: bool) -> SettingsInput {
+        SettingsInput::Toggled {
+            id: ControlId::new(id),
+            is_on,
+        }
+    }
+
+    fn picked(id: &'static str, index: usize) -> SettingsInput {
+        SettingsInput::Picked {
+            id: ControlId::new(id),
+            index,
+        }
+    }
+
+    fn action_for(pane: &GeneralPane, input: &SettingsInput) -> Option<GeneralAction> {
+        pane.action_for(input, &PlaygroundPane::new(), &[])
+    }
+
     #[test]
-    fn pane_shows_the_saved_backend_among_the_choices() {
+    fn page_shows_the_settings_and_then_the_system_prompt() {
         let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-        let view = pane.view(&PlaygroundPane::with_backend(Backend::Vulkan), &[]);
+        let shown = pane.page(&PlaygroundPane::with_backend(Backend::Vulkan), &[]);
 
         assert_eq!(
-            view,
-            GeneralView {
+            shown,
+            Page {
                 title: "General",
                 summary: "Change how GhostType runs on this computer.",
-                autostart: None,
-                suggestion_model: SuggestionModelPicker {
-                    menu: ModelPicker {
-                        label: "Suggestion model",
-                        choices: vec![ModelChoice {
-                            title: "No downloaded models".to_owned(),
-                            action: None,
-                        }],
-                        selected: 0,
-                        is_enabled: false,
+                sections: vec![
+                    Section {
+                        rows: vec![
+                            Row::Switch(Switch {
+                                id: ControlId::new(CLIPBOARD),
+                                label: "Use copied text",
+                                description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
+                                is_on: false,
+                            }),
+                            Row::Switch(Switch {
+                                id: ControlId::new(PREPARATION),
+                                label: "Prepare before you type",
+                                description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
+                                is_on: false,
+                            }),
+                            Row::Switch(Switch {
+                                id: ControlId::new(DISPLAY),
+                                label: "Show words early",
+                                description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
+                                is_on: false,
+                            }),
+                            Row::Picker(Picker {
+                                id: ControlId::new(LENGTH),
+                                label: "Suggestion length",
+                                description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
+                                choices: vec!["Short".to_owned(), "Medium".to_owned(), "Long".to_owned()],
+                                choice_text: ChoiceText::Label,
+                                selected: 1,
+                                is_enabled: true,
+                                note: None,
+                            }),
+                            Row::Picker(Picker {
+                                id: ControlId::new(SUGGESTION_MODEL),
+                                label: "Suggestion model",
+                                description: "The model that suggests text as you type. GhostType loads it again when it starts.",
+                                choices: vec!["No downloaded models".to_owned()],
+                                choice_text: ChoiceText::Name,
+                                selected: 0,
+                                is_enabled: false,
+                                note: Some(Note {
+                                    text: "Download a model in the Models pane.",
+                                    tone: NoteTone::Plain,
+                                }),
+                            }),
+                            Row::Picker(Picker {
+                                id: ControlId::new(BACKEND),
+                                label: "Inference backend",
+                                description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
+                                choices: vec![
+                                    "CPU".to_owned(),
+                                    "Vulkan (GPU)".to_owned(),
+                                    "CUDA (NVIDIA GPU)".to_owned(),
+                                ],
+                                choice_text: ChoiceText::Label,
+                                selected: 1,
+                                is_enabled: true,
+                                note: None,
+                            }),
+                        ],
                     },
-                    description: "The model that suggests text as you type. GhostType loads it again when it starts.",
-                    note: Some(Note {
-                        text: "Download a model in the Models pane.",
-                        tone: NoteTone::Plain,
-                    }),
-                },
-                clipboard: SettingSwitch {
-                    label: "Use copied text",
-                    description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
-                    is_on: false,
-                },
-                prompt_preparation: SettingSwitch {
-                    label: "Prepare before you type",
-                    description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
-                    is_on: false,
-                },
-                suggestion_display: SettingSwitch {
-                    label: "Show words early",
-                    description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
-                    is_on: false,
-                },
-                suggestion_length: SettingPicker {
-                    label: "Suggestion length",
-                    description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
-                    choices: vec![
-                        length_choice("Short", SuggestionLength::Short),
-                        length_choice("Medium", SuggestionLength::Medium),
-                        length_choice("Long", SuggestionLength::Long),
-                    ],
-                    selected: 1,
-                    is_enabled: true,
-                },
-                backend: Some(SettingPicker {
-                    label: "Inference backend",
-                    description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
-                    choices: vec![
-                        backend_choice("CPU", Backend::Cpu),
-                        backend_choice("Vulkan (GPU)", Backend::Vulkan),
-                        backend_choice("CUDA (NVIDIA GPU)", Backend::Cuda),
-                    ],
-                    selected: 1,
-                    is_enabled: true,
-                }),
-                system_prompt: SystemPromptEditor {
-                    label: "System prompt",
-                    description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
-                    text: DEFAULT_SYSTEM_PROMPT.to_owned(),
-                    reset_label: "Reset to default",
-                    is_reset_enabled: false,
-                },
+                    Section {
+                        rows: vec![Row::TextArea(TextArea {
+                            id: ControlId::new(SYSTEM_PROMPT),
+                            label: "System prompt",
+                            description: "The model reads this text before the text you type. Describe the writer, the tone and the language. Keep it short, because a long prompt makes suggestions slower.",
+                            text: DEFAULT_SYSTEM_PROMPT.to_owned(),
+                            button: Some(Button {
+                                id: ControlId::new(RESET_SYSTEM_PROMPT),
+                                label: "Reset to default",
+                                is_enabled: false,
+                            }),
+                        })],
+                    },
+                ],
             }
         );
     }
@@ -654,23 +701,170 @@ mod tests {
         let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda];
 
         let shown = backends.map(|backend| {
-            let picker = GeneralPane::new(settings(backend))
-                .view(&PlaygroundPane::with_backend(backend), &[])
-                .backend
-                .expect("the pane shows the backend menu");
-            picker.choices[picker.selected].action.clone()
+            let pane = GeneralPane::new(settings(backend));
+            let selected = picker(&default_page(&pane), BACKEND).selected;
+            action_for(&pane, &picked(BACKEND, selected))
         });
 
-        assert_eq!(shown, backends.map(GeneralAction::SelectBackend));
+        assert_eq!(
+            shown,
+            backends.map(|backend| Some(GeneralAction::SelectBackend(backend)))
+        );
     }
 
     #[test]
     fn pane_without_backend_menu_hides_the_menu() {
         let pane = GeneralPane::new(settings(Backend::Cpu)).without_backend_menu();
 
-        let view = pane.view(&loading_playground(Backend::Cpu), &[]);
+        let shown = pane.page(&loading_playground(Backend::Cpu), &[]);
 
-        assert_eq!(view.backend, None);
+        assert_eq!(shown.row(BACKEND), None);
+    }
+
+    #[test]
+    fn turning_a_switch_turns_its_setting_on_or_off() {
+        let pane = GeneralPane::new(Settings::default());
+        let inputs = [
+            toggled(AUTOSTART, true),
+            toggled(AUTOSTART, false),
+            toggled(CLIPBOARD, true),
+            toggled(CLIPBOARD, false),
+            toggled(PREPARATION, true),
+            toggled(PREPARATION, false),
+            toggled(DISPLAY, true),
+            toggled(DISPLAY, false),
+        ];
+
+        let actions = inputs.map(|input| action_for(&pane, &input));
+
+        assert_eq!(
+            actions,
+            [
+                GeneralAction::EnableAutostart,
+                GeneralAction::DisableAutostart,
+                GeneralAction::AllowClipboard,
+                GeneralAction::DenyClipboard,
+                GeneralAction::PrepareOnFocus,
+                GeneralAction::PrepareOnFirstKey,
+                GeneralAction::ShowWordByWord,
+                GeneralAction::ShowWhenComplete,
+            ]
+            .map(Some)
+        );
+    }
+
+    #[test]
+    fn picking_a_suggestion_length_selects_it() {
+        let pane = GeneralPane::new(Settings::default());
+
+        let action = action_for(&pane, &picked(LENGTH, 0));
+
+        assert_eq!(
+            action,
+            Some(GeneralAction::SelectSuggestionLength(SuggestionLength::Short))
+        );
+    }
+
+    #[test]
+    fn picking_past_the_last_entry_does_nothing() {
+        let pane = GeneralPane::new(Settings::default());
+
+        let action = action_for(&pane, &picked(LENGTH, LENGTH_CHOICES.len()));
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn picking_a_backend_without_backend_menu_does_nothing() {
+        let pane = GeneralPane::new(settings(Backend::Cpu)).without_backend_menu();
+
+        let action = action_for(&pane, &picked(BACKEND, 1));
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn picking_a_suggestion_model_selects_it() {
+        let pane = GeneralPane::new(Settings::default());
+        let installed = [named_file("other.gguf"), model_file()];
+
+        let action = pane.action_for(&picked(SUGGESTION_MODEL, 2), &PlaygroundPane::new(), &installed);
+
+        assert_eq!(action, Some(GeneralAction::SelectSuggestionModel(model_file())));
+    }
+
+    #[test]
+    fn picking_the_placeholder_model_does_nothing() {
+        let pane = GeneralPane::new(Settings::default());
+
+        let action = pane.action_for(
+            &picked(SUGGESTION_MODEL, 0),
+            &PlaygroundPane::new(),
+            &[model_file()],
+        );
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn editing_the_system_prompt_field_edits_the_system_prompt() {
+        let pane = GeneralPane::new(Settings::default());
+        let input = SettingsInput::Edited {
+            id: ControlId::new(SYSTEM_PROMPT),
+            text: "Formal Spanish.".to_owned(),
+        };
+
+        let action = action_for(&pane, &input);
+
+        assert_eq!(
+            action,
+            Some(GeneralAction::EditSystemPrompt(SystemPrompt(
+                "Formal Spanish.".to_owned()
+            )))
+        );
+    }
+
+    #[test]
+    fn pressing_reset_resets_the_system_prompt() {
+        let pane = GeneralPane::new(custom_settings("Formal Spanish."));
+
+        let action = action_for(
+            &pane,
+            &SettingsInput::Pressed(ControlId::new(RESET_SYSTEM_PROMPT)),
+        );
+
+        assert_eq!(action, Some(GeneralAction::ResetSystemPrompt));
+    }
+
+    #[test]
+    fn input_for_a_control_of_another_pane_is_not_for_this_pane() {
+        let pane = GeneralPane::new(Settings::default());
+
+        let action = action_for(&pane, &SettingsInput::Pressed(ControlId::new("download")));
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn selecting_a_suggestion_model_loads_it_in_the_playground() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let mut playground = PlaygroundPane::new();
+
+        let outcome = pane.on_action(
+            GeneralAction::SelectSuggestionModel(model_file()),
+            &mut playground,
+        );
+
+        assert_eq!(
+            outcome,
+            GeneralOutcome {
+                settings: None,
+                request: Some(InferenceRequest::Load {
+                    file: model_file(),
+                    backend: None,
+                }),
+            }
+        );
     }
 
     #[test]
@@ -735,27 +929,27 @@ mod tests {
     fn loading_model_locks_the_backend_menu() {
         let pane = GeneralPane::new(settings(Backend::Cuda));
 
-        let view = pane.view(&loading_playground(Backend::Cuda), &[]);
+        let shown = pane.page(&loading_playground(Backend::Cuda), &[]);
 
-        assert_eq!(view.backend.map(|backend| backend.is_enabled), Some(false));
+        assert!(!picker(&shown, BACKEND).is_enabled);
     }
 
     #[test]
     fn model_too_large_for_the_gpu_tells_what_to_do() {
         let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-        let view = pane.view(
+        let shown = pane.page(
             &loaded_playground(Backend::Vulkan, Err(InferenceError::ModelTooLarge)),
             &[model_file()],
         );
 
         assert_eq!(
             (
-                view.backend.map(|backend| backend.is_enabled),
-                view.suggestion_model.note
+                picker(&shown, BACKEND).is_enabled,
+                picker(&shown, SUGGESTION_MODEL).note
             ),
             (
-                Some(true),
+                true,
                 Some(Note {
                     text: "The model does not fit in the GPU memory. In General, select another backend, or use a smaller model.",
                     tone: NoteTone::Error,
@@ -768,50 +962,55 @@ mod tests {
     fn autostart_switch_shows_the_state_that_the_os_keeps() {
         let pane = autostart_pane(true);
 
-        let view = pane.view(&PlaygroundPane::new(), &[]);
+        let shown = default_page(&pane);
 
         assert_eq!(
-            view.autostart,
-            Some(SettingSwitch {
+            switch(&shown, AUTOSTART),
+            Switch {
+                id: ControlId::new(AUTOSTART),
                 label: "Open at login",
                 description: "Start GhostType when you log in to this computer.",
                 is_on: true,
-            })
+            }
         );
+    }
+
+    #[test]
+    fn autostart_switch_comes_first() {
+        let pane = autostart_pane(false);
+
+        let shown = default_page(&pane);
+
+        assert_eq!(shown.sections[0].rows[0].id(), Some(&ControlId::new(AUTOSTART)));
     }
 
     #[test]
     fn enabling_autostart_turns_the_switch_on() {
         let mut pane = autostart_pane(false);
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::EnableAutostart, &mut playground);
+        let outcome = pane.on_action(GeneralAction::EnableAutostart, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).autostart.map(|switch| switch.is_on);
-        assert_eq!((outcome, is_on), (GeneralOutcome::default(), Some(true)));
+        let is_on = switch(&default_page(&pane), AUTOSTART).is_on;
+        assert_eq!((outcome, is_on), (GeneralOutcome::default(), true));
     }
 
     #[test]
     fn disabling_autostart_turns_the_switch_off() {
         let mut pane = autostart_pane(true);
-        let mut playground = PlaygroundPane::new();
 
-        pane.on_action(GeneralAction::DisableAutostart, &mut playground);
+        pane.on_action(GeneralAction::DisableAutostart, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).autostart.map(|switch| switch.is_on);
-        assert_eq!(is_on, Some(false));
+        assert!(!switch(&default_page(&pane), AUTOSTART).is_on);
     }
 
     #[test]
     fn switch_shows_the_kept_state_when_the_os_refuses_a_change() {
         let mut pane = GeneralPane::new(Settings::default())
             .with_autostart(Box::new(RefusingAutostart { is_enabled: false }));
-        let mut playground = PlaygroundPane::new();
 
-        pane.on_action(GeneralAction::EnableAutostart, &mut playground);
+        pane.on_action(GeneralAction::EnableAutostart, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).autostart.map(|switch| switch.is_on);
-        assert_eq!(is_on, Some(false));
+        assert!(!switch(&default_page(&pane), AUTOSTART).is_on);
     }
 
     #[test]
@@ -819,29 +1018,12 @@ mod tests {
         let other = named_file("other.gguf");
         let pane = GeneralPane::new(suggestion_settings(None));
 
-        let picker = pane
-            .view(
-                &loaded_playground(Backend::Cpu, Ok(())),
-                &[other.clone(), model_file()],
-            )
-            .suggestion_model;
+        let shown = pane.page(&loaded_playground(Backend::Cpu, Ok(())), &[other, model_file()]);
 
+        let menu = picker(&shown, SUGGESTION_MODEL);
         assert_eq!(
-            (
-                picker.menu.choices,
-                picker.menu.selected,
-                picker.menu.is_enabled,
-                picker.note
-            ),
-            (
-                vec![
-                    model_choice("other", &other),
-                    model_choice("model", &model_file())
-                ],
-                1,
-                true,
-                None,
-            )
+            (menu.choices, menu.selected, menu.is_enabled, menu.note),
+            (vec!["other".to_owned(), "model".to_owned()], 1, true, None)
         );
     }
 
@@ -849,12 +1031,11 @@ mod tests {
     fn suggestion_model_menu_locks_and_shows_status_while_the_model_loads() {
         let pane = GeneralPane::new(suggestion_settings(None));
 
-        let picker = pane
-            .view(&loading_playground(Backend::Cpu), &[model_file()])
-            .suggestion_model;
+        let shown = pane.page(&loading_playground(Backend::Cpu), &[model_file()]);
 
+        let menu = picker(&shown, SUGGESTION_MODEL);
         assert_eq!(
-            (picker.menu.is_enabled, picker.note),
+            (menu.is_enabled, menu.note),
             (
                 false,
                 Some(Note {
@@ -966,11 +1147,14 @@ mod tests {
     fn custom_system_prompt_shows_with_reset_enabled() {
         let pane = GeneralPane::new(custom_settings("Formal Spanish."));
 
-        let editor = pane.view(&PlaygroundPane::new(), &[]).system_prompt;
+        let editor = text_area(&default_page(&pane), SYSTEM_PROMPT);
 
         assert_eq!(
-            (editor.text.as_str(), editor.is_reset_enabled),
-            ("Formal Spanish.", true)
+            (
+                editor.text.as_str(),
+                editor.button.map(|button| button.is_enabled)
+            ),
+            ("Formal Spanish.", Some(true))
         );
     }
 
@@ -1013,13 +1197,12 @@ mod tests {
 
         let outcome = edit_system_prompt(&mut pane, DEFAULT_SYSTEM_PROMPT);
 
-        let is_reset_enabled = pane
-            .view(&PlaygroundPane::new(), &[])
-            .system_prompt
-            .is_reset_enabled;
+        let is_reset_enabled = text_area(&default_page(&pane), SYSTEM_PROMPT)
+            .button
+            .map(|button| button.is_enabled);
         assert_eq!(
             (outcome, is_reset_enabled),
-            (settings_outcome(Settings::default()), false)
+            (settings_outcome(Settings::default()), Some(false))
         );
     }
 
@@ -1047,11 +1230,10 @@ mod tests {
     #[test]
     fn allowing_the_clipboard_keeps_it_and_turns_the_switch_on() {
         let mut pane = GeneralPane::new(Settings::default());
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut playground);
+        let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).clipboard.is_on;
+        let is_on = switch(&default_page(&pane), CLIPBOARD).is_on;
         assert_eq!(
             (outcome, is_on),
             (
@@ -1064,11 +1246,10 @@ mod tests {
     #[test]
     fn denying_the_clipboard_keeps_it_and_turns_the_switch_off() {
         let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Allowed));
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::DenyClipboard, &mut playground);
+        let outcome = pane.on_action(GeneralAction::DenyClipboard, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).clipboard.is_on;
+        let is_on = switch(&default_page(&pane), CLIPBOARD).is_on;
         assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
     }
 
@@ -1081,21 +1262,13 @@ mod tests {
         assert_eq!(outcome, GeneralOutcome::default());
     }
 
-    fn preparation_settings(prompt_preparation: PromptPreparation) -> Settings {
-        Settings {
-            prompt_preparation,
-            ..Settings::default()
-        }
-    }
-
     #[test]
     fn preparing_on_focus_keeps_it_and_turns_the_switch_on() {
         let mut pane = GeneralPane::new(Settings::default());
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut playground);
+        let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).prompt_preparation.is_on;
+        let is_on = switch(&default_page(&pane), PREPARATION).is_on;
         assert_eq!(
             (outcome, is_on),
             (
@@ -1108,11 +1281,10 @@ mod tests {
     #[test]
     fn preparing_on_the_first_key_keeps_it_and_turns_the_switch_off() {
         let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::PrepareOnFirstKey, &mut playground);
+        let outcome = pane.on_action(GeneralAction::PrepareOnFirstKey, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).prompt_preparation.is_on;
+        let is_on = switch(&default_page(&pane), PREPARATION).is_on;
         assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
     }
 
@@ -1125,21 +1297,13 @@ mod tests {
         assert_eq!(outcome, GeneralOutcome::default());
     }
 
-    fn display_settings(suggestion_display: SuggestionDisplay) -> Settings {
-        Settings {
-            suggestion_display,
-            ..Settings::default()
-        }
-    }
-
     #[test]
     fn showing_word_by_word_keeps_it_and_turns_the_switch_on() {
         let mut pane = GeneralPane::new(Settings::default());
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut playground);
+        let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).suggestion_display.is_on;
+        let is_on = switch(&default_page(&pane), DISPLAY).is_on;
         assert_eq!(
             (outcome, is_on),
             (
@@ -1152,11 +1316,10 @@ mod tests {
     #[test]
     fn showing_when_complete_keeps_it_and_turns_the_switch_off() {
         let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
-        let mut playground = PlaygroundPane::new();
 
-        let outcome = pane.on_action(GeneralAction::ShowWhenComplete, &mut playground);
+        let outcome = pane.on_action(GeneralAction::ShowWhenComplete, &mut PlaygroundPane::new());
 
-        let is_on = pane.view(&playground, &[]).suggestion_display.is_on;
+        let is_on = switch(&default_page(&pane), DISPLAY).is_on;
         assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
     }
 
@@ -1172,14 +1335,13 @@ mod tests {
     #[test]
     fn selecting_a_suggestion_length_keeps_it_and_selects_its_entry() {
         let mut pane = GeneralPane::new(Settings::default());
-        let mut playground = PlaygroundPane::new();
 
         let outcome = pane.on_action(
             GeneralAction::SelectSuggestionLength(SuggestionLength::Short),
-            &mut playground,
+            &mut PlaygroundPane::new(),
         );
 
-        let selected = pane.view(&playground, &[]).suggestion_length.selected;
+        let selected = picker(&default_page(&pane), LENGTH).selected;
         let short_settings = Settings {
             suggestion_length: SuggestionLength::Short,
             ..Settings::default()
@@ -1203,7 +1365,7 @@ mod tests {
     fn clipboard_description_tells_that_preparing_on_focus_reads_the_clipboard_before_a_key() {
         let pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
 
-        let clipboard = pane.view(&PlaygroundPane::new(), &[]).clipboard;
+        let clipboard = switch(&default_page(&pane), CLIPBOARD);
 
         assert_eq!(
             clipboard.description,
