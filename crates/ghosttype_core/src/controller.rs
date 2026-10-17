@@ -247,7 +247,8 @@ impl Controller {
     }
 
     /// Handles a key that the user pressed, before the key reaches the focused app. `key` is
-    /// `None` for a press that the platform does not translate, such as a modifier key alone.
+    /// `None` for a press that the platform does not translate, such as a modifier key alone. The
+    /// first key of a session also reads the screen, so that the prompt gets the newest messages.
     pub fn on_key_down(&mut self, key: Option<Key>, shell: &mut dyn Shell) -> Disposition {
         self.refresh_focus(shell);
         let Some(key) = key else {
@@ -257,6 +258,8 @@ impl Controller {
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
         self.add_typed_app();
+        let read = self.app.start_session_screen_read();
+        self.do_settled_work(read, shell);
         disposition
     }
 
@@ -1529,6 +1532,22 @@ mod tests {
             .on_timer(Timer::InputSettle, &mut harness.shell);
 
         assert!(matches!(harness.take_calls()[..], [Call::ReadScreen(..)]));
+    }
+
+    #[test]
+    fn first_key_in_a_text_field_reads_the_screen() {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+
+        harness.press(Key::Char('H'));
+
+        let calls = harness.take_calls();
+        assert!(
+            calls
+                .iter()
+                .any(|call| matches!(call, Call::ReadScreen(_, ScreenSource::Accessibility))),
+            "{calls:?}"
+        );
     }
 
     #[test]

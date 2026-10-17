@@ -10,7 +10,9 @@ use crate::inference::{CONTEXT_TOKENS, Completion, InferenceError, InferenceRequ
 use crate::key::Key;
 use crate::place;
 use crate::prompt::{self, estimated_tokens, last_chars, last_tokens};
-use crate::settings::{ClipboardAccess, OcrLevel, ScreenTextApp, Settings, SuggestionLength, WriterNotes};
+use crate::settings::{
+    ClipboardAccess, OcrLevel, ScreenTextApp, ScreenTextSettings, Settings, SuggestionLength, WriterNotes,
+};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The characters before the caret that a session keeps when its text reaches
@@ -71,8 +73,11 @@ struct Session {
     is_excluded: bool,
     /// The app where the user types, if it has an id.
     app: Option<ScreenTextApp>,
-    /// Whether the preface holds the answer to a read of the screen. The session then starts no
-    /// other read, so that the start of its prompt stays the same.
+    /// Whether the platform reads the text of the field.
+    is_text_field: bool,
+    /// Whether a read of the screen answered during the session. Until then, the preface holds the
+    /// stored text of a read before the session, if any. After it, the session starts no other
+    /// read, so that the start of its prompt changes at most one time.
     has_screen_read: bool,
 }
 
@@ -224,7 +229,7 @@ impl Engine {
     }
 
     /// Starts a read of the accessibility tree of the screen, and returns its id. A session that
-    /// has screen text or waits for a read starts none.
+    /// has its final screen text or waits for a read starts none.
     pub fn start_screen_read(&mut self) -> Option<ScreenReadId> {
         if let Some(session) = &self.session {
             let is_reading = matches!(self.screen, Screen::Reading { .. });
@@ -233,6 +238,21 @@ impl Engine {
             }
         }
         Some(self.start_read(ScreenSource::Accessibility))
+    }
+
+    /// Starts a read of the accessibility tree for the session, when the session is in a text
+    /// field of an app that `screen_text` allows, and returns its id. A session that has its
+    /// final screen text or waits for a read starts none.
+    pub fn start_session_screen_read(&mut self, screen_text: &ScreenTextSettings) -> Option<ScreenReadId> {
+        let session = self.session.as_ref()?;
+        let is_allowed = session
+            .app
+            .as_ref()
+            .is_some_and(|app| screen_text.allows(&app.app_id));
+        if !session.is_text_field || !is_allowed {
+            return None;
+        }
+        self.start_screen_read()
     }
 
     /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
@@ -255,9 +275,9 @@ impl Engine {
     }
 
     /// Keeps the text of `read` when it answers the newest read, and returns whether it does. A
-    /// session that runs without screen text gets it, with what else surrounds the caret in
-    /// `desktop` now. A session that has screen text keeps it, and the next session gets the new
-    /// text.
+    /// session without its final screen text gets the new text, with what else surrounds the caret
+    /// in `desktop` now, when its preface changes. The session then has its final screen text. The
+    /// next session also gets the new text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
         if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
             return false;
@@ -278,7 +298,7 @@ impl Engine {
             return;
         };
         session.has_screen_read = true;
-        if let Some(preface) = preface {
+        if let Some(preface) = preface.filter(|preface| *preface != session.preface) {
             session.use_preface(preface);
         }
     }
@@ -319,7 +339,8 @@ impl Engine {
             text_after,
             is_excluded: place::is_address_or_subject_field(&surroundings),
             app: ScreenTextApp::of(&surroundings),
-            has_screen_read: matches!(self.screen, Screen::Read(_)),
+            is_text_field: surroundings.field_text.is_some(),
+            has_screen_read: false,
         }
     }
 
@@ -1701,14 +1722,70 @@ mod tests {
         assert!(!is_kept);
     }
 
+    fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) {
+        engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default());
+    }
+
     #[test]
-    fn no_read_starts_during_a_session_with_screen_text() {
+    fn read_starts_during_a_session_with_stored_screen_text() {
         let mut engine = engine_that_read("Dinner at 7?");
         press(&mut engine, Key::Char('S'));
 
         let read = engine.start_screen_read();
 
-        assert_eq!(read, None);
+        assert!(read.is_some());
+    }
+
+    #[test]
+    fn new_screen_text_replaces_the_stored_text_one_time() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        press(&mut engine, Key::Char('S'));
+        let id = engine
+            .start_screen_read()
+            .expect("the session uses stored screen text");
+        answer_read(&mut engine, id, Some(screen_with("Lunch at 1?")));
+
+        let reaction = press(&mut engine, Key::Char('u'));
+        let next_read = engine.start_screen_read();
+
+        assert_eq!(
+            (reaction, next_read),
+            (request_with(&["Nearby on screen: “Lunch at 1?”"], "Su"), None)
+        );
+    }
+
+    #[test]
+    fn same_screen_text_keeps_the_prompt() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        press(&mut engine, Key::Char('S'));
+        let id = engine
+            .start_screen_read()
+            .expect("the session uses stored screen text");
+        answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
+
+        let reaction = press(&mut engine, Key::Char('u'));
+
+        assert_eq!(
+            reaction,
+            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+        );
+    }
+
+    #[test]
+    fn failed_read_keeps_the_stored_screen_text() {
+        let mut engine = engine_that_read("Dinner at 7?");
+        press(&mut engine, Key::Char('S'));
+        let id = engine
+            .start_screen_read()
+            .expect("the session uses stored screen text");
+        answer_read(&mut engine, id, None);
+
+        let reaction = press(&mut engine, Key::Char('u'));
+
+        assert_eq!(
+            reaction,
+            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+        );
     }
 
     #[test]

@@ -89,7 +89,8 @@ pub enum TrayOutcome {
     Quit,
 }
 
-/// What GhostType does when the input settles in a field.
+/// What GhostType does when the input settles in a field, a session starts or a read of the
+/// screen answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettledWork {
     /// Read the text near the focused field on the screen from `source`, off the thread of the
@@ -173,7 +174,8 @@ impl App {
     }
 
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. In a text field of an app where
-    /// the screen text is on, it starts a read of the screen, unless the session has screen text.
+    /// the screen text is on, it starts a read of the screen, unless the session has its final
+    /// screen text or waits for a read.
     /// Else, with [`PromptPreparation::OnFocus`] and no session, it prepares the prompt of the
     /// focused field of `desktop`.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
@@ -197,9 +199,9 @@ impl App {
 
     /// Handles the answer to a read of the screen. When the accessibility tree gives no lines and
     /// `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
-    /// session when it has none, or into the next session. With [`PromptPreparation::OnFocus`],
-    /// it then returns the request that prepares the prompt of the focused field of `desktop` with
-    /// the new screen text.
+    /// session when the session has no final screen text, and into the next session. With
+    /// [`PromptPreparation::OnFocus`], it then returns the request that prepares the prompt of the
+    /// focused field of `desktop` with the new screen text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
         let is_active = self.status == Status::Active && desktop.field() == Field::Open;
         let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
@@ -216,6 +218,18 @@ impl App {
             return None;
         }
         self.prepare_on_focus(desktop).map(SettledWork::Prepare)
+    }
+
+    /// Starts a read of the screen for the session of the last key, when the session is in a text
+    /// field of an app where the screen text is on. The session uses the stored screen text until
+    /// the answer comes. A session that has its own screen text or waits for a read starts none.
+    pub fn start_session_screen_read(&mut self) -> Option<SettledWork> {
+        self.engine
+            .start_session_screen_read(&self.screen_text)
+            .map(|read| SettledWork::ReadScreen {
+                read,
+                source: ScreenSource::Accessibility,
+            })
     }
 
     /// The app where the user types now, when it has an id. The first key in a field starts the
@@ -371,6 +385,7 @@ mod tests {
         app_id: &'static str,
         field: Field,
         ocr: OcrAvailability,
+        has_readable_text: bool,
     }
 
     impl Desktop for TextField {
@@ -381,7 +396,7 @@ mod tests {
         fn surroundings(&self) -> Surroundings {
             Surroundings {
                 app_id: Some(self.app_id.to_owned()),
-                field_text: Some(FieldText::default()),
+                field_text: self.has_readable_text.then(FieldText::default),
                 ..Surroundings::default()
             }
         }
@@ -399,6 +414,7 @@ mod tests {
         app_id: "com.apple.mail",
         field: Field::Open,
         ocr: OcrAvailability::Unsupported,
+        has_readable_text: true,
     };
 
     const MAIL_WITH_OCR: TextField = TextField {
@@ -951,13 +967,102 @@ mod tests {
     }
 
     #[test]
-    fn settled_input_during_a_session_with_screen_text_reads_no_screen() {
+    fn settled_input_during_a_session_with_its_screen_text_reads_no_screen() {
+        let mut app = App::new();
+        app.on_key(Key::Char('H'), &MAIL);
+        let Some(SettledWork::ReadScreen { read, .. }) = app.start_session_screen_read() else {
+            panic!("the first key reads the screen");
+        };
+        app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+        let work = app.on_input_settled(&MAIL);
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn first_key_starts_a_read_when_the_session_uses_stored_text() {
         let mut app = App::new();
         let read = screen_read(&mut app);
         app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
         app.on_key(Key::Char('H'), &MAIL);
 
-        let work = app.on_input_settled(&MAIL);
+        let work = app.start_session_screen_read();
+
+        assert!(
+            matches!(
+                work,
+                Some(SettledWork::ReadScreen {
+                    source: ScreenSource::Accessibility,
+                    ..
+                })
+            ),
+            "{work:?}"
+        );
+    }
+
+    #[test]
+    fn session_without_stored_text_reads_at_the_first_key() {
+        let mut app = App::new();
+        app.on_key(Key::Char('H'), &MAIL);
+
+        let work = app.start_session_screen_read();
+
+        assert!(
+            matches!(
+                work,
+                Some(SettledWork::ReadScreen {
+                    source: ScreenSource::Accessibility,
+                    ..
+                })
+            ),
+            "{work:?}"
+        );
+    }
+
+    #[test]
+    fn no_read_starts_at_the_first_key_in_an_app_that_is_off() {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            screen_text: ScreenTextSettings {
+                apps: vec![ScreenTextApp {
+                    app_id: "com.apple.mail".to_owned(),
+                    app_name: "Mail".to_owned(),
+                    app_path: None,
+                    is_on: false,
+                }],
+                ..ScreenTextSettings::default()
+            },
+            ..Settings::default()
+        });
+        app.on_key(Key::Char('H'), &MAIL);
+
+        let work = app.start_session_screen_read();
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn no_read_starts_at_the_first_key_in_a_field_without_readable_text() {
+        let mut app = App::new();
+        app.on_key(
+            Key::Char('H'),
+            &TextField {
+                has_readable_text: false,
+                ..MAIL
+            },
+        );
+
+        let work = app.start_session_screen_read();
+
+        assert_eq!(work, None);
+    }
+
+    #[test]
+    fn no_read_starts_without_a_session() {
+        let mut app = App::new();
+
+        let work = app.start_session_screen_read();
 
         assert_eq!(work, None);
     }
