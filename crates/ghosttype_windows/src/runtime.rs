@@ -26,8 +26,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Error, Owned, w};
 
 use crate::RunError;
+use crate::caret_reader::{CaretRead, CaretReader, CaretView, PendingView};
 use crate::clipboard::ClipboardWatch;
-use crate::focus::{self, FocusTracker};
+use crate::focus::{Caret, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
 use crate::keys;
 use crate::mailbox::Mailbox;
@@ -41,6 +42,7 @@ const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
+const CARET_READ_MESSAGE: u32 = WM_APP + 4;
 const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
@@ -72,6 +74,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     .map_err(RunError::during("create the main window"))?;
     let overlay = Overlay::create().map_err(RunError::during("create the ghost text overlay"))?;
     system_theme::match_menus_to(SystemTheme::read());
+    let (caret_mailbox, caret_reads) = Mailbox::new(window.handle(), CARET_READ_MESSAGE);
+    let caret_reader =
+        CaretReader::start(caret_mailbox).map_err(RunError::during("start the caret reader"))?;
     let (mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
@@ -93,6 +98,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 focus: FocusTracker::new(),
                 clipboard,
                 overlay,
+                caret_reader,
+                pending_view: PendingView::default(),
                 tray,
                 window,
                 pending_injection: None,
@@ -102,6 +109,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             taskbar_created_message,
             deliveries,
             settings_inputs,
+            caret_reads,
         }))
     });
     tracing::info!("running in the tray");
@@ -149,6 +157,7 @@ struct Runtime {
     taskbar_created_message: u32,
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
+    caret_reads: mpsc::Receiver<CaretRead>,
 }
 
 impl Runtime {
@@ -201,6 +210,7 @@ impl Runtime {
             }
             DELIVERY_MESSAGE => self.take_deliveries(),
             SETTINGS_INPUT_MESSAGE => self.take_settings_inputs(),
+            CARET_READ_MESSAGE => self.take_caret_reads(),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
@@ -230,6 +240,12 @@ impl Runtime {
             self.controller.on_settings_input(&input, &mut self.shell);
         }
     }
+
+    fn take_caret_reads(&mut self) {
+        while let Ok(read) = self.caret_reads.try_recv() {
+            self.shell.show_at_caret(&read);
+        }
+    }
 }
 
 /// What the controller reads and does through Win32.
@@ -237,6 +253,9 @@ struct Win32Shell {
     focus: FocusTracker,
     clipboard: ClipboardWatch,
     overlay: Overlay,
+    caret_reader: CaretReader,
+    /// What shows at the caret when the caret reader answers.
+    pending_view: PendingView,
     tray: Tray,
     window: Window,
     pending_injection: Option<String>,
@@ -248,6 +267,25 @@ impl Win32Shell {
     fn post(&self, message: u32) -> windows::core::Result<()> {
         // SAFETY: plain call on our own window.
         unsafe { PostMessageW(Some(self.window.handle()), message, WPARAM(0), LPARAM(0)) }
+    }
+
+    /// Shows the view that waits for `read` at the caret of the answer. Does nothing for a stale
+    /// read.
+    fn show_at_caret(&mut self, read: &CaretRead) {
+        let Some(view) = self.pending_view.take(read.id) else {
+            return;
+        };
+        self.show_ghost(view.ghost.as_deref(), read.caret.as_ref());
+    }
+
+    fn show_ghost(&mut self, ghost: Option<&str>, caret: Option<&Caret>) {
+        let (Some(text), Some(caret)) = (ghost, caret) else {
+            self.overlay.hide();
+            return;
+        };
+        if let Err(error) = self.overlay.show(text, caret) {
+            tracing::warn!(%error, "failed to show ghost text");
+        }
     }
 }
 
@@ -270,23 +308,18 @@ impl Shell for Win32Shell {
         self.focus.refresh()
     }
 
-    /// Shows only the ghost text: Windows has no badge yet.
+    /// Asks the caret reader for the caret, then shows only the ghost text at it when the answer
+    /// comes: Windows has no badge yet.
     fn render_at_caret(&mut self, ghost: Option<&str>, _badge: Option<BadgeView>) {
-        let Some(text) = ghost else {
-            self.overlay.hide();
-            return;
-        };
-        let Some(caret) = focus::caret() else {
-            self.overlay.hide();
-            return;
-        };
-        if let Err(error) = self.overlay.show(text, &caret) {
-            tracing::warn!(%error, "failed to show ghost text");
-        }
+        let read = self.pending_view.wait(CaretView {
+            ghost: ghost.map(str::to_owned),
+        });
+        self.caret_reader.read(read);
     }
 
     fn hide_ghost(&mut self) {
         self.overlay.hide();
+        self.pending_view.forget_ghost();
     }
 
     /// Does nothing: Windows has no badge yet.

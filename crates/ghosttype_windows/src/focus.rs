@@ -13,8 +13,8 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SMTO_BLOCK,
-    SendMessageTimeoutW, WM_GETFONT,
+    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
+    WM_GETFONT,
 };
 use windows::core::{Owned, PWSTR, Result};
 
@@ -165,7 +165,7 @@ fn app_name(image_path: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
-/// Locates the caret of the focused control in the foreground window, when it exposes one.
+/// Locates the system caret of the focused control in the foreground window, when it has one.
 pub(crate) fn caret() -> Option<Caret> {
     let info = foreground_thread_info()?;
     if info.hwndCaret.is_invalid() {
@@ -192,7 +192,6 @@ pub(crate) fn caret() -> Option<Caret> {
 /// Reads the font face that `window` draws its text in, when the window reports one in time.
 fn font_face(window: HWND) -> Option<String> {
     let mut font = 0;
-    // SMTO_BLOCK keeps hook events out until the reply, so the busy runtime never drops a key.
     // SAFETY: the result pointer refers to a local.
     let replied = unsafe {
         SendMessageTimeoutW(
@@ -200,7 +199,7 @@ fn font_face(window: HWND) -> Option<String> {
             WM_GETFONT,
             WPARAM(0),
             LPARAM(0),
-            SMTO_BLOCK | SMTO_ABORTIFHUNG,
+            SMTO_ABORTIFHUNG,
             FONT_REPLY_TIMEOUT_MS,
             Some(&raw mut font),
         )
