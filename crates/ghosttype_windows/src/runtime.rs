@@ -15,20 +15,22 @@ use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION, HHOOK, HOOKPROC,
-    KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, PostMessageW, PostQuitMessage, RegisterWindowMessageW,
-    SetTimer, SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE,
-    WINDOWS_HOOK_ID, WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
+    CallNextHookEx, DefWindowProcW, DispatchMessageW, EVENT_OBJECT_FOCUS, GetMessageW, HC_ACTION, HHOOK,
+    HOOKPROC, KBDLLHOOKSTRUCT, KillTimer, MSG, MSLLHOOKSTRUCT, PostMessageW, PostQuitMessage,
+    RegisterWindowMessageW, SetTimer, SetWindowsHookExW, TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINDOW_EX_STYLE, WINDOWS_HOOK_ID, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_APP,
+    WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN,
+    WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, w};
 
 use crate::RunError;
 use crate::badge::Badge;
-use crate::caret_reader::{CaretRead, CaretReader, CaretView, PendingView};
+use crate::caret_reader::{CaretRead, CaretReader, CaretView, FieldRead, KeptFieldText, PendingView};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::{Caret, FocusTracker};
 use crate::injection::{self, INJECTION_TAG};
@@ -42,11 +44,16 @@ use crate::window::{Window, WindowSpec};
 
 const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
+const FIELD_TIMER_ID: usize = 3;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
 const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
 const BADGE_CLICK_MESSAGE: u32 = WM_APP + 6;
+const FIELD_READ_MESSAGE: u32 = WM_APP + 7;
+/// The time that the focused app takes to handle a key, a click or a move of the focus. The caret
+/// reader reads the field text after it.
+const FIELD_READ_DELAY: Duration = Duration::from_millis(40);
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const QUIT_RECEIVED: i32 = 0;
@@ -79,8 +86,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let badge = Badge::create().map_err(RunError::during("create the badge"))?;
     system_theme::match_menus_to(SystemTheme::read());
     let (caret_mailbox, caret_reads) = Mailbox::new(window.handle(), CARET_READ_MESSAGE);
-    let caret_reader =
-        CaretReader::start(caret_mailbox).map_err(RunError::during("start the caret reader"))?;
+    let (field_mailbox, field_reads) = Mailbox::new(window.handle(), FIELD_READ_MESSAGE);
+    let caret_reader = CaretReader::start(caret_mailbox, field_mailbox)
+        .map_err(RunError::during("start the caret reader"))?;
     let (mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
@@ -95,6 +103,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         .map_err(RunError::during("install the keyboard hook"))?;
     let mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
         .map_err(RunError::during("install the mouse hook"))?;
+    let focus_hook = watch_focus()
+        .inspect_err(|error| tracing::warn!(%error, "failed to watch the focus"))
+        .ok();
     STATE.with(|state| {
         state.runtime.replace(Some(Runtime {
             controller,
@@ -105,6 +116,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 badge,
                 caret_reader,
                 pending_view: PendingView::default(),
+                kept_field_text: KeptFieldText::default(),
                 tray,
                 window,
                 pending_injection: None,
@@ -116,11 +128,12 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             deliveries,
             settings_inputs,
             caret_reads,
+            field_reads,
         }))
     });
     tracing::info!("running in the tray");
     let result = pump_messages();
-    drop((keyboard_hook, mouse_hook));
+    drop((keyboard_hook, mouse_hook, focus_hook));
     STATE.with(|state| state.runtime.take());
     result
 }
@@ -131,6 +144,28 @@ fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Re
     // SAFETY: the procedure lives for the whole program; low-level hooks run on this thread.
     let hook = unsafe { SetWindowsHookExW(kind, procedure, Some(module.into()), 0) }?;
     // SAFETY: SetWindowsHookExW returned a valid hook that nothing else owns.
+    Ok(unsafe { Owned::new(hook) })
+}
+
+/// Watches the focus in other apps: each move of the focus reaches `focus_event_procedure`.
+fn watch_focus() -> windows::core::Result<Owned<HWINEVENTHOOK>> {
+    // SAFETY: plain call. The procedure lives for the whole program, and the events come through
+    // the message loop of this thread.
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_OBJECT_FOCUS,
+            EVENT_OBJECT_FOCUS,
+            None,
+            Some(focus_event_procedure),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    if hook.is_invalid() {
+        return Err(Error::from_thread());
+    }
+    // SAFETY: SetWinEventHook returned a valid hook that nothing else owns.
     Ok(unsafe { Owned::new(hook) })
 }
 
@@ -166,6 +201,7 @@ struct Runtime {
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
     caret_reads: mpsc::Receiver<CaretRead>,
+    field_reads: mpsc::Receiver<FieldRead>,
 }
 
 impl Runtime {
@@ -184,10 +220,15 @@ impl Runtime {
         }
     }
 
+    /// The controller reads the field text as it is before the key, so the key makes that text
+    /// stale only after the controller. A modifier alone does not change the field.
     fn on_key_down(&mut self, key: VIRTUAL_KEY, scan_code: u32) -> Disposition {
         let core_key = keys::translate(key, keys::current_chord(), keys::typed_char(key, scan_code));
         let disposition = self.controller.on_key_down(core_key, &mut self.shell);
         self.release_filter.on_press(key, disposition);
+        if core_key.is_some() {
+            self.shell.forget_field_text();
+        }
         disposition
     }
 
@@ -208,10 +249,12 @@ impl Runtime {
             }
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
                 self.controller.on_context_lost(&mut self.shell);
+                self.shell.forget_field_text();
                 Disposition::Pass
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 self.controller.on_input(&mut self.shell);
+                self.shell.forget_field_text();
                 Disposition::Pass
             }
             _ => Disposition::Pass,
@@ -232,12 +275,14 @@ impl Runtime {
         match message {
             WM_TIMER if wparam.0 == CARET_TIMER_ID => self.on_timer(Timer::CaretSettle),
             WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_timer(Timer::InputSettle),
+            WM_TIMER if wparam.0 == FIELD_TIMER_ID => self.shell.read_field_text(),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }
             DELIVERY_MESSAGE => self.take_deliveries(),
             SETTINGS_INPUT_MESSAGE => self.take_settings_inputs(),
             CARET_READ_MESSAGE => self.take_caret_reads(),
+            FIELD_READ_MESSAGE => self.take_field_reads(),
             BADGE_CLICK_MESSAGE => self.controller.on_badge_click(&mut self.shell),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
@@ -274,6 +319,12 @@ impl Runtime {
             self.shell.show_at_caret(&read);
         }
     }
+
+    fn take_field_reads(&mut self) {
+        while let Ok(read) = self.field_reads.try_recv() {
+            self.shell.kept_field_text.keep(read);
+        }
+    }
 }
 
 /// What the controller reads and does through Win32.
@@ -285,6 +336,8 @@ struct Win32Shell {
     caret_reader: CaretReader,
     /// What shows at the caret when the caret reader answers.
     pending_view: PendingView,
+    /// The text around the caret that the hooks give to the controller.
+    kept_field_text: KeptFieldText,
     tray: Tray,
     window: Window,
     pending_injection: Option<String>,
@@ -296,6 +349,35 @@ impl Win32Shell {
     fn post(&self, message: u32) -> windows::core::Result<()> {
         // SAFETY: plain call on our own window.
         unsafe { PostMessageW(Some(self.window.handle()), message, WPARAM(0), LPARAM(0)) }
+    }
+
+    /// Forgets the kept field text, because an input or a move of the focus can change the field
+    /// now, and reads it again after [`FIELD_READ_DELAY`].
+    fn forget_field_text(&mut self) {
+        self.kept_field_text.forget();
+        self.set_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
+    }
+
+    /// Asks the caret reader for the field text as it is now.
+    fn read_field_text(&mut self) {
+        self.kill_window_timer(FIELD_TIMER_ID);
+        self.caret_reader.read_field_text(self.kept_field_text.newest());
+    }
+
+    /// Starts the window timer `id`, or starts it again when it runs.
+    fn set_window_timer(&self, id: usize, delay: Duration) {
+        let delay_ms = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: plain call on our own window.
+        let is_started = unsafe { SetTimer(Some(self.window.handle()), id, delay_ms, None) } != 0;
+        if !is_started {
+            tracing::warn!(error = %Error::from_thread(), id, "failed to start a timer");
+        }
+    }
+
+    fn kill_window_timer(&self, id: usize) {
+        // Fails only when no timer is pending, which needs no handling.
+        // SAFETY: plain call on our own window.
+        let _ = unsafe { KillTimer(Some(self.window.handle()), id) };
     }
 
     /// Shows the view that waits for `read` at the caret of the answer. Does nothing for a stale
@@ -336,7 +418,8 @@ impl Desktop for Win32Shell {
     }
 
     fn surroundings(&self) -> Surroundings {
-        self.focus.surroundings()
+        let field_text = self.kept_field_text.text_in(self.focus.foreground());
+        self.focus.surroundings(field_text)
     }
 
     fn clipboard_text(&self) -> Option<String> {
@@ -377,19 +460,11 @@ impl Shell for Win32Shell {
     }
 
     fn start_timer(&mut self, timer: Timer, delay: Duration) {
-        let delay_ms = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX);
-        // SAFETY: plain call on our own window.
-        let is_started =
-            unsafe { SetTimer(Some(self.window.handle()), timer_id(timer), delay_ms, None) } != 0;
-        if !is_started {
-            tracing::warn!(error = %Error::from_thread(), ?timer, "failed to start a timer");
-        }
+        self.set_window_timer(timer_id(timer), delay);
     }
 
     fn stop_timer(&mut self, timer: Timer) {
-        // Fails only when no timer is pending, which needs no handling.
-        // SAFETY: plain call on our own window.
-        let _ = unsafe { KillTimer(Some(self.window.handle()), timer_id(timer)) };
+        self.kill_window_timer(timer_id(timer));
     }
 
     fn render_tray(&mut self, view: &TrayView) {
@@ -462,6 +537,18 @@ fn inject_pending_text() -> LRESULT {
         tracing::warn!(%error, "failed to type accepted text");
     }
     HANDLED
+}
+
+extern "system" fn focus_event_procedure(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    _window: HWND,
+    _object: i32,
+    _child: i32,
+    _thread: u32,
+    _time_ms: u32,
+) {
+    with_runtime(|runtime| runtime.shell.forget_field_text());
 }
 
 extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

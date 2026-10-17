@@ -1,9 +1,11 @@
-//! What has keyboard focus: whether GhostType may suggest there, where its caret is, and which app
-//! and window it is in.
+//! What has keyboard focus: whether GhostType may suggest there, where its caret is, the text
+//! around the caret of a classic edit control, and which app and window it is in.
+
+use std::ops::Range;
 
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
-use ghosttype_core::desktop::Surroundings;
+use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
@@ -14,13 +16,18 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
     GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
-    WM_GETFONT,
+    WM_GETFONT, WM_GETTEXT,
 };
 use windows::core::{Owned, PWSTR, Result};
 
 const EDIT_CLASS_NAME: &str = "Edit";
 const MAX_CLASS_NAME_UNITS: usize = 16;
-const FONT_REPLY_TIMEOUT_MS: u32 = 50;
+const REPLY_TIMEOUT_MS: u32 = 50;
+/// The nul that a window writes after the text that it copies.
+const NUL_UNITS: usize = 1;
+/// The message that asks an edit control for its selection. It is in `Win32_UI_Controls`, a large
+/// feature of the windows crate that GhostType does not enable for one message.
+const EM_GETSEL: u32 = 0x00B0;
 const MAX_WINDOW_TITLE_UNITS: usize = 256;
 const MAX_PATH_UNITS: usize = 1024;
 
@@ -49,6 +56,16 @@ impl Caret {
             height,
             font_face,
         })
+    }
+}
+
+/// A window, as a value that can go to another thread, which an `HWND` cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WindowId(isize);
+
+impl From<HWND> for WindowId {
+    fn from(window: HWND) -> Self {
+        Self(window.0.expose_provenance().cast_signed())
     }
 }
 
@@ -98,13 +115,18 @@ impl FocusTracker {
         }
     }
 
-    /// Reads the app and the title of the foreground window. GhostType cannot read the text of
-    /// the field yet.
-    pub(crate) fn surroundings(&self) -> Surroundings {
+    /// The foreground window when [`refresh`](Self::refresh) looked last.
+    pub(crate) fn foreground(&self) -> WindowId {
+        self.foreground.into()
+    }
+
+    /// Reads the app and the title of the foreground window, around the `field_text` of its
+    /// focused field.
+    pub(crate) fn surroundings(&self, field_text: Option<FieldText>) -> Surroundings {
         Surroundings {
             app_name: self.foreground_app_name.clone(),
             window_title: window_title(self.foreground),
-            field_text: None,
+            field_text,
         }
     }
 
@@ -117,6 +139,12 @@ impl FocusTracker {
         }
         self.is_self_elevated || !is_process_elevated(process_id).unwrap_or(true)
     }
+}
+
+/// The window in the foreground now.
+pub(crate) fn foreground_window() -> WindowId {
+    // SAFETY: plain call.
+    unsafe { GetForegroundWindow() }.into()
 }
 
 fn process_id(window: HWND) -> u32 {
@@ -191,22 +219,7 @@ pub(crate) fn caret() -> Option<Caret> {
 
 /// Reads the font face that `window` draws its text in, when the window reports one in time.
 fn font_face(window: HWND) -> Option<String> {
-    let mut font = 0;
-    // SAFETY: the result pointer refers to a local.
-    let replied = unsafe {
-        SendMessageTimeoutW(
-            window,
-            WM_GETFONT,
-            WPARAM(0),
-            LPARAM(0),
-            SMTO_ABORTIFHUNG,
-            FONT_REPLY_TIMEOUT_MS,
-            Some(&raw mut font),
-        )
-    };
-    if replied.0 == 0 || font == 0 {
-        return None;
-    }
+    let font = ask(window, WM_GETFONT).filter(|&font| font != 0)?;
     let mut description = LOGFONTW::default();
     // SAFETY: the output buffer is a local of exactly the size passed; a stale handle only fails.
     let written = unsafe {
@@ -230,15 +243,103 @@ fn face_name(units: &[u16]) -> Option<String> {
     (!name.is_empty()).then(|| String::from_utf16_lossy(name))
 }
 
-fn is_password_focused() -> bool {
-    let Some(info) = foreground_thread_info() else {
-        return false;
-    };
-    if info.hwndFocus.is_invalid() || !is_edit_control(info.hwndFocus) {
-        return false;
+/// Reads the text around the selection of the focused classic edit control. `None` for another
+/// control, for a password field and for a control that does not answer in time.
+pub(crate) fn edit_field_text() -> Option<FieldText> {
+    let window = focused_edit_control().filter(|&window| !is_password_edit(window))?;
+    let selection = selection_from_reply(ask(window, EM_GETSEL)?)?;
+    let units = copy_text(window, selection.end.saturating_add(MAX_CHARS_AFTER_CARET))?;
+    Some(cut_at_selection(&units, selection))
+}
+
+/// Reads the selection from the reply to `EM_GETSEL`: its start in the low word and its end in
+/// the high word. `None` for the reply to a selection past the limit of a word.
+fn selection_from_reply(reply: usize) -> Option<Range<usize>> {
+    let [start_low, start_high, end_low, end_high, ..] = reply.to_le_bytes();
+    let start = u16::from_le_bytes([start_low, start_high]);
+    let end = u16::from_le_bytes([end_low, end_high]);
+    let is_past_limit = start == u16::MAX && end == u16::MAX;
+    (!is_past_limit).then(|| usize::from(start)..usize::from(end))
+}
+
+/// Cuts the text of a field, as UTF-16 `units`, around `selection`, a range of units. The text
+/// before has at most [`MAX_CHARS_BEFORE_CARET`] units and the text after at most
+/// [`MAX_CHARS_AFTER_CARET`].
+fn cut_at_selection(units: &[u16], selection: Range<usize>) -> FieldText {
+    let start = selection.start.min(units.len());
+    let end = selection.end.clamp(start, units.len());
+    let before_start = start.saturating_sub(MAX_CHARS_BEFORE_CARET);
+    let after_end = end.saturating_add(MAX_CHARS_AFTER_CARET).min(units.len());
+    FieldText {
+        before_caret: whole_chars(&units[before_start..start]),
+        after_caret: whole_chars(&units[end..after_end]),
     }
+}
+
+/// Decodes UTF-16 `units`, without the halves of the characters that a cut divided.
+pub(crate) fn whole_chars(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .filter_map(std::result::Result::ok)
+        .collect()
+}
+
+/// Sends `message`, which has no parameters, to `window`. Returns the reply when the window
+/// answers in time.
+fn ask(window: HWND, message: u32) -> Option<usize> {
+    let mut reply = 0;
+    // SAFETY: the message carries no pointer, and the result pointer refers to a local.
+    let replied = unsafe {
+        SendMessageTimeoutW(
+            window,
+            message,
+            WPARAM(0),
+            LPARAM(0),
+            SMTO_ABORTIFHUNG,
+            REPLY_TIMEOUT_MS,
+            Some(&raw mut reply),
+        )
+    };
+    (replied.0 != 0).then_some(reply)
+}
+
+/// Copies at most the first `max_units` UTF-16 units of the text of `window`, when the window
+/// answers in time.
+fn copy_text(window: HWND, max_units: usize) -> Option<Vec<u16>> {
+    let mut buffer = vec![0; max_units.saturating_add(NUL_UNITS)];
+    let mut copied = 0;
+    // SAFETY: the message gives the length of the buffer, which is valid for writes during the
+    // call. The system copies the text across processes. The result pointer refers to a local.
+    let replied = unsafe {
+        SendMessageTimeoutW(
+            window,
+            WM_GETTEXT,
+            WPARAM(buffer.len()),
+            LPARAM(buffer.as_mut_ptr().expose_provenance().cast_signed()),
+            SMTO_ABORTIFHUNG,
+            REPLY_TIMEOUT_MS,
+            Some(&raw mut copied),
+        )
+    };
+    if replied.0 == 0 {
+        return None;
+    }
+    buffer.truncate(copied.min(max_units));
+    Some(buffer)
+}
+
+fn is_password_focused() -> bool {
+    focused_edit_control().is_some_and(is_password_edit)
+}
+
+/// The focused control of the foreground window, when it is a classic edit control.
+fn focused_edit_control() -> Option<HWND> {
+    let window = foreground_thread_info()?.hwndFocus;
+    (!window.is_invalid() && is_edit_control(window)).then_some(window)
+}
+
+fn is_password_edit(window: HWND) -> bool {
     // SAFETY: plain call.
-    let style = unsafe { GetWindowLongW(info.hwndFocus, GWL_STYLE) };
+    let style = unsafe { GetWindowLongW(window, GWL_STYLE) };
     style & ES_PASSWORD != 0
 }
 
@@ -353,5 +454,80 @@ mod tests {
         let face = face_name(&units);
 
         assert_eq!(face, None);
+    }
+
+    fn units(text: &str) -> Vec<u16> {
+        text.encode_utf16().collect()
+    }
+
+    #[test]
+    fn edit_selection_is_read_from_low_and_high_words() {
+        let selection = selection_from_reply(0x0007_0003);
+
+        assert_eq!(selection, Some(3..7));
+    }
+
+    #[test]
+    fn edit_selection_past_the_word_limit_is_unknown() {
+        let replies = [usize::MAX, 0xFFFF_FFFF];
+
+        let selections = replies.map(selection_from_reply);
+
+        assert_eq!(selections, [None, None]);
+    }
+
+    #[test]
+    fn field_text_is_cut_around_the_selection() {
+        let field_text = cut_at_selection(&units("Hello big world"), 6..9);
+
+        assert_eq!(
+            field_text,
+            FieldText {
+                before_caret: "Hello ".to_owned(),
+                after_caret: " world".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn text_before_the_selection_keeps_its_end() {
+        let text = format!("start{}", "a".repeat(MAX_CHARS_BEFORE_CARET));
+        let caret = text.len();
+
+        let field_text = cut_at_selection(&units(&text), caret..caret);
+
+        assert_eq!(field_text.before_caret, "a".repeat(MAX_CHARS_BEFORE_CARET));
+    }
+
+    #[test]
+    fn text_after_the_selection_keeps_its_start() {
+        let text = format!("{}end", "a".repeat(MAX_CHARS_AFTER_CARET));
+
+        let field_text = cut_at_selection(&units(&text), 0..0);
+
+        assert_eq!(field_text.after_caret, "a".repeat(MAX_CHARS_AFTER_CARET));
+    }
+
+    #[test]
+    fn selection_past_the_text_cuts_at_its_end() {
+        let field_text = cut_at_selection(&units("Hello"), 8..12);
+
+        assert_eq!(
+            field_text,
+            FieldText {
+                before_caret: "Hello".to_owned(),
+                after_caret: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn cut_inside_a_character_drops_its_half() {
+        let text = format!("😀{}", "a".repeat(MAX_CHARS_BEFORE_CARET - 1));
+        let caret = units(&text).len();
+
+        let field_text = cut_at_selection(&units(&text), caret..caret);
+
+        assert_eq!(field_text.before_caret, "a".repeat(MAX_CHARS_BEFORE_CARET - 1));
     }
 }

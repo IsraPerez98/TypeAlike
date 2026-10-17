@@ -1,9 +1,11 @@
-//! The caret of the focused control as UI Automation (UIA) tells it, for apps that draw a caret of
-//! their own and have no system caret: browsers, Electron apps and WinUI apps.
+//! The focused control as UI Automation (UIA) tells it: the text around its caret, and its caret
+//! for apps that draw a caret of their own and have no system caret (browsers, Electron apps and
+//! WinUI apps).
 
 use std::marker::PhantomData;
 use std::ptr;
 
+use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize, SAFEARRAY,
@@ -11,15 +13,17 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayUnaccessData};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern, IUIAutomationTextRange,
-    TextPatternRangeEndpoint_Start, TextUnit_Character, UIA_TextPatternId,
+    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, UIA_TextPatternId,
 };
 use windows::core::{BOOL, Result};
 
-use crate::focus::Caret;
+use crate::focus::{Caret, whole_chars};
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
 const VALUES_PER_RECTANGLE: usize = 4;
 const CHARACTERS_BEFORE_CARET: i32 = -1;
+/// The length that asks `GetText` for all the text of a range.
+const WHOLE_RANGE: i32 = -1;
 
 /// A connection to UIA, usable only on the thread that made it.
 #[derive(Debug)]
@@ -44,10 +48,67 @@ impl UiaCaret {
     /// Locates the caret of the focused control from the bounds of the character before it.
     /// `None` for a password field and for a control without text.
     pub(crate) fn read(&self) -> Option<Caret> {
-        // SAFETY: plain call on an interface of this thread.
-        let element = unsafe { self.automation.GetFocusedElement() }.ok()?;
-        caret_of(&element)
+        caret_of(&self.focused_element()?)
     }
+
+    /// Reads the text around the selection of the focused control. `None` for a password field
+    /// and for a control without text.
+    pub(crate) fn field_text(&self) -> Option<FieldText> {
+        field_text_of(&self.focused_element()?)
+    }
+
+    fn focused_element(&self) -> Option<IUIAutomationElement> {
+        // SAFETY: plain call on an interface of this thread.
+        unsafe { self.automation.GetFocusedElement() }.ok()
+    }
+}
+
+/// A side of the selection.
+#[derive(Debug, Clone, Copy)]
+enum Side {
+    Before,
+    After,
+}
+
+/// Reads the text around the selection of `element`: before its start and after its end.
+fn field_text_of(element: &IUIAutomationElement) -> Option<FieldText> {
+    if is_password(element) {
+        return None;
+    }
+    let selection = caret_range(element)?;
+    Some(FieldText {
+        before_caret: text_beside(&selection, Side::Before)?,
+        after_caret: text_beside(&selection, Side::After).unwrap_or_default(),
+    })
+}
+
+/// Reads the text next to `selection` on `side`: at most [`MAX_CHARS_BEFORE_CARET`] characters
+/// before it, or at most [`MAX_CHARS_AFTER_CARET`] after it.
+fn text_beside(selection: &IUIAutomationTextRange, side: Side) -> Option<String> {
+    let (collapsed_end, growing_end, characters) = match side {
+        Side::Before => (
+            TextPatternRangeEndpoint_End,
+            TextPatternRangeEndpoint_Start,
+            -i32::try_from(MAX_CHARS_BEFORE_CARET).ok()?,
+        ),
+        Side::After => (
+            TextPatternRangeEndpoint_Start,
+            TextPatternRangeEndpoint_End,
+            i32::try_from(MAX_CHARS_AFTER_CARET).ok()?,
+        ),
+    };
+    // SAFETY: plain calls on interfaces of this thread.
+    let text = unsafe {
+        let range = selection.Clone().ok()?;
+        range
+            .MoveEndpointByRange(collapsed_end, selection, growing_end)
+            .ok()?;
+        range
+            .MoveEndpointByUnit(growing_end, TextUnit_Character, characters)
+            .ok()?;
+        range.GetText(WHOLE_RANGE).ok()?
+    };
+    Some(whole_chars(&text))
 }
 
 /// Locates the caret in `element` from the bounds of the character before it.
