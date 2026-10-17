@@ -243,6 +243,14 @@ struct Win32Shell {
     settings: SettingsThread,
 }
 
+impl Win32Shell {
+    /// Posts `message` to the main window, which handles it after the current event.
+    fn post(&self, message: u32) -> windows::core::Result<()> {
+        // SAFETY: plain call on our own window.
+        unsafe { PostMessageW(Some(self.window.handle()), message, WPARAM(0), LPARAM(0)) }
+    }
+}
+
 impl Desktop for Win32Shell {
     fn field(&self) -> Field {
         self.focus.field()
@@ -286,10 +294,7 @@ impl Shell for Win32Shell {
 
     fn type_text(&mut self, text: String) {
         self.pending_injection = Some(text);
-        // SAFETY: plain call on our own window.
-        let posted =
-            unsafe { PostMessageW(Some(self.window.handle()), INJECT_MESSAGE, WPARAM(0), LPARAM(0)) };
-        if let Err(error) = posted {
+        if let Err(error) = self.post(INJECT_MESSAGE) {
             tracing::warn!(%error, "failed to queue accepted text");
         }
     }

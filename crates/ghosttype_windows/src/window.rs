@@ -1,10 +1,12 @@
 //! Windows owned by GhostType, each with a class of its own.
 
-use windows::Win32::Foundation::{HINSTANCE, HWND};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, IDC_ARROW, LoadCursorW, RegisterClassExW, UnregisterClassW,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, HWND_TOPMOST, IDC_ARROW, LoadCursorW, RegisterClassExW,
+    SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPos, ShowWindow,
+    UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{Error, PCWSTR, Result};
 
@@ -15,6 +17,23 @@ pub(crate) struct WindowSpec {
     pub(crate) procedure: WNDPROC,
     pub(crate) style: WINDOW_STYLE,
     pub(crate) extended_style: WINDOW_EX_STYLE,
+}
+
+impl WindowSpec {
+    /// A popup that floats above other windows, never takes focus and lets clicks through. It is
+    /// not in the taskbar or in Alt+Tab.
+    pub(crate) fn floating(class_name: PCWSTR) -> Self {
+        Self {
+            class_name,
+            procedure: Some(default_procedure),
+            style: WS_POPUP,
+            extended_style: WS_EX_NOACTIVATE
+                | WS_EX_TRANSPARENT
+                | WS_EX_LAYERED
+                | WS_EX_TOOLWINDOW
+                | WS_EX_TOPMOST,
+        }
+    }
 }
 
 /// A top-level window, destroyed on drop. Its class goes away with it.
@@ -55,6 +74,20 @@ impl Window {
     /// Raw window handle, valid while `self` lives.
     pub(crate) fn handle(&self) -> HWND {
         self.handle
+    }
+
+    /// Shows the window above every other window, without focus.
+    pub(crate) fn show_on_top(&self) -> Result<()> {
+        let placement = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
+        // Raises the window above always-on-top hosts, which ShowWindow alone would leave it under.
+        // SAFETY: plain call on a window this type owns.
+        unsafe { SetWindowPos(self.handle, Some(HWND_TOPMOST), 0, 0, 0, 0, placement) }
+    }
+
+    pub(crate) fn hide(&self) {
+        // Returns the previous visibility, not an error.
+        // SAFETY: plain call on a window this type owns.
+        let _ = unsafe { ShowWindow(self.handle, SW_HIDE) };
     }
 }
 
@@ -109,4 +142,9 @@ impl Drop for WindowClass {
             tracing::warn!(%error, "failed to unregister window class");
         }
     }
+}
+
+extern "system" fn default_procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // SAFETY: forwards the system's own arguments unchanged.
+    unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
