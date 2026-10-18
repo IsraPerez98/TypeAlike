@@ -195,8 +195,8 @@ impl App {
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. In a text field of an app where
     /// the screen text is on, it starts a read of the screen, unless the session has its final
     /// screen text or waits for a read.
-    /// Else, with [`PromptPreparation::OnFocus`] and no session, it prepares the prompt of the
-    /// focused field of `desktop`.
+    /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
+    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
         if self.status == Status::Paused || desktop.field() == Field::Excluded {
             return None;
@@ -219,8 +219,9 @@ impl App {
     /// Handles the answer to a read of the screen. When the accessibility tree gives no lines and
     /// `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
     /// session when the session has no final screen text, and into the next session. With
-    /// [`PromptPreparation::OnFocus`], it then returns the request that prepares the prompt of the
-    /// focused field of `desktop` with the new screen text.
+    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, it then
+    /// returns the request that prepares the prompt of the focused field of `desktop` with the new
+    /// screen text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
         let is_active = self.status == Status::Active && desktop.field() == Field::Open;
         let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
@@ -268,9 +269,14 @@ impl App {
     }
 
     fn prepare_on_focus(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
-        match self.prompt_preparation {
-            PromptPreparation::OnFocus => self.engine.prepare(desktop),
-            PromptPreparation::OnFirstKey => None,
+        let is_due = match self.prompt_preparation {
+            PromptPreparation::OnFocus => true,
+            PromptPreparation::OnFirstKey => self.engine.has_earlier_writing_in(desktop),
+        };
+        if is_due {
+            self.engine.prepare(desktop)
+        } else {
+            None
         }
     }
 
@@ -381,7 +387,7 @@ mod tests {
     };
     use crate::inference::TokenCount;
     use crate::prompt::framed_prompt;
-    use crate::settings::{OcrLevel, ScreenTextAccess, WriterNotes};
+    use crate::settings::{HistoryAccess, OcrLevel, PersonalizationSettings, ScreenTextAccess, WriterNotes};
 
     struct FakeDesktop(Field);
 
@@ -1152,6 +1158,62 @@ mod tests {
     #[test]
     fn answer_to_the_screen_read_prepares_nothing_before_the_first_key() {
         let mut app = App::new();
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(request, None);
+    }
+
+    fn app_with_earlier_writing(history: HistoryAccess, app_id: &str) -> App {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            personalization: PersonalizationSettings {
+                history,
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        });
+        app.use_history(vec![HistoryEntry {
+            text: "Dear Ana, the report is ready.".to_owned(),
+            app_id: app_id.to_owned(),
+            domain: None,
+        }]);
+        app
+    }
+
+    #[test]
+    fn answer_to_the_screen_read_prepares_a_place_with_earlier_writing_before_the_first_key() {
+        let mut app = app_with_earlier_writing(HistoryAccess::On, "com.apple.mail");
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(
+            request,
+            Some(SettledWork::Prepare(preparation(
+                &[
+                    "Format: email",
+                    "Earlier writing by the same author:\n“Dear Ana, the report is ready.”"
+                ],
+                ""
+            )))
+        );
+    }
+
+    #[test]
+    fn answer_to_the_screen_read_prepares_nothing_in_a_place_without_earlier_writing() {
+        let mut app = app_with_earlier_writing(HistoryAccess::On, "com.apple.Notes");
+        let read = screen_read(&mut app);
+
+        let request = app.on_screen_read(answer(read), &MAIL);
+
+        assert_eq!(request, None);
+    }
+
+    #[test]
+    fn earlier_writing_that_is_off_prepares_nothing_before_the_first_key() {
+        let mut app = app_with_earlier_writing(HistoryAccess::Off, "com.apple.mail");
         let read = screen_read(&mut app);
 
         let request = app.on_screen_read(answer(read), &MAIL);

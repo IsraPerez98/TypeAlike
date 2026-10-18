@@ -69,12 +69,15 @@ const SUGGESTION_MODEL_DESCRIPTION: &str =
     "The model that suggests text as you type. GhostType loads it again when it starts.";
 const CLIPBOARD_LABEL: &str = "Use copied text";
 const CLIPBOARD_DESCRIPTION: &str = "Suggestions can use the text that you copy. GhostType reads the \
-     clipboard only when you start to type, and does not save the text.";
+     clipboard when you start to type. Where it saved your earlier writing, it reads the clipboard when you \
+     go to the text field. It does not save the copied text.";
 const CLIPBOARD_ON_FOCUS_DESCRIPTION: &str = "Suggestions can use the text that you copy. GhostType reads \
      the clipboard when you go to a text field, and does not save the text.";
 const PREPARATION_LABEL: &str = "Prepare before you type";
 const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model reads the text around the \
-     caret before you type. The first suggestion then shows sooner, but this uses more power.";
+     caret before you type. The first suggestion then shows sooner, but this uses more power. When this \
+     switch is off, the model does this only in apps and on web pages where GhostType saved your earlier \
+     writing.";
 const DISPLAY_LABEL: &str = "Show words early";
 const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
      word then shows sooner, but the suggestion grows while you read it.";
@@ -623,13 +626,13 @@ mod tests {
                         Row::Switch(Switch {
                             id: ControlId::new(CLIPBOARD),
                             label: "Use copied text",
-                            description: "Suggestions can use the text that you copy. GhostType reads the clipboard only when you start to type, and does not save the text.",
+                            description: "Suggestions can use the text that you copy. GhostType reads the clipboard when you start to type. Where it saved your earlier writing, it reads the clipboard when you go to the text field. It does not save the copied text.",
                             is_on: false,
                         }),
                         Row::Switch(Switch {
                             id: ControlId::new(PREPARATION),
                             label: "Prepare before you type",
-                            description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power.",
+                            description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power. When this switch is off, the model does this only in apps and on web pages where GhostType saved your earlier writing.",
                             is_on: false,
                         }),
                         Row::Switch(Switch {

@@ -317,7 +317,8 @@ const TERMINALS: [&str; 25] = [
 /// When GhostType gives the text around the caret to the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PromptPreparation {
-    /// At the first key that the user types in a field.
+    /// At the first key that the user types in a field. In a place where the earlier writing has
+    /// a text, the user often types, so GhostType prepares there as with [`Self::OnFocus`].
     #[default]
     OnFirstKey,
     /// When the keys and clicks stop in a field, before the user types. The first suggestion then

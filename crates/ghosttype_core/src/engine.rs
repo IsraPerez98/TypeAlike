@@ -237,6 +237,20 @@ impl Engine {
         })
     }
 
+    /// Whether the earlier writing that suggestions may use holds a text of the place of the
+    /// focused field of `desktop`.
+    pub fn has_earlier_writing_in(&self, desktop: &dyn Desktop) -> bool {
+        if self.history.is_empty() {
+            return false;
+        }
+        let surroundings = desktop.surroundings();
+        let is_allowed = surroundings
+            .app_id
+            .as_deref()
+            .is_some_and(|app_id| self.personalization.allows(app_id));
+        is_allowed && history::has_text_in_place(&self.history, &surroundings)
+    }
+
     /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
     /// Only the completion of the newest request can show.
     pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {

@@ -294,6 +294,11 @@ pub(crate) fn examples(
         .collect()
 }
 
+/// Whether `entries` hold a text of the place of `surroundings`.
+pub(crate) fn has_text_in_place(entries: &[HistoryEntry], surroundings: &Surroundings) -> bool {
+    entries.iter().any(|entry| entry.is_in_place_of(surroundings))
+}
+
 /// Calls `visit` with each word of `text` in lowercase.
 fn each_lowercase_word(text: &str, mut visit: impl FnMut(&str)) {
     let mut lowercase = String::new();
