@@ -1,6 +1,7 @@
 //! Embeds the Windows application manifest. It selects version 6 of the common controls, so the
 //! tray menu and dialogs draw with the current visual styles. It also declares Windows 10 and 11
-//! support, so Windows runs GhostType without the compatibility mode for older apps.
+//! support, so Windows runs GhostType without the compatibility mode for older apps. It sets the
+//! UTF-8 code page, so llama.cpp can write a model file in a folder with letters outside ASCII.
 
 fn main() {
     let is_windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")

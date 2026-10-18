@@ -39,7 +39,9 @@
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
 //! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
-//! branch for each model.
+//! branch for each model. A load writes the output layer of the model file in 4 bits (see
+//! `LlamaCpp`), so the eval changes a model file with a larger output layer, and measures the file
+//! that GhostType runs.
 //!
 //! `--backend` names the backend that runs the model: `cpu`, `vulkan`, `cuda` or `metal`. The
 //! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.

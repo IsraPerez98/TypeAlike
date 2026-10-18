@@ -31,6 +31,8 @@ use llama_cpp_2::{
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
+use crate::output_layer;
+
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
 /// whole batch while the model stays loaded, so a small batch keeps that memory small.
 const BATCH_TOKENS: u32 = 128;
@@ -123,7 +125,8 @@ pub(crate) fn run(
 }
 
 /// Loads the model at `path` on `backend`. It starts llama.cpp in `llama` first, when it did not
-/// start before.
+/// start before. It first writes the output layer of the file in 4 bits, when the layer has more
+/// bits, on every backend. When that fails, the file stays as it is.
 fn load(
     llama: &mut Option<LlamaBackend>,
     path: Option<PathBuf>,
@@ -136,6 +139,9 @@ fn load(
         tracing::error!(%error, "failed to start llama.cpp");
         InferenceError::Failed
     })?;
+    if let Err(error) = output_layer::write_in_4_bits(&path) {
+        tracing::warn!(%error, "kept the output layer of the model as it is");
+    }
     let params = model_params(&path, backend)?;
     LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
         tracing::warn!(%error, "failed to load a model");
