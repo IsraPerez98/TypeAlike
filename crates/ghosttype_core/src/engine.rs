@@ -60,6 +60,8 @@ pub(crate) struct Engine {
     writer_notes: WriterNotes,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
+    /// The most texts of the history that match the topic of the field, which a prompt shows.
+    matching_examples: usize,
     screen: Screen,
     newest_screen_read: ScreenReadId,
     personalization: PersonalizationSettings,
@@ -84,6 +86,7 @@ impl Default for Engine {
             writer_notes: WriterNotes::default(),
             clipboard_access: ClipboardAccess::default(),
             suggestion_length: SuggestionLength::default(),
+            matching_examples: 0,
             screen: Screen::default(),
             newest_screen_read: ScreenReadId::default(),
             personalization: PersonalizationSettings::default(),
@@ -184,6 +187,7 @@ impl Engine {
         self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
+        self.matching_examples = settings.matching_examples();
         if self.personalization.word_choice != word_choice {
             self.refresh_word_choice();
         }
@@ -475,7 +479,7 @@ impl Engine {
             .app_id
             .as_ref()
             .filter(|app_id| self.personalization.allows(app_id))
-            .map(|_| history::examples(&self.history, surroundings, screen))
+            .map(|_| history::examples(&self.history, surroundings, screen, self.matching_examples))
             .unwrap_or_default();
         let writer = Writer {
             notes: &self.writer_notes.0,

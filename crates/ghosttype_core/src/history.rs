@@ -18,9 +18,12 @@ const MAX_ENTRIES: usize = 2000;
 const MIN_KEPT_CHARS: usize = 40;
 /// The most characters of a text that GhostType saves, from its end.
 const MAX_KEPT_CHARS: usize = 1000;
-/// The texts of the same place that share the most rare words with the text near the caret, which
-/// a prompt shows: the same domain in a browser, else the same app.
-const BEST_MATCHES_IN_PLACE: usize = 2;
+/// The examples that the newest texts of a small place fill up to: the same domain in a browser,
+/// else the same app.
+const RECENT_IN_PLACE: usize = 2;
+/// The most texts of a small place. In a larger place, the newest texts are seldom on the topic
+/// of the field, so only the matching texts show.
+const MAX_SMALL_PLACE_TEXTS: usize = 3;
 /// The newest texts of other places with the same format that a prompt shows, when the place has
 /// no text.
 const RECENT_IN_FORMAT: usize = 1;
@@ -236,15 +239,17 @@ pub(crate) fn own_text<'text>(
 }
 
 /// Returns the texts of `entries`, oldest first, that a prompt in `surroundings` shows as
-/// examples: the best matching texts of the same place, else its newest text, else the newest
-/// texts of other places with the same format. A text matches when it shares rare words with
-/// the text near the caret, the window, the labels of the field and the `screen`. Each example
-/// keeps the start and the end of its text. A text that the field holds now is no example, and
-/// two examples never hold the same text.
+/// examples: the `matching` best matching texts of the same place. In a place with at most
+/// [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to [`RECENT_IN_PLACE`].
+/// A place without texts gets the newest texts of other places with the same format. A text
+/// matches when it shares rare words with the text near the caret, the window, the labels of the
+/// field and the `screen`. Each example keeps the start and the end of its text. A text that the
+/// field holds now is no example, and two examples never hold the same text.
 pub(crate) fn examples(
     entries: &[HistoryEntry],
     surroundings: &Surroundings,
     screen: Option<&ScreenText>,
+    matching: usize,
 ) -> Vec<String> {
     let candidates = entries
         .iter()
@@ -266,10 +271,12 @@ pub(crate) fn examples(
         .map(|(_, candidate)| candidate)
         .collect::<Vec<_>>();
     let mut picked = Vec::new();
-    pick(&mut picked, &best_first, BEST_MATCHES_IN_PLACE);
-    let missing = BEST_MATCHES_IN_PLACE - picked.len();
-    pick(&mut picked, &newest_first, missing);
-    if picked.is_empty() {
+    pick(&mut picked, &best_first, matching);
+    if newest_first.len() <= MAX_SMALL_PLACE_TEXTS {
+        let missing = RECENT_IN_PLACE.saturating_sub(picked.len());
+        pick(&mut picked, &newest_first, missing);
+    }
+    if newest_first.is_empty() {
         let format = Format::of(surroundings).filter(|format| *format != Format::WebPage);
         let same_format = elsewhere
             .iter()
@@ -738,7 +745,7 @@ mod tests {
     }
 
     fn examples_in(entries: &[HistoryEntry], surroundings: &Surroundings) -> Vec<String> {
-        examples(entries, surroundings, None)
+        examples(entries, surroundings, None, 2)
     }
 
     fn words_of(bias: Option<WordBias>) -> Option<Vec<(String, f32)>> {
@@ -1266,6 +1273,47 @@ mod tests {
         );
     }
 
+    fn large_mail_place() -> Vec<HistoryEntry> {
+        let mut entries = bluefin_entries();
+        entries.extend([
+            mail("Dinner with Ana and Leo on Friday at eight."),
+            mail("The printer on the second floor works again."),
+            entry("Text of another mail app", "OUTLOOK.EXE", None),
+        ]);
+        entries
+    }
+
+    #[test]
+    fn one_wanted_match_gives_only_the_best_matching_text_of_a_large_place() {
+        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+
+        let examples = examples(&large_mail_place(), &surroundings, None, 1);
+
+        assert_eq!(examples, ["Bluefin budget review with Dana tomorrow morning."]);
+    }
+
+    #[test]
+    fn newest_texts_of_a_small_place_fill_the_second_example() {
+        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+
+        let examples = examples(&bluefin_entries(), &surroundings, None, 1);
+
+        assert_eq!(
+            examples,
+            [
+                "Weekend trip to the lake with the kids, back on Sunday.",
+                "Bluefin budget review with Dana tomorrow morning."
+            ]
+        );
+    }
+
+    #[test]
+    fn large_place_without_matching_texts_has_no_examples() {
+        let examples = examples_in(&large_mail_place(), &place("com.apple.mail", None, "Hi Sam"));
+
+        assert_eq!(examples, Vec::<&str>::new());
+    }
+
     #[test]
     fn title_of_the_window_tells_the_topic_and_the_newest_text_fills_the_second_place() {
         let surroundings = place_with("com.apple.mail", "Hi Sam", Some("Launch"));
@@ -1296,6 +1344,7 @@ mod tests {
             &bluefin_entries(),
             &place("com.apple.mail", None, "Hi Sam"),
             Some(&screen),
+            2,
         );
 
         assert_eq!(

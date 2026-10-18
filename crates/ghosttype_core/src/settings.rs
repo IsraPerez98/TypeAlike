@@ -396,6 +396,12 @@ impl Settings {
         self.backend == Backend::Cpu
     }
 
+    /// The most texts of a place that match the topic of the field, which a prompt shows as
+    /// examples. The CPU shows one, because each example adds to the time of the first suggestion.
+    pub(crate) fn matching_examples(&self) -> usize {
+        if self.backend == Backend::Cpu { 1 } else { 2 }
+    }
+
     /// The length of each suggestion: short when the backend fixes it, else the selected length.
     pub(crate) fn suggestion_length_in_use(&self) -> SuggestionLength {
         if self.has_fixed_suggestion_length() {
@@ -655,6 +661,21 @@ mod tests {
         let max_tokens = lengths.map(SuggestionLength::max_tokens);
 
         assert_eq!(max_tokens, [TokenCount(4), TokenCount(8), TokenCount(16)]);
+    }
+
+    #[test]
+    fn only_the_cpu_backend_shows_one_matching_example() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let counts = backends.map(|backend| {
+            Settings {
+                backend,
+                ..Settings::default()
+            }
+            .matching_examples()
+        });
+
+        assert_eq!(counts, [1, 2, 2, 2]);
     }
 
     #[test]
