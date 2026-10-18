@@ -27,6 +27,12 @@ pub(crate) fn run() -> anyhow::Result<()> {
         runner: Box::new(runner),
         settings_store: Box::new(settings_file),
         autostart: Box::new(ghosttype_windows::StartupEntry::new(&program)),
+        history: Box::new(ghosttype_history::HistoryFile::new(
+            data_dir.join("history.bin"),
+            Box::new(ghosttype_windows::ProtectedKeyFile::new(
+                data_dir.join("history.key"),
+            )),
+        )),
     };
     ghosttype_windows::run(settings, services).context("ghosttype stopped unexpectedly")
 }
@@ -53,6 +59,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
         runner: Box::new(runner),
         settings_store: Box::new(settings_file),
         autostart: Box::new(launch_agent),
+        history: Box::new(ghosttype_history::HistoryFile::new(
+            data_dir.join("history.bin"),
+            Box::new(ghosttype_macos::Keychain),
+        )),
     };
     ghosttype_macos::run(settings, services).context("ghosttype stopped unexpectedly")
 }

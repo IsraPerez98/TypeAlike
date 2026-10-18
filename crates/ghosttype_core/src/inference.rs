@@ -75,9 +75,41 @@ pub enum InferenceRequest {
         prompt: Prompt,
         /// The most tokens to add.
         max_tokens: TokenCount,
+        /// The preference for the words that the writer often writes, if any.
+        word_bias: Option<WordBias>,
     },
     /// Unloads the loaded model to free its memory.
     Unload,
+}
+
+/// A preference of the model for the words that the writer often writes: the logits to add to the
+/// first token of each word, after a space. The runner prepares each `version` one time, so two
+/// biases with the same version hold the same words. `Debug` shows only the version and the
+/// number of words, so logs never hold what the user wrote.
+#[derive(Clone)]
+pub struct WordBias {
+    /// Names the words. A new table of words gets a new version.
+    pub version: u64,
+    /// Each word in lowercase, with the logits to add to its first token.
+    pub words: Arc<[(String, f32)]>,
+}
+
+impl PartialEq for WordBias {
+    fn eq(&self, other: &Self) -> bool {
+        self.version == other.version
+    }
+}
+
+impl Eq for WordBias {}
+
+impl fmt::Debug for WordBias {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WordBias")
+            .field("version", &self.version)
+            .field("words", &self.words.len())
+            .finish()
+    }
 }
 
 /// The outcome of an [`InferenceRequest`].

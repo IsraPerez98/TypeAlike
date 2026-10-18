@@ -11,6 +11,7 @@ mod clipboard;
 mod event_tap;
 mod focus;
 mod injection;
+mod keychain;
 mod keys;
 mod labels;
 mod main_menu;
@@ -21,6 +22,8 @@ mod runtime;
 mod screen_text;
 mod settings;
 mod single_instance;
+
+pub use keychain::Keychain;
 
 use ghosttype_core::controller::Services;
 use ghosttype_core::settings::Settings;

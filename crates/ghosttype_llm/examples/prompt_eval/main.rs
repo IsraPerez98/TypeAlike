@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--backend BACKEND]
+//!     [--backend BACKEND] [--word-choice CHOICE]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -20,11 +20,14 @@
 //! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
 //!   are the frames of the field and the caret, and each of `lines` has a `text` outside of the
 //!   field and its `frame`. A frame is `[left, top, right, bottom]` in pixels of the window.
-//! - `history`: earlier passages by the same writer.
+//! - `history`: earlier texts of the same writer, oldest first. Each one has its `text`, and the
+//!   `app_id` and `domain` of the place where the writer typed it.
+//! - `words`: the words that the writer often writes, with their counts. It can be left out. When
+//!   the case has words, the word bias comes from them, and else from `history`.
 //! - `next`: the text that the writer typed next.
 //!
-//! The prompt does not read `history` yet. The eval uses the default settings with the clipboard
-//! allowed, and `clipboard` is a copy that came just before. `--notes` gives the notes about the
+//! The eval uses the default settings with the clipboard and the earlier writing on, and
+//! `clipboard` is a copy that came just before. `--notes` gives the notes about the
 //! writer, which are empty by default. It opens a field that holds `before`
 //! without its last character, lets the input settle so that the screen text is read, types that
 //! character and waits for the ghost text.
@@ -45,10 +48,14 @@
 //!
 //! `--backend` names the backend that runs the model: `cpu`, `vulkan`, `cuda` or `metal`. The
 //! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.
+//!
+//! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
+//! `light`, `medium` or `strong`. The log probability does not use the word bias.
 
 mod likelihood;
 mod score;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -62,12 +69,16 @@ use ghosttype_core::desktop::{
     Surroundings,
 };
 use ghosttype_core::engine::Reaction;
+use ghosttype_core::history::{HistoryEntry, word_bias_of_counts};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    WordBias,
 };
 use ghosttype_core::key::Key;
-use ghosttype_core::settings::{ClipboardAccess, Settings, WriterNotes};
+use ghosttype_core::settings::{
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, Settings, WordChoice, WriterNotes,
+};
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -76,7 +87,7 @@ use crate::likelihood::Continuation;
 use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word, next_word};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--notes TEXT] [--backend cpu|vulkan|cuda|metal]";
+     [--notes TEXT] [--backend cpu|vulkan|cuda|metal] [--word-choice off|light|medium|strong]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -86,6 +97,7 @@ struct Arguments {
     save: Option<PathBuf>,
     notes: String,
     backend: Backend,
+    word_choice: WordChoice,
 }
 
 impl Arguments {
@@ -101,6 +113,7 @@ impl Arguments {
             save: None,
             notes: String::new(),
             backend: BUILT_IN_BACKEND,
+            word_choice: WordChoice::Off,
         };
         for option in options.chunks(2) {
             match option {
@@ -108,10 +121,22 @@ impl Arguments {
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
+                [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 _ => return None,
             }
         }
         Some(parsed)
+    }
+}
+
+/// Returns the word choice with `name` in [`USAGE`], or `None` for another name.
+fn word_choice_named(name: &str) -> Option<WordChoice> {
+    match name {
+        "off" => Some(WordChoice::Off),
+        "light" => Some(WordChoice::Light),
+        "medium" => Some(WordChoice::Medium),
+        "strong" => Some(WordChoice::Strong),
+        _ => None,
     }
 }
 
@@ -142,9 +167,29 @@ struct Case {
     after: String,
     clipboard: Option<String>,
     screen: Option<CaseScreen>,
-    #[expect(dead_code, reason = "the prompt does not read earlier writing yet")]
-    history: Vec<String>,
+    history: Vec<CaseEntry>,
+    #[serde(default)]
+    words: BTreeMap<String, u32>,
     next: String,
+}
+
+/// An earlier text of the writer.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaseEntry {
+    text: String,
+    app_id: String,
+    domain: Option<String>,
+}
+
+impl CaseEntry {
+    fn to_history_entry(&self) -> HistoryEntry {
+        HistoryEntry {
+            text: self.text.clone(),
+            app_id: self.app_id.clone(),
+            domain: self.domain.clone(),
+        }
+    }
 }
 
 /// A frame as `[left, top, right, bottom]`.
@@ -262,7 +307,36 @@ struct CaseRun {
     continuation: Option<Continuation>,
 }
 
-fn run_case(model: &mut Model, case: &Case, settings: &Settings) -> anyhow::Result<CaseRun> {
+/// Returns `request` with the word bias of the `words` of `case`, or else with the bias that the
+/// app built from the history of the case. The bias gets `version`, because each case starts a new
+/// app, and the runner prepares each version one time.
+fn with_case_bias(
+    request: InferenceRequest,
+    case: &Case,
+    choice: WordChoice,
+    version: u64,
+) -> InferenceRequest {
+    let InferenceRequest::Complete {
+        prompt,
+        max_tokens,
+        word_bias,
+    } = request
+    else {
+        return request;
+    };
+    let word_bias = if case.words.is_empty() {
+        word_bias.map(|bias| WordBias { version, ..bias })
+    } else {
+        word_bias_of_counts(case.words.clone(), choice, version)
+    };
+    InferenceRequest::Complete {
+        prompt,
+        max_tokens,
+        word_bias,
+    }
+}
+
+fn run_case(model: &mut Model, case: &Case, settings: &Settings, version: u64) -> anyhow::Result<CaseRun> {
     let mut before = case.before.clone();
     let last_character = before
         .pop()
@@ -289,6 +363,7 @@ fn run_case(model: &mut Model, case: &Case, settings: &Settings) -> anyhow::Resu
     };
     let mut app = App::new();
     app.use_settings(settings);
+    app.use_history(case.history.iter().map(CaseEntry::to_history_entry).collect());
     if let Some(screen) = &case.screen {
         let Some(SettledWork::ReadScreen { read: id, .. }) = app.on_input_settled(&field) else {
             bail!("case {} reads no screen text", case.id);
@@ -307,6 +382,7 @@ fn run_case(model: &mut Model, case: &Case, settings: &Settings) -> anyhow::Resu
                 InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
                 _ => None,
             };
+            let request = with_case_bias(request, case, settings.personalization.word_choice, version);
             (app.on_completion(model.complete(request)?), prompt)
         }
         reaction => (reaction, None),
@@ -409,12 +485,18 @@ fn main() -> anyhow::Result<()> {
     let settings = Settings {
         clipboard_access: ClipboardAccess::Allowed,
         writer_notes: WriterNotes(arguments.notes.clone()),
+        personalization: PersonalizationSettings {
+            history: HistoryAccess::On,
+            word_choice: arguments.word_choice,
+            ..PersonalizationSettings::default()
+        },
         ..Settings::default()
     };
     let mut model = Model::load(&arguments.model, arguments.backend)?;
     let runs = cases
         .iter()
-        .map(|case| run_case(&mut model, case, &settings))
+        .zip(1..)
+        .map(|(case, version)| run_case(&mut model, case, &settings, version))
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
     let continuations = runs
@@ -464,7 +546,29 @@ mod tests {
                 save: None,
                 notes: String::new(),
                 backend: BUILT_IN_BACKEND,
+                word_choice: WordChoice::Off,
             })
+        );
+    }
+
+    #[test]
+    fn word_choice_option_sets_the_strength_of_the_word_bias() {
+        let names = ["off", "light", "medium", "strong", "huge"];
+
+        let choices = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--word-choice", name])
+                .map(|arguments| arguments.word_choice)
+        });
+
+        assert_eq!(
+            choices,
+            [
+                Some(WordChoice::Off),
+                Some(WordChoice::Light),
+                Some(WordChoice::Medium),
+                Some(WordChoice::Strong),
+                None
+            ]
         );
     }
 

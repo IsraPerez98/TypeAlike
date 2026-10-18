@@ -14,6 +14,7 @@ mod cpu_cores;
 mod focus;
 mod gdi;
 mod injection;
+mod key_file;
 mod keys;
 mod mailbox;
 mod menu;
@@ -36,6 +37,7 @@ use ghosttype_core::settings::Settings;
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 
 pub use crate::cpu_cores::cpu_cores;
+pub use crate::key_file::ProtectedKeyFile;
 pub use crate::startup::StartupEntry;
 
 /// A failure that stops GhostType from starting or running.

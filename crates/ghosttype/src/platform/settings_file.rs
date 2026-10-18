@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
-    ClipboardAccess, OcrLevel, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
-    Settings, SettingsStore, SuggestionDisplay, SuggestionLength, WriterNotes,
+    ClipboardAccess, HistoryAccess, HistoryApp, KeptTexts, OcrLevel, PersonalizationSettings,
+    PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings, SettingsStore,
+    SuggestionDisplay, SuggestionLength, WordChoice, WriterNotes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -74,6 +75,7 @@ struct StoredSettings {
     system_prompt: Option<String>,
     clipboard_access: StoredClipboardAccess,
     screen_text: StoredScreenText,
+    personalization: StoredPersonalization,
     prompt_preparation: StoredPromptPreparation,
     suggestion_display: StoredSuggestionDisplay,
     suggestion_length: StoredSuggestionLength,
@@ -195,6 +197,114 @@ impl From<StoredScreenText> for ScreenTextSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
+struct StoredPersonalization {
+    history: StoredHistoryAccess,
+    kept_texts: StoredKeptTexts,
+    apps: Vec<StoredScreenTextApp>,
+    word_choice: StoredWordChoice,
+}
+
+impl Default for StoredPersonalization {
+    fn default() -> Self {
+        PersonalizationSettings::default().into()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredHistoryAccess {
+    Off,
+    On,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredKeptTexts {
+    AcceptedOnly,
+    All,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredWordChoice {
+    Off,
+    Light,
+    Medium,
+    Strong,
+}
+
+impl From<PersonalizationSettings> for StoredPersonalization {
+    fn from(settings: PersonalizationSettings) -> Self {
+        let history = match settings.history {
+            HistoryAccess::Off => StoredHistoryAccess::Off,
+            HistoryAccess::On => StoredHistoryAccess::On,
+        };
+        let kept_texts = match settings.kept_texts {
+            KeptTexts::AcceptedOnly => StoredKeptTexts::AcceptedOnly,
+            KeptTexts::All => StoredKeptTexts::All,
+        };
+        let apps = settings
+            .apps
+            .into_iter()
+            .map(|app| StoredScreenTextApp {
+                app_id: app.app_id,
+                app_name: app.app_name,
+                app_path: app.app_path,
+                is_on: app.is_on,
+            })
+            .collect();
+        let word_choice = match settings.word_choice {
+            WordChoice::Off => StoredWordChoice::Off,
+            WordChoice::Light => StoredWordChoice::Light,
+            WordChoice::Medium => StoredWordChoice::Medium,
+            WordChoice::Strong => StoredWordChoice::Strong,
+        };
+        Self {
+            history,
+            kept_texts,
+            apps,
+            word_choice,
+        }
+    }
+}
+
+impl From<StoredPersonalization> for PersonalizationSettings {
+    fn from(stored: StoredPersonalization) -> Self {
+        let history = match stored.history {
+            StoredHistoryAccess::Off => HistoryAccess::Off,
+            StoredHistoryAccess::On => HistoryAccess::On,
+        };
+        let kept_texts = match stored.kept_texts {
+            StoredKeptTexts::AcceptedOnly => KeptTexts::AcceptedOnly,
+            StoredKeptTexts::All => KeptTexts::All,
+        };
+        let apps = stored
+            .apps
+            .into_iter()
+            .map(|app| HistoryApp {
+                app_id: app.app_id,
+                app_name: app.app_name,
+                app_path: app.app_path,
+                is_on: app.is_on,
+            })
+            .collect();
+        let word_choice = match stored.word_choice {
+            StoredWordChoice::Off => WordChoice::Off,
+            StoredWordChoice::Light => WordChoice::Light,
+            StoredWordChoice::Medium => WordChoice::Medium,
+            StoredWordChoice::Strong => WordChoice::Strong,
+        };
+        Self {
+            history,
+            kept_texts,
+            apps,
+            word_choice,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum StoredPromptPreparation {
     OnFirstKey,
@@ -258,6 +368,7 @@ impl From<Settings> for StoredSettings {
             system_prompt: None,
             clipboard_access,
             screen_text: settings.screen_text.into(),
+            personalization: settings.personalization.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,
@@ -304,6 +415,7 @@ impl From<StoredSettings> for Settings {
             writer_notes: WriterNotes(writer_notes),
             clipboard_access,
             screen_text: stored.screen_text.into(),
+            personalization: stored.personalization.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,
@@ -485,6 +597,32 @@ mod tests {
     }
 
     #[test]
+    fn settings_file_without_personalization_reads_with_the_history_off() {
+        let json = r#"{ "clipboard_access": "allowed" }"#;
+
+        let personalization = parse(json).map(|settings| settings.personalization).ok();
+
+        assert_eq!(personalization, Some(PersonalizationSettings::default()));
+    }
+
+    #[test]
+    fn personalization_reads_from_its_names() {
+        let json = r#"{ "personalization": { "history": "on", "kept_texts": "accepted_only", "word_choice": "light" } }"#;
+
+        let personalization = parse(json).map(|settings| settings.personalization).ok();
+
+        assert_eq!(
+            personalization,
+            Some(PersonalizationSettings {
+                history: HistoryAccess::On,
+                kept_texts: KeptTexts::AcceptedOnly,
+                apps: Vec::new(),
+                word_choice: WordChoice::Light,
+            })
+        );
+    }
+
+    #[test]
     fn prompt_preparation_reads_from_its_name() {
         let files = [
             r#"{ "prompt_preparation": "on_first_key" }"#,
@@ -573,6 +711,17 @@ mod tests {
                     is_on: false,
                 }],
                 ocr_level: OcrLevel::Accurate,
+            },
+            personalization: PersonalizationSettings {
+                history: HistoryAccess::On,
+                kept_texts: KeptTexts::All,
+                apps: vec![HistoryApp {
+                    app_id: "slack.exe".to_owned(),
+                    app_name: "Slack".to_owned(),
+                    app_path: Some("C:\\Slack\\slack.exe".to_owned()),
+                    is_on: false,
+                }],
+                word_choice: WordChoice::Strong,
             },
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,

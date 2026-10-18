@@ -10,13 +10,15 @@ use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, T
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::Reaction;
 use crate::general_pane::{GeneralAction, GeneralPane};
+use crate::history::WritingHistory;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::models_pane::{ModelsAction, ModelsPane};
+use crate::personalization_pane::{PersonalizationAction, PersonalizationChange, PersonalizationPane};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::screen_text_pane::{ScreenTextAction, ScreenTextPane};
-use crate::settings::{Autostart, ClipboardAccess, Settings, SettingsStore};
+use crate::settings::{Autostart, ClipboardAccess, HistoryAccess, HistoryApp, Settings, SettingsStore};
 use crate::settings_view::{SettingsInput, SettingsView};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
@@ -55,6 +57,7 @@ pub enum BackendChoice {
 enum PaneAction {
     General(GeneralAction),
     ScreenText(ScreenTextAction),
+    Personalization(PersonalizationAction),
     Models(ModelsAction),
     Playground(PlaygroundAction),
 }
@@ -87,6 +90,8 @@ pub struct Services {
     pub settings_store: Box<dyn SettingsStore>,
     /// Starts GhostType at login when the user turns it on in the General pane.
     pub autostart: Box<dyn Autostart>,
+    /// Keeps the earlier writing of the user while the Personalization pane allows it.
+    pub history: Box<dyn WritingHistory>,
 }
 
 impl fmt::Debug for Services {
@@ -158,15 +163,20 @@ pub struct Controller {
     playground: PlaygroundPane,
     general: GeneralPane,
     screen_text: ScreenTextPane,
+    personalization: PersonalizationPane,
     hub: Box<dyn ModelHub>,
     runner: Box<dyn ModelRunner>,
     settings_store: Box<dyn SettingsStore>,
+    history: Box<dyn WritingHistory>,
+    /// Whether the app has the entries of `history`, which it reads only while the history is on.
+    is_history_loaded: bool,
     hub_sink: HubEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
     pending_ghost: Option<String>,
     is_caret_timer_pending: bool,
-    /// Whether the Screen text pane has an app that the settings store does not have yet.
+    /// Whether the Screen text or Personalization pane has an app that the settings store does not
+    /// have yet.
     has_unsaved_app: bool,
 }
 
@@ -197,10 +207,12 @@ impl Controller {
             mut runner,
             mut settings_store,
             autostart,
+            history,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
+        let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
         let general = match backends {
             BackendChoice::User => GeneralPane::new(settings),
@@ -216,22 +228,27 @@ impl Controller {
         if let Some(request) = general.load_suggestion_model(&mut playground) {
             runner.submit(request, &playground_sink);
         }
-        Self {
+        let mut controller = Self {
             app,
             models: ModelsPane::new(),
             playground,
             general,
             screen_text,
+            personalization,
             hub,
             runner,
             settings_store,
+            history,
+            is_history_loaded: false,
             hub_sink: delivering_sink(deliver, Delivery::Hub),
             playground_sink,
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             pending_ghost: None,
             is_caret_timer_pending: false,
             has_unsaved_app: false,
-        }
+        };
+        controller.load_history_when_on();
+        controller
     }
 
     /// Returns what the tray icon and its menu must show now.
@@ -299,7 +316,10 @@ impl Controller {
                 self.on_status_change(request, shell);
             }
             TrayOutcome::OpenSettings => self.open_settings(shell),
-            TrayOutcome::Quit => shell.quit(),
+            TrayOutcome::Quit => {
+                self.save_history();
+                shell.quit();
+            }
         }
     }
 
@@ -307,16 +327,21 @@ impl Controller {
     /// the panes as they are now. A menu then shows its selected entry again, also when the
     /// picked entry does nothing.
     pub fn on_settings_input(&mut self, input: &SettingsInput, shell: &mut dyn Shell) {
-        match self.pane_action(input) {
+        let action = self.pane_action(input);
+        if !matches!(action, Some(PaneAction::Personalization(_))) {
+            self.personalization.cancel_delete();
+        }
+        match action {
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
                 shell.ask_for_ocr_permission();
             }
             Some(PaneAction::ScreenText(action)) => {
                 if self.screen_text.on_action(action) {
-                    self.keep_screen_text();
+                    self.keep_pane_settings();
                 }
             }
+            Some(PaneAction::Personalization(action)) => self.on_personalization_action(action),
             Some(PaneAction::Models(action)) => {
                 if let Some(request) = self.models.on_action(action) {
                     self.hub.submit(request, &self.hub_sink);
@@ -339,6 +364,11 @@ impl Controller {
             .action_for(input, &self.playground, &installed)
             .map(PaneAction::General)
             .or_else(|| self.screen_text.action_for(input).map(PaneAction::ScreenText))
+            .or_else(|| {
+                self.personalization
+                    .action_for(input)
+                    .map(PaneAction::Personalization)
+            })
             .or_else(|| {
                 self.playground
                     .action_for(input, &installed)
@@ -381,9 +411,10 @@ impl Controller {
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
         self.refresh_focus(shell);
         if mem::take(&mut self.has_unsaved_app) {
-            self.keep_screen_text();
+            self.keep_pane_settings();
             self.render_settings(shell);
         }
+        self.save_history();
         let work = self.app.on_input_settled(&*shell);
         self.do_settled_work(work, shell);
     }
@@ -396,26 +427,73 @@ impl Controller {
         }
     }
 
-    /// Adds the app where the user types to the Screen text pane, when the pane does not have it.
-    /// The settings are saved when the input settles, because a key must not wait for the disk.
+    /// Adds the app where the user types to the Screen text and Personalization panes, when they
+    /// do not have it. The settings are saved when the input settles, because a key must not wait
+    /// for the disk.
     fn add_typed_app(&mut self) {
         if let Some(app) = self.app.typed_app() {
             self.has_unsaved_app |= self.screen_text.add_app(app);
+            self.has_unsaved_app |= self.personalization.add_app(&HistoryApp::of(app));
         }
     }
 
-    /// Keeps the settings of the Screen text pane for the next run, and uses them.
-    fn keep_screen_text(&mut self) {
-        let settings = self.with_screen_text(self.general.settings().clone());
+    /// Keeps the settings of the Screen text and Personalization panes for the next run, and uses
+    /// them.
+    fn keep_pane_settings(&mut self) {
+        let settings = self.with_pane_settings(self.general.settings().clone());
         self.settings_store.save(&settings);
         self.app.use_settings(&settings);
     }
 
-    /// Returns `settings` of the General pane with the settings of the Screen text pane.
-    fn with_screen_text(&self, settings: Settings) -> Settings {
+    /// Returns `settings` of the General pane with the settings of the Screen text and
+    /// Personalization panes.
+    fn with_pane_settings(&self, settings: Settings) -> Settings {
         Settings {
             screen_text: self.screen_text.settings().clone(),
+            personalization: self.personalization.settings().clone(),
             ..settings
+        }
+    }
+
+    fn on_personalization_action(&mut self, action: PersonalizationAction) {
+        match self.personalization.on_action(action) {
+            PersonalizationChange::None => {}
+            PersonalizationChange::Settings => {
+                self.keep_pane_settings();
+                self.load_history_when_on();
+            }
+            PersonalizationChange::AppOff(app_id) => {
+                self.keep_pane_settings();
+                self.load_history();
+                self.app.forget_history_of(&app_id);
+                self.save_history();
+            }
+            PersonalizationChange::DeleteAll => {
+                self.app.use_history(Vec::new());
+                self.history.save(&[]);
+            }
+        }
+    }
+
+    /// Gives the app the entries of the history store the first time that the history is on.
+    fn load_history_when_on(&mut self) {
+        if self.personalization.settings().history == HistoryAccess::On {
+            self.load_history();
+        }
+    }
+
+    /// Gives the app the entries of the history store, when it does not have them yet.
+    fn load_history(&mut self) {
+        if !self.is_history_loaded {
+            self.app.use_history(self.history.load());
+            self.is_history_loaded = true;
+        }
+    }
+
+    /// Keeps the earlier writing of the user when it changed.
+    fn save_history(&mut self) {
+        if let Some(entries) = self.app.history_to_save() {
+            self.history.save(entries);
         }
     }
 
@@ -464,7 +542,7 @@ impl Controller {
     fn on_playground_event(&mut self, event: InferenceEvent, shell: &mut dyn Shell) {
         self.playground.on_event(event);
         if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
-            self.settings_store.save(&self.with_screen_text(settings));
+            self.settings_store.save(&self.with_pane_settings(settings));
         }
         self.render_settings(shell);
     }
@@ -472,7 +550,7 @@ impl Controller {
     fn on_general_action(&mut self, action: GeneralAction, shell: &mut dyn Shell) {
         let outcome = self.general.on_action(action, &mut self.playground);
         if let Some(settings) = outcome.settings {
-            let settings = self.with_screen_text(settings);
+            let settings = self.with_pane_settings(settings);
             self.settings_store.save(&settings);
             self.app.use_settings(&settings);
             self.playground.use_settings(&settings);
@@ -493,6 +571,7 @@ impl Controller {
     }
 
     fn open_settings(&mut self, shell: &mut dyn Shell) {
+        self.personalization.cancel_delete();
         let request = self.models.on_open();
         self.hub.submit(request, &self.hub_sink);
         shell.show_settings(&self.settings_view(shell));
@@ -505,6 +584,7 @@ impl Controller {
                 self.general.page(&self.playground, &installed),
                 self.screen_text
                     .page(desktop.ocr_availability(), desktop.ocr_levels()),
+                self.personalization.page(),
                 self.models.page(),
                 self.playground.page(&installed),
             ],
@@ -556,13 +636,17 @@ mod tests {
     use crate::app::{Field, Status};
     use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
+    use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Completion, TokenCount};
     use crate::models_pane::SEARCH;
+    use crate::personalization_pane::{DELETE, HISTORY};
     use crate::playground::MODEL;
+    use crate::prompt::framed_prompt;
     use crate::screen_text_pane::SCREEN_TEXT;
     use crate::settings::{
-        PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionDisplay,
+        KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
+        ScreenTextSettings, SuggestionDisplay,
     };
     use crate::settings_view::{ControlId, Page};
 
@@ -690,6 +774,9 @@ mod tests {
         inference: Vec<(InferenceRequest, InferenceEventSink)>,
         hub: Vec<HubRequest>,
         saved: Vec<Settings>,
+        kept_history: Vec<HistoryEntry>,
+        history_loads: usize,
+        history_saves: Vec<Vec<HistoryEntry>>,
     }
 
     struct FakeRunner(Rc<RefCell<Recorder>>);
@@ -713,6 +800,20 @@ mod tests {
     impl SettingsStore for FakeStore {
         fn save(&mut self, settings: &Settings) {
             self.0.borrow_mut().saved.push(settings.clone());
+        }
+    }
+
+    struct FakeHistory(Rc<RefCell<Recorder>>);
+
+    impl WritingHistory for FakeHistory {
+        fn load(&mut self) -> Vec<HistoryEntry> {
+            let mut recorder = self.0.borrow_mut();
+            recorder.history_loads += 1;
+            recorder.kept_history.clone()
+        }
+
+        fn save(&mut self, entries: &[HistoryEntry]) {
+            self.0.borrow_mut().history_saves.push(entries.to_vec());
         }
     }
 
@@ -741,7 +842,22 @@ mod tests {
         }
 
         fn with_backends(settings: Settings, backends: BackendChoice) -> Self {
-            let recorder = Rc::new(RefCell::new(Recorder::default()));
+            Self::with_history(settings, backends, Vec::new())
+        }
+
+        fn with_kept_history(settings: Settings, kept_history: Vec<HistoryEntry>) -> Self {
+            Self::with_history(settings, BackendChoice::User, kept_history)
+        }
+
+        fn with_history(
+            settings: Settings,
+            backends: BackendChoice,
+            kept_history: Vec<HistoryEntry>,
+        ) -> Self {
+            let recorder = Rc::new(RefCell::new(Recorder {
+                kept_history,
+                ..Recorder::default()
+            }));
             let deliveries = Arc::new(Mutex::new(Vec::new()));
             let received = Arc::clone(&deliveries);
             let deliver: DeliverySink = Arc::new(move |delivery| {
@@ -755,6 +871,7 @@ mod tests {
                 runner: Box::new(FakeRunner(Rc::clone(&recorder))),
                 settings_store: Box::new(FakeStore(Rc::clone(&recorder))),
                 autostart: Box::new(FakeAutostart),
+                history: Box::new(FakeHistory(Rc::clone(&recorder))),
             };
             Self {
                 controller: Controller::new(settings, services, backends, &deliver),
@@ -823,6 +940,23 @@ mod tests {
 
         fn saved(&self) -> Vec<Settings> {
             self.recorder.borrow().saved.clone()
+        }
+
+        fn history_loads(&self) -> usize {
+            self.recorder.borrow().history_loads
+        }
+
+        fn history_saves(&self) -> Vec<Vec<HistoryEntry>> {
+            self.recorder.borrow().history_saves.clone()
+        }
+
+        fn settle_input(&mut self) {
+            self.controller.on_timer(Timer::InputSettle, &mut self.shell);
+        }
+
+        fn press_button(&mut self, id: &'static str) {
+            let input = SettingsInput::Pressed(ControlId::new(id));
+            self.controller.on_settings_input(&input, &mut self.shell);
         }
 
         fn toggle(&mut self, id: &'static str, is_on: bool) {
@@ -1654,6 +1788,7 @@ mod tests {
             Some(InferenceRequest::Complete {
                 prompt: crate::prompt::framed_prompt(&["Format: email; App: Mail"], ""),
                 max_tokens: TokenCount(0),
+                word_bias: None,
             })
         );
     }
@@ -1669,7 +1804,7 @@ mod tests {
     }
 
     #[test]
-    fn typing_in_a_new_app_adds_the_app_to_the_screen_text_pane_and_keeps_it() {
+    fn typing_in_a_new_app_adds_the_app_to_both_app_lists_and_keeps_it() {
         let mut harness = Harness::new(Settings::default());
         harness.focus_text_field_of("com.apple.mail", "Mail");
         harness.press(Key::Char('H'));
@@ -1686,9 +1821,168 @@ mod tests {
                     apps: vec![mail_app(true)],
                     ..ScreenTextSettings::default()
                 },
+                personalization: PersonalizationSettings {
+                    apps: vec![mail_history_app(true)],
+                    ..PersonalizationSettings::default()
+                },
                 ..Settings::default()
             }]
         );
+    }
+
+    fn mail_history_app(is_on: bool) -> HistoryApp {
+        HistoryApp {
+            app_id: "com.apple.mail".to_owned(),
+            app_name: "Mail".to_owned(),
+            app_path: None,
+            is_on,
+        }
+    }
+
+    fn mail_entry(text: &str) -> HistoryEntry {
+        HistoryEntry {
+            text: text.to_owned(),
+            app_id: "com.apple.mail".to_owned(),
+            domain: None,
+        }
+    }
+
+    fn history_on() -> Settings {
+        Settings {
+            personalization: PersonalizationSettings {
+                history: HistoryAccess::On,
+                kept_texts: KeptTexts::All,
+                apps: vec![mail_history_app(true)],
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        }
+    }
+
+    const EARLIER_TEXT: &str = "Hi Ana, the report is ready and the numbers look goo";
+
+    #[test]
+    fn history_loads_at_start_only_when_it_is_on() {
+        let settings = [Settings::default(), history_on()];
+
+        let loads = settings.map(|settings| Harness::new(settings).history_loads());
+
+        assert_eq!(loads, [0, 1]);
+    }
+
+    #[test]
+    fn turning_on_the_history_loads_it_once_and_keeps_the_setting() {
+        let mut harness = Harness::new(Settings::default());
+
+        harness.toggle(HISTORY, true);
+        harness.toggle(HISTORY, false);
+        harness.toggle(HISTORY, true);
+
+        assert_eq!(harness.history_loads(), 1);
+        assert_eq!(
+            harness
+                .saved()
+                .first()
+                .map(|settings| settings.personalization.history),
+            Some(HistoryAccess::On)
+        );
+    }
+
+    #[test]
+    fn finished_typing_is_saved_when_the_input_settles() {
+        let mut harness = Harness::new(history_on());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.shell.surroundings.field_text = Some(FieldText {
+            before_caret: EARLIER_TEXT.to_owned(),
+            after_caret: String::new(),
+        });
+        harness.press(Key::Char('d'));
+        harness.press(Key::Other);
+        let saves_before_settle = harness.history_saves().len();
+
+        harness.settle_input();
+
+        assert_eq!(saves_before_settle, 0);
+        assert_eq!(
+            harness.history_saves(),
+            vec![vec![mail_entry(&format!("{EARLIER_TEXT}d"))]]
+        );
+    }
+
+    #[test]
+    fn earlier_writing_of_the_store_goes_into_the_prompt() {
+        let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+
+        harness.press(Key::Char('H'));
+
+        assert_eq!(
+            harness.last_request(),
+            Some(InferenceRequest::Complete {
+                prompt: framed_prompt(
+                    &[
+                        "Format: email; App: Mail",
+                        "Earlier writing by the same author:\n“Cheers,\nTom”"
+                    ],
+                    "H"
+                ),
+                max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+                word_bias: None,
+            })
+        );
+    }
+
+    #[test]
+    fn app_turned_off_deletes_its_earlier_writing() {
+        let notes = HistoryEntry {
+            app_id: "com.apple.Notes".to_owned(),
+            ..mail_entry("Shopping list")
+        };
+        let mut harness =
+            Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom"), notes.clone()]);
+
+        harness.toggle("personalization-app:com.apple.mail", false);
+
+        assert_eq!(harness.history_saves(), vec![vec![notes]]);
+    }
+
+    #[test]
+    fn app_turned_off_while_the_history_is_off_keeps_the_other_apps() {
+        let notes = HistoryEntry {
+            app_id: "com.apple.Notes".to_owned(),
+            ..mail_entry("Shopping list")
+        };
+        let mut settings = history_on();
+        settings.personalization.history = HistoryAccess::Off;
+        let mut harness =
+            Harness::with_kept_history(settings, vec![mail_entry("Cheers,\nTom"), notes.clone()]);
+
+        harness.toggle("personalization-app:com.apple.mail", false);
+
+        assert_eq!(harness.history_saves(), vec![vec![notes]]);
+    }
+
+    #[test]
+    fn second_press_of_the_delete_button_deletes_all_earlier_writing() {
+        let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
+
+        harness.press_button(DELETE);
+        let saves_after_first_press = harness.history_saves().len();
+        harness.press_button(DELETE);
+
+        assert_eq!(saves_after_first_press, 0);
+        assert_eq!(harness.history_saves(), vec![Vec::new()]);
+    }
+
+    #[test]
+    fn other_input_cancels_the_first_press_of_the_delete_button() {
+        let mut harness = Harness::new(history_on());
+
+        harness.press_button(DELETE);
+        harness.toggle(CLIPBOARD, true);
+        harness.press_button(DELETE);
+
+        assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
     }
 
     #[test]
@@ -1755,14 +2049,20 @@ mod tests {
     }
 
     #[test]
-    fn screen_text_pane_follows_the_general_pane() {
+    fn screen_text_and_personalization_panes_follow_the_general_pane() {
         let mut harness = Harness::new(Settings::default());
 
         let view = harness.shown_settings();
 
         assert_eq!(
             view.pages.iter().map(|page| page.title).collect::<Vec<_>>(),
-            ["General", "Screen text", "Models", "Playground"]
+            [
+                "General",
+                "Screen text",
+                "Personalization",
+                "Models",
+                "Playground"
+            ]
         );
     }
 }

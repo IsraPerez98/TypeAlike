@@ -7,10 +7,9 @@ use crate::desktop::{ScreenText, Surroundings};
 use crate::inference::{Prompt, TokenCount};
 use crate::place::{self, Format};
 use crate::screen;
-use crate::settings::WriterNotes;
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
-/// change it. The user writes [`WriterNotes`] instead.
+/// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
 pub(crate) const FRAME: &str = "A person types the text below on their computer, for example an email, \
      a chat message, a note or a document. The writing is clear, natural and correct. It keeps the \
      language, tone and style of the person who writes it.";
@@ -24,22 +23,32 @@ const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
 /// More screen text is too slow to decode on the CPU: 1200 tokens add about 6 s with a 4B model.
 const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
+const HISTORY_TOKENS: TokenCount = TokenCount(200);
 
-/// Returns what the model reads before the text: the [`FRAME`], the `notes` of the writer on one
-/// line, the place where the user types, the `clipboard` text, the text near the field on the
-/// `screen` and the text after the caret. Each part that is empty is left out. The parts fill
-/// [`PREFACE_TOKENS`] in the order of their priority: the frame, the notes, the text after the
-/// caret, the place, the screen and the clipboard.
+/// What GhostType knows about the person who writes.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Writer<'text> {
+    /// The notes that the writer gives about themself.
+    pub notes: &'text str,
+    /// Earlier texts of the writer, oldest first.
+    pub examples: Vec<&'text str>,
+}
+
+/// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
+/// line, the place where the user types, the earlier texts of the `writer`, the `clipboard` text,
+/// the text near the field on the `screen` and the text after the caret. Each part that is empty
+/// is left out. The parts fill [`PREFACE_TOKENS`] in the order of their priority: the frame, the
+/// notes, the text after the caret, the place, the screen, the earlier texts and the clipboard.
 pub(crate) fn preface(
-    notes: &WriterNotes,
+    writer: &Writer<'_>,
     surroundings: &Surroundings,
     clipboard: Option<&str>,
     screen: Option<&ScreenText>,
 ) -> String {
     let mut budget = Budget(PREFACE_TOKENS);
     budget.spend(FRAME);
-    let notes =
-        one_line(Some(&notes.0), NOTES_TOKENS).map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
+    let notes = one_line(Some(writer.notes), NOTES_TOKENS)
+        .map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
     let after_caret = surroundings
         .field_text
         .as_ref()
@@ -55,11 +64,19 @@ pub(crate) fn preface(
         budget.spend(&text);
         text
     });
+    let examples = budget.take_examples(&writer.examples);
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
     let lines = [
         Some(FRAME.to_owned()),
         notes.map(|text| format!("Notes from the writer: “{text}”")),
         place.filter(|line| !line.is_empty()),
+        (!examples.is_empty()).then(|| {
+            let quoted = examples
+                .iter()
+                .map(|text| format!("“{text}”"))
+                .collect::<Vec<_>>();
+            format!("Earlier writing by the same author:\n{}", quoted.join("\n"))
+        }),
         clipboard
             .and_then(non_empty)
             .map(|text| format!("Text on the clipboard: “{text}”")),
@@ -89,6 +106,25 @@ impl Budget {
         kept
     }
 
+    /// Returns the ends of `examples` that fit in [`HISTORY_TOKENS`] and in the budget, each from
+    /// the start of a word, and spends their tokens. The newest examples keep the most text.
+    fn take_examples<'text>(&mut self, examples: &[&'text str]) -> Vec<&'text str> {
+        let mut left = self.left(HISTORY_TOKENS);
+        let mut kept = examples
+            .iter()
+            .rev()
+            .map(|example| {
+                let end = from_word(example, last_tokens(example, left));
+                left = TokenCount(left.0.saturating_sub(estimated_tokens(end).0));
+                self.spend(end);
+                end
+            })
+            .filter(|end| !end.is_empty())
+            .collect::<Vec<_>>();
+        kept.reverse();
+        kept
+    }
+
     fn spend(&mut self, text: &str) {
         self.0 = TokenCount(self.0.0.saturating_sub(estimated_tokens(text).0));
     }
@@ -113,6 +149,16 @@ pub(crate) fn last_chars(text: &str, count: usize) -> &str {
 pub(crate) fn estimated_tokens(text: &str) -> TokenCount {
     let thirds = text.chars().map(token_thirds).sum::<usize>();
     TokenCount(u32::try_from(thirds.div_ceil(3)).unwrap_or(u32::MAX))
+}
+
+/// Returns `end`, the end of `text`, from the start of its first word when it cuts a word of
+/// `text`.
+pub(crate) fn from_word<'text>(text: &str, end: &'text str) -> &'text str {
+    if end.len() == text.len() || text[..text.len() - end.len()].ends_with(char::is_whitespace) {
+        return end.trim_start();
+    }
+    end.split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest.trim_start())
 }
 
 /// Returns the start of `text` that takes at most `budget` estimated tokens.
@@ -201,8 +247,18 @@ mod tests {
     use super::*;
     use crate::desktop::{Confidence, FieldLabels, FieldText, ScreenLine, ScreenRect};
 
-    fn notes(text: &str) -> WriterNotes {
-        WriterNotes(text.to_owned())
+    fn notes(text: &str) -> Writer<'_> {
+        Writer {
+            notes: text,
+            ..Writer::default()
+        }
+    }
+
+    fn examples<'text>(examples: &[&'text str]) -> Writer<'text> {
+        Writer {
+            examples: examples.to_vec(),
+            ..Writer::default()
+        }
     }
 
     /// Returns the preface that has `lines` after the frame.
@@ -323,8 +379,8 @@ mod tests {
             (Some(" "), Some("Re: Budget"), "Title: Re: Budget"),
         ];
 
-        let prefaces = cases
-            .map(|(app, window, _)| preface(&WriterNotes::default(), &surroundings(app, window), None, None));
+        let prefaces =
+            cases.map(|(app, window, _)| preface(&Writer::default(), &surroundings(app, window), None, None));
 
         assert_eq!(prefaces, cases.map(|(_, _, place)| framed(place)));
     }
@@ -338,7 +394,7 @@ mod tests {
             ..surroundings(Some("Google Chrome"), Some("Inbox - Gmail - Google Chrome"))
         };
 
-        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
+        let preface = preface(&Writer::default(), &surroundings, None, None);
 
         assert_eq!(
             preface,
@@ -358,7 +414,7 @@ mod tests {
             ..surroundings(None, Some("Priya Shah"))
         };
 
-        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
+        let preface = preface(&Writer::default(), &surroundings, None, None);
 
         assert_eq!(
             preface,
@@ -373,7 +429,7 @@ mod tests {
             ..surroundings(None, Some("Re:\tBudget"))
         };
 
-        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
+        let preface = preface(&Writer::default(), &surroundings, None, None);
 
         assert_eq!(preface, framed("Title: Re: Budget; Field: Message body"));
     }
@@ -395,7 +451,7 @@ mod tests {
             ..with_text_after(&after)
         };
 
-        let preface = preface(&WriterNotes::default(), &surroundings, Some(&clipboard), None);
+        let preface = preface(&Writer::default(), &surroundings, Some(&clipboard), None);
 
         assert_eq!(
             preface,
@@ -438,7 +494,7 @@ mod tests {
         let screen = screen(&[("See you at 7?", 400), ("From: Sam", 300)]);
 
         let preface = preface(
-            &WriterNotes::default(),
+            &Writer::default(),
             &with_text_after("Best, Ana"),
             Some("1Z999"),
             Some(&screen),
@@ -456,12 +512,7 @@ mod tests {
     fn screen_text_fits_in_what_the_preface_has_left() {
         let screen = screen(&[("Dinner on Saturday?", 300), ("Hi", 480)]);
 
-        let preface = preface(
-            &WriterNotes::default(),
-            &surroundings_leaving(2),
-            None,
-            Some(&screen),
-        );
+        let preface = preface(&Writer::default(), &surroundings_leaving(2), None, Some(&screen));
 
         assert!(preface.ends_with("\nNearby on screen: “Hi”"), "{preface}");
     }
@@ -470,12 +521,7 @@ mod tests {
     fn screen_text_keeps_whole_lines() {
         let screen = screen(&[("abc", 400), ("def", 420)]);
 
-        let preface = preface(
-            &WriterNotes::default(),
-            &surroundings_leaving(2),
-            None,
-            Some(&screen),
-        );
+        let preface = preface(&Writer::default(), &surroundings_leaving(2), None, Some(&screen));
 
         assert!(preface.ends_with("\nNearby on screen: “abc\ndef”"), "{preface}");
     }
@@ -483,13 +529,75 @@ mod tests {
     #[test]
     fn screen_without_lines_adds_nothing() {
         let preface = preface(
-            &WriterNotes::default(),
+            &Writer::default(),
             &Surroundings::default(),
             None,
             Some(&screen(&[])),
         );
 
         assert_eq!(preface, FRAME);
+    }
+
+    #[test]
+    fn earlier_writing_goes_between_the_place_and_the_clipboard() {
+        let surroundings = Surroundings {
+            field_text: Some(FieldText {
+                before_caret: "Hi ".to_owned(),
+                after_caret: "Best, Ana".to_owned(),
+            }),
+            ..surroundings(Some("Mail"), None)
+        };
+
+        let preface = preface(
+            &examples(&["Cheers,\nTom", "See you soon!"]),
+            &surroundings,
+            Some("1Z999"),
+            None,
+        );
+
+        assert_eq!(
+            preface,
+            framed(
+                "App: Mail\nEarlier writing by the same author:\n“Cheers,\nTom”\n“See you soon!”\nText on the clipboard: “1Z999”\nText after the caret: “Best, Ana”"
+            )
+        );
+    }
+
+    #[test]
+    fn earlier_writing_drops_the_older_examples_that_do_not_fit() {
+        let newest = ascii_text('n', HISTORY_TOKENS, 0);
+        let older = format!("{} end", "word ".repeat(30));
+
+        let preface = preface(
+            &examples(&[&older, "first words", &newest]),
+            &Surroundings::default(),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            preface,
+            framed(&format!("Earlier writing by the same author:\n“{newest}”"))
+        );
+    }
+
+    #[test]
+    fn earlier_writing_cuts_an_example_at_the_start_of_a_word() {
+        let newest = ascii_text('n', TokenCount(HISTORY_TOKENS.0 - 4), 0);
+
+        let preface = preface(
+            &examples(&["one two three", "end of the example", &newest]),
+            &Surroundings::default(),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            preface,
+            framed(&format!(
+                "Earlier writing by the same author:\n“the example”\n“{newest}”"
+            ))
+        );
     }
 
     #[test]

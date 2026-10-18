@@ -64,6 +64,7 @@ const GEAR_SYMBOL: &str = "gearshape";
 const CUBE_SYMBOL: &str = "cube";
 const TEXT_CURSOR_SYMBOL: &str = "text.cursor";
 const TEXT_VIEWFINDER_SYMBOL: &str = "text.viewfinder";
+const PERSON_TEXT_SYMBOL: &str = "person.text.rectangle";
 
 /// The object and selectors every settings control reports to.
 #[derive(Debug)]
@@ -233,6 +234,7 @@ fn page_symbol(icon: PageIcon) -> &'static str {
         PageIcon::Cube => CUBE_SYMBOL,
         PageIcon::TextCursor => TEXT_CURSOR_SYMBOL,
         PageIcon::TextViewfinder => TEXT_VIEWFINDER_SYMBOL,
+        PageIcon::PersonText => PERSON_TEXT_SYMBOL,
     }
 }
 

@@ -6,7 +6,7 @@ use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, TokenCount};
 use crate::models_pane::model_name;
-use crate::prompt;
+use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterNotes};
 use crate::settings_view::{
     ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
@@ -267,10 +267,19 @@ impl PlaygroundPane {
             return None;
         }
         self.completion = Some(CompletionState::Running);
-        let preface = prompt::preface(&self.writer_notes, &Surroundings::default(), None, None);
+        let preface = prompt::preface(
+            &Writer {
+                notes: &self.writer_notes.0,
+                ..Writer::default()
+            },
+            &Surroundings::default(),
+            None,
+            None,
+        );
         Some(InferenceRequest::Complete {
             prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,
+            word_bias: None,
         })
     }
 
@@ -998,6 +1007,7 @@ mod tests {
             Some(InferenceRequest::Complete {
                 prompt: prompt("Dear "),
                 max_tokens: TokenCount(32),
+                word_bias: None,
             })
         );
     }
@@ -1017,6 +1027,7 @@ mod tests {
             Some(InferenceRequest::Complete {
                 prompt: prompt::framed_prompt(&["Notes from the writer: “I am a nurse.”"], "Dear "),
                 max_tokens: TokenCount(32),
+                word_bias: None,
             })
         );
     }

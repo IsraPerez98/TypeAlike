@@ -1,5 +1,6 @@
 //! The thread that owns llama.cpp: the backend, the loaded model and each completion.
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -12,7 +13,7 @@ use std::time::Instant;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, CONTEXT_TOKENS, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink,
-    InferenceRequest, Prompt, TokenCount,
+    InferenceRequest, Prompt, TokenCount, WordBias,
 };
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
@@ -172,9 +173,15 @@ fn serve(
         model,
         cpu_threads,
         cache: None,
+        word_tokens: None,
     };
     while let Some(job) = queue.next() {
-        let InferenceRequest::Complete { prompt, max_tokens } = &job.request else {
+        let InferenceRequest::Complete {
+            prompt,
+            max_tokens,
+            word_bias,
+        } = &job.request
+        else {
             queue.give_back(job);
             return;
         };
@@ -182,7 +189,7 @@ fn serve(
             is_outdated: &mut || queue.has_newer_completion(&job.sink),
             send_partial: &mut |text| (job.sink)(InferenceEvent::Partial(text)),
         };
-        let result = loaded.complete(prompt, *max_tokens, &mut progress);
+        let result = loaded.complete(prompt, *max_tokens, word_bias.as_ref(), &mut progress);
         (job.sink)(InferenceEvent::Completed(result));
     }
 }
@@ -365,6 +372,8 @@ struct LoadedModel<'model> {
     model: &'model LlamaModel,
     cpu_threads: Option<CpuThreads>,
     cache: Option<PromptCache<'model>>,
+    /// The version of the last word bias, and the logits that it adds to each token.
+    word_tokens: Option<(u64, Vec<(LlamaToken, f32)>)>,
 }
 
 impl LoadedModel<'_> {
@@ -374,15 +383,19 @@ impl LoadedModel<'_> {
         &mut self,
         prompt: &Prompt,
         max_tokens: TokenCount,
+        word_bias: Option<&WordBias>,
         progress: &mut Progress<'_>,
     ) -> Result<Completion, InferenceError> {
         let started = Instant::now();
-        let (text, tokens) = self.generate(prompt, max_tokens, progress).map_err(|error| {
-            if !matches!(error, GenerateError::Superseded) {
-                tracing::warn!(%error, "failed to complete text");
-            }
-            error.to_inference_error()
-        })?;
+        let token_bias = self.token_bias(word_bias);
+        let (text, tokens) = self
+            .generate(prompt, max_tokens, &token_bias, progress)
+            .map_err(|error| {
+                if !matches!(error, GenerateError::Superseded) {
+                    tracing::warn!(%error, "failed to complete text");
+                }
+                error.to_inference_error()
+            })?;
         Ok(Completion {
             text,
             tokens,
@@ -390,8 +403,28 @@ impl LoadedModel<'_> {
         })
     }
 
+    /// Returns the logits that `word_bias` adds to each token. It finds the tokens of each version
+    /// one time.
+    fn token_bias(&mut self, word_bias: Option<&WordBias>) -> Vec<(LlamaToken, f32)> {
+        let Some(word_bias) = word_bias else {
+            return Vec::new();
+        };
+        let is_known = self
+            .word_tokens
+            .as_ref()
+            .is_some_and(|(version, _)| *version == word_bias.version);
+        if !is_known {
+            let tokens = first_word_tokens(&self.model.vocab(), &word_bias.words);
+            self.word_tokens = Some((word_bias.version, tokens));
+        }
+        self.word_tokens
+            .as_ref()
+            .map(|(_, tokens)| tokens.clone())
+            .unwrap_or_default()
+    }
+
     /// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or
-    /// adds `max_tokens`. It keeps the prompt in the cache for the next completion, and forgets the
+    /// adds `max_tokens`. It adds `token_bias` to the logits before it picks each token. It keeps the prompt in the cache for the next completion, and forgets the
     /// cache when llama.cpp fails.
     ///
     /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
@@ -402,6 +435,7 @@ impl LoadedModel<'_> {
         &mut self,
         prompt: &Prompt,
         max_tokens: TokenCount,
+        token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
     ) -> Result<(String, TokenCount), GenerateError> {
         let model = self.model;
@@ -429,7 +463,7 @@ impl LoadedModel<'_> {
         let cache = self.cache.as_mut().expect("the cache exists above");
         let added = cache
             .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, progress));
+            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, token_bias, progress));
         match added {
             Ok(added) => {
                 let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
@@ -618,17 +652,20 @@ impl<'model> PromptCache<'model> {
         vocab: &LlamaVocab<'_>,
         healed_text: &[u8],
         max_added: usize,
+        token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
     ) -> Result<Vec<LlamaToken>, GenerateError> {
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
         let mut batch = LlamaBatch::new(1, 1);
         let mut logits = self.logits.as_slice();
+        let mut biased = Vec::new();
         let mut unwritten = healed_text;
         let mut added = Vec::new();
         while added.len() < max_added {
+            let scores = with_bias(logits, token_bias, &mut biased);
             let token =
-                best_token_agreeing_with(logits, vocab, unwritten).unwrap_or_else(|| most_likely(logits));
+                best_token_agreeing_with(scores, vocab, unwritten).unwrap_or_else(|| most_likely(scores));
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
@@ -739,6 +776,47 @@ fn agrees_with(piece: &[u8], unwritten: &[u8]) -> bool {
 /// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
 fn unwritten_after<'text>(unwritten: &'text [u8], piece: &[u8]) -> &'text [u8] {
     unwritten.strip_prefix(piece).unwrap_or_default()
+}
+
+/// Returns the first token of each of `words` after a space, with the most logits of the words
+/// that start with it. It leaves out a token that does not start a word or that is only a space.
+fn first_word_tokens(vocab: &LlamaVocab<'_>, words: &[(String, f32)]) -> Vec<(LlamaToken, f32)> {
+    let mut biases = HashMap::<LlamaToken, f32>::new();
+    for (word, bias) in words {
+        let Some(&first) = vocab
+            .tokenize(format!(" {word}").as_bytes(), false, false)
+            .first()
+        else {
+            continue;
+        };
+        let piece = vocab.token_to_piece(first, false, None);
+        if !starts_word(&piece) || piece.trim_ascii().is_empty() {
+            continue;
+        }
+        let kept = biases.entry(first).or_insert(*bias);
+        *kept = kept.max(*bias);
+    }
+    biases.into_iter().collect()
+}
+
+/// Returns `logits` with `token_bias` added, in `biased` when the bias has tokens.
+fn with_bias<'logits>(
+    logits: &'logits [f32],
+    token_bias: &[(LlamaToken, f32)],
+    biased: &'logits mut Vec<f32>,
+) -> &'logits [f32] {
+    if token_bias.is_empty() {
+        return logits;
+    }
+    biased.clear();
+    biased.extend_from_slice(logits);
+    for &(token, bias) in token_bias {
+        let index = usize::try_from(token.0).expect("a token is never negative");
+        if let Some(logit) = biased.get_mut(index) {
+            *logit += bias;
+        }
+    }
+    biased
 }
 
 /// Returns the most likely token in `logits`.
@@ -1021,6 +1099,7 @@ mod tests {
         InferenceRequest::Complete {
             prompt: Prompt("Dear".to_owned()),
             max_tokens: TokenCount(4),
+            word_bias: None,
         }
     }
 
@@ -1106,6 +1185,28 @@ mod tests {
         let kept = kept_tokens(&tokens(&[1, 2, 3]), &tokens(&[1, 2]));
 
         assert_eq!(kept, 1);
+    }
+
+    #[test]
+    fn bias_adds_to_the_logits_of_its_tokens() {
+        let mut biased = Vec::new();
+
+        let scores = with_bias(
+            &[1.0, 2.0, 3.0],
+            &[(LlamaToken(0), 2.5), (LlamaToken(9), 1.0)],
+            &mut biased,
+        );
+
+        assert_eq!(scores, [3.5, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn no_bias_keeps_the_logits() {
+        let mut biased = Vec::new();
+
+        let scores = with_bias(&[1.0, 2.0], &[], &mut biased);
+
+        assert_eq!(scores, [1.0, 2.0]);
     }
 
     #[test]

@@ -207,6 +207,7 @@ mod tests {
             InferenceRequest::Complete {
                 prompt: Prompt("Dear".to_owned()),
                 max_tokens: TokenCount(4),
+                word_bias: None,
             },
         );
 

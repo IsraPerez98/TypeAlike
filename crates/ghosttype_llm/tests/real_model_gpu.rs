@@ -28,6 +28,7 @@ fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
         InferenceRequest::Complete {
             prompt: Prompt("Once upon a time".to_owned()),
             max_tokens: TokenCount(8),
+            word_bias: None,
         },
         &sink,
     );

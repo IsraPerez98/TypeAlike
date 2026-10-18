@@ -64,6 +64,8 @@ pub enum PageIcon {
     TextCursor,
     /// Text in a viewfinder, for text that GhostType reads on the screen.
     TextViewfinder,
+    /// A person and text, for what suggestions learn from the earlier writing of the user.
+    PersonText,
 }
 
 /// A field that searches for the text that the user submits.

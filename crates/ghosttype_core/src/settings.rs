@@ -161,6 +161,159 @@ const PASSWORD_MANAGERS: [&str; 24] = [
     "roboform",
 ];
 
+/// Whether GhostType saves the text that the user writes, for the suggestions to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryAccess {
+    /// GhostType saves no new text, and suggestions use no earlier writing.
+    #[default]
+    Off,
+    /// GhostType saves the text that the user writes in each app that is on in the list of the
+    /// Personalization pane, and suggestions use it.
+    On,
+}
+
+/// Which texts GhostType saves while the history is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KeptTexts {
+    /// Only a text where the user accepted a suggestion.
+    #[default]
+    AcceptedOnly,
+    /// Each text.
+    All,
+}
+
+/// How much suggestions prefer the words that the user often writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WordChoice {
+    /// Suggestions do not prefer the words of the user.
+    #[default]
+    Off,
+    /// A small preference.
+    Light,
+    /// A medium preference.
+    Medium,
+    /// A large preference, which can make a suggestion match the text less well.
+    Strong,
+}
+
+/// An app of the Personalization pane, and whether GhostType saves and uses the text that the
+/// user writes in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryApp {
+    /// The id of the app, as [`Surroundings::app_id`] gives it.
+    pub app_id: String,
+    /// The name of the app, as the user knows it.
+    pub app_name: String,
+    /// The full path of the program of the app, as [`Surroundings::app_path`] gives it.
+    pub app_path: Option<String>,
+    /// Whether GhostType saves and uses the text of the app.
+    pub is_on: bool,
+}
+
+impl HistoryApp {
+    /// The entry of `app`, where the user types, which is on unless the app is a password manager
+    /// or a terminal.
+    pub(crate) fn of(app: &ScreenTextApp) -> Self {
+        Self {
+            app_id: app.app_id.clone(),
+            app_name: app.app_name.clone(),
+            app_path: app.app_path.clone(),
+            is_on: is_history_on_by_default(&app.app_id),
+        }
+    }
+}
+
+/// What suggestions learn from the earlier writing of the user.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PersonalizationSettings {
+    /// The main switch: whether GhostType saves and uses the text of any app.
+    pub history: HistoryAccess,
+    /// Which texts GhostType saves.
+    pub kept_texts: KeptTexts,
+    /// The apps where the user typed, in alphabetical order of their names.
+    pub apps: Vec<HistoryApp>,
+    /// How much suggestions prefer the words that the user often writes.
+    pub word_choice: WordChoice,
+}
+
+impl PersonalizationSettings {
+    /// Whether GhostType saves and uses the text of the app with `app_id`. An app that is not in
+    /// the list yet is on, unless it is a password manager or a terminal.
+    ///
+    /// ```
+    /// use ghosttype_core::settings::{HistoryAccess, PersonalizationSettings};
+    ///
+    /// let settings = PersonalizationSettings {
+    ///     history: HistoryAccess::On,
+    ///     ..PersonalizationSettings::default()
+    /// };
+    ///
+    /// assert!(settings.allows("com.apple.mail"));
+    /// assert!(!settings.allows("com.apple.Terminal"));
+    /// ```
+    #[must_use]
+    pub fn allows(&self, app_id: &str) -> bool {
+        let entry = self.apps.iter().find(|app| app.app_id == app_id);
+        self.history == HistoryAccess::On
+            && entry.map_or_else(|| is_history_on_by_default(app_id), |app| app.is_on)
+    }
+
+    /// Adds `app` to the list in its alphabetical place, unless the list has an app with its id.
+    /// Returns whether the list changed.
+    pub(crate) fn add(&mut self, app: &HistoryApp) -> bool {
+        if self.apps.iter().any(|known| known.app_id == app.app_id) {
+            return false;
+        }
+        let name = app.app_name.to_lowercase();
+        let place = self
+            .apps
+            .partition_point(|known| known.app_name.to_lowercase() <= name);
+        self.apps.insert(place, app.clone());
+        true
+    }
+}
+
+fn is_history_on_by_default(app_id: &str) -> bool {
+    !is_password_manager(app_id) && !is_terminal(app_id)
+}
+
+/// Whether the app with `app_id` is a terminal, whose text GhostType does not save unless the
+/// user turns it on. Its id matches by its start in lowercase.
+fn is_terminal(app_id: &str) -> bool {
+    let app_id = app_id.to_lowercase();
+    TERMINALS.iter().any(|start| app_id.starts_with(start))
+}
+
+/// The terminals that GhostType knows, by the start of their app id in lowercase: the bundle
+/// identifier on macOS and the program file name on Windows.
+const TERMINALS: [&str; 25] = [
+    "com.apple.terminal",
+    "com.googlecode.iterm2",
+    "com.mitchellh.ghostty",
+    "dev.warp.",
+    "net.kovidgoyal.kitty",
+    "io.alacritty",
+    "org.alacritty",
+    "com.github.wez.wezterm",
+    "co.zeit.hyper",
+    "com.raphaelamorim.rio",
+    "org.tabby",
+    "windowsterminal.exe",
+    "openconsole.exe",
+    "conhost.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "wezterm-gui.exe",
+    "alacritty.exe",
+    "warp.exe",
+    "mintty.exe",
+    "tabby.exe",
+    "hyper.exe",
+    "putty.exe",
+    "rio.exe",
+];
+
 /// When GhostType gives the text around the caret to the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PromptPreparation {
@@ -226,6 +379,8 @@ pub struct Settings {
     pub clipboard_access: ClipboardAccess,
     /// Where suggestions may use the text near the text field on the screen.
     pub screen_text: ScreenTextSettings,
+    /// What suggestions learn from the earlier writing of the user.
+    pub personalization: PersonalizationSettings,
     /// When GhostType gives the text around the caret to the model.
     pub prompt_preparation: PromptPreparation,
     /// When the ghost text shows the words that the model writes.
@@ -394,6 +549,92 @@ mod tests {
 
         assert!(!added);
         assert_eq!(settings.apps, [app("com.apple.mail", "Mail", false)]);
+    }
+
+    fn history_app(app_id: &str, app_name: &str, is_on: bool) -> HistoryApp {
+        HistoryApp {
+            app_id: app_id.to_owned(),
+            app_name: app_name.to_owned(),
+            app_path: None,
+            is_on,
+        }
+    }
+
+    fn personalization(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationSettings {
+        PersonalizationSettings {
+            history,
+            apps,
+            ..PersonalizationSettings::default()
+        }
+    }
+
+    #[test]
+    fn new_history_app_is_on_unless_the_app_is_a_password_manager_or_a_terminal() {
+        let cases = [
+            ("com.apple.mail", true),
+            ("com.1password.1password", false),
+            ("com.apple.Terminal", false),
+            ("WindowsTerminal.exe", false),
+            ("pwsh.exe", false),
+        ];
+
+        let switches = cases.map(|(app_id, _)| HistoryApp::of(&app(app_id, "App", true)).is_on);
+
+        assert_eq!(switches, cases.map(|(_, is_on)| is_on));
+    }
+
+    #[test]
+    fn history_app_switch_decides_for_its_app() {
+        let settings = personalization(
+            HistoryAccess::On,
+            vec![
+                history_app("com.apple.mail", "Mail", false),
+                history_app("com.apple.Terminal", "Terminal", true),
+            ],
+        );
+
+        let allowed = [
+            "com.apple.mail",
+            "com.apple.Terminal",
+            "com.apple.notes",
+            "cmd.exe",
+        ]
+        .map(|app_id| settings.allows(app_id));
+
+        assert_eq!(allowed, [false, true, true, false]);
+    }
+
+    #[test]
+    fn history_off_allows_no_app() {
+        let settings = personalization(
+            HistoryAccess::Off,
+            vec![history_app("com.apple.mail", "Mail", true)],
+        );
+
+        let allowed = ["com.apple.mail", "com.apple.notes"].map(|app_id| settings.allows(app_id));
+
+        assert_eq!(allowed, [false, false]);
+    }
+
+    #[test]
+    fn history_apps_go_in_alphabetical_order_and_once() {
+        let mut settings = personalization(HistoryAccess::On, Vec::new());
+
+        let added = [
+            history_app("slack.exe", "Slack", true),
+            history_app("com.apple.mail", "mail", true),
+            history_app("slack.exe", "Slack", false),
+        ]
+        .map(|entry| settings.add(&entry));
+
+        assert_eq!(added, [true, true, false]);
+        assert_eq!(
+            settings.apps,
+            [
+                history_app("com.apple.mail", "mail", true),
+                history_app("slack.exe", "Slack", true)
+            ]
+        );
     }
 
     #[test]

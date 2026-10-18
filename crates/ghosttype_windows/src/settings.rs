@@ -352,5 +352,6 @@ fn page_symbol(icon: PageIcon) -> Symbol {
         PageIcon::Cube => Symbol::Download,
         PageIcon::TextCursor => Symbol::Edit,
         PageIcon::TextViewfinder => Symbol::Scan,
+        PageIcon::PersonText => Symbol::ContactInfo,
     }
 }

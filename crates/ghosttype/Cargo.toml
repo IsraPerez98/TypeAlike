@@ -31,6 +31,7 @@ tracing-subscriber.workspace = true
 windows-reactor-setup = { workspace = true, optional = true }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+ghosttype_history.workspace = true
 ghosttype_llm.workspace = true
 ghosttype_models.workspace = true
 serde.workspace = true

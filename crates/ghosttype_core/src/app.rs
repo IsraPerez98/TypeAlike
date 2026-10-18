@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::desktop::{Desktop, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Engine, Reaction};
+use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings, SuggestionDisplay};
@@ -171,6 +172,24 @@ impl App {
             self.engine.forget_screen();
             self.screen_text = settings.screen_text.clone();
         }
+    }
+
+    /// Uses `entries`, the earlier writing of the user, oldest first, from the next key in a new
+    /// place on.
+    pub fn use_history(&mut self, entries: Vec<HistoryEntry>) {
+        self.engine.use_history(entries);
+    }
+
+    /// Returns the earlier writing of the user, oldest first, when it changed since the last call:
+    /// a finished typing added a text, or [`forget_history_of`](Self::forget_history_of) dropped
+    /// texts.
+    pub fn history_to_save(&mut self) -> Option<&[HistoryEntry]> {
+        self.engine.history_to_save()
+    }
+
+    /// Forgets the earlier writing of the app with `app_id`.
+    pub fn forget_history_of(&mut self, app_id: &str) {
+        self.engine.forget_history_of(app_id);
     }
 
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. In a text field of an app where
@@ -426,6 +445,7 @@ mod tests {
         InferenceRequest::Complete {
             prompt: framed_prompt(lines, text_before),
             max_tokens: TokenCount(0),
+            word_bias: None,
         }
     }
 
@@ -433,6 +453,7 @@ mod tests {
         Reaction::Request(InferenceRequest::Complete {
             prompt: framed_prompt(lines, text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+            word_bias: None,
         })
     }
 

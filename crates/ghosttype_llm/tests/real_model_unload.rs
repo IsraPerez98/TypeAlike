@@ -36,6 +36,7 @@ fn unloaded_model_completes_no_text() {
         InferenceRequest::Complete {
             prompt: Prompt("Once upon a time".to_owned()),
             max_tokens: TokenCount(8),
+            word_bias: None,
         },
         &sink,
     );

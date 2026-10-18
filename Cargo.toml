@@ -18,10 +18,12 @@ ghosttype_windows = { path = "crates/ghosttype_windows" }
 ghosttype_macos = { path = "crates/ghosttype_macos" }
 ghosttype_models = { path = "crates/ghosttype_models" }
 ghosttype_llm = { path = "crates/ghosttype_llm" }
+ghosttype_history = { path = "crates/ghosttype_history" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 llama-cpp-2 = { version = "0.1.159", default-features = false }
 llama-cpp-sys-2 = { version = "0.1.159", default-features = false }
+ring = { version = "0.17.14", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
@@ -48,6 +50,7 @@ windows = { version = "=0.62.2", default-features = false, features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_System_Com",
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
@@ -159,6 +162,11 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
     "CGImage",
     "CGRemoteOperation",
     "CGWindow",
+] }
+objc2-security = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "SecBase",
+    "SecItem",
 ] }
 objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = [
     "std",

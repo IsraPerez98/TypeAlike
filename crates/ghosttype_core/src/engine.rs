@@ -6,12 +6,16 @@ use std::{fmt, mem};
 use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
-use crate::inference::{CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, TokenCount};
+use crate::history::{self, HistoryEntry};
+use crate::inference::{
+    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, TokenCount, WordBias,
+};
 use crate::key::Key;
 use crate::place;
-use crate::prompt::{self, estimated_tokens, last_chars, last_tokens};
+use crate::prompt::{self, Writer, estimated_tokens, last_chars, last_tokens};
 use crate::settings::{
-    ClipboardAccess, OcrLevel, ScreenTextApp, ScreenTextSettings, Settings, SuggestionLength, WriterNotes,
+    ClipboardAccess, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp, ScreenTextSettings,
+    Settings, SuggestionLength, WriterNotes,
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
@@ -58,6 +62,14 @@ pub(crate) struct Engine {
     suggestion_length: SuggestionLength,
     screen: Screen,
     newest_screen_read: ScreenReadId,
+    personalization: PersonalizationSettings,
+    /// The earlier writing of the user, oldest first.
+    history: Vec<HistoryEntry>,
+    /// Whether `history` changed since the last [`Engine::history_to_save`].
+    has_unsaved_history: bool,
+    /// The preference for the words of `history`, if the word choice is on.
+    word_bias: Option<WordBias>,
+    word_bias_version: u64,
 }
 
 impl Default for Engine {
@@ -72,6 +84,11 @@ impl Default for Engine {
             suggestion_length: SuggestionLength::default(),
             screen: Screen::default(),
             newest_screen_read: ScreenReadId::default(),
+            personalization: PersonalizationSettings::default(),
+            history: Vec::new(),
+            has_unsaved_history: false,
+            word_bias: None,
+            word_bias_version: 0,
         };
         engine.use_settings(&Settings::default());
         engine
@@ -80,6 +97,10 @@ impl Default for Engine {
 
 /// The typing in one place: what the model reads before the text, and the text before the caret.
 /// It starts at the first key after a reset, when the key has not reached the app yet.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent fact of the session"
+)]
 struct Session {
     preface: String,
     text_before: String,
@@ -92,6 +113,10 @@ struct Session {
     app: Option<ScreenTextApp>,
     /// Whether the platform reads the text of the field.
     is_text_field: bool,
+    /// The host of the web page where the user types, if any.
+    domain: Option<String>,
+    /// Whether the user accepted a suggestion in the session.
+    has_accepted: bool,
     /// Whether a read of the screen answered during the session. Until then, the preface holds the
     /// stored text of a read before the session, if any. After it, the session starts no other
     /// read, so that the start of its prompt changes at most one time.
@@ -140,12 +165,23 @@ enum Offer {
 }
 
 impl Engine {
-    /// Uses the writer notes and the clipboard access of `settings` from the next session on, and
-    /// its suggestion length from the next request on.
+    /// Uses the writer notes, the clipboard access and the personalization of `settings` from the
+    /// next session on, and its suggestion length from the next request on.
     pub fn use_settings(&mut self, settings: &Settings) {
+        let word_choice = self.personalization.word_choice;
         self.writer_notes = settings.writer_notes.clone();
+        self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
+        if self.personalization.word_choice != word_choice {
+            self.refresh_word_bias();
+        }
+    }
+
+    /// Uses `entries`, the earlier writing of the user, oldest first, from the next session on.
+    pub fn use_history(&mut self, entries: Vec<HistoryEntry>) {
+        self.history = entries;
+        self.refresh_word_bias();
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
@@ -182,6 +218,7 @@ impl Engine {
         Some(InferenceRequest::Complete {
             prompt,
             max_tokens: PREPARATION_TOKENS,
+            word_bias: None,
         })
     }
 
@@ -228,11 +265,46 @@ impl Engine {
         }
     }
 
-    /// Ends the session, for when the caret moved somewhere unknown.
+    /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text
+    /// before the caret when the personalization allows it.
     pub fn reset(&mut self) -> Reaction {
-        self.session = None;
+        if let Some(session) = self.session.take() {
+            self.keep_text_of(&session);
+        }
         self.offer = Offer::Idle;
         Reaction::Hide
+    }
+
+    fn keep_text_of(&mut self, session: &Session) {
+        let Some(app) = &session.app else {
+            return;
+        };
+        let is_wanted = session.has_accepted || self.personalization.kept_texts == KeptTexts::All;
+        if session.is_excluded || !is_wanted || !self.personalization.allows(&app.app_id) {
+            return;
+        }
+        let Some(entry) = HistoryEntry::of(&session.text_before, &app.app_id, session.domain.as_deref())
+        else {
+            return;
+        };
+        history::add(&mut self.history, entry);
+        self.has_unsaved_history = true;
+    }
+
+    /// Returns the earlier writing of the user, oldest first, when it changed since the last call.
+    /// The word bias then comes from the new history.
+    pub fn history_to_save(&mut self) -> Option<&[HistoryEntry]> {
+        if !mem::take(&mut self.has_unsaved_history) {
+            return None;
+        }
+        self.refresh_word_bias();
+        Some(&self.history)
+    }
+
+    /// Forgets the earlier writing of the app with `app_id`.
+    pub fn forget_history_of(&mut self, app_id: &str) {
+        self.history.retain(|entry| entry.app_id != app_id);
+        self.has_unsaved_history = true;
     }
 
     /// Whether a session runs.
@@ -356,6 +428,8 @@ impl Engine {
             text_after,
             is_excluded: place::is_address_or_subject_field(&surroundings),
             app: ScreenTextApp::of(&surroundings),
+            domain: surroundings.domain.clone(),
+            has_accepted: false,
             is_text_field: surroundings.field_text.is_some(),
             has_screen_read: false,
         }
@@ -373,8 +447,18 @@ impl Engine {
             Screen::Read(text) => Some(text),
             Screen::Unknown | Screen::Reading { .. } => None,
         };
+        let examples = surroundings
+            .app_id
+            .as_ref()
+            .filter(|app_id| self.personalization.allows(app_id))
+            .map(|_| history::examples(&self.history, surroundings))
+            .unwrap_or_default();
+        let writer = Writer {
+            notes: &self.writer_notes.0,
+            examples,
+        };
         prompt::preface(
-            &self.writer_notes,
+            &writer,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
             screen,
@@ -398,6 +482,7 @@ impl Engine {
         };
         let (word, rest) = split_first_word(&suggestion);
         session.text_before.push_str(word);
+        session.has_accepted = true;
         self.keep_recent_text();
         self.take_from_ghost(word, rest);
         Reaction::Accept {
@@ -442,7 +527,27 @@ impl Engine {
         Reaction::Request(InferenceRequest::Complete {
             prompt,
             max_tokens: self.suggestion_length.max_tokens(),
+            word_bias: self.session_word_bias(),
         })
+    }
+
+    /// The word bias, when the personalization allows the app of the session.
+    fn session_word_bias(&self) -> Option<WordBias> {
+        let app = self.session.as_ref()?.app.as_ref()?;
+        self.personalization
+            .allows(&app.app_id)
+            .then(|| self.word_bias.clone())
+            .flatten()
+    }
+
+    /// Builds the word bias again from the history, with a new version.
+    fn refresh_word_bias(&mut self) {
+        self.word_bias_version = self.word_bias_version.wrapping_add(1);
+        self.word_bias = history::word_bias(
+            &self.history,
+            self.personalization.word_choice,
+            self.word_bias_version,
+        );
     }
 
     /// Returns the prompt for the text before the caret, or `None` when that text has no words or
@@ -617,6 +722,7 @@ mod tests {
     use crate::app::Field;
     use crate::desktop::{Confidence, CopiedText, FieldLabels, FieldText, ScreenLine, ScreenRect};
     use crate::inference::Backend;
+    use crate::settings::{HistoryAccess, HistoryApp, WordChoice};
 
     #[derive(Default)]
     struct FakeDesktop {
@@ -699,6 +805,7 @@ mod tests {
         Reaction::Request(InferenceRequest::Complete {
             prompt: prompt::framed_prompt(lines, text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+            word_bias: None,
         })
     }
 
@@ -1421,6 +1528,289 @@ mod tests {
         );
     }
 
+    fn history_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
+        Settings {
+            personalization: PersonalizationSettings {
+                history,
+                apps,
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        }
+    }
+
+    fn mail_entry(text: &str) -> HistoryEntry {
+        HistoryEntry {
+            text: text.to_owned(),
+            app_id: "com.apple.mail".to_owned(),
+            domain: None,
+        }
+    }
+
+    fn mail_app(is_on: bool) -> HistoryApp {
+        HistoryApp {
+            app_id: "com.apple.mail".to_owned(),
+            app_name: "Mail".to_owned(),
+            app_path: None,
+            is_on,
+        }
+    }
+
+    fn engine_with_history(settings: &Settings) -> Engine {
+        let mut engine = engine_with(settings);
+        engine.use_history(vec![mail_entry("Cheers,\nTom")]);
+        engine
+    }
+
+    fn mail_field() -> FakeDesktop {
+        FakeDesktop {
+            surroundings: Surroundings {
+                app_id: Some("com.apple.mail".to_owned()),
+                ..Surroundings::default()
+            },
+            ..FakeDesktop::default()
+        }
+    }
+
+    #[test]
+    fn earlier_writing_of_the_app_comes_before_the_text() {
+        let mut engine = engine_with_history(&history_settings(HistoryAccess::On, Vec::new()));
+
+        let reaction = engine.on_key(Key::Char('h'), &mail_field());
+
+        assert_eq!(
+            reaction,
+            request_with(
+                &[
+                    "Format: email",
+                    "Earlier writing by the same author:\n“Cheers,\nTom”"
+                ],
+                "h"
+            )
+        );
+    }
+
+    #[test]
+    fn earlier_writing_stays_out_when_the_history_or_the_app_is_off() {
+        let settings = [
+            history_settings(HistoryAccess::Off, Vec::new()),
+            history_settings(HistoryAccess::On, vec![mail_app(false)]),
+        ];
+
+        let reactions =
+            settings.map(|settings| engine_with_history(&settings).on_key(Key::Char('h'), &mail_field()));
+
+        assert_eq!(
+            reactions,
+            [
+                request_with(&["Format: email"], "h"),
+                request_with(&["Format: email"], "h")
+            ]
+        );
+    }
+
+    const EARLIER_TEXT: &str = "Hi Ana,\n\nThe report is ready, and the numbers look goo";
+
+    fn field_of(app_id: Option<&str>, field_name: Option<&str>, before_caret: &str) -> FakeDesktop {
+        FakeDesktop {
+            surroundings: Surroundings {
+                app_id: app_id.map(str::to_owned),
+                field_labels: FieldLabels {
+                    name: field_name.map(str::to_owned),
+                    ..FieldLabels::default()
+                },
+                field_text: Some(FieldText {
+                    before_caret: before_caret.to_owned(),
+                    after_caret: String::new(),
+                }),
+                ..Surroundings::default()
+            },
+            ..FakeDesktop::default()
+        }
+    }
+
+    /// Types a key in `desktop`, accepts a suggestion when `accepts` and ends the session with
+    /// Enter. Returns the history to save.
+    fn finish_typing(engine: &mut Engine, desktop: &FakeDesktop, accepts: bool) -> Option<Vec<HistoryEntry>> {
+        engine.on_key(Key::Char('d'), desktop);
+        engine.on_completion(completion(". Best, Tom"));
+        if accepts {
+            engine.on_key(Key::Tab, desktop);
+        }
+        engine.on_key(Key::Other, desktop);
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+    }
+
+    fn kept_settings(kept_texts: KeptTexts) -> Settings {
+        let mut settings = history_settings(HistoryAccess::On, Vec::new());
+        settings.personalization.kept_texts = kept_texts;
+        settings
+    }
+
+    #[test]
+    fn finished_text_with_an_accepted_suggestion_is_kept() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::AcceptedOnly));
+
+        let saved = finish_typing(
+            &mut engine,
+            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            true,
+        );
+
+        assert_eq!(saved, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d."))]));
+    }
+
+    #[test]
+    fn finished_text_without_an_accepted_suggestion_is_kept_only_when_all_texts_are_kept() {
+        let settings = [KeptTexts::AcceptedOnly, KeptTexts::All].map(kept_settings);
+
+        let saved = settings.map(|settings| {
+            finish_typing(
+                &mut engine_with(&settings),
+                &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+                false,
+            )
+        });
+
+        assert_eq!(saved, [None, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d"))])]);
+    }
+
+    #[test]
+    fn finished_text_is_not_kept_where_the_rules_forbid_it() {
+        let cases = [
+            (
+                history_settings(HistoryAccess::Off, Vec::new()),
+                field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            ),
+            (
+                history_settings(HistoryAccess::On, vec![mail_app(false)]),
+                field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            ),
+            (
+                kept_settings(KeptTexts::All),
+                field_of(Some("com.apple.Terminal"), None, EARLIER_TEXT),
+            ),
+            (kept_settings(KeptTexts::All), field_of(None, None, EARLIER_TEXT)),
+            (
+                kept_settings(KeptTexts::All),
+                field_of(Some("com.apple.mail"), Some("Subject"), EARLIER_TEXT),
+            ),
+            (
+                kept_settings(KeptTexts::All),
+                field_of(Some("com.apple.mail"), None, "Too short"),
+            ),
+        ];
+
+        let saved =
+            cases.map(|(settings, desktop)| finish_typing(&mut engine_with(&settings), &desktop, true));
+
+        assert_eq!(saved, [None, None, None, None, None, None]);
+    }
+
+    fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
+        let mut settings = history_settings(history, apps);
+        settings.personalization.word_choice = WordChoice::Medium;
+        settings
+    }
+
+    fn word_bias_of_request(reaction: Reaction) -> Option<Vec<(String, f32)>> {
+        match reaction {
+            Reaction::Request(InferenceRequest::Complete { word_bias, .. }) => {
+                word_bias.map(|bias| bias.words.to_vec())
+            }
+            _ => None,
+        }
+    }
+
+    fn engine_with_words(settings: &Settings) -> Engine {
+        let mut engine = engine_with(settings);
+        engine.use_history(vec![mail_entry(&"reckon ".repeat(20))]);
+        engine
+    }
+
+    #[test]
+    fn request_prefers_the_words_of_the_history() {
+        let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
+
+        let reaction = engine.on_key(Key::Char('h'), &mail_field());
+
+        assert_eq!(
+            word_bias_of_request(reaction),
+            Some(vec![("reckon".to_owned(), 1.0)])
+        );
+    }
+
+    #[test]
+    fn request_has_no_word_bias_when_the_history_or_the_app_is_off() {
+        let settings = [
+            word_choice_settings(HistoryAccess::Off, Vec::new()),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+        ];
+
+        let biases = settings.map(|settings| {
+            word_bias_of_request(engine_with_words(&settings).on_key(Key::Char('h'), &mail_field()))
+        });
+
+        assert_eq!(biases, [None, None]);
+    }
+
+    #[test]
+    fn new_word_choice_or_new_history_gives_a_new_version() {
+        let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
+        let first = engine.word_bias.clone().map(|bias| bias.version);
+        engine.use_settings(&{
+            let mut settings = word_choice_settings(HistoryAccess::On, Vec::new());
+            settings.personalization.word_choice = WordChoice::Strong;
+            settings
+        });
+        let second = engine.word_bias.clone().map(|bias| bias.version);
+        finish_typing(
+            &mut engine,
+            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            true,
+        );
+
+        let third = engine.word_bias.clone().map(|bias| bias.version);
+
+        assert!(first < second && second < third, "{first:?} {second:?} {third:?}");
+    }
+
+    #[test]
+    fn history_to_save_comes_once_for_each_change() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        finish_typing(
+            &mut engine,
+            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            false,
+        );
+
+        let saved_again = engine.history_to_save().is_some();
+
+        assert!(!saved_again);
+    }
+
+    #[test]
+    fn forgetting_an_app_drops_its_texts() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        engine.use_history(vec![
+            mail_entry("Cheers,\nTom"),
+            HistoryEntry {
+                app_id: "com.apple.Notes".to_owned(),
+                ..mail_entry("Shopping list")
+            },
+        ]);
+
+        engine.forget_history_of("com.apple.mail");
+
+        assert_eq!(
+            engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+            Some(vec![HistoryEntry {
+                app_id: "com.apple.Notes".to_owned(),
+                ..mail_entry("Shopping list")
+            }])
+        );
+    }
+
     #[test]
     fn recent_copy_comes_before_the_text() {
         let mut engine = engine_with(&Settings {
@@ -1466,6 +1856,7 @@ mod tests {
             Reaction::Request(InferenceRequest::Complete {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
+                word_bias: None,
             })
         );
     }
@@ -1485,6 +1876,7 @@ mod tests {
             Reaction::Request(InferenceRequest::Complete {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
+                word_bias: None,
             })
         );
     }
@@ -1518,6 +1910,7 @@ mod tests {
         Some(InferenceRequest::Complete {
             prompt: prompt::framed_prompt(&[], context),
             max_tokens: TokenCount(0),
+            word_bias: None,
         })
     }
 

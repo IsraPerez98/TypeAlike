@@ -19,6 +19,7 @@ objc2-core-foundation.workspace = true
 objc2-core-graphics.workspace = true
 objc2-foundation.workspace = true
 objc2-screen-capture-kit.workspace = true
+objc2-security.workspace = true
 objc2-vision.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
