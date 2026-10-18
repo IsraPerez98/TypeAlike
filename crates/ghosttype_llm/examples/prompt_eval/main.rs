@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--backend BACKEND] [--word-choice CHOICE]
+//!     [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -33,11 +33,16 @@
 //! `clipboard` is a copy that came just before. `--notes` gives the notes about the
 //! writer, which are empty by default. It opens a field that holds `before`
 //! without its last character, lets the input settle so that the screen text is read, types that
-//! character and waits for the ghost text.
+//! character and waits for the ghost text. The model does not decode the prompt before the key, as
+//! on the first key in a field. Then the eval opens the field again, lets the model decode the
+//! prompt when the input settles, as the app does when it prepares the prompt on focus, and types
+//! the character again for the warm time.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
 //! the word do not count. The report gives the score of the cases with the caret between two
-//! words, the score of the cases with the caret inside a word, and the median time from the key to
-//! the ghost text. It also gives the mean log probability of the first word of `next` after the
+//! words, the score of the cases with the caret inside a word, the median time from the key to
+//! the ghost text, and the median warm time. It also gives the median tokens of a prompt, and the
+//! time for each token of the prompt, which tells whether a change adds time through more tokens.
+//! It also gives the mean log probability of the first word of `next` after the
 //! prompt. This value moves a little for a small change of the prompt, while the score often stays
 //! the same.
 //!
@@ -60,6 +65,9 @@
 //!
 //! `--backend` names the backend that runs the model: `cpu`, `vulkan`, `cuda` or `metal`. The
 //! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.
+//! `--cpu-cores` gives the physical performance and efficiency cores of the CPU, for example
+//! `4,6`, so that the CPU backend uses the threads of the app on Windows. Without it, llama.cpp
+//! keeps its threads, as the app on macOS does.
 //!
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
@@ -86,12 +94,13 @@ use ghosttype_core::engine::Reaction;
 use ghosttype_core::history::{HistoryEntry, word_bias_of_counts};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
-    WordBias,
+    Backend, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
+    ModelRunner, WordBias,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, Settings, WordChoice, WriterNotes,
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, WordChoice,
+    WriterNotes,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
@@ -101,7 +110,8 @@ use crate::likelihood::Continuation;
 use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word, next_word};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--notes TEXT] [--backend cpu|vulkan|cuda|metal] [--word-choice off|light|medium|strong]";
+     [--notes TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
+     [--word-choice off|light|medium|strong]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -111,6 +121,7 @@ struct Arguments {
     save: Option<PathBuf>,
     notes: String,
     backend: Backend,
+    cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
 }
 
@@ -127,6 +138,7 @@ impl Arguments {
             save: None,
             notes: String::new(),
             backend: BUILT_IN_BACKEND,
+            cpu_cores: None,
             word_choice: WordChoice::Off,
         };
         for option in options.chunks(2) {
@@ -135,6 +147,7 @@ impl Arguments {
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
+                [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 _ => return None,
             }
@@ -152,6 +165,16 @@ fn word_choice_named(name: &str) -> Option<WordChoice> {
         "strong" => Some(WordChoice::Strong),
         _ => None,
     }
+}
+
+/// Returns the cores of `text`, the performance cores and the efficiency cores with a comma
+/// between them, or `None` when it has another form or no performance core.
+fn cpu_cores_of(text: &str) -> Option<CpuCores> {
+    let (performance, efficiency) = text.split_once(',')?;
+    Some(CpuCores {
+        performance: performance.parse().ok()?,
+        efficiency: efficiency.parse().ok()?,
+    })
 }
 
 /// Returns the backend with `name` in [`USAGE`], or `None` for another name.
@@ -312,9 +335,9 @@ struct Model {
 }
 
 impl Model {
-    fn load(path: &Path, backend: Backend) -> anyhow::Result<Self> {
+    fn load(path: &Path, backend: Backend, cpu_cores: Option<CpuCores>) -> anyhow::Result<Self> {
         let path = path.to_owned();
-        let runner = LlamaCpp::new(move |_| Some(path.clone()), None);
+        let runner = LlamaCpp::new(move |_| Some(path.clone()), cpu_cores);
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();
@@ -380,10 +403,101 @@ fn with_case_bias(
     }
 }
 
+/// What the eval does with a prompt that the app prepares before the key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Preparation {
+    /// The model decodes the prompt, as when the user waits before the first key.
+    Decode,
+    /// The model does not decode the prompt, as when the user types at once.
+    Skip,
+}
+
+/// What one key in the field of a case gave.
+struct KeyRun {
+    reaction: Reaction,
+    prompt: Option<String>,
+    millis: u64,
+}
+
+/// A case before its last key, in a new app each time.
+struct Typing<'case> {
+    case: &'case Case,
+    history: &'case [HistoryEntry],
+    settings: &'case Settings,
+    field: CaseField,
+    last_character: char,
+    version: u64,
+}
+
+impl Typing<'_> {
+    /// Opens the field in a new app, lets the input settle with the `preparation`, types the last
+    /// character and waits for the ghost text. Returns the app, for the keys after it.
+    fn type_last_character(
+        &self,
+        model: &mut Model,
+        preparation: Preparation,
+    ) -> anyhow::Result<(App, KeyRun)> {
+        let mut app = App::new();
+        app.use_settings(self.settings);
+        app.use_history(self.history.to_vec());
+        self.settle(model, &mut app, preparation)?;
+        let start = Instant::now();
+        let (reaction, prompt) = match app.on_key(Key::Char(self.last_character), &self.field) {
+            Reaction::Request(request) => {
+                let prompt = match &request {
+                    InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
+                    _ => None,
+                };
+                let choice = self.settings.personalization.word_choice;
+                let request = with_case_bias(request, self.case, choice, self.version);
+                (app.on_completion(model.complete(request)?), prompt)
+            }
+            reaction => (reaction, None),
+        };
+        let millis = u64::try_from(start.elapsed().as_millis())?;
+        Ok((
+            app,
+            KeyRun {
+                reaction,
+                prompt,
+                millis,
+            },
+        ))
+    }
+
+    /// Lets the input settle in `app`: gives the screen of the case to each read of the screen,
+    /// and does the `preparation` with each prompt that the app prepares.
+    fn settle(&self, model: &mut Model, app: &mut App, preparation: Preparation) -> anyhow::Result<()> {
+        let mut has_read_screen = false;
+        let mut work = app.on_input_settled(&self.field);
+        while let Some(next) = work {
+            work = match next {
+                SettledWork::ReadScreen { read, .. } => {
+                    has_read_screen = true;
+                    let text = self.case.screen.as_ref().map(CaseScreen::to_screen_text);
+                    app.on_screen_read(ScreenRead { id: read, text }, &self.field)
+                }
+                SettledWork::Prepare(request) => {
+                    let result = match preparation {
+                        Preparation::Decode => model.complete(request)?,
+                        Preparation::Skip => Err(InferenceError::Superseded),
+                    };
+                    app.on_completion(result);
+                    None
+                }
+            };
+        }
+        if self.case.screen.is_some() && !has_read_screen {
+            bail!("case {} reads no screen text", self.case.id);
+        }
+        Ok(())
+    }
+}
+
 fn run_case(
     model: &mut Model,
     case: &Case,
-    history: Vec<HistoryEntry>,
+    history: &[HistoryEntry],
     settings: &Settings,
     version: u64,
 ) -> anyhow::Result<CaseRun> {
@@ -411,52 +525,36 @@ fn run_case(
         },
         clipboard: case.clipboard.clone(),
     };
-    let mut app = App::new();
-    app.use_settings(settings);
-    app.use_history(history);
-    if let Some(screen) = &case.screen {
-        let Some(SettledWork::ReadScreen { read: id, .. }) = app.on_input_settled(&field) else {
-            bail!("case {} reads no screen text", case.id);
-        };
-        let read = ScreenRead {
-            id,
-            text: Some(screen.to_screen_text()),
-        };
-        app.on_screen_read(read, &field);
-    }
-
-    let start = Instant::now();
-    let (reaction, prompt) = match app.on_key(Key::Char(last_character), &field) {
-        Reaction::Request(request) => {
-            let prompt = match &request {
-                InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
-                _ => None,
-            };
-            let request = with_case_bias(request, case, settings.personalization.word_choice, version);
-            (app.on_completion(model.complete(request)?), prompt)
-        }
-        reaction => (reaction, None),
+    let typing = Typing {
+        case,
+        history,
+        settings,
+        field,
+        last_character,
+        version,
     };
-    let millis = u64::try_from(start.elapsed().as_millis())?;
-    let suggestion = match reaction {
-        Reaction::Show(text) => Some(text),
-        _ => None,
-    };
-    let accepted = match app.on_key(Key::Tab, &field) {
+    let (mut app, cold) = typing.type_last_character(model, Preparation::Skip)?;
+    let accepted = match app.on_key(Key::Tab, &typing.field) {
         Reaction::Accept { text, .. } => text,
         _ => String::new(),
     };
+    let (_, warm) = typing.type_last_character(model, Preparation::Decode)?;
 
     Ok(CaseRun {
         outcome: Outcome {
             id: case.id.clone(),
             kind: CaseKind::of(&case.before, &case.next),
-            suggestion,
+            suggestion: match cold.reaction {
+                Reaction::Show(text) => Some(text),
+                _ => None,
+            },
             is_match: is_next_word(&accepted, &case.next),
-            millis,
+            millis: cold.millis,
+            warm_millis: Some(warm.millis),
+            prompt_tokens: None,
             log_probability: None,
         },
-        continuation: prompt.map(|prompt| Continuation {
+        continuation: cold.prompt.map(|prompt| Continuation {
             prompt,
             text: next_word(&case.next).to_owned(),
         }),
@@ -491,6 +589,15 @@ fn write_report(
     writeln!(output, "partial word:  {}", summary.partial_word)?;
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {} ms", summary.median_millis)?;
+    if let Some(millis) = summary.median_warm_millis {
+        writeln!(output, "warm time:     {millis} ms")?;
+    }
+    if let Some(tokens) = summary.median_prompt_tokens {
+        writeln!(output, "prompt tokens: {tokens}")?;
+    }
+    if let Some(millis) = summary.millis_per_token {
+        writeln!(output, "ms per token:  {millis:.2}")?;
+    }
     if let Some(mean) = summary.mean_log_probability {
         writeln!(output, "log prob:      {mean:.3}")?;
     }
@@ -536,6 +643,7 @@ fn main() -> anyhow::Result<()> {
     let settings = Settings {
         clipboard_access: ClipboardAccess::Allowed,
         writer_notes: WriterNotes(arguments.notes.clone()),
+        prompt_preparation: PromptPreparation::OnFocus,
         personalization: PersonalizationSettings {
             history: HistoryAccess::On,
             word_choice: arguments.word_choice,
@@ -543,23 +651,24 @@ fn main() -> anyhow::Result<()> {
         },
         ..Settings::default()
     };
-    let mut model = Model::load(&arguments.model, arguments.backend)?;
+    let mut model = Model::load(&arguments.model, arguments.backend, arguments.cpu_cores)?;
     let runs = cases
         .iter()
         .zip(1..)
-        .map(|(case, version)| run_case(&mut model, case, history_of(case, &writers)?, &settings, version))
+        .map(|(case, version)| run_case(&mut model, case, &history_of(case, &writers)?, &settings, version))
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
     let continuations = runs
         .iter()
         .map(|run| run.continuation.as_ref())
         .collect::<Vec<_>>();
-    let log_probabilities = likelihood::log_probabilities(&arguments.model, &continuations)?;
+    let measures = likelihood::measure(&arguments.model, &continuations)?;
     let outcomes = runs
         .into_iter()
-        .zip(log_probabilities)
-        .map(|(run, log_probability)| Outcome {
-            log_probability,
+        .zip(measures)
+        .map(|(run, measured)| Outcome {
+            prompt_tokens: measured.map(|measured| measured.prompt_tokens),
+            log_probability: measured.and_then(|measured| measured.log_probability),
             ..run.outcome
         })
         .collect::<Vec<_>>();
@@ -578,6 +687,8 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
 
     fn parse(arguments: &[&str]) -> Option<Arguments> {
@@ -640,8 +751,22 @@ mod tests {
                 save: None,
                 notes: String::new(),
                 backend: BUILT_IN_BACKEND,
+                cpu_cores: None,
                 word_choice: WordChoice::Off,
             })
+        );
+    }
+
+    #[test]
+    fn cpu_cores_option_gives_the_performance_and_the_efficiency_cores() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--cpu-cores", "4,6"]);
+
+        assert_eq!(
+            arguments.map(|arguments| arguments.cpu_cores),
+            Some(Some(CpuCores {
+                performance: NonZeroUsize::new(4).unwrap(),
+                efficiency: 6,
+            }))
         );
     }
 
@@ -714,10 +839,13 @@ mod tests {
 
     #[test]
     fn arguments_that_do_not_follow_the_usage_are_rejected() {
-        let cases: [&[&str]; 5] = [
+        let cases: [&[&str]; 8] = [
             &["model.gguf"],
             &["model.gguf", "cases.jsonl", "--save"],
             &["model.gguf", "cases.jsonl", "--backend", "opencl"],
+            &["model.gguf", "cases.jsonl", "--cpu-cores", "4"],
+            &["model.gguf", "cases.jsonl", "--cpu-cores", "0,6"],
+            &["model.gguf", "cases.jsonl", "--cpu-cores", "four,six"],
             &["model.gguf", "cases.jsonl", "--verbose", "yes"],
             &["model.gguf", "cases.jsonl", "extra.jsonl"],
         ];

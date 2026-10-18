@@ -68,6 +68,13 @@ pub struct Outcome {
     pub is_match: bool,
     /// The milliseconds from the key to the ghost text.
     pub millis: u64,
+    /// The milliseconds from the key to the ghost text when the app prepared the prompt before the
+    /// key, or `None` in results without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warm_millis: Option<u64>,
+    /// The tokens of the prompt, or `None` when the case has no prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens: Option<u64>,
     /// The natural log of the probability of the next word after the prompt, or `None` when the
     /// case has no prompt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,6 +126,14 @@ pub struct Summary {
     pub without_suggestion: usize,
     /// The median milliseconds from the key to the ghost text.
     pub median_millis: u64,
+    /// The median milliseconds from the key to the ghost text after the app prepared the prompt,
+    /// of the cases that have one.
+    pub median_warm_millis: Option<u64>,
+    /// The median tokens of a prompt, of the cases that have a prompt.
+    pub median_prompt_tokens: Option<u64>,
+    /// The milliseconds from the key to the ghost text for each token of the prompt, of all the
+    /// cases that have a prompt together.
+    pub millis_per_token: Option<f64>,
     /// The mean log probability of the next word, of the cases that have one.
     pub mean_log_probability: Option<f64>,
 }
@@ -133,7 +148,21 @@ impl Summary {
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
                 .count(),
-            median_millis: median(outcomes.iter().map(|outcome| outcome.millis).collect()),
+            median_millis: median(outcomes.iter().map(|outcome| outcome.millis).collect())
+                .unwrap_or_default(),
+            median_warm_millis: median(
+                outcomes
+                    .iter()
+                    .filter_map(|outcome| outcome.warm_millis)
+                    .collect(),
+            ),
+            median_prompt_tokens: median(
+                outcomes
+                    .iter()
+                    .filter_map(|outcome| outcome.prompt_tokens)
+                    .collect(),
+            ),
+            millis_per_token: millis_per_token(outcomes),
             mean_log_probability: mean(
                 &outcomes
                     .iter()
@@ -211,14 +240,26 @@ fn mean(values: &[f64]) -> Option<f64> {
     Some(values.iter().sum::<f64>() / f64::from(count))
 }
 
-fn median(mut values: Vec<u64>) -> u64 {
+fn median(mut values: Vec<u64>) -> Option<u64> {
     values.sort_unstable();
     let middle = values.len() / 2;
     match values.len() {
-        0 => 0,
-        count if count % 2 == 1 => values[middle],
-        _ => values[middle - 1].midpoint(values[middle]),
+        0 => None,
+        count if count % 2 == 1 => Some(values[middle]),
+        _ => Some(values[middle - 1].midpoint(values[middle])),
     }
+}
+
+/// Returns the milliseconds of the `outcomes` that have a prompt for each token of their prompts.
+fn millis_per_token(outcomes: &[Outcome]) -> Option<f64> {
+    let (millis, tokens) = outcomes
+        .iter()
+        .filter_map(|outcome| Some((outcome.millis, outcome.prompt_tokens?)))
+        .fold((0, 0), |(millis, tokens), (case_millis, case_tokens)| {
+            (millis + case_millis, tokens + case_tokens)
+        });
+    let tokens = u32::try_from(tokens).ok().filter(|&tokens| tokens > 0)?;
+    Some(f64::from(u32::try_from(millis).ok()?) / f64::from(tokens))
 }
 
 #[cfg(test)]
@@ -232,7 +273,17 @@ mod tests {
             suggestion: Some("text".to_owned()),
             is_match,
             millis,
+            warm_millis: None,
+            prompt_tokens: None,
             log_probability: None,
+        }
+    }
+
+    fn timed(id: &str, millis: u64, warm_millis: u64, prompt_tokens: u64) -> Outcome {
+        Outcome {
+            warm_millis: Some(warm_millis),
+            prompt_tokens: Some(prompt_tokens),
+            ..outcome(id, CaseKind::NextWord, true, millis)
         }
     }
 
@@ -380,6 +431,51 @@ mod tests {
         let summary = Summary::of(&outcomes);
 
         assert_eq!(summary.median_millis, 250);
+    }
+
+    #[test]
+    fn summary_warm_time_is_the_middle_warm_time_of_the_cases_that_have_one() {
+        let outcomes = [
+            timed("a", 900, 30, 400),
+            timed("b", 900, 50, 400),
+            timed("c", 900, 40, 400),
+            without_suggestion("d", 900),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(summary.median_warm_millis, Some(40));
+    }
+
+    #[test]
+    fn summary_gives_the_middle_prompt_tokens_and_the_time_of_each_token() {
+        let outcomes = [
+            timed("a", 300, 30, 100),
+            timed("b", 900, 30, 500),
+            timed("c", 600, 30, 400),
+            without_suggestion("d", 5),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.median_prompt_tokens, summary.millis_per_token),
+            (Some(400), Some(1.8))
+        );
+    }
+
+    #[test]
+    fn summary_of_cases_without_timing_details_has_none() {
+        let summary = Summary::of(&[without_suggestion("a", 10)]);
+
+        assert_eq!(
+            (
+                summary.median_warm_millis,
+                summary.median_prompt_tokens,
+                summary.millis_per_token
+            ),
+            (None, None, None)
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
-//! Measures how likely the model finds the next word after a prompt. A small change of the prompt
-//! moves this value a little, while it seldom changes the word that the model suggests.
+//! Measures the tokens of each prompt, and how likely the model finds the next word after it. A
+//! small change of the prompt moves the likelihood a little, while it seldom changes the word that
+//! the model suggests.
 
 use std::num::NonZeroU32;
 use std::path::Path;
@@ -24,13 +25,23 @@ pub struct Continuation {
     pub text: String,
 }
 
-/// Returns the natural log of the probability of each continuation with the model at
-/// `model_path`, or `None` for no continuation or one that adds no token. Call it only when no
-/// other model runner is alive, because llama.cpp starts once for each process.
-pub fn log_probabilities(
+/// What the model gives for one continuation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Measured {
+    /// The tokens of the prompt.
+    pub prompt_tokens: u64,
+    /// The natural log of the probability of the text after the prompt, or `None` when the text
+    /// adds no token.
+    pub log_probability: Option<f64>,
+}
+
+/// Measures each continuation with the model at `model_path`, or gives `None` for no
+/// continuation. Call it only when no other model runner is alive, because llama.cpp starts once
+/// for each process.
+pub fn measure(
     model_path: &Path,
     continuations: &[Option<&Continuation>],
-) -> anyhow::Result<Vec<Option<f64>>> {
+) -> anyhow::Result<Vec<Option<Measured>>> {
     let llama = LlamaBackend::init()?;
     let model = LlamaModel::load_from_file(&llama, model_path, &LlamaModelParams::default())?;
     let params = LlamaContextParams::default()
@@ -41,26 +52,42 @@ pub fn log_probabilities(
     continuations
         .iter()
         .map(|continuation| {
-            continuation.map_or(Ok(None), |continuation| {
-                log_probability(&mut context, &model, continuation)
-            })
+            continuation
+                .map(|continuation| measured(&mut context, &model, continuation))
+                .transpose()
         })
         .collect()
 }
 
-/// Returns the log probability of the continuation text after the prompt. When the text joins the
-/// last word of the prompt into other tokens, as after a part of a word or a space, the value also
-/// holds the probability of these last tokens, like the token healing of the model runner.
+/// Returns the tokens of the prompt and the log probability of the continuation text after it.
+fn measured(
+    context: &mut LlamaContext<'_>,
+    model: &LlamaModel,
+    continuation: &Continuation,
+) -> anyhow::Result<Measured> {
+    let prompt = model
+        .vocab()
+        .tokenize(continuation.prompt.as_bytes(), true, false);
+    Ok(Measured {
+        prompt_tokens: u64::try_from(prompt.len())?,
+        log_probability: log_probability(context, model, continuation, &prompt)?,
+    })
+}
+
+/// Returns the log probability of the continuation text after the `prompt` tokens. When the text
+/// joins the last word of the prompt into other tokens, as after a part of a word or a space, the
+/// value also holds the probability of these last tokens, like the token healing of the model
+/// runner.
 fn log_probability(
     context: &mut LlamaContext<'_>,
     model: &LlamaModel,
     continuation: &Continuation,
+    prompt: &[LlamaToken],
 ) -> anyhow::Result<Option<f64>> {
     let vocab = model.vocab();
-    let prompt = vocab.tokenize(continuation.prompt.as_bytes(), true, false);
     let full_text = format!("{}{}", continuation.prompt, continuation.text);
     let full = vocab.tokenize(full_text.as_bytes(), true, false);
-    let shared = shared_tokens(&prompt, &full);
+    let shared = shared_tokens(prompt, &full);
     let (start, rest) = full.split_at(shared);
     if start.is_empty() || rest.is_empty() {
         return Ok(None);
