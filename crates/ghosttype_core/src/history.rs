@@ -73,6 +73,14 @@ const MIN_WORD_COUNT: u32 = 3;
 const MIN_WORD_CHARS: usize = 3;
 /// The times of a word that give it the full strength of the word choice.
 const FULL_WEIGHT_COUNT: u16 = 20;
+/// The words before the next word of a phrase.
+const PHRASE_CONTEXT_WORDS: usize = 3;
+/// The fewest times that the writer wrote the same next word after the same words, for a
+/// suggestion of that word without the model.
+const MIN_PHRASE_COUNT: u32 = 3;
+/// The smallest share, in percent, of the next word among all the words that the writer wrote
+/// after the same words.
+const MIN_PHRASE_PERCENT: u32 = 60;
 
 /// One text that the user wrote, which later prompts can show as an example. `Debug` shows only
 /// its length and its app, so logs never hold what the user wrote.
@@ -484,6 +492,94 @@ pub fn word_bias_of_counts(
     })
 }
 
+/// The phrases that the writer repeats: after [`PHRASE_CONTEXT_WORDS`] words in any case, the text
+/// up to the end of the next word. `Debug` shows only their number, so logs never hold what the
+/// user wrote.
+#[derive(Default)]
+pub(crate) struct Phrases(HashMap<String, String>);
+
+impl fmt::Debug for Phrases {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Phrases")
+            .field("count", &self.0.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Phrases {
+    /// Returns the rest of a phrase after `text_before`, the text before the caret, up to the end
+    /// of its next word, or `None`. The text can end inside that word. The rest never goes past
+    /// the end of the line.
+    pub(crate) fn continuation_of(&self, text_before: &str) -> Option<&str> {
+        let spans = runs_of(text_before, is_phrase_character);
+        let ends_inside_word = text_before.ends_with(is_phrase_character);
+        let partial_word = ends_inside_word.then(|| spans.len().checked_sub(1)).flatten();
+        [partial_word, Some(spans.len())]
+            .into_iter()
+            .flatten()
+            .find_map(|context_end| {
+                let context = spans.get(context_end.checked_sub(PHRASE_CONTEXT_WORDS)?..context_end)?;
+                let follower = self.0.get(&context_key(text_before, context))?;
+                let typed = &text_before[context.last()?.end..];
+                let rest = follower.strip_prefix(typed)?;
+                (!rest.is_empty() && !rest.contains(['\r', '\n'])).then_some(rest)
+            })
+    }
+}
+
+/// Returns the phrases of `entries` for `choice`, which have none when the choice is off. A phrase
+/// needs the same next word, with the same signs before it, at least [`MIN_PHRASE_COUNT`] times
+/// and in at least [`MIN_PHRASE_PERCENT`] of the times that the writer wrote its words.
+pub(crate) fn phrases(entries: &[HistoryEntry], choice: WordChoice) -> Phrases {
+    if choice == WordChoice::Off {
+        return Phrases::default();
+    }
+    let mut followers = HashMap::<String, Vec<(&str, u32)>>::new();
+    for part in entries.iter().flat_map(|entry| entry.text.split(REDACTED)) {
+        let spans = runs_of(part, is_phrase_character);
+        for window in spans.windows(PHRASE_CONTEXT_WORDS + 1) {
+            let Some((next, context)) = window.split_last() else {
+                continue;
+            };
+            let follower = &part[context[context.len() - 1].end..next.end];
+            let counts = followers.entry(context_key(part, context)).or_default();
+            match counts.iter_mut().find(|(known, _)| *known == follower) {
+                Some((_, count)) => *count += 1,
+                None => counts.push((follower, 1)),
+            }
+        }
+    }
+    Phrases(
+        followers
+            .into_iter()
+            .filter_map(|(context, counts)| {
+                let total = counts.iter().map(|(_, count)| count).sum::<u32>();
+                let (follower, count) = counts.into_iter().max_by_key(|&(_, count)| count)?;
+                let is_repeated = count >= MIN_PHRASE_COUNT && count * 100 >= total * MIN_PHRASE_PERCENT;
+                is_repeated.then(|| (context, follower.to_owned()))
+            })
+            .collect(),
+    )
+}
+
+/// Returns the words of `context`, spans of `text`, in lowercase with one space between them.
+fn context_key(text: &str, context: &[Range<usize>]) -> String {
+    let mut key = String::new();
+    for span in context {
+        if !key.is_empty() {
+            key.push(' ');
+        }
+        key.extend(text[span.clone()].chars().flat_map(char::to_lowercase));
+    }
+    key
+}
+
+/// The characters of a word of a phrase: letters, digits and apostrophes.
+fn is_phrase_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '\'' | '’')
+}
+
 /// Returns the words of `text` in their spelling: its runs of letters and apostrophes.
 fn words(text: &str) -> impl Iterator<Item = &str> {
     text.split(|character: char| !(character.is_alphabetic() || matches!(character, '\'' | '’')))
@@ -721,6 +817,98 @@ mod tests {
         let bias = word_bias(&entries, WordChoice::Medium, 1);
 
         assert_eq!(words_of(bias), Some(Vec::new()));
+    }
+
+    fn phrase_entries() -> [HistoryEntry; 3] {
+        [
+            mail("Please let me know if it works."),
+            mail("Let me know if you can come."),
+            mail("So let me KNOW if that helps."),
+        ]
+    }
+
+    fn continuation_in(entries: &[HistoryEntry], text_before: &str) -> Option<String> {
+        phrases(entries, WordChoice::Medium)
+            .continuation_of(text_before)
+            .map(str::to_owned)
+    }
+
+    #[test]
+    fn phrase_continues_the_text_with_the_next_word_of_the_writer() {
+        let cases = [
+            ("Can you let me know ", Some("if")),
+            ("Can you Let Me know", Some(" if")),
+            ("Can you let me know i", Some("f")),
+            ("Can you let me know if", None),
+            ("Can you let us know ", None),
+        ];
+
+        let continuations = cases.map(|(text_before, _)| continuation_in(&phrase_entries(), text_before));
+
+        assert_eq!(continuations, cases.map(|(_, next)| next.map(str::to_owned)));
+    }
+
+    #[test]
+    fn phrase_needs_three_times_and_a_share_of_sixty_percent() {
+        let cases: [(&[&str], Option<&str>); 4] = [
+            (&["if", "if"], None),
+            (&["if", "if", "if"], Some("if")),
+            (&["if", "if", "if", "when", "when"], Some("if")),
+            (&["if", "if", "if", "when", "when", "when"], None),
+        ];
+
+        let continuations = cases.map(|(next_words, _)| {
+            let entries = next_words
+                .iter()
+                .map(|word| mail(&format!("let me know {word} it works")))
+                .collect::<Vec<_>>();
+            continuation_in(&entries, "Can you let me know ")
+        });
+
+        assert_eq!(continuations, cases.map(|(_, next)| next.map(str::to_owned)));
+    }
+
+    #[test]
+    fn phrase_keeps_the_signs_and_the_spelling_of_the_writer() {
+        let entries = vec![mail("Thanks a lot.\nBest regards,\nJordan"); 3];
+
+        let continuation = continuation_in(&entries, "Thanks a lot.\nBest regards,\nJ");
+
+        assert_eq!(continuation.as_deref(), Some("ordan"));
+    }
+
+    #[test]
+    fn phrase_ends_at_the_end_of_the_line() {
+        let entries = vec![mail("Thanks, kind regards,\nMateo"); 3];
+
+        let continuation = continuation_in(&entries, "Thanks, kind regards");
+
+        assert_eq!(continuation, None);
+    }
+
+    #[test]
+    fn redacted_secret_is_no_phrase() {
+        let entries = vec![mail("the code is [redacted] today"); 3];
+
+        let continuation = continuation_in(&entries, "So the code is ");
+
+        assert_eq!(continuation, None);
+    }
+
+    #[test]
+    fn word_choice_off_gives_no_phrases() {
+        let continuation = phrases(&phrase_entries(), WordChoice::Off)
+            .continuation_of("Can you let me know ")
+            .map(str::to_owned);
+
+        assert_eq!(continuation, None);
+    }
+
+    #[test]
+    fn debug_of_the_phrases_hides_the_text() {
+        let debug = format!("{:?}", phrases(&phrase_entries(), WordChoice::Medium));
+
+        assert_eq!(debug, "Phrases { count: 1, .. }");
     }
 
     #[test]

@@ -60,8 +60,9 @@ const KEPT_TEXTS_CHOICES: [(KeptTexts, &str); 2] = [
     (KeptTexts::All, "All text"),
 ];
 const WORD_CHOICE_LABEL: &str = "Word choice";
-const WORD_CHOICE_DESCRIPTION: &str = "Suggestions use more of the words that you often write. The change is \
-     small. A stronger setting gives more of these words, but a suggestion can match your text less well.";
+const WORD_CHOICE_DESCRIPTION: &str = "Suggestions use more of the words that you often write. A word that you \
+     often write after the same three words shows at once. A stronger setting gives more of these words, but a \
+     suggestion can match your text less well.";
 const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
     (WordChoice::Off, "Off"),
     (WordChoice::Light, "Light"),

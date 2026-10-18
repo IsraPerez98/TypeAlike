@@ -6,7 +6,7 @@ use std::{fmt, mem};
 use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
-use crate::history::{self, HistoryEntry};
+use crate::history::{self, HistoryEntry, Phrases};
 use crate::inference::{
     CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, TokenCount, WordBias,
 };
@@ -70,6 +70,8 @@ pub(crate) struct Engine {
     /// The preference for the words of `history`, if the word choice is on.
     word_bias: Option<WordBias>,
     word_bias_version: u64,
+    /// The phrases that `history` repeats, which have none when the word choice is off.
+    phrases: Phrases,
 }
 
 impl Default for Engine {
@@ -89,6 +91,7 @@ impl Default for Engine {
             has_unsaved_history: false,
             word_bias: None,
             word_bias_version: 0,
+            phrases: Phrases::default(),
         };
         engine.use_settings(&Settings::default());
         engine
@@ -182,14 +185,14 @@ impl Engine {
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
         if self.personalization.word_choice != word_choice {
-            self.refresh_word_bias();
+            self.refresh_word_choice();
         }
     }
 
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next session on.
     pub fn use_history(&mut self, entries: Vec<HistoryEntry>) {
         self.history = entries;
-        self.refresh_word_bias();
+        self.refresh_word_choice();
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
@@ -235,7 +238,7 @@ impl Engine {
     pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
         self.unanswered_requests = self.unanswered_requests.saturating_sub(1);
         if self.unanswered_requests > 0 {
-            return Reaction::Hide;
+            return self.ghost_reaction();
         }
         if let Ok(completion) = result {
             self.grow(&completion.text);
@@ -251,10 +254,15 @@ impl Engine {
     /// when the ghost text changes, or `None`.
     pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
         let is_newest = self.unanswered_requests == 1;
-        (is_newest && self.grow(complete_words(text))).then(|| match self.shown() {
+        (is_newest && self.grow(complete_words(text))).then(|| self.ghost_reaction())
+    }
+
+    /// Returns the reaction that shows the ghost text, or hides it when it is empty.
+    fn ghost_reaction(&self) -> Reaction {
+        match self.shown() {
             "" => Reaction::Hide,
             shown => Reaction::Show(shown.to_owned()),
-        })
+        }
     }
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
@@ -307,12 +315,12 @@ impl Engine {
     }
 
     /// Returns the earlier writing of the user, oldest first, when it changed since the last call.
-    /// The word bias then comes from the new history.
+    /// The word bias and the phrases then come from the new history.
     pub fn history_to_save(&mut self) -> Option<&[HistoryEntry]> {
         if !mem::take(&mut self.has_unsaved_history) {
             return None;
         }
-        self.refresh_word_bias();
+        self.refresh_word_choice();
         Some(&self.history)
     }
 
@@ -530,7 +538,11 @@ impl Engine {
         Reaction::Hide
     }
 
+    /// Shows the rest of a phrase that the writer repeats, else requests a completion.
     fn request(&mut self) -> Reaction {
+        if let Some(phrase) = self.repeated_phrase() {
+            return self.show(phrase);
+        }
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
@@ -556,14 +568,33 @@ impl Engine {
             .flatten()
     }
 
-    /// Builds the word bias again from the history, with a new version.
-    fn refresh_word_bias(&mut self) {
+    /// The rest of a phrase that the writer repeats after the text before the caret, when the
+    /// personalization allows the app of the session and the line after the caret is empty.
+    fn repeated_phrase(&self) -> Option<String> {
+        let session = self.session.as_ref().filter(|session| !session.is_excluded)?;
+        let app = session.app.as_ref()?;
+        let is_line_end = session
+            .text_after
+            .lines()
+            .next()
+            .is_none_or(|line| line.trim().is_empty());
+        if !is_line_end || !self.personalization.allows(&app.app_id) {
+            return None;
+        }
+        self.phrases
+            .continuation_of(&session.text_before)
+            .map(str::to_owned)
+    }
+
+    /// Builds the word bias, with a new version, and the phrases again from the history.
+    fn refresh_word_choice(&mut self) {
         self.word_bias_version = self.word_bias_version.wrapping_add(1);
         self.word_bias = history::word_bias(
             &self.history,
             self.personalization.word_choice,
             self.word_bias_version,
         );
+        self.phrases = history::phrases(&self.history, self.personalization.word_choice);
     }
 
     /// Returns the prompt for the text before the caret, or `None` when that text has no words or
@@ -1888,6 +1919,73 @@ mod tests {
         let third = engine.word_bias.clone().map(|bias| bias.version);
 
         assert!(first < second && second < third, "{first:?} {second:?} {third:?}");
+    }
+
+    fn engine_with_phrases(settings: &Settings) -> Engine {
+        let mut engine = engine_with(settings);
+        engine.use_history(vec![mail_entry("Let me know if it works."); 3]);
+        engine
+    }
+
+    fn mail_field_around(before_caret: &str, after_caret: &str) -> FakeDesktop {
+        let mut desktop = field_of(Some("com.apple.mail"), None, before_caret);
+        desktop.surroundings.field_text = Some(FieldText {
+            before_caret: before_caret.to_owned(),
+            after_caret: after_caret.to_owned(),
+        });
+        desktop
+    }
+
+    #[test]
+    fn phrase_that_the_writer_repeats_shows_without_a_request() {
+        let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
+
+        let reaction = engine.on_key(Key::Char(' '), &mail_field_around("Please let me know", ""));
+
+        assert_eq!(reaction, show("if"));
+    }
+
+    #[test]
+    fn phrase_shows_only_when_the_line_after_the_caret_is_empty() {
+        let texts_after = ["", "\nBye", " today"];
+
+        let shows = texts_after.map(|text_after| {
+            let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
+            engine.on_key(
+                Key::Char(' '),
+                &mail_field_around("Please let me know", text_after),
+            ) == show("if")
+        });
+
+        assert_eq!(shows, [true, true, false]);
+    }
+
+    #[test]
+    fn phrase_needs_the_word_choice_the_history_and_the_app() {
+        let settings = [
+            history_settings(HistoryAccess::On, Vec::new()),
+            word_choice_settings(HistoryAccess::Off, Vec::new()),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+        ];
+
+        let requests = settings.map(|settings| {
+            let reaction = engine_with_phrases(&settings)
+                .on_key(Key::Char(' '), &mail_field_around("Please let me know", ""));
+            matches!(reaction, Reaction::Request(_))
+        });
+
+        assert_eq!(requests, [true, true, true]);
+    }
+
+    #[test]
+    fn completion_of_an_older_request_keeps_the_phrase() {
+        let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
+        engine.on_key(Key::Char('n'), &mail_field_around("Please let me k", ""));
+        type_text(&mut engine, "ow");
+
+        let reaction = engine.on_completion(Err(InferenceError::Superseded));
+
+        assert_eq!(reaction, show(" if"));
     }
 
     #[test]

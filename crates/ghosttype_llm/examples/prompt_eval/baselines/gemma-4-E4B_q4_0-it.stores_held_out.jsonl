@@ -1,11 +1,15 @@
-{"id":"topic-riley-01","kind":"next_word","suggestion":"Dunmore Components,","is_match":true,"millis":442,"log_probability":-0.003358868190331455}
-{"id":"topic-riley-02","kind":"next_word","suggestion":"Sarah, was waiting","is_match":false,"millis":304,"log_probability":-3.004465634220132}
-{"id":"othertopic-riley-01","kind":"next_word","suggestion":"a blanket. We","is_match":false,"millis":293,"log_probability":-1.5077166082741285}
+{"id":"topic-riley-01","kind":"next_word","suggestion":"Dunmore Components,","is_match":true,"millis":449,"log_probability":-0.003358868190331455}
+{"id":"topic-riley-02","kind":"next_word","suggestion":"Sarah, was waiting","is_match":false,"millis":309,"log_probability":-3.004465634220132}
+{"id":"othertopic-riley-01","kind":"next_word","suggestion":"a blanket. We","is_match":false,"millis":295,"log_probability":-1.5077166082741285}
 {"id":"sameformat-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"otherformat-riley-01","kind":"next_word","suggestion":"umbrella?","is_match":true,"millis":146,"log_probability":-0.19499406790796212}
-{"id":"greeting-riley-01","kind":"next_word","suggestion":"everyone,","is_match":false,"millis":270,"log_probability":-3.6789327934563807}
+{"id":"otherformat-riley-01","kind":"next_word","suggestion":"umbrella?","is_match":true,"millis":148,"log_probability":-0.19499406790796212}
+{"id":"greeting-riley-01","kind":"next_word","suggestion":"everyone,","is_match":false,"millis":275,"log_probability":-3.6789327934563807}
 {"id":"names-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"topic-lucia-01","kind":"next_word","suggestion":"ti. Me gusta","is_match":false,"millis":297,"log_probability":-20.967682871422042}
-{"id":"othertopic-lucia-01","kind":"next_word","suggestion":"cita con el apare","is_match":false,"millis":234,"log_probability":-7.369499063203742}
-{"id":"sameformat-lucia-01","kind":"next_word","suggestion":"¡Nos vemos!","is_match":false,"millis":185,"log_probability":-8.992711456482997}
-{"id":"names-lucia-01","kind":"next_word","suggestion":"Ferrer","is_match":true,"millis":249,"log_probability":-0.0023138117516753524}
+{"id":"topic-lucia-01","kind":"next_word","suggestion":"ti. Me gusta","is_match":false,"millis":302,"log_probability":-20.967682871422042}
+{"id":"othertopic-lucia-01","kind":"next_word","suggestion":"cita con el apare","is_match":false,"millis":242,"log_probability":-7.369499063203742}
+{"id":"sameformat-lucia-01","kind":"next_word","suggestion":"¡Nos vemos!","is_match":false,"millis":187,"log_probability":-8.992711456482997}
+{"id":"names-lucia-01","kind":"next_word","suggestion":"Ferrer","is_match":true,"millis":251,"log_probability":-0.0023138117516753524}
+{"id":"phrase-riley-01","kind":"next_word","suggestion":"Customer Care","is_match":true,"millis":280,"log_probability":-0.000051789701904907143}
+{"id":"phrase-riley-02","kind":"partial_word","suggestion":"iley","is_match":true,"millis":279,"log_probability":-0.0003576712378545592}
+{"id":"phrase-lucia-01","kind":"next_word","suggestion":"Dental Marjal”","is_match":true,"millis":310,"log_probability":-0.0035981784232339163}
+{"id":"phrase-lucia-02","kind":"next_word","suggestion":"Alcotes?","is_match":true,"millis":199,"log_probability":-0.4707677211508198}

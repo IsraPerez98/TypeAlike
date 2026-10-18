@@ -49,8 +49,9 @@
 //! examples. The id of a case starts with its group: `topic` (the next word is in one text of the
 //! place, among texts on other topics), `othertopic` (it is in no text), `sameformat` (the place
 //! has no text, and a place of the same format has it), `otherformat` (the place has no text, and
-//! only other formats exist), `greeting` (it starts a long earlier text) and `names` (a name that
-//! the writer writes often). The held-out file has its own writers.
+//! only other formats exist), `greeting` (it starts a long earlier text), `names` (a name that
+//! the writer writes often) and `phrase` (the last 3 words start a phrase of the writer: the writer
+//! repeats it, or the writer changes it this time). The held-out file has its own writers.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
@@ -61,7 +62,9 @@
 //! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.
 //!
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
-//! `light`, `medium` or `strong`. The log probability does not use the word bias.
+//! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
+//! choice that is not off, a phrase that the writer repeats shows without the model, and its case
+//! has no log probability.
 
 mod likelihood;
 mod score;
