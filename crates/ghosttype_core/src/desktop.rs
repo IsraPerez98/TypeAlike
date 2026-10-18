@@ -176,6 +176,32 @@ pub struct ScreenRead {
     pub text: Option<ScreenText>,
 }
 
+/// The labels that the focused field gives to assistive apps. Each one is `None` when the field
+/// does not give it. `Debug` shows only which labels are known, so logs never hold them.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct FieldLabels {
+    /// The visible label that the app links to the field, for example "Comments:".
+    pub caption: Option<String>,
+    /// The name of the field, for example "Message body" or "Subject".
+    pub name: Option<String>,
+    /// The text that shows in the field while it is empty, for example "Type a message".
+    pub placeholder: Option<String>,
+    /// The help text of the field, for example "Tell us what happened".
+    pub help: Option<String>,
+}
+
+impl fmt::Debug for FieldLabels {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FieldLabels")
+            .field("has_caption", &self.caption.is_some())
+            .field("has_name", &self.name.is_some())
+            .field("has_placeholder", &self.placeholder.is_some())
+            .field("has_help", &self.help.is_some())
+            .finish()
+    }
+}
+
 /// What surrounds the caret in the focused app. `Debug` shows only what is known, so logs never
 /// hold what the user wrote or which document is open.
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -190,8 +216,8 @@ pub struct Surroundings {
     pub app_path: Option<String>,
     /// The title of the focused window, for example "Re: Q3 budget review".
     pub window_title: Option<String>,
-    /// The label of the focused field, for example "Message" or "Subject".
-    pub field_label: Option<String>,
+    /// What the focused field tells about itself.
+    pub field_labels: FieldLabels,
     /// The host of the web page that holds the focused field, for example "mail.google.com".
     pub domain: Option<String>,
     /// The text of the focused field, or `None` when the platform cannot read the field.
@@ -206,7 +232,7 @@ impl fmt::Debug for Surroundings {
             .field("has_app_id", &self.app_id.is_some())
             .field("has_app_path", &self.app_path.is_some())
             .field("has_window_title", &self.window_title.is_some())
-            .field("has_field_label", &self.field_label.is_some())
+            .field("field_labels", &self.field_labels)
             .field("has_domain", &self.domain.is_some())
             .field("field_text", &self.field_text)
             .finish()
@@ -258,7 +284,12 @@ mod tests {
             app_id: Some("com.apple.mail".to_owned()),
             app_path: Some("C:\\secret\\MAIL.EXE".to_owned()),
             window_title: Some("secret title".to_owned()),
-            field_label: Some("secret label".to_owned()),
+            field_labels: FieldLabels {
+                caption: Some("secret caption".to_owned()),
+                name: Some("secret name".to_owned()),
+                placeholder: Some("secret placeholder".to_owned()),
+                help: Some("secret help".to_owned()),
+            },
             domain: Some("secret.example.com".to_owned()),
             field_text: Some(FieldText {
                 before_caret: "secret before".to_owned(),

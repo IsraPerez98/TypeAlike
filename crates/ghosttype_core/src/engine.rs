@@ -615,7 +615,7 @@ mod tests {
 
     use super::*;
     use crate::app::Field;
-    use crate::desktop::{Confidence, CopiedText, FieldText, ScreenLine, ScreenRect};
+    use crate::desktop::{Confidence, CopiedText, FieldLabels, FieldText, ScreenLine, ScreenRect};
     use crate::inference::Backend;
 
     #[derive(Default)]
@@ -644,11 +644,14 @@ mod tests {
             }
         }
 
-        fn in_field(app_id: &str, field_label: &str) -> Self {
+        fn in_field(app_id: &str, field_name: &str) -> Self {
             Self {
                 surroundings: Surroundings {
                     app_id: Some(app_id.to_owned()),
-                    field_label: Some(field_label.to_owned()),
+                    field_labels: FieldLabels {
+                        name: Some(field_name.to_owned()),
+                        ..FieldLabels::default()
+                    },
                     ..Surroundings::default()
                 },
                 ..Self::default()

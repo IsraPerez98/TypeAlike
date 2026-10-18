@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use ghosttype_core::app::BadgeView;
-use ghosttype_core::desktop::FieldText;
+use ghosttype_core::desktop::{FieldLabels, FieldText};
 use windows::core::Result;
 
 use crate::focus::{self, Caret, WindowId};
@@ -43,8 +43,8 @@ pub(crate) struct FieldRead {
     pub(crate) window: WindowId,
     /// The text around the caret of the focused field, or `None` when GhostType cannot read it.
     pub(crate) text: Option<FieldText>,
-    /// The label of the focused field, or `None` when it has none.
-    pub(crate) label: Option<String>,
+    /// The labels of the focused field.
+    pub(crate) labels: FieldLabels,
 }
 
 /// A read that the shell asks for.
@@ -112,12 +112,12 @@ fn answer_reads(
                 .as_ref()
                 .and_then(UiaCaret::field_text)
                 .or_else(focus::edit_field_text);
-            let label = uia.as_ref().and_then(UiaCaret::field_label);
+            let labels = uia.as_ref().map(UiaCaret::field_labels).unwrap_or_default();
             field_texts.send(FieldRead {
                 id,
                 window,
                 text,
-                label,
+                labels,
             });
         }
     }
@@ -148,7 +148,7 @@ impl NewestReads {
     }
 }
 
-/// The newest read of the field text and label, kept while no input or focus change can have
+/// The newest read of the field text and labels, kept while no input or focus change can have
 /// changed the field. The hooks use it, because they cannot wait for UIA.
 #[derive(Debug, Default)]
 pub(crate) struct KeptFieldText {
@@ -311,7 +311,10 @@ mod tests {
                 before_caret: "Dear Ana,".to_owned(),
                 after_caret: String::new(),
             }),
-            label: Some("Message".to_owned()),
+            labels: FieldLabels {
+                name: Some("Message".to_owned()),
+                ..FieldLabels::default()
+            },
         }
     }
 

@@ -446,7 +446,7 @@ impl Desktop for Win32Shell {
         let field = self.kept_field_text.read_in(self.focus.foreground());
         Surroundings {
             field_text: field.and_then(|read| read.text.clone()),
-            field_label: field.and_then(|read| read.label.clone()),
+            field_labels: field.map(|read| read.labels.clone()).unwrap_or_default(),
             ..self.focus.surroundings()
         }
     }

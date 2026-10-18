@@ -149,11 +149,34 @@ impl Format {
 /// Whether the focused field is an address or the subject of an email. These fields get no
 /// suggestions, because Tab moves the focus between them.
 pub(crate) fn is_address_or_subject_field(surroundings: &Surroundings) -> bool {
-    let Some(label) = surroundings.field_label.as_deref() else {
-        return false;
-    };
-    let label = label.trim().trim_end_matches(':').trim_end().to_lowercase();
-    Format::of(surroundings) == Some(Format::Email) && ADDRESS_AND_SUBJECT_LABELS.contains(&label.as_str())
+    Format::of(surroundings) == Some(Format::Email)
+        && field_labels(surroundings)
+            .iter()
+            .any(|label| ADDRESS_AND_SUBJECT_LABELS.contains(&comparable(label).as_str()))
+}
+
+/// The labels of the focused field that are not empty, each on one line and one time, from the
+/// most specific: the caption, the name, the placeholder and the help text. Two labels are the
+/// same when they differ only in case or in a colon at the end.
+pub(crate) fn field_labels(surroundings: &Surroundings) -> Vec<String> {
+    let labels = &surroundings.field_labels;
+    let lines = [&labels.caption, &labels.name, &labels.placeholder, &labels.help]
+        .into_iter()
+        .flatten()
+        .map(|label| label.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|label| !label.is_empty());
+    let mut kept: Vec<String> = Vec::new();
+    for label in lines {
+        if kept.iter().all(|known| comparable(known) != comparable(&label)) {
+            kept.push(label);
+        }
+    }
+    kept
+}
+
+/// Returns `label` in lowercase, without the colon at its end.
+fn comparable(label: &str) -> String {
+    label.trim().trim_end_matches(':').trim_end().to_lowercase()
 }
 
 fn is_same_or_subdomain(domain: &str, known: &str) -> bool {
@@ -165,14 +188,81 @@ fn is_same_or_subdomain(domain: &str, known: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop::FieldLabels;
 
-    fn place(app_id: Option<&str>, domain: Option<&str>, field_label: Option<&str>) -> Surroundings {
+    fn place(app_id: Option<&str>, domain: Option<&str>, field_name: Option<&str>) -> Surroundings {
         Surroundings {
             app_id: app_id.map(str::to_owned),
             domain: domain.map(str::to_owned),
-            field_label: field_label.map(str::to_owned),
+            field_labels: FieldLabels {
+                name: field_name.map(str::to_owned),
+                ..FieldLabels::default()
+            },
             ..Surroundings::default()
         }
+    }
+
+    fn labeled(field_labels: FieldLabels) -> Surroundings {
+        Surroundings {
+            app_id: Some("com.apple.mail".to_owned()),
+            field_labels,
+            ..Surroundings::default()
+        }
+    }
+
+    #[test]
+    fn field_labels_go_from_the_caption_to_the_help_text() {
+        let surroundings = labeled(FieldLabels {
+            caption: Some("Comments:".to_owned()),
+            name: Some("Your comments".to_owned()),
+            placeholder: Some(" Tell us\n more ".to_owned()),
+            help: Some("At most 500 characters".to_owned()),
+        });
+
+        let labels = field_labels(&surroundings);
+
+        assert_eq!(
+            labels,
+            [
+                "Comments:",
+                "Your comments",
+                "Tell us more",
+                "At most 500 characters"
+            ]
+        );
+    }
+
+    #[test]
+    fn field_labels_keep_one_of_each_label() {
+        let surroundings = labeled(FieldLabels {
+            caption: Some("Message:".to_owned()),
+            name: Some("message".to_owned()),
+            placeholder: Some(" \n ".to_owned()),
+            help: Some("Message".to_owned()),
+        });
+
+        let labels = field_labels(&surroundings);
+
+        assert_eq!(labels, ["Message:"]);
+    }
+
+    #[test]
+    fn any_label_finds_an_address_or_subject_field() {
+        let cases = [
+            FieldLabels {
+                placeholder: Some("Add a subject".to_owned()),
+                ..FieldLabels::default()
+            },
+            FieldLabels {
+                caption: Some("Cc:".to_owned()),
+                name: Some("Carbon copy".to_owned()),
+                ..FieldLabels::default()
+            },
+        ];
+
+        let found = cases.map(|labels| is_address_or_subject_field(&labeled(labels)));
+
+        assert_eq!(found, [true; 2]);
     }
 
     #[test]

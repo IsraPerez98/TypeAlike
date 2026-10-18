@@ -10,9 +10,11 @@
 //! Each line of the case file is one JSON object with these keys:
 //!
 //! - `id`: a unique name.
-//! - `app`, `app_id`, `window_title`, `domain`, `field_label`: the place where the writer types,
-//!   or `null`. `app_id` is a bundle identifier on macOS or a program file name on Windows.
-//!   `domain` is the host of the web page.
+//! - `app`, `app_id`, `window_title`, `domain`: the place where the writer types, or `null`.
+//!   `app_id` is a bundle identifier on macOS or a program file name on Windows. `domain` is the
+//!   host of the web page.
+//! - `field_caption`, `field_name`, `field_placeholder`, `field_help`: the labels of the field, as
+//!   in `FieldLabels`. Each key can be left out.
 //! - `before`, `after`: the text of the field before and after the caret.
 //! - `clipboard`: the text on the clipboard, or `null`.
 //! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
@@ -56,7 +58,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use ghosttype_core::app::{App, Field, SettledWork};
 use ghosttype_core::desktop::{
-    Confidence, CopiedText, Desktop, FieldText, ScreenLine, ScreenRead, ScreenRect, ScreenText, Surroundings,
+    Confidence, CopiedText, Desktop, FieldLabels, FieldText, ScreenLine, ScreenRead, ScreenRect, ScreenText,
+    Surroundings,
 };
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
@@ -131,7 +134,10 @@ struct Case {
     app_id: Option<String>,
     window_title: Option<String>,
     domain: Option<String>,
-    field_label: Option<String>,
+    field_caption: Option<String>,
+    field_name: Option<String>,
+    field_placeholder: Option<String>,
+    field_help: Option<String>,
     before: String,
     after: String,
     clipboard: Option<String>,
@@ -266,7 +272,12 @@ fn run_case(model: &mut Model, case: &Case, settings: &Settings) -> anyhow::Resu
             app_name: case.app.clone(),
             app_id: case.app_id.clone(),
             window_title: case.window_title.clone(),
-            field_label: case.field_label.clone(),
+            field_labels: FieldLabels {
+                caption: case.field_caption.clone(),
+                name: case.field_name.clone(),
+                placeholder: case.field_placeholder.clone(),
+                help: case.field_help.clone(),
+            },
             domain: case.domain.clone(),
             app_path: None,
             field_text: Some(FieldText {

@@ -7,7 +7,8 @@ use std::ptr;
 use std::time::Duration;
 
 use ghosttype_core::desktop::{
-    Confidence, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, ScreenLine, ScreenRect, ScreenText,
+    Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, ScreenLine,
+    ScreenRect, ScreenText,
 };
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::System::Com::{
@@ -17,13 +18,13 @@ use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArr
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCondition, IUIAutomationElement,
-    IUIAutomationTextPattern, IUIAutomationTextRange, TextPatternRangeEndpoint_End,
+    IUIAutomationElement6, IUIAutomationTextPattern, IUIAutomationTextRange, TextPatternRangeEndpoint_End,
     TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
     UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId,
     UIA_NamePropertyId, UIA_TextControlTypeId, UIA_TextPatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-use windows::core::{BOOL, Interface, Result};
+use windows::core::{BOOL, BSTR, Interface, Result};
 
 use crate::focus::{self, Caret, whole_chars};
 
@@ -85,15 +86,32 @@ impl UiaCaret {
         field_text_of(&self.focused_element()?)
     }
 
-    /// Reads the label of the focused control: its name, else its help text.
-    pub(crate) fn field_label(&self) -> Option<String> {
-        let element = self.focused_element()?;
-        // SAFETY: plain calls on an interface of this thread.
-        let labels = unsafe { [element.CurrentName(), element.CurrentHelpText()] };
-        labels
-            .into_iter()
-            .filter_map(|label| label.ok().map(|label| label.to_string()))
-            .find(|label| !label.trim().is_empty())
+    /// Reads the labels of the focused control. UIA has no placeholder property, so the
+    /// placeholder stays `None`.
+    pub(crate) fn field_labels(&self) -> FieldLabels {
+        let Some(element) = self.focused_element() else {
+            return FieldLabels::default();
+        };
+        // SAFETY: plain calls on interfaces of this thread.
+        let (caption, name, help_text) = unsafe {
+            (
+                element.CurrentLabeledBy().and_then(|label| label.CurrentName()),
+                element.CurrentName(),
+                element.CurrentHelpText(),
+            )
+        };
+        // SAFETY: plain calls on interfaces of this thread.
+        let full_description = || unsafe {
+            element
+                .cast::<IUIAutomationElement6>()
+                .and_then(|element| element.CurrentFullDescription())
+        };
+        FieldLabels {
+            caption: label_text(caption),
+            name: label_text(name),
+            placeholder: None,
+            help: label_text(help_text).or_else(|| label_text(full_description())),
+        }
     }
 
     /// Reads the visible text elements of the foreground window, and the frames of the focused
@@ -248,6 +266,15 @@ fn caret_of(element: &IUIAutomationElement) -> Option<Caret> {
     }
     .ok()?;
     caret_from_rectangles(&bounding_rectangles(&range)?)
+}
+
+/// Returns the text of `label`, or `None` when the control does not have this label. UIA gives an
+/// empty string for a label that a control does not have.
+fn label_text(label: Result<BSTR>) -> Option<String> {
+    label
+        .ok()
+        .map(|label| label.to_string())
+        .filter(|label| !label.trim().is_empty())
 }
 
 /// Whether `element` hides its text. An element that does not tell counts as a password field.

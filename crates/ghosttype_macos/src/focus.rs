@@ -5,7 +5,9 @@ use std::ptr::{self, NonNull};
 
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
-use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings};
+use ghosttype_core::desktop::{
+    FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings,
+};
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
@@ -29,6 +31,8 @@ const SIZE_ATTRIBUTE: &str = "AXSize";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
 const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
+const HELP_ATTRIBUTE: &str = "AXHelp";
+const TITLE_UI_ELEMENT_ATTRIBUTE: &str = "AXTitleUIElement";
 pub(crate) const ROLE_ATTRIBUTE: &str = "AXRole";
 pub(crate) const PARENT_ATTRIBUTE: &str = "AXParent";
 const URL_ATTRIBUTE: &str = "AXURL";
@@ -158,7 +162,7 @@ impl FocusTracker {
             app_id: self.frontmost_app_id.clone(),
             app_path: None,
             window_title: element.as_deref().and_then(window_title),
-            field_label: element.as_deref().and_then(field_label),
+            field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
         }
@@ -247,12 +251,30 @@ fn window_title(element: &AXUIElement) -> Option<String> {
     copy_string(&window, TITLE_ATTRIBUTE)
 }
 
-/// Reads the label of `element`: its placeholder, else its description, else its title.
-fn field_label(element: &AXUIElement) -> Option<String> {
-    [PLACEHOLDER_ATTRIBUTE, DESCRIPTION_ATTRIBUTE, TITLE_ATTRIBUTE]
-        .into_iter()
+/// Reads the labels of `element`. Its caption is its title, else the text of the element that
+/// gives its title, as a text label next to a field does.
+fn field_labels(element: &AXUIElement) -> FieldLabels {
+    FieldLabels {
+        caption: first_text(element, &[TITLE_ATTRIBUTE]).or_else(|| title_element_text(element)),
+        name: first_text(element, &[DESCRIPTION_ATTRIBUTE]),
+        placeholder: first_text(element, &[PLACEHOLDER_ATTRIBUTE]),
+        help: first_text(element, &[HELP_ATTRIBUTE]),
+    }
+}
+
+fn title_element_text(element: &AXUIElement) -> Option<String> {
+    let title_element = copy_attribute(element, TITLE_UI_ELEMENT_ATTRIBUTE)?
+        .downcast::<AXUIElement>()
+        .ok()?;
+    first_text(&title_element, &[VALUE_ATTRIBUTE, TITLE_ATTRIBUTE])
+}
+
+/// Reads the first of `attributes` of `element` that holds text that is not empty.
+fn first_text(element: &AXUIElement, attributes: &[&'static str]) -> Option<String> {
+    attributes
+        .iter()
         .filter_map(|attribute| copy_string(element, attribute))
-        .find(|label| !label.trim().is_empty())
+        .find(|text| !text.trim().is_empty())
 }
 
 /// Reads the host of the web page that holds `element`, from the URL of the nearest web area

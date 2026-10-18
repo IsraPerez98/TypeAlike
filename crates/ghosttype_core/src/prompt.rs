@@ -5,7 +5,7 @@
 
 use crate::desktop::{ScreenText, Surroundings};
 use crate::inference::{Prompt, TokenCount};
-use crate::place::Format;
+use crate::place::{self, Format};
 use crate::screen;
 use crate::settings::WriterNotes;
 
@@ -151,12 +151,15 @@ fn fitting_bytes(characters: impl Iterator<Item = char>, budget: TokenCount) -> 
 }
 
 /// Where the user types, as one line of labeled parts. A window title that names the app stands
-/// without the app.
+/// without the app. The first label of the field names it, and its other labels give a hint.
 fn place(surroundings: &Surroundings) -> Option<String> {
     let app = one_line(surroundings.app_name.as_deref(), PREFACE_TOKENS);
     let title = one_line(surroundings.window_title.as_deref(), WINDOW_TITLE_TOKENS);
     let names_app = matches!((&app, &title), (Some(app), Some(title))
         if title.to_lowercase().contains(&app.to_lowercase()));
+    let mut labels = place::field_labels(surroundings).into_iter();
+    let field = labels.next();
+    let hint = labels.collect::<Vec<_>>().join(", ");
     let parts = [
         (
             "Format",
@@ -164,10 +167,8 @@ fn place(surroundings: &Surroundings) -> Option<String> {
         ),
         ("App", app.filter(|_| !names_app)),
         ("Title", title),
-        (
-            "Field",
-            one_line(surroundings.field_label.as_deref(), FIELD_LABEL_TOKENS),
-        ),
+        ("Field", one_line(field.as_deref(), FIELD_LABEL_TOKENS)),
+        ("Hint", one_line(Some(&hint), FIELD_LABEL_TOKENS)),
     ];
     let line = parts
         .into_iter()
@@ -198,7 +199,7 @@ pub(crate) fn framed_prompt(lines: &[&str], text_before: &str) -> Prompt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect};
+    use crate::desktop::{Confidence, FieldLabels, FieldText, ScreenLine, ScreenRect};
 
     fn notes(text: &str) -> WriterNotes {
         WriterNotes(text.to_owned())
@@ -215,6 +216,13 @@ mod tests {
         let place_tokens = PREFACE_TOKENS.0 - estimated_tokens(FRAME).0 - tokens;
         let app_name = "a".repeat(3 * usize::try_from(place_tokens).unwrap() - "App: ".len());
         surroundings(Some(&app_name), None)
+    }
+
+    fn named_field(name: &str) -> FieldLabels {
+        FieldLabels {
+            name: Some(name.to_owned()),
+            ..FieldLabels::default()
+        }
     }
 
     fn surroundings(app_name: Option<&str>, window_title: Option<&str>) -> Surroundings {
@@ -246,7 +254,7 @@ mod tests {
     fn preface_goes_from_the_frame_to_text_after_the_caret() {
         let surroundings = Surroundings {
             app_id: Some("com.apple.mail".to_owned()),
-            field_label: Some("Message".to_owned()),
+            field_labels: named_field("Message"),
             field_text: Some(FieldText {
                 before_caret: "Hi ".to_owned(),
                 after_caret: "\n\n> Priya wrote\n".to_owned(),
@@ -326,7 +334,7 @@ mod tests {
         let surroundings = Surroundings {
             app_id: Some("com.google.Chrome".to_owned()),
             domain: Some("mail.google.com".to_owned()),
-            field_label: Some("Message Body".to_owned()),
+            field_labels: named_field("Message Body"),
             ..surroundings(Some("Google Chrome"), Some("Inbox - Gmail - Google Chrome"))
         };
 
@@ -339,9 +347,29 @@ mod tests {
     }
 
     #[test]
+    fn other_labels_of_the_field_give_a_hint() {
+        let surroundings = Surroundings {
+            field_labels: FieldLabels {
+                caption: Some("Message".to_owned()),
+                name: Some("message".to_owned()),
+                placeholder: Some("Message Priya Shah".to_owned()),
+                help: Some("Shift+Enter adds a line".to_owned()),
+            },
+            ..surroundings(None, Some("Priya Shah"))
+        };
+
+        let preface = preface(&WriterNotes::default(), &surroundings, None, None);
+
+        assert_eq!(
+            preface,
+            framed("Title: Priya Shah; Field: Message; Hint: Message Priya Shah, Shift+Enter adds a line")
+        );
+    }
+
+    #[test]
     fn place_stays_on_one_line() {
         let surroundings = Surroundings {
-            field_label: Some(" Message\n  body ".to_owned()),
+            field_labels: named_field(" Message\n  body "),
             ..surroundings(None, Some("Re:\tBudget"))
         };
 
@@ -354,11 +382,16 @@ mod tests {
     fn long_parts_keep_their_start() {
         let title = ascii_text('t', WINDOW_TITLE_TOKENS, 1);
         let label = ascii_text('l', FIELD_LABEL_TOKENS, 1);
+        let hint = ascii_text('h', FIELD_LABEL_TOKENS, 1);
         let clipboard = ascii_text('c', CLIPBOARD_TOKENS, 1);
         let after = ascii_text('a', AFTER_CARET_TOKENS, 1);
         let surroundings = Surroundings {
             window_title: Some(title),
-            field_label: Some(label),
+            field_labels: FieldLabels {
+                name: Some(label),
+                placeholder: Some(hint),
+                ..FieldLabels::default()
+            },
             ..with_text_after(&after)
         };
 
@@ -367,9 +400,10 @@ mod tests {
         assert_eq!(
             preface,
             framed(&format!(
-                "Title: {}; Field: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
+                "Title: {}; Field: {}; Hint: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
                 ascii_text('t', WINDOW_TITLE_TOKENS, 0),
                 ascii_text('l', FIELD_LABEL_TOKENS, 0),
+                ascii_text('h', FIELD_LABEL_TOKENS, 0),
                 ascii_text('c', CLIPBOARD_TOKENS, 0),
                 ascii_text('a', AFTER_CARET_TOKENS, 0)
             ))
