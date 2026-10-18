@@ -3,7 +3,6 @@
 //! [`LlamaCpp`] implements the core [`ModelRunner`] seam. One worker thread owns llama.cpp and the
 //! loaded model and runs requests in order, so the caller's thread never waits for a model.
 
-mod output_layer;
 mod worker;
 
 use std::mem;
@@ -27,11 +26,6 @@ pub const BUILT_IN_BACKEND: Backend = if cfg!(target_os = "macos") {
 /// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
 /// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
 /// GPU supports it, and only when the whole model fits in the free memory of that GPU.
-///
-/// Before each load, on every backend, it writes the output layer of the model file in 4 bits,
-/// when the layer is quantized with more bits. Each other tensor keeps its type, and the file stays
-/// in 4 bits. Each added token then reads less memory, and the suggestions stay almost the same.
-/// When the rewrite fails, the model loads as it is.
 ///
 /// A drop waits until the worker finishes the submitted requests and frees the model. On Metal,
 /// llama.cpp stops the process with an assert when the process exits while a model is loaded.
