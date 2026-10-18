@@ -1549,6 +1549,7 @@ mod tests {
             personalization: PersonalizationSettings {
                 history,
                 apps,
+                word_choice: WordChoice::Off,
                 ..PersonalizationSettings::default()
             },
             ..Settings::default()

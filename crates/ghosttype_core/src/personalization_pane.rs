@@ -429,7 +429,7 @@ mod tests {
                 ),
                 (
                     ["Off", "Light", "Medium", "Strong"].map(str::to_owned).to_vec(),
-                    0
+                    2
                 ),
             ]
         );

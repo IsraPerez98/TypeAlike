@@ -646,7 +646,7 @@ mod tests {
     use crate::screen_text_pane::SCREEN_TEXT;
     use crate::settings::{
         KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
-        ScreenTextSettings, SuggestionDisplay,
+        ScreenTextSettings, SuggestionDisplay, WordChoice,
     };
     use crate::settings_view::{ControlId, Page};
 
@@ -1853,7 +1853,7 @@ mod tests {
                 history: HistoryAccess::On,
                 kept_texts: KeptTexts::All,
                 apps: vec![mail_history_app(true)],
-                ..PersonalizationSettings::default()
+                word_choice: WordChoice::Off,
             },
             ..Settings::default()
         }

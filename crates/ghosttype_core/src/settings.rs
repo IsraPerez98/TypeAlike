@@ -186,11 +186,11 @@ pub enum KeptTexts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WordChoice {
     /// Suggestions do not prefer the words of the user.
-    #[default]
     Off,
     /// A small preference.
     Light,
     /// A medium preference.
+    #[default]
     Medium,
     /// A large preference, which can make a suggestion match the text less well.
     Strong,
@@ -476,6 +476,13 @@ mod tests {
                 ..app("notepad.exe", "notepad.exe", true)
             })
         );
+    }
+
+    #[test]
+    fn word_choice_is_medium_by_default() {
+        let settings = PersonalizationSettings::default();
+
+        assert_eq!(settings.word_choice, WordChoice::Medium);
     }
 
     #[test]
