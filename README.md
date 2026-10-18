@@ -18,7 +18,7 @@ Download the files from [Releases](https://github.com/IsraPerez98/GhostType/rele
 The installers do not have a signature yet, so SmartScreen can show a warning. Click **More info**, then
 **Run anyway**. The uninstaller keeps your settings and models in `%LOCALAPPDATA%\GhostType`.
 
-**macOS 14 or later (Apple silicon):** open the `.dmg` file and move GhostType to Applications. The app does not
+**macOS 15 or later (Apple silicon):** open the `.dmg` file and move GhostType to Applications. The app does not
 have a Developer ID signature yet, so macOS stops the first start:
 
 1. Open GhostType. macOS shows that it cannot make sure that the app is safe.
