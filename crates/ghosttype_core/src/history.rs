@@ -20,7 +20,7 @@ const MIN_KEPT_CHARS: usize = 40;
 const MAX_KEPT_CHARS: usize = 1000;
 /// The texts of the same place that share the most rare words with the text near the caret, which
 /// a prompt shows: the same domain in a browser, else the same app.
-const BEST_MATCHES_IN_PLACE: usize = 1;
+const BEST_MATCHES_IN_PLACE: usize = 2;
 /// The newest texts of other places with the same format that a prompt shows, when the place has
 /// no text.
 const RECENT_IN_FORMAT: usize = 1;
