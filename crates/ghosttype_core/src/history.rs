@@ -7,9 +7,9 @@ use std::io;
 use std::ops::Range;
 
 use crate::desktop::{FieldText, ScreenText, Surroundings};
-use crate::inference::WordBias;
+use crate::inference::{TokenCount, WordBias};
 use crate::place::{self, Format};
-use crate::prompt::{from_word, last_chars};
+use crate::prompt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens};
 use crate::settings::WordChoice;
 
 /// The most texts that GhostType keeps. The oldest text goes first.
@@ -27,11 +27,11 @@ const MAX_SMALL_PLACE_TEXTS: usize = 3;
 /// The newest texts of other places with the same format that a prompt shows, when the place has
 /// no text.
 const RECENT_IN_FORMAT: usize = 1;
-/// The most characters of the end of a text that its example keeps.
-const EXAMPLE_CHARS: usize = 320;
-/// The characters of the start of a text longer than [`EXAMPLE_CHARS`], which its example keeps
-/// before its end: the greeting of a long text.
-const EXAMPLE_START_CHARS: usize = 100;
+/// The most estimated tokens of an example.
+const EXAMPLE_TOKENS: TokenCount = TokenCount(160);
+/// The estimated tokens of the start of a text longer than [`EXAMPLE_TOKENS`], which its example
+/// keeps before its end: the greeting of a long text.
+const EXAMPLE_START_TOKENS: TokenCount = TokenCount(33);
 /// The share of a text, in percent, that the user must add in a session for GhostType to keep the
 /// whole text. With a smaller share, GhostType keeps only the added part.
 const MIN_OWN_PERCENT: usize = 50;
@@ -379,27 +379,28 @@ impl Topics {
     }
 }
 
-/// Returns the example that `text` gives: all of it when it has at most [`EXAMPLE_CHARS`]
-/// characters, else its start and its end with a mark between them.
+/// Returns the example that `text` gives: all of it when it fits in [`EXAMPLE_TOKENS`], else its
+/// start and its end with a mark between them, so that the example fits.
 fn example_of(text: &str) -> String {
-    let end = end_at_word(text, EXAMPLE_CHARS);
-    if end.len() == text.len() {
-        return end.to_owned();
+    if estimated_tokens(text) <= EXAMPLE_TOKENS {
+        return text.to_owned();
     }
-    format!("{} … {end}", start_at_word(text, EXAMPLE_START_CHARS))
+    let end_tokens = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_START_TOKENS.0);
+    let end = from_word(text, last_tokens(text, end_tokens));
+    format!(
+        "{} … {end}",
+        start_at_word(text, first_tokens(text, EXAMPLE_START_TOKENS))
+    )
 }
 
-/// Returns the start of `text` that has at most `count` characters and ends with a word.
-fn start_at_word(text: &str, count: usize) -> &str {
-    let Some((end, _)) = text.char_indices().nth(count) else {
-        return text;
-    };
-    let cut = &text[..end];
-    if text[end..].starts_with(char::is_whitespace) {
-        return cut.trim_end();
+/// Returns `start`, the start of `text`, without the part of a word at its end.
+fn start_at_word<'text>(text: &str, start: &'text str) -> &'text str {
+    if text[start.len()..].starts_with(char::is_whitespace) {
+        return start.trim_end();
     }
-    cut.rsplit_once(char::is_whitespace)
-        .map_or("", |(start, _)| start.trim_end())
+    start
+        .rsplit_once(char::is_whitespace)
+        .map_or("", |(whole, _)| whole.trim_end())
 }
 
 /// Adds to `picked` the first `count` of `candidates` that do not overlap a picked entry.
@@ -1394,7 +1395,7 @@ mod tests {
 
     #[test]
     fn example_keeps_the_start_and_the_end_of_a_long_text_from_a_word() {
-        let entries = [mail(&format!("Hola equipo, {}fin", "word ".repeat(80)))];
+        let entries = [mail(&format!("Hola equipo, {}fin", "word ".repeat(120)))];
 
         let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
 
@@ -1403,14 +1404,30 @@ mod tests {
             [format!(
                 "Hola equipo, {} … {}fin",
                 "word ".repeat(17).trim_end(),
-                "word ".repeat(63)
+                "word ".repeat(75)
+            )]
+        );
+    }
+
+    #[test]
+    fn example_of_a_text_with_wide_characters_keeps_fewer_characters() {
+        let entries = [mail(&format!("Hola equipo, {}fin", "ñu ".repeat(200)))];
+
+        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
+
+        assert_eq!(
+            examples,
+            [format!(
+                "Hola equipo, {} … {}fin",
+                "ñu ".repeat(17).trim_end(),
+                "ñu ".repeat(75)
             )]
         );
     }
 
     #[test]
     fn example_keeps_all_of_a_text_that_fits() {
-        let text = format!("Hola equipo, {}fin", "word ".repeat(60));
+        let text = format!("Hola equipo, {}fin", "word ".repeat(90));
         let entries = [mail(&text)];
 
         let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
