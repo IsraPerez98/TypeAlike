@@ -69,6 +69,9 @@ windows = { version = "=0.62.2", default-features = false, features = [
 # The settings window. The release 0.100.0 has no AppProxy and no public App::run_with, so this
 # follows windows-rs master at a fixed commit until a release has them.
 windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "02ec1f06fcf9643f6dbcf1fe36f6668911c5c126", default-features = false }
+# Copies the Windows App Runtime next to the program for the installers. Keep the same commit as
+# windows-reactor, so the runtime is the version that windows-reactor needs.
+windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "02ec1f06fcf9643f6dbcf1fe36f6668911c5c126", default-features = false }
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
 objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [

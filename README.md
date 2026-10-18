@@ -5,6 +5,29 @@ Grey "ghost text" suggestions appear at the caret in any app; press **Tab** to a
 
 > Status: early scaffold.
 
+## Install
+
+Download the files from [Releases](https://github.com/IsraPerez98/GhostType/releases).
+
+**Windows 10 or 11 (x64):** run one of the two installers. They install GhostType for the current user only.
+
+- `GhostType-X.Y.Z-windows-x64-vulkan-setup.exe` runs the models on the CPU, or on a GPU with Vulkan.
+- `GhostType-X.Y.Z-windows-x64-cuda-setup.exe` also runs the models with CUDA on an NVIDIA GPU. It needs a recent
+  NVIDIA driver, and it is much larger.
+
+The installers do not have a signature yet, so SmartScreen can show a warning. Click **More info**, then
+**Run anyway**. The uninstaller keeps your settings and models in `%LOCALAPPDATA%\GhostType`.
+
+**macOS 14 or later (Apple silicon):** open the `.dmg` file and move GhostType to Applications. The app does not
+have a Developer ID signature yet, so macOS stops the first start:
+
+1. Open GhostType. macOS shows that it cannot make sure that the app is safe.
+2. Open System Settings > Privacy & Security, then click **Open Anyway**.
+3. Give GhostType Accessibility access. For the screen text, also give it Screen & System Audio Recording access.
+
+macOS does not keep these permissions after an update, because each build has a different ad-hoc signature.
+Remove GhostType from each list, then give the access again.
+
 ## Build
 
 Requires [rustup](https://rustup.rs/) (the toolchain version is pinned in `rust-toolchain.toml` and installed

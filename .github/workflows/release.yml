@@ -1,0 +1,148 @@
+name: Release
+
+# A tag vX.Y.Z builds the installers and makes a draft release with them. A manual run builds the
+# installers as workflow artifacts only.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        name: Read the version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME does not agree with the version $version in Cargo.toml."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    # The macOS 26 SDK gives the AppKit controls the Liquid Glass look.
+    runs-on: macos-26
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: cargo build --release --locked
+      - name: Build the disk image
+        run: sh packaging/macos/build-dmg.sh "${{ needs.version.outputs.version }}" target/release/GhostType dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+  windows:
+    name: windows (${{ matrix.flavor }})
+    needs: version
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: vulkan
+            features: vulkan
+          - flavor: cuda
+            features: vulkan,cuda
+    env:
+      # The Vulkan shader build goes past MAX_PATH in a longer target folder.
+      CARGO_TARGET_DIR: C:\t
+      # The Visual Studio generator finds no CUDA toolset.
+      CMAKE_GENERATOR: Ninja
+      CUDA_VERSION: 13.2.2
+      VULKAN_VERSION: 1.4.363.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select the MSVC 14.44 toolset
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $visualStudio = & $vswhere -latest -products * -property installationPath
+          $toolset = Get-ChildItem "$visualStudio\VC\Tools\MSVC" -Directory -Filter '14.44.*' | Select-Object -Last 1
+          if (-not $toolset) { throw "no MSVC 14.44 toolset in $visualStudio" }
+          "VCToolsVersion=$($toolset.Name)" >> $env:GITHUB_ENV
+
+      - name: Install the Vulkan SDK
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $installer = Join-Path $env:RUNNER_TEMP 'vulkan-sdk.exe'
+          curl.exe --fail --location --silent --show-error --output $installer "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:VULKAN_VERSION.exe"
+          $install = Start-Process $installer -ArgumentList '--root', 'C:\VulkanSDK', '--accept-licenses', '--default-answer', '--confirm-command', 'install' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "the Vulkan SDK installer stopped with exit code $($install.ExitCode)" }
+          if (-not (Test-Path 'C:\VulkanSDK\Bin\glslc.exe')) { throw 'the Vulkan SDK has no glslc.exe' }
+          'VULKAN_SDK=C:\VulkanSDK' >> $env:GITHUB_ENV
+          'C:\VulkanSDK\Bin' >> $env:GITHUB_PATH
+
+      - name: Install the CUDA Toolkit
+        if: matrix.flavor == 'cuda'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $ProgressPreference = 'SilentlyContinue'
+          $redist = 'https://developer.download.nvidia.com/compute/cuda/redist'
+          $manifest = Invoke-RestMethod "$redist/redistrib_$env:CUDA_VERSION.json"
+          $cuda = New-Item -ItemType Directory -Path 'C:\cuda'
+          foreach ($component in 'cuda_nvcc', 'cuda_crt', 'libnvvm', 'cuda_cudart', 'cuda_cccl', 'libcublas') {
+            $archive = $manifest.$component.'windows-x86_64'
+            $zip = Join-Path $env:RUNNER_TEMP "$component.zip"
+            Invoke-WebRequest "$redist/$($archive.relative_path)" -OutFile $zip
+            if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $archive.sha256) { throw "$component.zip has the wrong SHA-256" }
+            & "$env:SystemRoot\System32\tar.exe" -xf $zip -C $cuda --strip-components 1
+          }
+          "CUDA_PATH=$cuda" >> $env:GITHUB_ENV
+          "CUDACXX=$cuda\bin\nvcc.exe" >> $env:GITHUB_ENV
+          "$cuda\bin" >> $env:GITHUB_PATH
+
+      - name: Build
+        run: cargo build --release --locked --features "${{ matrix.features }},self-contained"
+
+      - name: Stage the installer files
+        run: packaging\windows\stage.ps1 -Release "$env:CARGO_TARGET_DIR\release" -Destination dist\app ${{ matrix.flavor == 'cuda' && '-CudaPath C:\cuda' || '' }}
+
+      - name: Build the installer
+        run: >
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          "/DAppVersion=${{ needs.version.outputs.version }}"
+          "/DFlavor=${{ matrix.flavor }}"
+          "/DStagingDir=$PWD\dist\app"
+          "/O$PWD\dist"
+          packaging\windows\GhostType.iss
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.flavor }}
+          path: dist/*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Make a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "GhostType $GITHUB_REF_NAME"

@@ -2,6 +2,8 @@
 //! tray menu and dialogs draw with the current visual styles. It also declares Windows 10 and 11
 //! support, so Windows runs GhostType without the compatibility mode for older apps. It sets the
 //! UTF-8 code page, so llama.cpp can write a model file in a folder with letters outside ASCII.
+//! With the `self-contained` feature, it also copies the Windows App Runtime next to the program
+//! and adds the manifest that tells windows-reactor to load that copy.
 
 fn main() {
     let is_windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
@@ -18,5 +20,7 @@ fn main() {
             "cargo::rustc-link-arg-bins=/MANIFESTINPUT:{}",
             compatibility.display()
         );
+        #[cfg(feature = "self-contained")]
+        windows_reactor_setup::as_self_contained();
     }
 }

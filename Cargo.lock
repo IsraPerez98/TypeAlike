@@ -198,6 +198,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber",
+ "windows-reactor-setup",
 ]
 
 [[package]]
@@ -1029,6 +1030,11 @@ dependencies = [
  "windows-time",
  "windows-window",
 ]
+
+[[package]]
+name = "windows-reactor-setup"
+version = "0.100.0"
+source = "git+https://github.com/microsoft/windows-rs?rev=02ec1f06fcf9643f6dbcf1fe36f6668911c5c126#02ec1f06fcf9643f6dbcf1fe36f6668911c5c126"
 
 [[package]]
 name = "windows-reference"
