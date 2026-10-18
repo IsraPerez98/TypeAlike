@@ -5,6 +5,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::leak::Leak;
+
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +15,8 @@ pub enum CaseKind {
     NextWord,
     /// Inside a word: the suggestion must finish it.
     PartialWord,
+    /// Inside a word with a typo: the suggestion must not finish it.
+    Typo,
 }
 
 impl CaseKind {
@@ -28,9 +32,19 @@ impl CaseKind {
     }
 }
 
-/// Returns whether `accepted`, the word that the first Tab types, is the first word of `next`.
-/// Signs after the word, such as a period or a comma, do not count.
-pub fn is_next_word(accepted: &str, next: &str) -> bool {
+/// Returns whether a case of `kind` with the ghost text `suggestion` matches. A typo case matches
+/// when no suggestion finishes the word with the typo. Another case matches when `accepted`, the
+/// word that the first Tab types, is the first word of `next`.
+pub fn is_match(kind: CaseKind, suggestion: Option<&str>, accepted: &str, next: &str) -> bool {
+    match kind {
+        CaseKind::Typo => !suggestion.is_some_and(|text| text.starts_with(char::is_alphanumeric)),
+        CaseKind::NextWord | CaseKind::PartialWord => is_next_word(accepted, next),
+    }
+}
+
+/// Returns whether `accepted` is the first word of `next`. Signs after the word, such as a period
+/// or a comma, do not count.
+fn is_next_word(accepted: &str, next: &str) -> bool {
     let word = without_trailing_signs(accepted);
     !word.trim().is_empty() && word == next_word(next)
 }
@@ -64,8 +78,11 @@ pub struct Outcome {
     pub kind: CaseKind,
     /// The ghost text, or `None` when none shows.
     pub suggestion: Option<String>,
-    /// Whether the word that the first Tab types is the next word that the writer typed.
+    /// Whether the case matches, as [`is_match`] tells.
     pub is_match: bool,
+    /// The text that the suggestion took from the prompt, or `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leak: Option<Leak>,
     /// The milliseconds from the key to the ghost text.
     pub millis: u64,
     /// The milliseconds from the key to the ghost text when the app prepared the prompt before the
@@ -84,7 +101,7 @@ pub struct Outcome {
 /// How many cases matched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Score {
-    /// The cases where the word that the first Tab types is the next word that the writer typed.
+    /// The cases that match, as [`is_match`] tells.
     pub matches: usize,
     /// All the cases.
     pub cases: usize,
@@ -122,6 +139,10 @@ pub struct Summary {
     pub next_word: Score,
     /// The cases with the caret inside a word.
     pub partial_word: Score,
+    /// The cases with the caret inside a word with a typo.
+    pub typo: Score,
+    /// The ids of the cases with a leak.
+    pub leaks: Vec<String>,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
     /// The median milliseconds from the key to the ghost text.
@@ -144,6 +165,12 @@ impl Summary {
         Self {
             next_word: Score::of(outcomes, CaseKind::NextWord),
             partial_word: Score::of(outcomes, CaseKind::PartialWord),
+            typo: Score::of(outcomes, CaseKind::Typo),
+            leaks: outcomes
+                .iter()
+                .filter(|outcome| outcome.leak.is_some())
+                .map(|outcome| outcome.id.clone())
+                .collect(),
             without_suggestion: outcomes
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
@@ -272,10 +299,18 @@ mod tests {
             kind,
             suggestion: Some("text".to_owned()),
             is_match,
+            leak: None,
             millis,
             warm_millis: None,
             prompt_tokens: None,
             log_probability: None,
+        }
+    }
+
+    fn leaked(id: &str, leak: Leak) -> Outcome {
+        Outcome {
+            leak: Some(leak),
+            ..outcome(id, CaseKind::NextWord, false, 10)
         }
     }
 
@@ -404,6 +439,58 @@ mod tests {
             ),
             (Score { matches: 1, cases: 3 }, Score { matches: 1, cases: 1 }, 1)
         );
+    }
+
+    #[test]
+    fn typo_case_matches_without_a_suggestion_that_finishes_the_word() {
+        let cases = [
+            (Some("cia antes del miércoles"), false),
+            (Some(" antes"), true),
+            (Some("?"), true),
+            (None, true),
+        ];
+
+        let matches = cases.map(|(suggestion, _)| is_match(CaseKind::Typo, suggestion, "cia", "cia antes"));
+
+        assert_eq!(matches, cases.map(|(_, is_right)| is_right));
+    }
+
+    #[test]
+    fn other_cases_match_when_the_accepted_word_is_the_next_word() {
+        let kinds = [CaseKind::NextWord, CaseKind::PartialWord];
+
+        let matches = kinds.map(|kind| is_match(kind, Some(" meeting at"), " meeting", " meeting at noon"));
+
+        assert_eq!(matches, [true, true]);
+    }
+
+    #[test]
+    fn summary_scores_the_typo_cases_apart() {
+        let outcomes = [
+            outcome("a", CaseKind::Typo, true, 10),
+            outcome("b", CaseKind::Typo, false, 10),
+            outcome("c", CaseKind::NextWord, true, 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.next_word, summary.typo),
+            (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
+        );
+    }
+
+    #[test]
+    fn summary_names_the_cases_with_a_leak() {
+        let outcomes = [
+            leaked("label", Leak::Label),
+            outcome("clean", CaseKind::NextWord, true, 10),
+            leaked("screen", Leak::Screen),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(summary.leaks, ["label", "screen"]);
     }
 
     #[test]

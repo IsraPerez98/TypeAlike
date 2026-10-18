@@ -28,6 +28,7 @@
 //! - `words`: the words that the writer often writes, with their counts. It can be left out. When
 //!   the case has words, the word bias comes from them, and else from `history`.
 //! - `next`: the text that the writer typed next.
+//! - `typo`: `true` when the last word of `before` has a typo. It can be left out.
 //!
 //! The eval uses the default settings with the backend of `--backend`, the clipboard and the
 //! earlier writing on, and
@@ -39,13 +40,21 @@
 //! prompt when the input settles, as the app does when it prepares the prompt on focus, and types
 //! the character again for the warm time.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
-//! the word do not count. The report gives the score of the cases with the caret between two
-//! words, the score of the cases with the caret inside a word, the median time from the key to
-//! the ghost text, and the median warm time. It also gives the median tokens of a prompt, and the
+//! the word do not count. A typo case matches when no suggestion finishes the word with the typo.
+//! The report gives the score of the cases with the caret between two words, the score of the
+//! cases with the caret inside a word, the score of the typo cases, the median time from the key
+//! to the ghost text, and the median warm time. It also gives the median tokens of a prompt, and the
 //! time for each token of the prompt, which tells whether a change adds time through more tokens.
 //! It also gives the mean log probability of the first word of `next` after the
 //! prompt. This value moves a little for a small change of the prompt, while the score often stays
 //! the same.
+//!
+//! The report also names the cases with a leak: a suggestion with text that the model took from
+//! the prompt. A leak is a label with a colon (in a field of one word, or before “), a word
+//! about the prompt or the task (such as "user"), a name from the notes, or two words or a time of
+//! a chat header on the screen (a line with only a name and a time). Text that the writer typed in
+//! the case or in the earlier writing is never a leak. A rule finds the leaks, so read the
+//! suggestions of the named cases before a decision.
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
@@ -58,6 +67,12 @@
 //! only other formats exist), `greeting` (it starts a long earlier text), `names` (a name that
 //! the writer writes often) and `phrase` (the last 3 words start a phrase of the writer: the writer
 //! repeats it, or the writer changes it this time). The held-out file has its own writers.
+//!
+//! `cases/chat.jsonl` has the cases where most leaks show: chats, emails and documents with
+//! only one or two characters in the field, with the names and the times of a chat on the screen,
+//! and with a time inside a message. Run it also with `--notes`. `cases/typos.jsonl` has cases
+//! of `tuning.jsonl` and `held_out.jsonl` with the second and the third letter of the last word
+//! swapped.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
@@ -75,6 +90,7 @@
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
 //! has no log probability.
 
+mod leak;
 mod likelihood;
 mod score;
 
@@ -107,8 +123,9 @@ use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+use crate::leak::{CaseTexts, Leak};
 use crate::likelihood::Continuation;
-use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word, next_word};
+use crate::score::{CaseKind, Comparison, Outcome, Summary, is_match, next_word};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
@@ -211,6 +228,34 @@ struct Case {
     #[serde(default)]
     words: BTreeMap<String, u32>,
     next: String,
+    #[serde(default)]
+    typo: bool,
+}
+
+impl Case {
+    fn kind(&self) -> CaseKind {
+        if self.typo {
+            CaseKind::Typo
+        } else {
+            CaseKind::of(&self.before, &self.next)
+        }
+    }
+
+    fn texts<'case>(&'case self, history: &'case [HistoryEntry], notes: &'case str) -> CaseTexts<'case> {
+        CaseTexts {
+            before: &self.before,
+            after: &self.after,
+            next: &self.next,
+            earlier: history.iter().map(|entry| entry.text.as_str()).collect(),
+            notes,
+            screen_lines: self
+                .screen
+                .iter()
+                .flat_map(|screen| &screen.lines)
+                .map(|line| line.text.as_str())
+                .collect(),
+        }
+    }
 }
 
 /// An earlier text of the writer.
@@ -540,16 +585,21 @@ fn run_case(
         _ => String::new(),
     };
     let (_, warm) = typing.type_last_character(model, Preparation::Decode)?;
+    let suggestion = match cold.reaction {
+        Reaction::Show(text) => Some(text),
+        _ => None,
+    };
+    let kind = case.kind();
 
     Ok(CaseRun {
         outcome: Outcome {
             id: case.id.clone(),
-            kind: CaseKind::of(&case.before, &case.next),
-            suggestion: match cold.reaction {
-                Reaction::Show(text) => Some(text),
-                _ => None,
-            },
-            is_match: is_next_word(&accepted, &case.next),
+            kind,
+            is_match: is_match(kind, suggestion.as_deref(), &accepted, &case.next),
+            leak: suggestion
+                .as_deref()
+                .and_then(|text| Leak::find(text, &case.texts(history, &settings.writer_notes.0))),
+            suggestion,
             millis: cold.millis,
             warm_millis: Some(warm.millis),
             prompt_tokens: None,
@@ -588,6 +638,15 @@ fn write_report(
 ) -> io::Result<()> {
     writeln!(output, "next word:     {}", summary.next_word)?;
     writeln!(output, "partial word:  {}", summary.partial_word)?;
+    if summary.typo.cases > 0 {
+        writeln!(output, "typo word:     {}", summary.typo)?;
+    }
+    writeln!(
+        output,
+        "leaks:         {} {:?}",
+        summary.leaks.len(),
+        summary.leaks
+    )?;
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {} ms", summary.median_millis)?;
     if let Some(millis) = summary.median_warm_millis {
@@ -731,6 +790,16 @@ mod tests {
         let history = history_of(&case_of(None, &["only"]), &BTreeMap::new()).unwrap();
 
         assert_eq!(texts(&history), ["only"]);
+    }
+
+    #[test]
+    fn case_with_a_typo_is_a_typo_case_wherever_the_caret_is() {
+        let case = Case {
+            typo: true,
+            ..case_of(None, &[])
+        };
+
+        assert_eq!(case.kind(), CaseKind::Typo);
     }
 
     #[test]
