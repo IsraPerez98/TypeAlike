@@ -34,8 +34,9 @@ const PANE_TITLE: &str = "Models";
 const PANE_SUMMARY: &str = "GhostType uses a language model on this computer to suggest text.";
 const SEARCH_PLACEHOLDER: &str = "Search Hugging Face";
 const SUGGESTED_HEADING: &str = "Suggested models";
-const SUGGESTED_FOOTER: &str =
-    "Smaller models are faster and use less memory. Larger models give better suggestions.";
+const SUGGESTED_FOOTER: &str = "Smaller models are faster and use less memory. Larger models give better \
+     suggestions. When the model runs on the CPU, select a model with 1B parameters or fewer, so that \
+     suggestions show sooner.";
 const RESULTS_FOOTER: &str =
     "The list shows only GGUF models. The models with the most downloads are at the top.";
 const FILES_FOOTER: &str = "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file.";
@@ -815,7 +816,9 @@ mod tests {
             (
                 Some("Suggested models".to_owned()),
                 None,
-                Some("Smaller models are faster and use less memory. Larger models give better suggestions.")
+                Some(
+                    "Smaller models are faster and use less memory. Larger models give better suggestions. When the model runs on the CPU, select a model with 1B parameters or fewer, so that suggestions show sooner."
+                )
             )
         );
     }
