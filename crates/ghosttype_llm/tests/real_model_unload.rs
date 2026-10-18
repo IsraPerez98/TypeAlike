@@ -8,7 +8,7 @@ use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, Prompt, TokenCount,
 };
-use ghosttype_llm::LlamaCpp;
+use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
@@ -27,7 +27,7 @@ fn unloaded_model_completes_no_text() {
     runner.submit(
         InferenceRequest::Load {
             file: file.clone(),
-            backend: None,
+            backend: BUILT_IN_BACKEND,
         },
         &sink,
     );

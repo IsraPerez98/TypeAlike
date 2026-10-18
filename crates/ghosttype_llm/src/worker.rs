@@ -116,7 +116,7 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
 fn load(
     llama: &mut Option<LlamaBackend>,
     path: Option<PathBuf>,
-    backend: Option<Backend>,
+    backend: Backend,
 ) -> Result<LlamaModel, InferenceError> {
     let path = path
         .filter(|path| path.is_file())
@@ -170,14 +170,15 @@ struct Progress<'job> {
     send_partial: &'job mut dyn FnMut(String),
 }
 
-/// Returns the parameters that load the model at `path` on `backend`. For a GPU backend, it first
+/// Returns the parameters that load the model at `path` on `backend`. For Vulkan and CUDA, it first
 /// makes sure that the whole model fits in the GPU, because llama.cpp otherwise loads a part of it
-/// into slow shared memory, or fails at a later step.
-fn model_params(path: &Path, backend: Option<Backend>) -> Result<LlamaModelParams, InferenceError> {
+/// into slow shared memory, or fails at a later step. Metal keeps the parameters of llama.cpp,
+/// which put the whole model on the GPU of the Mac.
+fn model_params(path: &Path, backend: Backend) -> Result<LlamaModelParams, InferenceError> {
     match backend {
-        None => Ok(LlamaModelParams::default()),
-        Some(Backend::Cpu) => on_devices(&[]),
-        Some(gpu_backend @ (Backend::Vulkan | Backend::Cuda)) => {
+        Backend::Cpu => on_devices(&[]),
+        Backend::Metal => Ok(LlamaModelParams::default()),
+        gpu_backend @ (Backend::Vulkan | Backend::Cuda) => {
             let devices = list_llama_ggml_backend_devices();
             let device = gpu_device(&devices, gpu_backend).ok_or_else(|| {
                 tracing::warn!(backend = ?gpu_backend, "no GPU device for the backend");
@@ -191,10 +192,10 @@ fn model_params(path: &Path, backend: Option<Backend>) -> Result<LlamaModelParam
 }
 
 /// Returns the device that runs `backend`: its first discrete GPU, else its first integrated GPU.
-/// The CPU backend has none.
+/// The CPU backend has none, and llama.cpp selects the GPU for Metal.
 fn gpu_device(devices: &[LlamaBackendDevice], backend: Backend) -> Option<&LlamaBackendDevice> {
     let registry = match backend {
-        Backend::Cpu => return None,
+        Backend::Cpu | Backend::Metal => return None,
         Backend::Vulkan => "Vulkan",
         Backend::Cuda => "CUDA",
     };

@@ -15,6 +15,7 @@ use ghosttype_core::controller::{
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
 };
+use ghosttype_core::inference::Backend;
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_view::{SettingsInput, SettingsView};
@@ -68,7 +69,12 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             with_runtime(|runtime| runtime.on_delivery(delivery));
         });
     });
-    let controller = Controller::new(settings, services, BackendChoice::Runner, &deliver);
+    let controller = Controller::new(
+        settings,
+        services,
+        BackendChoice::Platform(Backend::Metal),
+        &deliver,
+    );
     let menu_bar = MenuBarItem::add(
         &controller.tray_view(),
         Retained::into_super(target.clone()),

@@ -23,13 +23,7 @@ fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
     let sink: InferenceEventSink = Arc::new(move |event| {
         sender.send(event).ok();
     });
-    runner.submit(
-        InferenceRequest::Load {
-            file,
-            backend: Some(backend),
-        },
-        &sink,
-    );
+    runner.submit(InferenceRequest::Load { file, backend }, &sink);
     runner.submit(
         InferenceRequest::Complete {
             prompt: Prompt("Once upon a time".to_owned()),

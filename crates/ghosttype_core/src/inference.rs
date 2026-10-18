@@ -41,6 +41,8 @@ pub enum Backend {
     Vulkan,
     /// An NVIDIA GPU through CUDA.
     Cuda,
+    /// The GPU of a Mac through Metal.
+    Metal,
 }
 
 /// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its
@@ -51,8 +53,8 @@ pub enum InferenceRequest {
     Load {
         /// The model file to load.
         file: ModelFile,
-        /// The backend that runs the model, or `None` to let the runner pick, as its build allows.
-        backend: Option<Backend>,
+        /// The backend that runs the model.
+        backend: Backend,
     },
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`], after zero or more
     /// [`InferenceEvent::Partial`]. The added text can also finish the last word of `prompt`. The

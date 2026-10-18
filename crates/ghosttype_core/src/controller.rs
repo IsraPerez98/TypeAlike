@@ -11,7 +11,7 @@ use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::Reaction;
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
-use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::models_pane::{ModelsAction, ModelsPane};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
@@ -46,8 +46,8 @@ pub enum FocusChange {
 pub enum BackendChoice {
     /// The user, in the General pane.
     User,
-    /// The model runner, as its build allows.
-    Runner,
+    /// The platform, which runs each model on this backend.
+    Platform(Backend),
 }
 
 /// Something that the user did in a pane of the settings window.
@@ -183,7 +183,8 @@ impl fmt::Debug for Controller {
 
 impl Controller {
     /// Starts GhostType with the saved `settings` and the `services`, and starts to load the
-    /// suggestion model of `settings`. The services answer through `deliver`.
+    /// suggestion model of `settings`. The services answer through `deliver`. When `backends`
+    /// changes the saved backend, it saves the settings with the new backend.
     #[must_use]
     pub fn new(
         settings: Settings,
@@ -194,22 +195,21 @@ impl Controller {
         let Services {
             hub,
             mut runner,
-            settings_store,
+            mut settings_store,
             autostart,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
-        let (mut playground, general) = match backends {
-            BackendChoice::User => (
-                PlaygroundPane::with_backend(settings.backend),
-                GeneralPane::new(settings),
-            ),
-            BackendChoice::Runner => (
-                PlaygroundPane::new(),
-                GeneralPane::new(settings).without_backend_menu(),
-            ),
+        let saved_backend = settings.backend;
+        let general = match backends {
+            BackendChoice::User => GeneralPane::new(settings),
+            BackendChoice::Platform(backend) => GeneralPane::new(settings).with_platform_backend(backend),
         };
+        if general.settings().backend != saved_backend {
+            settings_store.save(general.settings());
+        }
+        let mut playground = PlaygroundPane::with_backend(general.settings().backend);
         playground.use_settings(general.settings());
         let general = general.with_autostart(autostart);
         let playground_sink = delivering_sink(deliver, Delivery::Playground);
@@ -557,7 +557,7 @@ mod tests {
     use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Backend, Completion, TokenCount};
+    use crate::inference::{Completion, TokenCount};
     use crate::models_pane::SEARCH;
     use crate::playground::MODEL;
     use crate::screen_text_pane::SCREEN_TEXT;
@@ -737,7 +737,7 @@ mod tests {
 
     impl Harness {
         fn new(settings: Settings) -> Self {
-            Self::with_backends(settings, BackendChoice::Runner)
+            Self::with_backends(settings, BackendChoice::User)
         }
 
         fn with_backends(settings: Settings, backends: BackendChoice) -> Self {
@@ -938,7 +938,7 @@ mod tests {
             harness.requests(),
             vec![InferenceRequest::Load {
                 file: model_file(),
-                backend: None,
+                backend: Backend::Cpu,
             }]
         );
     }
@@ -956,7 +956,7 @@ mod tests {
             harness.requests(),
             vec![InferenceRequest::Load {
                 file: model_file(),
-                backend: Some(Backend::Vulkan),
+                backend: Backend::Vulkan,
             }]
         );
     }
@@ -971,12 +971,63 @@ mod tests {
     }
 
     #[test]
-    fn runner_backend_choice_shows_no_backend_menu() {
-        let mut harness = Harness::new(Settings::default());
+    fn platform_backend_choice_shows_no_backend_menu() {
+        let mut harness =
+            Harness::with_backends(Settings::default(), BackendChoice::Platform(Backend::Metal));
 
         let view = harness.shown_settings();
 
         assert_eq!(general_page(&view).row(BACKEND), None);
+    }
+
+    #[test]
+    fn platform_backend_choice_loads_suggestion_model_on_its_backend() {
+        let harness = Harness::with_backends(suggestion_settings(), BackendChoice::Platform(Backend::Metal));
+
+        assert_eq!(
+            harness.requests(),
+            vec![InferenceRequest::Load {
+                file: model_file(),
+                backend: Backend::Metal,
+            }]
+        );
+    }
+
+    #[test]
+    fn platform_backend_choice_saves_its_backend_in_place_of_the_saved_one() {
+        let harness = Harness::with_backends(Settings::default(), BackendChoice::Platform(Backend::Metal));
+
+        assert_eq!(
+            harness.saved(),
+            vec![Settings {
+                backend: Backend::Metal,
+                ..Settings::default()
+            }]
+        );
+    }
+
+    #[test]
+    fn user_backend_choice_saves_the_default_in_place_of_a_backend_without_a_menu_entry() {
+        let settings = Settings {
+            backend: Backend::Metal,
+            ..Settings::default()
+        };
+
+        let harness = Harness::with_backends(settings, BackendChoice::User);
+
+        assert_eq!(harness.saved(), vec![Settings::default()]);
+    }
+
+    #[test]
+    fn settings_that_start_unchanged_are_not_saved() {
+        let settings = Settings {
+            backend: Backend::Metal,
+            ..Settings::default()
+        };
+
+        let harness = Harness::with_backends(settings, BackendChoice::Platform(Backend::Metal));
+
+        assert_eq!(harness.saved(), Vec::new());
     }
 
     #[test]
@@ -1314,7 +1365,7 @@ mod tests {
             harness.last_request(),
             Some(InferenceRequest::Load {
                 file: model_file(),
-                backend: None,
+                backend: Backend::Cpu,
             })
         );
     }
@@ -1427,7 +1478,7 @@ mod tests {
             harness.last_request(),
             Some(InferenceRequest::Load {
                 file: model_file(),
-                backend: Some(Backend::Vulkan),
+                backend: Backend::Vulkan,
             })
         );
     }
@@ -1443,7 +1494,7 @@ mod tests {
             harness.last_request(),
             Some(InferenceRequest::Load {
                 file: model_file(),
-                backend: None,
+                backend: Backend::Cpu,
             })
         );
     }

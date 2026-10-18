@@ -91,6 +91,7 @@ enum StoredBackend {
     Cpu,
     Vulkan,
     Cuda,
+    Metal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -227,6 +228,7 @@ impl From<Settings> for StoredSettings {
             Backend::Cpu => StoredBackend::Cpu,
             Backend::Vulkan => StoredBackend::Vulkan,
             Backend::Cuda => StoredBackend::Cuda,
+            Backend::Metal => StoredBackend::Metal,
         };
         let suggestion_model = settings.suggestion_model.map(|file| StoredModelFile {
             repo: file.repo,
@@ -269,6 +271,7 @@ impl From<StoredSettings> for Settings {
             StoredBackend::Cpu => Backend::Cpu,
             StoredBackend::Vulkan => Backend::Vulkan,
             StoredBackend::Cuda => Backend::Cuda,
+            StoredBackend::Metal => Backend::Metal,
         };
         let suggestion_model = stored.suggestion_model.map(|file| ModelFile {
             repo: file.repo,
@@ -340,13 +343,19 @@ mod tests {
             r#"{ "backend": "cpu" }"#,
             r#"{ "backend": "vulkan" }"#,
             r#"{ "backend": "cuda" }"#,
+            r#"{ "backend": "metal" }"#,
         ];
 
         let backends = files.map(|json| parse(json).map(|settings| settings.backend).ok());
 
         assert_eq!(
             backends,
-            [Some(Backend::Cpu), Some(Backend::Vulkan), Some(Backend::Cuda)]
+            [
+                Some(Backend::Cpu),
+                Some(Backend::Vulkan),
+                Some(Backend::Cuda),
+                Some(Backend::Metal)
+            ]
         );
     }
 

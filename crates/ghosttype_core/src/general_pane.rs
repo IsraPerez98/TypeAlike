@@ -130,9 +130,16 @@ impl fmt::Debug for GeneralPane {
 }
 
 impl GeneralPane {
-    /// Creates a pane that shows `settings` and the backend menu, with no autostart switch.
+    /// Creates a pane that shows `settings` and the backend menu, with no autostart switch. A saved
+    /// backend that the menu does not offer becomes the default backend.
     #[must_use]
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(mut settings: Settings) -> Self {
+        if !BACKEND_CHOICES
+            .iter()
+            .any(|&(backend, _)| backend == settings.backend)
+        {
+            settings.backend = Backend::default();
+        }
         Self {
             settings,
             has_backend_menu: true,
@@ -140,10 +147,14 @@ impl GeneralPane {
         }
     }
 
-    /// Removes the backend menu, for a model runner that picks the backend itself.
+    /// Removes the backend menu and runs each model on `backend`, for a platform with one backend.
     #[must_use]
-    pub fn without_backend_menu(self) -> Self {
+    pub fn with_platform_backend(self, backend: Backend) -> Self {
         Self {
+            settings: Settings {
+                backend,
+                ..self.settings
+            },
             has_backend_menu: false,
             ..self
         }
@@ -690,12 +701,26 @@ mod tests {
     }
 
     #[test]
-    fn pane_without_backend_menu_hides_the_menu() {
-        let pane = GeneralPane::new(settings(Backend::Cpu)).without_backend_menu();
+    fn pane_with_a_platform_backend_hides_the_menu() {
+        let pane = GeneralPane::new(settings(Backend::Cpu)).with_platform_backend(Backend::Metal);
 
-        let shown = pane.page(&loading_playground(Backend::Cpu), &[]);
+        let shown = pane.page(&loading_playground(Backend::Metal), &[]);
 
         assert_eq!(shown.row(BACKEND), None);
+    }
+
+    #[test]
+    fn platform_backend_replaces_the_saved_backend() {
+        let pane = GeneralPane::new(settings(Backend::Cpu)).with_platform_backend(Backend::Metal);
+
+        assert_eq!(pane.settings().backend, Backend::Metal);
+    }
+
+    #[test]
+    fn saved_backend_that_the_menu_does_not_offer_becomes_the_default() {
+        let pane = GeneralPane::new(settings(Backend::Metal));
+
+        assert_eq!(pane.settings().backend, Backend::default());
     }
 
     #[test]
@@ -753,7 +778,7 @@ mod tests {
 
     #[test]
     fn picking_a_backend_without_backend_menu_does_nothing() {
-        let pane = GeneralPane::new(settings(Backend::Cpu)).without_backend_menu();
+        let pane = GeneralPane::new(settings(Backend::Cpu)).with_platform_backend(Backend::Metal);
 
         let action = action_for(&pane, &picked(BACKEND, 1));
 
@@ -826,7 +851,7 @@ mod tests {
                 settings: None,
                 request: Some(InferenceRequest::Load {
                     file: model_file(),
-                    backend: None,
+                    backend: Backend::Cpu,
                 }),
             }
         );
@@ -862,7 +887,7 @@ mod tests {
             outcome.request,
             Some(InferenceRequest::Load {
                 file: model_file(),
-                backend: Some(Backend::Vulkan),
+                backend: Backend::Vulkan,
             })
         );
     }
@@ -1060,7 +1085,7 @@ mod tests {
             (
                 Some(InferenceRequest::Load {
                     file: model_file(),
-                    backend: None,
+                    backend: Backend::Cpu,
                 }),
                 true,
             )
@@ -1093,7 +1118,7 @@ mod tests {
             request,
             Some(InferenceRequest::Load {
                 file: model_file(),
-                backend: Some(Backend::Cpu),
+                backend: Backend::Cpu,
             })
         );
     }

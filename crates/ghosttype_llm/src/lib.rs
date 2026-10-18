@@ -11,9 +11,17 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 
 use ghosttype_core::hub::ModelFile;
-use ghosttype_core::inference::{InferenceEventSink, InferenceRequest, ModelRunner};
+use ghosttype_core::inference::{Backend, InferenceEventSink, InferenceRequest, ModelRunner};
 
 use crate::worker::Job;
+
+/// The backend that runs models in each build, also without the GPU features: Metal on macOS, else
+/// the CPU.
+pub const BUILT_IN_BACKEND: Backend = if cfg!(target_os = "macos") {
+    Backend::Metal
+} else {
+    Backend::Cpu
+};
 
 /// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
 /// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
@@ -94,7 +102,7 @@ mod tests {
     fn load_request() -> InferenceRequest {
         InferenceRequest::Load {
             file: model_file(),
-            backend: None,
+            backend: BUILT_IN_BACKEND,
         }
     }
 

@@ -26,7 +26,7 @@ pub enum PlaygroundAction {
 ///
 /// ```
 /// use ghosttype_core::hub::ModelFile;
-/// use ghosttype_core::inference::InferenceRequest;
+/// use ghosttype_core::inference::{Backend, InferenceRequest};
 /// use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
 ///
 /// let file = ModelFile { repo: "owner/repo".to_owned(), name: "model.gguf".to_owned() };
@@ -34,13 +34,13 @@ pub enum PlaygroundAction {
 ///
 /// let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 ///
-/// assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+/// assert_eq!(request, Some(InferenceRequest::Load { file, backend: Backend::Cpu }));
 /// ```
 #[derive(Debug, Default)]
 pub struct PlaygroundPane {
     model: Option<SelectedModel>,
     completion: Option<CompletionState>,
-    backend: Option<Backend>,
+    backend: Backend,
     writer_notes: WriterNotes,
 }
 
@@ -100,7 +100,7 @@ const UNLOADED_NOTE: Note = Note {
 const MAX_COMPLETION_TOKENS: TokenCount = TokenCount(32);
 
 impl PlaygroundPane {
-    /// Creates a pane with no model selected. The runner picks the backend of each model.
+    /// Creates a pane with no model selected that loads each model on the default backend.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -110,7 +110,7 @@ impl PlaygroundPane {
     #[must_use]
     pub fn with_backend(backend: Backend) -> Self {
         Self {
-            backend: Some(backend),
+            backend,
             ..Self::default()
         }
     }
@@ -119,7 +119,7 @@ impl PlaygroundPane {
     /// it is unloaded. Returns the request to send, if any. Call it only while the pane is not
     /// busy, see [`is_busy`](Self::is_busy), because a load that runs ignores the change.
     pub fn change_backend(&mut self, backend: Backend) -> Option<InferenceRequest> {
-        self.backend = Some(backend);
+        self.backend = backend;
         let model = self
             .model
             .as_mut()
@@ -650,7 +650,13 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Backend::Cpu
+            })
+        );
     }
 
     #[test]
@@ -664,7 +670,7 @@ mod tests {
             request,
             Some(InferenceRequest::Load {
                 file,
-                backend: Some(Backend::Vulkan),
+                backend: Backend::Vulkan,
             })
         );
     }
@@ -681,7 +687,7 @@ mod tests {
             (
                 Some(InferenceRequest::Load {
                     file,
-                    backend: Some(Backend::Cuda),
+                    backend: Backend::Cuda,
                 }),
                 Some(LOADING),
             )
@@ -704,7 +710,7 @@ mod tests {
             request,
             Some(InferenceRequest::Load {
                 file,
-                backend: Some(Backend::Cpu),
+                backend: Backend::Cpu,
             })
         );
     }
@@ -730,7 +736,7 @@ mod tests {
             request,
             Some(InferenceRequest::Load {
                 file,
-                backend: Some(Backend::Vulkan),
+                backend: Backend::Vulkan,
             })
         );
     }
@@ -845,7 +851,13 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Backend::Cpu
+            })
+        );
     }
 
     #[test]
@@ -893,7 +905,7 @@ mod tests {
             request,
             Some(InferenceRequest::Load {
                 file: other,
-                backend: None,
+                backend: Backend::Cpu,
             })
         );
     }
@@ -944,7 +956,13 @@ mod tests {
 
         let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
-        assert_eq!(request, Some(InferenceRequest::Load { file, backend: None }));
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Load {
+                file,
+                backend: Backend::Cpu
+            })
+        );
     }
 
     #[test]

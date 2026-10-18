@@ -15,7 +15,7 @@ use ghosttype_core::inference::{
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{PromptPreparation, Settings};
-use ghosttype_llm::LlamaCpp;
+use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
 struct Editor;
 
@@ -64,7 +64,7 @@ impl LoadedModel {
         self.runner.submit(
             InferenceRequest::Load {
                 file: model_file(),
-                backend: None,
+                backend: BUILT_IN_BACKEND,
             },
             &self.sink,
         );
@@ -263,7 +263,7 @@ fn newer_completion_replaces_one_that_did_not_finish() {
     model.runner.submit(
         InferenceRequest::Load {
             file: model_file(),
-            backend: None,
+            backend: BUILT_IN_BACKEND,
         },
         &model.sink,
     );

@@ -3,7 +3,8 @@
 //!
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
-//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT]
+//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
+//!     [--backend BACKEND]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -39,6 +40,9 @@
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
 //! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
 //! branch for each model.
+//!
+//! `--backend` names the backend that runs the model: `cpu`, `vulkan`, `cuda` or `metal`. The
+//! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.
 
 mod likelihood;
 mod score;
@@ -57,11 +61,11 @@ use ghosttype_core::desktop::{
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    Backend, Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{ClipboardAccess, Settings, WriterNotes};
-use ghosttype_llm::LlamaCpp;
+use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -69,7 +73,7 @@ use crate::likelihood::Continuation;
 use crate::score::{CaseKind, Comparison, Outcome, Summary, is_next_word, next_word};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--notes TEXT]";
+     [--notes TEXT] [--backend cpu|vulkan|cuda|metal]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -78,6 +82,7 @@ struct Arguments {
     baseline: Option<PathBuf>,
     save: Option<PathBuf>,
     notes: String,
+    backend: Backend,
 }
 
 impl Arguments {
@@ -92,16 +97,29 @@ impl Arguments {
             baseline: None,
             save: None,
             notes: String::new(),
+            backend: BUILT_IN_BACKEND,
         };
         for option in options.chunks(2) {
             match option {
                 [name, path] if name == "--baseline" => parsed.baseline = Some(PathBuf::from(path)),
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
+                [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 _ => return None,
             }
         }
         Some(parsed)
+    }
+}
+
+/// Returns the backend with `name` in [`USAGE`], or `None` for another name.
+fn backend_named(name: &str) -> Option<Backend> {
+    match name {
+        "cpu" => Some(Backend::Cpu),
+        "vulkan" => Some(Backend::Vulkan),
+        "cuda" => Some(Backend::Cuda),
+        "metal" => Some(Backend::Metal),
+        _ => None,
     }
 }
 
@@ -199,7 +217,7 @@ struct Model {
 }
 
 impl Model {
-    fn load(path: &Path) -> anyhow::Result<Self> {
+    fn load(path: &Path, backend: Backend) -> anyhow::Result<Self> {
         let path = path.to_owned();
         let runner = LlamaCpp::new(move |_| Some(path.clone()));
         let (sender, events) = mpsc::channel();
@@ -213,7 +231,7 @@ impl Model {
         };
         model
             .runner
-            .submit(InferenceRequest::Load { file, backend: None }, &model.sink);
+            .submit(InferenceRequest::Load { file, backend }, &model.sink);
         match model.events.recv()? {
             InferenceEvent::Loaded { result: Ok(()), .. } => Ok(model),
             event => bail!("the model did not load: {event:?}"),
@@ -382,7 +400,7 @@ fn main() -> anyhow::Result<()> {
         writer_notes: WriterNotes(arguments.notes.clone()),
         ..Settings::default()
     };
-    let mut model = Model::load(&arguments.model)?;
+    let mut model = Model::load(&arguments.model, arguments.backend)?;
     let runs = cases
         .iter()
         .map(|case| run_case(&mut model, case, &settings))
@@ -434,7 +452,27 @@ mod tests {
                 baseline: None,
                 save: None,
                 notes: String::new(),
+                backend: BUILT_IN_BACKEND,
             })
+        );
+    }
+
+    #[test]
+    fn backend_option_names_the_backend_that_runs_the_model() {
+        let names = ["cpu", "vulkan", "cuda", "metal"];
+
+        let backends = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--backend", name]).map(|arguments| arguments.backend)
+        });
+
+        assert_eq!(
+            backends,
+            [
+                Some(Backend::Cpu),
+                Some(Backend::Vulkan),
+                Some(Backend::Cuda),
+                Some(Backend::Metal)
+            ]
         );
     }
 
@@ -467,9 +505,10 @@ mod tests {
 
     #[test]
     fn arguments_that_do_not_follow_the_usage_are_rejected() {
-        let cases: [&[&str]; 4] = [
+        let cases: [&[&str]; 5] = [
             &["model.gguf"],
             &["model.gguf", "cases.jsonl", "--save"],
+            &["model.gguf", "cases.jsonl", "--backend", "opencl"],
             &["model.gguf", "cases.jsonl", "--verbose", "yes"],
             &["model.gguf", "cases.jsonl", "extra.jsonl"],
         ];
