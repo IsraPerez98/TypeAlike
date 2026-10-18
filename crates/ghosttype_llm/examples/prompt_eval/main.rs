@@ -29,7 +29,8 @@
 //!   the case has words, the word bias comes from them, and else from `history`.
 //! - `next`: the text that the writer typed next.
 //!
-//! The eval uses the default settings with the clipboard and the earlier writing on, and
+//! The eval uses the default settings with the backend of `--backend`, the clipboard and the
+//! earlier writing on, and
 //! `clipboard` is a copy that came just before. `--notes` gives the notes about the
 //! writer, which are empty by default. It opens a field that holds `before`
 //! without its last character, lets the input settle so that the screen text is read, types that
@@ -641,6 +642,7 @@ fn main() -> anyhow::Result<()> {
         .transpose()?;
 
     let settings = Settings {
+        backend: arguments.backend,
         clipboard_access: ClipboardAccess::Allowed,
         writer_notes: WriterNotes(arguments.notes.clone()),
         prompt_preparation: PromptPreparation::OnFocus,
