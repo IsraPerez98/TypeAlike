@@ -1,0 +1,11 @@
+{"id":"topic-riley-01","kind":"next_word","suggestion":"Dunmore Components,","is_match":true,"millis":442,"log_probability":-0.003358868190331455}
+{"id":"topic-riley-02","kind":"next_word","suggestion":"Sarah, was waiting","is_match":false,"millis":304,"log_probability":-3.004465634220132}
+{"id":"othertopic-riley-01","kind":"next_word","suggestion":"a blanket. We","is_match":false,"millis":293,"log_probability":-1.5077166082741285}
+{"id":"sameformat-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
+{"id":"otherformat-riley-01","kind":"next_word","suggestion":"umbrella?","is_match":true,"millis":146,"log_probability":-0.19499406790796212}
+{"id":"greeting-riley-01","kind":"next_word","suggestion":"everyone,","is_match":false,"millis":270,"log_probability":-3.6789327934563807}
+{"id":"names-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
+{"id":"topic-lucia-01","kind":"next_word","suggestion":"ti. Me gusta","is_match":false,"millis":297,"log_probability":-20.967682871422042}
+{"id":"othertopic-lucia-01","kind":"next_word","suggestion":"cita con el apare","is_match":false,"millis":234,"log_probability":-7.369499063203742}
+{"id":"sameformat-lucia-01","kind":"next_word","suggestion":"¡Nos vemos!","is_match":false,"millis":185,"log_probability":-8.992711456482997}
+{"id":"names-lucia-01","kind":"next_word","suggestion":"Ferrer","is_match":true,"millis":249,"log_probability":-0.0023138117516753524}

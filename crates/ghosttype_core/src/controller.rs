@@ -1859,8 +1859,6 @@ mod tests {
         }
     }
 
-    const EARLIER_TEXT: &str = "Hi Ana, the report is ready and the numbers look goo";
-
     #[test]
     fn history_loads_at_start_only_when_it_is_on() {
         let settings = [Settings::default(), history_on()];
@@ -1893,10 +1891,12 @@ mod tests {
         let mut harness = Harness::new(history_on());
         harness.focus_text_field_of("com.apple.mail", "Mail");
         harness.shell.surroundings.field_text = Some(FieldText {
-            before_caret: EARLIER_TEXT.to_owned(),
+            before_caret: "Hi Ana, ".to_owned(),
             after_caret: String::new(),
         });
-        harness.press(Key::Char('d'));
+        for character in "the report is ready and the numbers look good".chars() {
+            harness.press(Key::Char(character));
+        }
         harness.press(Key::Other);
         let saves_before_settle = harness.history_saves().len();
 
@@ -1905,7 +1905,9 @@ mod tests {
         assert_eq!(saves_before_settle, 0);
         assert_eq!(
             harness.history_saves(),
-            vec![vec![mail_entry(&format!("{EARLIER_TEXT}d"))]]
+            vec![vec![mail_entry(
+                "Hi Ana, the report is ready and the numbers look good"
+            )]]
         );
     }
 

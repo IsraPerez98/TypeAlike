@@ -31,7 +31,7 @@ pub(crate) struct Writer<'text> {
     /// The notes that the writer gives about themself.
     pub notes: &'text str,
     /// Earlier texts of the writer, oldest first.
-    pub examples: Vec<&'text str>,
+    pub examples: Vec<String>,
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
@@ -108,7 +108,7 @@ impl Budget {
 
     /// Returns the ends of `examples` that fit in [`HISTORY_TOKENS`] and in the budget, each from
     /// the start of a word, and spends their tokens. The newest examples keep the most text.
-    fn take_examples<'text>(&mut self, examples: &[&'text str]) -> Vec<&'text str> {
+    fn take_examples<'text>(&mut self, examples: &'text [String]) -> Vec<&'text str> {
         let mut left = self.left(HISTORY_TOKENS);
         let mut kept = examples
             .iter()
@@ -254,9 +254,9 @@ mod tests {
         }
     }
 
-    fn examples<'text>(examples: &[&'text str]) -> Writer<'text> {
+    fn examples<'text>(examples: &[&str]) -> Writer<'text> {
         Writer {
-            examples: examples.to_vec(),
+            examples: examples.iter().map(|text| (*text).to_owned()).collect(),
             ..Writer::default()
         }
     }

@@ -1,0 +1,11 @@
+{"id":"topic-riley-01","kind":"next_word","suggestion":"Dunmore Components,","is_match":true,"millis":130,"log_probability":-0.8396338955604229}
+{"id":"topic-riley-02","kind":"next_word","suggestion":"Odalys,","is_match":true,"millis":106,"log_probability":-1.8033549607182773}
+{"id":"othertopic-riley-01","kind":"next_word","suggestion":"a towel. The","is_match":false,"millis":84,"log_probability":-5.267887664745499}
+{"id":"sameformat-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
+{"id":"otherformat-riley-01","kind":"next_word","suggestion":"umbrella?","is_match":true,"millis":46,"log_probability":-0.6858228745698014}
+{"id":"greeting-riley-01","kind":"next_word","suggestion":"sprouts,","is_match":true,"millis":86,"log_probability":-0.5319536257506576}
+{"id":"names-riley-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
+{"id":"topic-lucia-01","kind":"next_word","suggestion":"alguien que conozca","is_match":false,"millis":93,"log_probability":-18.296972853174598}
+{"id":"othertopic-lucia-01","kind":"next_word","suggestion":"cita de la tarde","is_match":false,"millis":79,"log_probability":-10.49117236296792}
+{"id":"sameformat-lucia-01","kind":"next_word","suggestion":"Me quedo un","is_match":false,"millis":76,"log_probability":-6.66418702023519}
+{"id":"names-lucia-01","kind":"next_word","suggestion":"Ferrer","is_match":true,"millis":93,"log_probability":-0.15192029576330174}

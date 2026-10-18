@@ -104,6 +104,8 @@ impl Default for Engine {
 struct Session {
     preface: String,
     text_before: String,
+    /// The characters at the start of `text_before` that the field held when the session started.
+    field_chars: usize,
     /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
     max_tokens_before: TokenCount,
     text_after: String,
@@ -134,7 +136,13 @@ impl Session {
 
     fn keep_recent_text(&mut self) {
         let kept = recent_text(&self.text_before, self.max_tokens_before).len();
-        self.text_before.drain(..self.text_before.len() - kept);
+        let dropped = self.text_before.drain(..self.text_before.len() - kept);
+        self.field_chars = self.field_chars.saturating_sub(dropped.as_str().chars().count());
+    }
+
+    fn delete_last_character(&mut self) {
+        self.text_before.pop();
+        self.field_chars = self.field_chars.min(self.text_before.chars().count());
     }
 }
 
@@ -192,7 +200,7 @@ impl Engine {
                 self.on_typed(character)
             }
             Key::Backspace => {
-                self.start_session(desktop).text_before.pop();
+                self.start_session(desktop).delete_last_character();
                 self.request()
             }
             Key::Tab => self.accept(),
@@ -283,8 +291,15 @@ impl Engine {
         if session.is_excluded || !is_wanted || !self.personalization.allows(&app.app_id) {
             return;
         }
-        let Some(entry) = HistoryEntry::of(&session.text_before, &app.app_id, session.domain.as_deref())
-        else {
+        let domain = session.domain.as_deref();
+        let written = history::own_text(
+            &self.history,
+            &session.text_before,
+            session.field_chars,
+            &app.app_id,
+            domain,
+        );
+        let Some(entry) = HistoryEntry::of(written, &app.app_id, domain) else {
             return;
         };
         history::add(&mut self.history, entry);
@@ -423,6 +438,7 @@ impl Engine {
             .unwrap_or_default();
         Session {
             preface,
+            field_chars: text_before.chars().count(),
             text_before,
             max_tokens_before,
             text_after,
@@ -451,7 +467,7 @@ impl Engine {
             .app_id
             .as_ref()
             .filter(|app_id| self.personalization.allows(app_id))
-            .map(|_| history::examples(&self.history, surroundings))
+            .map(|_| history::examples(&self.history, surroundings, screen))
             .unwrap_or_default();
         let writer = Writer {
             notes: &self.writer_notes.0,
@@ -1609,6 +1625,8 @@ mod tests {
         );
     }
 
+    const GREETING: &str = "Hi Ana,\n\n";
+    const TYPED_TEXT: &str = "The report is ready, and the numbers look goo";
     const EARLIER_TEXT: &str = "Hi Ana,\n\nThe report is ready, and the numbers look goo";
 
     fn field_of(app_id: Option<&str>, field_name: Option<&str>, before_caret: &str) -> FakeDesktop {
@@ -1629,9 +1647,19 @@ mod tests {
         }
     }
 
-    /// Types a key in `desktop`, accepts a suggestion when `accepts` and ends the session with
-    /// Enter. Returns the history to save.
-    fn finish_typing(engine: &mut Engine, desktop: &FakeDesktop, accepts: bool) -> Option<Vec<HistoryEntry>> {
+    /// Types `typed` and the key `d` in `desktop`, accepts a suggestion when `accepts` and ends
+    /// the session. Returns the history to save.
+    fn finish_typing_text(
+        engine: &mut Engine,
+        desktop: &FakeDesktop,
+        typed: &str,
+        accepts: bool,
+    ) -> Option<Vec<HistoryEntry>> {
+        for character in typed.chars() {
+            if let Reaction::Request(_) = engine.on_key(Key::Char(character), desktop) {
+                engine.on_completion(completion(""));
+            }
+        }
         engine.on_key(Key::Char('d'), desktop);
         engine.on_completion(completion(". Best, Tom"));
         if accepts {
@@ -1639,6 +1667,10 @@ mod tests {
         }
         engine.on_key(Key::Other, desktop);
         engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+    }
+
+    fn finish_typing(engine: &mut Engine, desktop: &FakeDesktop, accepts: bool) -> Option<Vec<HistoryEntry>> {
+        finish_typing_text(engine, desktop, TYPED_TEXT, accepts)
     }
 
     fn kept_settings(kept_texts: KeptTexts) -> Settings {
@@ -1653,7 +1685,7 @@ mod tests {
 
         let saved = finish_typing(
             &mut engine,
-            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            &field_of(Some("com.apple.mail"), None, GREETING),
             true,
         );
 
@@ -1667,7 +1699,7 @@ mod tests {
         let saved = settings.map(|settings| {
             finish_typing(
                 &mut engine_with(&settings),
-                &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+                &field_of(Some("com.apple.mail"), None, GREETING),
                 false,
             )
         });
@@ -1680,31 +1712,113 @@ mod tests {
         let cases = [
             (
                 history_settings(HistoryAccess::Off, Vec::new()),
-                field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+                field_of(Some("com.apple.mail"), None, GREETING),
             ),
             (
                 history_settings(HistoryAccess::On, vec![mail_app(false)]),
-                field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+                field_of(Some("com.apple.mail"), None, GREETING),
             ),
             (
                 kept_settings(KeptTexts::All),
-                field_of(Some("com.apple.Terminal"), None, EARLIER_TEXT),
+                field_of(Some("com.apple.Terminal"), None, GREETING),
             ),
-            (kept_settings(KeptTexts::All), field_of(None, None, EARLIER_TEXT)),
+            (kept_settings(KeptTexts::All), field_of(None, None, GREETING)),
             (
                 kept_settings(KeptTexts::All),
-                field_of(Some("com.apple.mail"), Some("Subject"), EARLIER_TEXT),
-            ),
-            (
-                kept_settings(KeptTexts::All),
-                field_of(Some("com.apple.mail"), None, "Too short"),
+                field_of(Some("com.apple.mail"), Some("Subject"), GREETING),
             ),
         ];
 
         let saved =
             cases.map(|(settings, desktop)| finish_typing(&mut engine_with(&settings), &desktop, true));
 
-        assert_eq!(saved, [None, None, None, None, None, None]);
+        assert_eq!(saved, [None, None, None, None, None]);
+    }
+
+    fn long_field() -> String {
+        "The terms of the lease are in force. ".repeat(6)
+    }
+
+    fn mail_desktop(before_caret: &str) -> FakeDesktop {
+        field_of(Some("com.apple.mail"), None, before_caret)
+    }
+
+    #[test]
+    fn short_finished_text_is_not_kept() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+
+        let saved = finish_typing_text(&mut engine, &mail_desktop(GREETING), "Thanks", true);
+
+        assert_eq!(saved, None);
+    }
+
+    #[test]
+    fn text_that_the_field_held_before_the_session_is_not_kept() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+
+        let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), TYPED_TEXT, false);
+
+        assert_eq!(saved, Some(vec![mail_entry(&format!("{TYPED_TEXT}d"))]));
+    }
+
+    #[test]
+    fn a_few_words_that_the_user_adds_to_a_long_field_are_not_kept() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+
+        let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), "Thanks", false);
+
+        assert_eq!(saved, None);
+    }
+
+    #[test]
+    fn draft_that_an_entry_holds_is_kept_with_the_new_text_in_one_entry() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        engine.use_history(vec![mail_entry(long_field().trim())]);
+
+        let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), TYPED_TEXT, false);
+
+        assert_eq!(
+            saved,
+            Some(vec![mail_entry(&format!("{}{TYPED_TEXT}d", long_field()))])
+        );
+    }
+
+    #[test]
+    fn backspace_into_the_text_of_the_field_makes_it_count_less() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        let desktop = mail_desktop(&long_field());
+        for _ in 0..190 {
+            engine.on_key(Key::Backspace, &desktop);
+        }
+
+        let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, false);
+
+        assert_eq!(
+            saved,
+            Some(vec![mail_entry(&format!("{}{TYPED_TEXT}d", &long_field()[..32]))])
+        );
+    }
+
+    #[test]
+    fn cut_of_the_start_for_the_token_limit_makes_the_text_of_the_field_count_less() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        let desktop = mail_desktop(&"word ".repeat(798));
+
+        let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, false);
+
+        assert_eq!(saved, Some(vec![mail_entry(&format!("{TYPED_TEXT}d"))]));
+    }
+
+    #[test]
+    fn pasted_text_is_not_kept() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        finish_typing(&mut engine, &mail_desktop(GREETING), false);
+        let pasted = "Pasted line from a web page that the user did not write. ".repeat(3);
+        let desktop = mail_desktop(&format!("{EARLIER_TEXT}d{pasted}"));
+
+        let saved = finish_typing_text(&mut engine, &desktop, "", false);
+
+        assert_eq!(saved, None);
     }
 
     fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -1766,7 +1880,7 @@ mod tests {
         let second = engine.word_bias.clone().map(|bias| bias.version);
         finish_typing(
             &mut engine,
-            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            &field_of(Some("com.apple.mail"), None, GREETING),
             true,
         );
 
@@ -1780,7 +1894,7 @@ mod tests {
         let mut engine = engine_with(&kept_settings(KeptTexts::All));
         finish_typing(
             &mut engine,
-            &field_of(Some("com.apple.mail"), None, EARLIER_TEXT),
+            &field_of(Some("com.apple.mail"), None, GREETING),
             false,
         );
 

@@ -47,6 +47,9 @@ const PROMPT_SEQUENCE: i32 = 0;
 const COMPLETION_SEQUENCE: i32 = 1;
 const SEQUENCES: u32 = 2;
 const LAST_OUTPUT: i32 = -1;
+/// The probability of the most likely token from which the model is sure of it, so that a word
+/// bias does not change it.
+const SURE_PROBABILITY: f32 = 0.5;
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
@@ -799,13 +802,14 @@ fn first_word_tokens(vocab: &LlamaVocab<'_>, words: &[(String, f32)]) -> Vec<(Ll
     biases.into_iter().collect()
 }
 
-/// Returns `logits` with `token_bias` added, in `biased` when the bias has tokens.
+/// Returns `logits` with `token_bias` added, in `biased` when the bias has tokens. The bias stays
+/// out when the model is sure of its first choice, at least [`SURE_PROBABILITY`].
 fn with_bias<'logits>(
     logits: &'logits [f32],
     token_bias: &[(LlamaToken, f32)],
     biased: &'logits mut Vec<f32>,
 ) -> &'logits [f32] {
-    if token_bias.is_empty() {
+    if token_bias.is_empty() || top_probability(logits) >= SURE_PROBABILITY {
         return logits;
     }
     biased.clear();
@@ -817,6 +821,13 @@ fn with_bias<'logits>(
         }
     }
     biased
+}
+
+/// Returns the probability of the most likely token in `logits`.
+fn top_probability(logits: &[f32]) -> f32 {
+    let highest = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
+    total.recip()
 }
 
 /// Returns the most likely token in `logits`.
@@ -1192,12 +1203,28 @@ mod tests {
         let mut biased = Vec::new();
 
         let scores = with_bias(
-            &[1.0, 2.0, 3.0],
+            &[1.0, 1.2, 1.4],
             &[(LlamaToken(0), 2.5), (LlamaToken(9), 1.0)],
             &mut biased,
         );
 
-        assert_eq!(scores, [3.5, 2.0, 3.0]);
+        assert_eq!(scores, [3.5, 1.2, 1.4]);
+    }
+
+    #[test]
+    fn bias_stays_out_when_the_model_is_sure_of_its_first_choice() {
+        let mut biased = Vec::new();
+
+        let scores = with_bias(&[9.0, 1.0, 1.0], &[(LlamaToken(1), 20.0)], &mut biased);
+
+        assert_eq!(scores, [9.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn top_probability_is_the_softmax_of_the_highest_logit() {
+        let probabilities = [&[0.0, 0.0][..], &[0.0, 0.0, 0.0, 0.0], &[5.0]].map(top_probability);
+
+        assert_eq!(probabilities, [0.5, 0.25, 1.0]);
     }
 
     #[test]

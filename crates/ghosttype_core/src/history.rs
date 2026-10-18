@@ -6,8 +6,9 @@ use std::fmt;
 use std::io;
 use std::ops::Range;
 
-use crate::desktop::{FieldText, Surroundings};
+use crate::desktop::{FieldText, ScreenText, Surroundings};
 use crate::inference::WordBias;
+use crate::place::{self, Format};
 use crate::prompt::{from_word, last_chars};
 use crate::settings::WordChoice;
 
@@ -17,15 +18,23 @@ const MAX_ENTRIES: usize = 2000;
 const MIN_KEPT_CHARS: usize = 40;
 /// The most characters of a text that GhostType saves, from its end.
 const MAX_KEPT_CHARS: usize = 1000;
-/// The newest texts of the same place that a prompt shows: the same domain in a browser, else the
-/// same app.
-const RECENT_IN_PLACE: usize = 1;
-/// The longest texts of the same place that a prompt shows.
-const LONGEST_IN_PLACE: usize = 1;
-/// The newest texts of other places that a prompt shows.
-const RECENT_ACROSS_APPS: usize = 0;
-/// The most characters of one example, from the end of its text.
+/// The texts of the same place that share the most rare words with the text near the caret, which
+/// a prompt shows: the same domain in a browser, else the same app.
+const BEST_MATCHES_IN_PLACE: usize = 1;
+/// The newest texts of other places with the same format that a prompt shows, when the place has
+/// no text.
+const RECENT_IN_FORMAT: usize = 1;
+/// The most characters of the end of a text that its example keeps.
 const EXAMPLE_CHARS: usize = 320;
+/// The characters of the start of a text longer than [`EXAMPLE_CHARS`], which its example keeps
+/// before its end: the greeting of a long text.
+const EXAMPLE_START_CHARS: usize = 100;
+/// The share of a text, in percent, that the user must add in a session for GhostType to keep the
+/// whole text. With a smaller share, GhostType keeps only the added part.
+const MIN_OWN_PERCENT: usize = 50;
+/// The characters at the start or at the end of two texts that make them near copies, when they
+/// are the same.
+const MIN_SHARED_CHARS: usize = 80;
 const REDACTED: &str = "[redacted]";
 /// The starts of the API tokens that GhostType knows. A token needs at least
 /// [`MIN_SECRET_TAIL`] more characters.
@@ -113,6 +122,19 @@ impl HistoryEntry {
         self.app_id == other.app_id && self.domain == other.domain
     }
 
+    /// Whether the texts start with the same [`MIN_SHARED_CHARS`] characters, or end with them.
+    fn shares_an_edge_with(&self, other: &Self) -> bool {
+        let is_long = |entry: &Self| entry.text.chars().count() >= MIN_SHARED_CHARS;
+        is_long(self)
+            && is_long(other)
+            && (self
+                .text
+                .chars()
+                .take(MIN_SHARED_CHARS)
+                .eq(other.text.chars().take(MIN_SHARED_CHARS))
+                || last_chars(&self.text, MIN_SHARED_CHARS) == last_chars(&other.text, MIN_SHARED_CHARS))
+    }
+
     fn overlaps(&self, other: &Self) -> bool {
         self.text.contains(&other.text) || other.text.contains(&self.text)
     }
@@ -157,8 +179,9 @@ pub trait KeyVault {
 }
 
 /// Adds `entry` as the newest of `entries`. An older entry of the same place whose text the new
-/// text holds goes, and the new entry does not come when an older one holds its text. The oldest
-/// entries go when there are more than [`MAX_ENTRIES`].
+/// text holds goes, and the new entry does not come when an older one holds its text. An older
+/// entry of the same place that starts or ends like the new text (a near copy) also goes. The
+/// oldest entries go when there are more than [`MAX_ENTRIES`].
 pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
     let is_known = entries
         .iter()
@@ -166,37 +189,197 @@ pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
     if is_known {
         return;
     }
-    entries.retain(|known| !(known.is_same_place(&entry) && entry.text.contains(&known.text)));
+    entries.retain(|known| {
+        let is_replaced = entry.text.contains(&known.text) || entry.shares_an_edge_with(known);
+        !(known.is_same_place(&entry) && is_replaced)
+    });
     entries.push(entry);
     let excess = entries.len().saturating_sub(MAX_ENTRIES);
     entries.drain(..excess);
 }
 
+/// Returns the part of `text`, the text before the caret at the end of a session in the place of
+/// `app_id` and `domain`, that the user wrote. The first `field_chars` characters came from the
+/// field. They count as written by the user when `entries` hold them, because the user continues
+/// a draft, or when the user added at least [`MIN_OWN_PERCENT`] of the text. Else only the added
+/// part counts, from its first whole word.
+pub(crate) fn own_text<'text>(
+    entries: &[HistoryEntry],
+    text: &'text str,
+    field_chars: usize,
+    app_id: &str,
+    domain: Option<&str>,
+) -> &'text str {
+    let added_start = text
+        .char_indices()
+        .nth(field_chars)
+        .map_or(text.len(), |(index, _)| index);
+    let (field, added) = text.split_at(added_start);
+    let is_draft = HistoryEntry::of(field, app_id, domain).is_some_and(|draft| {
+        entries
+            .iter()
+            .any(|known| known.is_same_place(&draft) && known.text.contains(&draft.text))
+    });
+    let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
+    if field.trim().is_empty() || is_draft || is_mostly_added {
+        return text;
+    }
+    from_word(text, added)
+}
+
 /// Returns the texts of `entries`, oldest first, that a prompt in `surroundings` shows as
-/// examples: the newest and the longest texts of the same place, then the newest texts of other
-/// places. Each example keeps the end of its text, from the start of a word. A text that the field
-/// holds now is no example, and two examples never hold the same text.
-pub(crate) fn examples<'entries>(
-    entries: &'entries [HistoryEntry],
+/// examples: the best matching texts of the same place, else its newest text, else the newest
+/// texts of other places with the same format. A text matches when it shares rare words with
+/// the text near the caret, the window, the labels of the field and the `screen`. Each example
+/// keeps the start and the end of its text. A text that the field holds now is no example, and
+/// two examples never hold the same text.
+pub(crate) fn examples(
+    entries: &[HistoryEntry],
     surroundings: &Surroundings,
-) -> Vec<&'entries str> {
+    screen: Option<&ScreenText>,
+) -> Vec<String> {
     let candidates = entries
         .iter()
         .enumerate()
         .filter(|(_, entry)| !is_copy_of_field(entry, surroundings.field_text.as_ref()))
         .rev();
-    let (mut in_place, elsewhere): (Vec<_>, Vec<_>) =
+    let (in_place, elsewhere): (Vec<_>, Vec<_>) =
         candidates.partition(|(_, entry)| entry.is_in_place_of(surroundings));
+    let topics = Topics::of(entries, surroundings, screen);
+    let newest_first = in_place.clone();
+    let mut scored = in_place
+        .iter()
+        .map(|&candidate| (topics.score(&candidate.1.text), candidate))
+        .filter(|(score, _)| *score > 0.0)
+        .collect::<Vec<_>>();
+    scored.sort_by(|(left, _), (right, _)| right.total_cmp(left));
+    let best_first = scored
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .collect::<Vec<_>>();
     let mut picked = Vec::new();
-    pick(&mut picked, &in_place, RECENT_IN_PLACE);
-    in_place.sort_by_key(|(_, entry)| std::cmp::Reverse(entry.text.chars().count()));
-    pick(&mut picked, &in_place, LONGEST_IN_PLACE);
-    pick(&mut picked, &elsewhere, RECENT_ACROSS_APPS);
+    pick(&mut picked, &best_first, BEST_MATCHES_IN_PLACE);
+    let missing = BEST_MATCHES_IN_PLACE - picked.len();
+    pick(&mut picked, &newest_first, missing);
+    if picked.is_empty() {
+        let format = Format::of(surroundings).filter(|format| *format != Format::WebPage);
+        let same_format = elsewhere
+            .iter()
+            .copied()
+            .filter(|(_, entry)| {
+                format.is_some() && Format::of_place(Some(&entry.app_id), entry.domain.as_deref()) == format
+            })
+            .collect::<Vec<_>>();
+        pick(&mut picked, &same_format, RECENT_IN_FORMAT);
+    }
     picked.sort_by_key(|&(index, _)| index);
     picked
         .into_iter()
-        .map(|(_, entry)| end_at_word(&entry.text, EXAMPLE_CHARS))
+        .map(|(_, entry)| example_of(&entry.text))
         .collect()
+}
+
+/// Calls `visit` with each word of `text` in lowercase.
+fn each_lowercase_word(text: &str, mut visit: impl FnMut(&str)) {
+    let mut lowercase = String::new();
+    for word in words(text) {
+        lowercase.clear();
+        lowercase.extend(word.chars().flat_map(char::to_lowercase));
+        visit(&lowercase);
+    }
+}
+
+/// Whether `lowercase` tells the topic of a text: it has at least [`MIN_WORD_CHARS`] letters and
+/// is not one of the [`COMMON_WORDS`].
+fn is_topic_word(lowercase: &str) -> bool {
+    lowercase.chars().count() >= MIN_WORD_CHARS && !COMMON_WORDS.contains(&lowercase)
+}
+
+/// The topic words of the text near the caret, each with the number of entries that hold it.
+struct Topics {
+    entries: usize,
+    query: HashMap<String, u32>,
+}
+
+impl Topics {
+    fn of(entries: &[HistoryEntry], surroundings: &Surroundings, screen: Option<&ScreenText>) -> Self {
+        let labels = place::field_labels(surroundings);
+        let mut texts = vec![];
+        if let Some(field) = &surroundings.field_text {
+            texts.extend([field.before_caret.as_str(), field.after_caret.as_str()]);
+        }
+        texts.extend(surroundings.window_title.as_deref());
+        texts.extend(labels.iter().map(String::as_str));
+        if let Some(screen) = screen {
+            texts.extend(screen.lines.iter().map(|line| line.text.as_str()));
+        }
+        let mut query = HashMap::new();
+        for text in texts {
+            each_lowercase_word(text, |word| {
+                if is_topic_word(word) {
+                    query.entry(word.to_owned()).or_insert(0);
+                }
+            });
+        }
+        for entry in entries {
+            let mut seen = Vec::<String>::new();
+            each_lowercase_word(&entry.text, |word| {
+                let Some(holding) = query.get_mut(word) else {
+                    return;
+                };
+                if !seen.iter().any(|known| known == word) {
+                    seen.push(word.to_owned());
+                    *holding += 1;
+                }
+            });
+        }
+        Self {
+            entries: entries.len(),
+            query,
+        }
+    }
+
+    /// The sum of the weights of the query words that `text` holds. A word that few entries hold
+    /// weighs more than a word that many entries hold, but each word weighs something.
+    fn score(&self, text: &str) -> f32 {
+        let mut seen = Vec::<String>::new();
+        let mut total = 0.0;
+        each_lowercase_word(text, |word| {
+            let Some(&holding) = self.query.get(word) else {
+                return;
+            };
+            if seen.iter().any(|known| known == word) {
+                return;
+            }
+            seen.push(word.to_owned());
+            let entries = f32::from(u16::try_from(self.entries).unwrap_or(u16::MAX));
+            total += (entries / f32::from(u16::try_from(holding).unwrap_or(u16::MAX).max(1))).ln_1p();
+        });
+        total
+    }
+}
+
+/// Returns the example that `text` gives: all of it when it has at most [`EXAMPLE_CHARS`]
+/// characters, else its start and its end with a mark between them.
+fn example_of(text: &str) -> String {
+    let end = end_at_word(text, EXAMPLE_CHARS);
+    if end.len() == text.len() {
+        return end.to_owned();
+    }
+    format!("{} … {end}", start_at_word(text, EXAMPLE_START_CHARS))
+}
+
+/// Returns the start of `text` that has at most `count` characters and ends with a word.
+fn start_at_word(text: &str, count: usize) -> &str {
+    let Some((end, _)) = text.char_indices().nth(count) else {
+        return text;
+    };
+    let cut = &text[..end];
+    if text[end..].starts_with(char::is_whitespace) {
+        return cut.trim_end();
+    }
+    cut.rsplit_once(char::is_whitespace)
+        .map_or("", |(start, _)| start.trim_end())
 }
 
 /// Adds to `picked` the first `count` of `candidates` that do not overlap a picked entry.
@@ -236,23 +419,26 @@ fn end_at_word(text: &str, count: usize) -> &str {
 }
 
 /// Returns the preference of `choice` for the words of `entries`, with `version`, or `None` when
-/// the choice is off. A word is a run of letters and apostrophes in lowercase with at least
-/// [`MIN_WORD_CHARS`] letters, which the entries hold at least [`MIN_WORD_COUNT`] times and which
-/// is not one of the [`COMMON_WORDS`].
+/// the choice is off. A word is a run of letters and apostrophes with at least
+/// [`MIN_WORD_CHARS`] letters, which the entries hold at least [`MIN_WORD_COUNT`] times in any
+/// case and which is not one of the [`COMMON_WORDS`]. The preference has the spelling that the
+/// entries use most.
 pub(crate) fn word_bias(entries: &[HistoryEntry], choice: WordChoice, version: u64) -> Option<WordBias> {
     let mut counts = HashMap::<String, u32>::new();
     for entry in entries {
         for word in words(&entry.text.replace(REDACTED, " ")) {
-            *counts.entry(word).or_default() += 1;
+            *counts.entry(word.to_owned()).or_default() += 1;
         }
     }
     word_bias_of_counts(counts, choice, version)
 }
 
 /// Returns the preference of `choice` for the words of `counts`, each with the number of times
-/// that the writer wrote it, or `None` when the choice is off. A word needs at least 3 letters and
-/// 3 times, and the most common words of English and Spanish get no preference. A word that comes
-/// 20 times or more gets the full strength of the choice.
+/// that the writer wrote it, or `None` when the choice is off. Spellings that differ only in case
+/// count as one word, and the preference has the spelling that comes most, and the lowercase one
+/// when two come the same number of times. A word needs at least 3 letters and 3 times, and the
+/// most common words of English and Spanish get no preference. A word that comes 20 times or more
+/// gets the full strength of the choice.
 #[must_use]
 pub fn word_bias_of_counts(
     counts: impl IntoIterator<Item = (String, u32)>,
@@ -266,16 +452,29 @@ pub fn word_bias_of_counts(
         WordChoice::Strong => 2.0,
     };
     let full_weight = f32::from(FULL_WEIGHT_COUNT).ln();
-    let mut words = counts
+    let mut spellings = HashMap::<String, Vec<(String, u32)>>::new();
+    for (word, count) in counts {
+        spellings
+            .entry(word.to_lowercase())
+            .or_default()
+            .push((word, count));
+    }
+    let mut words = spellings
         .into_iter()
-        .filter(|(word, count)| {
-            *count >= MIN_WORD_COUNT
-                && word.chars().count() >= MIN_WORD_CHARS
-                && !COMMON_WORDS.contains(&word.as_str())
-        })
-        .map(|(word, count)| {
+        .filter_map(|(lowercase, spellings)| {
+            let count = spellings.iter().map(|(_, count)| count).sum::<u32>();
+            let is_wanted = count >= MIN_WORD_COUNT
+                && lowercase.chars().count() >= MIN_WORD_CHARS
+                && !COMMON_WORDS.contains(&lowercase.as_str());
+            let (usual, _) = spellings.into_iter().max_by_key(|(spelling, count)| {
+                (
+                    *count,
+                    *spelling == lowercase,
+                    std::cmp::Reverse(spelling.clone()),
+                )
+            })?;
             let capped = u16::try_from(count).unwrap_or(u16::MAX).min(FULL_WEIGHT_COUNT);
-            (word, strength * f32::from(capped).ln() / full_weight)
+            is_wanted.then(|| (usual, strength * f32::from(capped).ln() / full_weight))
         })
         .collect::<Vec<_>>();
     words.sort_by(|left, right| left.0.cmp(&right.0));
@@ -285,11 +484,10 @@ pub fn word_bias_of_counts(
     })
 }
 
-/// Returns the words of `text` in lowercase: its runs of letters and apostrophes.
-fn words(text: &str) -> impl Iterator<Item = String> + '_ {
+/// Returns the words of `text` in their spelling: its runs of letters and apostrophes.
+fn words(text: &str) -> impl Iterator<Item = &str> {
     text.split(|character: char| !(character.is_alphabetic() || matches!(character, '\'' | '’')))
         .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
 }
 
 /// Returns `text` with each secret replaced by [`REDACTED`]: private keys, API tokens, long tokens
@@ -417,6 +615,7 @@ fn card_number_spans(text: &str) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop::{Confidence, ScreenLine, ScreenRect};
 
     fn entry(text: &str, app_id: &str, domain: Option<&str>) -> HistoryEntry {
         HistoryEntry {
@@ -442,20 +641,46 @@ mod tests {
         }
     }
 
+    fn examples_in(entries: &[HistoryEntry], surroundings: &Surroundings) -> Vec<String> {
+        examples(entries, surroundings, None)
+    }
+
     fn words_of(bias: Option<WordBias>) -> Option<Vec<(String, f32)>> {
         bias.map(|bias| bias.words.to_vec())
     }
 
     #[test]
     fn word_bias_holds_the_words_of_three_letters_that_come_three_times() {
-        let entries = [mail("Cheers mate, ok ok ok. Cheers"), mail("cheers MATE! Mate's")];
+        let entries = [mail("Cheers mate, ok ok ok. Cheers"), mail("Cheers MATE! Mate's")];
 
         let bias = word_bias(&entries, WordChoice::Medium, 1);
 
         assert_eq!(
             words_of(bias),
-            Some(vec![("cheers".to_owned(), 3.0_f32.ln() / 20.0_f32.ln())])
+            Some(vec![("Cheers".to_owned(), 3.0_f32.ln() / 20.0_f32.ln())])
         );
+    }
+
+    #[test]
+    fn word_bias_has_the_spelling_that_the_writer_uses_most() {
+        let entries = [mail("Bluefin bluefin Bluefin. reckon Reckon reckon")];
+
+        let bias = word_bias(&entries, WordChoice::Medium, 1);
+
+        let spellings =
+            words_of(bias).map(|words| words.into_iter().map(|(word, _)| word).collect::<Vec<_>>());
+        assert_eq!(spellings, Some(vec!["Bluefin".to_owned(), "reckon".to_owned()]));
+    }
+
+    #[test]
+    fn word_bias_has_the_lowercase_spelling_when_two_spellings_come_the_same_times() {
+        let entries = [mail("Cheers cheers Cheers cheers")];
+
+        let bias = word_bias(&entries, WordChoice::Medium, 1);
+
+        let spellings =
+            words_of(bias).map(|words| words.into_iter().map(|(word, _)| word).collect::<Vec<_>>());
+        assert_eq!(spellings, Some(vec!["cheers".to_owned()]));
     }
 
     #[test]
@@ -637,6 +862,84 @@ mod tests {
         assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
     }
 
+    const DRAFT: &str = "Dear Ana, I send you the report of the third quarter with all the numbers.";
+
+    fn own(entries: &[HistoryEntry], text: &str, field_chars: usize) -> String {
+        own_text(entries, text, field_chars, "com.apple.mail", None).to_owned()
+    }
+
+    #[test]
+    fn own_text_is_all_the_text_when_the_field_was_empty() {
+        let own = own(&[], DRAFT, 0);
+
+        assert_eq!(own, DRAFT);
+    }
+
+    #[test]
+    fn own_text_is_all_the_text_when_the_user_adds_half_of_it_or_more() {
+        let text =
+            format!("{DRAFT} The costs went down by two percent in the quarter and the team is very happy.");
+        let field_chars = DRAFT.chars().count();
+
+        let own = own(&[], &text, field_chars);
+
+        assert_eq!(own, text);
+    }
+
+    #[test]
+    fn own_text_is_only_the_added_paragraph_for_a_long_shared_text() {
+        let shared = format!("{} ", "The terms of the lease are in force. ".repeat(10));
+        let paragraph = "My comment: the deposit must come back in thirty days.";
+        let text = format!("{shared}{paragraph}");
+
+        let own = own(&[], &text, shared.chars().count());
+
+        assert_eq!(own, paragraph);
+    }
+
+    #[test]
+    fn own_text_starts_at_a_whole_word() {
+        let shared =
+            "Template text that the user did not write, which goes on for a while to be long".to_owned();
+        let text = format!("{shared}ing and then the user wrote a long enough sentence of their own.");
+
+        let own = own(&[], &text, shared.chars().count());
+
+        assert_eq!(
+            own,
+            "and then the user wrote a long enough sentence of their own."
+        );
+    }
+
+    #[test]
+    fn own_text_is_all_the_text_when_an_entry_of_the_place_holds_the_field() {
+        let entries = [mail(DRAFT)];
+        let text = format!("{DRAFT} PS: call me.");
+
+        let own = own(&entries, &text, DRAFT.chars().count());
+
+        assert_eq!(own, text);
+    }
+
+    #[test]
+    fn own_text_is_only_the_added_part_when_an_entry_of_another_place_holds_the_field() {
+        let entries = [entry(DRAFT, "com.apple.Notes", None)];
+        let text = format!("{DRAFT} {}", "PS: call me when you can, it is long.");
+
+        let own = own(&entries, &text, DRAFT.chars().count());
+
+        assert_eq!(own, "PS: call me when you can, it is long.");
+    }
+
+    #[test]
+    fn own_text_is_only_the_added_words_when_the_user_adds_a_few_words_to_a_template() {
+        let text = format!("{DRAFT} Thanks.");
+
+        let own = own(&[], &text, DRAFT.chars().count());
+
+        assert_eq!(own, "Thanks.");
+    }
+
     #[test]
     fn added_entry_is_the_newest() {
         let mut entries = vec![mail("Old text of the writer")];
@@ -677,6 +980,47 @@ mod tests {
     }
 
     #[test]
+    fn added_entry_replaces_a_near_copy_with_an_edit_in_the_middle() {
+        let start = "Dear Ana, I send you the report of the third quarter with all the numbers.";
+        let old = format!("{start} The costs went down by two percent. Best, Tom");
+        let new = format!("{start} The costs went down by four percent. Best, Tom");
+        let mut entries = vec![mail(&old)];
+
+        add(&mut entries, mail(&new));
+
+        assert_eq!(entries, [mail(&new)]);
+    }
+
+    #[test]
+    fn added_entry_replaces_a_near_copy_with_an_edit_at_its_start() {
+        let end = "the numbers of the third quarter are ready and the costs went down. Best, Tom";
+        let mut entries = vec![mail(&format!("Hi Ana, {end}"))];
+
+        add(&mut entries, mail(&format!("Hello Anna, {end}")));
+
+        assert_eq!(entries, [mail(&format!("Hello Anna, {end}"))]);
+    }
+
+    #[test]
+    fn short_texts_with_the_same_greeting_stay_two_entries() {
+        let mut entries = vec![mail("Dear Ana, the report is ready for you.")];
+
+        add(&mut entries, mail("Dear Ana, the meeting moved to Friday."));
+
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn near_copy_in_another_place_stays() {
+        let text = "Dear Ana, I send you the report of the third quarter with all the numbers. Best, Tom";
+        let mut entries = vec![entry(text, "com.apple.Notes", None)];
+
+        add(&mut entries, mail(&format!("{text} PS")));
+
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
     fn oldest_entries_go_after_the_most_entries() {
         let mut entries = (0..MAX_ENTRIES)
             .map(|index| mail(&format!("text {index}.")))
@@ -689,21 +1033,105 @@ mod tests {
         assert_eq!(entries.last(), Some(&mail("newest")));
     }
 
-    #[test]
-    fn examples_are_the_newest_and_the_longest_texts_of_the_app_oldest_first() {
-        let entries = [
-            mail("The longest text of the writer in this app."),
-            entry("Text of another app", "com.apple.Notes", None),
-            mail("Short one."),
-            mail("Newest one."),
-        ];
+    fn place_with(app_id: &str, before_caret: &str, window_title: Option<&str>) -> Surroundings {
+        Surroundings {
+            window_title: window_title.map(str::to_owned),
+            ..place(app_id, None, before_caret)
+        }
+    }
 
-        let examples = examples(&entries, &place("com.apple.mail", None, "Hi "));
+    fn bluefin_entries() -> Vec<HistoryEntry> {
+        vec![
+            mail("Bluefin launch plan: the budget goes to the demo."),
+            entry("Text of another app", "com.apple.Notes", None),
+            mail("Weekend trip to the lake with the kids, back on Sunday."),
+            mail("Bluefin budget review with Dana tomorrow morning."),
+        ]
+    }
+
+    #[test]
+    fn examples_are_the_two_texts_of_the_app_that_match_the_text_near_the_caret_oldest_first() {
+        let examples = examples_in(
+            &bluefin_entries(),
+            &place("com.apple.mail", None, "Update on the Bluefin budget"),
+        );
 
         assert_eq!(
             examples,
-            ["The longest text of the writer in this app.", "Newest one."]
+            [
+                "Bluefin launch plan: the budget goes to the demo.",
+                "Bluefin budget review with Dana tomorrow morning."
+            ]
         );
+    }
+
+    #[test]
+    fn examples_are_the_two_newest_texts_of_the_app_when_no_text_matches() {
+        let examples = examples_in(&bluefin_entries(), &place("com.apple.mail", None, "Hi Sam"));
+
+        assert_eq!(
+            examples,
+            [
+                "Weekend trip to the lake with the kids, back on Sunday.",
+                "Bluefin budget review with Dana tomorrow morning."
+            ]
+        );
+    }
+
+    #[test]
+    fn title_of_the_window_tells_the_topic_and_the_newest_text_fills_the_second_place() {
+        let surroundings = place_with("com.apple.mail", "Hi Sam", Some("Launch"));
+
+        let examples = examples_in(&bluefin_entries(), &surroundings);
+
+        assert_eq!(
+            examples,
+            [
+                "Bluefin launch plan: the budget goes to the demo.",
+                "Bluefin budget review with Dana tomorrow morning."
+            ]
+        );
+    }
+
+    #[test]
+    fn text_on_the_screen_tells_the_topic_and_the_newest_text_fills_the_second_place() {
+        let screen = ScreenText {
+            lines: vec![ScreenLine {
+                text: "Launch".to_owned(),
+                confidence: Confidence::CERTAIN,
+                frame: ScreenRect::default(),
+            }],
+            ..ScreenText::default()
+        };
+
+        let examples = examples(
+            &bluefin_entries(),
+            &place("com.apple.mail", None, "Hi Sam"),
+            Some(&screen),
+        );
+
+        assert_eq!(
+            examples,
+            [
+                "Bluefin launch plan: the budget goes to the demo.",
+                "Bluefin budget review with Dana tomorrow morning."
+            ]
+        );
+    }
+
+    #[test]
+    fn rare_word_counts_more_than_a_word_of_many_texts() {
+        let entries = [
+            mail("Meeting notes on the roof"),
+            mail("Meeting notes on the garden"),
+            mail("Meeting notes on the garage"),
+            mail("A zebra at the zoo"),
+            entry("Text of another app", "com.apple.Notes", None),
+        ];
+
+        let examples = examples_in(&entries, &place("com.apple.mail", None, "meeting zebra"));
+
+        assert_eq!(examples, ["Meeting notes on the garage", "A zebra at the zoo"]);
     }
 
     #[test]
@@ -717,18 +1145,74 @@ mod tests {
             ),
         ];
 
-        let examples = examples(&entries, &place("com.google.Chrome", Some("github.com"), "LGTM"));
+        let examples = examples_in(&entries, &place("com.google.Chrome", Some("github.com"), "LGTM"));
 
         assert_eq!(examples, ["Review from Safari"]);
     }
 
     #[test]
-    fn example_keeps_the_end_of_a_long_text_from_a_word() {
-        let entries = [mail(format!("start {}", "word ".repeat(80)).trim_end())];
+    fn example_keeps_the_start_and_the_end_of_a_long_text_from_a_word() {
+        let entries = [mail(&format!("Hola equipo, {}fin", "word ".repeat(80)))];
 
-        let examples = examples(&entries, &place("com.apple.mail", None, ""));
+        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
 
-        assert_eq!(examples, ["word ".repeat(64).trim_end()]);
+        assert_eq!(
+            examples,
+            [format!(
+                "Hola equipo, {} … {}fin",
+                "word ".repeat(17).trim_end(),
+                "word ".repeat(63)
+            )]
+        );
+    }
+
+    #[test]
+    fn example_keeps_all_of_a_text_that_fits() {
+        let text = format!("Hola equipo, {}fin", "word ".repeat(60));
+        let entries = [mail(&text)];
+
+        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
+
+        assert_eq!(examples, [text]);
+    }
+
+    #[test]
+    fn place_without_texts_gets_the_newest_text_of_another_app_with_the_same_format() {
+        let entries = [
+            entry("Chat text of the writer", "net.whatsapp.WhatsApp", None),
+            entry("Mail text of the writer", "com.apple.mail", None),
+            entry("Newest chat text of the writer", "com.hnc.Discord", None),
+            entry("Newest mail text of the writer", "OUTLOOK.EXE", None),
+        ];
+
+        let examples = examples_in(&entries, &place("com.tinyspeck.slackmacgap", None, "Hi"));
+
+        assert_eq!(examples, ["Newest chat text of the writer"]);
+    }
+
+    #[test]
+    fn place_without_texts_gets_no_text_of_another_format() {
+        let entries = [entry("Mail text of the writer", "com.apple.mail", None)];
+
+        let examples = examples_in(&entries, &place("com.tinyspeck.slackmacgap", None, "Hi"));
+
+        assert_eq!(examples, Vec::<&str>::new());
+    }
+
+    #[test]
+    fn web_page_without_texts_gets_no_text_of_another_web_page() {
+        let entries = [entry(
+            "Review from Safari",
+            "com.apple.Safari",
+            Some("github.com"),
+        )];
+
+        let examples = examples_in(
+            &entries,
+            &place("com.google.Chrome", Some("news.example.com"), "Hi"),
+        );
+
+        assert_eq!(examples, Vec::<&str>::new());
     }
 
     #[test]
@@ -736,7 +1220,7 @@ mod tests {
         let earlier = "Dear Ana,\n\nThe report is ready and the numbers look good.";
         let entries = [mail(earlier), mail("Other text.")];
 
-        let examples = examples(
+        let examples = examples_in(
             &entries,
             &place("com.apple.mail", None, &format!("{earlier}\n\nBest,")),
         );
@@ -749,7 +1233,7 @@ mod tests {
         let field = "Dear Ana,\n\nThe report is ready and the numbers look";
         let entries = [mail(&format!("{field} good. Best, Tom")), mail("Other text.")];
 
-        let examples = examples(&entries, &place("com.apple.mail", None, field));
+        let examples = examples_in(&entries, &place("com.apple.mail", None, field));
 
         assert_eq!(examples, ["Other text."]);
     }
@@ -761,7 +1245,7 @@ mod tests {
             mail("Dear Ana, the report"),
         ];
 
-        let examples = examples(&entries, &place("com.apple.mail", None, "Hi"));
+        let examples = examples_in(&entries, &place("com.apple.mail", None, "Hi"));
 
         assert_eq!(examples, ["Dear Ana, the report"]);
     }
@@ -770,7 +1254,7 @@ mod tests {
     fn place_without_entries_has_no_examples() {
         let entries = [entry("Text of another app", "com.apple.Notes", None)];
 
-        let examples = examples(&entries, &place("com.apple.mail", None, "Hi"));
+        let examples = examples_in(&entries, &place("com.apple.mail", None, "Hi"));
 
         assert_eq!(examples, Vec::<&str>::new());
     }

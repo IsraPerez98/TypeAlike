@@ -90,7 +90,8 @@ pub enum InferenceRequest {
 pub struct WordBias {
     /// Names the words. A new table of words gets a new version.
     pub version: u64,
-    /// Each word in lowercase, with the logits to add to its first token.
+    /// Each word in the spelling that the writer uses most, with the logits to add to its first
+    /// token.
     pub words: Arc<[(String, f32)]>,
 }
 

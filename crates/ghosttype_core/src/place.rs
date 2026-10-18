@@ -121,8 +121,14 @@ impl Format {
     /// The format of the web page in `surroundings`, else of its app. `None` for a place that
     /// GhostType does not know.
     pub(crate) fn of(surroundings: &Surroundings) -> Option<Self> {
-        let domain = surroundings.domain.as_deref().map(str::to_lowercase);
-        let app_id = surroundings.app_id.as_deref().map(str::to_lowercase);
+        Self::of_place(surroundings.app_id.as_deref(), surroundings.domain.as_deref())
+    }
+
+    /// The format of the web page with `domain`, else of the app with `app_id`. `None` for a
+    /// place that GhostType does not know.
+    pub(crate) fn of_place(app_id: Option<&str>, domain: Option<&str>) -> Option<Self> {
+        let domain = domain.map(str::to_lowercase);
+        let app_id = app_id.map(str::to_lowercase);
         let domain_format = domain.as_deref().and_then(|domain| {
             DOMAIN_FORMATS
                 .iter()

@@ -20,8 +20,11 @@
 //! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
 //!   are the frames of the field and the caret, and each of `lines` has a `text` outside of the
 //!   field and its `frame`. A frame is `[left, top, right, bottom]` in pixels of the window.
-//! - `history`: earlier texts of the same writer, oldest first. Each one has its `text`, and the
-//!   `app_id` and `domain` of the place where the writer typed it.
+//! - `writer`: the name of a store of earlier texts, or `null`. The store is the file
+//!   `writers/NAME.jsonl` next to the case file. Each line is one earlier text with its `text`,
+//!   `app_id` and `domain`, oldest first. The eval loads the store, then adds `history`.
+//! - `history`: earlier texts of the same writer, oldest first, after the texts of the store. Each
+//!   one has its `text`, and the `app_id` and `domain` of the place where the writer typed it.
 //! - `words`: the words that the writer often writes, with their counts. It can be left out. When
 //!   the case has words, the word bias comes from them, and else from `history`.
 //! - `next`: the text that the writer typed next.
@@ -40,6 +43,14 @@
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
+//!
+//! `cases/stores_tuning.jsonl` and `cases/stores_held_out.jsonl` have cases with a `writer`: a
+//! store of 100 to 160 earlier texts in 5 or 6 places. They measure how the prompt picks its
+//! examples. The id of a case starts with its group: `topic` (the next word is in one text of the
+//! place, among texts on other topics), `othertopic` (it is in no text), `sameformat` (the place
+//! has no text, and a place of the same format has it), `otherformat` (the place has no text, and
+//! only other formats exist), `greeting` (it starts a long earlier text) and `names` (a name that
+//! the writer writes often). The held-out file has its own writers.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
@@ -167,6 +178,8 @@ struct Case {
     after: String,
     clipboard: Option<String>,
     screen: Option<CaseScreen>,
+    #[serde(default)]
+    writer: Option<String>,
     history: Vec<CaseEntry>,
     #[serde(default)]
     words: BTreeMap<String, u32>,
@@ -190,6 +203,34 @@ impl CaseEntry {
             domain: self.domain.clone(),
         }
     }
+}
+
+/// Returns the earlier texts of `case`: the texts of its writer in `writers`, then its own.
+fn history_of(case: &Case, writers: &BTreeMap<String, Vec<CaseEntry>>) -> anyhow::Result<Vec<HistoryEntry>> {
+    let store = match &case.writer {
+        Some(name) => writers
+            .get(name)
+            .with_context(|| format!("case {} names the unknown writer {name}", case.id))?
+            .as_slice(),
+        None => &[],
+    };
+    Ok(store
+        .iter()
+        .chain(&case.history)
+        .map(CaseEntry::to_history_entry)
+        .collect())
+}
+
+/// Reads the store of each writer that `cases` name, from the `writers` folder in `directory`.
+fn read_writers(directory: &Path, cases: &[Case]) -> anyhow::Result<BTreeMap<String, Vec<CaseEntry>>> {
+    let mut writers = BTreeMap::new();
+    for name in cases.iter().filter_map(|case| case.writer.as_ref()) {
+        if !writers.contains_key(name) {
+            let entries = read_json_lines(&directory.join("writers").join(format!("{name}.jsonl")))?;
+            writers.insert(name.clone(), entries);
+        }
+    }
+    Ok(writers)
 }
 
 /// A frame as `[left, top, right, bottom]`.
@@ -336,7 +377,13 @@ fn with_case_bias(
     }
 }
 
-fn run_case(model: &mut Model, case: &Case, settings: &Settings, version: u64) -> anyhow::Result<CaseRun> {
+fn run_case(
+    model: &mut Model,
+    case: &Case,
+    history: Vec<HistoryEntry>,
+    settings: &Settings,
+    version: u64,
+) -> anyhow::Result<CaseRun> {
     let mut before = case.before.clone();
     let last_character = before
         .pop()
@@ -363,7 +410,7 @@ fn run_case(model: &mut Model, case: &Case, settings: &Settings, version: u64) -
     };
     let mut app = App::new();
     app.use_settings(settings);
-    app.use_history(case.history.iter().map(CaseEntry::to_history_entry).collect());
+    app.use_history(history);
     if let Some(screen) = &case.screen {
         let Some(SettledWork::ReadScreen { read: id, .. }) = app.on_input_settled(&field) else {
             bail!("case {} reads no screen text", case.id);
@@ -476,6 +523,7 @@ fn main() -> anyhow::Result<()> {
         bail!("{USAGE}");
     };
     let cases = read_json_lines::<Case>(&arguments.cases)?;
+    let writers = read_writers(arguments.cases.parent().unwrap_or(Path::new(".")), &cases)?;
     let baseline = arguments
         .baseline
         .as_deref()
@@ -496,7 +544,7 @@ fn main() -> anyhow::Result<()> {
     let runs = cases
         .iter()
         .zip(1..)
-        .map(|(case, version)| run_case(&mut model, case, &settings, version))
+        .map(|(case, version)| run_case(&mut model, case, history_of(case, &writers)?, &settings, version))
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
     let continuations = runs
@@ -531,6 +579,49 @@ mod tests {
 
     fn parse(arguments: &[&str]) -> Option<Arguments> {
         Arguments::parse(&arguments.iter().map(ToString::to_string).collect::<Vec<_>>())
+    }
+
+    fn case_of(writer: Option<&str>, texts: &[&str]) -> Case {
+        let history = texts
+            .iter()
+            .map(|text| format!(r#"{{"text": "{text}", "app_id": "mail", "domain": null}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let writer = writer.map_or("null".to_owned(), |name| format!(r#""{name}""#));
+        serde_json::from_str(&format!(
+            r#"{{"id": "case", "app": null, "app_id": null, "window_title": null, "domain": null,
+                "before": "a", "after": "", "clipboard": null, "screen": null, "writer": {writer},
+                "history": [{history}], "next": "b"}}"#
+        ))
+        .unwrap()
+    }
+
+    fn texts(entries: &[HistoryEntry]) -> Vec<&str> {
+        entries.iter().map(|entry| entry.text.as_str()).collect()
+    }
+
+    #[test]
+    fn history_of_a_case_adds_its_texts_after_the_store_of_its_writer() {
+        let store = case_of(None, &["old one", "old two"]).history;
+        let writers = BTreeMap::from([("ana".to_owned(), store)]);
+
+        let history = history_of(&case_of(Some("ana"), &["new"]), &writers).unwrap();
+
+        assert_eq!(texts(&history), ["old one", "old two", "new"]);
+    }
+
+    #[test]
+    fn history_of_a_case_without_a_writer_is_its_own() {
+        let history = history_of(&case_of(None, &["only"]), &BTreeMap::new()).unwrap();
+
+        assert_eq!(texts(&history), ["only"]);
+    }
+
+    #[test]
+    fn case_with_an_unknown_writer_is_an_error() {
+        let history = history_of(&case_of(Some("bob"), &[]), &BTreeMap::new());
+
+        assert!(history.is_err());
     }
 
     #[test]
