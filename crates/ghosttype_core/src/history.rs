@@ -494,7 +494,7 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 /// that mix letters and digits, and card numbers.
 pub(crate) fn redacted(text: &str) -> String {
     let text = replaced(text, &private_key_spans(text));
-    let secret_tokens = token_spans(&text)
+    let secret_tokens = runs_of(&text, is_token_character)
         .into_iter()
         .filter(|span| is_secret_token(&text[span.clone()]))
         .collect::<Vec<_>>();
@@ -549,12 +549,12 @@ fn private_key_spans(text: &str) -> Vec<Range<usize>> {
     spans
 }
 
-/// The spans of the runs of characters that a token can hold.
-fn token_spans(text: &str) -> Vec<Range<usize>> {
+/// The spans of the runs of the characters of `text` that `is_part` accepts.
+fn runs_of(text: &str, is_part: fn(char) -> bool) -> Vec<Range<usize>> {
     let mut spans = Vec::new();
     let mut start = None;
     for (index, character) in text.char_indices() {
-        match (is_token_character(character), start) {
+        match (is_part(character), start) {
             (true, None) => start = Some(index),
             (false, Some(begin)) => {
                 spans.push(begin..index);
