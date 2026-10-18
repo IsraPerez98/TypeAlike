@@ -18,7 +18,7 @@ fn real_model_continues_text() {
         repo: "test/model".to_owned(),
         name: "model.gguf".to_owned(),
     };
-    let mut runner = LlamaCpp::new(move |_| Some(path.clone()));
+    let mut runner = LlamaCpp::new(move |_| Some(path.clone()), None);
     let (sender, events) = mpsc::channel();
     let sink: InferenceEventSink = Arc::new(move |event| {
         sender.send(event).ok();

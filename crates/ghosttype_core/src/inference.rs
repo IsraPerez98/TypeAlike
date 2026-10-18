@@ -1,6 +1,7 @@
 //! The seam to the service that runs a language model on this computer.
 
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,6 +44,15 @@ pub enum Backend {
     Cuda,
     /// The GPU of a Mac through Metal.
     Metal,
+}
+
+/// The physical cores of the CPU of this computer. A core with two threads counts one time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuCores {
+    /// The cores of the fastest kind. On a CPU with one kind of core, every core.
+    pub performance: NonZeroUsize,
+    /// The cores of slower kinds, such as the efficiency cores of a hybrid CPU.
+    pub efficiency: usize,
 }
 
 /// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its

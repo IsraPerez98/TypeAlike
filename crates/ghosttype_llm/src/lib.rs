@@ -11,7 +11,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 
 use ghosttype_core::hub::ModelFile;
-use ghosttype_core::inference::{Backend, InferenceEventSink, InferenceRequest, ModelRunner};
+use ghosttype_core::inference::{Backend, CpuCores, InferenceEventSink, InferenceRequest, ModelRunner};
 
 use crate::worker::Job;
 
@@ -38,10 +38,17 @@ pub struct LlamaCpp {
 impl LlamaCpp {
     /// Starts the worker thread. It finds each model file at the path `locate_model` returns, and
     /// starts llama.cpp only when the first model loads.
+    ///
+    /// A model on the CPU decodes a prompt with one thread on each performance core of
+    /// `cpu_cores`, and at least 4 threads when the CPU has that many cores. It adds each token
+    /// with at most 4 threads. With `None`, the CPU runs the threads of llama.cpp.
     #[must_use]
-    pub fn new(locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static) -> Self {
+    pub fn new(
+        locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static,
+        cpu_cores: Option<CpuCores>,
+    ) -> Self {
         let (jobs, received_jobs) = mpsc::channel();
-        let worker = thread::spawn(move || worker::run(&locate_model, &received_jobs));
+        let worker = thread::spawn(move || worker::run(&locate_model, cpu_cores, &received_jobs));
         Self {
             jobs,
             worker: Some(worker),
@@ -108,7 +115,7 @@ mod tests {
 
     #[test]
     fn model_without_a_path_is_missing() {
-        let runner = LlamaCpp::new(|_| None);
+        let runner = LlamaCpp::new(|_| None, None);
 
         let event = first_event(runner, load_request());
 
@@ -123,7 +130,7 @@ mod tests {
 
     #[test]
     fn model_whose_file_is_gone_is_missing() {
-        let runner = LlamaCpp::new(|_| Some(PathBuf::from("/nonexistent/ghosttype/model.gguf")));
+        let runner = LlamaCpp::new(|_| Some(PathBuf::from("/nonexistent/ghosttype/model.gguf")), None);
 
         let event = first_event(runner, load_request());
 
@@ -141,7 +148,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("ghosttype-llm-{}-damaged.gguf", std::process::id()));
         fs::write(&path, b"not a model").expect("temp dir is writable");
         let located = path.clone();
-        let runner = LlamaCpp::new(move |_| Some(located.clone()));
+        let runner = LlamaCpp::new(move |_| Some(located.clone()), None);
 
         let event = first_event(runner, load_request());
 
@@ -157,7 +164,7 @@ mod tests {
 
     #[test]
     fn unloading_answers_with_no_event() {
-        let mut runner = LlamaCpp::new(|_| None);
+        let mut runner = LlamaCpp::new(|_| None, None);
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();
@@ -173,10 +180,13 @@ mod tests {
     #[test]
     fn dropping_the_runner_waits_until_its_worker_stops() {
         let (worker_alive, worker_signals) = mpsc::channel();
-        let mut runner = LlamaCpp::new(move |_| {
-            worker_alive.send(()).ok();
-            None
-        });
+        let mut runner = LlamaCpp::new(
+            move |_| {
+                worker_alive.send(()).ok();
+                None
+            },
+            None,
+        );
         let sink: InferenceEventSink = Arc::new(|_| {});
         runner.submit(load_request(), &sink);
 
@@ -190,7 +200,7 @@ mod tests {
 
     #[test]
     fn completing_without_a_model_fails() {
-        let runner = LlamaCpp::new(|_| None);
+        let runner = LlamaCpp::new(|_| None, None);
 
         let event = first_event(
             runner,

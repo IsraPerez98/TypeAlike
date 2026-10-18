@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Backend, CONTEXT_TOKENS, Completion, InferenceError, InferenceEvent, InferenceEventSink,
+    Backend, CONTEXT_TOKENS, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink,
     InferenceRequest, Prompt, TokenCount,
 };
 use llama_cpp_2::context::LlamaContext;
@@ -34,6 +34,12 @@ use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
 /// whole batch while the model stays loaded, so a small batch keeps that memory small.
 const BATCH_TOKENS: u32 = 128;
+/// The fewest threads for the tokens of a prompt on the CPU, when the CPU has that many cores: the
+/// default of llama.cpp. On a CPU with few performance cores, efficiency cores then also help.
+const MIN_PROMPT_THREADS: usize = 4;
+/// The most threads for each added token on the CPU. An added token waits mostly for memory, so
+/// more threads use much more CPU time for a small gain.
+const MAX_GENERATION_THREADS: usize = 4;
 /// The sequence that keeps the last prompt between completions.
 const PROMPT_SEQUENCE: i32 = 0;
 /// The sequence that continues a copy of the prompt.
@@ -89,8 +95,13 @@ impl<'jobs> JobQueue<'jobs> {
     }
 }
 
-/// Runs each job in order until every sender is gone.
-pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &Receiver<Job>) {
+/// Runs each job in order until every sender is gone. A model on the CPU runs on threads for
+/// `cpu_cores`, or on the threads of llama.cpp when the cores are unknown.
+pub(crate) fn run(
+    locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>,
+    cpu_cores: Option<CpuCores>,
+    jobs: &Receiver<Job>,
+) {
     let mut queue = JobQueue::new(jobs);
     let mut llama = None;
     while let Some(Job { request, sink }) = queue.next() {
@@ -100,7 +111,7 @@ pub(crate) fn run(locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>, jobs: &R
                 let result = loaded.as_ref().map(|_| ()).map_err(|error| *error);
                 sink(InferenceEvent::Loaded { file, result });
                 if let (Ok(model), Some(llama)) = (loaded, &llama) {
-                    serve(llama, &model, &mut queue);
+                    serve(llama, &model, threads_for(backend, cpu_cores), &mut queue);
                 }
             }
             InferenceRequest::Complete { .. } => {
@@ -140,12 +151,26 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Llam
     Ok(llama.as_ref().expect("the backend started above"))
 }
 
-/// Runs the completions for the loaded `model` until a job loads or unloads a model. It gives that
-/// job back to `queue`, so the model is gone before the next model loads.
-fn serve(llama: &LlamaBackend, model: &LlamaModel, queue: &mut JobQueue<'_>) {
+/// Runs the completions for the loaded `model` until a job loads or unloads a model. A model on the
+/// CPU runs on `cpu_threads`, or on the threads of llama.cpp. It gives the job that loads or
+/// unloads back to `queue`, so the model is gone before the next model loads.
+fn serve(
+    llama: &LlamaBackend,
+    model: &LlamaModel,
+    cpu_threads: Option<CpuThreads>,
+    queue: &mut JobQueue<'_>,
+) {
+    if let Some(threads) = cpu_threads {
+        tracing::info!(
+            prompt = threads.prompt,
+            generation = threads.generation,
+            "running the model on CPU threads"
+        );
+    }
     let mut loaded = LoadedModel {
         llama,
         model,
+        cpu_threads,
         cache: None,
     };
     while let Some(job) = queue.next() {
@@ -227,7 +252,7 @@ fn check_fit(path: &Path, device: usize, margin_bytes: usize) -> Result<(), Infe
         .ok_or(InferenceError::ModelInvalid)?;
     let mut params = on_devices(&[device])?;
     let all_layers = params.n_gpu_layers();
-    let mut context = context_params(CONTEXT_TOKENS.0);
+    let mut context = context_params(CONTEXT_TOKENS.0, None);
     let mut margins = vec![margin_bytes; max_devices()];
     let fitted = Pin::new(&mut params).fit_params(
         &model_path,
@@ -249,13 +274,54 @@ fn fit_verdict(fitted: Result<bool, FitError>) -> Result<(), InferenceError> {
     }
 }
 
-fn context_params(context_tokens: u32) -> LlamaContextParams {
-    LlamaContextParams::default()
+/// Returns the parameters of a context. A context on the CPU runs on `cpu_threads`, or on the
+/// threads of llama.cpp.
+fn context_params(context_tokens: u32, cpu_threads: Option<CpuThreads>) -> LlamaContextParams {
+    let params = LlamaContextParams::default()
         .with_n_ctx(NonZeroU32::new(context_tokens))
         .with_n_batch(BATCH_TOKENS)
         .with_n_ubatch(BATCH_TOKENS)
         .with_n_seq_max(SEQUENCES)
-        .with_kv_unified(true)
+        .with_kv_unified(true);
+    match cpu_threads {
+        Some(threads) => params
+            .with_n_threads(threads.generation)
+            .with_n_threads_batch(threads.prompt),
+        None => params,
+    }
+}
+
+/// The threads that run a model on the CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CpuThreads {
+    /// The threads for the tokens of a prompt.
+    prompt: i32,
+    /// The threads for each added token.
+    generation: i32,
+}
+
+impl CpuThreads {
+    /// Returns the threads for a CPU with `cores`. A prompt runs one thread on each performance
+    /// core, because its threads work in lockstep: a thread on a slower core, or on the second
+    /// thread of a core, makes the other threads wait.
+    fn for_cores(cores: CpuCores) -> Self {
+        let physical = cores.performance.get().saturating_add(cores.efficiency);
+        let prompt = cores.performance.get().max(physical.min(MIN_PROMPT_THREADS));
+        let generation = prompt.min(MAX_GENERATION_THREADS);
+        Self {
+            prompt: i32::try_from(prompt).unwrap_or(i32::MAX),
+            generation: i32::try_from(generation).unwrap_or(i32::MAX),
+        }
+    }
+}
+
+/// Returns the threads for a model on `backend` with the `cpu_cores` of this computer. Returns
+/// `None` to keep the threads of llama.cpp: on a GPU backend, and when the cores are unknown.
+fn threads_for(backend: Backend, cpu_cores: Option<CpuCores>) -> Option<CpuThreads> {
+    match backend {
+        Backend::Cpu => cpu_cores.map(CpuThreads::for_cores),
+        Backend::Vulkan | Backend::Cuda | Backend::Metal => None,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -297,6 +363,7 @@ impl GenerateError {
 struct LoadedModel<'model> {
     llama: &'model LlamaBackend,
     model: &'model LlamaModel,
+    cpu_threads: Option<CpuThreads>,
     cache: Option<PromptCache<'model>>,
 }
 
@@ -352,7 +419,12 @@ impl LoadedModel<'_> {
             return Err(GenerateError::PromptTooLong);
         }
         if self.cache.is_none() {
-            self.cache = Some(PromptCache::new(self.llama, model, context_tokens)?);
+            self.cache = Some(PromptCache::new(
+                self.llama,
+                model,
+                context_tokens,
+                self.cpu_threads,
+            )?);
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
         let added = cache
@@ -398,9 +470,10 @@ impl<'model> PromptCache<'model> {
         llama: &LlamaBackend,
         model: &'model LlamaModel,
         context_tokens: u32,
+        cpu_threads: Option<CpuThreads>,
     ) -> Result<Self, LlamaContextLoadError> {
         Ok(Self {
-            context: model.new_context(llama, context_params(context_tokens))?,
+            context: model.new_context(llama, context_params(context_tokens, cpu_threads))?,
             tokens: Vec::new(),
             logits: Vec::new(),
             snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
@@ -727,6 +800,7 @@ fn text_without_cut_character(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::mpsc;
 
     use super::*;
@@ -793,6 +867,89 @@ mod tests {
         let devices = [device(0, "Vulkan", LlamaBackendDeviceType::Gpu)];
 
         assert_eq!(gpu_index(&devices, Backend::Cpu), None);
+    }
+
+    fn cpu_cores(performance: usize, efficiency: usize) -> CpuCores {
+        CpuCores {
+            performance: NonZeroUsize::new(performance).expect("a test CPU has a performance core"),
+            efficiency,
+        }
+    }
+
+    #[test]
+    fn prompt_runs_on_each_performance_core_and_on_at_least_four_cores() {
+        let cores = [
+            cpu_cores(1, 0),
+            cpu_cores(2, 0),
+            cpu_cores(2, 8),
+            cpu_cores(4, 8),
+            cpu_cores(8, 8),
+            cpu_cores(16, 0),
+        ];
+
+        let threads = cores.map(|cores| CpuThreads::for_cores(cores).prompt);
+
+        assert_eq!(threads, [1, 2, 4, 4, 8, 16]);
+    }
+
+    #[test]
+    fn each_added_token_runs_on_at_most_four_threads() {
+        let cores = [cpu_cores(2, 0), cpu_cores(2, 8), cpu_cores(16, 0)];
+
+        let threads = cores.map(|cores| CpuThreads::for_cores(cores).generation);
+
+        assert_eq!(threads, [2, 4, 4]);
+    }
+
+    #[test]
+    fn cpu_backend_runs_the_threads_for_its_cores() {
+        let threads = threads_for(Backend::Cpu, Some(cpu_cores(8, 8)));
+
+        assert_eq!(
+            threads,
+            Some(CpuThreads {
+                prompt: 8,
+                generation: 4
+            })
+        );
+    }
+
+    #[test]
+    fn gpu_backends_and_unknown_cores_keep_the_threads_of_llama_cpp() {
+        let loads = [
+            (Backend::Cpu, None),
+            (Backend::Vulkan, Some(cpu_cores(8, 8))),
+            (Backend::Cuda, Some(cpu_cores(8, 8))),
+            (Backend::Metal, Some(cpu_cores(4, 6))),
+        ];
+
+        let threads = loads.map(|(backend, cores)| threads_for(backend, cores));
+
+        assert_eq!(threads, [None; 4]);
+    }
+
+    #[test]
+    fn context_runs_the_cpu_threads() {
+        let threads = CpuThreads {
+            prompt: 8,
+            generation: 4,
+        };
+
+        let params = context_params(CONTEXT_TOKENS.0, Some(threads));
+
+        assert_eq!((params.n_threads_batch(), params.n_threads()), (8, 4));
+    }
+
+    #[test]
+    fn context_without_cpu_threads_keeps_the_threads_of_llama_cpp() {
+        let defaults = LlamaContextParams::default();
+
+        let params = context_params(CONTEXT_TOKENS.0, None);
+
+        assert_eq!(
+            (params.n_threads_batch(), params.n_threads()),
+            (defaults.n_threads_batch(), defaults.n_threads())
+        );
     }
 
     #[test]

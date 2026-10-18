@@ -10,6 +10,7 @@ mod app_icon;
 mod badge;
 mod caret_reader;
 mod clipboard;
+mod cpu_cores;
 mod focus;
 mod gdi;
 mod injection;
@@ -34,6 +35,7 @@ use ghosttype_core::controller::Services;
 use ghosttype_core::settings::Settings;
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 
+pub use crate::cpu_cores::cpu_cores;
 pub use crate::startup::StartupEntry;
 
 /// A failure that stops GhostType from starting or running.

@@ -50,7 +50,7 @@ impl LoadedModel {
     fn load() -> Self {
         let path =
             PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
-        let runner = LlamaCpp::new(move |_| Some(path.clone()));
+        let runner = LlamaCpp::new(move |_| Some(path.clone()), None);
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();

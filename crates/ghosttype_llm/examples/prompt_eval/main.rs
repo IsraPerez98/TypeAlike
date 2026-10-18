@@ -219,7 +219,7 @@ struct Model {
 impl Model {
     fn load(path: &Path, backend: Backend) -> anyhow::Result<Self> {
         let path = path.to_owned();
-        let runner = LlamaCpp::new(move |_| Some(path.clone()));
+        let runner = LlamaCpp::new(move |_| Some(path.clone()), None);
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();

@@ -18,7 +18,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
-    let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
+    let runner = ghosttype_llm::LlamaCpp::new(
+        move |file| ghosttype_models::stored_path(&models_dir, file),
+        ghosttype_windows::cpu_cores(),
+    );
     let services = ghosttype_core::controller::Services {
         hub: Box::new(hub),
         runner: Box::new(runner),
@@ -43,7 +46,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let program = std::env::current_exe().context("no path to the running program")?;
     let launch_agent = launch_agent::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
-    let runner = ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file));
+    let runner =
+        ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file), None);
     let services = ghosttype_core::controller::Services {
         hub: Box::new(hub),
         runner: Box::new(runner),
