@@ -1,47 +1,103 @@
-{"id":"topic-jordan-01","kind":"next_word","suggestion":"domain.","is_match":false,"millis":111,"log_probability":-14.871440853838623}
-{"id":"topic-jordan-02","kind":"next_word","suggestion":"square-head bolts for","is_match":false,"millis":104,"log_probability":-17.0255096887998}
-{"id":"topic-jordan-03","kind":"next_word","suggestion":"Calloway crossing","is_match":true,"millis":111,"log_probability":-1.8364778167560831}
-{"id":"othertopic-jordan-01","kind":"next_word","suggestion":"tube.","is_match":true,"millis":89,"log_probability":-0.8900159340411837}
-{"id":"othertopic-jordan-02","kind":"next_word","suggestion":"feeders on the","is_match":false,"millis":94,"log_probability":-3.0744201867984735}
-{"id":"sameformat-jordan-01","kind":"next_word","suggestion":"I will also add","is_match":false,"millis":79,"log_probability":-12.838795360698894}
-{"id":"sameformat-jordan-02","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"otherformat-jordan-01","kind":"next_word","suggestion":"data, so we","is_match":false,"millis":56,"log_probability":-8.239285669283149}
-{"id":"greeting-jordan-01","kind":"next_word","suggestion":"neighbors,","is_match":true,"millis":79,"log_probability":-0.9730051597467145}
-{"id":"greeting-jordan-02","kind":"next_word","suggestion":"Jordan,","is_match":false,"millis":87,"log_probability":-22.11503737773129}
-{"id":"names-jordan-01","kind":"next_word","suggestion":"Kestrel.","is_match":false,"millis":100,"log_probability":-3.1626638611456483}
-{"id":"names-jordan-02","kind":"next_word","suggestion":"Harvest Supper is","is_match":false,"millis":101,"log_probability":-1.7651357357204287}
-{"id":"topic-priya-01","kind":"next_word","suggestion":"the kelp logger","is_match":false,"millis":117,"log_probability":-2.565983213352132}
-{"id":"topic-priya-02","kind":"next_word","suggestion":"you.","is_match":false,"millis":126,"log_probability":-16.73835057858298}
-{"id":"othertopic-priya-01","kind":"next_word","suggestion":"cool. I can","is_match":false,"millis":90,"log_probability":-3.3849972138015216}
-{"id":"sameformat-priya-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"otherformat-priya-01","kind":"next_word","suggestion":"1 m x","is_match":false,"millis":71,"log_probability":-7.616375596144109}
-{"id":"greeting-priya-01","kind":"next_word","suggestion":"loaf lovers,","is_match":true,"millis":108,"log_probability":-2.120625710055099}
-{"id":"names-priya-01","kind":"next_word","suggestion":"the market now.","is_match":false,"millis":72,"log_probability":-10.920502292354735}
-{"id":"topic-camila-01","kind":"next_word","suggestion":"Biodigestor de","is_match":true,"millis":99,"log_probability":-0.38748503937986495}
-{"id":"topic-camila-02","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"othertopic-camila-01","kind":"next_word","suggestion":"caja de regalo?","is_match":false,"millis":95,"log_probability":-7.746081600833686}
-{"id":"othertopic-camila-02","kind":"next_word","suggestion":"papel.","is_match":false,"millis":89,"log_probability":-4.90367464305304}
-{"id":"sameformat-camila-01","kind":"next_word","suggestion":"¿Qué te gusta","is_match":false,"millis":83,"log_probability":-10.231685611829342}
-{"id":"sameformat-camila-02","kind":"next_word","suggestion":"Se ha realizado una","is_match":false,"millis":98,"log_probability":-6.757355907822014}
-{"id":"otherformat-camila-01","kind":"next_word","suggestion":"que no se pier","is_match":false,"millis":70,"log_probability":-6.7586864709608765}
-{"id":"greeting-camila-01","kind":"next_word","suggestion":"Camila,","is_match":false,"millis":106,"log_probability":-29.10908440487744}
-{"id":"names-camila-01","kind":"next_word","suggestion":"Eulalia que","is_match":true,"millis":96,"log_probability":-0.1514512401003454}
-{"id":"names-camila-02","kind":"next_word","suggestion":"de Quilmah","is_match":false,"millis":92,"log_probability":-6.516985261328773}
-{"id":"topic-mateo-01","kind":"next_word","suggestion":"the 12","is_match":false,"millis":124,"log_probability":-16.405583672140622}
-{"id":"topic-mateo-02","kind":"next_word","suggestion":"Hernán en Qu","is_match":true,"millis":99,"log_probability":-0.06366450767993678}
-{"id":"othertopic-mateo-01","kind":"next_word","suggestion":"lettering to be","is_match":false,"millis":91,"log_probability":-14.725825661284814}
-{"id":"sameformat-mateo-01","kind":"next_word","suggestion":"chicos que no se","is_match":false,"millis":88,"log_probability":-5.341604597819176}
-{"id":"greeting-mateo-01","kind":"next_word","suggestion":"halcones y","is_match":true,"millis":100,"log_probability":-0.6877979388891817}
-{"id":"names-mateo-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0}
-{"id":"phrase-camila-01","kind":"next_word","suggestion":"cordiales,","is_match":true,"millis":124,"log_probability":-0.020184701844028298}
-{"id":"phrase-camila-02","kind":"next_word","suggestion":"del aula.","is_match":false,"millis":95,"log_probability":-2.101219581332541}
-{"id":"phrase-camila-03","kind":"partial_word","suggestion":"rato. Hern","is_match":true,"millis":85,"log_probability":-0.09637594535503764}
-{"id":"phrase-camila-04","kind":"next_word","suggestion":"respuesta.","is_match":false,"millis":106,"log_probability":-4.271658662247036}
-{"id":"phrase-camila-05","kind":"next_word","suggestion":"202","is_match":false,"millis":87,"log_probability":-1.3745753292695724}
-{"id":"phrase-camila-06","kind":"next_word","suggestion":"cualquier cosa.","is_match":false,"millis":109,"log_probability":-3.034109306765494}
-{"id":"phrase-mateo-01","kind":"next_word","suggestion":"Halcones.","is_match":false,"millis":85,"log_probability":-17.157801242151464}
-{"id":"phrase-mateo-02","kind":"next_word","suggestion":"Studio”","is_match":true,"millis":104,"log_probability":-0.018841673655682654}
-{"id":"phrase-mateo-03","kind":"next_word","suggestion":"the logo directions for","is_match":false,"millis":87,"log_probability":-3.4637205819340666}
-{"id":"phrase-jordan-01","kind":"next_word","suggestion":"Alder Court on","is_match":true,"millis":90,"log_probability":-0.3091404176856529}
-{"id":"phrase-jordan-02","kind":"partial_word","suggestion":"nnex, 7","is_match":true,"millis":88,"log_probability":-0.30177405457303735}
-{"id":"phrase-priya-01","kind":"next_word","suggestion":"to read your talk","is_match":false,"millis":88,"log_probability":-3.5123908499117857}
+{"id":"topic-jordan-01","kind":"next_word","suggestion":"domain.","is_match":false,"millis":99,"warm_millis":21,"prompt_tokens":256,"log_probability":-15.22226360255759}
+{"id":"topic-jordan-02","kind":"next_word","suggestion":"8/4 boards? I am","is_match":false,"millis":126,"warm_millis":56,"prompt_tokens":260,"log_probability":-16.945721930624757}
+{"id":"topic-jordan-03","kind":"next_word","suggestion":"Calloway crossing.","is_match":true,"millis":113,"warm_millis":42,"prompt_tokens":259,"log_probability":-1.9589634502202342}
+{"id":"othertopic-jordan-01","kind":"next_word","suggestion":"tube.","is_match":true,"millis":79,"warm_millis":22,"prompt_tokens":203,"log_probability":-0.8900159340411837}
+{"id":"othertopic-jordan-02","kind":"next_word","suggestion":"feeders on the left and right sides","is_match":false,"millis":117,"warm_millis":56,"prompt_tokens":249,"log_probability":-3.0744201867984735}
+{"id":"sameformat-jordan-01","kind":"next_word","suggestion":"I will also add a few more things","is_match":false,"millis":107,"warm_millis":57,"prompt_tokens":158,"log_probability":-12.838795360698894}
+{"id":"sameformat-jordan-02","kind":"next_word","suggestion":null,"is_match":false,"millis":0,"warm_millis":0}
+{"id":"otherformat-jordan-01","kind":"next_word","suggestion":"data, so we need to make sure","is_match":false,"millis":94,"warm_millis":60,"prompt_tokens":100,"log_probability":-8.239285669283149}
+{"id":"greeting-jordan-01","kind":"next_word","suggestion":"neighbors,","is_match":true,"millis":81,"warm_millis":22,"prompt_tokens":227,"log_probability":-1.2829323628411113}
+{"id":"greeting-jordan-02","kind":"next_word","suggestion":"Wayfinders,","is_match":true,"millis":94,"warm_millis":38,"prompt_tokens":204,"log_probability":-1.0598995485906006}
+{"id":"names-jordan-01","kind":"next_word","suggestion":"Kestrel.","is_match":false,"millis":97,"warm_millis":36,"prompt_tokens":250,"log_probability":-15.059802728937129}
+{"id":"names-jordan-02","kind":"next_word","suggestion":"Harvest Supper is the November meeting at","is_match":false,"millis":116,"warm_millis":55,"prompt_tokens":236,"log_probability":-1.6116796413042285}
+{"id":"topic-priya-01","kind":"next_word","suggestion":"the kelp logger at Mereweather","is_match":false,"millis":128,"warm_millis":57,"prompt_tokens":261,"log_probability":-2.183672115855085}
+{"id":"topic-priya-02","kind":"next_word","suggestion":"the shop.","is_match":false,"millis":102,"warm_millis":28,"prompt_tokens":264,"log_probability":-16.28584526214465}
+{"id":"othertopic-priya-01","kind":"next_word","suggestion":"cool. I can't wait to try","is_match":false,"millis":99,"warm_millis":57,"prompt_tokens":138,"log_probability":-3.3849972138015216}
+{"id":"sameformat-priya-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0,"warm_millis":0}
+{"id":"otherformat-priya-01","kind":"next_word","suggestion":"1 m x 1 m and","is_match":false,"millis":84,"warm_millis":55,"prompt_tokens":88,"log_probability":-7.616375596144109}
+{"id":"greeting-priya-01","kind":"next_word","suggestion":"everyone,","is_match":false,"millis":82,"warm_millis":22,"prompt_tokens":232,"log_probability":-2.903588311036854}
+{"id":"names-priya-01","kind":"next_word","suggestion":"the market now.","is_match":false,"millis":67,"warm_millis":35,"prompt_tokens":120,"log_probability":-10.920502292354735}
+{"id":"topic-camila-01","kind":"next_word","suggestion":"Biodigestor de Cocina. Necesitan","is_match":true,"millis":113,"warm_millis":58,"prompt_tokens":206,"log_probability":-0.38748503937986495}
+{"id":"topic-camila-02","kind":"next_word","suggestion":null,"is_match":false,"millis":0,"warm_millis":0}
+{"id":"othertopic-camila-01","kind":"next_word","suggestion":"caja de regalo?","is_match":false,"millis":89,"warm_millis":36,"prompt_tokens":169,"log_probability":-7.746081600833686}
+{"id":"othertopic-camila-02","kind":"next_word","suggestion":"papel.","is_match":false,"millis":77,"warm_millis":22,"prompt_tokens":190,"log_probability":-4.90367464305304}
+{"id":"sameformat-camila-01","kind":"next_word","suggestion":"¿Qué te gusta de la laguna","is_match":false,"millis":98,"warm_millis":58,"prompt_tokens":137,"log_probability":-10.231685611829342}
+{"id":"sameformat-camila-02","kind":"next_word","suggestion":"Se ha realizado una revisión de los datos","is_match":false,"millis":112,"warm_millis":59,"prompt_tokens":187,"log_probability":-6.757355907822014}
+{"id":"otherformat-camila-01","kind":"next_word","suggestion":"que no se pierda en el calor","is_match":false,"millis":84,"warm_millis":56,"prompt_tokens":102,"log_probability":-6.7586864709608765}
+{"id":"greeting-camila-01","kind":"next_word","suggestion":"Camila,","is_match":false,"millis":90,"warm_millis":29,"prompt_tokens":241,"log_probability":-29.10908440487744}
+{"id":"names-camila-01","kind":"next_word","suggestion":"Eulalia que mañana no llega el","is_match":true,"millis":113,"warm_millis":56,"prompt_tokens":190,"log_probability":-0.1514512401003454}
+{"id":"names-camila-02","kind":"next_word","suggestion":"de Quilmahue.","is_match":false,"millis":108,"warm_millis":53,"prompt_tokens":156,"log_probability":-6.516985261328773}
+{"id":"topic-mateo-01","kind":"next_word","suggestion":"Larchmont Yards.","is_match":true,"millis":133,"warm_millis":51,"prompt_tokens":281,"log_probability":-0.45768782232377075}
+{"id":"topic-mateo-02","kind":"next_word","suggestion":"Hernán en Quilicura. Lleg","is_match":true,"millis":120,"warm_millis":60,"prompt_tokens":224,"log_probability":-0.06366450767993678}
+{"id":"othertopic-mateo-01","kind":"next_word","suggestion":"lettering to be a bit more generous","is_match":false,"millis":116,"warm_millis":60,"prompt_tokens":174,"log_probability":-14.725825661284814}
+{"id":"sameformat-mateo-01","kind":"next_word","suggestion":"chicos que no se atrevan a","is_match":false,"millis":115,"warm_millis":65,"prompt_tokens":141,"log_probability":-5.341604597819176}
+{"id":"greeting-mateo-01","kind":"next_word","suggestion":"halcones y familias,","is_match":true,"millis":125,"warm_millis":57,"prompt_tokens":247,"log_probability":-0.6877979388891817}
+{"id":"names-mateo-01","kind":"next_word","suggestion":null,"is_match":false,"millis":0,"warm_millis":0}
+{"id":"phrase-camila-01","kind":"next_word","suggestion":"cordiales,","is_match":true,"millis":115,"warm_millis":31,"prompt_tokens":304,"log_probability":-0.025220365516983326}
+{"id":"phrase-camila-02","kind":"next_word","suggestion":"del aula.","is_match":false,"millis":87,"warm_millis":29,"prompt_tokens":206,"log_probability":-2.101219581332541}
+{"id":"phrase-camila-03","kind":"partial_word","suggestion":"rato. Hernán se encarga","is_match":true,"millis":128,"warm_millis":50,"prompt_tokens":222,"log_probability":-0.09637594535503764}
+{"id":"phrase-camila-04","kind":"next_word","suggestion":"respuesta.","is_match":false,"millis":107,"warm_millis":22,"prompt_tokens":271,"log_probability":-4.271658662247036}
+{"id":"phrase-camila-05","kind":"next_word","suggestion":"2025","is_match":false,"millis":106,"warm_millis":47,"prompt_tokens":231,"log_probability":-1.3745753292695724}
+{"id":"phrase-camila-06","kind":"next_word","suggestion":"cualquier cosa.","is_match":false,"millis":113,"warm_millis":29,"prompt_tokens":270,"log_probability":-3.034109306765494}
+{"id":"phrase-mateo-01","kind":"next_word","suggestion":"Halcones.","is_match":false,"millis":94,"warm_millis":36,"prompt_tokens":204,"log_probability":-17.157801242151464}
+{"id":"phrase-mateo-02","kind":"next_word","suggestion":"Studio”","is_match":true,"millis":106,"warm_millis":24,"prompt_tokens":281,"log_probability":-0.021983072665808647}
+{"id":"phrase-mateo-03","kind":"next_word","suggestion":"the logo directions for Kestrel &","is_match":false,"millis":120,"warm_millis":58,"prompt_tokens":232,"log_probability":-3.4637205819340666}
+{"id":"phrase-jordan-01","kind":"next_word","suggestion":"Alder Court on Saturday, October","is_match":true,"millis":124,"warm_millis":58,"prompt_tokens":246,"log_probability":-0.3091404176856529}
+{"id":"phrase-jordan-02","kind":"partial_word","suggestion":"nnex, 7 pm.","is_match":true,"millis":126,"warm_millis":43,"prompt_tokens":251,"log_probability":-0.2545441220562417}
+{"id":"phrase-priya-01","kind":"next_word","suggestion":"to add a few things to the structure","is_match":false,"millis":120,"warm_millis":59,"prompt_tokens":245,"log_probability":-3.1226466989575608}
+{"id":"topic-camila-03","kind":"next_word","suggestion":"Antisísmica no es para que","is_match":true,"millis":119,"warm_millis":58,"prompt_tokens":223,"log_probability":-0.3399932681036786}
+{"id":"topic-camila-04","kind":"partial_word","suggestion":"llay, 30 de","is_match":true,"millis":141,"warm_millis":50,"prompt_tokens":273,"log_probability":-0.6928928317238416}
+{"id":"topic-camila-05","kind":"partial_word","suggestion":"mayén.","is_match":true,"millis":99,"warm_millis":36,"prompt_tokens":187,"log_probability":-3.140574916668598}
+{"id":"topic-camila-06","kind":"next_word","suggestion":"el nivel inicial, porque centrar el","is_match":false,"millis":145,"warm_millis":58,"prompt_tokens":317,"log_probability":-4.874769344144798}
+{"id":"topic-camila-07","kind":"next_word","suggestion":"Mirador del Faro","is_match":true,"millis":99,"warm_millis":37,"prompt_tokens":229,"log_probability":-0.35468442760896157}
+{"id":"othertopic-camila-03","kind":"next_word","suggestion":"entrada.","is_match":false,"millis":108,"warm_millis":22,"prompt_tokens":299,"log_probability":-10.477958265302627}
+{"id":"othertopic-camila-04","kind":"next_word","suggestion":"piezas.","is_match":false,"millis":77,"warm_millis":22,"prompt_tokens":186,"log_probability":-5.129326972097058}
+{"id":"sameformat-camila-03","kind":"next_word","suggestion":"laguna temprano, antes de que llegue","is_match":true,"millis":97,"warm_millis":58,"prompt_tokens":133,"log_probability":-1.061656522797908}
+{"id":"sameformat-camila-04","kind":"next_word","suggestion":"Ruth.","is_match":true,"millis":76,"warm_millis":24,"prompt_tokens":169,"log_probability":-0.04392457411873059}
+{"id":"otherformat-camila-02","kind":"next_word","suggestion":"los fabricantes de cerámica que los torn","is_match":false,"millis":88,"warm_millis":59,"prompt_tokens":104,"log_probability":-12.392850219769636}
+{"id":"greeting-camila-02","kind":"next_word","suggestion":"doña Ruth:","is_match":true,"millis":99,"warm_millis":38,"prompt_tokens":241,"log_probability":-0.5689853829789892}
+{"id":"greeting-camila-03","kind":"next_word","suggestion":"señora Tamara:","is_match":true,"millis":98,"warm_millis":38,"prompt_tokens":235,"log_probability":-0.806201637419757}
+{"id":"names-camila-03","kind":"next_word","suggestion":"para el examen de la Mesa de Conv","is_match":false,"millis":116,"warm_millis":57,"prompt_tokens":192,"log_probability":-11.889170894627854}
+{"id":"names-camila-04","kind":"partial_word","suggestion":"ousel.","is_match":false,"millis":85,"warm_millis":22,"prompt_tokens":158,"log_probability":-5.559128792525306}
+{"id":"topic-mateo-03","kind":"next_word","suggestion":"ductus, you can leave extra room","is_match":true,"millis":109,"warm_millis":59,"prompt_tokens":168,"log_probability":-1.1134023336420924}
+{"id":"topic-mateo-04","kind":"next_word","suggestion":"color verde","is_match":false,"millis":86,"warm_millis":22,"prompt_tokens":253,"log_probability":-9.934429154678005}
+{"id":"topic-mateo-05","kind":"partial_word","suggestion":"er and the one with","is_match":false,"millis":131,"warm_millis":49,"prompt_tokens":266,"log_probability":-1.4632360225132428}
+{"id":"topic-mateo-06","kind":"next_word","suggestion":"una tía que me gusta.","is_match":false,"millis":111,"warm_millis":56,"prompt_tokens":191,"log_probability":-6.696514279626839}
+{"id":"topic-mateo-07","kind":"next_word","suggestion":"extractor limpio y sin rayas.","is_match":true,"millis":119,"warm_millis":60,"prompt_tokens":211,"log_probability":-2.358817530033346}
+{"id":"othertopic-mateo-02","kind":"next_word","suggestion":"en la tienda de la casa de K","is_match":false,"millis":119,"warm_millis":58,"prompt_tokens":234,"log_probability":-14.950982864361798}
+{"id":"othertopic-mateo-03","kind":"next_word","suggestion":"software on the laptop.","is_match":false,"millis":124,"warm_millis":43,"prompt_tokens":274,"log_probability":-6.320275537399011}
+{"id":"sameformat-mateo-02","kind":"next_word","suggestion":"entrenamiento.","is_match":true,"millis":76,"warm_millis":21,"prompt_tokens":181,"log_probability":-0.10125138718382519}
+{"id":"sameformat-mateo-03","kind":"next_word","suggestion":"torque de la culata?","is_match":true,"millis":88,"warm_millis":48,"prompt_tokens":132,"log_probability":-0.10297174506180487}
+{"id":"otherformat-mateo-01","kind":"next_word","suggestion":"bleeding.","is_match":true,"millis":50,"warm_millis":22,"prompt_tokens":96,"log_probability":-0.12520744956750698}
+{"id":"greeting-mateo-02","kind":"next_word","suggestion":"Hannah,","is_match":true,"millis":84,"warm_millis":22,"prompt_tokens":243,"log_probability":-0.660778087335724}
+{"id":"greeting-mateo-03","kind":"next_word","suggestion":"Ms. Farrow,","is_match":true,"millis":103,"warm_millis":41,"prompt_tokens":229,"log_probability":-0.7491456292073997}
+{"id":"names-mateo-02","kind":"partial_word","suggestion":"rava tin will be ready in","is_match":true,"millis":114,"warm_millis":48,"prompt_tokens":166,"log_probability":-3.664494601571326}
+{"id":"names-mateo-03","kind":"partial_word","suggestion":"firo.","is_match":true,"millis":93,"warm_millis":27,"prompt_tokens":211,"log_probability":-1.201267434102174}
+{"id":"topic-jordan-04","kind":"next_word","suggestion":"the portal.","is_match":false,"millis":111,"warm_millis":29,"prompt_tokens":267,"log_probability":-1.3273462034557248}
+{"id":"topic-jordan-05","kind":"partial_word","suggestion":"gate station.","is_match":true,"millis":97,"warm_millis":28,"prompt_tokens":245,"log_probability":-0.03230459736252824}
+{"id":"topic-jordan-06","kind":"next_word","suggestion":"linseed oil","is_match":true,"millis":92,"warm_millis":29,"prompt_tokens":252,"log_probability":-2.5392008467239493}
+{"id":"topic-jordan-07","kind":"next_word","suggestion":"Kilnhouse.","is_match":true,"millis":97,"warm_millis":36,"prompt_tokens":253,"log_probability":-0.7338866729690278}
+{"id":"topic-jordan-08","kind":"next_word","suggestion":"bundles for me.","is_match":false,"millis":96,"warm_millis":35,"prompt_tokens":234,"log_probability":-5.054439767683506}
+{"id":"othertopic-jordan-03","kind":"next_word","suggestion":"small projector on the third floor.","is_match":false,"millis":115,"warm_millis":63,"prompt_tokens":210,"log_probability":-6.480684648728222}
+{"id":"othertopic-jordan-04","kind":"partial_word","suggestion":"ades","is_match":true,"millis":71,"warm_millis":7,"prompt_tokens":199,"log_probability":-1.232335374831573}
+{"id":"sameformat-jordan-03","kind":"partial_word","suggestion":"ren. Dad is wearing the hat","is_match":true,"millis":110,"warm_millis":50,"prompt_tokens":155,"log_probability":-0.000989580782355198}
+{"id":"sameformat-jordan-04","kind":"next_word","suggestion":"the Tidewater code.","is_match":false,"millis":95,"warm_millis":43,"prompt_tokens":160,"log_probability":-1.7396365922666033}
+{"id":"otherformat-jordan-02","kind":"next_word","suggestion":"10 minutes.","is_match":false,"millis":71,"warm_millis":42,"prompt_tokens":100,"log_probability":-6.968732330717598}
+{"id":"greeting-jordan-03","kind":"next_word","suggestion":"Ines,","is_match":true,"millis":90,"warm_millis":29,"prompt_tokens":243,"log_probability":-0.5570851291601758}
+{"id":"greeting-jordan-04","kind":"next_word","suggestion":"Wendell,","is_match":false,"millis":90,"warm_millis":28,"prompt_tokens":239,"log_probability":-12.48775655660684}
+{"id":"names-jordan-03","kind":"next_word","suggestion":"me.","is_match":false,"millis":85,"warm_millis":23,"prompt_tokens":255,"log_probability":-2.347341533254629}
+{"id":"names-jordan-04","kind":"next_word","suggestion":"ones that are already ripe.","is_match":false,"millis":108,"warm_millis":49,"prompt_tokens":212,"log_probability":-2.5050535269188208}
+{"id":"topic-priya-03","kind":"next_word","suggestion":"shawl. I will buy it.","is_match":false,"millis":109,"warm_millis":57,"prompt_tokens":170,"log_probability":-1.8315724617728912}
+{"id":"topic-priya-04","kind":"partial_word","suggestion":"iccation.","is_match":true,"millis":87,"warm_millis":28,"prompt_tokens":160,"log_probability":-0.011169576750471864}
+{"id":"topic-priya-05","kind":"next_word","suggestion":"Dvorak is the second file.","is_match":true,"millis":109,"warm_millis":58,"prompt_tokens":165,"log_probability":-0.32497803362147676}
+{"id":"topic-priya-06","kind":"next_word","suggestion":"aquarium were very excited to see the tide","is_match":true,"millis":123,"warm_millis":56,"prompt_tokens":251,"log_probability":-0.3542537291858717}
+{"id":"topic-priya-07","kind":"next_word","suggestion":"one.","is_match":false,"millis":79,"warm_millis":21,"prompt_tokens":206,"log_probability":-3.7030892265586988}
+{"id":"othertopic-priya-02","kind":"partial_word","suggestion":"rid and the seminar is on","is_match":false,"millis":108,"warm_millis":50,"prompt_tokens":152,"log_probability":-2.5205135818189914}
+{"id":"othertopic-priya-03","kind":"next_word","suggestion":"haircut. I am 18 years","is_match":false,"millis":117,"warm_millis":56,"prompt_tokens":148,"log_probability":-8.204593263727}
+{"id":"sameformat-priya-02","kind":"next_word","suggestion":"forty minutes.","is_match":true,"millis":59,"warm_millis":31,"prompt_tokens":114,"log_probability":-0.44599677064831206}
+{"id":"sameformat-priya-03","kind":"partial_word","suggestion":"sy helper table.","is_match":true,"millis":91,"warm_millis":32,"prompt_tokens":174,"log_probability":-0.11462222223110663}
+{"id":"otherformat-priya-02","kind":"next_word","suggestion":"up slide","is_match":false,"millis":51,"warm_millis":23,"prompt_tokens":89,"log_probability":-7.1345980841738275}
+{"id":"greeting-priya-02","kind":"next_word","suggestion":"Professor Halvorsen,","is_match":true,"millis":102,"warm_millis":44,"prompt_tokens":226,"log_probability":-1.2005969851584546}
+{"id":"greeting-priya-03","kind":"next_word","suggestion":"Mr. Brannigan,","is_match":true,"millis":111,"warm_millis":48,"prompt_tokens":232,"log_probability":-0.29845023947357163}
+{"id":"names-priya-02","kind":"next_word","suggestion":"Tobias, but he said he was not","is_match":true,"millis":112,"warm_millis":58,"prompt_tokens":168,"log_probability":-1.7692967622217335}
+{"id":"names-priya-03","kind":"next_word","suggestion":"Jun to help? Jun is busy with","is_match":true,"millis":111,"warm_millis":59,"prompt_tokens":150,"log_probability":-0.4366873031120581}
