@@ -362,7 +362,7 @@ mod tests {
     };
     use crate::inference::TokenCount;
     use crate::prompt::framed_prompt;
-    use crate::settings::{OcrLevel, ScreenTextAccess, SuggestionLength, WriterNotes};
+    use crate::settings::{OcrLevel, ScreenTextAccess, WriterNotes};
 
     struct FakeDesktop(Field);
 
@@ -432,7 +432,7 @@ mod tests {
     fn request_with(lines: &[&str], text_before: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
             prompt: framed_prompt(lines, text_before),
-            max_tokens: SuggestionLength::default().max_tokens(),
+            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
         })
     }
 

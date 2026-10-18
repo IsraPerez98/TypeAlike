@@ -234,6 +234,23 @@ pub struct Settings {
     pub suggestion_length: SuggestionLength,
 }
 
+impl Settings {
+    /// Whether the backend always uses short suggestions, so that the user cannot select a length.
+    /// The CPU adds each token slowly.
+    pub(crate) fn has_fixed_suggestion_length(&self) -> bool {
+        self.backend == Backend::Cpu
+    }
+
+    /// The length of each suggestion: short when the backend fixes it, else the selected length.
+    pub(crate) fn suggestion_length_in_use(&self) -> SuggestionLength {
+        if self.has_fixed_suggestion_length() {
+            SuggestionLength::Short
+        } else {
+            self.suggestion_length
+        }
+    }
+}
+
 /// Keeps the settings between runs.
 pub trait SettingsStore {
     /// Keeps `settings` for the next run. The store reports its own failures.
@@ -390,5 +407,29 @@ mod tests {
         let max_tokens = lengths.map(SuggestionLength::max_tokens);
 
         assert_eq!(max_tokens, [TokenCount(4), TokenCount(8), TokenCount(16)]);
+    }
+
+    #[test]
+    fn only_the_cpu_backend_always_uses_short_suggestions() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let lengths = backends.map(|backend| {
+            Settings {
+                backend,
+                suggestion_length: SuggestionLength::Long,
+                ..Settings::default()
+            }
+            .suggestion_length_in_use()
+        });
+
+        assert_eq!(
+            lengths,
+            [
+                SuggestionLength::Short,
+                SuggestionLength::Long,
+                SuggestionLength::Long,
+                SuggestionLength::Long,
+            ]
+        );
     }
 }

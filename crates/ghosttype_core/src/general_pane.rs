@@ -9,7 +9,8 @@ use crate::settings::{
     Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, WriterNotes,
 };
 use crate::settings_view::{
-    ChoiceText, ControlId, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
+    ChoiceText, ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
+    TextArea,
 };
 
 /// Something the user did in the General pane.
@@ -80,6 +81,7 @@ const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as th
 const LENGTH_LABEL: &str = "Suggestion length";
 const LENGTH_DESCRIPTION: &str = "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a \
      long suggestion about 10. A shorter suggestion shows sooner.";
+const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are always short, so that they show sooner.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -356,7 +358,7 @@ impl GeneralPane {
         installed: &[ModelFile],
     ) -> Option<GeneralAction> {
         match id {
-            LENGTH => LENGTH_CHOICES
+            LENGTH if !self.settings.has_fixed_suggestion_length() => LENGTH_CHOICES
                 .get(index)
                 .map(|&(length, _)| GeneralAction::SelectSuggestionLength(length)),
             BACKEND if self.has_backend_menu => BACKEND_CHOICES
@@ -378,10 +380,13 @@ impl GeneralPane {
             choice_text: ChoiceText::Label,
             selected: LENGTH_CHOICES
                 .iter()
-                .position(|&(length, _)| length == self.settings.suggestion_length)
+                .position(|&(length, _)| length == self.settings.suggestion_length_in_use())
                 .expect("every suggestion length has a menu entry"),
-            is_enabled: true,
-            note: None,
+            is_enabled: !self.settings.has_fixed_suggestion_length(),
+            note: self.settings.has_fixed_suggestion_length().then_some(Note {
+                text: LENGTH_CPU_NOTE,
+                tone: NoteTone::Plain,
+            }),
         }
     }
 
@@ -432,7 +437,6 @@ fn choice_titles<Value>(choices: &[(Value, &str)]) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::inference::{InferenceError, InferenceEvent};
-    use crate::settings_view::{Note, NoteTone};
 
     #[derive(Debug)]
     struct FakeAutostart {
@@ -757,7 +761,7 @@ mod tests {
 
     #[test]
     fn picking_a_suggestion_length_selects_it() {
-        let pane = GeneralPane::new(Settings::default());
+        let pane = GeneralPane::new(settings(Backend::Vulkan));
 
         let action = action_for(&pane, &picked(LENGTH, 0));
 
@@ -768,8 +772,53 @@ mod tests {
     }
 
     #[test]
+    fn picking_a_suggestion_length_on_the_cpu_does_nothing() {
+        let pane = GeneralPane::new(settings(Backend::Cpu));
+
+        let action = action_for(&pane, &picked(LENGTH, 2));
+
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn cpu_backend_shows_the_short_length_without_a_choice() {
+        let pane = GeneralPane::new(Settings {
+            backend: Backend::Cpu,
+            suggestion_length: SuggestionLength::Long,
+            ..Settings::default()
+        });
+
+        let shown = picker(&default_page(&pane), LENGTH);
+
+        assert_eq!(
+            (shown.selected, shown.is_enabled, shown.note),
+            (
+                0,
+                false,
+                Some(Note {
+                    text: "On the CPU, suggestions are always short, so that they show sooner.",
+                    tone: NoteTone::Plain,
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn gpu_backend_shows_the_selected_length() {
+        let pane = GeneralPane::new(Settings {
+            backend: Backend::Cuda,
+            suggestion_length: SuggestionLength::Long,
+            ..Settings::default()
+        });
+
+        let shown = picker(&default_page(&pane), LENGTH);
+
+        assert_eq!((shown.selected, shown.is_enabled, shown.note), (2, true, None));
+    }
+
+    #[test]
     fn picking_past_the_last_entry_does_nothing() {
-        let pane = GeneralPane::new(Settings::default());
+        let pane = GeneralPane::new(settings(Backend::Vulkan));
 
         let action = action_for(&pane, &picked(LENGTH, LENGTH_CHOICES.len()));
 
@@ -1282,7 +1331,7 @@ mod tests {
 
     #[test]
     fn selecting_a_suggestion_length_keeps_it_and_selects_its_entry() {
-        let mut pane = GeneralPane::new(Settings::default());
+        let mut pane = GeneralPane::new(settings(Backend::Vulkan));
 
         let outcome = pane.on_action(
             GeneralAction::SelectSuggestionLength(SuggestionLength::Short),
@@ -1292,7 +1341,7 @@ mod tests {
         let selected = picker(&default_page(&pane), LENGTH).selected;
         let short_settings = Settings {
             suggestion_length: SuggestionLength::Short,
-            ..Settings::default()
+            ..settings(Backend::Vulkan)
         };
         assert_eq!((outcome, selected), (settings_outcome(short_settings), 0));
     }

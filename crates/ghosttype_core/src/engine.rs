@@ -49,7 +49,6 @@ pub enum Reaction {
 }
 
 /// Tracks the text at the caret and the model's suggestion for it.
-#[derive(Default)]
 pub(crate) struct Engine {
     session: Option<Session>,
     offer: Offer,
@@ -59,6 +58,24 @@ pub(crate) struct Engine {
     suggestion_length: SuggestionLength,
     screen: Screen,
     newest_screen_read: ScreenReadId,
+}
+
+impl Default for Engine {
+    /// Returns an engine that uses the default settings.
+    fn default() -> Self {
+        let mut engine = Self {
+            session: None,
+            offer: Offer::default(),
+            unanswered_requests: 0,
+            writer_notes: WriterNotes::default(),
+            clipboard_access: ClipboardAccess::default(),
+            suggestion_length: SuggestionLength::default(),
+            screen: Screen::default(),
+            newest_screen_read: ScreenReadId::default(),
+        };
+        engine.use_settings(&Settings::default());
+        engine
+    }
 }
 
 /// The typing in one place: what the model reads before the text, and the text before the caret.
@@ -128,7 +145,7 @@ impl Engine {
     pub fn use_settings(&mut self, settings: &Settings) {
         self.writer_notes = settings.writer_notes.clone();
         self.clipboard_access = settings.clipboard_access;
-        self.suggestion_length = settings.suggestion_length;
+        self.suggestion_length = settings.suggestion_length_in_use();
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
@@ -599,6 +616,7 @@ mod tests {
     use super::*;
     use crate::app::Field;
     use crate::desktop::{Confidence, CopiedText, FieldText, ScreenLine, ScreenRect};
+    use crate::inference::Backend;
 
     #[derive(Default)]
     struct FakeDesktop {
@@ -677,7 +695,7 @@ mod tests {
     fn request_with(lines: &[&str], text_before: &str) -> Reaction {
         Reaction::Request(InferenceRequest::Complete {
             prompt: prompt::framed_prompt(lines, text_before),
-            max_tokens: SuggestionLength::default().max_tokens(),
+            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
         })
     }
 
@@ -1431,8 +1449,28 @@ mod tests {
     }
 
     #[test]
+    fn cpu_backend_asks_for_short_suggestions() {
+        let mut engine = engine_with(&Settings {
+            backend: Backend::Cpu,
+            suggestion_length: SuggestionLength::Long,
+            ..Settings::default()
+        });
+
+        let reaction = press(&mut engine, Key::Char('h'));
+
+        assert_eq!(
+            reaction,
+            Reaction::Request(InferenceRequest::Complete {
+                prompt: prompt::framed_prompt(&[], "h"),
+                max_tokens: TokenCount(4),
+            })
+        );
+    }
+
+    #[test]
     fn short_suggestion_length_asks_for_fewer_tokens() {
         let mut engine = engine_with(&Settings {
+            backend: Backend::Vulkan,
             suggestion_length: SuggestionLength::Short,
             ..Settings::default()
         });
