@@ -114,6 +114,8 @@ pub enum Row {
     Picker(Picker),
     /// Text of several lines that the user writes.
     TextArea(TextArea),
+    /// A line of text that the user writes.
+    TextLine(TextLine),
     /// A line of text that the user submits.
     TextField(TextField),
     /// A line of status.
@@ -137,6 +139,7 @@ impl Row {
             Self::AppSwitch(switch) => Some(&switch.id),
             Self::Picker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
+            Self::TextLine(text_line) => Some(&text_line.id),
             Self::TextField(text_field) => Some(&text_field.id),
             Self::Note(_) | Self::Output(_) | Self::Item(_) | Self::Loading(_) | Self::Message(_) => None,
         }
@@ -218,6 +221,20 @@ pub struct TextArea {
     pub text: String,
     /// A button below the field, such as one that resets the text.
     pub button: Option<Button>,
+}
+
+/// A field that edits one line of text, after its label and its description.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextLine {
+    /// The field. Each change of its text gives [`SettingsInput::Edited`].
+    pub id: ControlId,
+    /// Text before the field, in sentence case.
+    pub label: &'static str,
+    /// A sentence below the label about what the text changes.
+    pub description: &'static str,
+    /// The text in the field. Change the field only when it shows other text, so that the caret
+    /// and the undo history of the user stay.
+    pub text: String,
 }
 
 /// A field that edits one line of text, and a button that submits the text.

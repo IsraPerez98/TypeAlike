@@ -39,6 +39,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
   - Switch: `ToggleSwitch` at the trailing edge of a card.
   - Picker: `ComboBox` at the trailing edge, at least 200 px wide.
   - Text area: multi-line `TextBox` under the label, at least 160 px high, with its button below.
+  - Text line: `TextBox` at the trailing edge of a card, at least 200 px wide. Each change goes to the core.
   - Text field: `TextBox` and an accent `Button` that submits. The return key also submits.
   - Search field: `AutoSuggestBox` with the `Find` symbol. The return key submits.
   - Item: title and subtitle at the leading edge, the detail and the accessory at the trailing edge. Download progress is a `ProgressBar` with a cancel `Button`.

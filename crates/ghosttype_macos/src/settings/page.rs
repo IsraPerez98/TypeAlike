@@ -1,6 +1,7 @@
 //! A settings page, rendered from its core tree: the summary and the search field, then each
-//! section under its heading. Switches, menus, items and model output sit in rounded groups like
-//! the grouped lists of System Settings. Text fields and status notes sit between the groups.
+//! section under its heading. Switches, menus, lines of text, items and model output sit in
+//! rounded groups like the grouped lists of System Settings. Text areas, text fields and status
+//! notes sit between the groups.
 //!
 //! A page with a search field pins the summary and the search field above the sections, which
 //! scroll.
@@ -33,6 +34,7 @@ use crate::labels::title_case;
 const TEXT_AREA_HEIGHT: CGFloat = 120.0;
 const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const TEXT_FIELD_HEIGHT: CGFloat = 88.0;
+const TEXT_LINE_WIDTH: CGFloat = 200.0;
 const HEADER_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 20.0,
     left: 24.0,
@@ -149,10 +151,12 @@ impl PageView {
         }
     }
 
-    /// The input of a change of the text in `text_view`, when it is a text area of the page.
-    pub(super) fn edited(&self, text_view: &AnyObject) -> Option<SettingsInput> {
+    /// The input of a change of the text in `view`, when it is a text area or a line of text of
+    /// the page.
+    pub(super) fn edited(&self, view: &AnyObject) -> Option<SettingsInput> {
         self.rows().find_map(|row| match row {
-            RowView::TextArea(text_area) => text_area.edited(text_view),
+            RowView::TextArea(text_area) => text_area.edited(view),
+            RowView::TextLine(text_line) => text_line.edited(view),
             _ => None,
         })
     }
@@ -311,6 +315,10 @@ impl SectionView {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Picker(PickerRow::add(rows_stack, &picker.id, binder))
                 }
+                Row::TextLine(text_line) => {
+                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
+                    RowView::TextLine(TextLineRow::add(rows_stack, &text_line.id, binder.main_thread))
+                }
                 Row::Output(_) => {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Output(OutputRow::add(rows_stack, binder.main_thread))
@@ -365,6 +373,7 @@ enum RowView {
     AppSwitch(AppSwitchRow),
     Picker(PickerRow),
     TextArea(TextAreaRow),
+    TextLine(TextLineRow),
     TextField(TextFieldRow),
     Note(NoteView),
     Output(OutputRow),
@@ -380,6 +389,7 @@ impl RowView {
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.id == switch.id,
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.id == picker.id,
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.id == text_area.id,
+            (Self::TextLine(row_view), Row::TextLine(text_line)) => row_view.id == text_line.id,
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.id == text_field.id,
             (Self::Note(_), Row::Note(_))
             | (Self::Output(_), Row::Output(_))
@@ -396,6 +406,7 @@ impl RowView {
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.render(switch, binder),
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.render(picker, binder),
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.render(text_area, binder),
+            (Self::TextLine(row_view), Row::TextLine(text_line)) => row_view.render(text_line),
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.render(text_field, binder),
             (Self::Note(row_view), Row::Note(note)) => row_view.render(Some(note)),
             (Self::Output(row_view), Row::Output(output)) => row_view.render(output),
@@ -617,6 +628,48 @@ impl PickerRow {
         self.menu.setEnabled(shown.is_enabled);
         self.note.render(shown.note.as_ref());
         binder.bind(&self.menu, &shown.id);
+    }
+}
+
+/// A row of a group with a field that edits one line of text.
+#[derive(Debug)]
+struct TextLineRow {
+    setting: SettingRow,
+    field: Retained<NSTextField>,
+    id: ControlId,
+}
+
+impl TextLineRow {
+    fn add(rows_stack: &NSStackView, id: &ControlId, main_thread: MainThreadMarker) -> Self {
+        let field = NSTextField::textFieldWithString(&NSString::new(), main_thread);
+        field.setUsesSingleLineMode(true);
+        field
+            .widthAnchor()
+            .constraintEqualToConstant(TEXT_LINE_WIDTH)
+            .setActive(true);
+        Self {
+            setting: SettingRow::add(rows_stack, &field, main_thread),
+            field,
+            id: id.clone(),
+        }
+    }
+
+    fn render(&self, shown: &view::TextLine) {
+        self.setting.render(shown.label, shown.description);
+        self.field
+            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
+        if self.field.stringValue().to_string() != shown.text {
+            self.field.setStringValue(&NSString::from_str(&shown.text));
+        }
+    }
+
+    /// The input of a change of the text in `field`, when it is the field of this row.
+    fn edited(&self, field: &AnyObject) -> Option<SettingsInput> {
+        let own_field: &AnyObject = &self.field;
+        ptr::eq(own_field, field).then(|| SettingsInput::Edited {
+            id: self.id.clone(),
+            text: self.field.stringValue().to_string(),
+        })
     }
 }
 

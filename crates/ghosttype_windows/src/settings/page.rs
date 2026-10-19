@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use ghosttype_core::settings_view::{
     self as view, Accessory, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker, Row,
-    SearchField, Section, SettingsInput, Switch, TextArea, TextField,
+    SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
@@ -31,6 +31,7 @@ const CARD_STROKE: f64 = 1.0;
 const CONTROL_GAP: f64 = 16.0;
 const PICKER_MIN_WIDTH: f64 = 200.0;
 const TEXT_AREA_MIN_HEIGHT: f64 = 160.0;
+const TEXT_LINE_MIN_WIDTH: f64 = 200.0;
 const PROGRESS_WIDTH: f64 = 120.0;
 const PERMILLE_MAX: f64 = 1000.0;
 const RING_SIZE: f64 = 16.0;
@@ -126,6 +127,7 @@ impl Renderer<'_, '_> {
             Row::AppSwitch(switch) => self.app_switch_card(switch),
             Row::Picker(picker) => self.picker_card(picker),
             Row::TextArea(area) => self.text_area_card(area),
+            Row::TextLine(line) => self.text_line_card(line),
             Row::TextField(field) => self.text_field_card(field),
             Row::Note(note) => card(note_text(note).into()),
             Row::Output(output) => output_card(output),
@@ -249,6 +251,21 @@ impl Renderer<'_, '_> {
         .flatten()
         .collect();
         card(StackPanel::new().spacing(HEADING_GAP).children(rows).into())
+    }
+
+    fn text_line_card(&self, line: &TextLine) -> View {
+        let id = line.id.clone();
+        let field = TextBox::new()
+            .text(&line.text)
+            .min_width(TEXT_LINE_MIN_WIDTH)
+            .automation_name(line.label)
+            .on_text_changed(self.context.callback(move |text: Rc<str>| {
+                PageMessage::Input(SettingsInput::Edited {
+                    id: id.clone(),
+                    text: text.to_string(),
+                })
+            }));
+        control_card(line.label, line.description, None, field.into())
     }
 
     fn text_field_card(&self, field: &TextField) -> View {

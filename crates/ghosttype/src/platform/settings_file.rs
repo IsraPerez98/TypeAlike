@@ -9,7 +9,7 @@ use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
     ClipboardAccess, HistoryAccess, HistoryApp, KeptTexts, OcrLevel, PersonalizationSettings,
     PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings, SettingsStore,
-    SuggestionDisplay, SuggestionLength, WordChoice, WriterNotes,
+    SuggestionDisplay, SuggestionLength, WordChoice, WriterName, WriterNotes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,7 +68,10 @@ impl SettingsStore for SettingsFile {
 struct StoredSettings {
     backend: StoredBackend,
     suggestion_model: Option<StoredModelFile>,
-    writer_notes: String,
+    writer_name: String,
+    /// `None` when the file has no notes, so that the user gets the default notes.
+    #[serde(default)]
+    writer_notes: Option<String>,
     /// The text that older versions used in place of the frame of the prompt. It becomes the
     /// writer notes, so that the user keeps the text.
     #[serde(skip_serializing)]
@@ -364,7 +367,8 @@ impl From<Settings> for StoredSettings {
         Self {
             backend,
             suggestion_model,
-            writer_notes: settings.writer_notes.0,
+            writer_name: settings.writer_name.0,
+            writer_notes: Some(settings.writer_notes.0),
             system_prompt: None,
             clipboard_access,
             screen_text: settings.screen_text.into(),
@@ -405,14 +409,17 @@ impl From<StoredSettings> for Settings {
             StoredSuggestionLength::Medium => SuggestionLength::Medium,
             StoredSuggestionLength::Long => SuggestionLength::Long,
         };
-        let writer_notes = match stored.system_prompt {
-            Some(system_prompt) if stored.writer_notes.is_empty() => system_prompt,
-            _ => stored.writer_notes,
+        let writer_notes = match (stored.writer_notes, stored.system_prompt) {
+            (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
+            (_, Some(system_prompt)) => WriterNotes(system_prompt),
+            (Some(notes), None) => WriterNotes(notes),
+            (None, None) => WriterNotes::default(),
         };
         Self {
             backend,
             suggestion_model,
-            writer_notes: WriterNotes(writer_notes),
+            writer_name: WriterName(stored.writer_name),
+            writer_notes,
             clipboard_access,
             screen_text: stored.screen_text.into(),
             personalization: stored.personalization.into(),
@@ -481,12 +488,37 @@ mod tests {
     }
 
     #[test]
+    fn writer_name_reads_from_its_text() {
+        let json = r#"{ "writer_name": "Sara Novak" }"#;
+
+        let name = parse(json).map(|settings| settings.writer_name).ok();
+
+        assert_eq!(name, Some(WriterName("Sara Novak".to_owned())));
+    }
+
+    #[test]
     fn writer_notes_read_from_their_text() {
         let json = r#"{ "writer_notes": "I am a nurse." }"#;
 
         let notes = parse(json).map(|settings| settings.writer_notes).ok();
 
         assert_eq!(notes, Some(WriterNotes("I am a nurse.".to_owned())));
+    }
+
+    #[test]
+    fn missing_writer_notes_are_the_default_notes() {
+        let notes = parse("{}").map(|settings| settings.writer_notes).ok();
+
+        assert_eq!(notes, Some(WriterNotes::default()));
+    }
+
+    #[test]
+    fn empty_writer_notes_stay_empty() {
+        let json = r#"{ "writer_notes": "" }"#;
+
+        let notes = parse(json).map(|settings| settings.writer_notes).ok();
+
+        assert_eq!(notes, Some(WriterNotes(String::new())));
     }
 
     #[test]
@@ -700,6 +732,7 @@ mod tests {
         let settings = Settings {
             backend: Backend::Cuda,
             suggestion_model: Some(model_file()),
+            writer_name: WriterName("Sara Novak".to_owned()),
             writer_notes: WriterNotes("I am a nurse.".to_owned()),
             clipboard_access: ClipboardAccess::Allowed,
             screen_text: ScreenTextSettings {

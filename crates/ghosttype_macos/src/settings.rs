@@ -14,13 +14,13 @@ use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlSize,
-    NSControlStateValueOn, NSFont, NSImage, NSImageView, NSLayoutAttribute, NSLayoutConstraint,
-    NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode, NSMenuItem,
-    NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle,
-    NSResponder, NSScrollView, NSStackView, NSStackViewDistribution, NSSwitch, NSTabViewController,
-    NSTabViewControllerTabStyle, NSTabViewItem, NSTextDidChangeNotification, NSTextField, NSTitleBinding,
-    NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController, NSWindow, NSWindowStyleMask,
-    NSWindowToolbarStyle,
+    NSControlStateValueOn, NSControlTextDidChangeNotification, NSFont, NSImage, NSImageView,
+    NSLayoutAttribute, NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow,
+    NSLineBreakMode, NSMenuItem, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSStackView, NSStackViewDistribution, NSSwitch,
+    NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextDidChangeNotification,
+    NSTextField, NSTitleBinding, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView, NSViewController,
+    NSWindow, NSWindowStyleMask, NSWindowToolbarStyle,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{
@@ -95,8 +95,8 @@ impl SettingsWindow {
     /// A switch sends `target.toggle_action`, see [`Self::toggled`], a menu sends
     /// `target.pick_action`, see [`Self::picked`], and a button sends `target.press_action`, see
     /// [`Self::pressed`]. A text field, its button and a search field send `target.submit_action`,
-    /// see [`Self::submitted`]. Each change of the text of a text view sends `target.edit_action`
-    /// with the notification, see [`Self::edited`].
+    /// see [`Self::submitted`]. Each change of the text of a text view or a text field sends
+    /// `target.edit_action` with the notification, see [`Self::edited`].
     pub(crate) fn new(target: ActionTarget, view: &SettingsView, main_thread: MainThreadMarker) -> Self {
         let panes: Vec<Pane> = view
             .pages
@@ -105,15 +105,13 @@ impl SettingsWindow {
             .collect();
         let tabs = pane_tabs(&panes, main_thread);
         let window = settings_window(&tabs, main_thread);
-        // SAFETY: the target implements the edit action, taking the notification, and the app
-        // keeps the target alive for as long as it runs.
+        // SAFETY: AppKit defines the notification names before any code runs. The target implements
+        // the edit action, taking the notification, and the app keeps the target alive while it runs.
         unsafe {
-            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
-                &target.target,
-                target.edit_action,
-                Some(NSTextDidChangeNotification),
-                None,
-            );
+            let center = NSNotificationCenter::defaultCenter();
+            for name in [NSTextDidChangeNotification, NSControlTextDidChangeNotification] {
+                center.addObserver_selector_name_object(&target.target, target.edit_action, Some(name), None);
+            }
         }
         Self {
             window,
@@ -175,8 +173,8 @@ impl SettingsWindow {
         Some(SettingsInput::Submitted { id, text })
     }
 
-    /// Reads the input of a change of the text in a text view, when the text view is a text area
-    /// of a page.
+    /// Reads the input of a change of the text in a text view or a text field, when it is a text
+    /// area or a line of text of a page.
     pub(crate) fn edited(&self, notification: &NSNotification) -> Option<SettingsInput> {
         let object = notification.object()?;
         self.panes.iter().find_map(|pane| pane.page.edited(&object))

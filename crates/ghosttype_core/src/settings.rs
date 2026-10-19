@@ -7,19 +7,43 @@ use crate::hub::ModelFile;
 use crate::inference::{Backend, TokenCount};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
-/// only its length, so logs never hold what the user wrote.
+/// only its length, so logs never hold what the user wrote. The default notes are true for every
+/// user, so that they show how to write notes in the first person.
 ///
 /// ```
 /// use ghosttype_core::settings::WriterNotes;
 ///
 /// assert_eq!(format!("{:?}", WriterNotes("I am a nurse".to_owned())), "WriterNotes(12 chars)");
 /// ```
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct WriterNotes(pub String);
+
+impl Default for WriterNotes {
+    fn default() -> Self {
+        Self("I write clear and friendly messages. I keep the tone of the conversation.".to_owned())
+    }
+}
 
 impl fmt::Debug for WriterNotes {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "WriterNotes({} chars)", self.0.chars().count())
+    }
+}
+
+/// The name of the user, which suggestions use. `Debug` shows only its length, so logs never hold
+/// it.
+///
+/// ```
+/// use ghosttype_core::settings::WriterName;
+///
+/// assert_eq!(format!("{:?}", WriterName("Sara Novak".to_owned())), "WriterName(10 chars)");
+/// ```
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct WriterName(pub String);
+
+impl fmt::Debug for WriterName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "WriterName({} chars)", self.0.chars().count())
     }
 }
 
@@ -374,6 +398,8 @@ pub struct Settings {
     pub backend: Backend,
     /// The model that suggests text as the user types, and that GhostType loads when it starts.
     pub suggestion_model: Option<ModelFile>,
+    /// The name of the user.
+    pub writer_name: WriterName,
     /// What the user writes about themself and how they write.
     pub writer_notes: WriterNotes,
     /// Whether suggestions may use the text on the clipboard.

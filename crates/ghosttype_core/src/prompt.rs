@@ -21,6 +21,7 @@ const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
 /// context, so a long preface never pushes it out.
 pub(crate) const PREFACE_TOKENS: TokenCount = TokenCount(2000);
 const NOTES_TOKENS: TokenCount = TokenCount(300);
+const NAME_TOKENS: TokenCount = TokenCount(20);
 const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
 const FIELD_LABEL_TOKENS: TokenCount = TokenCount(40);
 const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
@@ -34,6 +35,8 @@ const HISTORY_TOKENS: TokenCount = TokenCount(200);
 pub(crate) struct Writer<'text> {
     /// The notes that the writer gives about themself.
     pub notes: &'text str,
+    /// The name of the writer.
+    pub name: &'text str,
     /// Earlier texts of the writer, oldest first.
     pub examples: Vec<String>,
 }
@@ -55,6 +58,11 @@ pub(crate) fn preface(
     budget.spend(FRAME);
     let notes = one_line(Some(writer.notes), NOTES_TOKENS)
         .map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
+    let name = one_line(Some(writer.name), NAME_TOKENS).map(|name| {
+        let line = format!("My name is {name}.");
+        budget.spend(&line);
+        line
+    });
     let after_caret = surroundings
         .field_text
         .as_ref()
@@ -78,6 +86,7 @@ pub(crate) fn preface(
     let lines = [
         Some(FRAME.to_owned()),
         notes.map(|text| format!("Notes about me: “{text}”")),
+        name,
         place
             .filter(|line| !line.is_empty())
             .map(|line| format!("Where I am typing: {line}")),
@@ -245,10 +254,22 @@ fn non_empty(text: &str) -> Option<&str> {
     (!text.is_empty()).then_some(text)
 }
 
-/// Returns the prompt with the `lines` of the preface after the [`FRAME`], then `text_before`.
+/// Returns the prompt with the [`FRAME`], the default notes and the `lines` of the preface, then
+/// `text_before`.
 #[cfg(test)]
 pub(crate) fn framed_prompt(lines: &[&str], text_before: &str) -> Prompt {
-    let preface = [FRAME].iter().chain(lines).copied().collect::<Vec<_>>();
+    prompt_with_notes(&crate::settings::WriterNotes::default().0, lines, text_before)
+}
+
+/// Returns the prompt with the [`FRAME`], the `notes` and the `lines` of the preface, then
+/// `text_before`.
+#[cfg(test)]
+pub(crate) fn prompt_with_notes(notes: &str, lines: &[&str], text_before: &str) -> Prompt {
+    let notes_line = format!("Notes about me: “{notes}”");
+    let preface = [FRAME, notes_line.as_str()]
+        .into_iter()
+        .chain(lines.iter().copied())
+        .collect::<Vec<_>>();
     prompt(&preface.join("\n"), text_before)
 }
 
@@ -340,9 +361,31 @@ mod tests {
 
     #[test]
     fn empty_parts_are_left_out() {
-        let preface = preface(&notes(" \n "), &with_text_after(" \n "), Some(" "), None);
+        let writer = Writer {
+            notes: " \n ",
+            name: " ",
+            ..Writer::default()
+        };
+
+        let preface = preface(&writer, &with_text_after(" \n "), Some(" "), None);
 
         assert_eq!(preface, FRAME);
+    }
+
+    #[test]
+    fn name_of_the_writer_comes_after_the_notes_on_one_line() {
+        let writer = Writer {
+            notes: "I am a nurse.",
+            name: "  Sara \n Novak ",
+            ..Writer::default()
+        };
+
+        let preface = preface(&writer, &Surroundings::default(), None, None);
+
+        assert_eq!(
+            preface,
+            framed("Notes about me: “I am a nurse.”\nMy name is Sara Novak.")
+        );
     }
 
     #[test]

@@ -386,7 +386,7 @@ mod tests {
         Confidence, CopiedText, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings,
     };
     use crate::inference::TokenCount;
-    use crate::prompt::framed_prompt;
+    use crate::prompt::{framed_prompt, prompt_with_notes};
     use crate::settings::{HistoryAccess, OcrLevel, PersonalizationSettings, ScreenTextAccess, WriterNotes};
 
     struct FakeDesktop(Field);
@@ -575,7 +575,14 @@ mod tests {
 
         let reaction = type_key(&mut app, 'B');
 
-        assert_eq!(reaction, request_with(&["Notes about me: “I am a nurse.”"], "B"));
+        assert_eq!(
+            reaction,
+            Reaction::Request(InferenceRequest::Complete {
+                prompt: prompt_with_notes("I am a nurse.", &[], "B"),
+                max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+                word_bias: None,
+            })
+        );
     }
 
     fn app_preparing_on_focus() -> App {

@@ -6,11 +6,12 @@ use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{
-    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, WriterNotes,
+    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, WriterName,
+    WriterNotes,
 };
 use crate::settings_view::{
     ChoiceText, ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
-    TextArea,
+    TextArea, TextLine,
 };
 
 /// Something the user did in the General pane.
@@ -22,6 +23,8 @@ pub enum GeneralAction {
     EnableAutostart,
     /// Turned off the switch that starts GhostType at login.
     DisableAutostart,
+    /// Changed the name of the user to this text.
+    EditWriterName(WriterName),
     /// Changed the notes about the user to this text.
     EditWriterNotes(WriterNotes),
     /// Turned on the switch that lets suggestions use the text on the clipboard.
@@ -60,6 +63,7 @@ pub(crate) const DISPLAY: &str = "suggestion-display";
 pub(crate) const LENGTH: &str = "suggestion-length";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
+pub(crate) const WRITER_NAME: &str = "writer-name";
 pub(crate) const WRITER_NOTES: &str = "writer-notes";
 const PANE_TITLE: &str = "General";
 const PANE_SUMMARY: &str = "Change how GhostType runs on this computer.";
@@ -88,10 +92,12 @@ const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are always short, so that
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
-const WRITER_NOTES_LABEL: &str = "Notes about you";
-const WRITER_NOTES_DESCRIPTION: &str = "Suggestions use these notes. Write facts about you and how you \
-     write, for example your job, your languages and the names that you often use. A fact such as “I keep \
-     my emails short” works better than an instruction such as “Keep emails short”.";
+const WRITER_NAME_LABEL: &str = "Your name";
+const WRITER_NAME_DESCRIPTION: &str = "Suggestions can use your name, for example to sign an email.";
+const WRITER_NOTES_LABEL: &str = "Notes about me";
+const WRITER_NOTES_DESCRIPTION: &str = "Suggestions use these notes. Write a few short facts about you and \
+     how you write, for example your job and your languages. Write in the first person, for example “I keep my \
+     emails short.”";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 3] = [
     (SuggestionLength::Short, "Short"),
     (SuggestionLength::Medium, "Medium"),
@@ -205,6 +211,9 @@ impl GeneralPane {
             GeneralAction::SelectBackend(backend) => self.select_backend(backend, playground),
             GeneralAction::EnableAutostart => self.change_autostart(|autostart| autostart.enable()),
             GeneralAction::DisableAutostart => self.change_autostart(|autostart| autostart.disable()),
+            GeneralAction::EditWriterName(name) => {
+                self.change_setting(name, |settings| &mut settings.writer_name)
+            }
             GeneralAction::EditWriterNotes(notes) => {
                 self.change_setting(notes, |settings| &mut settings.writer_notes)
             }
@@ -240,8 +249,11 @@ impl GeneralPane {
             SettingsInput::Picked { id, index } => {
                 self.pick_action(id.as_str(), *index, playground, installed)
             }
-            SettingsInput::Edited { id, text } => (id.as_str() == WRITER_NOTES)
-                .then(|| GeneralAction::EditWriterNotes(WriterNotes(text.clone()))),
+            SettingsInput::Edited { id, text } => match id.as_str() {
+                WRITER_NAME => Some(GeneralAction::EditWriterName(WriterName(text.clone()))),
+                WRITER_NOTES => Some(GeneralAction::EditWriterNotes(WriterNotes(text.clone()))),
+                _ => None,
+            },
             SettingsInput::Pressed(_) | SettingsInput::Submitted { .. } => None,
         }
     }
@@ -294,7 +306,10 @@ impl GeneralPane {
             search: None,
             sections: vec![
                 Section::new(autostart.into_iter().chain(settings).chain(backend).collect()),
-                Section::new(vec![Row::TextArea(self.writer_notes_area())]),
+                Section::new(vec![
+                    Row::TextLine(self.writer_name_line()),
+                    Row::TextArea(self.writer_notes_area()),
+                ]),
             ],
         }
     }
@@ -406,6 +421,15 @@ impl GeneralPane {
                 .expect("every backend has a menu entry"),
             is_enabled: !playground.is_busy(),
             note: None,
+        }
+    }
+
+    fn writer_name_line(&self) -> TextLine {
+        TextLine {
+            id: ControlId::new(WRITER_NAME),
+            label: WRITER_NAME_LABEL,
+            description: WRITER_NAME_DESCRIPTION,
+            text: self.settings.writer_name.0.clone(),
         }
     }
 
@@ -590,6 +614,13 @@ mod tests {
         }
     }
 
+    fn text_line(page: &Page, id: &str) -> TextLine {
+        match row(page, id) {
+            Row::TextLine(text_line) => text_line,
+            other => panic!("the control is not a text line: {other:?}"),
+        }
+    }
+
     fn toggled(id: &'static str, is_on: bool) -> SettingsInput {
         SettingsInput::Toggled {
             id: ControlId::new(id),
@@ -679,13 +710,22 @@ mod tests {
                             note: None,
                         }),
                     ]),
-                    Section::new(vec![Row::TextArea(TextArea {
-                        id: ControlId::new(WRITER_NOTES),
-                        label: "Notes about you",
-                        description: "Suggestions use these notes. Write facts about you and how you write, for example your job, your languages and the names that you often use. A fact such as “I keep my emails short” works better than an instruction such as “Keep emails short”.",
-                        text: String::new(),
-                        button: None,
-                    })]),
+                    Section::new(vec![
+                        Row::TextLine(TextLine {
+                            id: ControlId::new(WRITER_NAME),
+                            label: "Your name",
+                            description: "Suggestions can use your name, for example to sign an email.",
+                            text: String::new(),
+                        }),
+                        Row::TextArea(TextArea {
+                            id: ControlId::new(WRITER_NOTES),
+                            label: "Notes about me",
+                            description: "Suggestions use these notes. Write a few short facts about you and how you write, for example your job and your languages. Write in the first person, for example “I keep my emails short.”",
+                            text: "I write clear and friendly messages. I keep the tone of the conversation."
+                                .to_owned(),
+                            button: None,
+                        }),
+                    ]),
                 ],
             }
         );
@@ -858,6 +898,42 @@ mod tests {
         );
 
         assert_eq!(action, None);
+    }
+
+    #[test]
+    fn editing_the_name_field_edits_the_writer_name() {
+        let pane = GeneralPane::new(Settings::default());
+        let input = SettingsInput::Edited {
+            id: ControlId::new(WRITER_NAME),
+            text: "Sara Novak".to_owned(),
+        };
+
+        let action = action_for(&pane, &input);
+
+        assert_eq!(
+            action,
+            Some(GeneralAction::EditWriterName(WriterName("Sara Novak".to_owned())))
+        );
+    }
+
+    #[test]
+    fn editing_the_writer_name_keeps_it_and_shows_it_in_the_name_field() {
+        let mut pane = GeneralPane::new(Settings::default());
+        let name_settings = Settings {
+            writer_name: WriterName("Sara Novak".to_owned()),
+            ..Settings::default()
+        };
+
+        let outcome = pane.on_action(
+            GeneralAction::EditWriterName(WriterName("Sara Novak".to_owned())),
+            &mut PlaygroundPane::new(),
+        );
+
+        let shown = text_line(&default_page(&pane), WRITER_NAME).text;
+        assert_eq!(
+            (outcome, shown),
+            (settings_outcome(name_settings), "Sara Novak".to_owned())
+        );
     }
 
     #[test]
@@ -1210,12 +1286,12 @@ mod tests {
     }
 
     #[test]
-    fn emptied_writer_notes_are_the_default() {
+    fn emptied_writer_notes_stay_empty() {
         let mut pane = GeneralPane::new(notes_settings("I am a nurse."));
 
         let outcome = edit_writer_notes(&mut pane, "");
 
-        assert_eq!(outcome, settings_outcome(Settings::default()));
+        assert_eq!(outcome, settings_outcome(notes_settings("")));
     }
 
     #[test]

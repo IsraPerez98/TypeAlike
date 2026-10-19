@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE]
+//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -31,14 +31,13 @@
 //! - `typo`: `true` when the last word of `before` has a typo. It can be left out.
 //!
 //! The eval uses the default settings with the backend of `--backend`, the clipboard and the
-//! earlier writing on, and
-//! `clipboard` is a copy that came just before. `--notes` gives the notes about the
-//! writer, which are empty by default. It opens a field that holds `before`
-//! without its last character, lets the input settle so that the screen text is read, types that
-//! character and waits for the ghost text. The model does not decode the prompt before the key, as
-//! on the first key in a field. Then the eval opens the field again, lets the model decode the
-//! prompt when the input settles, as the app does when it prepares the prompt on focus, and types
-//! the character again for the warm time.
+//! earlier writing on, and `clipboard` is a copy that came just before. `--notes` gives the notes
+//! about the writer, and `--name` the name of the writer. Both are empty by default. It opens a
+//! field that holds `before` without its last character, lets the input settle so that the screen
+//! text is read, types that character and waits for the ghost text. The model does not decode the
+//! prompt before the key, as on the first key in a field. Then the eval opens the field again, lets
+//! the model decode the prompt when the input settles, as the app does when it prepares the prompt
+//! on focus, and types the character again for the warm time.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
 //! the word do not count. A typo case matches when no suggestion finishes the word with the typo.
 //! The report gives the score of the cases with the caret between two words, the score of the
@@ -108,7 +107,7 @@ use ghosttype_core::inference::{
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
     ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, WordChoice,
-    WriterNotes,
+    WriterName, WriterNotes,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
@@ -118,7 +117,7 @@ use crate::likelihood::Continuation;
 use crate::score::{CaseKind, Comparison, Outcome, Summary, is_match, next_word};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--notes TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
+     [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--word-choice off|light|medium|strong]";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -128,6 +127,7 @@ struct Arguments {
     baseline: Option<PathBuf>,
     save: Option<PathBuf>,
     notes: String,
+    name: String,
     backend: Backend,
     cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
@@ -145,6 +145,7 @@ impl Arguments {
             baseline: None,
             save: None,
             notes: String::new(),
+            name: String::new(),
             backend: BUILT_IN_BACKEND,
             cpu_cores: None,
             word_choice: WordChoice::Off,
@@ -154,6 +155,7 @@ impl Arguments {
                 [name, path] if name == "--baseline" => parsed.baseline = Some(PathBuf::from(path)),
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
+                [name, text] if name == "--name" => parsed.name.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
@@ -669,6 +671,7 @@ fn main() -> anyhow::Result<()> {
         backend: arguments.backend,
         clipboard_access: ClipboardAccess::Allowed,
         writer_notes: WriterNotes(arguments.notes.clone()),
+        writer_name: WriterName(arguments.name.clone()),
         prompt_preparation: PromptPreparation::OnFocus,
         personalization: PersonalizationSettings {
             history: HistoryAccess::On,
@@ -786,6 +789,7 @@ mod tests {
                 baseline: None,
                 save: None,
                 notes: String::new(),
+                name: String::new(),
                 backend: BUILT_IN_BACKEND,
                 cpu_cores: None,
                 word_choice: WordChoice::Off,
@@ -870,6 +874,16 @@ mod tests {
         assert_eq!(
             arguments.map(|arguments| arguments.notes),
             Some("I am a nurse.".to_owned())
+        );
+    }
+
+    #[test]
+    fn name_option_gives_the_writer_name() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--name", "Sara Novak"]);
+
+        assert_eq!(
+            arguments.map(|arguments| arguments.name),
+            Some("Sara Novak".to_owned())
         );
     }
 

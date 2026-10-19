@@ -15,7 +15,7 @@ use crate::place;
 use crate::prompt::{self, Writer, estimated_tokens, last_chars, last_tokens};
 use crate::settings::{
     ClipboardAccess, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp, ScreenTextSettings,
-    Settings, SuggestionLength, WriterNotes,
+    Settings, SuggestionLength, WriterName, WriterNotes,
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
@@ -58,6 +58,7 @@ pub(crate) struct Engine {
     offer: Offer,
     unanswered_requests: usize,
     writer_notes: WriterNotes,
+    writer_name: WriterName,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
@@ -84,6 +85,7 @@ impl Default for Engine {
             offer: Offer::default(),
             unanswered_requests: 0,
             writer_notes: WriterNotes::default(),
+            writer_name: WriterName::default(),
             clipboard_access: ClipboardAccess::default(),
             suggestion_length: SuggestionLength::default(),
             matching_examples: 0,
@@ -179,11 +181,12 @@ enum Offer {
 }
 
 impl Engine {
-    /// Uses the writer notes, the clipboard access and the personalization of `settings` from the
-    /// next session on, and its suggestion length from the next request on.
+    /// Uses the writer name, the writer notes, the clipboard access and the personalization of
+    /// `settings` from the next session on, and its suggestion length from the next request on.
     pub fn use_settings(&mut self, settings: &Settings) {
         let word_choice = self.personalization.word_choice;
         self.writer_notes = settings.writer_notes.clone();
+        self.writer_name = settings.writer_name.clone();
         self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
@@ -497,6 +500,7 @@ impl Engine {
             .unwrap_or_default();
         let writer = Writer {
             notes: &self.writer_notes.0,
+            name: &self.writer_name.0,
             examples,
         };
         prompt::preface(
@@ -1588,7 +1592,26 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Char('h'));
 
-        assert_eq!(reaction, request_with(&["Notes about me: “I am a nurse.”"], "h"));
+        assert_eq!(
+            reaction,
+            Reaction::Request(InferenceRequest::Complete {
+                prompt: prompt::prompt_with_notes("I am a nurse.", &[], "h"),
+                max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+                word_bias: None,
+            })
+        );
+    }
+
+    #[test]
+    fn writer_name_comes_after_the_notes() {
+        let mut engine = engine_with(&Settings {
+            writer_name: WriterName("Sara Novak".to_owned()),
+            ..Settings::default()
+        });
+
+        let reaction = press(&mut engine, Key::Char('h'));
+
+        assert_eq!(reaction, request_with(&["My name is Sara Novak."], "h"));
     }
 
     fn history_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {

@@ -7,7 +7,7 @@ use crate::hub::ModelFile;
 use crate::inference::{Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, TokenCount};
 use crate::models_pane::model_name;
 use crate::prompt::{self, Writer};
-use crate::settings::{Settings, WriterNotes};
+use crate::settings::{Settings, WriterName, WriterNotes};
 use crate::settings_view::{
     ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
     TextField,
@@ -41,6 +41,7 @@ pub struct PlaygroundPane {
     model: Option<SelectedModel>,
     completion: Option<CompletionState>,
     backend: Backend,
+    writer_name: WriterName,
     writer_notes: WriterNotes,
 }
 
@@ -132,8 +133,10 @@ impl PlaygroundPane {
         })
     }
 
-    /// Puts the writer notes of `settings` before the text of each later completion.
+    /// Puts the writer notes and the writer name of `settings` before the text of each later
+    /// completion.
     pub fn use_settings(&mut self, settings: &Settings) {
+        self.writer_name = settings.writer_name.clone();
         self.writer_notes = settings.writer_notes.clone();
     }
 
@@ -270,6 +273,7 @@ impl PlaygroundPane {
         let preface = prompt::preface(
             &Writer {
                 notes: &self.writer_notes.0,
+                name: &self.writer_name.0,
                 ..Writer::default()
             },
             &Surroundings::default(),
@@ -1013,6 +1017,26 @@ mod tests {
     }
 
     #[test]
+    fn completing_puts_the_writer_name_after_the_notes() {
+        let mut pane = ready_pane(&model_file("a.gguf"));
+        pane.use_settings(&Settings {
+            writer_name: WriterName("Sara Novak".to_owned()),
+            ..Settings::default()
+        });
+
+        let request = pane.on_action(complete("Best,\n"));
+
+        assert_eq!(
+            request,
+            Some(InferenceRequest::Complete {
+                prompt: prompt::framed_prompt(&["My name is Sara Novak."], "Best,\n"),
+                max_tokens: TokenCount(32),
+                word_bias: None,
+            })
+        );
+    }
+
+    #[test]
     fn completing_puts_the_writer_notes_before_the_text() {
         let mut pane = ready_pane(&model_file("a.gguf"));
         pane.use_settings(&Settings {
@@ -1025,7 +1049,7 @@ mod tests {
         assert_eq!(
             request,
             Some(InferenceRequest::Complete {
-                prompt: prompt::framed_prompt(&["Notes about me: “I am a nurse.”"], "Dear "),
+                prompt: prompt::prompt_with_notes("I am a nurse.", &[], "Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
             })
