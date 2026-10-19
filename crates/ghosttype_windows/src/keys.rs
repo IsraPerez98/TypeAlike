@@ -4,7 +4,7 @@ use ghosttype_core::key::Key;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyState, GetKeyboardLayout, ToUnicodeEx, VIRTUAL_KEY, VK_BACK, VK_CAPITAL,
     VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_NUMLOCK, VK_RCONTROL,
-    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SHIFT, VK_TAB,
+    VK_RETURN, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
@@ -62,6 +62,7 @@ pub(crate) fn translate(key: VIRTUAL_KEY, chord: Chord, typed: Option<char>) -> 
     Some(match key {
         VK_TAB if chord == Chord::Plain => Key::Tab,
         VK_ESCAPE => Key::Escape,
+        VK_RETURN if matches!(chord, Chord::Plain | Chord::Shift) => Key::Enter,
         VK_BACK if matches!(chord, Chord::Plain | Chord::Shift) => Key::Backspace,
         _ if matches!(chord, Chord::Alt | Chord::Windows) => Key::Other,
         _ => typed.map_or(Key::Other, Key::Char),
@@ -146,7 +147,7 @@ fn is_held(key: VIRTUAL_KEY) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_LEFT, VK_RETURN};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_LEFT};
 
     use super::*;
 
@@ -212,11 +213,26 @@ mod tests {
     }
 
     #[test]
-    fn enter_passes_its_control_character() {
+    fn enter_is_enter() {
+        assert_eq!(translate(VK_RETURN, Chord::Plain, Some('\r')), Some(Key::Enter));
+    }
+
+    #[test]
+    fn shift_enter_is_enter() {
+        assert_eq!(translate(VK_RETURN, Chord::Shift, Some('\r')), Some(Key::Enter));
+    }
+
+    #[test]
+    fn control_enter_passes_its_control_character() {
         assert_eq!(
-            translate(VK_RETURN, Chord::Plain, Some('\r')),
-            Some(Key::Char('\r'))
+            translate(VK_RETURN, Chord::Control, Some('\n')),
+            Some(Key::Char('\n'))
         );
+    }
+
+    #[test]
+    fn alt_enter_is_other() {
+        assert_eq!(translate(VK_RETURN, Chord::Alt, Some('\r')), Some(Key::Other));
     }
 
     #[test]

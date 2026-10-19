@@ -215,7 +215,7 @@ impl Engine {
             }
             Key::Tab => self.accept(),
             Key::Escape => self.dismiss(),
-            Key::Char(_) | Key::Other => self.reset(),
+            Key::Char(_) | Key::Enter | Key::Other => self.reset(),
         }
     }
 

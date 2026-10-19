@@ -14,7 +14,10 @@ pub enum Key {
     Tab,
     /// Dismisses a visible suggestion.
     Escape,
-    /// Any other key: navigation, Enter, shortcuts. The typed context is no longer reliable.
+    /// Return or Enter, alone or with Shift. Ends a line or submits the field. The typed context
+    /// needs a new read.
+    Enter,
+    /// Any other key: navigation, shortcuts. The typed context is no longer reliable.
     Other,
 }
 

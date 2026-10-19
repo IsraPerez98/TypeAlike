@@ -3,9 +3,11 @@
 use ghosttype_core::key::Key;
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGKeyCode};
 
+const RETURN_KEY_CODE: CGKeyCode = 36;
 const TAB_KEY_CODE: CGKeyCode = 48;
 const DELETE_KEY_CODE: CGKeyCode = 51;
 const ESCAPE_KEY_CODE: CGKeyCode = 53;
+const KEYPAD_ENTER_KEY_CODE: CGKeyCode = 76;
 const FUNCTION_KEY_CHARS: std::ops::RangeInclusive<char> = '\u{F700}'..='\u{F8FF}';
 const MAX_TYPED_UNITS: usize = 8;
 
@@ -45,6 +47,7 @@ pub(crate) fn translate(key: CGKeyCode, chord: Chord, typed: Option<char>) -> Ke
     match key {
         TAB_KEY_CODE if chord == Chord::Plain => Key::Tab,
         ESCAPE_KEY_CODE => Key::Escape,
+        RETURN_KEY_CODE | KEYPAD_ENTER_KEY_CODE if matches!(chord, Chord::Plain | Chord::Shift) => Key::Enter,
         DELETE_KEY_CODE if matches!(chord, Chord::Plain | Chord::Shift) => Key::Backspace,
         _ if chord == Chord::Shortcut => Key::Other,
         _ => typed
@@ -93,7 +96,6 @@ mod tests {
     use super::*;
 
     const A_KEY_CODE: CGKeyCode = 0;
-    const RETURN_KEY_CODE: CGKeyCode = 36;
     const LEFT_ARROW_KEY_CODE: CGKeyCode = 123;
 
     #[test]
@@ -159,10 +161,36 @@ mod tests {
     }
 
     #[test]
-    fn return_passes_its_control_character() {
+    fn return_is_enter() {
+        assert_eq!(translate(RETURN_KEY_CODE, Chord::Plain, Some('\r')), Key::Enter);
+    }
+
+    #[test]
+    fn shift_return_is_enter() {
+        assert_eq!(translate(RETURN_KEY_CODE, Chord::Shift, Some('\r')), Key::Enter);
+    }
+
+    #[test]
+    fn keypad_enter_is_enter() {
         assert_eq!(
-            translate(RETURN_KEY_CODE, Chord::Plain, Some('\r')),
+            translate(KEYPAD_ENTER_KEY_CODE, Chord::Plain, Some('\u{3}')),
+            Key::Enter
+        );
+    }
+
+    #[test]
+    fn option_return_passes_its_control_character() {
+        assert_eq!(
+            translate(RETURN_KEY_CODE, Chord::Option, Some('\r')),
             Key::Char('\r')
+        );
+    }
+
+    #[test]
+    fn command_return_is_other() {
+        assert_eq!(
+            translate(RETURN_KEY_CODE, Chord::Shortcut, Some('\r')),
+            Key::Other
         );
     }
 
