@@ -55,6 +55,11 @@ const LAST_OUTPUT: i32 = -1;
 const SURE_PROBABILITY: f32 = 0.5;
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
+/// The signs other than a period that end a sentence when a new word comes after them.
+const SENTENCE_ENDS: [char; 3] = ['!', '?', '\u{2026}'];
+/// The fewest letters of the word before a period that ends a sentence. A shorter word is often
+/// an abbreviation, such as "Dr." or "e.g.".
+const MIN_LETTERS_BEFORE_PERIOD: usize = 3;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
 /// backspace across each of these words goes back to a saved state.
 const MAX_SNAPSHOTS: usize = 4;
@@ -681,8 +686,10 @@ impl<'model> PromptCache<'model> {
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
-    /// the `limits`, and leaves out the word that the minimum probability cuts. Before each decode,
-    /// it stops when `progress` tells so, and else sends the text that it added so far.
+    /// the end of a sentence and at the `limits`. It leaves out the word that the minimum
+    /// probability cuts, and the last word at the token limit unless that word ends a sentence,
+    /// because the limit can cut it. It never leaves out the only word. Before each decode, it
+    /// stops when `progress` tells so, and else sends the text that it added so far.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
@@ -698,6 +705,7 @@ impl<'model> PromptCache<'model> {
         let mut biased = Vec::new();
         let mut unwritten = healing.text;
         let mut added = Vec::new();
+        let mut written = Vec::new();
         let mut words = WordLogProbabilities::default();
         while added.len() < limits.max_added {
             let scores = with_bias(logits, token_bias.at(added.len()), &mut biased);
@@ -707,6 +715,9 @@ impl<'model> PromptCache<'model> {
             }
             let piece = vocab.token_to_piece(token, false, None);
             let text = added_after(&piece, unwritten);
+            if starts_next_sentence(healing.text, &written, text) {
+                break;
+            }
             let is_cut = limits
                 .min_log_probability
                 .is_some_and(|cut| !words.keeps(text, log_probability, cut));
@@ -717,9 +728,17 @@ impl<'model> PromptCache<'model> {
             }
             let ends_line = writes_line_break(&piece, unwritten);
             words.add(text, log_probability);
+            written.extend_from_slice(text);
             unwritten = unwritten_after(unwritten, &piece);
             added.push(token);
-            if ends_line || added.len() == limits.max_added {
+            if ends_line {
+                break;
+            }
+            if added.len() == limits.max_added {
+                if !ends_sentence(healing.text, &written) {
+                    let dropped = words.drop_last_word();
+                    added.truncate(added.len().saturating_sub(dropped));
+                }
                 break;
             }
             if (progress.is_outdated)() {
@@ -825,6 +844,15 @@ impl WordLogProbabilities {
     /// would continue it. Returns how many tokens the dropped word had.
     fn end_before(&mut self, text: &[u8]) -> usize {
         if self.starts_word(text) {
+            return 0;
+        }
+        self.drop_last_word()
+    }
+
+    /// Drops the last word, unless it is the only word. Returns how many tokens the dropped word
+    /// had.
+    fn drop_last_word(&mut self) -> usize {
+        if self.words.len() <= 1 {
             return 0;
         }
         self.words.pop();
@@ -1037,6 +1065,34 @@ fn added_after<'piece>(piece: &'piece [u8], unwritten: &[u8]) -> &'piece [u8] {
 
 fn starts_word(piece: &[u8]) -> bool {
     piece.first().is_some_and(u8::is_ascii_whitespace)
+}
+
+/// Whether a token that adds `text` after the `written` text, which follows the `healed` text,
+/// starts a new sentence: a new word after the end of a sentence.
+fn starts_next_sentence(healed: &[u8], written: &[u8], text: &[u8]) -> bool {
+    starts_word(text) && ends_sentence(healed, written)
+}
+
+/// Whether the `written` text after the `healed` text ends a sentence. It must have a letter, so
+/// that a sign after a word of the prompt or a number such as "1." does not end it. A period
+/// counts only after a word of at least [`MIN_LETTERS_BEFORE_PERIOD`] letters, with the letters
+/// of the healed text.
+fn ends_sentence(healed: &[u8], written: &[u8]) -> bool {
+    let written = String::from_utf8_lossy(written);
+    if !written.contains(char::is_alphabetic) {
+        return false;
+    }
+    let Some(before_period) = written.strip_suffix('.') else {
+        return written.ends_with(SENTENCE_ENDS);
+    };
+    let healed = String::from_utf8_lossy(healed);
+    let word_letters = before_period
+        .chars()
+        .rev()
+        .chain(healed.chars().rev())
+        .take_while(|character| character.is_alphabetic())
+        .count();
+    word_letters >= MIN_LETTERS_BEFORE_PERIOD
 }
 
 /// Tells if a token with `attrs` is markup, such as `<think>`, that never belongs in typed text.
@@ -1549,6 +1605,71 @@ mod tests {
         let dropped = words.end_before(b"ks");
 
         assert_eq!((dropped, words.into_vec()), (2, vec![LogProbability(-1.0)]));
+    }
+
+    #[test]
+    fn dropping_the_last_word_drops_its_tokens() {
+        let mut words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
+
+        let dropped = words.drop_last_word();
+
+        assert_eq!((dropped, words.into_vec()), (2, vec![LogProbability(-1.0)]));
+    }
+
+    #[test]
+    fn only_word_is_never_dropped() {
+        let mut words = words_of(&[("1Z", -1.0), ("999", -0.5)]);
+
+        let dropped = words.drop_last_word();
+
+        assert_eq!((dropped, words.into_vec()), (0, vec![LogProbability(-1.5)]));
+    }
+
+    #[test]
+    fn written_text_with_a_letter_and_a_closing_sign_ends_a_sentence() {
+        let cases = [
+            (&b""[..], &b"see you soon."[..], true),
+            (b" Aish", b"a.", true),
+            (b"", b"Really?!", true),
+            (b"", "wait\u{2026}".as_bytes(), true),
+            (b" Thanks", b".", false),
+            (b"", b" 1.", false),
+            (b"", b"soon", false),
+            (b"", b"3.5", false),
+        ];
+
+        let ends = cases.map(|(healed, written, _)| ends_sentence(healed, written));
+
+        assert_eq!(ends, cases.map(|(_, _, ends)| ends));
+    }
+
+    #[test]
+    fn period_after_a_word_of_fewer_than_three_letters_does_not_end_a_sentence() {
+        let cases = [
+            (&b""[..], &b" Dr."[..]),
+            (b" D", b"r."),
+            (b"", b" e.g."),
+            (b"", b"Ann J."),
+        ];
+
+        let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
+
+        assert_eq!(ends, [false; 4]);
+    }
+
+    #[test]
+    fn only_a_new_word_after_the_end_of_a_sentence_starts_the_next_sentence() {
+        let cases = [
+            (&b"see you."[..], &b" Then"[..], true),
+            (b"see you.", b"\nThen", true),
+            (b"in May.", b"5", false),
+            (b"see you", b" Then", false),
+            (b"", b" Then", false),
+        ];
+
+        let starts = cases.map(|(written, text, _)| starts_next_sentence(b"", written, text));
+
+        assert_eq!(starts, cases.map(|(_, _, starts)| starts));
     }
 
     #[test]

@@ -745,7 +745,7 @@ impl Engine {
 fn tokens_before_caret(preface: &str) -> TokenCount {
     let room = CONTEXT_TOKENS
         .0
-        .saturating_sub(SuggestionLength::Long.max_tokens().0);
+        .saturating_sub(SuggestionLength::VeryLong.max_tokens().0);
     let prompt_without_text = prompt::prompt(preface, "");
     TokenCount(room.saturating_sub(estimated_tokens(&prompt_without_text.0).0))
 }
@@ -2481,7 +2481,7 @@ mod tests {
     fn cpu_backend_asks_for_short_suggestions() {
         let mut engine = engine_with(&Settings {
             backend: Backend::Cpu,
-            suggestion_length: SuggestionLength::Long,
+            suggestion_length: SuggestionLength::VeryLong,
             ..Settings::default()
         });
 
@@ -2491,7 +2491,7 @@ mod tests {
             reaction,
             Reaction::Request(InferenceRequest::Complete {
                 prompt: prompt::framed_prompt(&[], "h"),
-                max_tokens: TokenCount(4),
+                max_tokens: TokenCount(6),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
@@ -2500,10 +2500,10 @@ mod tests {
     }
 
     #[test]
-    fn short_suggestion_length_asks_for_fewer_tokens() {
+    fn very_short_suggestion_length_asks_for_three_tokens() {
         let mut engine = engine_with(&Settings {
             backend: Backend::Vulkan,
-            suggestion_length: SuggestionLength::Short,
+            suggestion_length: SuggestionLength::VeryShort,
             ..Settings::default()
         });
 
@@ -2513,7 +2513,7 @@ mod tests {
             reaction,
             Reaction::Request(InferenceRequest::Complete {
                 prompt: prompt::framed_prompt(&[], "h"),
-                max_tokens: TokenCount(4),
+                max_tokens: TokenCount(3),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
@@ -2780,7 +2780,7 @@ mod tests {
         let Some(InferenceRequest::Complete { prompt, .. }) = request else {
             panic!("an idle session prepares its prompt: {request:?}");
         };
-        let room = CONTEXT_TOKENS.0 - SuggestionLength::Long.max_tokens().0;
+        let room = CONTEXT_TOKENS.0 - SuggestionLength::VeryLong.max_tokens().0;
         assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
     }
 
@@ -3005,7 +3005,7 @@ mod tests {
         let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
             panic!("a key in an open field requests a completion: {reaction:?}");
         };
-        let room = CONTEXT_TOKENS.0 - SuggestionLength::Long.max_tokens().0;
+        let room = CONTEXT_TOKENS.0 - SuggestionLength::VeryLong.max_tokens().0;
         assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
     }
 }

@@ -324,9 +324,11 @@ enum StoredSuggestionDisplay {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum StoredSuggestionLength {
+    VeryShort,
     Short,
     Medium,
     Long,
+    VeryLong,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -360,9 +362,11 @@ impl From<Settings> for StoredSettings {
             SuggestionDisplay::WordByWord => StoredSuggestionDisplay::WordByWord,
         };
         let suggestion_length = match settings.suggestion_length {
+            SuggestionLength::VeryShort => StoredSuggestionLength::VeryShort,
             SuggestionLength::Short => StoredSuggestionLength::Short,
             SuggestionLength::Medium => StoredSuggestionLength::Medium,
             SuggestionLength::Long => StoredSuggestionLength::Long,
+            SuggestionLength::VeryLong => StoredSuggestionLength::VeryLong,
         };
         Self {
             backend,
@@ -405,9 +409,11 @@ impl From<StoredSettings> for Settings {
             StoredSuggestionDisplay::WordByWord => SuggestionDisplay::WordByWord,
         };
         let suggestion_length = match stored.suggestion_length {
+            StoredSuggestionLength::VeryShort => SuggestionLength::VeryShort,
             StoredSuggestionLength::Short => SuggestionLength::Short,
             StoredSuggestionLength::Medium => SuggestionLength::Medium,
             StoredSuggestionLength::Long => SuggestionLength::Long,
+            StoredSuggestionLength::VeryLong => SuggestionLength::VeryLong,
         };
         let writer_notes = match (stored.writer_notes, stored.system_prompt) {
             (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
@@ -693,9 +699,11 @@ mod tests {
     #[test]
     fn suggestion_length_reads_from_its_name() {
         let files = [
+            r#"{ "suggestion_length": "very_short" }"#,
             r#"{ "suggestion_length": "short" }"#,
             r#"{ "suggestion_length": "medium" }"#,
             r#"{ "suggestion_length": "long" }"#,
+            r#"{ "suggestion_length": "very_long" }"#,
         ];
 
         let lengths = files.map(|json| parse(json).map(|settings| settings.suggestion_length).ok());
@@ -703,10 +711,13 @@ mod tests {
         assert_eq!(
             lengths,
             [
-                Some(SuggestionLength::Short),
-                Some(SuggestionLength::Medium),
-                Some(SuggestionLength::Long)
+                SuggestionLength::VeryShort,
+                SuggestionLength::Short,
+                SuggestionLength::Medium,
+                SuggestionLength::Long,
+                SuggestionLength::VeryLong,
             ]
+            .map(Some)
         );
     }
 
@@ -758,7 +769,7 @@ mod tests {
             },
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,
-            suggestion_length: SuggestionLength::Medium,
+            suggestion_length: SuggestionLength::Long,
         };
 
         file.save(&settings);

@@ -86,9 +86,9 @@ const DISPLAY_LABEL: &str = "Show words early";
 const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
      word then shows sooner, but the suggestion grows while you read it.";
 const LENGTH_LABEL: &str = "Suggestion length";
-const LENGTH_DESCRIPTION: &str = "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a \
-     long suggestion about 10. A shorter suggestion shows sooner.";
-const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are always short, so that they show sooner.";
+const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length or at the end of a sentence. A shorter \
+     suggestion shows sooner.";
+const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are short or very short, so that they show sooner.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
     "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
@@ -98,10 +98,12 @@ const WRITER_NOTES_LABEL: &str = "Notes about me";
 const WRITER_NOTES_DESCRIPTION: &str = "Suggestions use these notes. Write a few short facts about you and \
      how you write, for example your job and your languages. Write in the first person, for example “I keep my \
      emails short.”";
-const LENGTH_CHOICES: [(SuggestionLength, &str); 3] = [
+const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
+    (SuggestionLength::VeryShort, "Very short"),
     (SuggestionLength::Short, "Short"),
     (SuggestionLength::Medium, "Medium"),
     (SuggestionLength::Long, "Long"),
+    (SuggestionLength::VeryLong, "Very long"),
 ];
 const BACKEND_CHOICES: [(Backend, &str); 3] = [
     (Backend::Cpu, "CPU"),
@@ -376,7 +378,8 @@ impl GeneralPane {
         installed: &[ModelFile],
     ) -> Option<GeneralAction> {
         match id {
-            LENGTH if !self.settings.has_fixed_suggestion_length() => LENGTH_CHOICES
+            LENGTH => self
+                .length_choices()
                 .get(index)
                 .map(|&(length, _)| GeneralAction::SelectSuggestionLength(length)),
             BACKEND if self.has_backend_menu => BACKEND_CHOICES
@@ -389,19 +392,27 @@ impl GeneralPane {
         }
     }
 
+    /// The lengths that the menu offers: up to the longest length that the backend allows.
+    fn length_choices(&self) -> &'static [(SuggestionLength, &'static str)] {
+        let longest = self.settings.longest_suggestion_length();
+        let offered = LENGTH_CHOICES.partition_point(|&(length, _)| length <= longest);
+        &LENGTH_CHOICES[..offered]
+    }
+
     fn suggestion_length_picker(&self) -> Picker {
+        let choices = self.length_choices();
         Picker {
             id: ControlId::new(LENGTH),
             label: LENGTH_LABEL,
             description: LENGTH_DESCRIPTION,
-            choices: choice_titles(&LENGTH_CHOICES),
+            choices: choice_titles(choices),
             choice_text: ChoiceText::Label,
-            selected: LENGTH_CHOICES
+            selected: choices
                 .iter()
                 .position(|&(length, _)| length == self.settings.suggestion_length_in_use())
-                .expect("every suggestion length has a menu entry"),
-            is_enabled: !self.settings.has_fixed_suggestion_length(),
-            note: self.settings.has_fixed_suggestion_length().then_some(Note {
+                .expect("the length in use is at most the longest length that the menu offers"),
+            is_enabled: true,
+            note: (choices.len() < LENGTH_CHOICES.len()).then_some(Note {
                 text: LENGTH_CPU_NOTE,
                 tone: NoteTone::Plain,
             }),
@@ -675,10 +686,16 @@ mod tests {
                         Row::Picker(Picker {
                             id: ControlId::new(LENGTH),
                             label: "Suggestion length",
-                            description: "A short suggestion has 2 or 3 words, a medium suggestion about 5, and a long suggestion about 10. A shorter suggestion shows sooner.",
-                            choices: vec!["Short".to_owned(), "Medium".to_owned(), "Long".to_owned()],
+                            description: "A suggestion stops at this length or at the end of a sentence. A shorter suggestion shows sooner.",
+                            choices: vec![
+                                "Very short".to_owned(),
+                                "Short".to_owned(),
+                                "Medium".to_owned(),
+                                "Long".to_owned(),
+                                "Very long".to_owned(),
+                            ],
                             choice_text: ChoiceText::Label,
-                            selected: 1,
+                            selected: 2,
                             is_enabled: true,
                             note: None,
                         }),
@@ -810,12 +827,25 @@ mod tests {
 
         assert_eq!(
             action,
-            Some(GeneralAction::SelectSuggestionLength(SuggestionLength::Short))
+            Some(GeneralAction::SelectSuggestionLength(SuggestionLength::VeryShort))
         );
     }
 
     #[test]
-    fn picking_a_suggestion_length_on_the_cpu_does_nothing() {
+    fn picking_a_short_length_on_the_cpu_selects_it() {
+        let pane = GeneralPane::new(settings(Backend::Cpu));
+
+        let actions = [0, 1].map(|index| action_for(&pane, &picked(LENGTH, index)));
+
+        assert_eq!(
+            actions,
+            [SuggestionLength::VeryShort, SuggestionLength::Short]
+                .map(|length| Some(GeneralAction::SelectSuggestionLength(length)))
+        );
+    }
+
+    #[test]
+    fn picking_past_the_short_lengths_on_the_cpu_does_nothing() {
         let pane = GeneralPane::new(settings(Backend::Cpu));
 
         let action = action_for(&pane, &picked(LENGTH, 2));
@@ -824,22 +854,23 @@ mod tests {
     }
 
     #[test]
-    fn cpu_backend_shows_the_short_length_without_a_choice() {
+    fn cpu_backend_offers_only_the_short_lengths() {
         let pane = GeneralPane::new(Settings {
             backend: Backend::Cpu,
-            suggestion_length: SuggestionLength::Long,
+            suggestion_length: SuggestionLength::VeryLong,
             ..Settings::default()
         });
 
         let shown = picker(&default_page(&pane), LENGTH);
 
         assert_eq!(
-            (shown.selected, shown.is_enabled, shown.note),
+            (shown.choices, shown.selected, shown.is_enabled, shown.note),
             (
-                0,
-                false,
+                vec!["Very short".to_owned(), "Short".to_owned()],
+                1,
+                true,
                 Some(Note {
-                    text: "On the CPU, suggestions are always short, so that they show sooner.",
+                    text: "On the CPU, suggestions are short or very short, so that they show sooner.",
                     tone: NoteTone::Plain,
                 })
             )
@@ -850,13 +881,13 @@ mod tests {
     fn gpu_backend_shows_the_selected_length() {
         let pane = GeneralPane::new(Settings {
             backend: Backend::Cuda,
-            suggestion_length: SuggestionLength::Long,
+            suggestion_length: SuggestionLength::VeryLong,
             ..Settings::default()
         });
 
         let shown = picker(&default_page(&pane), LENGTH);
 
-        assert_eq!((shown.selected, shown.is_enabled, shown.note), (2, true, None));
+        assert_eq!((shown.selected, shown.is_enabled, shown.note), (4, true, None));
     }
 
     #[test]
@@ -1413,13 +1444,13 @@ mod tests {
         let mut pane = GeneralPane::new(settings(Backend::Vulkan));
 
         let outcome = pane.on_action(
-            GeneralAction::SelectSuggestionLength(SuggestionLength::Short),
+            GeneralAction::SelectSuggestionLength(SuggestionLength::VeryShort),
             &mut PlaygroundPane::new(),
         );
 
         let selected = picker(&default_page(&pane), LENGTH).selected;
         let short_settings = Settings {
-            suggestion_length: SuggestionLength::Short,
+            suggestion_length: SuggestionLength::VeryShort,
             ..settings(Backend::Vulkan)
         };
         assert_eq!((outcome, selected), (settings_outcome(short_settings), 0));

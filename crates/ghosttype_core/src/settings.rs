@@ -361,25 +361,33 @@ pub enum SuggestionDisplay {
     WordByWord,
 }
 
-/// The most text that one suggestion shows. A shorter suggestion shows sooner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// The most text that one suggestion shows, from the shortest to the longest. A shorter
+/// suggestion shows sooner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum SuggestionLength {
-    /// Two or three words.
+    /// About 2 words.
+    VeryShort,
+    /// About 4 words.
     Short,
-    /// About five words.
+    /// About 7 words.
     #[default]
     Medium,
-    /// About ten words.
+    /// About 10 words.
     Long,
+    /// About 15 words.
+    VeryLong,
 }
 
 impl SuggestionLength {
-    /// The most tokens that the model adds for one suggestion.
+    /// The most tokens that the model adds for one suggestion: the median tokens of the words in
+    /// Spanish, which need more tokens than English, and one token for the healed word.
     pub(crate) fn max_tokens(self) -> TokenCount {
         match self {
-            Self::Short => TokenCount(4),
-            Self::Medium => TokenCount(8),
-            Self::Long => TokenCount(16),
+            Self::VeryShort => TokenCount(3),
+            Self::Short => TokenCount(6),
+            Self::Medium => TokenCount(10),
+            Self::Long => TokenCount(15),
+            Self::VeryLong => TokenCount(22),
         }
     }
 }
@@ -417,10 +425,14 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Whether the backend always uses short suggestions, so that the user cannot select a length.
-    /// The CPU adds each token slowly.
-    pub(crate) fn has_fixed_suggestion_length(&self) -> bool {
-        self.backend == Backend::Cpu
+    /// The longest suggestion that the backend allows: short on the CPU, which adds each token
+    /// slowly.
+    pub(crate) fn longest_suggestion_length(&self) -> SuggestionLength {
+        if self.backend == Backend::Cpu {
+            SuggestionLength::Short
+        } else {
+            SuggestionLength::VeryLong
+        }
     }
 
     /// The most texts of a place that match the topic of the field, which a prompt shows as
@@ -429,13 +441,10 @@ impl Settings {
         if self.backend == Backend::Cpu { 1 } else { 2 }
     }
 
-    /// The length of each suggestion: short when the backend fixes it, else the selected length.
+    /// The length of each suggestion: the selected length, at most the longest length that the
+    /// backend allows.
     pub(crate) fn suggestion_length_in_use(&self) -> SuggestionLength {
-        if self.has_fixed_suggestion_length() {
-            SuggestionLength::Short
-        } else {
-            self.suggestion_length
-        }
+        self.suggestion_length.min(self.longest_suggestion_length())
     }
 }
 
@@ -680,14 +689,16 @@ mod tests {
     #[test]
     fn each_suggestion_length_allows_its_own_number_of_tokens() {
         let lengths = [
+            SuggestionLength::VeryShort,
             SuggestionLength::Short,
             SuggestionLength::Medium,
             SuggestionLength::Long,
+            SuggestionLength::VeryLong,
         ];
 
         let max_tokens = lengths.map(SuggestionLength::max_tokens);
 
-        assert_eq!(max_tokens, [TokenCount(4), TokenCount(8), TokenCount(16)]);
+        assert_eq!(max_tokens, [3, 6, 10, 15, 22].map(TokenCount));
     }
 
     #[test]
@@ -706,26 +717,30 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cpu_backend_always_uses_short_suggestions() {
-        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+    fn cpu_backend_uses_at_most_short_suggestions() {
+        let cases = [
+            (Backend::Cpu, SuggestionLength::VeryLong, SuggestionLength::Short),
+            (
+                Backend::Cpu,
+                SuggestionLength::VeryShort,
+                SuggestionLength::VeryShort,
+            ),
+            (
+                Backend::Metal,
+                SuggestionLength::VeryLong,
+                SuggestionLength::VeryLong,
+            ),
+        ];
 
-        let lengths = backends.map(|backend| {
+        let lengths = cases.map(|(backend, suggestion_length, _)| {
             Settings {
                 backend,
-                suggestion_length: SuggestionLength::Long,
+                suggestion_length,
                 ..Settings::default()
             }
             .suggestion_length_in_use()
         });
 
-        assert_eq!(
-            lengths,
-            [
-                SuggestionLength::Short,
-                SuggestionLength::Long,
-                SuggestionLength::Long,
-                SuggestionLength::Long,
-            ]
-        );
+        assert_eq!(lengths, cases.map(|(_, _, in_use)| in_use));
     }
 }
