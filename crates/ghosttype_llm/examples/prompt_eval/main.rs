@@ -508,6 +508,8 @@ struct KeyRun {
 /// What the input settle gave.
 struct Settled {
     has_read_screen: bool,
+    /// What the app does to show the suggestion for a new line.
+    suggestion: Option<Reaction>,
 }
 
 /// A case before its last key, in a new app each time.
@@ -537,9 +539,12 @@ impl Typing<'_> {
         }
         let start = Instant::now();
         let reaction = app.on_key(self.last_key, &self.field);
-        let (reaction, prompt) = self.complete(model, &mut app, reaction)?;
+        let (mut reaction, mut prompt) = self.complete(model, &mut app, reaction)?;
         if self.last_key == Key::Enter {
-            self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
+            let settled = self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
+            if let Some(suggestion) = settled.suggestion {
+                (reaction, prompt) = self.complete(model, &mut app, suggestion)?;
+            }
         }
         let millis = u64::try_from(start.elapsed().as_millis())?;
         Ok((
@@ -583,6 +588,7 @@ impl Typing<'_> {
     ) -> anyhow::Result<Settled> {
         let mut settled = Settled {
             has_read_screen: false,
+            suggestion: None,
         };
         let mut work = app.on_input_settled(field);
         while let Some(next) = work {
@@ -598,6 +604,10 @@ impl Typing<'_> {
                         Preparation::Skip => Err(InferenceError::Superseded),
                     };
                     app.on_completion(result);
+                    None
+                }
+                SettledWork::Suggest(reaction) => {
+                    settled.suggestion = Some(reaction);
                     None
                 }
             };

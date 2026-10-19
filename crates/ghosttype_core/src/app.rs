@@ -105,6 +105,9 @@ pub enum SettledWork {
     /// Decode the prompt of the focused field before the user types. Submit it as the request of
     /// a [`Reaction::Request`]. Its completion goes to [`App::on_completion`].
     Prepare(InferenceRequest),
+    /// Show the suggestion for the new line after Enter: do what the reaction asks, as after a
+    /// key.
+    Suggest(Reaction),
 }
 
 /// GhostType's state while running: suggestion engine plus on/off status.
@@ -192,14 +195,19 @@ impl App {
         self.engine.forget_history_of(app_id);
     }
 
-    /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. In a text field of an app where
-    /// the screen text is on, it starts a read of the screen, unless the session has its final
-    /// screen text or waits for a read.
+    /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. After Enter, it reads the field of
+    /// `desktop` again. When the field shows the text of the session and a new line, the session
+    /// continues there, and it returns the suggestion for the new line. Else the session ends.
+    /// In a text field of an app where the screen text is on, it then starts a read of the screen,
+    /// unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
         if self.status == Status::Paused || desktop.field() == Field::Excluded {
             return None;
+        }
+        if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
+            return Some(SettledWork::Suggest(reaction));
         }
         if self.reads_screen_in(desktop) {
             return self
@@ -435,6 +443,29 @@ mod tests {
         }
     }
 
+    /// A field of an unknown app with this text before the caret.
+    struct EditedField(&'static str);
+
+    impl Desktop for EditedField {
+        fn field(&self) -> Field {
+            Field::Open
+        }
+
+        fn surroundings(&self) -> Surroundings {
+            Surroundings {
+                field_text: Some(FieldText {
+                    before_caret: self.0.to_owned(),
+                    after_caret: String::new(),
+                }),
+                ..Surroundings::default()
+            }
+        }
+
+        fn copied_text(&self) -> Option<CopiedText> {
+            None
+        }
+    }
+
     const MAIL: TextField = TextField {
         app_id: "com.apple.mail",
         field: Field::Open,
@@ -629,6 +660,28 @@ mod tests {
         let request = app.on_input_settled(&FakeDesktop(Field::Open));
 
         assert_eq!(request, None);
+    }
+
+    #[test]
+    fn settled_input_after_enter_suggests_on_the_new_line() {
+        let mut app = App::new();
+        app.on_key(Key::Char(','), &EditedField("Best regards"));
+        app.on_key(Key::Enter, &EditedField("Best regards,"));
+
+        let work = app.on_input_settled(&EditedField("Best regards,\n"));
+
+        assert_eq!(work, Some(SettledWork::Suggest(request("Best regards,\n"))));
+    }
+
+    #[test]
+    fn settled_input_after_enter_that_emptied_the_field_prepares_a_new_session() {
+        let mut app = app_preparing_on_focus();
+        app.on_key(Key::Char('k'), &EditedField("o"));
+        app.on_key(Key::Enter, &EditedField("ok"));
+
+        let work = app.on_input_settled(&EditedField(""));
+
+        assert_eq!(work, Some(SettledWork::Prepare(preparation(&[], ""))));
     }
 
     #[test]

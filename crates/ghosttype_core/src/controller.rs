@@ -423,6 +423,9 @@ impl Controller {
         match work {
             Some(SettledWork::ReadScreen { read, source }) => shell.read_screen(read, source),
             Some(SettledWork::Prepare(request)) => self.runner.submit(request, &self.suggestion_sink),
+            Some(SettledWork::Suggest(reaction)) => {
+                self.apply(reaction, shell);
+            }
             None => {}
         }
     }
@@ -1400,6 +1403,78 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    fn field_with_text(before_caret: &str) -> Surroundings {
+        Surroundings {
+            field_text: Some(FieldText {
+                before_caret: before_caret.to_owned(),
+                after_caret: String::new(),
+            }),
+            ..Surroundings::default()
+        }
+    }
+
+    /// A harness after the user typed "Best regards," and pressed Enter.
+    fn harness_after_enter() -> Harness {
+        let mut harness = Harness::new(Settings::default());
+        harness.shell.surroundings = field_with_text("Best regards");
+        harness.press(Key::Char(','));
+        harness.answer(completed(""));
+        harness.press(Key::Enter);
+        harness
+    }
+
+    fn suggestion_request(text_before: &str) -> InferenceRequest {
+        InferenceRequest::Complete {
+            prompt: framed_prompt(&[], text_before),
+            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+            word_bias: None,
+        }
+    }
+
+    #[test]
+    fn suggestion_shows_after_enter_and_a_pause() {
+        let mut harness = harness_after_enter();
+        harness.shell.surroundings = field_with_text("Best regards,\n");
+        harness.settle_input();
+        harness.answer(completed("Sara Novak"));
+        harness.take_calls();
+
+        harness.settle_caret();
+
+        assert_eq!(
+            (harness.last_request(), harness.take_calls()),
+            (
+                Some(suggestion_request("Best regards,\n")),
+                vec![ghost_at_caret(Some("Sara Novak"), Some(PAUSE_BADGE))]
+            )
+        );
+    }
+
+    #[test]
+    fn key_before_the_pause_after_enter_continues_the_new_line() {
+        let mut harness = harness_after_enter();
+        harness.shell.surroundings = field_with_text("Best regards,\n");
+        harness.press(Key::Char('S'));
+
+        harness.settle_input();
+
+        assert_eq!(
+            harness.last_request(),
+            Some(suggestion_request("Best regards,\nS"))
+        );
+    }
+
+    #[test]
+    fn enter_that_sends_the_text_requests_no_suggestion() {
+        let mut harness = harness_after_enter();
+        harness.shell.surroundings = field_with_text("");
+        let requests_before_settle = harness.requests().len();
+
+        harness.settle_input();
+
+        assert_eq!(harness.requests().len(), requests_before_settle);
     }
 
     #[test]

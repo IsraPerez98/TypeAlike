@@ -31,6 +31,9 @@ const COPIED_WORDS: usize = 4;
 const MAX_PATTERN_WORDS: usize = 3;
 const PATTERN_REPEATS: usize = 3;
 const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
+/// The characters that end a line in the text of a field. Word ends a line inside a paragraph with
+/// a vertical tab.
+const LINE_BREAKS: [char; 5] = ['\n', '\r', '\u{b}', '\u{2028}', '\u{2029}'];
 
 /// What the platform must do after a key press, a context change or a completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +134,9 @@ struct Session {
     /// stored text of a read before the session, if any. After it, the session starts no other
     /// read, so that the start of its prompt changes at most one time.
     has_screen_read: bool,
+    /// Whether the user pressed Enter after the last read of the field, so that the text before
+    /// the caret is not known until the next read.
+    is_waiting_for_new_line: bool,
 }
 
 impl Session {
@@ -204,6 +210,9 @@ impl Engine {
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
+        if key != Key::Enter {
+            self.read_field_after_enter(desktop);
+        }
         match key {
             Key::Char(character) if !character.is_control() => {
                 self.start_session(desktop).text_before.push(character);
@@ -215,8 +224,52 @@ impl Engine {
             }
             Key::Tab => self.accept(),
             Key::Escape => self.dismiss(),
-            Key::Char(_) | Key::Enter | Key::Other => self.reset(),
+            Key::Enter => self.wait_for_new_line(),
+            Key::Char(_) | Key::Other => self.reset(),
         }
+    }
+
+    /// Reads the field of `desktop` again after Enter, and returns the suggestion for the new line
+    /// when the session continues there. `None` when the user pressed no Enter since the last read,
+    /// or when the session ends.
+    pub fn suggest_on_new_line(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
+        self.read_field_after_enter(desktop).then(|| self.request())
+    }
+
+    /// Hides the ghost text, and lets the session wait for a read of its field. A session in a
+    /// field that the platform cannot read or that gets no suggestions ends.
+    fn wait_for_new_line(&mut self) -> Reaction {
+        let Some(session) = self
+            .session
+            .as_mut()
+            .filter(|session| session.is_text_field && !session.is_excluded)
+        else {
+            return self.reset();
+        };
+        session.is_waiting_for_new_line = true;
+        self.dismiss()
+    }
+
+    /// Reads the field of `desktop` when the session waits for a read after Enter. The session
+    /// continues with the text that Enter added when the field shows the text of the session and a
+    /// new line after it. Else it ends. Returns whether the session continues on a new line.
+    fn read_field_after_enter(&mut self, desktop: &dyn Desktop) -> bool {
+        let Some(session) = self
+            .session
+            .as_mut()
+            .filter(|session| session.is_waiting_for_new_line)
+        else {
+            return false;
+        };
+        session.is_waiting_for_new_line = false;
+        let field_text = desktop.surroundings().field_text.unwrap_or_default();
+        let Some(added) = text_on_new_line(&session.text_before, &field_text.before_caret) else {
+            self.reset();
+            return false;
+        };
+        session.text_before.push_str(added);
+        session.keep_recent_text();
+        true
     }
 
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
@@ -477,6 +530,7 @@ impl Engine {
             has_accepted: false,
             is_text_field: surroundings.field_text.is_some(),
             has_screen_read: false,
+            is_waiting_for_new_line: false,
         }
     }
 
@@ -672,6 +726,23 @@ fn recent_text(text: &str, max_tokens: TokenCount) -> &str {
     }
     let trimmed_tokens = TokenCount(max_tokens.0 / 4 * 3);
     last_tokens(last_chars(text, TRIMMED_CHARS_BEFORE_CARET), trimmed_tokens)
+}
+
+/// Returns what Enter added after `text` in `field_text`, the text before the caret after Enter:
+/// line breaks, then signs without letters, such as an indent or a bullet. `None` when
+/// `field_text` is not `text` with such an addition.
+fn text_on_new_line<'field>(text: &str, field_text: &'field str) -> Option<&'field str> {
+    let line_start = field_text
+        .trim_end_matches(|character| !LINE_BREAKS.contains(&character))
+        .len();
+    let breaks_start = field_text[..line_start].trim_end().len();
+    let added_start = field_text[breaks_start..line_start]
+        .char_indices()
+        .filter(|(_, character)| LINE_BREAKS.contains(character))
+        .map(|(offset, _)| breaks_start + offset)
+        .find(|&end| field_text[..end].ends_with(text))?;
+    let new_line = &field_text[line_start..];
+    (!new_line.contains(char::is_alphabetic)).then(|| &field_text[added_start..])
 }
 
 /// Returns the first line of `completion` up to a placeholder as ghost text after `context`, or
@@ -1464,6 +1535,175 @@ mod tests {
         assert_eq!(reaction, request("l"));
     }
 
+    /// A field with `before_caret` and a recent copy, which a new session puts into its preface.
+    fn field_with_copy(before_caret: &str) -> FakeDesktop {
+        FakeDesktop {
+            copied: Some(CopiedText {
+                text: "Sara Novak".to_owned(),
+                age: Some(Duration::from_secs(1)),
+            }),
+            ..FakeDesktop::with_field_text(before_caret)
+        }
+    }
+
+    fn engine_after_enter(typed: &str) -> Engine {
+        let mut engine = engine_with(&Settings {
+            clipboard_access: ClipboardAccess::Allowed,
+            ..Settings::default()
+        });
+        let desktop = FakeDesktop::with_field_text(typed);
+        engine.prepare(&desktop);
+        engine.on_completion(completion(""));
+        engine.on_key(Key::Enter, &desktop);
+        engine
+    }
+
+    #[test]
+    fn enter_hides_the_suggestion() {
+        let mut engine = engine_showing("he", "llo");
+
+        let reaction = press(&mut engine, Key::Enter);
+
+        assert_eq!((reaction, engine.shown()), (Reaction::Hide, ""));
+    }
+
+    #[test]
+    fn completion_of_a_request_before_enter_shows_nothing() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text("Best regards");
+        engine.on_key(Key::Char(','), &desktop);
+        engine.on_key(Key::Enter, &desktop);
+
+        let reaction = engine.on_completion(completion(" Sara"));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn settled_input_after_enter_requests_the_new_line_with_the_same_preface() {
+        let mut engine = engine_after_enter("Best regards,");
+
+        let reaction = engine.suggest_on_new_line(&field_with_copy("Best regards,\n"));
+
+        assert_eq!(reaction, Some(request("Best regards,\n")));
+    }
+
+    #[test]
+    fn key_after_enter_continues_the_session_on_the_new_line() {
+        let mut engine = engine_after_enter("Best regards,");
+
+        let reaction = engine.on_key(Key::Char('S'), &field_with_copy("Best regards,\n"));
+
+        assert_eq!(reaction, request("Best regards,\nS"));
+    }
+
+    #[test]
+    fn new_line_keeps_what_the_app_adds_after_the_line_break() {
+        let cases = [
+            "- milk\n- ",
+            "- milk\n\n",
+            "- milk\r\n",
+            "- milk\n    ",
+            "- milk\n2. ",
+        ];
+
+        let reactions =
+            cases.map(|field| engine_after_enter("- milk").suggest_on_new_line(&field_with_copy(field)));
+
+        assert_eq!(reactions, cases.map(|field| Some(request(field))));
+    }
+
+    #[test]
+    fn second_enter_waits_for_the_same_read() {
+        let mut engine = engine_after_enter("Hi Tom,");
+        press(&mut engine, Key::Enter);
+
+        let reaction = engine.suggest_on_new_line(&field_with_copy("Hi Tom,\n\n"));
+
+        assert_eq!(reaction, Some(request("Hi Tom,\n\n")));
+    }
+
+    #[test]
+    fn session_ends_when_enter_starts_no_new_line() {
+        let cases = [
+            ("See you at 8", ""),
+            ("weather in lisbon", "weather in lisbon"),
+            ("明日の会議はとうきょう", "明日の会議は東京"),
+            ("$ ls", "$ ls\nnotes.txt\n$ "),
+            ("Dear Ana,", "Dear Ana,\nSara"),
+            ("Thanks", "Thanks, "),
+        ];
+
+        let outcomes = cases.map(|(typed, field)| {
+            let mut engine = engine_after_enter(typed);
+            let reaction = engine.suggest_on_new_line(&field_with_copy(field));
+            (reaction, engine.has_session())
+        });
+
+        assert_eq!(outcomes, cases.map(|_| (None, false)));
+    }
+
+    #[test]
+    fn key_after_enter_without_a_new_line_starts_a_new_session() {
+        let mut engine = engine_after_enter("See you at 8");
+
+        let reaction = engine.on_key(Key::Char('O'), &field_with_copy(""));
+
+        assert_eq!(
+            reaction,
+            request_with(&["Text on my clipboard: “Sara Novak”"], "O")
+        );
+    }
+
+    #[test]
+    fn settled_input_without_enter_suggests_nothing() {
+        let mut engine = engine_waiting_for("he");
+
+        let reaction = engine.suggest_on_new_line(&FakeDesktop::with_field_text("he\n"));
+
+        assert_eq!(reaction, None);
+    }
+
+    #[test]
+    fn enter_ends_a_session_whose_field_the_platform_cannot_read() {
+        let mut engine = engine_waiting_for("he");
+
+        press(&mut engine, Key::Enter);
+
+        assert!(!engine.has_session());
+    }
+
+    #[test]
+    fn enter_ends_a_session_in_a_subject_field() {
+        let mut engine = Engine::default();
+        let desktop = field_of(Some("com.apple.mail"), Some("Subject"), "Lunch");
+        engine.on_key(Key::Char('?'), &desktop);
+
+        engine.on_key(Key::Enter, &desktop);
+
+        assert!(!engine.has_session());
+    }
+
+    #[test]
+    fn new_line_after_a_trimmed_text_continues_its_end() {
+        let mut engine = Engine::default();
+        let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
+        engine.on_key(Key::Char('y'), &desktop);
+        engine.on_completion(completion(""));
+        engine.on_key(Key::Enter, &desktop);
+        let field = format!("{}\n", "y".repeat(MAX_CHARS_BEFORE_CARET - 1));
+
+        let reaction = engine.suggest_on_new_line(&FakeDesktop::with_field_text(&field));
+
+        assert_eq!(
+            reaction,
+            Some(request(&format!(
+                "{}\n",
+                "y".repeat(TRIMMED_CHARS_BEFORE_CARET + 1)
+            )))
+        );
+    }
+
     #[test]
     fn reset_hides_and_clears_context() {
         let mut engine = engine_showing("he", "llo");
@@ -1890,6 +2130,24 @@ mod tests {
         let saved = finish_typing_text(&mut engine, &desktop, "", false);
 
         assert_eq!(saved, None);
+    }
+
+    #[test]
+    fn session_with_two_lines_is_kept_in_one_entry() {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        let first_line = "Hi Ana,";
+        engine.prepare(&mail_desktop(""));
+        type_text(&mut engine, first_line);
+        engine.on_key(Key::Enter, &mail_desktop(""));
+        let new_line = mail_desktop(&format!("{first_line}\n"));
+        engine.suggest_on_new_line(&new_line);
+
+        let saved = finish_typing_text(&mut engine, &new_line, TYPED_TEXT, false);
+
+        assert_eq!(
+            saved,
+            Some(vec![mail_entry(&format!("{first_line}\n{TYPED_TEXT}d"))])
+        );
     }
 
     fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
