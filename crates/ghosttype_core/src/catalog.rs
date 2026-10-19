@@ -49,9 +49,9 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
     SuggestedModel {
         name: "Gemma 4 E2B",
         parameters: "2B effective",
-        repo: "google/gemma-4-E2B-it-qat-q4_0-gguf",
-        file_name: "gemma-4-E2B_q4_0-it.gguf",
-        size: ByteSize(3_349_516_256),
+        repo: "unsloth/gemma-4-E2B-it-qat-GGUF",
+        file_name: "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+        size: ByteSize(2_620_370_976),
         developer: "Google",
     },
     SuggestedModel {
@@ -73,9 +73,9 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
     SuggestedModel {
         name: "Gemma 4 E4B",
         parameters: "4B effective",
-        repo: "google/gemma-4-E4B-it-qat-q4_0-gguf",
-        file_name: "gemma-4-E4B_q4_0-it.gguf",
-        size: ByteSize(5_154_941_280),
+        repo: "unsloth/gemma-4-E4B-it-qat-GGUF",
+        file_name: "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+        size: ByteSize(4_215_695_776),
         developer: "Google",
     },
     SuggestedModel {

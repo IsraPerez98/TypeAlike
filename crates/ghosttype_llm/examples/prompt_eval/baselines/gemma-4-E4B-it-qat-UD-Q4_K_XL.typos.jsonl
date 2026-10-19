@@ -1,0 +1,29 @@
+{"id":"typo-en-email-14","kind":"typo","suggestion":"ons schedule to be:","is_match":false,"millis":488,"warm_millis":171,"prompt_tokens":266,"log_probability":-0.04765835906190053}
+{"id":"typo-en-chat-07","kind":"typo","suggestion":"ped my expectations. I'","is_match":false,"millis":273,"warm_millis":172,"prompt_tokens":137,"log_probability":-12.575503200498687}
+{"id":"typo-en-chat-14","kind":"typo","suggestion":"hing. 💀","is_match":false,"millis":275,"warm_millis":173,"prompt_tokens":156,"log_probability":-0.833689096883228}
+{"id":"typo-en-doc-15","kind":"typo","suggestion":"ngineer the frontend role.","is_match":false,"millis":265,"warm_millis":171,"prompt_tokens":109,"log_probability":-9.191253274043358}
+{"id":"typo-en-form-11","kind":"typo","suggestion":" error. I have tried","is_match":true,"millis":276,"warm_millis":175,"prompt_tokens":141,"log_probability":-14.81183355582629}
+{"id":"typo-es-email-02","kind":"typo","suggestion":"cia.","is_match":false,"millis":223,"warm_millis":123,"prompt_tokens":139,"log_probability":-7.984028573048597}
+{"id":"typo-es-email-09","kind":"typo","suggestion":"da.","is_match":false,"millis":255,"warm_millis":150,"prompt_tokens":156,"log_probability":-4.516019976751579}
+{"id":"typo-es-email-13","kind":"typo","suggestion":"s de seguridad.","is_match":false,"millis":272,"warm_millis":171,"prompt_tokens":140,"log_probability":-23.991431135634198}
+{"id":"typo-es-chat-02","kind":"typo","suggestion":"r que pusieron.","is_match":false,"millis":270,"warm_millis":171,"prompt_tokens":134,"log_probability":-1.3631690013169286}
+{"id":"typo-es-chat-03","kind":"typo","suggestion":"és?","is_match":false,"millis":223,"warm_millis":124,"prompt_tokens":128,"log_probability":-1.388859352135916}
+{"id":"typo-es-chat-09","kind":"typo","suggestion":"gido de mi hijo","is_match":false,"millis":280,"warm_millis":177,"prompt_tokens":153,"log_probability":-0.2151089419180097}
+{"id":"typo-es-doc-01","kind":"typo","suggestion":"tivos, que incrementó","is_match":false,"millis":387,"warm_millis":172,"prompt_tokens":263,"log_probability":-19.422246346759515}
+{"id":"typo-es-doc-03","kind":"typo","suggestion":"k. A Isidora le encant","is_match":false,"millis":271,"warm_millis":176,"prompt_tokens":130,"log_probability":-31.856385216100104}
+{"id":"typo-es-doc-05","kind":"typo","suggestion":"cado. La","is_match":false,"millis":277,"warm_millis":178,"prompt_tokens":131,"log_probability":-0.00920637638760795}
+{"id":"typo-es-doc-11","kind":"typo","suggestion":"dientes","is_match":false,"millis":194,"warm_millis":99,"prompt_tokens":118,"log_probability":-19.73719302307939}
+{"id":"typo-es-form-01","kind":"typo","suggestion":"do\" o","is_match":false,"millis":322,"warm_millis":181,"prompt_tokens":184,"log_probability":-0.8910707316284303}
+{"id":"typo-es-form-05","kind":"typo","suggestion":"char? Gracias.","is_match":false,"millis":277,"warm_millis":172,"prompt_tokens":160,"log_probability":-18.98873635153634}
+{"id":"typo-es-form-06","kind":"typo","suggestion":"cible:","is_match":false,"millis":229,"warm_millis":125,"prompt_tokens":156,"log_probability":-11.470431196149894}
+{"id":"typo-es-form-10","kind":"typo","suggestion":". Gracias.","is_match":true,"millis":252,"warm_millis":147,"prompt_tokens":153,"log_probability":-18.068661023350938}
+{"id":"typo-es-long-02","kind":"typo","suggestion":"tros.","is_match":false,"millis":805,"warm_millis":124,"prompt_tokens":731,"log_probability":-23.136409347827207}
+{"id":"typo-es-long-10","kind":"typo","suggestion":"miento.","is_match":false,"millis":730,"warm_millis":150,"prompt_tokens":662,"log_probability":-22.328387826308628}
+{"id":"typo-es-history-01","kind":"typo","suggestion":"e a sus comentarios.","is_match":false,"millis":378,"warm_millis":176,"prompt_tokens":215,"log_probability":-5.110676839066842}
+{"id":"typo-en-doc-08","kind":"typo","suggestion":"ant.","is_match":false,"millis":338,"warm_millis":122,"prompt_tokens":263,"log_probability":-0.04680170516086232}
+{"id":"typo-en-doc-16","kind":"typo","suggestion":"ra.","is_match":false,"millis":196,"warm_millis":98,"prompt_tokens":130,"log_probability":-16.766552378065505}
+{"id":"typo-en-form-12","kind":"typo","suggestion":" that future workshops","is_match":true,"millis":265,"warm_millis":171,"prompt_tokens":109,"log_probability":-2.3443649994721225}
+{"id":"typo-es-email-08","kind":"typo","suggestion":"or.","is_match":false,"millis":242,"warm_millis":150,"prompt_tokens":120,"log_probability":-0.07480865480430737}
+{"id":"typo-es-chat-04","kind":"typo","suggestion":"s?","is_match":false,"millis":223,"warm_millis":122,"prompt_tokens":136,"log_probability":-19.963492262433988}
+{"id":"typo-es-chat-12","kind":"typo","suggestion":null,"is_match":true,"millis":194,"warm_millis":98,"prompt_tokens":114,"log_probability":-16.987420359070672}
+{"id":"typo-en-long-10","kind":"typo","suggestion":"tate to ask.","is_match":false,"millis":964,"warm_millis":151,"prompt_tokens":896,"log_probability":-12.247797115350435}
