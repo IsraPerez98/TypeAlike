@@ -642,7 +642,7 @@ mod tests {
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Completion, TokenCount};
+    use crate::inference::{Completion, NextWordBias, TokenCount};
     use crate::models_pane::SEARCH;
     use crate::personalization_pane::{DELETE, HISTORY};
     use crate::playground::MODEL;
@@ -1432,6 +1432,7 @@ mod tests {
             prompt: framed_prompt(&[], text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
         }
     }
@@ -1867,6 +1868,7 @@ mod tests {
                 prompt: crate::prompt::framed_prompt(&["Where I am typing: Format: email; App: Mail"], ""),
                 max_tokens: TokenCount(0),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
             })
         );
@@ -2009,6 +2011,7 @@ mod tests {
                 ),
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
             })
         );

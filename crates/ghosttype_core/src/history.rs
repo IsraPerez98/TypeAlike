@@ -7,7 +7,7 @@ use std::io;
 use std::ops::Range;
 
 use crate::desktop::{FieldText, ScreenText, Surroundings};
-use crate::inference::{TokenCount, WordBias};
+use crate::inference::{NextWordBias, TokenCount, WordBias};
 use crate::place::{self, Format};
 use crate::prompt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens};
 use crate::settings::WordChoice;
@@ -84,6 +84,12 @@ const MIN_PHRASE_COUNT: u32 = 3;
 /// The smallest share, in percent, of the next word among all the words that the writer wrote
 /// after the same words.
 const MIN_PHRASE_PERCENT: u32 = 60;
+/// The words of the runs before a next word that give a preference for it, longest first.
+const RUN_WORDS: [usize; 2] = [PHRASE_CONTEXT_WORDS, 2];
+/// The fewest times that the writer wrote a run of words, for a preference for its next words.
+const MIN_RUN_COUNT: u32 = 2;
+/// The most next words that a completion prefers.
+const MAX_NEXT_WORDS: usize = 8;
 
 /// One text that the user wrote, which later prompts can show as an example. `Debug` shows only
 /// its length and its app, so logs never hold what the user wrote.
@@ -466,12 +472,7 @@ pub fn word_bias_of_counts(
     choice: WordChoice,
     version: u64,
 ) -> Option<WordBias> {
-    let strength = match choice {
-        WordChoice::Off => return None,
-        WordChoice::Light => 0.5,
-        WordChoice::Medium => 1.0,
-        WordChoice::Strong => 2.0,
-    };
+    let strength = strength_of(choice)?;
     let full_weight = f32::from(FULL_WEIGHT_COUNT).ln();
     let mut spellings = HashMap::<String, Vec<(String, u32)>>::new();
     for (word, count) in counts {
@@ -505,17 +506,41 @@ pub fn word_bias_of_counts(
     })
 }
 
-/// The phrases that the writer repeats: after [`PHRASE_CONTEXT_WORDS`] words in any case, the text
-/// up to the end of the next word. `Debug` shows only their number, so logs never hold what the
-/// user wrote.
+/// Returns the most logits that `choice` adds to a word, or `None` when the choice is off.
+fn strength_of(choice: WordChoice) -> Option<f32> {
+    match choice {
+        WordChoice::Off => None,
+        WordChoice::Light => Some(0.5),
+        WordChoice::Medium => Some(1.0),
+        WordChoice::Strong => Some(2.0),
+    }
+}
+
+/// What the writer wrote after each run of [`RUN_WORDS`] words in any case, for the runs that the
+/// writer wrote at least [`MIN_RUN_COUNT`] times: the phrases that the writer repeats, and the
+/// words that the writer wrote after the last words before the caret. `Debug` shows only the
+/// number of runs, so logs never hold what the user wrote.
 #[derive(Default)]
-pub(crate) struct Phrases(HashMap<String, String>);
+pub(crate) struct Phrases {
+    /// The logits for a word that always came after its run.
+    strength: f32,
+    /// For each number of words of a run, longest first, the texts after each run up to the end
+    /// of the next word, with the signs before that word, and their counts.
+    runs: Vec<(usize, Followers)>,
+}
+
+type Followers = HashMap<String, Vec<(String, u32)>>;
 
 impl fmt::Debug for Phrases {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let runs = self
+            .runs
+            .iter()
+            .map(|(_, followers)| followers.len())
+            .sum::<usize>();
         formatter
             .debug_struct("Phrases")
-            .field("count", &self.0.len())
+            .field("runs", &runs)
             .finish_non_exhaustive()
     }
 }
@@ -523,8 +548,11 @@ impl fmt::Debug for Phrases {
 impl Phrases {
     /// Returns the rest of a phrase after `text_before`, the text before the caret, up to the end
     /// of its next word, or `None`. The text can end inside that word. The rest never goes past
-    /// the end of the line.
+    /// the end of the line. A phrase needs the same next word, with the same signs before it, at
+    /// least [`MIN_PHRASE_COUNT`] times and in at least [`MIN_PHRASE_PERCENT`] of the times that
+    /// the writer wrote the [`PHRASE_CONTEXT_WORDS`] words before it.
     pub(crate) fn continuation_of(&self, text_before: &str) -> Option<&str> {
+        let followers = self.followers_of(PHRASE_CONTEXT_WORDS)?;
         let spans = runs_of(text_before, is_phrase_character);
         let ends_inside_word = text_before.ends_with(is_phrase_character);
         let partial_word = ends_inside_word.then(|| spans.len().checked_sub(1)).flatten();
@@ -533,47 +561,126 @@ impl Phrases {
             .flatten()
             .find_map(|context_end| {
                 let context = spans.get(context_end.checked_sub(PHRASE_CONTEXT_WORDS)?..context_end)?;
-                let follower = self.0.get(&context_key(text_before, context))?;
+                let follower = repeated_follower(followers.get(&context_key(text_before, context))?)?;
                 let typed = &text_before[context.last()?.end..];
                 let rest = follower.strip_prefix(typed)?;
                 (!rest.is_empty() && !rest.contains(['\r', '\n'])).then_some(rest)
             })
     }
+
+    /// Returns the preference for the words that the writer wrote after the last words of
+    /// `text_before`, the text before the caret: the words after the longest run that has some.
+    /// Each word gets the strength times its share of the words after the run. When the text ends
+    /// inside a word, the run ends before that word and the words start with its letters. A word
+    /// gets no preference when a line break or no space comes before it.
+    pub(crate) fn next_word_bias(&self, text_before: &str) -> NextWordBias {
+        let spans = runs_of(text_before, is_phrase_character);
+        let partial_words = usize::from(text_before.ends_with(is_phrase_character));
+        let context_end = spans.len().saturating_sub(partial_words);
+        let words = self.runs.iter().find_map(|(context_words, followers)| {
+            let context = spans.get(context_end.checked_sub(*context_words)?..context_end)?;
+            let counts = followers.get(&context_key(text_before, context))?;
+            let typed = &text_before[context.last()?.end..];
+            let words = preferred_words(counts, typed, self.strength);
+            (!words.is_empty()).then_some(words)
+        });
+        NextWordBias(words.unwrap_or_default())
+    }
+
+    fn followers_of(&self, context_words: usize) -> Option<&Followers> {
+        self.runs
+            .iter()
+            .find(|(words, _)| *words == context_words)
+            .map(|(_, followers)| followers)
+    }
 }
 
-/// Returns the phrases of `entries` for `choice`, which have none when the choice is off. A phrase
-/// needs the same next word, with the same signs before it, at least [`MIN_PHRASE_COUNT`] times
-/// and in at least [`MIN_PHRASE_PERCENT`] of the times that the writer wrote its words.
+/// Returns the text of `counts` that the writer wrote at least [`MIN_PHRASE_COUNT`] times and in
+/// at least [`MIN_PHRASE_PERCENT`] of the times, if any.
+fn repeated_follower(counts: &[(String, u32)]) -> Option<&str> {
+    let total = counts.iter().map(|(_, count)| count).sum::<u32>();
+    let (follower, count) = counts.iter().max_by_key(|(_, count)| count)?;
+    let is_repeated = *count >= MIN_PHRASE_COUNT && count * 100 >= total * MIN_PHRASE_PERCENT;
+    is_repeated.then_some(follower.as_str())
+}
+
+/// Returns the words of `counts` after `typed` with their share of `strength`, most common first.
+/// A word needs a space before it and no line break.
+fn preferred_words(counts: &[(String, u32)], typed: &str, strength: f32) -> Vec<(String, f32)> {
+    let total = small_count(counts.iter().map(|(_, count)| count).sum());
+    let mut words = counts
+        .iter()
+        .filter(|(follower, _)| follower.starts_with(typed))
+        .filter_map(|(follower, count)| {
+            let word = follower.trim_start_matches(|character| !is_phrase_character(character));
+            let signs = &follower[..follower.len() - word.len()];
+            let is_after_space = signs.ends_with(char::is_whitespace) && !signs.contains(['\r', '\n']);
+            is_after_space.then_some((word, *count))
+        })
+        .collect::<Vec<_>>();
+    words.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(right.0)));
+    words
+        .into_iter()
+        .take(MAX_NEXT_WORDS)
+        .map(|(word, count)| (word.to_owned(), strength * small_count(count) / total))
+        .collect()
+}
+
+/// Returns `count` as a float, at most [`u16::MAX`].
+fn small_count(count: u32) -> f32 {
+    f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+}
+
+/// Returns the phrases of `entries` for `choice`, which have none when the choice is off.
 pub(crate) fn phrases(entries: &[HistoryEntry], choice: WordChoice) -> Phrases {
-    if choice == WordChoice::Off {
+    let Some(strength) = strength_of(choice) else {
         return Phrases::default();
-    }
+    };
+    let runs = RUN_WORDS
+        .iter()
+        .map(|&context_words| (context_words, repeated_runs(entries, context_words)))
+        .collect();
+    Phrases { strength, runs }
+}
+
+/// Returns, for each run of `context_words` words of `entries` in any case that the writer wrote
+/// at least [`MIN_RUN_COUNT`] times, the texts that came after it up to the end of the next word,
+/// with the signs before that word, and their counts.
+fn repeated_runs(entries: &[HistoryEntry], context_words: usize) -> Followers {
     let mut followers = HashMap::<String, Vec<(&str, u32)>>::new();
     for part in entries.iter().flat_map(|entry| entry.text.split(REDACTED)) {
         let spans = runs_of(part, is_phrase_character);
-        for window in spans.windows(PHRASE_CONTEXT_WORDS + 1) {
-            let Some((next, context)) = window.split_last() else {
-                continue;
-            };
-            let follower = &part[context[context.len() - 1].end..next.end];
-            let counts = followers.entry(context_key(part, context)).or_default();
+        let lowercase = spans
+            .iter()
+            .map(|span| {
+                part[span.clone()]
+                    .chars()
+                    .flat_map(char::to_lowercase)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        for (start, window) in spans.windows(context_words + 1).enumerate() {
+            let follower = &part[window[context_words - 1].end..window[context_words].end];
+            let counts = followers
+                .entry(lowercase[start..start + context_words].join(" "))
+                .or_default();
             match counts.iter_mut().find(|(known, _)| *known == follower) {
                 Some((_, count)) => *count += 1,
                 None => counts.push((follower, 1)),
             }
         }
     }
-    Phrases(
-        followers
-            .into_iter()
-            .filter_map(|(context, counts)| {
-                let total = counts.iter().map(|(_, count)| count).sum::<u32>();
-                let (follower, count) = counts.into_iter().max_by_key(|&(_, count)| count)?;
-                let is_repeated = count >= MIN_PHRASE_COUNT && count * 100 >= total * MIN_PHRASE_PERCENT;
-                is_repeated.then(|| (context, follower.to_owned()))
-            })
-            .collect(),
-    )
+    followers
+        .into_iter()
+        .filter(|(_, counts)| counts.iter().map(|(_, count)| count).sum::<u32>() >= MIN_RUN_COUNT)
+        .map(|(context, counts)| {
+            let owned = counts
+                .into_iter()
+                .map(|(follower, count)| (follower.to_owned(), count))
+                .collect();
+            (context, owned)
+        })
+        .collect()
 }
 
 /// Returns the words of `context`, spans of `text`, in lowercase with one space between them.
@@ -919,9 +1026,102 @@ mod tests {
 
     #[test]
     fn debug_of_the_phrases_hides_the_text() {
-        let debug = format!("{:?}", phrases(&phrase_entries(), WordChoice::Medium));
+        let entries = [mail("let me know if"), mail("let me know if")];
 
-        assert_eq!(debug, "Phrases { count: 1, .. }");
+        let debug = format!("{:?}", phrases(&entries, WordChoice::Medium));
+
+        assert_eq!(debug, "Phrases { runs: 3, .. }");
+    }
+
+    fn next_word_entries() -> Vec<HistoryEntry> {
+        ["if it works", "if you can", "when you can", "if that helps"]
+            .map(|rest| mail(&format!("Please let me know {rest}.")))
+            .to_vec()
+    }
+
+    fn next_words_in(entries: &[HistoryEntry], choice: WordChoice, text_before: &str) -> Vec<(String, f32)> {
+        phrases(entries, choice).next_word_bias(text_before).0
+    }
+
+    fn word(word: &str, weight: f32) -> (String, f32) {
+        (word.to_owned(), weight)
+    }
+
+    #[test]
+    fn next_word_gets_the_share_of_the_strength_that_it_has_after_the_last_three_words() {
+        let next = next_words_in(&next_word_entries(), WordChoice::Medium, "Can you let me know ");
+
+        assert_eq!(next, [word("if", 0.75), word("when", 0.25)]);
+    }
+
+    #[test]
+    fn next_words_inside_a_word_start_with_the_typed_letters() {
+        let next = next_words_in(&next_word_entries(), WordChoice::Medium, "Can you let me know w");
+
+        assert_eq!(next, [word("when", 0.25)]);
+    }
+
+    #[test]
+    fn next_words_come_after_the_last_two_words_when_the_last_three_have_none() {
+        let next = next_words_in(&next_word_entries(), WordChoice::Medium, "Then tell me know ");
+
+        assert_eq!(next, [word("if", 0.75), word("when", 0.25)]);
+    }
+
+    #[test]
+    fn strength_of_the_choice_scales_the_next_words() {
+        let choices = [WordChoice::Off, WordChoice::Light, WordChoice::Strong];
+
+        let next = choices.map(|choice| next_words_in(&next_word_entries(), choice, "let me know "));
+
+        assert_eq!(
+            next,
+            [
+                vec![],
+                vec![word("if", 0.375), word("when", 0.125)],
+                vec![word("if", 1.5), word("when", 0.5)]
+            ]
+        );
+    }
+
+    #[test]
+    fn run_of_words_that_comes_one_time_gives_no_next_words() {
+        let entries = [mail("We meet at noon today.")];
+
+        let next = next_words_in(&entries, WordChoice::Medium, "So we meet at ");
+
+        assert_eq!(next, []);
+    }
+
+    #[test]
+    fn next_word_after_a_line_break_or_without_a_space_gets_no_preference() {
+        let entries = ["Thanks a lot.\nJordan", "Thanks a lot, Jordan", "send the e-mail"]
+            .repeat(2)
+            .into_iter()
+            .map(mail)
+            .collect::<Vec<_>>();
+        let cases = [
+            ("Thanks a lot, ", vec![word("Jordan", 0.5)]),
+            ("Thanks a lot.\n", vec![]),
+            ("Please send the e-", vec![]),
+        ];
+
+        let next = cases
+            .clone()
+            .map(|(text_before, _)| next_words_in(&entries, WordChoice::Medium, text_before));
+
+        assert_eq!(next, cases.map(|(_, words)| words));
+    }
+
+    #[test]
+    fn next_words_are_at_most_the_eight_most_common() {
+        let entries =
+            ["a", "b", "c", "d", "e", "f", "g", "h", "i", "a"].map(|next| mail(&format!("we go to {next}x")));
+
+        let next = next_words_in(&entries, WordChoice::Medium, "So we go to ");
+
+        assert_eq!(next.first(), Some(&word("ax", 0.2)));
+        assert_eq!(next.len(), 8);
     }
 
     #[test]

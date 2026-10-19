@@ -8,8 +8,8 @@ use crate::desktop::{
 };
 use crate::history::{self, HistoryEntry, Phrases};
 use crate::inference::{
-    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, LogProbability, Prompt, TokenCount,
-    WordBias,
+    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt,
+    TokenCount, WordBias,
 };
 use crate::key::Key;
 use crate::place;
@@ -80,7 +80,8 @@ pub(crate) struct Engine {
     /// The preference for the words of `history`, if the word choice is on.
     word_bias: Option<WordBias>,
     word_bias_version: u64,
-    /// The phrases that `history` repeats, which have none when the word choice is off.
+    /// The phrases that `history` repeats and the words after its runs of words, which have none
+    /// when the word choice is off.
     phrases: Phrases,
 }
 
@@ -305,6 +306,7 @@ impl Engine {
             prompt,
             max_tokens: PREPARATION_TOKENS,
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         })
     }
@@ -648,6 +650,7 @@ impl Engine {
             prompt,
             max_tokens: self.suggestion_length.max_tokens(),
             word_bias: self.session_word_bias(),
+            next_word_bias: self.session_next_word_bias(),
             min_log_probability: Some(TAIL_CUT),
         })
     }
@@ -659,6 +662,19 @@ impl Engine {
             .allows(&app.app_id)
             .then(|| self.word_bias.clone())
             .flatten()
+    }
+
+    /// The words that the writer wrote after the last words before the caret, when the
+    /// personalization allows the app of the session.
+    fn session_next_word_bias(&self) -> NextWordBias {
+        self.session
+            .as_ref()
+            .filter(|session| {
+                let app = session.app.as_ref();
+                app.is_some_and(|app| self.personalization.allows(&app.app_id))
+            })
+            .map(|session| self.phrases.next_word_bias(&session.text_before))
+            .unwrap_or_default()
     }
 
     /// The rest of a phrase that the writer repeats after the text before the caret, when the
@@ -974,6 +990,7 @@ mod tests {
             prompt: prompt::framed_prompt(lines, text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
         })
     }
@@ -1911,6 +1928,7 @@ mod tests {
                 prompt: prompt::prompt_with_notes("I am a nurse.", &[], "h"),
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
             })
         );
@@ -2348,6 +2366,40 @@ mod tests {
         assert_eq!(requests, [true, true, true]);
     }
 
+    fn next_word_bias_after(settings: &Settings, before_caret: &str) -> Vec<(String, f32)> {
+        let mut engine = engine_with(settings);
+        engine.use_history(vec![
+            mail_entry("Let me know if it works."),
+            mail_entry("Let me know when you can."),
+        ]);
+        match engine.on_key(Key::Char(' '), &mail_field_around(before_caret, "")) {
+            Reaction::Request(InferenceRequest::Complete { next_word_bias, .. }) => next_word_bias.0,
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn request_prefers_the_words_that_the_writer_wrote_after_the_last_words() {
+        let settings = word_choice_settings(HistoryAccess::On, Vec::new());
+
+        let next = next_word_bias_after(&settings, "Please let me know");
+
+        assert_eq!(next, [("if".to_owned(), 0.5), ("when".to_owned(), 0.5)]);
+    }
+
+    #[test]
+    fn request_has_no_next_word_bias_without_the_word_choice_the_history_or_the_app() {
+        let settings = [
+            history_settings(HistoryAccess::On, Vec::new()),
+            word_choice_settings(HistoryAccess::Off, Vec::new()),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+        ];
+
+        let next = settings.map(|settings| next_word_bias_after(&settings, "Please let me know"));
+
+        assert_eq!(next, [vec![], vec![], vec![]]);
+    }
+
     #[test]
     fn completion_of_an_older_request_keeps_the_phrase() {
         let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
@@ -2441,6 +2493,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
             })
         );
@@ -2462,6 +2515,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
             })
         );
@@ -2497,6 +2551,7 @@ mod tests {
             prompt: prompt::framed_prompt(&[], context),
             max_tokens: TokenCount(0),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         })
     }

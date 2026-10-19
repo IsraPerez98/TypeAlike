@@ -10,8 +10,8 @@ use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, Prompt,
-    TokenCount,
+    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    NextWordBias, Prompt, TokenCount,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{PromptPreparation, Settings};
@@ -122,6 +122,7 @@ fn completion_request(prompt: &str) -> Reaction {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
         word_bias: None,
+        next_word_bias: NextWordBias::default(),
         min_log_probability: None,
     })
 }
@@ -153,6 +154,29 @@ fn real_model_suggests_text_after_typed_words() {
     let reaction = suggest_after(&mut model, &mut App::new(), "Thank you for your");
 
     assert!(matches!(reaction, Reaction::Show(_)), "unexpected {reaction:?}");
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn next_word_bias_picks_only_the_first_word() {
+    let mut model = LoadedModel::load();
+    let request = Reaction::Request(InferenceRequest::Complete {
+        prompt: Prompt(format!("{SHORT_PROMPT} ")),
+        max_tokens: TokenCount(16),
+        word_bias: None,
+        next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
+        min_log_probability: None,
+    });
+
+    let text = model
+        .complete(request)
+        .expect("the model completes the prompt")
+        .text;
+
+    assert!(
+        text.starts_with('z') && !text.contains(" z"),
+        "unexpected {text:?}"
+    );
 }
 
 #[test]
@@ -252,6 +276,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         prompt: Prompt("We hold these truths to be self-evident, that all are equal. ".repeat(110)),
         max_tokens: TokenCount(16),
         word_bias: None,
+        next_word_bias: NextWordBias::default(),
         min_log_probability: None,
     }));
 
@@ -345,6 +370,7 @@ fn completion_of_no_tokens_adds_no_text() {
         prompt: Prompt(SHORT_PROMPT.to_owned()),
         max_tokens: TokenCount(0),
         word_bias: None,
+        next_word_bias: NextWordBias::default(),
         min_log_probability: None,
     }));
 

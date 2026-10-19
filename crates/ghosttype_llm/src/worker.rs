@@ -14,7 +14,7 @@ use std::time::Instant;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, CONTEXT_TOKENS, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink,
-    InferenceRequest, LogProbability, Prompt, TokenCount, WordBias,
+    InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, WordBias,
 };
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
@@ -187,6 +187,7 @@ fn serve(
             prompt,
             max_tokens,
             word_bias,
+            next_word_bias,
             min_log_probability,
         } = &job.request
         else {
@@ -201,7 +202,8 @@ fn serve(
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
             min_log_probability: *min_log_probability,
         };
-        let result = loaded.complete(prompt, limits, word_bias.as_ref(), &mut progress);
+        let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
+        let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
         (job.sink)(InferenceEvent::Completed(result));
     }
 }
@@ -404,13 +406,12 @@ impl LoadedModel<'_> {
         &mut self,
         prompt: &Prompt,
         limits: Limits,
-        word_bias: Option<&WordBias>,
+        token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<Completion, InferenceError> {
         let started = Instant::now();
-        let token_bias = self.token_bias(word_bias);
         let (text, added) = self
-            .generate(prompt, limits, &token_bias, progress)
+            .generate(prompt, limits, token_bias, progress)
             .map_err(|error| {
                 if !matches!(error, GenerateError::Superseded) {
                     tracing::warn!(%error, "failed to complete text");
@@ -425,9 +426,16 @@ impl LoadedModel<'_> {
         })
     }
 
-    /// Returns the logits that `word_bias` adds to each token. It finds the tokens of each version
-    /// one time.
-    fn token_bias(&mut self, word_bias: Option<&WordBias>) -> Vec<(LlamaToken, f32)> {
+    /// Returns the logits that `word_bias` adds to each token, and that `next_word_bias` adds to
+    /// the first token. It finds the tokens of each version of `word_bias` one time.
+    fn token_bias(&mut self, word_bias: Option<&WordBias>, next_word_bias: &NextWordBias) -> TokenBias {
+        let next_word_tokens = first_word_tokens(&self.model.vocab(), &next_word_bias.0);
+        TokenBias::new(self.word_tokens(word_bias), next_word_tokens)
+    }
+
+    /// Returns the logits that `word_bias` adds to each token, which it finds one time for each
+    /// version.
+    fn word_tokens(&mut self, word_bias: Option<&WordBias>) -> Vec<(LlamaToken, f32)> {
         let Some(word_bias) = word_bias else {
             return Vec::new();
         };
@@ -458,7 +466,7 @@ impl LoadedModel<'_> {
         &mut self,
         prompt: &Prompt,
         limits: Limits,
-        token_bias: &[(LlamaToken, f32)],
+        token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<(String, AddedTokens), GenerateError> {
         let model = self.model;
@@ -680,7 +688,7 @@ impl<'model> PromptCache<'model> {
         vocab: &LlamaVocab<'_>,
         healing: &Healing<'_>,
         limits: Limits,
-        token_bias: &[(LlamaToken, f32)],
+        token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
         self.context
@@ -692,7 +700,7 @@ impl<'model> PromptCache<'model> {
         let mut added = Vec::new();
         let mut words = WordLogProbabilities::default();
         while added.len() < limits.max_added {
-            let scores = with_bias(logits, token_bias, &mut biased);
+            let scores = with_bias(logits, token_bias.at(added.len()), &mut biased);
             let (token, log_probability) = choose_token(scores, logits, healing.pieces, unwritten);
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
@@ -732,6 +740,33 @@ impl<'model> PromptCache<'model> {
             tokens: added,
             word_log_probabilities: words.into_vec(),
         })
+    }
+}
+
+/// The logits that a completion adds to its first token, and to each later token.
+#[derive(Debug, Default)]
+struct TokenBias {
+    first: Vec<(LlamaToken, f32)>,
+    later: Vec<(LlamaToken, f32)>,
+}
+
+impl TokenBias {
+    /// Returns the bias that adds `word_tokens` to each token, and also `next_word_tokens` to the
+    /// first token.
+    fn new(word_tokens: Vec<(LlamaToken, f32)>, next_word_tokens: Vec<(LlamaToken, f32)>) -> Self {
+        let mut first = word_tokens.iter().copied().collect::<HashMap<_, _>>();
+        for (token, bias) in next_word_tokens {
+            *first.entry(token).or_default() += bias;
+        }
+        Self {
+            first: first.into_iter().collect(),
+            later: word_tokens,
+        }
+    }
+
+    /// Returns the logits to add to the token after `added` tokens.
+    fn at(&self, added: usize) -> &[(LlamaToken, f32)] {
+        if added == 0 { &self.first } else { &self.later }
     }
 }
 
@@ -1264,6 +1299,7 @@ mod tests {
             prompt: Prompt("Dear".to_owned()),
             max_tokens: TokenCount(4),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         }
     }
@@ -1372,6 +1408,19 @@ mod tests {
         let scores = with_bias(&[9.0, 1.0, 1.0], &[(LlamaToken(1), 20.0)], &mut biased);
 
         assert_eq!(scores, [9.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn next_word_bias_adds_to_the_word_bias_of_the_first_token_only() {
+        let bias = TokenBias::new(
+            vec![(LlamaToken(1), 1.0)],
+            vec![(LlamaToken(1), 0.5), (LlamaToken(2), 0.25)],
+        );
+
+        let mut first = bias.at(0).to_vec();
+        first.sort_by_key(|(token, _)| token.0);
+        assert_eq!(first, [(LlamaToken(1), 1.5), (LlamaToken(2), 0.25)]);
+        assert_eq!(bias.at(1), [(LlamaToken(1), 1.0)]);
     }
 
     #[test]

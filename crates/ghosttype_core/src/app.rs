@@ -395,7 +395,7 @@ mod tests {
         Confidence, CopiedText, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings,
     };
     use crate::engine::TAIL_CUT;
-    use crate::inference::TokenCount;
+    use crate::inference::{NextWordBias, TokenCount};
     use crate::prompt::{framed_prompt, prompt_with_notes};
     use crate::settings::{HistoryAccess, OcrLevel, PersonalizationSettings, ScreenTextAccess, WriterNotes};
 
@@ -485,6 +485,7 @@ mod tests {
             prompt: framed_prompt(lines, text_before),
             max_tokens: TokenCount(0),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         }
     }
@@ -494,6 +495,7 @@ mod tests {
             prompt: framed_prompt(lines, text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
         })
     }
@@ -617,6 +619,7 @@ mod tests {
                 prompt: prompt_with_notes("I am a nurse.", &[], "B"),
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
             })
         );

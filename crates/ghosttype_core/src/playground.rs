@@ -4,7 +4,9 @@ use std::iter;
 
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
-use crate::inference::{Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, TokenCount};
+use crate::inference::{
+    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, TokenCount,
+};
 use crate::models_pane::model_name;
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
@@ -284,6 +286,7 @@ impl PlaygroundPane {
             prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         })
     }
@@ -1014,6 +1017,7 @@ mod tests {
                 prompt: prompt("Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
             })
         );
@@ -1035,6 +1039,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&["My name is Sara Novak."], "Best,\n"),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
             })
         );
@@ -1056,6 +1061,7 @@ mod tests {
                 prompt: prompt::prompt_with_notes("I am a nurse.", &[], "Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
             })
         );

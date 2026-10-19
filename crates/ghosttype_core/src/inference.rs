@@ -77,6 +77,8 @@ pub enum InferenceRequest {
         max_tokens: TokenCount,
         /// The preference for the words that the writer often writes, if any.
         word_bias: Option<WordBias>,
+        /// The preference for the words that the writer wrote after the last words of `prompt`.
+        next_word_bias: NextWordBias,
         /// The least likely that the added text can get after its first word, if any. The runner
         /// stops before a token that makes the text less likely, and leaves out the word of that
         /// token.
@@ -114,6 +116,19 @@ impl fmt::Debug for WordBias {
             .field("version", &self.version)
             .field("words", &self.words.len())
             .finish()
+    }
+}
+
+/// A preference of the model for the words that the writer wrote after the last words before the
+/// caret: the logits to add to the first token of each word, after a space, at the first token
+/// that the runner adds. Empty when the writer has no such words. `Debug` shows only the number
+/// of words, so logs never hold what the user wrote.
+#[derive(Clone, PartialEq, Default)]
+pub struct NextWordBias(pub Vec<(String, f32)>);
+
+impl fmt::Debug for NextWordBias {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "NextWordBias({} words)", self.0.len())
     }
 }
 

@@ -86,7 +86,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use ghosttype_core::inference::{InferenceError, InferenceEvent, Prompt, TokenCount};
+    use ghosttype_core::inference::{InferenceError, InferenceEvent, NextWordBias, Prompt, TokenCount};
 
     use super::*;
 
@@ -209,6 +209,7 @@ mod tests {
                 prompt: Prompt("Dear".to_owned()),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
             },
         );

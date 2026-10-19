@@ -7,8 +7,8 @@ use std::sync::{Arc, mpsc};
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Backend, Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, Prompt,
-    TokenCount,
+    Backend, Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias,
+    Prompt, TokenCount,
 };
 use ghosttype_llm::LlamaCpp;
 
@@ -29,6 +29,7 @@ fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
             prompt: Prompt("Once upon a time".to_owned()),
             max_tokens: TokenCount(8),
             word_bias: None,
+            next_word_bias: NextWordBias::default(),
             min_log_probability: None,
         },
         &sink,
