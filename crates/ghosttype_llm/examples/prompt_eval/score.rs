@@ -5,6 +5,11 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// The probabilities of the first word that the report tries as a minimum.
+const GATE_PROBABILITIES: [f64; 6] = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5];
+/// The probabilities of the suggestion up to the end of a word that the report tries as a cut.
+const CUT_PROBABILITIES: [f64; 7] = [0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005];
+
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +35,12 @@ impl CaseKind {
             Self::NextWord
         }
     }
+
+    /// Whether a case of this kind matches when the suggestion starts with the text that the
+    /// writer typed next.
+    fn has_next_word(self) -> bool {
+        matches!(self, Self::NextWord | Self::PartialWord)
+    }
 }
 
 /// Returns whether a case of `kind` with the ghost text `suggestion` matches. A typo case matches
@@ -54,6 +65,24 @@ fn is_next_word(accepted: &str, next: &str) -> bool {
 /// Returns the first word of `next`, with the whitespace before it and without signs after it.
 pub fn next_word(next: &str) -> &str {
     without_trailing_signs(first_word(next))
+}
+
+/// Returns the words of `text`, as the model runner counts them: a word starts at each whitespace
+/// character after a character that is not whitespace.
+pub fn words(text: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = 0;
+    for ((offset, before), character) in text.char_indices().zip(text.chars().skip(1)) {
+        if !before.is_whitespace() && character.is_whitespace() {
+            let end = offset + before.len_utf8();
+            words.push(&text[start..end]);
+            start = end;
+        }
+    }
+    if start < text.len() {
+        words.push(&text[start..]);
+    }
+    words
 }
 
 /// Returns the first word of `text`, with the whitespace before it.
@@ -95,6 +124,150 @@ pub struct Outcome {
     /// case has no prompt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log_probability: Option<f64>,
+    /// The natural log of the probability that the model gave to the suggestion up to the end of
+    /// each shown word, as the model runner gave it. It is empty when no completion of the model
+    /// shows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cumulative_log_probabilities: Vec<f64>,
+    /// The shown words against the words of the text that the writer typed next.
+    #[serde(default)]
+    pub words: WordCounts,
+}
+
+/// The words of a suggestion against the words of the text that the writer typed next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct WordCounts {
+    /// The words before the first word that differs from the word of the text at its place.
+    pub right: usize,
+    /// The words from the first word that differs on. A word after the end of the text counts only
+    /// after a wrong word.
+    pub wrong: usize,
+}
+
+impl WordCounts {
+    /// Compares the words of `suggestion` with the words of `next`. Signs after a word do not
+    /// count.
+    pub fn of(suggestion: &str, next: &str) -> Self {
+        let shown = words(suggestion);
+        let typed = words(next);
+        let right = shown
+            .iter()
+            .zip(&typed)
+            .take_while(|(shown, typed)| without_trailing_signs(shown) == without_trailing_signs(typed))
+            .count();
+        let has_wrong_word = right < shown.len() && right < typed.len();
+        Self {
+            right,
+            wrong: if has_wrong_word { shown.len() - right } else { 0 },
+        }
+    }
+
+    /// Returns the counts when only the first `shown` words of the suggestion show.
+    fn of_first(self, shown: usize) -> Self {
+        Self {
+            right: self.right.min(shown),
+            wrong: if self.wrong > 0 {
+                shown.saturating_sub(self.right)
+            } else {
+                0
+            },
+        }
+    }
+}
+
+/// Returns the sum of the first `log_probabilities` up to each of the first `shown` words.
+pub fn cumulative_log_probabilities(log_probabilities: &[f64], shown: usize) -> Vec<f64> {
+    log_probabilities
+        .iter()
+        .take(shown)
+        .scan(0.0, |total, log_probability| {
+            *total += log_probability;
+            Some(*total)
+        })
+        .collect()
+}
+
+/// What a minimum for the probability of the first word does: a suggestion whose first word is
+/// less likely does not show.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GatePoint {
+    /// The natural log of the minimum.
+    pub log_probability: f64,
+    /// The suggestions that still show.
+    pub kept: usize,
+    /// The suggestions that still show and match.
+    pub kept_matches: usize,
+    /// The suggestions of the model.
+    pub suggestions: usize,
+    /// The suggestions of the model that match.
+    pub matches: usize,
+}
+
+impl GatePoint {
+    /// Returns what the minimum `log_probability` does to the suggestions of the model in
+    /// `outcomes`.
+    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+        let mut point = Self {
+            log_probability,
+            kept: 0,
+            kept_matches: 0,
+            suggestions: 0,
+            matches: 0,
+        };
+        for outcome in outcomes {
+            let Some(&first_word) = outcome.cumulative_log_probabilities.first() else {
+                continue;
+            };
+            let is_kept = first_word >= log_probability;
+            point.suggestions += 1;
+            point.matches += usize::from(outcome.is_match);
+            point.kept += usize::from(is_kept);
+            point.kept_matches += usize::from(is_kept && outcome.is_match);
+        }
+        point
+    }
+}
+
+/// What a cut of the tail does: a word after the first word does not show when the suggestion up
+/// to its end is less likely than the cut.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CutPoint {
+    /// The natural log of the cut.
+    pub log_probability: f64,
+    /// The words that still show.
+    pub shown: usize,
+    /// The words that still show before the first wrong word.
+    pub right: usize,
+    /// The wrong words that still show.
+    pub wrong: usize,
+}
+
+impl CutPoint {
+    /// Returns what the cut `log_probability` does to the suggestions of the model in `outcomes`.
+    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+        let mut point = Self {
+            log_probability,
+            shown: 0,
+            right: 0,
+            wrong: 0,
+        };
+        for outcome in outcomes {
+            let cumulative = &outcome.cumulative_log_probabilities;
+            if cumulative.is_empty() {
+                continue;
+            }
+            let shown = cumulative
+                .iter()
+                .take_while(|&&cumulative| cumulative >= log_probability)
+                .count()
+                .max(1);
+            let counts = outcome.words.of_first(shown);
+            point.shown += shown;
+            point.right += counts.right;
+            point.wrong += counts.wrong;
+        }
+        point
+    }
 }
 
 /// How many cases matched.
@@ -156,11 +329,25 @@ pub struct Summary {
     pub millis_per_token: Option<f64>,
     /// The mean log probability of the next word, of the cases that have one.
     pub mean_log_probability: Option<f64>,
+    /// The shown words of the cases with a next word.
+    pub words: WordCounts,
+    /// The mean log probability of the first shown word, of the cases with a next word that show
+    /// a completion of the model.
+    pub mean_first_word_log_probability: Option<f64>,
+    /// What each minimum for the first word does to the cases with a next word.
+    pub gate: Vec<GatePoint>,
+    /// What no cut, then each cut of the tail does to the cases with a next word.
+    pub cut: Vec<CutPoint>,
 }
 
 impl Summary {
     /// Returns the scores of `outcomes`.
     pub fn of(outcomes: &[Outcome]) -> Self {
+        let with_next_word = outcomes
+            .iter()
+            .filter(|outcome| outcome.kind.has_next_word())
+            .cloned()
+            .collect::<Vec<_>>();
         Self {
             next_word: Score::of(outcomes, CaseKind::NextWord),
             partial_word: Score::of(outcomes, CaseKind::PartialWord),
@@ -191,6 +378,26 @@ impl Summary {
                     .filter_map(|outcome| outcome.log_probability)
                     .collect::<Vec<_>>(),
             ),
+            words: with_next_word
+                .iter()
+                .fold(WordCounts::default(), |total, outcome| WordCounts {
+                    right: total.right + outcome.words.right,
+                    wrong: total.wrong + outcome.words.wrong,
+                }),
+            mean_first_word_log_probability: mean(
+                &with_next_word
+                    .iter()
+                    .filter_map(|outcome| outcome.cumulative_log_probabilities.first().copied())
+                    .collect::<Vec<_>>(),
+            ),
+            gate: GATE_PROBABILITIES
+                .map(|probability| GatePoint::of(&with_next_word, probability.ln()))
+                .to_vec(),
+            cut: [0.0]
+                .into_iter()
+                .chain(CUT_PROBABILITIES)
+                .map(|probability| CutPoint::of(&with_next_word, probability.ln()))
+                .collect(),
         }
     }
 }
@@ -298,6 +505,8 @@ mod tests {
             warm_millis: None,
             prompt_tokens: None,
             log_probability: None,
+            cumulative_log_probabilities: Vec::new(),
+            words: WordCounts::default(),
         }
     }
 
@@ -656,6 +865,115 @@ mod tests {
         let read_back = serde_json::from_str::<Outcome>(&serde_json::to_string(&outcome).unwrap()).unwrap();
 
         assert_eq!(read_back, outcome);
+    }
+
+    #[test]
+    fn word_starts_at_whitespace_after_a_word() {
+        let cases: [(&str, &[&str]); 4] = [
+            ("very soon, thanks", &["very", " soon,", " thanks"]),
+            (" meeting at", &[" meeting", " at"]),
+            ("Hi  there", &["Hi", "  there"]),
+            ("", &[]),
+        ];
+
+        let split = cases.map(|(text, _)| words(text));
+
+        assert_eq!(split, cases.map(|(_, words)| words.to_vec()));
+    }
+
+    #[test]
+    fn words_count_as_right_up_to_the_first_wrong_word_and_wrong_from_it() {
+        let cases = [
+            ("very soon, thanks", "very soon. Thanks a lot", 2, 1),
+            (" the meeting today", " the report today", 1, 2),
+            ("ply and the files", "ply and", 2, 0),
+            ("plied", "ply and", 0, 1),
+        ];
+
+        let counts = cases.map(|(suggestion, next, _, _)| WordCounts::of(suggestion, next));
+
+        assert_eq!(
+            counts,
+            cases.map(|(_, _, right, wrong)| WordCounts { right, wrong })
+        );
+    }
+
+    #[test]
+    fn cumulative_log_probability_follows_each_shown_word() {
+        let cumulative = cumulative_log_probabilities(&[-1.0, -0.5, -2.0], 2);
+
+        assert_eq!(cumulative, [-1.0, -1.5]);
+    }
+
+    fn with_words(id: &str, is_match: bool, cumulative: &[f64], right: usize, wrong: usize) -> Outcome {
+        Outcome {
+            cumulative_log_probabilities: cumulative.to_vec(),
+            words: WordCounts { right, wrong },
+            ..outcome(id, CaseKind::NextWord, is_match, 10)
+        }
+    }
+
+    #[test]
+    fn gate_keeps_the_suggestions_whose_first_word_reaches_the_threshold() {
+        let outcomes = [
+            with_words("a", true, &[-0.1], 1, 0),
+            with_words("b", false, &[-3.0], 0, 1),
+            with_words("c", true, &[-2.5], 1, 0),
+            outcome("d", CaseKind::NextWord, false, 10),
+        ];
+
+        let point = GatePoint::of(&outcomes, -2.0);
+
+        assert_eq!(
+            point,
+            GatePoint {
+                log_probability: -2.0,
+                kept: 1,
+                kept_matches: 1,
+                suggestions: 3,
+                matches: 2
+            }
+        );
+    }
+
+    #[test]
+    fn cut_keeps_the_first_word_and_the_words_above_it() {
+        let outcomes = [
+            with_words("a", true, &[-0.5, -1.0, -4.0], 2, 1),
+            with_words("b", false, &[-5.0, -6.0], 0, 2),
+            with_words("c", true, &[-0.1, -0.2, -3.0], 3, 0),
+        ];
+
+        let point = CutPoint::of(&outcomes, -2.0);
+
+        assert_eq!(
+            point,
+            CutPoint {
+                log_probability: -2.0,
+                shown: 5,
+                right: 4,
+                wrong: 1
+            }
+        );
+    }
+
+    #[test]
+    fn summary_counts_the_words_and_the_first_word_of_the_cases_with_a_next_word() {
+        let outcomes = [
+            with_words("a", true, &[-1.0, -2.0], 2, 0),
+            with_words("b", false, &[-3.0], 0, 1),
+            Outcome {
+                kind: CaseKind::Typo,
+                ..with_words("c", false, &[-5.0], 0, 4)
+            },
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.words, summary.mean_first_word_log_probability),
+            (WordCounts { right: 2, wrong: 1 }, Some(-2.0))
+        );
     }
 
     #[test]

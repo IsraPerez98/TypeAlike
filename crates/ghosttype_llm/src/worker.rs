@@ -13,7 +13,7 @@ use std::time::Instant;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, CONTEXT_TOKENS, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink,
-    InferenceRequest, Prompt, TokenCount, WordBias,
+    InferenceRequest, LogProbability, Prompt, TokenCount, WordBias,
 };
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
@@ -395,7 +395,7 @@ impl LoadedModel<'_> {
     ) -> Result<Completion, InferenceError> {
         let started = Instant::now();
         let token_bias = self.token_bias(word_bias);
-        let (text, tokens) = self
+        let (text, added) = self
             .generate(prompt, max_tokens, &token_bias, progress)
             .map_err(|error| {
                 if !matches!(error, GenerateError::Superseded) {
@@ -405,8 +405,9 @@ impl LoadedModel<'_> {
             })?;
         Ok(Completion {
             text,
-            tokens,
+            tokens: TokenCount(u32::try_from(added.tokens.len()).expect("added tokens fit in the context")),
             duration: started.elapsed(),
+            word_log_probabilities: added.word_log_probabilities,
         })
     }
 
@@ -431,8 +432,8 @@ impl LoadedModel<'_> {
     }
 
     /// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or
-    /// adds `max_tokens`. It adds `token_bias` to the logits before it picks each token. It keeps the prompt in the cache for the next completion, and forgets the
-    /// cache when llama.cpp fails.
+    /// adds `max_tokens`. It adds `token_bias` to the logits before it picks each token. It keeps
+    /// the prompt in the cache for the next completion, and forgets the cache when llama.cpp fails.
     ///
     /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
     /// the first added tokens write that text again. A prompt that ends in a space or in a part of
@@ -444,7 +445,7 @@ impl LoadedModel<'_> {
         max_tokens: TokenCount,
         token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
-    ) -> Result<(String, TokenCount), GenerateError> {
+    ) -> Result<(String, AddedTokens), GenerateError> {
         let model = self.model;
         let vocab = model.vocab();
         let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
@@ -478,10 +479,10 @@ impl LoadedModel<'_> {
                 cache.continue_prompt(&vocab, &healing, max_added, token_bias, progress)
             });
         match added {
-            Ok(added) => {
-                let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
-                Ok((added_text(&vocab, &prompt_tokens, &added, &healed_text), tokens))
-            }
+            Ok(added) => Ok((
+                added_text(&vocab, &prompt_tokens, &added.tokens, &healed_text),
+                added,
+            )),
             Err(GenerateError::Superseded) => Err(GenerateError::Superseded),
             Err(error) => {
                 self.cache = None;
@@ -659,7 +660,6 @@ impl<'model> PromptCache<'model> {
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. Before each
     /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
-    /// Returns the added tokens.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
@@ -667,7 +667,7 @@ impl<'model> PromptCache<'model> {
         max_added: usize,
         token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
-    ) -> Result<Vec<LlamaToken>, GenerateError> {
+    ) -> Result<AddedTokens, GenerateError> {
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
         let mut batch = LlamaBatch::new(1, 1);
@@ -675,15 +675,16 @@ impl<'model> PromptCache<'model> {
         let mut biased = Vec::new();
         let mut unwritten = healing.text;
         let mut added = Vec::new();
+        let mut words = WordLogProbabilities::default();
         while added.len() < max_added {
             let scores = with_bias(logits, token_bias, &mut biased);
-            let token = best_token_agreeing_with(scores, healing.pieces, unwritten)
-                .unwrap_or_else(|| most_likely(scores));
+            let (token, log_probability) = choose_token(scores, logits, healing.pieces, unwritten);
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
             let piece = vocab.token_to_piece(token, false, None);
             let ends_line = writes_line_break(&piece, unwritten);
+            words.add(added_after(&piece, unwritten), log_probability);
             unwritten = unwritten_after(unwritten, &piece);
             added.push(token);
             if ends_line || added.len() == max_added {
@@ -703,7 +704,10 @@ impl<'model> PromptCache<'model> {
             self.context.decode(&mut batch)?;
             logits = self.context.get_logits_ith(LAST_OUTPUT);
         }
-        Ok(added)
+        Ok(AddedTokens {
+            tokens: added,
+            word_log_probabilities: words.into_vec(),
+        })
     }
 }
 
@@ -712,6 +716,43 @@ impl<'model> PromptCache<'model> {
 struct Healing<'text> {
     pieces: &'text TokenPieces,
     text: &'text [u8],
+}
+
+/// The tokens that a completion added, and how likely the model found each word of them.
+struct AddedTokens {
+    tokens: Vec<LlamaToken>,
+    word_log_probabilities: Vec<LogProbability>,
+}
+
+/// Sums the log probabilities of the added tokens for each word that they write.
+#[derive(Debug, Default)]
+struct WordLogProbabilities {
+    words: Vec<LogProbability>,
+    /// Whether the added text ends with a character that is not whitespace.
+    ends_in_word: bool,
+}
+
+impl WordLogProbabilities {
+    /// Adds a token that writes `text` after the healed text. Whitespace after a word starts the
+    /// next word. A token that only writes healed text belongs to the first word.
+    fn add(&mut self, text: &[u8], log_probability: f32) {
+        let starts_word = self.starts_word(text);
+        match self.words.last_mut() {
+            Some(word) if !starts_word => word.0 += log_probability,
+            _ => self.words.push(LogProbability(log_probability)),
+        }
+        if let Some(last) = text.last() {
+            self.ends_in_word = !last.is_ascii_whitespace();
+        }
+    }
+
+    fn starts_word(&self, text: &[u8]) -> bool {
+        self.ends_in_word && text.first().is_some_and(u8::is_ascii_whitespace)
+    }
+
+    fn into_vec(self) -> Vec<LogProbability> {
+        self.words
+    }
 }
 
 /// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
@@ -772,6 +813,41 @@ fn last_word_start(vocab: &LlamaVocab<'_>, prompt_tokens: &[LlamaToken]) -> usiz
     let mut before_last_word = prompt_tokens.to_vec();
     take_back_last_word(vocab, &mut before_last_word);
     before_last_word.len()
+}
+
+/// Returns the token to add for `scores`, and the natural log of its probability in `logits`. While
+/// text is unwritten, the token agrees with it, and its probability is its share of the tokens that
+/// agree.
+fn choose_token(scores: &[f32], logits: &[f32], pieces: &TokenPieces, unwritten: &[u8]) -> (LlamaToken, f32) {
+    if let Some(token) = best_token_agreeing_with(scores, pieces, unwritten) {
+        return (
+            token,
+            agreeing_log_probability(logits, token, pieces.agreeing_with(unwritten)),
+        );
+    }
+    let token = most_likely(scores);
+    (token, log_probability_of(logits, token))
+}
+
+/// Returns the natural log of the probability that `logits` give to `token`.
+fn log_probability_of(logits: &[f32], token: LlamaToken) -> f32 {
+    let highest = highest_of(logits);
+    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
+    logit_of(logits, token) - highest - total.ln()
+}
+
+/// Returns the natural log of the probability that `logits` give to `token`, among the `agreeing`
+/// tokens. `token` must be one of them.
+fn agreeing_log_probability(
+    logits: &[f32],
+    token: LlamaToken,
+    agreeing: impl Iterator<Item = LlamaToken>,
+) -> f32 {
+    let chosen = logit_of(logits, token);
+    let total = agreeing
+        .map(|other| (logit_of(logits, other) - chosen).exp())
+        .sum::<f32>();
+    -total.ln()
 }
 
 fn highest_of(logits: &[f32]) -> f32 {
@@ -866,9 +942,12 @@ fn most_likely(logits: &[f32]) -> LlamaToken {
 
 /// Whether a token with `piece` as text adds a line break after it writes the `unwritten` text.
 fn writes_line_break(piece: &[u8], unwritten: &[u8]) -> bool {
-    piece
-        .get(unwritten.len()..)
-        .is_some_and(|added| added.contains(&b'\n'))
+    added_after(piece, unwritten).contains(&b'\n')
+}
+
+/// Returns the text that a token with `piece` as text adds after it writes the `unwritten` text.
+fn added_after<'piece>(piece: &'piece [u8], unwritten: &[u8]) -> &'piece [u8] {
+    piece.get(unwritten.len()..).unwrap_or_default()
 }
 
 fn starts_word(piece: &[u8]) -> bool {
@@ -1265,6 +1344,76 @@ mod tests {
         let token = most_likely(&[0.5, 2.0, -1.0]);
 
         assert_eq!(token, LlamaToken(1));
+    }
+
+    fn assert_near(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < 1e-5, "{actual} is not {expected}");
+    }
+
+    #[test]
+    fn log_probability_is_the_log_of_the_softmax_share() {
+        let log_probability = log_probability_of(&[0.0, 2.0_f32.ln(), 0.0], LlamaToken(1));
+
+        assert_near(log_probability, 0.5_f32.ln());
+    }
+
+    #[test]
+    fn healing_log_probability_is_the_share_among_the_agreeing_tokens() {
+        let logits = [3.0_f32.ln(), 1.0_f32.ln(), 5.0_f32.ln()];
+
+        let log_probability =
+            agreeing_log_probability(&logits, LlamaToken(0), [LlamaToken(0), LlamaToken(1)].into_iter());
+
+        assert_near(log_probability, 0.75_f32.ln());
+    }
+
+    #[test]
+    fn token_after_the_end_of_a_word_starts_the_next_word() {
+        let mut words = WordLogProbabilities::default();
+
+        for (text, log_probability) in [("very", -1.0), (" soon", -2.0), (",", -0.5), (" thanks", -3.0)] {
+            words.add(text.as_bytes(), log_probability);
+        }
+
+        assert_eq!(
+            words.into_vec(),
+            [LogProbability(-1.0), LogProbability(-2.5), LogProbability(-3.0)]
+        );
+    }
+
+    #[test]
+    fn token_that_only_writes_the_healed_text_belongs_to_the_first_word() {
+        let mut words = WordLogProbabilities::default();
+
+        for (text, log_probability) in [("", -0.5), (" meeting", -1.0), (" at", -2.0)] {
+            words.add(text.as_bytes(), log_probability);
+        }
+
+        assert_eq!(words.into_vec(), [LogProbability(-1.5), LogProbability(-2.0)]);
+    }
+
+    #[test]
+    fn whitespace_after_whitespace_stays_in_its_word() {
+        let mut words = WordLogProbabilities::default();
+
+        for (text, log_probability) in [("Hi", -1.0), (" ", -1.0), (" there", -1.0)] {
+            words.add(text.as_bytes(), log_probability);
+        }
+
+        assert_eq!(words.into_vec(), [LogProbability(-1.0), LogProbability(-2.0)]);
+    }
+
+    #[test]
+    fn text_after_the_healed_text_is_what_a_token_adds() {
+        let cases = [
+            (&b" world"[..], &b" wor"[..], &b"ld"[..]),
+            (b" wo", b" wor", b""),
+            (b" world", b"", b" world"),
+        ];
+
+        let added = cases.map(|(piece, unwritten, _)| added_after(piece, unwritten));
+
+        assert_eq!(added, cases.map(|(_, _, added)| added));
     }
 
     #[test]

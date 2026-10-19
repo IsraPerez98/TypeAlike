@@ -114,7 +114,7 @@ impl fmt::Debug for WordBias {
 }
 
 /// The outcome of an [`InferenceRequest`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InferenceEvent {
     /// A model finished loading.
     Loaded {
@@ -131,7 +131,7 @@ pub enum InferenceEvent {
 }
 
 /// Text a model added after a prompt.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Completion {
     /// The added text, which can be empty.
     pub text: String,
@@ -139,7 +139,16 @@ pub struct Completion {
     pub tokens: TokenCount,
     /// The time from the request to the last token.
     pub duration: Duration,
+    /// How likely the model found each word of the added text, in order. A word starts at each
+    /// whitespace character after a character that is not whitespace. When the text finishes the
+    /// last word of the prompt, the first word also holds how likely the model found the end of
+    /// that word, among the texts that agree with the letters that the prompt has of it.
+    pub word_log_probabilities: Vec<LogProbability>,
 }
+
+/// The natural log of a probability: zero for a certain event, and lower for a less likely one.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+pub struct LogProbability(pub f32);
 
 /// Why an inference request failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

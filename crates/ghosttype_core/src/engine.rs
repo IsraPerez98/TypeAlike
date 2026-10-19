@@ -981,6 +981,7 @@ mod tests {
             text: text.to_owned(),
             tokens: TokenCount(1),
             duration: Duration::ZERO,
+            word_log_probabilities: Vec::new(),
         })
     }
 

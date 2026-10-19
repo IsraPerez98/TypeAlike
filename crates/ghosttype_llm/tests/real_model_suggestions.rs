@@ -295,6 +295,45 @@ fn newer_completion_replaces_one_that_did_not_finish() {
     );
 }
 
+/// Returns how many words `text` has: a word starts at each whitespace character after a
+/// character that is not whitespace.
+fn word_count(text: &str) -> usize {
+    let starts = text
+        .chars()
+        .zip(text.chars().skip(1))
+        .filter(|(before, character)| !before.is_whitespace() && character.is_whitespace())
+        .count();
+    usize::from(!text.is_empty()) + starts
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn completion_gives_a_log_probability_for_each_word() {
+    let mut model = LoadedModel::load();
+    let prompts = [
+        SHORT_PROMPT,
+        LONG_PROMPT,
+        LAST_WORD_CHANGED,
+        "Thank you for the quick re",
+    ];
+
+    let completions = prompts.map(|prompt| {
+        model
+            .complete(completion_request(prompt))
+            .expect("the model completes the prompt")
+    });
+
+    for completion in completions {
+        let probabilities = &completion.word_log_probabilities;
+        assert!(
+            probabilities.len() == word_count(&completion.text)
+                && probabilities.iter().all(|probability| probability.0 <= 0.0),
+            "unexpected {probabilities:?} for {:?}",
+            completion.text
+        );
+    }
+}
+
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn completion_of_no_tokens_adds_no_text() {

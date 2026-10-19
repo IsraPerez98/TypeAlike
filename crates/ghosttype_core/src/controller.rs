@@ -64,7 +64,7 @@ enum PaneAction {
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs
 /// the controller.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Delivery {
     /// For the Models pane.
     Hub(HubEvent),
@@ -1042,6 +1042,7 @@ mod tests {
             text: text.to_owned(),
             tokens: TokenCount(1),
             duration: Duration::ZERO,
+            word_log_probabilities: Vec::new(),
         }))
     }
 

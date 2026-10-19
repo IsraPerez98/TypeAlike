@@ -135,6 +135,7 @@ pub enum SettledWork {
 ///     text: "est regards".to_owned(),
 ///     tokens: TokenCount(2),
 ///     duration: Duration::from_millis(80),
+///     word_log_probabilities: Vec::new(),
 /// }));
 ///
 /// assert_eq!(
@@ -504,6 +505,7 @@ mod tests {
             text: text.to_owned(),
             tokens: TokenCount(1),
             duration: Duration::ZERO,
+            word_log_probabilities: Vec::new(),
         })
     }
 

@@ -57,6 +57,15 @@
 //! prompt. This value moves a little for a small change of the prompt, while the score often stays
 //! the same.
 //!
+//! For the cases with the caret between two words or inside a word, the report counts the shown
+//! words before the first word that differs from `next` (right), and the shown words from that
+//! word on (wrong). A word after the end of `next` counts only after a wrong word. It gives the
+//! mean log probability of the first shown word, as the model runner found it. Then it gives two
+//! tables from the same run. The first table gives, for each minimum probability of the first word,
+//! the share of the suggestions that still show and the share of them that match. The second table
+//! gives, for each cut of the tail, the words that still show, the right words and the wrong
+//! words.
+//!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
 //!
@@ -114,7 +123,7 @@ use ghosttype_core::history::{HistoryEntry, word_bias_of_counts};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
-    ModelRunner, WordBias,
+    LogProbability, ModelRunner, WordBias,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
@@ -126,7 +135,10 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::likelihood::Continuation;
-use crate::score::{CaseKind, Comparison, Outcome, Summary, is_match, next_word};
+use crate::score::{
+    CaseKind, Comparison, Outcome, Summary, WordCounts, cumulative_log_probabilities, is_match, next_word,
+    words,
+};
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
@@ -464,29 +476,19 @@ struct CaseRun {
 /// app built from the history of the case. The bias gets `version`, because each case starts a new
 /// app, and the runner prepares each version one time.
 fn with_case_bias(
-    request: InferenceRequest,
+    mut request: InferenceRequest,
     case: &Case,
     choice: WordChoice,
     version: u64,
 ) -> InferenceRequest {
-    let InferenceRequest::Complete {
-        prompt,
-        max_tokens,
-        word_bias,
-    } = request
-    else {
-        return request;
-    };
-    let word_bias = if case.words.is_empty() {
-        word_bias.map(|bias| WordBias { version, ..bias })
-    } else {
-        word_bias_of_counts(case.words.clone(), choice, version)
-    };
-    InferenceRequest::Complete {
-        prompt,
-        max_tokens,
-        word_bias,
+    if let InferenceRequest::Complete { word_bias, .. } = &mut request {
+        *word_bias = if case.words.is_empty() {
+            word_bias.take().map(|bias| WordBias { version, ..bias })
+        } else {
+            word_bias_of_counts(case.words.clone(), choice, version)
+        };
     }
+    request
 }
 
 /// What the eval does with a prompt that the app prepares before the key.
@@ -498,10 +500,17 @@ enum Preparation {
     Skip,
 }
 
-/// What one key in the field of a case gave.
-struct KeyRun {
+/// What the app does after a request, with the prompt of the request and how likely the model
+/// found each word of its completion.
+struct Answer {
     reaction: Reaction,
     prompt: Option<String>,
+    word_log_probabilities: Vec<LogProbability>,
+}
+
+/// What one key in the field of a case gave.
+struct KeyRun {
+    answer: Answer,
     millis: u64,
 }
 
@@ -539,34 +548,26 @@ impl Typing<'_> {
         }
         let start = Instant::now();
         let reaction = app.on_key(self.last_key, &self.field);
-        let (mut reaction, mut prompt) = self.complete(model, &mut app, reaction)?;
+        let mut answer = self.complete(model, &mut app, reaction)?;
         if self.last_key == Key::Enter {
             let settled = self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
             if let Some(suggestion) = settled.suggestion {
-                (reaction, prompt) = self.complete(model, &mut app, suggestion)?;
+                answer = self.complete(model, &mut app, suggestion)?;
             }
         }
         let millis = u64::try_from(start.elapsed().as_millis())?;
-        Ok((
-            app,
-            KeyRun {
-                reaction,
-                prompt,
-                millis,
-            },
-        ))
+        Ok((app, KeyRun { answer, millis }))
     }
 
-    /// Returns the reaction after the completion of the request of `reaction`, and the prompt of
-    /// the request. Returns `reaction` itself when it has no request.
-    fn complete(
-        &self,
-        model: &mut Model,
-        app: &mut App,
-        reaction: Reaction,
-    ) -> anyhow::Result<(Reaction, Option<String>)> {
+    /// Returns what the app does after the completion of the request of `reaction`. Returns
+    /// `reaction` itself when it has no request.
+    fn complete(&self, model: &mut Model, app: &mut App, reaction: Reaction) -> anyhow::Result<Answer> {
         let Reaction::Request(request) = reaction else {
-            return Ok((reaction, None));
+            return Ok(Answer {
+                reaction,
+                prompt: None,
+                word_log_probabilities: Vec::new(),
+            });
         };
         let prompt = match &request {
             InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
@@ -574,7 +575,16 @@ impl Typing<'_> {
         };
         let choice = self.settings.personalization.word_choice;
         let request = with_case_bias(request, self.case, choice, self.version);
-        Ok((app.on_completion(model.complete(request)?), prompt))
+        let completion = model.complete(request)?;
+        let word_log_probabilities = completion
+            .as_ref()
+            .map(|completion| completion.word_log_probabilities.clone())
+            .unwrap_or_default();
+        Ok(Answer {
+            reaction: app.on_completion(completion),
+            prompt,
+            word_log_probabilities,
+        })
     }
 
     /// Lets the input settle in `app` with the focus in `field`: gives the screen of the case to
@@ -639,17 +649,29 @@ fn run_case(
         _ => String::new(),
     };
     let (_, warm) = typing.press_last_key(model, Preparation::Decode)?;
-    let suggestion = match cold.reaction {
+    let suggestion = match cold.answer.reaction {
         Reaction::Show(text) => Some(text),
         _ => None,
     };
     let kind = case.kind();
+    let shown = suggestion.as_deref().unwrap_or_default();
+    let log_probabilities = cold
+        .answer
+        .word_log_probabilities
+        .iter()
+        .map(|log_probability| f64::from(log_probability.0))
+        .collect::<Vec<_>>();
 
     Ok(CaseRun {
         outcome: Outcome {
             id: case.id.clone(),
             kind,
             is_match: is_match(kind, suggestion.as_deref(), &accepted, &case.next),
+            cumulative_log_probabilities: cumulative_log_probabilities(
+                &log_probabilities,
+                words(shown).len(),
+            ),
+            words: WordCounts::of(shown, &case.next),
             suggestion,
             millis: cold.millis,
             warm_millis: Some(warm.millis),
@@ -657,6 +679,7 @@ fn run_case(
             log_probability: None,
         },
         continuation: cold
+            .answer
             .prompt
             .filter(|_| kind != CaseKind::NoNewLine)
             .map(|prompt| Continuation {
@@ -712,6 +735,7 @@ fn write_report(
     if let Some(mean) = summary.mean_log_probability {
         writeln!(output, "log prob:      {mean:.3}")?;
     }
+    write_word_report(output, summary)?;
     let Some(comparison) = comparison else {
         return Ok(());
     };
@@ -736,6 +760,52 @@ fn write_report(
         "log prob diff: {:+.3} (higher {}, lower {})",
         change.mean, change.higher, change.lower
     )
+}
+
+/// Writes the words that show, and what a minimum for the first word and a cut of the tail do.
+fn write_word_report(output: &mut impl Write, summary: &Summary) -> io::Result<()> {
+    writeln!(
+        output,
+        "words:         {} right, {} wrong",
+        summary.words.right, summary.words.wrong
+    )?;
+    if let Some(mean) = summary.mean_first_word_log_probability {
+        writeln!(output, "first word:    log prob {mean:.3}")?;
+    }
+    writeln!(output, "first word min  kept    match   matches")?;
+    for point in &summary.gate {
+        writeln!(
+            output,
+            "  {:>5.1}%       {:>5.1}%  {:>5.1}%  {}/{}",
+            point.log_probability.exp() * 100.0,
+            percent(point.kept, point.suggestions),
+            percent(point.kept_matches, point.kept),
+            point.kept_matches,
+            point.matches
+        )?;
+    }
+    writeln!(output, "cut             shown   right   wrong")?;
+    for point in &summary.cut {
+        writeln!(
+            output,
+            "  {:>5.1}%       {:>5}   {:>5}   {:>5}",
+            point.log_probability.exp() * 100.0,
+            point.shown,
+            point.right,
+            point.wrong
+        )?;
+    }
+    Ok(())
+}
+
+fn percent(part: usize, whole: usize) -> f64 {
+    let (Ok(part), Ok(whole)) = (u32::try_from(part), u32::try_from(whole)) else {
+        return 0.0;
+    };
+    if whole == 0 {
+        return 0.0;
+    }
+    f64::from(part) * 100.0 / f64::from(whole)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -768,7 +838,10 @@ fn main() -> anyhow::Result<()> {
     let runs = cases
         .iter()
         .zip(1..)
-        .map(|(case, version)| run_case(&mut model, case, &history_of(case, &writers)?, &settings, version))
+        .map(|(case, version)| {
+            let history = history_of(case, &writers)?;
+            run_case(&mut model, case, &history, &settings, version)
+        })
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
     let continuations = runs
