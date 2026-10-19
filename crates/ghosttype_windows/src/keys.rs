@@ -52,10 +52,21 @@ impl Chord {
     }
 }
 
+/// What a key press types in the active keyboard layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Typed {
+    /// Exactly one character.
+    Char(char),
+    /// No character yet: a dead key, whose accent comes with the next key.
+    Dead,
+    /// No character, or several.
+    Other,
+}
+
 /// Maps a key press to a core key; `None` for presses the engine must not see (modifiers alone).
 ///
-/// `typed` is the character the press produces in the active keyboard layout, if exactly one.
-pub(crate) fn translate(key: VIRTUAL_KEY, chord: Chord, typed: Option<char>) -> Option<Key> {
+/// `typed` is what the press types in the active keyboard layout.
+pub(crate) fn translate(key: VIRTUAL_KEY, chord: Chord, typed: Typed) -> Option<Key> {
     if is_modifier(key) {
         return None;
     }
@@ -65,7 +76,11 @@ pub(crate) fn translate(key: VIRTUAL_KEY, chord: Chord, typed: Option<char>) -> 
         VK_RETURN if matches!(chord, Chord::Plain | Chord::Shift) => Key::Enter,
         VK_BACK if matches!(chord, Chord::Plain | Chord::Shift) => Key::Backspace,
         _ if matches!(chord, Chord::Alt | Chord::Windows) => Key::Other,
-        _ => typed.map_or(Key::Other, Key::Char),
+        _ => match typed {
+            Typed::Char(character) => Key::Char(character),
+            Typed::Dead => Key::Dead,
+            Typed::Other => Key::Other,
+        },
     })
 }
 
@@ -89,12 +104,16 @@ fn is_modifier(key: VIRTUAL_KEY) -> bool {
     )
 }
 
-/// Returns the only character in `units`, or `None` when they decode to zero or several.
-pub(crate) fn single_char(units: &[u16]) -> Option<char> {
-    let mut characters = char::decode_utf16(units.iter().copied());
+/// Returns what a key press types from the answer of `ToUnicodeEx`: `written`, its count, which
+/// is negative for a dead key, and `units`, its UTF-16 text.
+pub(crate) fn typed_from(written: i32, units: &[u16]) -> Typed {
+    let Ok(written) = usize::try_from(written) else {
+        return Typed::Dead;
+    };
+    let mut characters = char::decode_utf16(units.iter().take(written).copied());
     match (characters.next(), characters.next()) {
-        (Some(Ok(character)), None) => Some(character),
-        _ => None,
+        (Some(Ok(character)), None) => Typed::Char(character),
+        _ => Typed::Other,
     }
 }
 
@@ -103,8 +122,8 @@ pub(crate) fn current_chord() -> Chord {
     Chord::from_held(is_held)
 }
 
-/// Returns the character `key` types in the foreground window's keyboard layout, if exactly one.
-pub(crate) fn typed_char(key: VIRTUAL_KEY, scan_code: u32) -> Option<char> {
+/// Returns what `key` types in the foreground window's keyboard layout.
+pub(crate) fn typed(key: VIRTUAL_KEY, scan_code: u32) -> Typed {
     let keyboard_state = current_keyboard_state();
     let mut units = [0_u16; MAX_TRANSLATED_UNITS];
     // SAFETY: plain calls; a null foreground window yields thread 0, which means the current layout.
@@ -120,8 +139,7 @@ pub(crate) fn typed_char(key: VIRTUAL_KEY, scan_code: u32) -> Option<char> {
             Some(layout),
         )
     };
-    let written = usize::try_from(written).ok()?;
-    single_char(units.get(..written)?)
+    typed_from(written, &units)
 }
 
 fn current_keyboard_state() -> [u8; VIRTUAL_KEY_COUNT] {
@@ -147,34 +165,34 @@ fn is_held(key: VIRTUAL_KEY) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_LEFT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_LEFT, VK_OEM_4, VK_OEM_7};
 
     use super::*;
 
     #[test]
     fn modifier_alone_is_not_a_key() {
-        assert_eq!(translate(VK_LSHIFT, Chord::Shift, None), None);
+        assert_eq!(translate(VK_LSHIFT, Chord::Shift, Typed::Other), None);
     }
 
     #[test]
     fn plain_tab_is_tab() {
-        assert_eq!(translate(VK_TAB, Chord::Plain, Some('\t')), Some(Key::Tab));
+        assert_eq!(translate(VK_TAB, Chord::Plain, Typed::Char('\t')), Some(Key::Tab));
     }
 
     #[test]
     fn shift_tab_is_other() {
-        assert_eq!(translate(VK_TAB, Chord::Shift, None), Some(Key::Other));
+        assert_eq!(translate(VK_TAB, Chord::Shift, Typed::Other), Some(Key::Other));
     }
 
     #[test]
     fn alt_tab_is_other() {
-        assert_eq!(translate(VK_TAB, Chord::Alt, None), Some(Key::Other));
+        assert_eq!(translate(VK_TAB, Chord::Alt, Typed::Other), Some(Key::Other));
     }
 
     #[test]
     fn escape_is_escape() {
         assert_eq!(
-            translate(VK_ESCAPE, Chord::Plain, Some('\u{1b}')),
+            translate(VK_ESCAPE, Chord::Plain, Typed::Char('\u{1b}')),
             Some(Key::Escape)
         );
     }
@@ -182,62 +200,90 @@ mod tests {
     #[test]
     fn backspace_is_backspace() {
         assert_eq!(
-            translate(VK_BACK, Chord::Plain, Some('\u{8}')),
+            translate(VK_BACK, Chord::Plain, Typed::Char('\u{8}')),
             Some(Key::Backspace)
         );
     }
 
     #[test]
     fn control_backspace_is_other() {
-        assert_eq!(translate(VK_BACK, Chord::Control, None), Some(Key::Other));
+        assert_eq!(translate(VK_BACK, Chord::Control, Typed::Other), Some(Key::Other));
     }
 
     #[test]
     fn typed_letter_is_char() {
-        assert_eq!(translate(VK_A, Chord::Shift, Some('A')), Some(Key::Char('A')));
+        assert_eq!(
+            translate(VK_A, Chord::Shift, Typed::Char('A')),
+            Some(Key::Char('A'))
+        );
     }
 
     #[test]
     fn alt_graph_character_is_char() {
-        assert_eq!(translate(VK_A, Chord::AltGraph, Some('@')), Some(Key::Char('@')));
+        assert_eq!(
+            translate(VK_A, Chord::AltGraph, Typed::Char('@')),
+            Some(Key::Char('@'))
+        );
     }
 
     #[test]
     fn alt_letter_is_other() {
-        assert_eq!(translate(VK_A, Chord::Alt, Some('a')), Some(Key::Other));
+        assert_eq!(translate(VK_A, Chord::Alt, Typed::Char('a')), Some(Key::Other));
     }
 
     #[test]
     fn windows_letter_is_other() {
-        assert_eq!(translate(VK_A, Chord::Windows, Some('a')), Some(Key::Other));
+        assert_eq!(
+            translate(VK_A, Chord::Windows, Typed::Char('a')),
+            Some(Key::Other)
+        );
     }
 
     #[test]
     fn enter_is_enter() {
-        assert_eq!(translate(VK_RETURN, Chord::Plain, Some('\r')), Some(Key::Enter));
+        assert_eq!(
+            translate(VK_RETURN, Chord::Plain, Typed::Char('\r')),
+            Some(Key::Enter)
+        );
     }
 
     #[test]
     fn shift_enter_is_enter() {
-        assert_eq!(translate(VK_RETURN, Chord::Shift, Some('\r')), Some(Key::Enter));
+        assert_eq!(
+            translate(VK_RETURN, Chord::Shift, Typed::Char('\r')),
+            Some(Key::Enter)
+        );
     }
 
     #[test]
     fn control_enter_passes_its_control_character() {
         assert_eq!(
-            translate(VK_RETURN, Chord::Control, Some('\n')),
+            translate(VK_RETURN, Chord::Control, Typed::Char('\n')),
             Some(Key::Char('\n'))
         );
     }
 
     #[test]
     fn alt_enter_is_other() {
-        assert_eq!(translate(VK_RETURN, Chord::Alt, Some('\r')), Some(Key::Other));
+        assert_eq!(
+            translate(VK_RETURN, Chord::Alt, Typed::Char('\r')),
+            Some(Key::Other)
+        );
+    }
+
+    #[test]
+    fn dead_key_is_dead() {
+        assert_eq!(translate(VK_OEM_7, Chord::Plain, Typed::Dead), Some(Key::Dead));
+    }
+
+    #[test]
+    fn alt_graph_dead_key_is_dead() {
+        assert_eq!(translate(VK_OEM_4, Chord::AltGraph, Typed::Dead), Some(Key::Dead));
     }
 
     #[test]
     fn key_without_character_is_other() {
-        assert_eq!(translate(VK_LEFT, Chord::Plain, None), Some(Key::Other));
+        assert_eq!(translate(VK_LEFT, Chord::Plain, Typed::Other), Some(Key::Other));
     }
 
     #[test]
@@ -278,17 +324,22 @@ mod tests {
     }
 
     #[test]
-    fn surrogate_pair_is_single_char() {
-        assert_eq!(single_char(&[0xD83D, 0xDE00]), Some('😀'));
+    fn surrogate_pair_is_one_character() {
+        assert_eq!(typed_from(2, &[0xD83D, 0xDE00]), Typed::Char('😀'));
     }
 
     #[test]
-    fn two_characters_are_not_single_char() {
-        assert_eq!(single_char(&[0x0060, 0x0061]), None);
+    fn two_characters_are_other() {
+        assert_eq!(typed_from(2, &[0x0060, 0x0061]), Typed::Other);
     }
 
     #[test]
-    fn no_units_are_not_single_char() {
-        assert_eq!(single_char(&[]), None);
+    fn no_units_are_other() {
+        assert_eq!(typed_from(0, &[0x0061]), Typed::Other);
+    }
+
+    #[test]
+    fn negative_count_is_a_dead_key() {
+        assert_eq!(typed_from(-1, &[0x00B4]), Typed::Dead);
     }
 }

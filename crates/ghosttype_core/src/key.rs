@@ -17,6 +17,9 @@ pub enum Key {
     /// Return or Enter, alone or with Shift. Ends a line or submits the field. The typed context
     /// needs a new read.
     Enter,
+    /// A dead key: it types nothing, and the next key types an accented letter, such as ´ and then
+    /// e for é. The text of the field can then differ from the typed keys.
+    Dead,
     /// Any other key: navigation, shortcuts. The typed context is no longer reliable.
     Other,
 }

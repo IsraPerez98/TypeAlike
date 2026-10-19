@@ -134,9 +134,10 @@ struct Session {
     /// stored text of a read before the session, if any. After it, the session starts no other
     /// read, so that the start of its prompt changes at most one time.
     has_screen_read: bool,
-    /// Whether the user pressed Enter after the last read of the field, so that the text before
-    /// the caret is not known until the next read.
-    is_waiting_for_new_line: bool,
+    /// The text before the caret in the field when the user pressed Enter, while the text before
+    /// the caret is not known until the next read of the field. It is the text of the session
+    /// when the platform gave no field text.
+    field_at_enter: Option<String>,
 }
 
 impl Session {
@@ -223,8 +224,8 @@ impl Engine {
                 self.request()
             }
             Key::Tab => self.accept(),
-            Key::Escape => self.dismiss(),
-            Key::Enter => self.wait_for_new_line(),
+            Key::Escape | Key::Dead => self.dismiss(),
+            Key::Enter => self.wait_for_new_line(desktop),
             Key::Char(_) | Key::Other => self.reset(),
         }
     }
@@ -236,9 +237,10 @@ impl Engine {
         self.read_field_after_enter(desktop).then(|| self.request())
     }
 
-    /// Hides the ghost text, and lets the session wait for a read of its field. A session in a
-    /// field that the platform cannot read or that gets no suggestions ends.
-    fn wait_for_new_line(&mut self) -> Reaction {
+    /// Hides the ghost text, keeps the text of the field in `desktop`, and lets the session wait
+    /// for a read of its field. A second Enter keeps the text of the first. A session in a field
+    /// that the platform cannot read or that gets no suggestions ends.
+    fn wait_for_new_line(&mut self, desktop: &dyn Desktop) -> Reaction {
         let Some(session) = self
             .session
             .as_mut()
@@ -246,28 +248,37 @@ impl Engine {
         else {
             return self.reset();
         };
-        session.is_waiting_for_new_line = true;
+        if session.field_at_enter.is_none() {
+            let field_text = desktop.surroundings().field_text;
+            let text = field_text
+                .as_ref()
+                .map_or(session.text_before.as_str(), |field_text| {
+                    recent_text(&field_text.before_caret, session.max_tokens_before)
+                });
+            session.field_at_enter = Some(text.to_owned());
+        }
         self.dismiss()
     }
 
     /// Reads the field of `desktop` when the session waits for a read after Enter. The session
-    /// continues with the text that Enter added when the field shows the text of the session and a
-    /// new line after it. Else it ends. Returns whether the session continues on a new line.
+    /// continues with the text that Enter added when the field shows the text of the session, or
+    /// the text of the field at Enter, and a new line after it. Else it ends. Returns whether the
+    /// session continues on a new line.
     fn read_field_after_enter(&mut self, desktop: &dyn Desktop) -> bool {
-        let Some(session) = self
-            .session
-            .as_mut()
-            .filter(|session| session.is_waiting_for_new_line)
-        else {
+        let Some(session) = self.session.as_mut() else {
             return false;
         };
-        session.is_waiting_for_new_line = false;
+        let Some(field_at_enter) = session.field_at_enter.take() else {
+            return false;
+        };
         let field_text = desktop.surroundings().field_text.unwrap_or_default();
-        let Some(added) = text_on_new_line(&session.text_before, &field_text.before_caret) else {
+        let Some(text_before) =
+            text_after_enter(&session.text_before, &field_at_enter, &field_text.before_caret)
+        else {
             self.reset();
             return false;
         };
-        session.text_before.push_str(added);
+        session.text_before = text_before;
         session.keep_recent_text();
         true
     }
@@ -530,7 +541,7 @@ impl Engine {
             has_accepted: false,
             is_text_field: surroundings.field_text.is_some(),
             has_screen_read: false,
-            is_waiting_for_new_line: false,
+            field_at_enter: None,
         }
     }
 
@@ -726,6 +737,16 @@ fn recent_text(text: &str, max_tokens: TokenCount) -> &str {
     }
     let trimmed_tokens = TokenCount(max_tokens.0 / 4 * 3);
     last_tokens(last_chars(text, TRIMMED_CHARS_BEFORE_CARET), trimmed_tokens)
+}
+
+/// Returns the text before the caret of a session after Enter: `typed`, the text of the session,
+/// else `field_at_enter`, the text of the field at Enter, with what Enter added in `field_text`.
+/// The field text counts when the app changed the typed text, as a dead key or an autocorrect
+/// does. `None` when `field_text` shows neither with a new line.
+fn text_after_enter(typed: &str, field_at_enter: &str, field_text: &str) -> Option<String> {
+    [typed, field_at_enter]
+        .into_iter()
+        .find_map(|text| text_on_new_line(text, field_text).map(|added| format!("{text}{added}")))
 }
 
 /// Returns what Enter added after `text` in `field_text`, the text before the caret after Enter:
@@ -1547,15 +1568,59 @@ mod tests {
     }
 
     fn engine_after_enter(typed: &str) -> Engine {
+        engine_after_enter_in(typed, typed)
+    }
+
+    fn engine_after_enter_in(typed: &str, field_at_enter: &str) -> Engine {
         let mut engine = engine_with(&Settings {
             clipboard_access: ClipboardAccess::Allowed,
             ..Settings::default()
         });
-        let desktop = FakeDesktop::with_field_text(typed);
-        engine.prepare(&desktop);
+        engine.prepare(&FakeDesktop::with_field_text(typed));
         engine.on_completion(completion(""));
-        engine.on_key(Key::Enter, &desktop);
+        engine.on_key(Key::Enter, &FakeDesktop::with_field_text(field_at_enter));
         engine
+    }
+
+    #[test]
+    fn new_line_continues_the_field_text_when_the_app_changed_the_typed_text() {
+        let mut engine = engine_after_enter_in("¿Que tal?", "¿Qué tal?");
+
+        let reaction = engine.suggest_on_new_line(&field_with_copy("¿Qué tal?\n"));
+
+        assert_eq!(reaction, Some(request("¿Qué tal?\n")));
+    }
+
+    #[test]
+    fn new_line_continues_the_typed_text_when_the_field_read_at_enter_is_old() {
+        let mut engine = engine_after_enter_in("Best regards,", "Best regards");
+
+        let reaction = engine.suggest_on_new_line(&field_with_copy("Best regards,\n"));
+
+        assert_eq!(reaction, Some(request("Best regards,\n")));
+    }
+
+    #[test]
+    fn dead_key_keeps_the_session_for_the_accented_letter() {
+        let mut engine = Engine::default();
+        engine.on_key(Key::Char('u'), &FakeDesktop::with_field_text("¿Q"));
+        engine.on_key(Key::Dead, &FakeDesktop::with_field_text("¿Qu"));
+
+        let reaction = engine.on_key(Key::Char('e'), &FakeDesktop::with_field_text("¿Qu´"));
+
+        assert_eq!(reaction, request("¿Que"));
+    }
+
+    #[test]
+    fn dead_key_hides_the_suggestion() {
+        let mut engine = engine_showing("qu", "é tal");
+
+        let reaction = press(&mut engine, Key::Dead);
+
+        assert_eq!(
+            (reaction, engine.shown(), engine.has_session()),
+            (Reaction::Hide, "", true)
+        );
     }
 
     #[test]

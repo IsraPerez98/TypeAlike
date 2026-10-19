@@ -237,7 +237,7 @@ impl Runtime {
     /// The controller reads the field text as it is before the key, so the key makes that text
     /// stale only after the controller. A modifier alone does not change the field.
     fn on_key_down(&mut self, key: VIRTUAL_KEY, scan_code: u32) -> Disposition {
-        let core_key = keys::translate(key, keys::current_chord(), keys::typed_char(key, scan_code));
+        let core_key = keys::translate(key, keys::current_chord(), keys::typed(key, scan_code));
         let disposition = self.controller.on_key_down(core_key, &mut self.shell);
         self.release_filter.on_press(key, disposition);
         if core_key.is_some() {
