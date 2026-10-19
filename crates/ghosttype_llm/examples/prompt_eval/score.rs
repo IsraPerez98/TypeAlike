@@ -15,6 +15,8 @@ pub enum CaseKind {
     PartialWord,
     /// Inside a word with a typo: the suggestion must not finish it.
     Typo,
+    /// After an Enter that did not start a new line in the field: no suggestion must show.
+    NoNewLine,
 }
 
 impl CaseKind {
@@ -31,11 +33,13 @@ impl CaseKind {
 }
 
 /// Returns whether a case of `kind` with the ghost text `suggestion` matches. A typo case matches
-/// when no suggestion finishes the word with the typo. Another case matches when `accepted`, the
-/// word that the first Tab types, is the first word of `next`.
+/// when no suggestion finishes the word with the typo, and a case without a new line when no
+/// suggestion shows. Another case matches when `accepted`, the word that the first Tab types, is
+/// the first word of `next`.
 pub fn is_match(kind: CaseKind, suggestion: Option<&str>, accepted: &str, next: &str) -> bool {
     match kind {
         CaseKind::Typo => !suggestion.is_some_and(|text| text.starts_with(char::is_alphanumeric)),
+        CaseKind::NoNewLine => suggestion.is_none(),
         CaseKind::NextWord | CaseKind::PartialWord => is_next_word(accepted, next),
     }
 }
@@ -136,6 +140,8 @@ pub struct Summary {
     pub partial_word: Score,
     /// The cases with the caret inside a word with a typo.
     pub typo: Score,
+    /// The cases with an Enter that did not start a new line.
+    pub no_new_line: Score,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
     /// The median milliseconds from the key to the ghost text.
@@ -159,6 +165,7 @@ impl Summary {
             next_word: Score::of(outcomes, CaseKind::NextWord),
             partial_word: Score::of(outcomes, CaseKind::PartialWord),
             typo: Score::of(outcomes, CaseKind::Typo),
+            no_new_line: Score::of(outcomes, CaseKind::NoNewLine),
             without_suggestion: outcomes
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
@@ -436,6 +443,15 @@ mod tests {
     }
 
     #[test]
+    fn case_without_a_new_line_matches_without_a_suggestion() {
+        let suggestions = [None, Some(" Sara")];
+
+        let matches = suggestions.map(|suggestion| is_match(CaseKind::NoNewLine, suggestion, "", ""));
+
+        assert_eq!(matches, [true, false]);
+    }
+
+    #[test]
     fn other_cases_match_when_the_accepted_word_is_the_next_word() {
         let kinds = [CaseKind::NextWord, CaseKind::PartialWord];
 
@@ -456,6 +472,22 @@ mod tests {
 
         assert_eq!(
             (summary.next_word, summary.typo),
+            (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
+        );
+    }
+
+    #[test]
+    fn summary_scores_the_cases_without_a_new_line_apart() {
+        let outcomes = [
+            outcome("a", CaseKind::NoNewLine, true, 10),
+            outcome("b", CaseKind::NoNewLine, false, 10),
+            outcome("c", CaseKind::NextWord, true, 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.next_word, summary.no_new_line),
             (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
         );
     }

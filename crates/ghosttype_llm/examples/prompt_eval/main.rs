@@ -16,6 +16,9 @@
 //! - `field_caption`, `field_name`, `field_placeholder`, `field_help`: the labels of the field, as
 //!   in `FieldLabels`. Each key can be left out.
 //! - `before`, `after`: the text of the field before and after the caret.
+//! - `before_enter`: the text before the caret just before the writer pressed Enter, when Enter
+//!   did not add only a line break, for example when the app adds a bullet, sends the message or
+//!   keeps the text of a search box. It can be left out.
 //! - `clipboard`: the text on the clipboard, or `null`.
 //! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
 //!   are the frames of the field and the caret, and each of `lines` has a `text` outside of the
@@ -27,7 +30,7 @@
 //!   one has its `text`, and the `app_id` and `domain` of the place where the writer typed it.
 //! - `words`: the words that the writer often writes, with their counts. It can be left out. When
 //!   the case has words, the word bias comes from them, and else from `history`.
-//! - `next`: the text that the writer typed next.
+//! - `next`: the text that the writer typed next. It is empty when Enter did not start a new line.
 //! - `typo`: `true` when the last word of `before` has a typo. It can be left out.
 //!
 //! The eval uses the default settings with the backend of `--backend`, the clipboard and the
@@ -38,11 +41,17 @@
 //! prompt before the key, as on the first key in a field. Then the eval opens the field again, lets
 //! the model decode the prompt when the input settles, as the app does when it prepares the prompt
 //! on focus, and types the character again for the warm time.
+//! When `before` ends with a line break or the case has `before_enter`, the last key is Enter. The
+//! field holds `before_enter`, or else `before` without its last line break. After Enter, the field
+//! holds `before`, and the input settles again before the ghost text.
 //! A case matches when the word that the first Tab types is the first word of `next`. Signs after
-//! the word do not count. A typo case matches when no suggestion finishes the word with the typo.
+//! the word do not count. A typo case matches when no suggestion finishes the word with the typo. A
+//! case where `before` does not add a line break to `before_enter` matches when no suggestion
+//! shows.
 //! The report gives the score of the cases with the caret between two words, the score of the
-//! cases with the caret inside a word, the score of the typo cases, the median time from the key
-//! to the ghost text, and the median warm time. It also gives the median tokens of a prompt, and the
+//! cases with the caret inside a word, the score of the typo cases, the score of the cases without a
+//! new line, the median time from the key to the ghost text, and the median warm time. It also
+//! gives the median tokens of a prompt, and the
 //! time for each token of the prompt, which tells whether a change adds time through more tokens.
 //! It also gives the mean log probability of the first word of `next` after the
 //! prompt. This value moves a little for a small change of the prompt, while the score often stays
@@ -63,7 +72,10 @@
 //! `cases/chat.jsonl` has chats, emails and documents with only one or two characters in the field,
 //! with the names and the times of a chat on the screen, and with a time inside a message. Run it
 //! also with `--notes`. `cases/typos.jsonl` has cases of `tuning.jsonl` and `held_out.jsonl` with
-//! the second and the third letter of the last word swapped.
+//! the second and the third letter of the last word swapped. `cases/new_line.jsonl` has cases that
+//! end with Enter: closings before the name of the writer, greetings, lists and paragraphs, in
+//! several languages, and fields where Enter sends the text, submits a search or confirms an input
+//! method. Run it with `--name "Sara Novak"`.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
@@ -211,6 +223,8 @@ struct Case {
     field_placeholder: Option<String>,
     field_help: Option<String>,
     before: String,
+    #[serde(default)]
+    before_enter: Option<String>,
     after: String,
     clipboard: Option<String>,
     screen: Option<CaseScreen>,
@@ -228,8 +242,58 @@ impl Case {
     fn kind(&self) -> CaseKind {
         if self.typo {
             CaseKind::Typo
+        } else if self.is_without_new_line() {
+            CaseKind::NoNewLine
         } else {
             CaseKind::of(&self.before, &self.next)
+        }
+    }
+
+    /// Whether the case has a text before Enter, and `before` has no line break after that text.
+    fn is_without_new_line(&self) -> bool {
+        self.before_enter.as_deref().is_some_and(|before_enter| {
+            self.before
+                .strip_prefix(before_enter)
+                .is_none_or(|added| !added.contains('\n'))
+        })
+    }
+
+    /// Returns the text before the caret before the last key, and the last key.
+    fn last_key(&self) -> anyhow::Result<(String, Key)> {
+        if let Some(before_enter) = &self.before_enter {
+            return Ok((before_enter.clone(), Key::Enter));
+        }
+        if let Some(before_enter) = self.before.strip_suffix('\n') {
+            return Ok((before_enter.to_owned(), Key::Enter));
+        }
+        let mut before = self.before.clone();
+        let last_character = before
+            .pop()
+            .with_context(|| format!("case {} has no text before the caret", self.id))?;
+        Ok((before, Key::Char(last_character)))
+    }
+
+    /// Returns the field of the case with `before_caret` as the text before the caret.
+    fn field(&self, before_caret: String) -> CaseField {
+        CaseField {
+            surroundings: Surroundings {
+                app_name: self.app.clone(),
+                app_id: self.app_id.clone(),
+                window_title: self.window_title.clone(),
+                field_labels: FieldLabels {
+                    caption: self.field_caption.clone(),
+                    name: self.field_name.clone(),
+                    placeholder: self.field_placeholder.clone(),
+                    help: self.field_help.clone(),
+                },
+                domain: self.domain.clone(),
+                app_path: None,
+                field_text: Some(FieldText {
+                    before_caret,
+                    after_caret: self.after.clone(),
+                }),
+            },
+            clipboard: self.clipboard.clone(),
         }
     }
 }
@@ -326,7 +390,7 @@ fn screen_rect([left, top, right, bottom]: CaseFrame) -> ScreenRect {
     }
 }
 
-/// The focused field of a case, before the writer types the last character of `before`.
+/// The focused field of a case.
 #[derive(Debug)]
 struct CaseField {
     surroundings: Surroundings,
@@ -441,41 +505,42 @@ struct KeyRun {
     millis: u64,
 }
 
+/// What the input settle gave.
+struct Settled {
+    has_read_screen: bool,
+}
+
 /// A case before its last key, in a new app each time.
 struct Typing<'case> {
     case: &'case Case,
     history: &'case [HistoryEntry],
     settings: &'case Settings,
+    /// The field before the last key.
     field: CaseField,
-    last_character: char,
+    last_key: Key,
+    /// The field after the last key.
+    typed_field: CaseField,
     version: u64,
 }
 
 impl Typing<'_> {
-    /// Opens the field in a new app, lets the input settle with the `preparation`, types the last
-    /// character and waits for the ghost text. Returns the app, for the keys after it.
-    fn type_last_character(
-        &self,
-        model: &mut Model,
-        preparation: Preparation,
-    ) -> anyhow::Result<(App, KeyRun)> {
+    /// Opens the field in a new app, lets the input settle with the `preparation`, presses the last
+    /// key and waits for the ghost text. After Enter, the input settles again before the ghost
+    /// text. Returns the app, for the keys after it.
+    fn press_last_key(&self, model: &mut Model, preparation: Preparation) -> anyhow::Result<(App, KeyRun)> {
         let mut app = App::new();
         app.use_settings(self.settings);
         app.use_history(self.history.to_vec());
-        self.settle(model, &mut app, preparation)?;
+        let opened = self.settle(model, &mut app, &self.field, preparation)?;
+        if self.case.screen.is_some() && !opened.has_read_screen {
+            bail!("case {} reads no screen text", self.case.id);
+        }
         let start = Instant::now();
-        let (reaction, prompt) = match app.on_key(Key::Char(self.last_character), &self.field) {
-            Reaction::Request(request) => {
-                let prompt = match &request {
-                    InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
-                    _ => None,
-                };
-                let choice = self.settings.personalization.word_choice;
-                let request = with_case_bias(request, self.case, choice, self.version);
-                (app.on_completion(model.complete(request)?), prompt)
-            }
-            reaction => (reaction, None),
-        };
+        let reaction = app.on_key(self.last_key, &self.field);
+        let (reaction, prompt) = self.complete(model, &mut app, reaction)?;
+        if self.last_key == Key::Enter {
+            self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
+        }
         let millis = u64::try_from(start.elapsed().as_millis())?;
         Ok((
             app,
@@ -487,17 +552,45 @@ impl Typing<'_> {
         ))
     }
 
-    /// Lets the input settle in `app`: gives the screen of the case to each read of the screen,
-    /// and does the `preparation` with each prompt that the app prepares.
-    fn settle(&self, model: &mut Model, app: &mut App, preparation: Preparation) -> anyhow::Result<()> {
-        let mut has_read_screen = false;
-        let mut work = app.on_input_settled(&self.field);
+    /// Returns the reaction after the completion of the request of `reaction`, and the prompt of
+    /// the request. Returns `reaction` itself when it has no request.
+    fn complete(
+        &self,
+        model: &mut Model,
+        app: &mut App,
+        reaction: Reaction,
+    ) -> anyhow::Result<(Reaction, Option<String>)> {
+        let Reaction::Request(request) = reaction else {
+            return Ok((reaction, None));
+        };
+        let prompt = match &request {
+            InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
+            _ => None,
+        };
+        let choice = self.settings.personalization.word_choice;
+        let request = with_case_bias(request, self.case, choice, self.version);
+        Ok((app.on_completion(model.complete(request)?), prompt))
+    }
+
+    /// Lets the input settle in `app` with the focus in `field`: gives the screen of the case to
+    /// each read of the screen, and does the `preparation` with each prompt that the app prepares.
+    fn settle(
+        &self,
+        model: &mut Model,
+        app: &mut App,
+        field: &CaseField,
+        preparation: Preparation,
+    ) -> anyhow::Result<Settled> {
+        let mut settled = Settled {
+            has_read_screen: false,
+        };
+        let mut work = app.on_input_settled(field);
         while let Some(next) = work {
             work = match next {
                 SettledWork::ReadScreen { read, .. } => {
-                    has_read_screen = true;
+                    settled.has_read_screen = true;
                     let text = self.case.screen.as_ref().map(CaseScreen::to_screen_text);
-                    app.on_screen_read(ScreenRead { id: read, text }, &self.field)
+                    app.on_screen_read(ScreenRead { id: read, text }, field)
                 }
                 SettledWork::Prepare(request) => {
                     let result = match preparation {
@@ -509,10 +602,7 @@ impl Typing<'_> {
                 }
             };
         }
-        if self.case.screen.is_some() && !has_read_screen {
-            bail!("case {} reads no screen text", self.case.id);
-        }
-        Ok(())
+        Ok(settled)
     }
 }
 
@@ -523,44 +613,22 @@ fn run_case(
     settings: &Settings,
     version: u64,
 ) -> anyhow::Result<CaseRun> {
-    let mut before = case.before.clone();
-    let last_character = before
-        .pop()
-        .with_context(|| format!("case {} has no text before the caret", case.id))?;
-    let field = CaseField {
-        surroundings: Surroundings {
-            app_name: case.app.clone(),
-            app_id: case.app_id.clone(),
-            window_title: case.window_title.clone(),
-            field_labels: FieldLabels {
-                caption: case.field_caption.clone(),
-                name: case.field_name.clone(),
-                placeholder: case.field_placeholder.clone(),
-                help: case.field_help.clone(),
-            },
-            domain: case.domain.clone(),
-            app_path: None,
-            field_text: Some(FieldText {
-                before_caret: before,
-                after_caret: case.after.clone(),
-            }),
-        },
-        clipboard: case.clipboard.clone(),
-    };
+    let (before_key, last_key) = case.last_key()?;
     let typing = Typing {
         case,
         history,
         settings,
-        field,
-        last_character,
+        field: case.field(before_key),
+        last_key,
+        typed_field: case.field(case.before.clone()),
         version,
     };
-    let (mut app, cold) = typing.type_last_character(model, Preparation::Skip)?;
-    let accepted = match app.on_key(Key::Tab, &typing.field) {
+    let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
+    let accepted = match app.on_key(Key::Tab, &typing.typed_field) {
         Reaction::Accept { text, .. } => text,
         _ => String::new(),
     };
-    let (_, warm) = typing.type_last_character(model, Preparation::Decode)?;
+    let (_, warm) = typing.press_last_key(model, Preparation::Decode)?;
     let suggestion = match cold.reaction {
         Reaction::Show(text) => Some(text),
         _ => None,
@@ -578,10 +646,13 @@ fn run_case(
             prompt_tokens: None,
             log_probability: None,
         },
-        continuation: cold.prompt.map(|prompt| Continuation {
-            prompt,
-            text: next_word(&case.next).to_owned(),
-        }),
+        continuation: cold
+            .prompt
+            .filter(|_| kind != CaseKind::NoNewLine)
+            .map(|prompt| Continuation {
+                prompt,
+                text: next_word(&case.next).to_owned(),
+            }),
     })
 }
 
@@ -613,6 +684,9 @@ fn write_report(
     writeln!(output, "partial word:  {}", summary.partial_word)?;
     if summary.typo.cases > 0 {
         writeln!(output, "typo word:     {}", summary.typo)?;
+    }
+    if summary.no_new_line.cases > 0 {
+        writeln!(output, "no new line:   {}", summary.no_new_line)?;
     }
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {} ms", summary.median_millis)?;
@@ -768,6 +842,47 @@ mod tests {
         };
 
         assert_eq!(case.kind(), CaseKind::Typo);
+    }
+
+    fn case_before(before: &str, before_enter: Option<&str>) -> Case {
+        Case {
+            before: before.to_owned(),
+            before_enter: before_enter.map(str::to_owned),
+            ..case_of(None, &[])
+        }
+    }
+
+    #[test]
+    fn case_that_ends_with_a_line_break_presses_enter_after_the_text_before_it() {
+        let case = case_before("Best regards,\n", None);
+
+        assert_eq!(case.last_key().unwrap(), ("Best regards,".to_owned(), Key::Enter));
+    }
+
+    #[test]
+    fn case_with_the_text_before_enter_presses_enter_after_that_text() {
+        let case = case_before("- milk\n- ", Some("- milk"));
+
+        assert_eq!(case.last_key().unwrap(), ("- milk".to_owned(), Key::Enter));
+    }
+
+    #[test]
+    fn other_case_types_its_last_character() {
+        let case = case_before("Best", None);
+
+        assert_eq!(case.last_key().unwrap(), ("Bes".to_owned(), Key::Char('t')));
+    }
+
+    #[test]
+    fn case_whose_enter_adds_no_line_break_expects_no_suggestion() {
+        let cases = [
+            case_before("", Some("See you at 8")),
+            case_before("- milk\n- ", Some("- milk")),
+        ];
+
+        let kinds = cases.map(|case| case.kind());
+
+        assert_eq!(kinds, [CaseKind::NoNewLine, CaseKind::NextWord]);
     }
 
     #[test]
