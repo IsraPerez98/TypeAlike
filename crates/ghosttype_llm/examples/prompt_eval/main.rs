@@ -49,13 +49,6 @@
 //! prompt. This value moves a little for a small change of the prompt, while the score often stays
 //! the same.
 //!
-//! The report also names the cases with a leak: a suggestion with text that the model took from
-//! the prompt. A leak is a label with a colon (in a field of one word, or before “), a word
-//! about the prompt or the task (such as "user"), a name from the notes, or two words or a time of
-//! a chat header on the screen (a line with only a name and a time). Text that the writer typed in
-//! the case or in the earlier writing is never a leak. A rule finds the leaks, so read the
-//! suggestions of the named cases before a decision.
-//!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
 //!
@@ -68,11 +61,10 @@
 //! the writer writes often) and `phrase` (the last 3 words start a phrase of the writer: the writer
 //! repeats it, or the writer changes it this time). The held-out file has its own writers.
 //!
-//! `cases/chat.jsonl` has the cases where most leaks show: chats, emails and documents with
-//! only one or two characters in the field, with the names and the times of a chat on the screen,
-//! and with a time inside a message. Run it also with `--notes`. `cases/typos.jsonl` has cases
-//! of `tuning.jsonl` and `held_out.jsonl` with the second and the third letter of the last word
-//! swapped.
+//! `cases/chat.jsonl` has chats, emails and documents with only one or two characters in the field,
+//! with the names and the times of a chat on the screen, and with a time inside a message. Run it
+//! also with `--notes`. `cases/typos.jsonl` has cases of `tuning.jsonl` and `held_out.jsonl` with
+//! the second and the third letter of the last word swapped.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
@@ -90,7 +82,6 @@
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
 //! has no log probability.
 
-mod leak;
 mod likelihood;
 mod score;
 
@@ -123,7 +114,6 @@ use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::leak::{CaseTexts, Leak};
 use crate::likelihood::Continuation;
 use crate::score::{CaseKind, Comparison, Outcome, Summary, is_match, next_word};
 
@@ -238,22 +228,6 @@ impl Case {
             CaseKind::Typo
         } else {
             CaseKind::of(&self.before, &self.next)
-        }
-    }
-
-    fn texts<'case>(&'case self, history: &'case [HistoryEntry], notes: &'case str) -> CaseTexts<'case> {
-        CaseTexts {
-            before: &self.before,
-            after: &self.after,
-            next: &self.next,
-            earlier: history.iter().map(|entry| entry.text.as_str()).collect(),
-            notes,
-            screen_lines: self
-                .screen
-                .iter()
-                .flat_map(|screen| &screen.lines)
-                .map(|line| line.text.as_str())
-                .collect(),
         }
     }
 }
@@ -596,9 +570,6 @@ fn run_case(
             id: case.id.clone(),
             kind,
             is_match: is_match(kind, suggestion.as_deref(), &accepted, &case.next),
-            leak: suggestion
-                .as_deref()
-                .and_then(|text| Leak::find(text, &case.texts(history, &settings.writer_notes.0))),
             suggestion,
             millis: cold.millis,
             warm_millis: Some(warm.millis),
@@ -641,12 +612,6 @@ fn write_report(
     if summary.typo.cases > 0 {
         writeln!(output, "typo word:     {}", summary.typo)?;
     }
-    writeln!(
-        output,
-        "leaks:         {} {:?}",
-        summary.leaks.len(),
-        summary.leaks
-    )?;
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {} ms", summary.median_millis)?;
     if let Some(millis) = summary.median_warm_millis {

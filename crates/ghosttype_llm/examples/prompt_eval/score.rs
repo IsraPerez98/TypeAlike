@@ -5,8 +5,6 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::leak::Leak;
-
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,9 +78,6 @@ pub struct Outcome {
     pub suggestion: Option<String>,
     /// Whether the case matches, as [`is_match`] tells.
     pub is_match: bool,
-    /// The text that the suggestion took from the prompt, or `None`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub leak: Option<Leak>,
     /// The milliseconds from the key to the ghost text.
     pub millis: u64,
     /// The milliseconds from the key to the ghost text when the app prepared the prompt before the
@@ -141,8 +136,6 @@ pub struct Summary {
     pub partial_word: Score,
     /// The cases with the caret inside a word with a typo.
     pub typo: Score,
-    /// The ids of the cases with a leak.
-    pub leaks: Vec<String>,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
     /// The median milliseconds from the key to the ghost text.
@@ -166,11 +159,6 @@ impl Summary {
             next_word: Score::of(outcomes, CaseKind::NextWord),
             partial_word: Score::of(outcomes, CaseKind::PartialWord),
             typo: Score::of(outcomes, CaseKind::Typo),
-            leaks: outcomes
-                .iter()
-                .filter(|outcome| outcome.leak.is_some())
-                .map(|outcome| outcome.id.clone())
-                .collect(),
             without_suggestion: outcomes
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
@@ -299,18 +287,10 @@ mod tests {
             kind,
             suggestion: Some("text".to_owned()),
             is_match,
-            leak: None,
             millis,
             warm_millis: None,
             prompt_tokens: None,
             log_probability: None,
-        }
-    }
-
-    fn leaked(id: &str, leak: Leak) -> Outcome {
-        Outcome {
-            leak: Some(leak),
-            ..outcome(id, CaseKind::NextWord, false, 10)
         }
     }
 
@@ -478,19 +458,6 @@ mod tests {
             (summary.next_word, summary.typo),
             (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
         );
-    }
-
-    #[test]
-    fn summary_names_the_cases_with_a_leak() {
-        let outcomes = [
-            leaked("label", Leak::Label),
-            outcome("clean", CaseKind::NextWord, true, 10),
-            leaked("screen", Leak::Screen),
-        ];
-
-        let summary = Summary::of(&outcomes);
-
-        assert_eq!(summary.leaks, ["label", "screen"]);
     }
 
     #[test]

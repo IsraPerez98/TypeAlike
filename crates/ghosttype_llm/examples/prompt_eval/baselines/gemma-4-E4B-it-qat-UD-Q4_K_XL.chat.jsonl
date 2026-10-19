@@ -31,7 +31,7 @@
 {"id":"email-04-outlook","kind":"partial_word","suggestion":"timado Andrés,","is_match":true,"millis":233,"warm_millis":125,"prompt_tokens":169,"log_probability":-5.51704008617885}
 {"id":"doc-01-notion","kind":"partial_word","suggestion":"arco will review the demo slides and","is_match":true,"millis":269,"warm_millis":176,"prompt_tokens":119,"log_probability":-4.982811354853794}
 {"id":"doc-02-notion","kind":"partial_word","suggestion":" need to add a section for","is_match":false,"millis":273,"warm_millis":173,"prompt_tokens":132,"log_probability":-9.658229394660054}
-{"id":"doc-03-word","kind":"partial_word","suggestion":"ttendees: John, Sarah, and","is_match":false,"leak":"label","millis":260,"warm_millis":172,"prompt_tokens":78,"log_probability":-2.988101303789453}
+{"id":"doc-03-word","kind":"partial_word","suggestion":"ttendees: John, Sarah, and","is_match":false,"millis":260,"warm_millis":172,"prompt_tokens":78,"log_probability":-2.988101303789453}
 {"id":"doc-04-docs","kind":"partial_word","suggestion":"forme mensual de entregas - [","is_match":true,"millis":261,"warm_millis":172,"prompt_tokens":84,"log_probability":-4.590451786941866}
 {"id":"time-01-whatsapp","kind":"next_word","suggestion":"8:40.","is_match":true,"millis":241,"warm_millis":173,"prompt_tokens":110,"log_probability":-0.23584624230890694}
 {"id":"time-02-slack","kind":"next_word","suggestion":"3:30.","is_match":true,"millis":240,"warm_millis":171,"prompt_tokens":111,"log_probability":-0.019837751202773826}
