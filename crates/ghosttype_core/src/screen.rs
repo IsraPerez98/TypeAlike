@@ -1,5 +1,6 @@
-//! The text near the caret on the screen, as the prompt shows it: the lines without noise, the
-//! nearest lines first, up to a budget of tokens.
+//! The text near the caret on the screen, as the prompt shows it: the lines without noise and
+//! without the times of chat headers, the nearest lines first, up to a budget of tokens, above and
+//! below the caret.
 
 use std::collections::HashSet;
 
@@ -18,11 +19,29 @@ const MIN_REPEATED_PART_CHARS: usize = 20;
 const PLAIN_PUNCTUATION: [char; 15] = [
     '.', ',', ';', ':', '!', '?', '\'', '’', '"', '“', '”', '(', ')', '-', '…',
 ];
+/// The most words of the name in a chat header, as in "Laura Méndez 11:02". A short message with
+/// a time at its end, such as "mañana 9:00", has the same form and also loses its time.
+const MAX_HEADER_NAME_WORDS: usize = 2;
+/// The words after a time that give the half of the day.
+const HALVES_OF_DAY: [&str; 2] = ["am", "pm"];
+/// The words of a day before the time of a chat header, as in "`chips_dev` — Today at 21:03".
+const DAY_WORDS: [&str; 4] = ["today", "yesterday", "hoy", "ayer"];
+/// The words between a day word and its time, as in "Today at 21:03" or "Hoy a las 21:03".
+const DAY_TIME_JOINS: [&str; 4] = ["at", "a", "las", "la"];
 
 /// A line of text that the prompt can show.
 struct Candidate {
     text: String,
     frame: ScreenRect,
+}
+
+/// The lines of the screen that the prompt shows, each side of the caret in reading order.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct NearbyLines {
+    /// The lines whose middle is above the middle of the caret, such as the messages of a chat.
+    pub above: Vec<String>,
+    /// The other lines, such as the quote of an email below a reply.
+    pub below: Vec<String>,
 }
 
 /// How far a line is from the caret. Lines beside the field, such as sidebars and contact lists,
@@ -34,14 +53,14 @@ struct Distance {
     vertical_gap: u32,
 }
 
-/// Returns the text of the lines of `screen` that the prompt shows, in reading order: the
-/// nearest lines to the caret that fit in `budget`, without the noise and the lines that repeat
-/// `field_text`.
+/// Returns the text of the lines of `screen` that the prompt shows, above and below the caret:
+/// the nearest lines to the caret that fit in `budget`, without the noise and the lines that
+/// repeat `field_text`.
 pub(crate) fn nearby_lines(
     screen: &ScreenText,
     field_text: Option<&FieldText>,
     budget: TokenCount,
-) -> Vec<String> {
+) -> NearbyLines {
     let field = FieldLines::of(field_text);
     let caret = screen.caret.unwrap_or(screen.field);
     let mut candidates = screen
@@ -49,7 +68,7 @@ pub(crate) fn nearby_lines(
         .iter()
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
         .map(|line| Candidate {
-            text: one_line(&line.text),
+            text: without_header_time(one_line(&line.text)),
             frame: line.frame,
         })
         .filter(|candidate| {
@@ -65,7 +84,14 @@ pub(crate) fn nearby_lines(
     });
     let mut kept = within_budget(candidates, budget);
     kept.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
-    kept.into_iter().map(|candidate| candidate.text).collect()
+    let caret_middle = caret.top.midpoint(caret.bottom);
+    let (above, below) = kept.into_iter().partition::<Vec<_>, _>(|candidate| {
+        candidate.frame.top.midpoint(candidate.frame.bottom) < caret_middle
+    });
+    NearbyLines {
+        above: above.into_iter().map(|candidate| candidate.text).collect(),
+        below: below.into_iter().map(|candidate| candidate.text).collect(),
+    }
 }
 
 /// Returns the `candidates` whose tokens fit in what is left of `budget`, in their order.
@@ -153,6 +179,52 @@ fn has_digit_inside_a_word(line: &str) -> bool {
         .any(|run| run[0].is_alphabetic() && run[1].is_numeric() && run[2].is_alphabetic())
 }
 
+/// Returns the name of `line` when it is a chat header, else `line`. A message keeps its times,
+/// because a time is often what it tells.
+fn without_header_time(line: String) -> String {
+    header_name(&line).unwrap_or(line)
+}
+
+/// Returns the name of a chat header: at most [`MAX_HEADER_NAME_WORDS`] words, then a time with
+/// maybe a day before it, as in "Laura Méndez 11:02" or "`chips_dev` — Today at 21:03". The name of
+/// a line with only a time is empty. `None` when `line` is not a chat header.
+fn header_name(line: &str) -> Option<String> {
+    let mut words = line.split(' ').collect::<Vec<_>>();
+    words.pop_if(|word| is_any_of(word, &HALVES_OF_DAY));
+    words.pop_if(|word| is_time(word))?;
+    if let Some(day) = words.iter().rposition(|word| is_any_of(word, &DAY_WORDS))
+        && words[day + 1..]
+            .iter()
+            .all(|word| is_any_of(word, &DAY_TIME_JOINS))
+        && (day == 0 || is_separator(words[day - 1]))
+    {
+        words.truncate(day);
+    }
+    words.pop_if(|word| is_separator(word));
+    (words.len() <= MAX_HEADER_NAME_WORDS).then(|| words.join(" "))
+}
+
+/// Whether `word` is a time such as "9:05" or "21:03".
+fn is_time(word: &str) -> bool {
+    word.split_once(':').is_some_and(|(hours, minutes)| {
+        (1..=2).contains(&hours.len())
+            && minutes.len() == 2
+            && hours
+                .chars()
+                .chain(minutes.chars())
+                .all(|character| character.is_ascii_digit())
+    })
+}
+
+fn is_any_of(word: &str, known_words: &[&str]) -> bool {
+    known_words.iter().any(|known| known.eq_ignore_ascii_case(word))
+}
+
+/// Whether `word` only divides the parts of a line, as "—" does.
+fn is_separator(word: &str) -> bool {
+    !word.chars().any(char::is_alphanumeric)
+}
+
 /// Returns `text` with each run of whitespace as one space, and no whitespace at its ends.
 fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -201,6 +273,25 @@ mod tests {
         lines.iter().map(|&text| text.to_owned()).collect()
     }
 
+    fn above_the_field(lines: &[&str]) -> NearbyLines {
+        NearbyLines {
+            above: texts(lines),
+            below: Vec::new(),
+        }
+    }
+
+    fn below_the_field(lines: &[&str]) -> NearbyLines {
+        NearbyLines {
+            above: Vec::new(),
+            below: texts(lines),
+        }
+    }
+
+    /// Returns the text that the prompt keeps of each line, one screen for each line.
+    fn kept_texts<const COUNT: usize>(lines: [&str; COUNT]) -> [Vec<String>; COUNT] {
+        lines.map(|text| nearby_lines(&screen(vec![above(text, 1)]), None, BUDGET).above)
+    }
+
     #[test]
     fn lines_show_in_reading_order() {
         let screen = screen(vec![
@@ -213,7 +304,7 @@ mod tests {
 
         assert_eq!(
             lines,
-            texts(&["From: Sam Reyes", "Dinner on Saturday", "See you at 7?"])
+            above_the_field(&["From: Sam Reyes", "Dinner on Saturday", "See you at 7?"])
         );
     }
 
@@ -227,7 +318,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, TokenCount(15));
 
-        assert_eq!(lines, texts(&[&"c".repeat(30)]));
+        assert_eq!(lines, above_the_field(&[&"c".repeat(30)]));
     }
 
     #[test]
@@ -236,7 +327,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, TokenCount(10));
 
-        assert_eq!(lines, texts(&["See you at 7?"]));
+        assert_eq!(lines, above_the_field(&["See you at 7?"]));
     }
 
     #[test]
@@ -246,7 +337,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, TokenCount(15));
 
-        assert_eq!(lines, texts(&["> Priya wrote: the budget is final"]));
+        assert_eq!(lines, below_the_field(&["> Priya wrote: the budget is final"]));
     }
 
     #[test]
@@ -256,7 +347,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, TokenCount(10));
 
-        assert_eq!(lines, texts(&["Can you send the deck?"]));
+        assert_eq!(lines, above_the_field(&["Can you send the deck?"]));
     }
 
     #[test]
@@ -272,7 +363,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, TokenCount(6));
 
-        assert_eq!(lines, texts(&["Below the field"]));
+        assert_eq!(lines, below_the_field(&["Below the field"]));
     }
 
     #[test]
@@ -281,7 +372,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, BUDGET);
 
-        assert_eq!(lines, texts(&["Sure, see you"]));
+        assert_eq!(lines, above_the_field(&["Sure, see you"]));
     }
 
     #[test]
@@ -294,7 +385,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, BUDGET);
 
-        assert_eq!(lines, Vec::<String>::new());
+        assert_eq!(lines, NearbyLines::default());
     }
 
     #[test]
@@ -312,7 +403,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, BUDGET);
 
-        assert_eq!(lines, texts(&["See you there"]));
+        assert_eq!(lines, above_the_field(&["See you there"]));
     }
 
     #[test]
@@ -324,7 +415,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, BUDGET);
 
-        assert_eq!(lines, texts(&["Dinner at 7?"]));
+        assert_eq!(lines, above_the_field(&["Dinner at 7?"]));
     }
 
     #[test]
@@ -338,7 +429,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, None, BUDGET);
 
-        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines.above.len(), 4, "{lines:?}");
     }
 
     #[test]
@@ -351,7 +442,7 @@ mod tests {
 
         let lines = nearby_lines(&screen, Some(&field_text), BUDGET);
 
-        assert_eq!(lines, texts(&["Yes"]));
+        assert_eq!(lines, above_the_field(&["Yes"]));
     }
 
     #[test]
@@ -368,6 +459,65 @@ mod tests {
 
         let lines = nearby_lines(&screen, Some(&field_text), BUDGET);
 
-        assert_eq!(lines, texts(&["Want to come over?"]));
+        assert_eq!(lines, above_the_field(&["Want to come over?"]));
+    }
+
+    #[test]
+    fn lines_split_at_the_middle_of_the_caret() {
+        let screen = screen(vec![
+            line("Sent from my phone", rect(300, 980, 900, 1010)),
+            above("See you at 7?", 1),
+            line("Sam", rect(0, 915, 250, 935)),
+            line("Ana", rect(0, 925, 250, 945)),
+        ]);
+
+        let lines = nearby_lines(&screen, None, BUDGET);
+
+        assert_eq!(
+            lines,
+            NearbyLines {
+                above: texts(&["See you at 7?", "Sam"]),
+                below: texts(&["Ana", "Sent from my phone"]),
+            }
+        );
+    }
+
+    #[test]
+    fn chat_header_keeps_its_name_without_its_time() {
+        let headers = [
+            ("chips_dev — Today at 21:03", "chips_dev"),
+            ("Laura Méndez  11:02", "Laura Méndez"),
+            ("nova  10:43 AM", "nova"),
+            ("deploy-bot  APP  3:01 pm", "deploy-bot APP"),
+            ("ferris_cl — Hoy a las 21:05", "ferris_cl"),
+            ("Marco — Yesterday at 9:15 PM", "Marco"),
+        ];
+
+        let kept = kept_texts(headers.map(|(header, _)| header));
+
+        assert_eq!(kept, headers.map(|(_, name)| texts(&[name])));
+    }
+
+    #[test]
+    fn line_with_only_a_time_goes() {
+        let kept = kept_texts(["12:31", "Today at 08:02"]);
+
+        assert_eq!(kept, [Vec::<String>::new(), Vec::new()]);
+    }
+
+    #[test]
+    fn message_keeps_its_time() {
+        let messages = [
+            "llega a las 8:40",
+            "see you at 8:40",
+            "8:40 works for me",
+            "standup moved to 3:30 today, same room",
+            "Cami: el pasaje decia 8:40",
+            "nos vemos hoy a las 9:00",
+        ];
+
+        let kept = kept_texts(messages);
+
+        assert_eq!(kept, messages.map(|message| texts(&[message])));
     }
 }

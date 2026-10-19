@@ -575,10 +575,7 @@ mod tests {
 
         let reaction = type_key(&mut app, 'B');
 
-        assert_eq!(
-            reaction,
-            request_with(&["Notes from the writer: “I am a nurse.”"], "B")
-        );
+        assert_eq!(reaction, request_with(&["Notes about me: “I am a nurse.”"], "B"));
     }
 
     fn app_preparing_on_focus() -> App {
@@ -954,7 +951,10 @@ mod tests {
 
         assert_eq!(
             work,
-            Some(SettledWork::Prepare(preparation(&["Format: email"], "")))
+            Some(SettledWork::Prepare(preparation(
+                &["Where I am typing: Format: email"],
+                ""
+            )))
         );
     }
 
@@ -1125,7 +1125,10 @@ mod tests {
         assert_eq!(
             request,
             Some(SettledWork::Prepare(preparation(
-                &["Format: email", "Nearby on screen: “Dinner at 7?”"],
+                &[
+                    "Where I am typing: Format: email",
+                    "Above the field on my screen: “Dinner at 7?”"
+                ],
                 "H"
             )))
         );
@@ -1151,7 +1154,10 @@ mod tests {
 
         assert_eq!(
             request,
-            Some(SettledWork::Prepare(preparation(&["Format: email"], "")))
+            Some(SettledWork::Prepare(preparation(
+                &["Where I am typing: Format: email"],
+                ""
+            )))
         );
     }
 
@@ -1193,8 +1199,8 @@ mod tests {
             request,
             Some(SettledWork::Prepare(preparation(
                 &[
-                    "Format: email",
-                    "Earlier writing by the same author:\n“Dear Ana, the report is ready.”"
+                    "Where I am typing: Format: email",
+                    "My earlier writing:\n“Dear Ana, the report is ready.”"
                 ],
                 ""
             )))
@@ -1333,7 +1339,10 @@ mod tests {
         assert_eq!(
             work,
             Some(SettledWork::Prepare(preparation(
-                &["Format: email", "Nearby on screen: “Dinner at 7?”"],
+                &[
+                    "Where I am typing: Format: email",
+                    "Above the field on my screen: “Dinner at 7?”"
+                ],
                 ""
             )))
         );

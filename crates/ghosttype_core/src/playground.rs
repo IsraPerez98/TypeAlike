@@ -1025,7 +1025,7 @@ mod tests {
         assert_eq!(
             request,
             Some(InferenceRequest::Complete {
-                prompt: prompt::framed_prompt(&["Notes from the writer: “I am a nurse.”"], "Dear "),
+                prompt: prompt::framed_prompt(&["Notes about me: “I am a nurse.”"], "Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
             })

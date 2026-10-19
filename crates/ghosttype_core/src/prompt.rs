@@ -1,7 +1,8 @@
-//! Builds the text the model continues: a preface about the writing, then the text before the
-//! caret. The preface describes and does not give orders, because a base model continues text
-//! and does not follow orders. It goes from the part that changes least to the part that changes
-//! most.
+//! Builds the text the model continues: a preface about the writing, then a heading and the
+//! text before the caret. The preface describes and does not give orders, because a base model
+//! continues text and does not follow orders. It speaks as the writer, so the model takes the
+//! text as the writing of one person and not as a task about a user. It goes from the part that
+//! changes least to the part that changes most.
 
 use crate::desktop::{ScreenText, Surroundings};
 use crate::inference::{Prompt, TokenCount};
@@ -10,9 +11,12 @@ use crate::screen;
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
 /// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
-pub(crate) const FRAME: &str = "A person types the text below on their computer, for example an email, \
-     a chat message, a note or a document. The writing is clear, natural and correct. It keeps the \
-     language, tone and style of the person who writes it.";
+pub(crate) const FRAME: &str = "I type the text below on my computer, for example an email, a chat \
+     message, a note or a document. My writing is clear, natural and correct. It keeps my \
+     language, tone and style.";
+/// The line just before the text before the caret. Without it, the model reads one or two typed
+/// characters as the start of one more line of the preface, and writes a label.
+const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 pub(crate) const PREFACE_TOKENS: TokenCount = TokenCount(2000);
@@ -36,9 +40,11 @@ pub(crate) struct Writer<'text> {
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
 /// line, the place where the user types, the earlier texts of the `writer`, the `clipboard` text,
-/// the text near the field on the `screen` and the text after the caret. Each part that is empty
-/// is left out. The parts fill [`PREFACE_TOKENS`] in the order of their priority: the frame, the
-/// notes, the text after the caret, the place, the screen, the earlier texts and the clipboard.
+/// the text below the field on the `screen`, the text after the caret and the text above the
+/// field. The text above the field comes last, so the messages of a chat come just before the
+/// reply. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in the order of
+/// their priority: the frame, the notes, the text after the caret, the place, the screen, the
+/// earlier texts and the clipboard.
 pub(crate) fn preface(
     writer: &Writer<'_>,
     surroundings: &Surroundings,
@@ -54,38 +60,42 @@ pub(crate) fn preface(
         .as_ref()
         .map(|field_text| budget.take_start(field_text.after_caret.trim(), AFTER_CARET_TOKENS));
     let place = place(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
-    let nearby = screen.map(|screen| {
-        let lines = screen::nearby_lines(
-            screen,
-            surroundings.field_text.as_ref(),
-            budget.left(SCREEN_TOKENS),
-        );
-        let text = lines.join("\n");
-        budget.spend(&text);
-        text
-    });
+    let nearby = screen
+        .map(|screen| {
+            screen::nearby_lines(
+                screen,
+                surroundings.field_text.as_ref(),
+                budget.left(SCREEN_TOKENS),
+            )
+        })
+        .unwrap_or_default();
+    let above = nearby.above.join("\n");
+    let below = nearby.below.join("\n");
+    budget.spend(&above);
+    budget.spend(&below);
     let examples = budget.take_examples(&writer.examples);
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
     let lines = [
         Some(FRAME.to_owned()),
-        notes.map(|text| format!("Notes from the writer: “{text}”")),
-        place.filter(|line| !line.is_empty()),
+        notes.map(|text| format!("Notes about me: “{text}”")),
+        place
+            .filter(|line| !line.is_empty())
+            .map(|line| format!("Where I am typing: {line}")),
         (!examples.is_empty()).then(|| {
             let quoted = examples
                 .iter()
                 .map(|text| format!("“{text}”"))
                 .collect::<Vec<_>>();
-            format!("Earlier writing by the same author:\n{}", quoted.join("\n"))
+            format!("My earlier writing:\n{}", quoted.join("\n"))
         }),
         clipboard
             .and_then(non_empty)
-            .map(|text| format!("Text on the clipboard: “{text}”")),
-        nearby
-            .filter(|text| !text.is_empty())
-            .map(|text| format!("Nearby on screen: “{text}”")),
+            .map(|text| format!("Text on my clipboard: “{text}”")),
+        non_empty(&below).map(|text| format!("Below the field on my screen: “{text}”")),
         after_caret
             .and_then(non_empty)
-            .map(|text| format!("Text after the caret: “{text}”")),
+            .map(|text| format!("My text after the cursor: “{text}”")),
+        non_empty(&above).map(|text| format!("Above the field on my screen: “{text}”")),
     ];
     lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
 }
@@ -130,10 +140,10 @@ impl Budget {
     }
 }
 
-/// Returns the prompt that continues `text_before` after `preface`, with a blank line between
-/// them and no label that the model could copy into its suggestion.
+/// Returns the prompt that continues `text_before` after `preface`, with a blank line and the
+/// [`TEXT_HEADING`] between them.
 pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
-    Prompt(format!("{preface}\n\n{text_before}"))
+    Prompt(format!("{preface}\n\n{TEXT_HEADING}\n{text_before}"))
 }
 
 /// Returns the last `count` characters of `text`.
@@ -323,7 +333,7 @@ mod tests {
         assert_eq!(
             preface,
             framed(
-                "Notes from the writer: “I am a nurse.”\nFormat: email; App: Mail; Title: Re: Budget; Field: Message\nText on the clipboard: “1Z999”\nText after the caret: “> Priya wrote”"
+                "Notes about me: “I am a nurse.”\nWhere I am typing: Format: email; App: Mail; Title: Re: Budget; Field: Message\nText on my clipboard: “1Z999”\nMy text after the cursor: “> Priya wrote”"
             )
         );
     }
@@ -346,7 +356,7 @@ mod tests {
 
         assert_eq!(
             preface,
-            framed("Notes from the writer: “I am a nurse. I write in Spanish.”")
+            framed("Notes about me: “I am a nurse. I write in Spanish.”")
         );
     }
 
@@ -358,25 +368,30 @@ mod tests {
 
         assert_eq!(
             preface,
-            framed(&format!(
-                "Notes from the writer: “{}”",
-                ascii_text('n', NOTES_TOKENS, 0)
-            ))
+            framed(&format!("Notes about me: “{}”", ascii_text('n', NOTES_TOKENS, 0)))
         );
     }
 
     #[test]
     fn place_names_the_app_and_the_window() {
         let cases = [
-            (Some("Mail"), Some("Re: Budget"), "App: Mail; Title: Re: Budget"),
+            (
+                Some("Mail"),
+                Some("Re: Budget"),
+                "Where I am typing: App: Mail; Title: Re: Budget",
+            ),
             (
                 Some("Slack"),
                 Some("#design - Acme - Slack"),
-                "Title: #design - Acme - Slack",
+                "Where I am typing: Title: #design - Acme - Slack",
             ),
-            (Some("Notes"), None, "App: Notes"),
-            (None, Some("Re: Budget"), "Title: Re: Budget"),
-            (Some(" "), Some("Re: Budget"), "Title: Re: Budget"),
+            (Some("Notes"), None, "Where I am typing: App: Notes"),
+            (None, Some("Re: Budget"), "Where I am typing: Title: Re: Budget"),
+            (
+                Some(" "),
+                Some("Re: Budget"),
+                "Where I am typing: Title: Re: Budget",
+            ),
         ];
 
         let prefaces =
@@ -398,7 +413,9 @@ mod tests {
 
         assert_eq!(
             preface,
-            framed("Format: email; Title: Inbox - Gmail - Google Chrome; Field: Message Body")
+            framed(
+                "Where I am typing: Format: email; Title: Inbox - Gmail - Google Chrome; Field: Message Body"
+            )
         );
     }
 
@@ -418,7 +435,9 @@ mod tests {
 
         assert_eq!(
             preface,
-            framed("Title: Priya Shah; Field: Message; Hint: Message Priya Shah, Shift+Enter adds a line")
+            framed(
+                "Where I am typing: Title: Priya Shah; Field: Message; Hint: Message Priya Shah, Shift+Enter adds a line"
+            )
         );
     }
 
@@ -431,7 +450,10 @@ mod tests {
 
         let preface = preface(&Writer::default(), &surroundings, None, None);
 
-        assert_eq!(preface, framed("Title: Re: Budget; Field: Message body"));
+        assert_eq!(
+            preface,
+            framed("Where I am typing: Title: Re: Budget; Field: Message body")
+        );
     }
 
     #[test]
@@ -456,7 +478,7 @@ mod tests {
         assert_eq!(
             preface,
             framed(&format!(
-                "Title: {}; Field: {}; Hint: {}\nText on the clipboard: “{}”\nText after the caret: “{}”",
+                "Where I am typing: Title: {}; Field: {}; Hint: {}\nText on my clipboard: “{}”\nMy text after the cursor: “{}”",
                 ascii_text('t', WINDOW_TITLE_TOKENS, 0),
                 ascii_text('l', FIELD_LABEL_TOKENS, 0),
                 ascii_text('h', FIELD_LABEL_TOKENS, 0),
@@ -490,8 +512,12 @@ mod tests {
     }
 
     #[test]
-    fn screen_text_goes_between_the_clipboard_and_the_text_after_the_caret() {
-        let screen = screen(&[("See you at 7?", 400), ("From: Sam", 300)]);
+    fn screen_text_below_the_field_goes_before_the_text_after_the_caret_and_above_it_goes_last() {
+        let screen = screen(&[
+            ("See you at 7?", 400),
+            ("Sent from my phone", 600),
+            ("From: Sam", 300),
+        ]);
 
         let preface = preface(
             &Writer::default(),
@@ -503,7 +529,7 @@ mod tests {
         assert_eq!(
             preface,
             framed(
-                "Text on the clipboard: “1Z999”\nNearby on screen: “From: Sam\nSee you at 7?”\nText after the caret: “Best, Ana”"
+                "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nMy text after the cursor: “Best, Ana”\nAbove the field on my screen: “From: Sam\nSee you at 7?”"
             )
         );
     }
@@ -514,7 +540,10 @@ mod tests {
 
         let preface = preface(&Writer::default(), &surroundings_leaving(2), None, Some(&screen));
 
-        assert!(preface.ends_with("\nNearby on screen: “Hi”"), "{preface}");
+        assert!(
+            preface.ends_with("\nAbove the field on my screen: “Hi”"),
+            "{preface}"
+        );
     }
 
     #[test]
@@ -523,7 +552,10 @@ mod tests {
 
         let preface = preface(&Writer::default(), &surroundings_leaving(2), None, Some(&screen));
 
-        assert!(preface.ends_with("\nNearby on screen: “abc\ndef”"), "{preface}");
+        assert!(
+            preface.ends_with("\nAbove the field on my screen: “abc\ndef”"),
+            "{preface}"
+        );
     }
 
     #[test]
@@ -558,7 +590,7 @@ mod tests {
         assert_eq!(
             preface,
             framed(
-                "App: Mail\nEarlier writing by the same author:\n“Cheers,\nTom”\n“See you soon!”\nText on the clipboard: “1Z999”\nText after the caret: “Best, Ana”"
+                "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom”\n“See you soon!”\nText on my clipboard: “1Z999”\nMy text after the cursor: “Best, Ana”"
             )
         );
     }
@@ -575,10 +607,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(
-            preface,
-            framed(&format!("Earlier writing by the same author:\n“{newest}”"))
-        );
+        assert_eq!(preface, framed(&format!("My earlier writing:\n“{newest}”")));
     }
 
     #[test]
@@ -594,17 +623,23 @@ mod tests {
 
         assert_eq!(
             preface,
-            framed(&format!(
-                "Earlier writing by the same author:\n“the example”\n“{newest}”"
-            ))
+            framed(&format!("My earlier writing:\n“the example”\n“{newest}”"))
         );
     }
 
     #[test]
-    fn prompt_puts_a_blank_line_between_preface_and_text() {
-        let prompt = prompt("Formal.", "Dear Sir");
+    fn prompt_puts_a_blank_line_and_a_heading_between_preface_and_text() {
+        let cases = [
+            (
+                "Dear Sir",
+                "Formal.\n\nThe part of my writing that I am typing now:\nDear Sir",
+            ),
+            ("", "Formal.\n\nThe part of my writing that I am typing now:\n"),
+        ];
 
-        assert_eq!(prompt, Prompt("Formal.\n\nDear Sir".to_owned()));
+        let prompts = cases.map(|(text_before, _)| prompt("Formal.", text_before));
+
+        assert_eq!(prompts, cases.map(|(_, prompt)| Prompt(prompt.to_owned())));
     }
 
     #[test]

@@ -649,13 +649,14 @@ impl Engine {
     }
 }
 
-/// Returns the most estimated tokens of the text before the caret after `preface`, so that the
-/// prompt leaves room for the longest completion.
+/// Returns the most estimated tokens of the text before the caret in a prompt with `preface`, so
+/// that the prompt leaves room for the longest completion.
 fn tokens_before_caret(preface: &str) -> TokenCount {
     let room = CONTEXT_TOKENS
         .0
         .saturating_sub(SuggestionLength::Long.max_tokens().0);
-    TokenCount(room.saturating_sub(estimated_tokens(preface).0))
+    let prompt_without_text = prompt::prompt(preface, "");
+    TokenCount(room.saturating_sub(estimated_tokens(&prompt_without_text.0).0))
 }
 
 /// Returns the end of `text` that a session keeps: all of it while it is shorter than
@@ -1587,10 +1588,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Char('h'));
 
-        assert_eq!(
-            reaction,
-            request_with(&["Notes from the writer: “I am a nurse.”"], "h")
-        );
+        assert_eq!(reaction, request_with(&["Notes about me: “I am a nurse.”"], "h"));
     }
 
     fn history_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -1648,8 +1646,8 @@ mod tests {
             reaction,
             request_with(
                 &[
-                    "Format: email",
-                    "Earlier writing by the same author:\n“Cheers,\nTom”"
+                    "Where I am typing: Format: email",
+                    "My earlier writing:\n“Cheers,\nTom”"
                 ],
                 "h"
             )
@@ -1669,8 +1667,8 @@ mod tests {
         assert_eq!(
             reactions,
             [
-                request_with(&["Format: email"], "h"),
-                request_with(&["Format: email"], "h")
+                request_with(&["Where I am typing: Format: email"], "h"),
+                request_with(&["Where I am typing: Format: email"], "h")
             ]
         );
     }
@@ -2055,7 +2053,7 @@ mod tests {
 
         let reaction = engine.on_key(Key::Char('h'), &desktop);
 
-        assert_eq!(reaction, request_with(&["Text on the clipboard: “1Z999”"], "h"));
+        assert_eq!(reaction, request_with(&["Text on my clipboard: “1Z999”"], "h"));
     }
 
     #[test]
@@ -2312,7 +2310,10 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Char('S'));
 
-        assert_eq!(reaction, request_with(&["Nearby on screen: “Dinner at 7?”"], "S"));
+        assert_eq!(
+            reaction,
+            request_with(&["Above the field on my screen: “Dinner at 7?”"], "S")
+        );
     }
 
     #[test]
@@ -2342,7 +2343,7 @@ mod tests {
 
         assert_eq!(
             reaction,
-            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+            request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
         );
     }
 
@@ -2415,7 +2416,10 @@ mod tests {
 
         assert_eq!(
             (reaction, next_read),
-            (request_with(&["Nearby on screen: “Lunch at 1?”"], "Su"), None)
+            (
+                request_with(&["Above the field on my screen: “Lunch at 1?”"], "Su"),
+                None
+            )
         );
     }
 
@@ -2432,7 +2436,7 @@ mod tests {
 
         assert_eq!(
             reaction,
-            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+            request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
         );
     }
 
@@ -2449,7 +2453,7 @@ mod tests {
 
         assert_eq!(
             reaction,
-            request_with(&["Nearby on screen: “Dinner at 7?”"], "Su")
+            request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
         );
     }
 

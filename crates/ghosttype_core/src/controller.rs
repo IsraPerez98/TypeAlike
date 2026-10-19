@@ -1786,7 +1786,7 @@ mod tests {
         assert_eq!(
             harness.last_request(),
             Some(InferenceRequest::Complete {
-                prompt: crate::prompt::framed_prompt(&["Format: email; App: Mail"], ""),
+                prompt: crate::prompt::framed_prompt(&["Where I am typing: Format: email; App: Mail"], ""),
                 max_tokens: TokenCount(0),
                 word_bias: None,
             })
@@ -1923,8 +1923,8 @@ mod tests {
             Some(InferenceRequest::Complete {
                 prompt: framed_prompt(
                     &[
-                        "Format: email; App: Mail",
-                        "Earlier writing by the same author:\n“Cheers,\nTom”"
+                        "Where I am typing: Format: email; App: Mail",
+                        "My earlier writing:\n“Cheers,\nTom”"
                     ],
                     "H"
                 ),
