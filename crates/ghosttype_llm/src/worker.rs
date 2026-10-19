@@ -724,8 +724,9 @@ fn position(index: usize) -> i32 {
 }
 
 /// Removes the tokens of the last word from the end of `prompt_tokens`, and returns their text.
-/// It stops at the token that starts the word, at markup, and before the first token, so the
-/// prompt never becomes empty.
+/// It stops at the token that starts the word, at markup, at a line break, and before the first
+/// token, so the prompt never becomes empty. A line break ends a word, and the model writes too
+/// many line breaks when it writes the last ones again.
 fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Vec<LlamaToken>) -> Vec<u8> {
     let mut text = Vec::new();
     while text.len() < MAX_HEALED_BYTES && prompt_tokens.len() > 1 {
@@ -735,8 +736,11 @@ fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Vec<LlamaToke
         else {
             break;
         };
-        prompt_tokens.pop();
         let piece = vocab.token_to_piece(token, false, None);
+        if piece.contains(&b'\n') {
+            break;
+        }
+        prompt_tokens.pop();
         text.splice(0..0, piece.iter().copied());
         if starts_word(&piece) {
             break;

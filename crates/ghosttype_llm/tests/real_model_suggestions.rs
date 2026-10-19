@@ -107,6 +107,9 @@ impl LoadedModel {
     }
 }
 
+const BLANK_LINE_PROMPT: &str = "I type the text below on my computer, for example an email.\nWhere I am typing: \
+     Format: email\nMy text after the cursor: “On 4 May, Tom Reyes wrote:\n> Hi Sara, here are the April \
+     sales numbers that you asked for.”\n\nThe part of my writing that I am typing now:\nHi Tom,\n\n";
 const SHORT_PROMPT: &str = "Thank you for the quick reply. I read the new terms with the";
 const LONG_PROMPT: &str =
     "Thank you for the quick reply. I read the new terms with the finance team this morning, and we";
@@ -162,6 +165,16 @@ fn real_model_finishes_a_word_cut_inside_a_token() {
         matches!(&reaction, Reaction::Show(text) if text.starts_with("ful")),
         "unexpected {reaction:?}"
     );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn prompt_that_ends_with_a_blank_line_continues_on_the_new_line() {
+    let mut model = LoadedModel::load();
+
+    let text = complete_text(&mut model, BLANK_LINE_PROMPT);
+
+    assert!(text.starts_with(char::is_alphanumeric), "unexpected {text:?}");
 }
 
 #[test]
