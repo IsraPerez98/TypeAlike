@@ -29,7 +29,7 @@ impl SuggestedModel {
     }
 }
 
-pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
+pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
     SuggestedModel {
         name: "Qwen3.5 0.8B",
         parameters: "0.8B",
@@ -53,14 +53,6 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
         file_name: "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
         size: ByteSize(2_620_370_976),
         developer: "Google",
-    },
-    SuggestedModel {
-        name: "Granite 4.2 3B",
-        parameters: "3B",
-        repo: "ibm-granite/granite-4.2-3b-GGUF",
-        file_name: "granite-4.2-3b-Q4_K_M.gguf",
-        size: ByteSize(2_244_011_552),
-        developer: "IBM",
     },
     SuggestedModel {
         name: "Qwen3.5 4B",
