@@ -27,6 +27,8 @@
 //! - `writer`: the name of a store of earlier texts, or `null`. The store is the file
 //!   `writers/NAME.jsonl` next to the case file. Each line is one earlier text with its `text`,
 //!   `app_id` and `domain`, oldest first. The eval loads the store, then adds `history`.
+//! - `left_out`: the index of a text of the store, from 0, that the history leaves out: the text
+//!   that the case comes from. It can be left out.
 //! - `history`: earlier texts of the same writer, oldest first, after the texts of the store. Each
 //!   one has its `text`, and the `app_id` and `domain` of the place where the writer typed it.
 //! - `words`: the words that the writer often writes, with their counts. It can be left out. When
@@ -79,6 +81,12 @@
 //! only other formats exist), `greeting` (it starts a long earlier text), `names` (a name that
 //! the writer writes often) and `phrase` (the last 3 words start a phrase of the writer: the writer
 //! repeats it, or the writer changes it this time). The held-out file has its own writers.
+//!
+//! `cases/left_out.jsonl` has cases from the stores of `writers/`, each with one text of its store
+//! left out of the history. The case starts at the start of a word of that text: a random word in
+//! the `start` cases, and a word after a run of 2 or 3 words that the rest of the store repeats in
+//! the `run` cases. The phrase rule shows nothing in these cases. Run it with each `--word-choice`
+//! to measure the word bias, and compare each run with the run without it.
 //!
 //! `cases/chat.jsonl` has chats, emails and documents with only one or two characters in the field,
 //! with the names and the times of a chat on the screen, and with a time inside a message. Run it
@@ -263,6 +271,8 @@ struct Case {
     screen: Option<CaseScreen>,
     #[serde(default)]
     writer: Option<String>,
+    #[serde(default)]
+    left_out: Option<usize>,
     history: Vec<CaseEntry>,
     #[serde(default)]
     words: BTreeMap<String, u32>,
@@ -350,7 +360,8 @@ impl CaseEntry {
     }
 }
 
-/// Returns the earlier texts of `case`: the texts of its writer in `writers`, then its own.
+/// Returns the earlier texts of `case`: the texts of its writer in `writers` without the text that
+/// it leaves out, then its own.
 fn history_of(case: &Case, writers: &BTreeMap<String, Vec<CaseEntry>>) -> anyhow::Result<Vec<HistoryEntry>> {
     let store = match &case.writer {
         Some(name) => writers
@@ -361,6 +372,9 @@ fn history_of(case: &Case, writers: &BTreeMap<String, Vec<CaseEntry>>) -> anyhow
     };
     Ok(store
         .iter()
+        .enumerate()
+        .filter(|&(index, _)| Some(index) != case.left_out)
+        .map(|(_, entry)| entry)
         .chain(&case.history)
         .map(CaseEntry::to_history_entry)
         .collect())
@@ -946,6 +960,20 @@ mod tests {
         let history = history_of(&case_of(Some("ana"), &["new"]), &writers).unwrap();
 
         assert_eq!(texts(&history), ["old one", "old two", "new"]);
+    }
+
+    #[test]
+    fn history_of_a_case_leaves_out_the_text_of_the_store_that_it_names() {
+        let store = case_of(None, &["old one", "old two", "old three"]).history;
+        let writers = BTreeMap::from([("ana".to_owned(), store)]);
+        let case = Case {
+            left_out: Some(1),
+            ..case_of(Some("ana"), &[])
+        };
+
+        let history = history_of(&case, &writers).unwrap();
+
+        assert_eq!(texts(&history), ["old one", "old three"]);
     }
 
     #[test]
