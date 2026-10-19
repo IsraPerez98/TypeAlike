@@ -8,7 +8,8 @@ use crate::desktop::{
 };
 use crate::history::{self, HistoryEntry, Phrases};
 use crate::inference::{
-    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, Prompt, TokenCount, WordBias,
+    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, LogProbability, Prompt, TokenCount,
+    WordBias,
 };
 use crate::key::Key;
 use crate::place;
@@ -19,6 +20,9 @@ use crate::settings::{
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
+/// The least likely that a suggestion can get after its first word: about 2 percent. In the prompt
+/// eval, this cut leaves out more than half of the wrong words and almost no right word.
+pub(crate) const TAIL_CUT: LogProbability = LogProbability(-3.9);
 /// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
@@ -36,7 +40,7 @@ const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
 const LINE_BREAKS: [char; 5] = ['\n', '\r', '\u{b}', '\u{2028}', '\u{2029}'];
 
 /// What the platform must do after a key press, a context change or a completion.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Reaction {
     /// Let the key through and show this ghost text after the caret.
     Show(String),
@@ -301,6 +305,7 @@ impl Engine {
             prompt,
             max_tokens: PREPARATION_TOKENS,
             word_bias: None,
+            min_log_probability: None,
         })
     }
 
@@ -643,6 +648,7 @@ impl Engine {
             prompt,
             max_tokens: self.suggestion_length.max_tokens(),
             word_bias: self.session_word_bias(),
+            min_log_probability: Some(TAIL_CUT),
         })
     }
 
@@ -968,6 +974,7 @@ mod tests {
             prompt: prompt::framed_prompt(lines, text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
+            min_log_probability: Some(TAIL_CUT),
         })
     }
 
@@ -1904,6 +1911,7 @@ mod tests {
                 prompt: prompt::prompt_with_notes("I am a nurse.", &[], "h"),
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
+                min_log_probability: Some(TAIL_CUT),
             })
         );
     }
@@ -2433,6 +2441,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                min_log_probability: Some(TAIL_CUT),
             })
         );
     }
@@ -2453,6 +2462,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&[], "h"),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                min_log_probability: Some(TAIL_CUT),
             })
         );
     }
@@ -2487,6 +2497,7 @@ mod tests {
             prompt: prompt::framed_prompt(&[], context),
             max_tokens: TokenCount(0),
             word_bias: None,
+            min_log_probability: None,
         })
     }
 

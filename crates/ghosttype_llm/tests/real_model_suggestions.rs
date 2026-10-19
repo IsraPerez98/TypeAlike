@@ -122,6 +122,7 @@ fn completion_request(prompt: &str) -> Reaction {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
         word_bias: None,
+        min_log_probability: None,
     })
 }
 
@@ -251,6 +252,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         prompt: Prompt("We hold these truths to be self-evident, that all are equal. ".repeat(110)),
         max_tokens: TokenCount(16),
         word_bias: None,
+        min_log_probability: None,
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -343,6 +345,7 @@ fn completion_of_no_tokens_adds_no_text() {
         prompt: Prompt(SHORT_PROMPT.to_owned()),
         max_tokens: TokenCount(0),
         word_bias: None,
+        min_log_probability: None,
     }));
 
     assert!(

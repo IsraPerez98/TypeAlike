@@ -36,6 +36,7 @@ fn real_model_continues_text() {
             prompt: Prompt("Once upon a time".to_owned()),
             max_tokens: TokenCount(8),
             word_bias: None,
+            min_log_probability: None,
         },
         &sink,
     );

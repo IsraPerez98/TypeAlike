@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::mem;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -186,6 +187,7 @@ fn serve(
             prompt,
             max_tokens,
             word_bias,
+            min_log_probability,
         } = &job.request
         else {
             queue.give_back(job);
@@ -195,9 +197,21 @@ fn serve(
             is_outdated: &mut || queue.has_newer_completion(&job.sink),
             send_partial: &mut |text| (job.sink)(InferenceEvent::Partial(text)),
         };
-        let result = loaded.complete(prompt, *max_tokens, word_bias.as_ref(), &mut progress);
+        let limits = Limits {
+            max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
+            min_log_probability: *min_log_probability,
+        };
+        let result = loaded.complete(prompt, limits, word_bias.as_ref(), &mut progress);
         (job.sink)(InferenceEvent::Completed(result));
     }
+}
+
+/// Where a completion stops adding tokens.
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    max_added: usize,
+    /// The least likely that the added text can get after its first word.
+    min_log_probability: Option<LogProbability>,
 }
 
 /// What a running completion asks and tells its job.
@@ -389,14 +403,14 @@ impl LoadedModel<'_> {
     fn complete(
         &mut self,
         prompt: &Prompt,
-        max_tokens: TokenCount,
+        limits: Limits,
         word_bias: Option<&WordBias>,
         progress: &mut Progress<'_>,
     ) -> Result<Completion, InferenceError> {
         let started = Instant::now();
         let token_bias = self.token_bias(word_bias);
         let (text, added) = self
-            .generate(prompt, max_tokens, &token_bias, progress)
+            .generate(prompt, limits, &token_bias, progress)
             .map_err(|error| {
                 if !matches!(error, GenerateError::Superseded) {
                     tracing::warn!(%error, "failed to complete text");
@@ -432,8 +446,9 @@ impl LoadedModel<'_> {
     }
 
     /// Continues `prompt` greedily until the model ends the text, writes markup, ends the line or
-    /// adds `max_tokens`. It adds `token_bias` to the logits before it picks each token. It keeps
-    /// the prompt in the cache for the next completion, and forgets the cache when llama.cpp fails.
+    /// reaches the `limits`. It adds `token_bias` to the logits before it picks each token. It
+    /// keeps the prompt in the cache for the next completion, and forgets the cache when llama.cpp
+    /// fails.
     ///
     /// It heals the last word: it takes the tokens of the last word back from the prompt, and makes
     /// the first added tokens write that text again. A prompt that ends in a space or in a part of
@@ -442,7 +457,7 @@ impl LoadedModel<'_> {
     fn generate(
         &mut self,
         prompt: &Prompt,
-        max_tokens: TokenCount,
+        limits: Limits,
         token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
     ) -> Result<(String, AddedTokens), GenerateError> {
@@ -452,12 +467,11 @@ impl LoadedModel<'_> {
         let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
         let last_word_start = last_word_start(&vocab, &prompt_tokens);
         let context_tokens = CONTEXT_TOKENS.0.min(model.n_ctx_train());
-        let max_added = usize::try_from(max_tokens.0).expect("a u32 fits in usize");
         let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
         if prompt_tokens.is_empty() {
             return Err(GenerateError::EmptyPrompt);
         }
-        if prompt_tokens.len().saturating_add(max_added) > capacity {
+        if prompt_tokens.len().saturating_add(limits.max_added) > capacity {
             return Err(GenerateError::PromptTooLong);
         }
         if self.cache.is_none() {
@@ -476,7 +490,7 @@ impl LoadedModel<'_> {
                     pieces: &self.pieces,
                     text: &healed_text,
                 };
-                cache.continue_prompt(&vocab, &healing, max_added, token_bias, progress)
+                cache.continue_prompt(&vocab, &healing, limits, token_bias, progress)
             });
         match added {
             Ok(added) => Ok((
@@ -658,13 +672,14 @@ impl<'model> PromptCache<'model> {
     }
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
-    /// for the next completion. Its first added tokens write the `healing` text again. Before each
-    /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
+    /// for the next completion. Its first added tokens write the `healing` text again. It stops at
+    /// the `limits`, and leaves out the word that the minimum probability cuts. Before each decode,
+    /// it stops when `progress` tells so, and else sends the text that it added so far.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
         healing: &Healing<'_>,
-        max_added: usize,
+        limits: Limits,
         token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
@@ -676,18 +691,27 @@ impl<'model> PromptCache<'model> {
         let mut unwritten = healing.text;
         let mut added = Vec::new();
         let mut words = WordLogProbabilities::default();
-        while added.len() < max_added {
+        while added.len() < limits.max_added {
             let scores = with_bias(logits, token_bias, &mut biased);
             let (token, log_probability) = choose_token(scores, logits, healing.pieces, unwritten);
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
             let piece = vocab.token_to_piece(token, false, None);
+            let text = added_after(&piece, unwritten);
+            let is_cut = limits
+                .min_log_probability
+                .is_some_and(|cut| !words.keeps(text, log_probability, cut));
+            if is_cut {
+                let dropped = words.end_before(text);
+                added.truncate(added.len().saturating_sub(dropped));
+                break;
+            }
             let ends_line = writes_line_break(&piece, unwritten);
-            words.add(added_after(&piece, unwritten), log_probability);
+            words.add(text, log_probability);
             unwritten = unwritten_after(unwritten, &piece);
             added.push(token);
-            if ends_line || added.len() == max_added {
+            if ends_line || added.len() == limits.max_added {
                 break;
             }
             if (progress.is_outdated)() {
@@ -728,6 +752,8 @@ struct AddedTokens {
 #[derive(Debug, Default)]
 struct WordLogProbabilities {
     words: Vec<LogProbability>,
+    /// The tokens of the last word.
+    last_word_tokens: usize,
     /// Whether the added text ends with a character that is not whitespace.
     ends_in_word: bool,
 }
@@ -738,12 +764,36 @@ impl WordLogProbabilities {
     fn add(&mut self, text: &[u8], log_probability: f32) {
         let starts_word = self.starts_word(text);
         match self.words.last_mut() {
-            Some(word) if !starts_word => word.0 += log_probability,
-            _ => self.words.push(LogProbability(log_probability)),
+            Some(word) if !starts_word => {
+                word.0 += log_probability;
+                self.last_word_tokens += 1;
+            }
+            _ => {
+                self.words.push(LogProbability(log_probability));
+                self.last_word_tokens = 1;
+            }
         }
         if let Some(last) = text.last() {
             self.ends_in_word = !last.is_ascii_whitespace();
         }
+    }
+
+    /// Whether a token that writes `text` with `log_probability` keeps the added text at least as
+    /// likely as `cut`. Each token of the first word does.
+    fn keeps(&self, text: &[u8], log_probability: f32, cut: LogProbability) -> bool {
+        let is_in_first_word = self.words.len() <= 1 && !self.starts_word(text);
+        let total = self.words.iter().map(|word| word.0).sum::<f32>();
+        is_in_first_word || total + log_probability >= cut.0
+    }
+
+    /// Ends the words before a token that writes `text`: it drops the last word when the token
+    /// would continue it. Returns how many tokens the dropped word had.
+    fn end_before(&mut self, text: &[u8]) -> usize {
+        if self.starts_word(text) {
+            return 0;
+        }
+        self.words.pop();
+        mem::take(&mut self.last_word_tokens)
     }
 
     fn starts_word(&self, text: &[u8]) -> bool {
@@ -1214,6 +1264,7 @@ mod tests {
             prompt: Prompt("Dear".to_owned()),
             max_tokens: TokenCount(4),
             word_bias: None,
+            min_log_probability: None,
         }
     }
 
@@ -1401,6 +1452,54 @@ mod tests {
         }
 
         assert_eq!(words.into_vec(), [LogProbability(-1.0), LogProbability(-2.0)]);
+    }
+
+    fn words_of(tokens: &[(&str, f32)]) -> WordLogProbabilities {
+        let mut words = WordLogProbabilities::default();
+        for (text, log_probability) in tokens {
+            words.add(text.as_bytes(), *log_probability);
+        }
+        words
+    }
+
+    #[test]
+    fn cut_never_stops_the_first_word() {
+        let words = words_of(&[("", -0.5), (" meet", -2.0)]);
+
+        let is_kept = words.keeps(b"ing", -4.0, LogProbability(-3.0));
+
+        assert!(is_kept);
+    }
+
+    #[test]
+    fn cut_keeps_a_later_token_while_the_text_stays_as_likely_as_the_cut() {
+        let words = words_of(&[("very", -1.0)]);
+
+        let kept = [(&b" soon"[..], -2.0), (b" soon", -2.5)]
+            .map(|(text, log_probability)| words.keeps(text, log_probability, LogProbability(-3.0)));
+
+        assert_eq!(kept, [true, false]);
+    }
+
+    #[test]
+    fn stop_before_a_new_word_keeps_all_words() {
+        let mut words = words_of(&[("very", -1.0), (" soon", -0.5)]);
+
+        let dropped = words.end_before(b" thanks");
+
+        assert_eq!(
+            (dropped, words.into_vec()),
+            (0, vec![LogProbability(-1.0), LogProbability(-0.5)])
+        );
+    }
+
+    #[test]
+    fn stop_inside_a_word_drops_that_word() {
+        let mut words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
+
+        let dropped = words.end_before(b"ks");
+
+        assert_eq!((dropped, words.into_vec()), (2, vec![LogProbability(-1.0)]));
     }
 
     #[test]

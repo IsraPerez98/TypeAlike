@@ -638,6 +638,7 @@ mod tests {
     use super::*;
     use crate::app::{Field, Status};
     use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
+    use crate::engine::TAIL_CUT;
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
@@ -1431,6 +1432,7 @@ mod tests {
             prompt: framed_prompt(&[], text_before),
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
+            min_log_probability: Some(TAIL_CUT),
         }
     }
 
@@ -1865,6 +1867,7 @@ mod tests {
                 prompt: crate::prompt::framed_prompt(&["Where I am typing: Format: email; App: Mail"], ""),
                 max_tokens: TokenCount(0),
                 word_bias: None,
+                min_log_probability: None,
             })
         );
     }
@@ -2006,6 +2009,7 @@ mod tests {
                 ),
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
+                min_log_probability: Some(TAIL_CUT),
             })
         );
     }

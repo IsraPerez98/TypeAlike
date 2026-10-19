@@ -209,6 +209,7 @@ mod tests {
                 prompt: Prompt("Dear".to_owned()),
                 max_tokens: TokenCount(4),
                 word_bias: None,
+                min_log_probability: None,
             },
         );
 

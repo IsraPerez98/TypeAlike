@@ -57,7 +57,7 @@ pub struct CpuCores {
 
 /// Work for the model runner. Each request answers with the [`InferenceEvent`] named in its
 /// variant, or with no event when it names none.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InferenceRequest {
     /// Loads the downloaded `file` in place of the loaded model: [`InferenceEvent::Loaded`].
     Load {
@@ -77,6 +77,10 @@ pub enum InferenceRequest {
         max_tokens: TokenCount,
         /// The preference for the words that the writer often writes, if any.
         word_bias: Option<WordBias>,
+        /// The least likely that the added text can get after its first word, if any. The runner
+        /// stops before a token that makes the text less likely, and leaves out the word of that
+        /// token.
+        min_log_probability: Option<LogProbability>,
     },
     /// Unloads the loaded model to free its memory.
     Unload,

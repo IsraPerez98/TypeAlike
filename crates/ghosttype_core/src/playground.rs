@@ -284,6 +284,7 @@ impl PlaygroundPane {
             prompt: prompt::prompt(&preface, text),
             max_tokens: MAX_COMPLETION_TOKENS,
             word_bias: None,
+            min_log_probability: None,
         })
     }
 
@@ -1013,6 +1014,7 @@ mod tests {
                 prompt: prompt("Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                min_log_probability: None,
             })
         );
     }
@@ -1033,6 +1035,7 @@ mod tests {
                 prompt: prompt::framed_prompt(&["My name is Sara Novak."], "Best,\n"),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                min_log_probability: None,
             })
         );
     }
@@ -1053,6 +1056,7 @@ mod tests {
                 prompt: prompt::prompt_with_notes("I am a nurse.", &[], "Dear "),
                 max_tokens: TokenCount(32),
                 word_bias: None,
+                min_log_probability: None,
             })
         );
     }

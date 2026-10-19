@@ -48,7 +48,7 @@ pub enum GeneralAction {
 }
 
 /// What the platform must do after a General action.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct GeneralOutcome {
     /// The settings to keep for the next run, when they changed.
     pub settings: Option<Settings>,

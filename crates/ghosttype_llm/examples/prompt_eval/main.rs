@@ -4,7 +4,8 @@
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE]
+//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
+//!     [--tail-cut on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -64,7 +65,8 @@
 //! tables from the same run. The first table gives, for each minimum probability of the first word,
 //! the share of the suggestions that still show and the share of them that match. The second table
 //! gives, for each cut of the tail, the words that still show, the right words and the wrong
-//! words.
+//! words. `--tail-cut off` turns off the cut of the app, so that the second table starts from the
+//! full suggestions. Use it to choose a cut.
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.
@@ -142,7 +144,7 @@ use crate::score::{
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--word-choice off|light|medium|strong]";
+     [--word-choice off|light|medium|strong] [--tail-cut on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -155,6 +157,14 @@ struct Arguments {
     backend: Backend,
     cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
+    tail_cut: TailCut,
+}
+
+/// Whether the suggestions stop when the text after the first word gets unlikely, as in the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TailCut {
+    On,
+    Off,
 }
 
 impl Arguments {
@@ -173,6 +183,7 @@ impl Arguments {
             backend: BUILT_IN_BACKEND,
             cpu_cores: None,
             word_choice: WordChoice::Off,
+            tail_cut: TailCut::On,
         };
         for option in options.chunks(2) {
             match option {
@@ -183,6 +194,7 @@ impl Arguments {
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
+                [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
                 _ => return None,
             }
         }
@@ -197,6 +209,15 @@ fn word_choice_named(name: &str) -> Option<WordChoice> {
         "light" => Some(WordChoice::Light),
         "medium" => Some(WordChoice::Medium),
         "strong" => Some(WordChoice::Strong),
+        _ => None,
+    }
+}
+
+/// Returns the tail cut with `name` in [`USAGE`], or `None` for another name.
+fn tail_cut_named(name: &str) -> Option<TailCut> {
+    match name {
+        "on" => Some(TailCut::On),
+        "off" => Some(TailCut::Off),
         _ => None,
     }
 }
@@ -491,6 +512,20 @@ fn with_case_bias(
     request
 }
 
+/// Returns `request` without its cut of the tail when `cut` is off.
+fn with_tail_cut(mut request: InferenceRequest, cut: TailCut) -> InferenceRequest {
+    if let (
+        InferenceRequest::Complete {
+            min_log_probability, ..
+        },
+        TailCut::Off,
+    ) = (&mut request, cut)
+    {
+        *min_log_probability = None;
+    }
+    request
+}
+
 /// What the eval does with a prompt that the app prepares before the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Preparation {
@@ -532,6 +567,7 @@ struct Typing<'case> {
     /// The field after the last key.
     typed_field: CaseField,
     version: u64,
+    tail_cut: TailCut,
 }
 
 impl Typing<'_> {
@@ -575,7 +611,7 @@ impl Typing<'_> {
         };
         let choice = self.settings.personalization.word_choice;
         let request = with_case_bias(request, self.case, choice, self.version);
-        let completion = model.complete(request)?;
+        let completion = model.complete(with_tail_cut(request, self.tail_cut))?;
         let word_log_probabilities = completion
             .as_ref()
             .map(|completion| completion.word_log_probabilities.clone())
@@ -632,6 +668,7 @@ fn run_case(
     history: &[HistoryEntry],
     settings: &Settings,
     version: u64,
+    tail_cut: TailCut,
 ) -> anyhow::Result<CaseRun> {
     let (before_key, last_key) = case.last_key()?;
     let typing = Typing {
@@ -642,6 +679,7 @@ fn run_case(
         last_key,
         typed_field: case.field(case.before.clone()),
         version,
+        tail_cut,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, &typing.typed_field) {
@@ -840,7 +878,7 @@ fn main() -> anyhow::Result<()> {
         .zip(1..)
         .map(|(case, version)| {
             let history = history_of(case, &writers)?;
-            run_case(&mut model, case, &history, &settings, version)
+            run_case(&mut model, case, &history, &settings, version, arguments.tail_cut)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
@@ -991,6 +1029,7 @@ mod tests {
                 backend: BUILT_IN_BACKEND,
                 cpu_cores: None,
                 word_choice: WordChoice::Off,
+                tail_cut: TailCut::On,
             })
         );
     }
@@ -1027,6 +1066,17 @@ mod tests {
                 None
             ]
         );
+    }
+
+    #[test]
+    fn tail_cut_option_turns_the_cut_of_the_tail_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let cuts = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--tail-cut", name]).map(|arguments| arguments.tail_cut)
+        });
+
+        assert_eq!(cuts, [Some(TailCut::On), Some(TailCut::Off), None]);
     }
 
     #[test]
