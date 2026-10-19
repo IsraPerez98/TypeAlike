@@ -32,6 +32,8 @@ use llama_cpp_2::{
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
+use crate::pieces::TokenPieces;
+
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
 /// whole batch while the model stays loaded, so a small batch keeps that memory small.
 const BATCH_TOKENS: u32 = 128;
@@ -177,6 +179,7 @@ fn serve(
         cpu_threads,
         cache: None,
         word_tokens: None,
+        pieces: TokenPieces::new(model.tokens(false)),
     };
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete {
@@ -377,6 +380,7 @@ struct LoadedModel<'model> {
     cache: Option<PromptCache<'model>>,
     /// The version of the last word bias, and the logits that it adds to each token.
     word_tokens: Option<(u64, Vec<(LlamaToken, f32)>)>,
+    pieces: TokenPieces,
 }
 
 impl LoadedModel<'_> {
@@ -466,7 +470,13 @@ impl LoadedModel<'_> {
         let cache = self.cache.as_mut().expect("the cache exists above");
         let added = cache
             .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| cache.continue_prompt(&vocab, &healed_text, max_added, token_bias, progress));
+            .and_then(|()| {
+                let healing = Healing {
+                    pieces: &self.pieces,
+                    text: &healed_text,
+                };
+                cache.continue_prompt(&vocab, &healing, max_added, token_bias, progress)
+            });
         match added {
             Ok(added) => {
                 let tokens = TokenCount(u32::try_from(added.len()).expect("added tokens fit in the context"));
@@ -647,13 +657,13 @@ impl<'model> PromptCache<'model> {
     }
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
-    /// for the next completion. Its first added tokens write `healed_text` again. Before each
+    /// for the next completion. Its first added tokens write the `healing` text again. Before each
     /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
     /// Returns the added tokens.
     fn continue_prompt(
         &mut self,
         vocab: &LlamaVocab<'_>,
-        healed_text: &[u8],
+        healing: &Healing<'_>,
         max_added: usize,
         token_bias: &[(LlamaToken, f32)],
         progress: &mut Progress<'_>,
@@ -663,12 +673,12 @@ impl<'model> PromptCache<'model> {
         let mut batch = LlamaBatch::new(1, 1);
         let mut logits = self.logits.as_slice();
         let mut biased = Vec::new();
-        let mut unwritten = healed_text;
+        let mut unwritten = healing.text;
         let mut added = Vec::new();
         while added.len() < max_added {
             let scores = with_bias(logits, token_bias, &mut biased);
-            let token =
-                best_token_agreeing_with(scores, vocab, unwritten).unwrap_or_else(|| most_likely(scores));
+            let token = best_token_agreeing_with(scores, healing.pieces, unwritten)
+                .unwrap_or_else(|| most_likely(scores));
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
@@ -682,7 +692,7 @@ impl<'model> PromptCache<'model> {
             if (progress.is_outdated)() {
                 return Err(GenerateError::Superseded);
             }
-            (progress.send_partial)(added_text(vocab, &self.tokens, &added, healed_text));
+            (progress.send_partial)(added_text(vocab, &self.tokens, &added, healing.text));
             batch.clear();
             batch.add(
                 token,
@@ -695,6 +705,13 @@ impl<'model> PromptCache<'model> {
         }
         Ok(added)
     }
+}
+
+/// The text that the first added tokens write again, and the text of each token, which finds the
+/// tokens that agree with it.
+struct Healing<'text> {
+    pieces: &'text TokenPieces,
+    text: &'text [u8],
 }
 
 /// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
@@ -757,27 +774,29 @@ fn last_word_start(vocab: &LlamaVocab<'_>, prompt_tokens: &[LlamaToken]) -> usiz
     before_last_word.len()
 }
 
-/// Returns the most likely token in `logits` whose text agrees with the `unwritten` text, or
-/// `None` when no text is unwritten.
-fn best_token_agreeing_with(logits: &[f32], vocab: &LlamaVocab<'_>, unwritten: &[u8]) -> Option<LlamaToken> {
+fn highest_of(logits: &[f32]) -> f32 {
+    logits.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+}
+
+fn logit_of(logits: &[f32], token: LlamaToken) -> f32 {
+    usize::try_from(token.0)
+        .ok()
+        .and_then(|index| logits.get(index))
+        .copied()
+        .unwrap_or(f32::NEG_INFINITY)
+}
+
+/// Returns the most likely token in `logits` whose text can write the start of the `unwritten`
+/// text, the token with the lowest id of equally likely ones, or `None` when no text is unwritten.
+fn best_token_agreeing_with(logits: &[f32], pieces: &TokenPieces, unwritten: &[u8]) -> Option<LlamaToken> {
     if unwritten.is_empty() {
         return None;
     }
-    let mut best: Option<(LlamaToken, f32)> = None;
-    for (index, &logit) in logits.iter().enumerate() {
-        let is_better = best.is_none_or(|(_, best_logit)| logit > best_logit);
-        let token = LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32"));
-        if is_better && agrees_with(&vocab.token_to_piece(token, false, None), unwritten) {
-            best = Some((token, logit));
-        }
-    }
-    best.map(|(token, _)| token)
-}
-
-/// Whether a token with `piece` as text can write the start of `unwritten`: it writes a part of it,
-/// or all of it and more.
-fn agrees_with(piece: &[u8], unwritten: &[u8]) -> bool {
-    !piece.is_empty() && (piece.starts_with(unwritten) || unwritten.starts_with(piece))
+    pieces.agreeing_with(unwritten).max_by(|left, right| {
+        logit_of(logits, *left)
+            .total_cmp(&logit_of(logits, *right))
+            .then(right.0.cmp(&left.0))
+    })
 }
 
 /// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
@@ -834,13 +853,14 @@ fn top_probability(logits: &[f32]) -> f32 {
     total.recip()
 }
 
-/// Returns the most likely token in `logits`.
+/// Returns the most likely token in `logits`, the token with the highest id of equally likely
+/// ones.
 fn most_likely(logits: &[f32]) -> LlamaToken {
+    let highest = highest_of(logits);
     let index = logits
         .iter()
-        .enumerate()
-        .max_by(|(_, left), (_, right)| left.total_cmp(right))
-        .map_or(0, |(index, _)| index);
+        .rposition(|logit| logit.total_cmp(&highest).is_eq())
+        .unwrap_or(0);
     LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32"))
 }
 
@@ -1081,17 +1101,17 @@ mod tests {
     }
 
     #[test]
-    fn token_agrees_with_text_it_starts_or_completes() {
-        let cases = [
-            (&b" beaut"[..], &b" beauti"[..], true),
-            (b" beautiful", b" beauti", true),
-            (b" beast", b" beauti", false),
-            (b"", b" beauti", false),
-        ];
+    fn healing_takes_the_most_likely_agreeing_token_and_the_lowest_id_of_a_tie() {
+        let pieces = TokenPieces::new(
+            [" be", " beauti", " beautiful", " cat"]
+                .iter()
+                .zip(0..)
+                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
+        );
 
-        let agreements = cases.map(|(piece, unwritten, _)| agrees_with(piece, unwritten));
+        let token = best_token_agreeing_with(&[1.0, 3.0, 3.0, 9.0], &pieces, b" beauti");
 
-        assert_eq!(agreements, cases.map(|(_, _, agrees)| agrees));
+        assert_eq!(token, Some(LlamaToken(1)));
     }
 
     #[test]
