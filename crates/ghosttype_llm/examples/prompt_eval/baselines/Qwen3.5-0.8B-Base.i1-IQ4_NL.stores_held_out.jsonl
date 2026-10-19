@@ -1,0 +1,31 @@
+{"id":"topic-riley-01","kind":"next_word","suggestion":"Dunmore Components, will be able to","is_match":true,"millis":157,"warm_millis":59,"prompt_tokens":276,"log_probability":-0.2646385160281118}
+{"id":"topic-riley-02","kind":"next_word","suggestion":"Odalys, pointed out a least","is_match":true,"millis":140,"warm_millis":57,"prompt_tokens":284,"log_probability":-1.0967028412178905}
+{"id":"othertopic-riley-01","kind":"next_word","suggestion":"a towel.","is_match":false,"millis":82,"warm_millis":28,"prompt_tokens":180,"log_probability":-4.231981346889794}
+{"id":"sameformat-riley-01","kind":"next_word","suggestion":"The part of my writing that I am","is_match":false,"millis":106,"warm_millis":101,"prompt_tokens":184,"log_probability":-23.962265295208162}
+{"id":"otherformat-riley-01","kind":"next_word","suggestion":"umbrella?","is_match":true,"millis":49,"warm_millis":20,"prompt_tokens":96,"log_probability":-0.757964287122167}
+{"id":"greeting-riley-01","kind":"next_word","suggestion":"sprouts,","is_match":true,"millis":89,"warm_millis":29,"prompt_tokens":253,"log_probability":-1.5808129644738387}
+{"id":"names-riley-01","kind":"next_word","suggestion":"Riley","is_match":true,"millis":99,"warm_millis":24,"prompt_tokens":292,"log_probability":-0.16536327772970716}
+{"id":"topic-lucia-01","kind":"next_word","suggestion":"un profesional.","is_match":false,"millis":101,"warm_millis":27,"prompt_tokens":265,"log_probability":-17.44515148994057}
+{"id":"othertopic-lucia-01","kind":"next_word","suggestion":"oficina de la empresa. Mueve","is_match":false,"millis":108,"warm_millis":52,"prompt_tokens":198,"log_probability":-10.498453814340131}
+{"id":"sameformat-lucia-01","kind":"next_word","suggestion":"Me quedo en casa y me voy","is_match":false,"millis":105,"warm_millis":54,"prompt_tokens":153,"log_probability":-4.520896290381406}
+{"id":"names-lucia-01","kind":"next_word","suggestion":"Ferrer","is_match":true,"millis":105,"warm_millis":22,"prompt_tokens":275,"log_probability":-0.05535688864247077}
+{"id":"phrase-riley-01","kind":"next_word","suggestion":"Customer Care”","is_match":true,"millis":111,"warm_millis":29,"prompt_tokens":281,"log_probability":-0.018829044585815087}
+{"id":"phrase-riley-02","kind":"partial_word","suggestion":"iley”","is_match":true,"millis":102,"warm_millis":20,"prompt_tokens":283,"log_probability":-0.0034196716992106213}
+{"id":"phrase-lucia-01","kind":"next_word","suggestion":"Dental Marjal”","is_match":true,"millis":118,"warm_millis":35,"prompt_tokens":280,"log_probability":-0.004194934785719611}
+{"id":"phrase-lucia-02","kind":"next_word","suggestion":"la abuela?","is_match":false,"millis":89,"warm_millis":34,"prompt_tokens":176,"log_probability":-2.738389113944599}
+{"id":"topic-riley-03","kind":"partial_word","suggestion":"ridge Road.","is_match":false,"millis":125,"warm_millis":33,"prompt_tokens":309,"log_probability":-0.006396228631471738}
+{"id":"topic-riley-04","kind":"next_word","suggestion":"Sprocket. The log sheet has","is_match":true,"millis":121,"warm_millis":53,"prompt_tokens":261,"log_probability":-1.8263105971573297}
+{"id":"topic-riley-05","kind":"next_word","suggestion":"a nest box.","is_match":false,"millis":121,"warm_millis":34,"prompt_tokens":324,"log_probability":-1.8131526111760954}
+{"id":"othertopic-riley-02","kind":"next_word","suggestion":"stairwell.","is_match":false,"millis":111,"warm_millis":27,"prompt_tokens":281,"log_probability":-4.491523950715122}
+{"id":"sameformat-riley-02","kind":"partial_word","suggestion":"ly,","is_match":true,"millis":78,"warm_millis":22,"prompt_tokens":217,"log_probability":-0.027411968204222894}
+{"id":"otherformat-riley-02","kind":"next_word","suggestion":"coffee.","is_match":true,"millis":55,"warm_millis":20,"prompt_tokens":105,"log_probability":-0.8229438756757204}
+{"id":"greeting-riley-02","kind":"next_word","suggestion":"Isadora,","is_match":true,"millis":87,"warm_millis":27,"prompt_tokens":243,"log_probability":-0.490062543951415}
+{"id":"names-riley-02","kind":"next_word","suggestion":"we will need to have a plan for","is_match":false,"millis":134,"warm_millis":53,"prompt_tokens":288,"log_probability":-3.8901496549373213}
+{"id":"topic-lucia-02","kind":"partial_word","suggestion":"mblr para que me lo ayude","is_match":false,"millis":138,"warm_millis":47,"prompt_tokens":301,"log_probability":-12.24376424374751}
+{"id":"topic-lucia-03","kind":"next_word","suggestion":"y a la abuela a mí.","is_match":false,"millis":136,"warm_millis":56,"prompt_tokens":284,"log_probability":-15.460900076604858}
+{"id":"topic-lucia-04","kind":"next_word","suggestion":"la calle Barraca Vella y te","is_match":false,"millis":112,"warm_millis":52,"prompt_tokens":231,"log_probability":-9.141315522447869}
+{"id":"othertopic-lucia-02","kind":"next_word","suggestion":"veterinario.","is_match":true,"millis":83,"warm_millis":26,"prompt_tokens":199,"log_probability":-0.6079102770397493}
+{"id":"sameformat-lucia-02","kind":"next_word","suggestion":"ruega puntualidad.”","is_match":true,"millis":117,"warm_millis":46,"prompt_tokens":263,"log_probability":-2.780581302548447}
+{"id":"otherformat-lucia-01","kind":"next_word","suggestion":"nos quedamos muy calientes. La","is_match":false,"millis":84,"warm_millis":52,"prompt_tokens":126,"log_probability":-9.92092680325583}
+{"id":"greeting-lucia-01","kind":"next_word","suggestion":"Gaspar,","is_match":false,"millis":88,"warm_millis":27,"prompt_tokens":249,"log_probability":-8.444018842856492}
+{"id":"names-lucia-02","kind":"next_word","suggestion":"la tienda de endodoncia?","is_match":false,"millis":107,"warm_millis":52,"prompt_tokens":194,"log_probability":-2.24910287149285}

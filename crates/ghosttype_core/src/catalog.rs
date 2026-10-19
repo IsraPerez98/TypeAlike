@@ -33,17 +33,17 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
     SuggestedModel {
         name: "Qwen3.5 0.8B",
         parameters: "0.8B",
-        repo: "ggml-org/Qwen3.5-0.8B-Base-GGUF",
-        file_name: "Qwen3.5-0.8B-Base-Q4_0.gguf",
-        size: ByteSize(563_035_840),
+        repo: "mradermacher/Qwen3.5-0.8B-Base-i1-GGUF",
+        file_name: "Qwen3.5-0.8B-Base.i1-IQ4_NL.gguf",
+        size: ByteSize(516_002_176),
         developer: "Alibaba",
     },
     SuggestedModel {
         name: "Qwen3.5 2B",
         parameters: "2B",
-        repo: "mradermacher/Qwen3.5-2B-Base-GGUF",
-        file_name: "Qwen3.5-2B-Base.Q4_K_M.gguf",
-        size: ByteSize(1_274_396_800),
+        repo: "mradermacher/Qwen3.5-2B-Base-i1-GGUF",
+        file_name: "Qwen3.5-2B-Base.i1-Q4_K_S.gguf",
+        size: ByteSize(1_212_055_936),
         developer: "Alibaba",
     },
     SuggestedModel {
@@ -65,9 +65,9 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
     SuggestedModel {
         name: "Qwen3.5 4B",
         parameters: "4B",
-        repo: "mradermacher/Qwen3.5-4B-Base-GGUF",
-        file_name: "Qwen3.5-4B-Base.Q4_K_M.gguf",
-        size: ByteSize(2_708_804_608),
+        repo: "mradermacher/Qwen3.5-4B-Base-i1-GGUF",
+        file_name: "Qwen3.5-4B-Base.i1-Q4_K_S.gguf",
+        size: ByteSize(2_563_888_384),
         developer: "Alibaba",
     },
     SuggestedModel {
@@ -81,9 +81,9 @@ pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 7] = [
     SuggestedModel {
         name: "Qwen3.5 9B",
         parameters: "9B",
-        repo: "mradermacher/Qwen3.5-9B-Base-GGUF",
-        file_name: "Qwen3.5-9B-Base.Q4_K_M.gguf",
-        size: ByteSize(5_629_109_312),
+        repo: "mradermacher/Qwen3.5-9B-Base-i1-GGUF",
+        file_name: "Qwen3.5-9B-Base.i1-Q4_K_S.gguf",
+        size: ByteSize(5_351_630_144),
         developer: "Alibaba",
     },
 ];

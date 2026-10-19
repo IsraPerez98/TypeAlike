@@ -1,0 +1,59 @@
+{"id":"en-email-04","kind":"next_word","suggestion":"12-month term.","is_match":false,"millis":116,"warm_millis":46,"prompt_tokens":177,"log_probability":-0.8841821616868393}
+{"id":"en-email-08","kind":"next_word","suggestion":"documents for the apartment.","is_match":false,"millis":78,"warm_millis":39,"prompt_tokens":131,"log_probability":-3.885799912361049}
+{"id":"en-email-12","kind":"next_word","suggestion":"let me know.","is_match":false,"millis":85,"warm_millis":33,"prompt_tokens":146,"log_probability":-2.726619094261525}
+{"id":"en-email-16","kind":"partial_word","suggestion":"ternoon there.","is_match":true,"millis":78,"warm_millis":20,"prompt_tokens":147,"log_probability":-3.0777024413000325}
+{"id":"en-chat-04","kind":"partial_word","suggestion":"ere.","is_match":true,"millis":72,"warm_millis":14,"prompt_tokens":149,"log_probability":-1.5159613505473746}
+{"id":"en-chat-08","kind":"next_word","suggestion":"bit of a pain to get the QA","is_match":false,"millis":81,"warm_millis":52,"prompt_tokens":103,"log_probability":-6.147188133850406}
+{"id":"en-chat-12","kind":"next_word","suggestion":"renewal date for the Henderson account? I","is_match":false,"millis":84,"warm_millis":53,"prompt_tokens":129,"log_probability":-6.4064250548835435}
+{"id":"en-chat-16","kind":"next_word","suggestion":"Priya,","is_match":true,"millis":59,"warm_millis":28,"prompt_tokens":87,"log_probability":-1.3587402907928134}
+{"id":"en-doc-04","kind":"next_word","suggestion":"14 Orchard Lane, located in","is_match":true,"millis":82,"warm_millis":54,"prompt_tokens":115,"log_probability":-0.13604899055174444}
+{"id":"en-doc-08","kind":"partial_word","suggestion":"ter.","is_match":true,"millis":92,"warm_millis":14,"prompt_tokens":263,"log_probability":-0.9870524326636131}
+{"id":"en-doc-12","kind":"partial_word","suggestion":"ipt again.","is_match":true,"millis":56,"warm_millis":20,"prompt_tokens":104,"log_probability":-1.7855512186501183}
+{"id":"en-doc-16","kind":"partial_word","suggestion":"el, visit the old town of","is_match":false,"millis":84,"warm_millis":45,"prompt_tokens":129,"log_probability":-5.426484400538083}
+{"id":"en-form-04","kind":"partial_word","suggestion":"or message.","is_match":true,"millis":78,"warm_millis":20,"prompt_tokens":153,"log_probability":-0.21755050054668987}
+{"id":"en-form-08","kind":"next_word","suggestion":"I am a full-time freelance designer.","is_match":true,"millis":82,"warm_millis":53,"prompt_tokens":111,"log_probability":-0.6928796318681999}
+{"id":"en-form-12","kind":"next_word","suggestion":" that the pricing strategy section be more","is_match":false,"millis":81,"warm_millis":46,"prompt_tokens":106,"log_probability":-2.7987216021042003}
+{"id":"en-form-16","kind":"next_word","suggestion":"of the car is covered with a black","is_match":false,"millis":81,"warm_millis":54,"prompt_tokens":90,"log_probability":-3.391427784298655}
+{"id":"es-email-04","kind":"next_word","suggestion":"CL-482109","is_match":false,"millis":96,"warm_millis":52,"prompt_tokens":138,"log_probability":-1.2736923274186736}
+{"id":"es-email-08","kind":"partial_word","suggestion":"or.","is_match":true,"millis":51,"warm_millis":14,"prompt_tokens":118,"log_probability":-2.817350265176769}
+{"id":"es-email-12","kind":"next_word","suggestion":". 100,0","is_match":false,"millis":103,"warm_millis":45,"prompt_tokens":141,"log_probability":-14.447438210322009}
+{"id":"es-email-16","kind":"next_word","suggestion":"versión naranja.","is_match":false,"millis":64,"warm_millis":27,"prompt_tokens":131,"log_probability":-1.6990523002827838}
+{"id":"es-chat-04","kind":"partial_word","suggestion":"do, y el 1","is_match":true,"millis":95,"warm_millis":46,"prompt_tokens":137,"log_probability":-8.549168589893803}
+{"id":"es-chat-08","kind":"next_word","suggestion":"la casa?","is_match":false,"millis":56,"warm_millis":26,"prompt_tokens":99,"log_probability":-2.738008393753642}
+{"id":"es-chat-12","kind":"partial_word","suggestion":"ing.","is_match":true,"millis":50,"warm_millis":14,"prompt_tokens":111,"log_probability":-5.124110995412083}
+{"id":"es-chat-16","kind":"next_word","suggestion":"2000 kilos de carne","is_match":false,"millis":91,"warm_millis":52,"prompt_tokens":132,"log_probability":-1.9846137866859008}
+{"id":"es-doc-04","kind":"next_word","suggestion":"leche de vaca","is_match":false,"millis":60,"warm_millis":33,"prompt_tokens":84,"log_probability":-3.662845683850846}
+{"id":"es-doc-08","kind":"partial_word","suggestion":"ños","is_match":true,"millis":53,"warm_millis":6,"prompt_tokens":134,"log_probability":-3.617989556971092}
+{"id":"es-doc-12","kind":"next_word","suggestion":"la descripción de la vida cotidiana de","is_match":true,"millis":103,"warm_millis":52,"prompt_tokens":148,"log_probability":-0.8786299620666347}
+{"id":"es-doc-16","kind":"partial_word","suggestion":"náloga.","is_match":false,"millis":74,"warm_millis":28,"prompt_tokens":133,"log_probability":-5.733865433473069}
+{"id":"es-form-04","kind":"next_word","suggestion":"SOL-2024-1","is_match":false,"millis":84,"warm_millis":53,"prompt_tokens":125,"log_probability":-0.4278861651262475}
+{"id":"es-form-08","kind":"next_word","suggestion":"depto 302","is_match":true,"millis":77,"warm_millis":47,"prompt_tokens":130,"log_probability":-0.3370800148442769}
+{"id":"es-form-12","kind":"partial_word","suggestion":"mos 456,","is_match":true,"millis":83,"warm_millis":45,"prompt_tokens":125,"log_probability":-0.003573108280123585}
+{"id":"es-form-16","kind":"next_word","suggestion":"recomendaría.","is_match":true,"millis":61,"warm_millis":33,"prompt_tokens":97,"log_probability":-0.806266218136501}
+{"id":"en-long-04","kind":"next_word","suggestion":"Winnipeg.","is_match":true,"millis":189,"warm_millis":21,"prompt_tokens":649,"log_probability":-0.00836401427170686}
+{"id":"en-long-08","kind":"next_word","suggestion":"Fernwood, where we had a weekly","is_match":true,"millis":261,"warm_millis":54,"prompt_tokens":809,"log_probability":-0.09515269616329482}
+{"id":"en-long-10","kind":"partial_word","suggestion":"tate to ask your manager or your on","is_match":true,"millis":273,"warm_millis":47,"prompt_tokens":894,"log_probability":-0.16697039710971812}
+{"id":"en-long-12","kind":"next_word","suggestion":"recommend this blender. It is a good","is_match":true,"millis":263,"warm_millis":54,"prompt_tokens":816,"log_probability":-0.008293898262104776}
+{"id":"es-long-04","kind":"partial_word","suggestion":"puesta.","is_match":true,"millis":141,"warm_millis":14,"prompt_tokens":477,"log_probability":-0.4254979107499107}
+{"id":"es-long-06","kind":"next_word","suggestion":"Rancagua, con el número de","is_match":true,"millis":237,"warm_millis":52,"prompt_tokens":745,"log_probability":-1.8906589045428006}
+{"id":"es-long-09","kind":"next_word","suggestion":"picnómetro. Si la muestra se","is_match":true,"millis":312,"warm_millis":54,"prompt_tokens":1029,"log_probability":-0.40639886394629965}
+{"id":"es-long-12","kind":"next_word","suggestion":"suerte.","is_match":false,"millis":196,"warm_millis":21,"prompt_tokens":657,"log_probability":-9.95896841622488}
+{"id":"es-chat-18","kind":"next_word","suggestion":"Clientes 2026 por","is_match":true,"millis":105,"warm_millis":53,"prompt_tokens":167,"log_probability":-0.5536903794370412}
+{"id":"en-email-19","kind":"next_word","suggestion":"north entrance at 9 am.","is_match":true,"millis":103,"warm_millis":52,"prompt_tokens":155,"log_probability":-0.11906172431932226}
+{"id":"en-form-19","kind":"next_word","suggestion":"Lena,","is_match":true,"millis":49,"warm_millis":21,"prompt_tokens":93,"log_probability":-0.7208097042399256}
+{"id":"es-form-19","kind":"next_word","suggestion":"logística de Andes Cargo.","is_match":false,"millis":76,"warm_millis":46,"prompt_tokens":114,"log_probability":-1.0360656525373366}
+{"id":"en-chat-20","kind":"next_word","suggestion":"for the support. I have a few","is_match":false,"millis":80,"warm_millis":53,"prompt_tokens":93,"log_probability":-2.0199262179018893}
+{"id":"es-chat-20","kind":"next_word","suggestion":"de madera. Me gustaría saber si es","is_match":false,"millis":82,"warm_millis":53,"prompt_tokens":107,"log_probability":-7.580685539416206}
+{"id":"en-history-15","kind":"partial_word","suggestion":"achel","is_match":true,"millis":60,"warm_millis":6,"prompt_tokens":177,"log_probability":-0.08061767156561907}
+{"id":"en-history-16","kind":"next_word","suggestion":"the import:","is_match":false,"millis":58,"warm_millis":27,"prompt_tokens":125,"log_probability":-3.048567004241586}
+{"id":"en-history-17","kind":"next_word","suggestion":"nit: the function name says user but","is_match":true,"millis":104,"warm_millis":52,"prompt_tokens":149,"log_probability":-0.01628440601340586}
+{"id":"es-history-12","kind":"partial_word","suggestion":"acho”","is_match":true,"millis":76,"warm_millis":20,"prompt_tokens":189,"log_probability":-0.0038869964198980276}
+{"id":"es-history-13","kind":"next_word","suggestion":"Tata Chela, y el Tata lleva","is_match":true,"millis":97,"warm_millis":53,"prompt_tokens":137,"log_probability":-0.0471335574247244}
+{"id":"es-history-14","kind":"next_word","suggestion":"Fénix?","is_match":true,"millis":84,"warm_millis":33,"prompt_tokens":146,"log_probability":-0.32396384024820535}
+{"id":"en-history-18","kind":"next_word","suggestion":"late.","is_match":false,"millis":60,"warm_millis":20,"prompt_tokens":133,"log_probability":-5.556478049053396}
+{"id":"es-history-15","kind":"next_word","suggestion":"bodega?","is_match":false,"millis":79,"warm_millis":27,"prompt_tokens":165,"log_probability":-4.316080249091739}
+{"id":"es-history-16","kind":"next_word","suggestion":"servidor?","is_match":true,"millis":60,"warm_millis":20,"prompt_tokens":133,"log_probability":-2.714456873687876}
+{"id":"en-words-07","kind":"next_word","suggestion":"regarding the invoice.","is_match":true,"millis":61,"warm_millis":33,"prompt_tokens":95,"log_probability":-1.4749193801603333}
+{"id":"en-words-08","kind":"next_word","suggestion":"the reason why I am here.","is_match":false,"millis":80,"warm_millis":53,"prompt_tokens":88,"log_probability":-8.306669124916349}
+{"id":"es-words-07","kind":"next_word","suggestion":"interesante. Me gustó mucho el tema","is_match":false,"millis":80,"warm_millis":52,"prompt_tokens":88,"log_probability":-18.962204108298913}
+{"id":"es-words-08","kind":"next_word","suggestion":"de la empresa?","is_match":false,"millis":60,"warm_millis":33,"prompt_tokens":91,"log_probability":-17.40758562952546}

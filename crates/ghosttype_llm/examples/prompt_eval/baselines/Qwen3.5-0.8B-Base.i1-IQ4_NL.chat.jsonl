@@ -1,0 +1,40 @@
+{"id":"chat-01-slack","kind":"next_word","suggestion":" am typing the text below on my","is_match":false,"millis":102,"warm_millis":45,"prompt_tokens":115,"log_probability":-2.7100559583950456}
+{"id":"chat-02-slack","kind":"next_word","suggestion":"same.","is_match":false,"millis":30,"warm_millis":20,"prompt_tokens":120,"log_probability":-1.776344417417002}
+{"id":"chat-03-slack","kind":"next_word","suggestion":", I can review your PR for","is_match":true,"millis":76,"warm_millis":45,"prompt_tokens":117,"log_probability":-0.42687288695105724}
+{"id":"chat-04-slack","kind":"next_word","suggestion":"review your PR before lunch.","is_match":true,"millis":55,"warm_millis":45,"prompt_tokens":121,"log_probability":-0.3066999631930325}
+{"id":"chat-05-discord","kind":"partial_word","suggestion":"o sí, anda bien","is_match":true,"millis":64,"warm_millis":33,"prompt_tokens":118,"log_probability":-3.9133431488954953}
+{"id":"chat-06-discord","kind":"next_word","suggestion":"probé, pero no me gustó","is_match":true,"millis":60,"warm_millis":52,"prompt_tokens":121,"log_probability":-1.3135044637324862}
+{"id":"chat-07-discord","kind":"next_word","suggestion":"use the borrow checker to check that the","is_match":false,"millis":82,"warm_millis":52,"prompt_tokens":114,"log_probability":-7.4331348186995605}
+{"id":"chat-08-whatsapp","kind":"partial_word","suggestion":"oy una persona de 28","is_match":false,"millis":73,"warm_millis":46,"prompt_tokens":98,"log_probability":-5.839390228914569}
+{"id":"chat-09-whatsapp","kind":"next_word","suggestion":"me voy a almorzar el domingo","is_match":false,"millis":60,"warm_millis":52,"prompt_tokens":101,"log_probability":-3.54432949292198}
+{"id":"chat-10-whatsapp","kind":"next_word","suggestion":"soy Pancho Weon.","is_match":false,"millis":74,"warm_millis":45,"prompt_tokens":100,"log_probability":-3.9773950626550003}
+{"id":"chat-11-whatsapp","kind":"next_word","suggestion":" Rojas","is_match":false,"millis":64,"warm_millis":27,"prompt_tokens":101,"log_probability":-1.785614882250588}
+{"id":"chat-12-telegram","kind":"partial_word","suggestion":"es","is_match":false,"millis":34,"warm_millis":6,"prompt_tokens":92,"log_probability":-7.940067046135397}
+{"id":"chat-13-telegram","kind":"next_word","suggestion":"and it’s fixed.","is_match":false,"millis":48,"warm_millis":38,"prompt_tokens":97,"log_probability":-6.757198964231376}
+{"id":"chat-14-teams","kind":"next_word","suggestion":"is a good day for me. I","is_match":false,"millis":82,"warm_millis":51,"prompt_tokens":121,"log_probability":-6.366729165127012}
+{"id":"chat-15-teams","kind":"partial_word","suggestion":"o, I don't want to move","is_match":true,"millis":46,"warm_millis":45,"prompt_tokens":120,"log_probability":-5.210108911947664}
+{"id":"chat-16-messages","kind":"partial_word","suggestion":"es, we are still on for dinner","is_match":true,"millis":73,"warm_millis":45,"prompt_tokens":97,"log_probability":-3.361866870618811}
+{"id":"chat-17-messages","kind":"next_word","suggestion":"time is it?","is_match":true,"millis":42,"warm_millis":34,"prompt_tokens":100,"log_probability":-2.136156927938862}
+{"id":"chat-18-gmail","kind":"next_word","suggestion":"your email.","is_match":false,"millis":71,"warm_millis":27,"prompt_tokens":137,"log_probability":-1.067259131946293}
+{"id":"chat-19-gmail","kind":"partial_word","suggestion":"i, the container is stuck at customs","is_match":true,"millis":84,"warm_millis":45,"prompt_tokens":131,"log_probability":-3.335834359900653}
+{"id":"chat-20-slack","kind":"partial_word","suggestion":"hips_dev","is_match":false,"millis":50,"warm_millis":20,"prompt_tokens":110,"log_probability":-11.991276002480069}
+{"id":"chat-21-slack","kind":"next_word","suggestion":"out","is_match":false,"millis":20,"warm_millis":13,"prompt_tokens":112,"log_probability":-2.727615679803241}
+{"id":"chat-22-discord","kind":"partial_word","suggestion":"o, I just want to play another","is_match":false,"millis":73,"warm_millis":45,"prompt_tokens":100,"log_probability":-9.243703003474824}
+{"id":"chat-23-whatsapp","kind":"next_word","suggestion":"siento, no tengo el número de tracking","is_match":false,"millis":81,"warm_millis":52,"prompt_tokens":107,"log_probability":-4.770616322484221}
+{"id":"chat-24-slack","kind":"next_word","suggestion":"the deployment of the api v2.","is_match":true,"millis":83,"warm_millis":53,"prompt_tokens":119,"log_probability":-1.402890177341158}
+{"id":"chat-25-slack","kind":"partial_word","suggestion":"a lo he hecho.","is_match":false,"millis":73,"warm_millis":33,"prompt_tokens":114,"log_probability":-7.216153635980352}
+{"id":"chat-26-teams","kind":"partial_word","suggestion":", the carrier did not confirm the","is_match":false,"millis":74,"warm_millis":45,"prompt_tokens":102,"log_probability":-7.3900662801784875}
+{"id":"chat-27-messages","kind":"partial_word","suggestion":"ediente a la orden de la","is_match":false,"millis":74,"warm_millis":45,"prompt_tokens":99,"log_probability":-4.617414274704794}
+{"id":"email-01-outlook","kind":"partial_word","suggestion":"i, could you confirm that you received","is_match":true,"millis":97,"warm_millis":45,"prompt_tokens":158,"log_probability":-2.674623710384887}
+{"id":"email-02-mail","kind":"partial_word","suggestion":"la, ¿nos pueden enviar la cot","is_match":true,"millis":97,"warm_millis":46,"prompt_tokens":154,"log_probability":-2.5517467083162835}
+{"id":"email-03-gmail","kind":"partial_word","suggestion":"ofia Brandt <sofia","is_match":false,"millis":89,"warm_millis":45,"prompt_tokens":136,"log_probability":-4.93664822477265}
+{"id":"email-04-outlook","kind":"partial_word","suggestion":"pero que me encuentren bien.","is_match":false,"millis":98,"warm_millis":45,"prompt_tokens":171,"log_probability":-8.51448275054123}
+{"id":"doc-01-notion","kind":"partial_word","suggestion":"ay 2025","is_match":false,"millis":70,"warm_millis":39,"prompt_tokens":123,"log_probability":-9.893893514047459}
+{"id":"doc-02-notion","kind":"partial_word","suggestion":" am typing the text below on my","is_match":false,"millis":85,"warm_millis":45,"prompt_tokens":133,"log_probability":-9.687799319223494}
+{"id":"doc-03-word","kind":"partial_word","suggestion":"genda for the meeting","is_match":true,"millis":59,"warm_millis":33,"prompt_tokens":77,"log_probability":-5.535290865398172}
+{"id":"doc-04-docs","kind":"partial_word","suggestion":"dera, 202","is_match":false,"millis":72,"warm_millis":46,"prompt_tokens":81,"log_probability":-4.590774150535375}
+{"id":"time-01-whatsapp","kind":"next_word","suggestion":"8:40.","is_match":true,"millis":75,"warm_millis":45,"prompt_tokens":109,"log_probability":-0.4749985513954066}
+{"id":"time-02-slack","kind":"next_word","suggestion":"3:30 today, same","is_match":true,"millis":81,"warm_millis":52,"prompt_tokens":111,"log_probability":-0.5869729856073554}
+{"id":"time-03-teams","kind":"next_word","suggestion":"16:00 tomorrow.","is_match":true,"millis":83,"warm_millis":52,"prompt_tokens":120,"log_probability":-0.17330341935836865}
+{"id":"time-04-gmail","kind":"next_word","suggestion":"14:00 to","is_match":true,"millis":95,"warm_millis":51,"prompt_tokens":138,"log_probability":-0.2614994091184891}
+{"id":"time-05-telegram","kind":"next_word","suggestion":" reunión es a las 10","is_match":false,"millis":74,"warm_millis":45,"prompt_tokens":100,"log_probability":-5.02833481668263}
