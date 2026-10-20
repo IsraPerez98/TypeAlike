@@ -47,7 +47,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
   - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its symbol.
 - Primary action: `ButtonStyle::Accent`, at most one for each card. A back button in a section heading is `ButtonStyle::Subtle`.
 - Secondary text: reactor has no `TextFillColorSecondaryBrush` yet. Use the caption size (12 px) with 75 % opacity, and check its contrast. Error notes use `ThemeBrush::SystemCritical` at full opacity.
-- Controlled fields: declare the text of each field from state and send each change back as a message. The page keeps the text of the fields whose text the core view does not hold (search, text field).
+- Controlled fields: declare the text of each field from state and send each change back as a message. The page keeps the text that the user types in each field, and declares it in place of the text of the view. A view from the main thread can come after newer keys, and its older text then moves the caret.
 - Give each child a stable key (`keyed`): the page index, the section index, the row index and the control id. Reactor then keeps the focus and the caret of a control across renders.
 - `AutoSuggestBox` has no query event in reactor yet. A `Border` with `on_key_up` around the field turns the return key into a submit.
 

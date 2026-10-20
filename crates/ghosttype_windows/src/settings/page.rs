@@ -77,7 +77,7 @@ impl Renderer<'_, '_> {
 
     fn search(&self, field: &SearchField) -> View {
         let box_view = AutoSuggestBox::new()
-            .text(self.typed_text(&field.id))
+            .text(self.typed_text(&field.id, ""))
             .placeholder_text(field.placeholder)
             .query_icon(Symbol::Find)
             .automation_name(field.placeholder)
@@ -226,7 +226,7 @@ impl Renderer<'_, '_> {
     fn text_area_card(&self, area: &TextArea) -> View {
         let id = area.id.clone();
         let field = TextBox::new()
-            .text(&area.text)
+            .text(self.typed_text(&area.id, &area.text))
             .accepts_return(true)
             .text_wrapping(TextWrapping::Wrap)
             .min_height(TEXT_AREA_MIN_HEIGHT)
@@ -256,7 +256,7 @@ impl Renderer<'_, '_> {
     fn text_line_card(&self, line: &TextLine) -> View {
         let id = line.id.clone();
         let field = TextBox::new()
-            .text(&line.text)
+            .text(self.typed_text(&line.id, &line.text))
             .min_width(TEXT_LINE_MIN_WIDTH)
             .automation_name(line.label)
             .on_text_changed(self.context.callback(move |text: Rc<str>| {
@@ -270,7 +270,7 @@ impl Renderer<'_, '_> {
 
     fn text_field_card(&self, field: &TextField) -> View {
         let text_box = TextBox::new()
-            .text(self.typed_text(&field.id))
+            .text(self.typed_text(&field.id, ""))
             .placeholder_text(field.placeholder)
             .automation_name(field.label)
             .on_text_changed(self.typed_callback(&field.id));
@@ -414,8 +414,9 @@ impl Renderer<'_, '_> {
             .into()
     }
 
-    fn typed_text(&self, id: &ControlId) -> &str {
-        self.typed.get(id).map_or("", String::as_str)
+    /// The text that the user typed in the field `id`, else `shown`, the text of the view.
+    fn typed_text<'text>(&'text self, id: &ControlId, shown: &'text str) -> &'text str {
+        self.typed.get(id).map_or(shown, String::as_str)
     }
 
     fn typed_callback(&self, id: &ControlId) -> Callback<Rc<str>> {

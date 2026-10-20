@@ -217,7 +217,8 @@ pub struct TextArea {
     /// A sentence below the label about what the text changes.
     pub description: &'static str,
     /// The text in the field. Change the field only when it shows other text, so that the caret
-    /// and the undo history of the user stay.
+    /// and the undo history of the user stay. Never change a field that the user edits, because
+    /// a view can come after newer keys.
     pub text: String,
     /// A button below the field, such as one that resets the text.
     pub button: Option<Button>,
@@ -233,7 +234,8 @@ pub struct TextLine {
     /// A sentence below the label about what the text changes.
     pub description: &'static str,
     /// The text in the field. Change the field only when it shows other text, so that the caret
-    /// and the undo history of the user stay.
+    /// and the undo history of the user stay. Never change a field that the user edits, because
+    /// a view can come after newer keys.
     pub text: String,
 }
 

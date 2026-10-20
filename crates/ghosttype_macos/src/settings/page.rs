@@ -16,9 +16,9 @@ use objc2_app_kit::{
     NSAccessibility as _, NSBorderType, NSButton, NSCellImagePosition, NSColor, NSControl, NSControlSize,
     NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage, NSImageView,
     NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
-    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSPopUpButton, NSProgressIndicator, NSScrollView,
-    NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity, NSSwitch, NSTextField,
-    NSTextView, NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
+    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSPopUpButton, NSProgressIndicator, NSResponder,
+    NSScrollView, NSSearchField, NSStackView, NSStackViewDistribution, NSStackViewGravity, NSSwitch,
+    NSTextField, NSTextView, NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSEdgeInsets, NSSize, NSString};
@@ -658,7 +658,8 @@ impl TextLineRow {
         self.setting.render(shown.label, shown.description);
         self.field
             .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
-        if self.field.stringValue().to_string() != shown.text {
+        let is_user_editing = self.field.currentEditor().is_some();
+        if !is_user_editing && self.field.stringValue().to_string() != shown.text {
             self.field.setStringValue(&NSString::from_str(&shown.text));
         }
     }
@@ -889,7 +890,7 @@ impl TextAreaRow {
         set_text(&self.description, shown.description);
         self.text_view
             .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
-        if self.text_view.string().to_string() != shown.text {
+        if !self.is_user_editing() && self.text_view.string().to_string() != shown.text {
             self.text_view.setString(&NSString::from_str(&shown.text));
         }
         self.button_row.setHidden(shown.button.is_none());
@@ -899,6 +900,17 @@ impl TextAreaRow {
             self.button.setEnabled(button.is_enabled);
             binder.bind(&self.button, &button.id);
         }
+    }
+
+    /// Whether the user edits the text view now: it has the keyboard focus of its window. A render
+    /// then keeps the text of the text view, so that it never moves the caret or removes the text
+    /// that the user types.
+    fn is_user_editing(&self) -> bool {
+        let text_view: &NSResponder = &self.text_view;
+        self.text_view
+            .window()
+            .and_then(|window| window.firstResponder())
+            .is_some_and(|responder| ptr::eq(Retained::as_ptr(&responder), text_view))
     }
 
     /// The input of a change of the text in `text_view`, when it is this text area.

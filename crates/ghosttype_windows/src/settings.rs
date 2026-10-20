@@ -222,7 +222,9 @@ enum PageMessage {
 struct SettingsPage {
     view: SettingsView,
     selected: usize,
-    /// The text in each field that submits its text. The view does not hold it.
+    /// The text that the user typed in each field. A field shows it in place of the text of the
+    /// view, because a view from the controller can come after newer keys. A view that sets its
+    /// older text then moves the caret and removes the newer keys.
     typed: HashMap<ControlId, String>,
     /// The icon of each app of the view, by the path of its program, or `None` when the program
     /// has no icon.
@@ -293,7 +295,12 @@ impl Component for SettingsPage {
                 let text = self.typed.get(&id).cloned().unwrap_or_default();
                 send_input(SettingsInput::Submitted { id, text });
             }
-            PageMessage::Input(input) => send_input(input),
+            PageMessage::Input(input) => {
+                if let SettingsInput::Edited { id, text } = &input {
+                    self.typed.insert(id.clone(), text.clone());
+                }
+                send_input(input);
+            }
             PageMessage::Ignore => {}
         }
     }
