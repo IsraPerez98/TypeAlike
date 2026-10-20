@@ -146,6 +146,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             screen_reads,
         }))
     });
+    // The focused field counts as a password field until a read of it tells otherwise.
+    with_runtime(|runtime| runtime.shell.read_field_text());
     tracing::info!("running in the tray");
     let result = pump_messages();
     drop((keyboard_hook, mouse_hook, focus_hook));
@@ -265,12 +267,12 @@ impl Runtime {
             }
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
                 self.controller.on_context_lost(&mut self.shell);
-                self.shell.forget_field_text();
+                self.shell.forget_focused_field();
                 Disposition::Pass
             }
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 self.controller.on_input(&mut self.shell);
-                self.shell.forget_field_text();
+                self.shell.forget_focused_field();
                 Disposition::Pass
             }
             _ => Disposition::Pass,
@@ -378,10 +380,18 @@ impl Win32Shell {
         unsafe { PostMessageW(Some(self.window.handle()), message, WPARAM(0), LPARAM(0)) }
     }
 
-    /// Forgets the kept field text, because an input or a move of the focus can change the field
-    /// now, and reads it again after [`FIELD_READ_DELAY`].
+    /// Forgets the kept field text, because an input can change the field now, and reads it again
+    /// after [`FIELD_READ_DELAY`].
     fn forget_field_text(&mut self) {
         self.kept_field_text.forget();
+        self.set_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
+    }
+
+    /// Forgets the kept field text and whether the focused field hides its text, because a click
+    /// or a move of the focus can put the focus in another field now, and reads the field again
+    /// after [`FIELD_READ_DELAY`].
+    fn forget_focused_field(&mut self) {
+        self.kept_field_text.forget_focused_field();
         self.set_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
     }
 
@@ -444,15 +454,25 @@ impl Win32Shell {
 }
 
 impl Desktop for Win32Shell {
+    /// Excludes a field that hides its text. The hooks cannot wait for UIA, so after a click or a
+    /// move of the focus, a field also counts as one that hides its text until the next read of it
+    /// answers.
     fn field(&self) -> Field {
-        self.focus.field()
+        if self.kept_field_text.may_hide_text() {
+            Field::Excluded
+        } else {
+            self.focus.field()
+        }
     }
 
     fn surroundings(&self) -> Surroundings {
-        let field = self.kept_field_text.read_in(self.focus.foreground());
+        let field = self
+            .kept_field_text
+            .read_in(self.focus.foreground())
+            .and_then(|read| read.shown.as_ref());
         Surroundings {
-            field_text: field.and_then(|read| read.text.clone()),
-            field_labels: field.map(|read| read.labels.clone()).unwrap_or_default(),
+            field_text: field.and_then(|field| field.text.clone()),
+            field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
             ..self.focus.surroundings()
         }
     }
@@ -598,7 +618,7 @@ extern "system" fn focus_event_procedure(
     _thread: u32,
     _time_ms: u32,
 ) {
-    with_runtime(|runtime| runtime.shell.forget_field_text());
+    with_runtime(|runtime| runtime.shell.forget_focused_field());
 }
 
 extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

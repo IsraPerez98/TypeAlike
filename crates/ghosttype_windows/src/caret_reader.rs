@@ -1,8 +1,9 @@
-//! Reads the caret and the text around it on a thread of its own. The caret is the system caret
+//! Reads the caret and the focused field on a thread of its own. The caret is the system caret
 //! when the focused app has one, else the caret that UI Automation (UIA) reports. The text comes
 //! from UIA, else from a classic edit control. UIA can wait long for a busy app, so the thread of
 //! the hooks never reads it. What shows at the caret waits for the newest read of the caret. The
-//! hooks use the newest read of the text while no input changed the field.
+//! hooks use the newest read of the text while no input changed the field, and treat the focused
+//! field as a password field until a read after the last move of the focus tells otherwise.
 
 use std::iter;
 use std::sync::mpsc;
@@ -10,12 +11,11 @@ use std::thread;
 
 use ghosttype_core::app::BadgeView;
 use ghosttype_core::controller::Ghost;
-use ghosttype_core::desktop::{FieldLabels, FieldText};
 use windows::core::Result;
 
 use crate::focus::{self, Caret, WindowId};
 use crate::mailbox::Mailbox;
-use crate::uia::UiaCaret;
+use crate::uia::{ShownField, UiaCaret, UiaField};
 
 const THREAD_NAME: &str = "caret reader";
 
@@ -32,8 +32,8 @@ pub(crate) struct CaretRead {
     pub(crate) caret: Option<Caret>,
 }
 
-/// Identifies one read of the field text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Identifies one read of the field text. A later read has a higher id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub(crate) struct FieldReadId(u64);
 
 /// The answer to one read of the field text.
@@ -42,10 +42,9 @@ pub(crate) struct FieldRead {
     pub(crate) id: FieldReadId,
     /// The foreground window when the read started.
     pub(crate) window: WindowId,
-    /// The text around the caret of the focused field, or `None` when GhostType cannot read it.
-    pub(crate) text: Option<FieldText>,
-    /// The labels of the focused field.
-    pub(crate) labels: FieldLabels,
+    /// What the focused field tells about itself, or `None` when it hides its text, as a password
+    /// field does.
+    pub(crate) shown: Option<ShownField>,
 }
 
 /// A read that the shell asks for.
@@ -109,18 +108,25 @@ fn answer_reads(
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
-            let text = uia
-                .as_ref()
-                .and_then(UiaCaret::field_text)
-                .or_else(focus::edit_field_text);
-            let labels = uia.as_ref().map(UiaCaret::field_labels).unwrap_or_default();
-            field_texts.send(FieldRead {
-                id,
-                window,
-                text,
-                labels,
-            });
+            let shown = read_field(uia.as_ref());
+            field_texts.send(FieldRead { id, window, shown });
         }
+    }
+}
+
+/// Reads the focused field through `uia`, and its text from a classic edit control when UIA does
+/// not give it. `None` for a password field.
+fn read_field(uia: Option<&UiaCaret>) -> Option<ShownField> {
+    match uia.and_then(UiaCaret::field) {
+        Some(UiaField::Password) => None,
+        Some(UiaField::Shown(field)) => Some(ShownField {
+            text: field.text.or_else(focus::edit_field_text),
+            ..field
+        }),
+        None => Some(ShownField {
+            text: focus::edit_field_text(),
+            ..ShownField::default()
+        }),
     }
 }
 
@@ -150,19 +156,42 @@ impl NewestReads {
 }
 
 /// The newest read of the field text and labels, kept while no input or focus change can have
-/// changed the field. The hooks use it, because they cannot wait for UIA.
+/// changed the field, and whether the focused field hides its text. The hooks use it, because
+/// they cannot wait for UIA.
 #[derive(Debug, Default)]
 pub(crate) struct KeptFieldText {
     newest: FieldReadId,
     kept: Option<FieldRead>,
+    /// The first read asked for after the last move of the focus.
+    first_after_focus_move: FieldReadId,
+    visibility: TextVisibility,
+}
+
+/// What the reads tell about the text of the focused field since the last move of the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum TextVisibility {
+    /// No read asked for after the move answered yet.
+    #[default]
+    Unknown,
+    Shown,
+    Hidden,
 }
 
 impl KeptFieldText {
-    /// Forgets the kept text, because an input or a focus change can change the field now. The
-    /// answers to the reads asked for before are stale.
+    /// Forgets the kept text, because an input can change the field now. The answers to the reads
+    /// asked for before are stale. Whether the field hides its text stays, because an input that
+    /// moves the focus, such as Tab, also comes as a move of the focus.
     pub(crate) fn forget(&mut self) {
         self.newest = FieldReadId(self.newest.0.wrapping_add(1));
         self.kept = None;
+    }
+
+    /// Forgets the kept text and whether the focused field hides its text, because a click or a
+    /// move of the focus can put the focus in another field now.
+    pub(crate) fn forget_focused_field(&mut self) {
+        self.forget();
+        self.first_after_focus_move = self.newest;
+        self.visibility = TextVisibility::Unknown;
     }
 
     /// The id for a read of the field as it is now.
@@ -170,11 +199,25 @@ impl KeptFieldText {
         self.newest
     }
 
-    /// Keeps `read`, unless an input or a focus change came after it was asked for.
+    /// Keeps `read`, unless an input or a focus change came after it was asked for. A read asked
+    /// for after the last move of the focus tells whether the field hides its text, also when an
+    /// input came after it.
     pub(crate) fn keep(&mut self, read: FieldRead) {
+        if read.id >= self.first_after_focus_move {
+            self.visibility = match read.shown {
+                Some(_) => TextVisibility::Shown,
+                None => TextVisibility::Hidden,
+            };
+        }
         if read.id == self.newest {
             self.kept = Some(read);
         }
+    }
+
+    /// Whether the focused field can hide its text: a read tells that it does, or no read since
+    /// the last move of the focus tells yet.
+    pub(crate) fn may_hide_text(&self) -> bool {
+        self.visibility != TextVisibility::Shown
     }
 
     /// Returns the kept read when it is the read of a field in `window`.
@@ -234,6 +277,7 @@ mod tests {
     use std::ptr;
 
     use ghosttype_core::app::{Status, TrayCommand};
+    use ghosttype_core::desktop::{FieldLabels, FieldText};
     use windows::Win32::Foundation::HWND;
 
     use super::*;
@@ -308,15 +352,98 @@ mod tests {
         FieldRead {
             id,
             window,
-            text: Some(FieldText {
-                before_caret: "Dear Ana,".to_owned(),
-                after_caret: String::new(),
+            shown: Some(ShownField {
+                text: Some(FieldText {
+                    before_caret: "Dear Ana,".to_owned(),
+                    after_caret: String::new(),
+                }),
+                labels: FieldLabels {
+                    name: Some("Message".to_owned()),
+                    ..FieldLabels::default()
+                },
             }),
-            labels: FieldLabels {
-                name: Some("Message".to_owned()),
-                ..FieldLabels::default()
-            },
         }
+    }
+
+    fn password_read(id: FieldReadId, window: WindowId) -> FieldRead {
+        FieldRead {
+            id,
+            window,
+            shown: None,
+        }
+    }
+
+    #[test]
+    fn field_may_hide_its_text_before_the_first_read() {
+        let kept = KeptFieldText::default();
+
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn read_tells_whether_the_field_hides_its_text() {
+        let reads = [
+            field_read(FieldReadId::default(), window(1)),
+            password_read(FieldReadId::default(), window(1)),
+        ];
+
+        let hides_text = reads.map(|read| {
+            let mut kept = KeptFieldText::default();
+            kept.keep(read);
+            kept.may_hide_text()
+        });
+
+        assert_eq!(hides_text, [false, true]);
+    }
+
+    #[test]
+    fn input_keeps_what_the_last_read_told_about_the_field() {
+        let reads = [
+            field_read(FieldReadId::default(), window(1)),
+            password_read(FieldReadId::default(), window(1)),
+        ];
+
+        let hides_text = reads.map(|read| {
+            let mut kept = KeptFieldText::default();
+            kept.keep(read);
+            kept.forget();
+            kept.may_hide_text()
+        });
+
+        assert_eq!(hides_text, [false, true]);
+    }
+
+    #[test]
+    fn focus_move_hides_the_field_until_the_next_read() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(field_read(kept.newest(), window(1)));
+
+        kept.forget_focused_field();
+
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn read_asked_for_before_a_focus_move_does_not_tell_about_the_field() {
+        let mut kept = KeptFieldText::default();
+        let stale = field_read(kept.newest(), window(1));
+        kept.forget_focused_field();
+
+        kept.keep(stale);
+
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn read_asked_for_after_a_focus_move_tells_about_the_field_after_an_input() {
+        let mut kept = KeptFieldText::default();
+        kept.forget_focused_field();
+        let read = field_read(kept.newest(), window(1));
+        kept.forget();
+
+        kept.keep(read);
+
+        assert!(!kept.may_hide_text());
     }
 
     #[test]

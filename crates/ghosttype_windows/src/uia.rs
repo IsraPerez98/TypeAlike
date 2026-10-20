@@ -1,7 +1,8 @@
-//! The focused control as UI Automation (UIA) tells it: the text around its caret, and its caret
-//! for apps that draw a caret of their own and have no system caret (browsers, Electron apps and
-//! WinUI apps).
+//! The focused control as UI Automation (UIA) tells it: the text around its caret, its labels, and
+//! its caret for apps that draw a caret of their own and have no system caret (browsers, Electron
+//! apps and WinUI apps).
 
+use std::fmt;
 use std::marker::PhantomData;
 use std::ptr;
 use std::time::Duration;
@@ -35,6 +36,35 @@ const CHARACTERS_BEFORE_CARET: i32 = -1;
 const WHOLE_RANGE: i32 = -1;
 /// The most text elements that one read of the screen keeps.
 const MAX_TEXT_ELEMENTS: i32 = 2000;
+
+/// What UIA tells about the focused control.
+#[derive(Debug)]
+pub(crate) enum UiaField {
+    /// The control hides its text, as a password field does.
+    Password,
+    /// The control shows its text.
+    Shown(ShownField),
+}
+
+/// What a field that shows its text tells about itself. `Debug` shows only what is known, so logs
+/// never hold the text or the labels.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub(crate) struct ShownField {
+    /// The text around the caret, or `None` when GhostType cannot read it.
+    pub(crate) text: Option<FieldText>,
+    /// The labels of the field.
+    pub(crate) labels: FieldLabels,
+}
+
+impl fmt::Debug for ShownField {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ShownField")
+            .field("text", &self.text)
+            .field("labels", &self.labels)
+            .finish()
+    }
+}
 
 /// A connection to UIA, usable only on the thread that made it.
 #[derive(Debug)]
@@ -80,38 +110,17 @@ impl UiaCaret {
         caret_of(&self.focused_element()?)
     }
 
-    /// Reads the text around the selection of the focused control. `None` for a password field
-    /// and for a control without text.
-    pub(crate) fn field_text(&self) -> Option<FieldText> {
-        field_text_of(&self.focused_element()?)
-    }
-
-    /// Reads the labels of the focused control. UIA has no placeholder property, so the
-    /// placeholder stays `None`.
-    pub(crate) fn field_labels(&self) -> FieldLabels {
-        let Some(element) = self.focused_element() else {
-            return FieldLabels::default();
-        };
-        // SAFETY: plain calls on interfaces of this thread.
-        let (caption, name, help_text) = unsafe {
-            (
-                element.CurrentLabeledBy().and_then(|label| label.CurrentName()),
-                element.CurrentName(),
-                element.CurrentHelpText(),
-            )
-        };
-        // SAFETY: plain calls on interfaces of this thread.
-        let full_description = || unsafe {
-            element
-                .cast::<IUIAutomationElement6>()
-                .and_then(|element| element.CurrentFullDescription())
-        };
-        FieldLabels {
-            caption: label_text(caption),
-            name: label_text(name),
-            placeholder: None,
-            help: label_text(help_text).or_else(|| label_text(full_description())),
+    /// Reads the focused control: whether it hides its text, and else the text around its
+    /// selection and its labels. `None` when UIA finds no focused control.
+    pub(crate) fn field(&self) -> Option<UiaField> {
+        let element = self.focused_element()?;
+        if is_password(&element) {
+            return Some(UiaField::Password);
         }
+        Some(UiaField::Shown(ShownField {
+            text: text_around_selection(&element),
+            labels: labels_of(&element),
+        }))
     }
 
     /// Reads the visible text elements of the foreground window, and the frames of the focused
@@ -208,11 +217,9 @@ enum Side {
     After,
 }
 
-/// Reads the text around the selection of `element`: before its start and after its end.
-fn field_text_of(element: &IUIAutomationElement) -> Option<FieldText> {
-    if is_password(element) {
-        return None;
-    }
+/// Reads the text around the selection of `element`, which shows its text: before the start of the
+/// selection and after its end.
+fn text_around_selection(element: &IUIAutomationElement) -> Option<FieldText> {
     let selection = caret_range(element)?;
     Some(FieldText {
         before_caret: text_beside(&selection, Side::Before)?,
@@ -266,6 +273,30 @@ fn caret_of(element: &IUIAutomationElement) -> Option<Caret> {
     }
     .ok()?;
     caret_from_rectangles(&bounding_rectangles(&range)?)
+}
+
+/// Reads the labels of `element`. UIA has no placeholder property, so the placeholder stays `None`.
+fn labels_of(element: &IUIAutomationElement) -> FieldLabels {
+    // SAFETY: plain calls on interfaces of this thread.
+    let (caption, name, help_text) = unsafe {
+        (
+            element.CurrentLabeledBy().and_then(|label| label.CurrentName()),
+            element.CurrentName(),
+            element.CurrentHelpText(),
+        )
+    };
+    // SAFETY: plain calls on interfaces of this thread.
+    let full_description = || unsafe {
+        element
+            .cast::<IUIAutomationElement6>()
+            .and_then(|element| element.CurrentFullDescription())
+    };
+    FieldLabels {
+        caption: label_text(caption),
+        name: label_text(name),
+        placeholder: None,
+        help: label_text(help_text).or_else(|| label_text(full_description())),
+    }
 }
 
 /// Returns the text of `label`, or `None` when the control does not have this label. UIA gives an
