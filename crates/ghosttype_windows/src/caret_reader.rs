@@ -361,6 +361,7 @@ mod tests {
                     name: Some("Message".to_owned()),
                     ..FieldLabels::default()
                 },
+                domain: Some("mail.google.com".to_owned()),
             }),
         }
     }

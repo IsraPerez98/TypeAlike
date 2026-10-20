@@ -473,6 +473,7 @@ impl Desktop for Win32Shell {
         Surroundings {
             field_text: field.and_then(|field| field.text.clone()),
             field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
+            domain: field.and_then(|field| field.domain.clone()),
             ..self.focus.surroundings()
         }
     }

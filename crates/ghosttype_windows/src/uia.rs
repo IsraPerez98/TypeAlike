@@ -1,6 +1,6 @@
-//! The focused control as UI Automation (UIA) tells it: the text around its caret, its labels, and
-//! its caret for apps that draw a caret of their own and have no system caret (browsers, Electron
-//! apps and WinUI apps).
+//! The focused control as UI Automation (UIA) tells it: the text around its caret, its labels, the
+//! web page that holds it, and its caret for apps that draw a caret of their own and have no
+//! system caret (browsers, Electron apps and WinUI apps).
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -11,21 +11,23 @@ use ghosttype_core::desktop::{
     Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, ScreenLine,
     ScreenRect, ScreenText,
 };
+use windows::Foundation::Uri;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize, SAFEARRAY,
 };
 use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayUnaccessData};
-use windows::Win32::System::Variant::VARIANT;
+use windows::Win32::System::Variant::{VARIANT, VT_BSTR};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCondition, IUIAutomationElement,
-    IUIAutomationElement6, IUIAutomationTextPattern, IUIAutomationTextRange, TextPatternRangeEndpoint_End,
-    TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
-    UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId,
-    UIA_NamePropertyId, UIA_TextControlTypeId, UIA_TextPatternId,
+    IUIAutomationElement6, IUIAutomationTextPattern, IUIAutomationTextRange, IUIAutomationTreeWalker,
+    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
+    UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_DocumentControlTypeId,
+    UIA_FrameworkIdPropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
+    UIA_TextPatternId, UIA_ValueValuePropertyId,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-use windows::core::{BOOL, BSTR, Interface, Result};
+use windows::core::{BOOL, BSTR, HSTRING, Interface, Result};
 
 use crate::focus::{self, Caret, whole_chars};
 
@@ -36,6 +38,9 @@ const CHARACTERS_BEFORE_CARET: i32 = -1;
 const WHOLE_RANGE: i32 = -1;
 /// The most text elements that one read of the screen keeps.
 const MAX_TEXT_ELEMENTS: i32 = 2000;
+/// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
+/// Gecko (Firefox). The document of a web page gives the URL of the page as its value.
+const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
 
 /// What UIA tells about the focused control.
 #[derive(Debug)]
@@ -47,13 +52,15 @@ pub(crate) enum UiaField {
 }
 
 /// What a field that shows its text tells about itself. `Debug` shows only what is known, so logs
-/// never hold the text or the labels.
+/// never hold the text, the labels or the web page.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub(crate) struct ShownField {
     /// The text around the caret, or `None` when GhostType cannot read it.
     pub(crate) text: Option<FieldText>,
     /// The labels of the field.
     pub(crate) labels: FieldLabels,
+    /// The host of the web page that holds the field, or `None` outside a web page.
+    pub(crate) domain: Option<String>,
 }
 
 impl fmt::Debug for ShownField {
@@ -62,6 +69,7 @@ impl fmt::Debug for ShownField {
             .debug_struct("ShownField")
             .field("text", &self.text)
             .field("labels", &self.labels)
+            .field("has_domain", &self.domain.is_some())
             .finish()
     }
 }
@@ -111,7 +119,8 @@ impl UiaCaret {
     }
 
     /// Reads the focused control: whether it hides its text, and else the text around its
-    /// selection and its labels. `None` when UIA finds no focused control.
+    /// selection, its labels and the host of its web page. `None` when UIA finds no focused
+    /// control.
     pub(crate) fn field(&self) -> Option<UiaField> {
         let element = self.focused_element()?;
         if is_password(&element) {
@@ -120,7 +129,52 @@ impl UiaCaret {
         Some(UiaField::Shown(ShownField {
             text: text_around_selection(&element),
             labels: labels_of(&element),
+            domain: self.web_domain(&element),
         }))
+    }
+
+    /// Reads the host of the web page that holds `element`, from the URL of the nearest web
+    /// document at or above it. Only a web document counts, because the value of another
+    /// document, such as a page of a word processor, can be all of its text.
+    fn web_domain(&self, element: &IUIAutomationElement) -> Option<String> {
+        let walker = self.web_document_walker()?;
+        // SAFETY: plain calls on interfaces of this thread.
+        let url = unsafe {
+            let cache = self.automation.CreateCacheRequest().ok()?;
+            cache.AddProperty(UIA_ControlTypePropertyId).ok()?;
+            cache.AddProperty(UIA_ValueValuePropertyId).ok()?;
+            let document = walker.NormalizeElementBuildCache(element, &cache).ok()?;
+            // UIA gives the root of the tree when no element above matches.
+            if document.CachedControlType().ok()? != UIA_DocumentControlTypeId {
+                return None;
+            }
+            document.GetCachedPropertyValue(UIA_ValueValuePropertyId).ok()?
+        };
+        url_host(&text_of(&url)?)
+    }
+
+    /// A walker that sees only the documents of web pages.
+    fn web_document_walker(&self) -> Option<IUIAutomationTreeWalker> {
+        // SAFETY: plain calls on an interface of this thread.
+        unsafe {
+            let is_document = self
+                .automation
+                .CreatePropertyCondition(
+                    UIA_ControlTypePropertyId,
+                    &VARIANT::from(UIA_DocumentControlTypeId.0),
+                )
+                .ok()?;
+            let [chromium, gecko] = WEB_FRAMEWORKS.map(|framework| {
+                self.automation
+                    .CreatePropertyCondition(UIA_FrameworkIdPropertyId, &VARIANT::from(framework))
+            });
+            let is_web = self
+                .automation
+                .CreateOrCondition(&chromium.ok()?, &gecko.ok()?)
+                .ok()?;
+            let condition = self.automation.CreateAndCondition(&is_document, &is_web).ok()?;
+            self.automation.CreateTreeWalker(&condition).ok()
+        }
     }
 
     /// Reads the visible text elements of the foreground window, and the frames of the focused
@@ -297,6 +351,20 @@ fn labels_of(element: &IUIAutomationElement) -> FieldLabels {
         placeholder: None,
         help: label_text(help_text).or_else(|| label_text(full_description())),
     }
+}
+
+/// Returns the text that `value` holds, or `None` when it holds no text.
+fn text_of(value: &VARIANT) -> Option<String> {
+    (value.vt() == VT_BSTR).then(|| {
+        // SAFETY: the type of `value` tells that its union holds a BSTR.
+        unsafe { value.Anonymous.Anonymous.Anonymous.bstrVal.to_string() }
+    })
+}
+
+/// Returns the host of `url`, or `None` for a URL without a host, such as the URL of a file.
+fn url_host(url: &str) -> Option<String> {
+    let host = Uri::CreateUri(&HSTRING::from(url)).ok()?.Host().ok()?.to_string();
+    (!host.is_empty()).then_some(host)
 }
 
 /// Returns the text of `label`, or `None` when the control does not have this label. UIA gives an
@@ -491,5 +559,19 @@ mod tests {
         let caret = caret_from_rectangles(&[]);
 
         assert_eq!(caret, None);
+    }
+
+    #[test]
+    fn host_comes_from_the_url_of_a_web_page() {
+        let host = url_host("https://mail.google.com/mail/u/0/#inbox");
+
+        assert_eq!(host.as_deref(), Some("mail.google.com"));
+    }
+
+    #[test]
+    fn url_without_a_host_gives_no_host() {
+        let hosts = ["file:///C:/notes.html", "about:blank", "not a url"].map(url_host);
+
+        assert_eq!(hosts, [None, None, None]);
     }
 }
