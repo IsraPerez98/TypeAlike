@@ -8,10 +8,11 @@ use ghosttype_core::settings_view::{
     SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
-    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
-    GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
-    ScrollBarVisibility, ScrollViewer, StackPanel, Symbol, SymbolIcon, TextBlock, TextBox, TextWrapping,
-    ThemeBrush, Thickness, ToggleSwitch, VerticalAlignment, View, ViewContext, VirtualKey, keyed,
+    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, Component, ComponentContext,
+    EncodedImage, FontWeight, Grid, GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar,
+    ProgressRing, RoutedCallback, ScrollBarVisibility, ScrollViewer, StackPanel, Symbol, SymbolIcon,
+    TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch, VerticalAlignment, View,
+    ViewContext, VirtualKey, keyed,
 };
 
 use super::{PageMessage, SettingsPage};
@@ -225,18 +226,16 @@ impl Renderer<'_, '_> {
 
     fn text_area_card(&self, area: &TextArea) -> View {
         let id = area.id.clone();
-        let field = TextBox::new()
-            .text(self.typed_text(&area.id, &area.text))
-            .accepts_return(true)
-            .text_wrapping(TextWrapping::Wrap)
-            .min_height(TEXT_AREA_MIN_HEIGHT)
-            .automation_name(area.label)
-            .on_text_changed(self.context.callback(move |text: Rc<str>| {
+        let field = View::component::<TextAreaBox>(TextAreaBoxInput {
+            text: self.typed_text(&area.id, &area.text).to_owned(),
+            label: area.label,
+            on_text_changed: self.context.callback(move |text: Rc<str>| {
                 PageMessage::Input(SettingsInput::Edited {
                     id: id.clone(),
                     text: text.to_string(),
                 })
-            }));
+            }),
+        });
         let button = area
             .button
             .as_ref()
@@ -244,7 +243,7 @@ impl Renderer<'_, '_> {
         let rows: Vec<View> = [
             Some(TextBlock::new().text(area.label).into()),
             (!area.description.is_empty()).then(|| secondary_text(area.description).into()),
-            Some(field.into()),
+            Some(field),
             button,
         ]
         .into_iter()
@@ -425,6 +424,50 @@ impl Renderer<'_, '_> {
             id: id.clone(),
             text: text.to_string(),
         })
+    }
+}
+
+/// The multi-line text box of a text area. It gets its text one render after it exists, because
+/// reactor sets the text of a new `TextBox` before `AcceptsReturn`, and a single-line WinUI text
+/// box keeps only the first line of the text that it gets.
+struct TextAreaBox {
+    shows_text: bool,
+}
+
+#[derive(Clone, PartialEq)]
+struct TextAreaBoxInput {
+    text: String,
+    label: &'static str,
+    on_text_changed: Callback<Rc<str>>,
+}
+
+impl Component for TextAreaBox {
+    type Input = TextAreaBoxInput;
+    type Message = ();
+
+    fn create(_input: &TextAreaBoxInput, context: &ComponentContext<Self>) -> Self {
+        if !context.sender().send(()) {
+            tracing::warn!("the text area did not take a message");
+        }
+        Self { shows_text: false }
+    }
+
+    fn update(&mut self, (): (), _context: &ComponentContext<Self>) {
+        self.shows_text = true;
+    }
+
+    fn view(&self, input: &TextAreaBoxInput, _context: &mut ViewContext<'_, Self>) -> View {
+        let field = TextBox::new()
+            .accepts_return(true)
+            .text_wrapping(TextWrapping::Wrap)
+            .min_height(TEXT_AREA_MIN_HEIGHT)
+            .automation_name(input.label)
+            .on_text_changed(input.on_text_changed.clone());
+        if self.shows_text {
+            field.text(&input.text).into()
+        } else {
+            field.into()
+        }
     }
 }
 

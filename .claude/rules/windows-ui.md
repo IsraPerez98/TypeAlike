@@ -50,6 +50,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Controlled fields: declare the text of each field from state and send each change back as a message. The page keeps the text that the user types in each field, and declares it in place of the text of the view. A view from the main thread can come after newer keys, and its older text then moves the caret.
 - Give each child a stable key (`keyed`): the page index, the section index, the row index and the control id. Reactor then keeps the focus and the caret of a control across renders.
 - `AutoSuggestBox` has no query event in reactor yet. A `Border` with `on_key_up` around the field turns the return key into a submit.
+- Reactor sets the text of a new `TextBox` before `AcceptsReturn`, and a single-line WinUI text box keeps only the first line of its text. A text area gets its text one render after its `TextBox` exists (`TextAreaBox`).
 
 ## Typography
 - WinUI default fonts: Segoe UI Variable, and Segoe Fluent Icons for symbols. No bundled fonts.
