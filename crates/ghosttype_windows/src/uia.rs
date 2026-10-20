@@ -22,9 +22,9 @@ use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCondition, IUIAutomationElement,
     IUIAutomationElement6, IUIAutomationTextPattern, IUIAutomationTextRange, IUIAutomationTreeWalker,
     TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
-    UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_DocumentControlTypeId,
-    UIA_FrameworkIdPropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
-    UIA_TextPatternId, UIA_ValueValuePropertyId,
+    UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
+    UIA_DocumentControlTypeId, UIA_FrameworkIdPropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId,
+    UIA_TextControlTypeId, UIA_TextPatternId, UIA_ValueValuePropertyId,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{BOOL, BSTR, HSTRING, Interface, Result};
@@ -41,6 +41,10 @@ const MAX_TEXT_ELEMENTS: i32 = 2000;
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
 /// Gecko (Firefox). The document of a web page gives the URL of the page as its value.
 const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
+/// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
+const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
+/// The class of the screen of a terminal of xterm.js, which holds its rows.
+const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 
 /// What UIA tells about the focused control.
 #[derive(Debug)]
@@ -112,10 +116,62 @@ impl UiaCaret {
         }
     }
 
-    /// Locates the caret of the focused control from the bounds of the character before it.
-    /// `None` for a password field and for a control without text.
+    /// Locates the caret of the focused control: the system caret, else the caret that the control
+    /// draws itself.
     pub(crate) fn read(&self) -> Option<Caret> {
-        caret_of(&self.focused_element()?)
+        focus::system_caret().or_else(|| self.drawn_caret(&self.focused_element()?))
+    }
+
+    /// Locates the caret that `element`, the focused control, draws itself: the caret of the caret
+    /// object of its window, else the right edge of the character before the caret. In a terminal
+    /// of xterm.js, the caret moves up to the row that holds it.
+    fn drawn_caret(&self, element: &IUIAutomationElement) -> Option<Caret> {
+        let caret = focus::accessible_caret().or_else(|| caret_of(element))?;
+        Some(match self.terminal_input(element) {
+            Some(input) => input.align(caret),
+            None => caret,
+        })
+    }
+
+    /// Reads the hidden input box of a terminal of xterm.js and the top of its screen, when
+    /// `element` is that input box.
+    fn terminal_input(&self, element: &IUIAutomationElement) -> Option<TerminalInput> {
+        // SAFETY: plain call on an interface of this thread.
+        let class = unsafe { element.CurrentClassName() }.ok()?;
+        if class != XTERM_INPUT_CLASS {
+            return None;
+        }
+        let screen = self.terminal_screen(element)?;
+        // SAFETY: plain calls on interfaces of this thread.
+        let (frame, screen_frame) = unsafe {
+            (
+                element.CurrentBoundingRectangle().ok()?,
+                screen.CachedBoundingRectangle().ok()?,
+            )
+        };
+        Some(TerminalInput {
+            frame,
+            screen_top: screen_frame.top,
+        })
+    }
+
+    /// Finds the screen of the terminal of xterm.js that holds `element`, with its bounds in the
+    /// cache.
+    fn terminal_screen(&self, element: &IUIAutomationElement) -> Option<IUIAutomationElement> {
+        // SAFETY: plain calls on interfaces of this thread.
+        unsafe {
+            let is_screen = self
+                .automation
+                .CreatePropertyCondition(UIA_ClassNamePropertyId, &VARIANT::from(XTERM_SCREEN_CLASS))
+                .ok()?;
+            let walker = self.automation.CreateTreeWalker(&is_screen).ok()?;
+            let cache = self.automation.CreateCacheRequest().ok()?;
+            cache.AddProperty(UIA_ClassNamePropertyId).ok()?;
+            cache.AddProperty(UIA_BoundingRectanglePropertyId).ok()?;
+            let screen = walker.NormalizeElementBuildCache(element, &cache).ok()?;
+            // UIA gives the root of the tree when no element above matches.
+            (screen.CachedClassName().ok()? == XTERM_SCREEN_CLASS).then_some(screen)
+        }
     }
 
     /// Reads the focused control: whether it hides its text, and else the text around its
@@ -198,7 +254,7 @@ impl UiaCaret {
         }
         // SAFETY: plain call on an interface of this thread.
         let frame = unsafe { focused.CurrentBoundingRectangle() }.ok()?;
-        let caret = focus::caret().or_else(|| caret_of(&focused));
+        let caret = focus::system_caret().or_else(|| self.drawn_caret(&focused));
         Some(FocusedField {
             frame: screen_rect(frame),
             caret: caret.as_ref().map(caret_frame),
@@ -412,6 +468,37 @@ fn caret_from_rectangles(rectangles: &[f64]) -> Option<Caret> {
     Caret::from_corners(top_left, bottom_right, None)
 }
 
+/// The hidden input box of a terminal of xterm.js, which the terminal moves to the cell of its
+/// cursor, and the screen of the terminal.
+#[derive(Debug, Clone, Copy)]
+struct TerminalInput {
+    /// The frame of the input box, which is one row high.
+    frame: RECT,
+    /// The top of the screen, where the first row starts.
+    screen_top: i32,
+}
+
+impl TerminalInput {
+    /// Moves `caret`, the caret in the input box, up to the row that holds the input box. VS Code
+    /// draws the input box below the top of that row.
+    fn align(self, caret: Caret) -> Caret {
+        let row_height = self.frame.bottom.saturating_sub(self.frame.top);
+        let below_row = self
+            .frame
+            .top
+            .saturating_sub(self.screen_top)
+            .checked_rem_euclid(row_height)
+            .unwrap_or_default();
+        Caret {
+            origin: POINT {
+                x: caret.origin.x,
+                y: caret.origin.y.saturating_sub(below_row),
+            },
+            ..caret
+        }
+    }
+}
+
 /// The frame of `caret`: a line of one pixel at the right edge of the text before it.
 fn caret_frame(caret: &Caret) -> ScreenRect {
     ScreenRect {
@@ -552,6 +639,53 @@ mod tests {
                 bottom: 58,
             }
         );
+    }
+
+    fn caret_at(y: i32) -> Caret {
+        Caret {
+            origin: POINT { x: 443, y },
+            height: 16,
+            font_face: None,
+        }
+    }
+
+    fn terminal_input(top: i32, bottom: i32) -> TerminalInput {
+        TerminalInput {
+            frame: RECT {
+                left: 442,
+                top,
+                right: 452,
+                bottom,
+            },
+            screen_top: 538,
+        }
+    }
+
+    #[test]
+    fn caret_moves_up_to_the_row_of_the_terminal_input() {
+        let input = terminal_input(1284, 1302);
+
+        let caret = input.align(caret_at(1285));
+
+        assert_eq!(caret, caret_at(1277));
+    }
+
+    #[test]
+    fn caret_of_a_terminal_input_on_its_row_stays() {
+        let input = terminal_input(1276, 1294);
+
+        let caret = input.align(caret_at(1277));
+
+        assert_eq!(caret, caret_at(1277));
+    }
+
+    #[test]
+    fn terminal_input_without_height_leaves_the_caret() {
+        let input = terminal_input(1284, 1284);
+
+        let caret = input.align(caret_at(1285));
+
+        assert_eq!(caret, caret_at(1285));
     }
 
     #[test]

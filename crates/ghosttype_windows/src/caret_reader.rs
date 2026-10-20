@@ -104,7 +104,7 @@ fn answer_reads(
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         if let Some(id) = newest.caret {
-            let caret = focus::caret().or_else(|| uia.as_ref()?.read());
+            let caret = uia.as_ref().map_or_else(focus::system_caret, UiaCaret::read);
             carets.send(CaretRead { id, caret });
         }
         if let Some(id) = newest.field_text {

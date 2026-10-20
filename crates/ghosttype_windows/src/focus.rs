@@ -216,16 +216,9 @@ fn program_file_name(image_path: &str) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
-/// Locates the caret of the focused control in the foreground window: the system caret, else the
-/// caret that the caret object of the focused window shows. Chromium apps (Chrome, Edge and
-/// Electron apps such as VS Code) have only the caret object. The thread must be in a COM apartment.
-pub(crate) fn caret() -> Option<Caret> {
+/// Locates the system caret of the focused control in the foreground window, when it has one.
+pub(crate) fn system_caret() -> Option<Caret> {
     let info = foreground_thread_info()?;
-    system_caret(&info).or_else(|| accessible_caret(info.hwndFocus))
-}
-
-/// Locates the system caret of the thread that `info` describes, when it has one.
-fn system_caret(info: &GUITHREADINFO) -> Option<Caret> {
     if info.hwndCaret.is_invalid() {
         return None;
     }
@@ -247,10 +240,13 @@ fn system_caret(info: &GUITHREADINFO) -> Option<Caret> {
         .flatten()
 }
 
-/// Locates the caret that the caret object of `window` shows. `None` when no window has the focus,
-/// when the window has no caret object, and when the caret object hides its caret, as Chromium
-/// does while the focused element takes no text.
-fn accessible_caret(window: HWND) -> Option<Caret> {
+/// Locates the caret that the caret object of the focused window in the foreground shows. Chromium
+/// apps (Chrome, Edge and Electron apps such as VS Code) have no system caret, but a caret object.
+/// `None` when no window has the focus, when the window has no caret object, and when the caret
+/// object hides its caret, as Chromium does while the focused element takes no text. The thread
+/// must be in a COM apartment.
+pub(crate) fn accessible_caret() -> Option<Caret> {
+    let window = foreground_thread_info()?.hwndFocus;
     if window.is_invalid() {
         return None;
     }
