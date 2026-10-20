@@ -5,7 +5,7 @@
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
-//!     [--word-bias on|off] [--tail-cut on|off] [--typo-rule on|off]
+//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -114,6 +114,10 @@
 //! has no log probability. `--word-bias off` takes only the word bias out of each request, and
 //! keeps the next-word bias and the phrase rule of the word choice.
 //!
+//! `--shared-history on` (the default) gives each app of a case and of its history the scope "All
+//! apps", so that each app uses the texts of the other apps. `off` gives each app the scope "Only
+//! this app".
+//!
 //! `--typo-rule` turns the rule for typos of the app `on` (the default) or `off`. The report gives
 //! a table for each cut of the typed letters of the last word: the typo cases that it catches, and
 //! the cases with a next word that it hides. Run it with `--typo-rule off` to choose a cut. With the
@@ -124,7 +128,7 @@
 mod likelihood;
 mod score;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -146,8 +150,8 @@ use ghosttype_core::inference::{
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, TypoRule,
-    WordChoice, WriterName, WriterNotes,
+    ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, PersonalizationSettings, PromptPreparation,
+    Settings, TypoRule, WordChoice, WriterName, WriterNotes,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
@@ -161,7 +165,8 @@ use crate::score::{
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--word-choice off|light|medium|strong] [--word-bias on|off] [--tail-cut on|off] [--typo-rule on|off]";
+     [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
+     [--typo-rule on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -175,8 +180,16 @@ struct Arguments {
     cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
     word_bias: WordBiasUse,
+    shared_history: SharedHistory,
     tail_cut: TailCut,
     typo_rule: TypoRule,
+}
+
+/// Whether the apps of a case share their earlier writing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SharedHistory {
+    On,
+    Off,
 }
 
 /// Whether a request of the word choice has the word bias, next to the next-word bias.
@@ -210,6 +223,7 @@ impl Arguments {
             cpu_cores: None,
             word_choice: WordChoice::Off,
             word_bias: WordBiasUse::On,
+            shared_history: SharedHistory::On,
             tail_cut: TailCut::On,
             typo_rule: TypoRule::default(),
         };
@@ -223,6 +237,9 @@ impl Arguments {
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 [name, bias] if name == "--word-bias" => parsed.word_bias = word_bias_named(bias)?,
+                [name, shared] if name == "--shared-history" => {
+                    parsed.shared_history = shared_history_named(shared)?;
+                }
                 [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
                 [name, rule] if name == "--typo-rule" => parsed.typo_rule = typo_rule_named(rule)?,
                 _ => return None,
@@ -248,6 +265,15 @@ fn word_bias_named(name: &str) -> Option<WordBiasUse> {
     match name {
         "on" => Some(WordBiasUse::On),
         "off" => Some(WordBiasUse::Off),
+        _ => None,
+    }
+}
+
+/// Returns the sharing of the earlier writing with `name` in [`USAGE`], or `None` for another name.
+fn shared_history_named(name: &str) -> Option<SharedHistory> {
+    match name {
+        "on" => Some(SharedHistory::On),
+        "off" => Some(SharedHistory::Off),
         _ => None,
     }
 }
@@ -420,6 +446,41 @@ fn history_of(case: &Case, writers: &BTreeMap<String, Vec<CaseEntry>>) -> anyhow
         .chain(&case.history)
         .map(CaseEntry::to_history_entry)
         .collect())
+}
+
+/// Returns `settings` where the app of `case` and each app of `history` has the scope that `shared`
+/// gives.
+fn settings_for_case(
+    settings: &Settings,
+    case: &Case,
+    history: &[HistoryEntry],
+    shared: SharedHistory,
+) -> Settings {
+    let scope = match shared {
+        SharedHistory::On => HistoryScope::AllApps,
+        SharedHistory::Off => HistoryScope::ThisApp,
+    };
+    let app_ids = history
+        .iter()
+        .map(|entry| entry.app_id.as_str())
+        .chain(case.app_id.as_deref())
+        .collect::<BTreeSet<_>>();
+    let apps = app_ids
+        .into_iter()
+        .map(|app_id| HistoryApp {
+            app_id: app_id.to_owned(),
+            app_name: app_id.to_owned(),
+            app_path: None,
+            scope,
+        })
+        .collect();
+    Settings {
+        personalization: PersonalizationSettings {
+            apps,
+            ..settings.personalization.clone()
+        },
+        ..settings.clone()
+    }
 }
 
 /// Reads the store of each writer that `cases` name, from the `writers` folder in `directory`.
@@ -987,6 +1048,7 @@ fn main() -> anyhow::Result<()> {
         .zip(1..)
         .map(|(case, version)| {
             let history = history_of(case, &writers)?;
+            let settings = settings_for_case(&settings, case, &history, arguments.shared_history);
             run_case(&mut model, case, &history, &settings, version, &arguments)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -1153,6 +1215,7 @@ mod tests {
                 cpu_cores: None,
                 word_choice: WordChoice::Off,
                 word_bias: WordBiasUse::On,
+                shared_history: SharedHistory::On,
                 tail_cut: TailCut::On,
                 typo_rule: TypoRule::HideSuggestions,
             })
@@ -1216,6 +1279,50 @@ mod tests {
         });
 
         assert_eq!(switches, [Some(WordBiasUse::On), Some(WordBiasUse::Off), None]);
+    }
+
+    #[test]
+    fn shared_history_option_shares_the_texts_of_the_apps_or_keeps_them_apart() {
+        let names = ["on", "off", "maybe"];
+
+        let switches = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--shared-history", name])
+                .map(|arguments| arguments.shared_history)
+        });
+
+        assert_eq!(
+            switches,
+            [Some(SharedHistory::On), Some(SharedHistory::Off), None]
+        );
+    }
+
+    #[test]
+    fn each_app_of_a_case_and_of_its_history_gets_the_scope_of_the_option() {
+        let mut case = case_of(None, &["one", "two"]);
+        case.app_id = Some("com.apple.mail".to_owned());
+        let history = [
+            HistoryEntry {
+                app_id: "com.apple.Notes".to_owned(),
+                ..case.history[0].to_history_entry()
+            },
+            case.history[1].to_history_entry(),
+        ];
+
+        let settings = settings_for_case(&Settings::default(), &case, &history, SharedHistory::Off);
+
+        assert_eq!(
+            settings
+                .personalization
+                .apps
+                .iter()
+                .map(|app| (app.app_id.as_str(), app.scope))
+                .collect::<Vec<_>>(),
+            [
+                ("com.apple.Notes", HistoryScope::ThisApp),
+                ("com.apple.mail", HistoryScope::ThisApp),
+                ("mail", HistoryScope::ThisApp)
+            ]
+        );
     }
 
     #[test]
