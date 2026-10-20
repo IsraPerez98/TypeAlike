@@ -274,6 +274,9 @@ pub struct Surroundings {
     pub domain: Option<String>,
     /// The text of the focused field, or `None` when the platform cannot read the field.
     pub field_text: Option<FieldText>,
+    /// Whether the focused field hides the text on the line of its caret, as the input box of a
+    /// terminal of xterm.js does. Text can then follow the caret, also when `field_text` has none.
+    pub is_caret_line_hidden: bool,
 }
 
 impl fmt::Debug for Surroundings {
@@ -287,6 +290,7 @@ impl fmt::Debug for Surroundings {
             .field("field_labels", &self.field_labels)
             .field("has_domain", &self.domain.is_some())
             .field("field_text", &self.field_text)
+            .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .finish()
     }
 }
@@ -393,6 +397,7 @@ mod tests {
                 before_caret: "secret before".to_owned(),
                 after_caret: "secret after".to_owned(),
             }),
+            is_caret_line_hidden: false,
         };
 
         let debug = format!("{surroundings:?}");

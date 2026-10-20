@@ -1,6 +1,6 @@
 //! The mirror: a small panel with the ghost text next to a focused field whose caret Accessibility
-//! does not give, as in the editor of VS Code. When text follows the caret on its line, it shows
-//! the ghost text below the caret.
+//! does not give, as in the editor of VS Code. When text can follow the caret on its line, as in a
+//! terminal of xterm.js, it shows the ghost text below the caret.
 
 use ghosttype_core::controller::Ghost;
 use objc2::MainThreadMarker;

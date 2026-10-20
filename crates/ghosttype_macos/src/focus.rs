@@ -199,6 +199,9 @@ impl FocusTracker {
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
+            is_caret_line_hidden: element
+                .as_deref()
+                .is_some_and(|element| has_dom_class(element, XTERM_INPUT_CLASS)),
         }
     }
 }

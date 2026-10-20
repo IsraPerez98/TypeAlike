@@ -67,6 +67,9 @@ pub(crate) struct ShownField {
     pub(crate) labels: FieldLabels,
     /// The host of the web page that holds the field, or `None` outside a web page.
     pub(crate) domain: Option<String>,
+    /// Whether the field hides the text on the line of its caret, as the input box of a terminal
+    /// of xterm.js does.
+    pub(crate) is_caret_line_hidden: bool,
 }
 
 impl fmt::Debug for ShownField {
@@ -76,6 +79,7 @@ impl fmt::Debug for ShownField {
             .field("text", &self.text)
             .field("labels", &self.labels)
             .field("has_domain", &self.domain.is_some())
+            .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .finish()
     }
 }
@@ -191,6 +195,7 @@ impl UiaCaret {
             text: text_around_selection(&element),
             labels: labels_of(&element),
             domain: self.web_domain(&element),
+            is_caret_line_hidden: is_terminal_input(&element),
         }))
     }
 

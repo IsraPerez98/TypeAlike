@@ -403,6 +403,7 @@ impl Case {
                     before_caret,
                     after_caret: self.after.clone(),
                 }),
+                is_caret_line_hidden: false,
             },
             clipboard: self.clipboard.clone(),
         }

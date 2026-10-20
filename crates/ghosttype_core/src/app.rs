@@ -456,7 +456,8 @@ impl App {
         }
     }
 
-    /// Whether the line of the caret has no text after the caret, also without a session.
+    /// Whether the line of the caret has no text after the caret, also without a session. `false`
+    /// in a field that hides that line, because text can follow the caret there.
     #[must_use]
     pub fn is_caret_at_line_end(&self) -> bool {
         self.engine.is_caret_at_line_end()

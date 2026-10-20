@@ -179,6 +179,9 @@ struct Session {
     /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
     max_tokens_before: TokenCount,
     text_after: String,
+    /// Whether the field hides the text on the line of the caret, so that text can follow the
+    /// caret also when `text_after` has none.
+    is_caret_line_hidden: bool,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     is_excluded: bool,
     /// The app where the user types, if it has an id.
@@ -201,10 +204,12 @@ struct Session {
 
 impl Session {
     fn is_caret_at_line_end(&self) -> bool {
-        self.text_after
-            .lines()
-            .next()
-            .is_none_or(|line| line.trim().is_empty())
+        !self.is_caret_line_hidden
+            && self
+                .text_after
+                .lines()
+                .next()
+                .is_none_or(|line| line.trim().is_empty())
     }
 
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the
@@ -481,7 +486,8 @@ impl Engine {
         }
     }
 
-    /// Whether the line of the caret has no text after the caret, also without a session.
+    /// Whether the line of the caret has no text after the caret, also without a session. `false`
+    /// in a field that hides that line, because text can follow the caret there.
     #[must_use]
     pub fn is_caret_at_line_end(&self) -> bool {
         self.session.as_ref().is_none_or(Session::is_caret_at_line_end)
@@ -660,6 +666,7 @@ impl Engine {
             text_before,
             max_tokens_before,
             text_after,
+            is_caret_line_hidden: surroundings.is_caret_line_hidden,
             is_excluded: place::is_address_or_subject_field(&surroundings),
             app: ScreenTextApp::of(&surroundings),
             domain: surroundings.domain.clone(),
@@ -1538,6 +1545,22 @@ mod tests {
         });
 
         assert_eq!(line_ends, [true, true, false]);
+    }
+
+    #[test]
+    fn caret_in_a_field_that_hides_its_line_is_not_at_the_line_end() {
+        let desktop = FakeDesktop {
+            surroundings: Surroundings {
+                is_caret_line_hidden: true,
+                ..FakeDesktop::with_field_text("Let's meet").surroundings
+            },
+            ..FakeDesktop::default()
+        };
+        let mut engine = Engine::default();
+
+        engine.on_key(Key::Char(' '), &desktop);
+
+        assert!(!engine.is_caret_at_line_end());
     }
 
     #[test]

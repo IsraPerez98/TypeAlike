@@ -371,6 +371,7 @@ mod tests {
                     ..FieldLabels::default()
                 },
                 domain: Some("mail.google.com".to_owned()),
+                is_caret_line_hidden: false,
             }),
         }
     }
