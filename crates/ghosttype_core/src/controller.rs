@@ -8,7 +8,7 @@ use std::{fmt, mem};
 
 use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView};
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
-use crate::engine::Reaction;
+use crate::engine::{Reaction, WordFix};
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
@@ -100,6 +100,15 @@ impl fmt::Debug for Services {
     }
 }
 
+/// What the ghost text shows at the caret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ghost {
+    /// A suggestion after the caret.
+    Text(String),
+    /// The fix of a typo before the caret, and the rest of the suggestion after it.
+    Fix(WordFix),
+}
+
 /// The platform as the controller drives it: the desktop that it reads, and what it shows and
 /// does.
 pub trait Shell: Desktop {
@@ -107,10 +116,10 @@ pub trait Shell: Desktop {
     /// since the last look.
     fn refresh_focus(&mut self) -> FocusChange;
 
-    /// Shows the `ghost` text after the caret of the focused field and the `badge` at the caret,
+    /// Shows the `ghost` text at the caret of the focused field and the `badge` at the caret,
     /// from one look at the caret. Hides the ghost text for no `ghost`, the badge for no `badge`,
     /// and both when the caret is not known.
-    fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>);
+    fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>);
 
     /// Hides the ghost text at once.
     fn hide_ghost(&mut self);
@@ -121,6 +130,10 @@ pub trait Shell: Desktop {
     /// Types `text` at the caret of the focused app, after the event that the controller handles
     /// now.
     fn type_text(&mut self, text: String);
+
+    /// Deletes the `deleted` characters before the caret of the focused app and types `text`
+    /// there, after the event that the controller handles now.
+    fn replace_before_caret(&mut self, deleted: usize, text: String);
 
     /// Starts `timer`, or starts it again when it runs. After `delay`, the shell gives the timer
     /// one time to [`Controller::on_timer`].
@@ -173,7 +186,7 @@ pub struct Controller {
     hub_sink: HubEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
-    pending_ghost: Option<String>,
+    pending_ghost: Option<Ghost>,
     is_caret_timer_pending: bool,
     /// Whether the Screen text or Personalization pane has an app that the settings store does not
     /// have yet.
@@ -405,7 +418,7 @@ impl Controller {
 
     fn on_caret_settled(&mut self, shell: &mut dyn Shell) {
         self.is_caret_timer_pending = false;
-        shell.render_at_caret(self.pending_ghost.as_deref(), self.app.badge_view());
+        shell.render_at_caret(self.pending_ghost.as_ref(), self.app.badge_view());
     }
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
@@ -503,7 +516,11 @@ impl Controller {
     fn apply(&mut self, reaction: Reaction, shell: &mut dyn Shell) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
-                self.show_ghost_after_caret_settles(text, shell);
+                self.show_ghost_after_caret_settles(Ghost::Text(text), shell);
+                Disposition::Pass
+            }
+            Reaction::ShowFix(fix) => {
+                self.show_ghost_after_caret_settles(Ghost::Fix(fix), shell);
                 Disposition::Pass
             }
             Reaction::Hide => {
@@ -514,7 +531,15 @@ impl Controller {
                 self.hide_ghost(shell);
                 shell.type_text(text);
                 if let Some(rest) = rest {
-                    self.show_ghost_after_caret_settles(rest, shell);
+                    self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
+                }
+                Disposition::Swallow
+            }
+            Reaction::Replace { deleted, text, rest } => {
+                self.hide_ghost(shell);
+                shell.replace_before_caret(deleted, text);
+                if let Some(rest) = rest {
+                    self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
                 }
                 Disposition::Swallow
             }
@@ -534,7 +559,12 @@ impl Controller {
         };
         match reaction {
             // A completion does not move the caret, so it must not make the wait for the caret longer.
-            Some(Reaction::Show(text)) if self.is_caret_timer_pending => self.pending_ghost = Some(text),
+            Some(Reaction::Show(text)) if self.is_caret_timer_pending => {
+                self.pending_ghost = Some(Ghost::Text(text));
+            }
+            Some(Reaction::ShowFix(fix)) if self.is_caret_timer_pending => {
+                self.pending_ghost = Some(Ghost::Fix(fix));
+            }
             Some(reaction) => {
                 self.apply(reaction, shell);
             }
@@ -569,7 +599,7 @@ impl Controller {
             self.runner.submit(request, &self.playground_sink);
         }
         shell.render_tray(&self.app.tray_view());
-        shell.render_at_caret(self.pending_ghost.as_deref(), self.app.badge_view());
+        shell.render_at_caret(self.pending_ghost.as_ref(), self.app.badge_view());
         self.render_settings(shell);
     }
 
@@ -594,8 +624,8 @@ impl Controller {
         }
     }
 
-    fn show_ghost_after_caret_settles(&mut self, text: String, shell: &mut dyn Shell) {
-        self.pending_ghost = Some(text);
+    fn show_ghost_after_caret_settles(&mut self, ghost: Ghost, shell: &mut dyn Shell) {
+        self.pending_ghost = Some(ghost);
         self.restart_caret_timer(shell);
     }
 
@@ -638,11 +668,11 @@ mod tests {
     use super::*;
     use crate::app::{Field, Status};
     use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
-    use crate::engine::TAIL_CUT;
+    use crate::engine::{TAIL_CUT, TYPO_CUT};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Completion, NextWordBias, TokenCount};
+    use crate::inference::{Completion, Correction, LogProbability, NextWordBias, TokenCount};
     use crate::models_pane::SEARCH;
     use crate::personalization_pane::{DELETE, HISTORY};
     use crate::playground::MODEL;
@@ -669,12 +699,13 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Call {
         RenderAtCaret {
-            ghost: Option<String>,
+            ghost: Option<Ghost>,
             badge: Option<BadgeView>,
         },
         HideGhost,
         HideBadge,
         TypeText(String),
+        ReplaceText(usize, String),
         StartTimer(Timer, Duration),
         StopTimer(Timer),
         RenderTray(TrayView),
@@ -717,9 +748,9 @@ mod tests {
             mem::replace(&mut self.focus_change, FocusChange::Unchanged)
         }
 
-        fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>) {
+        fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>) {
             self.calls.push(Call::RenderAtCaret {
-                ghost: ghost.map(str::to_owned),
+                ghost: ghost.cloned(),
                 badge,
             });
         }
@@ -734,6 +765,10 @@ mod tests {
 
         fn type_text(&mut self, text: String) {
             self.calls.push(Call::TypeText(text));
+        }
+
+        fn replace_before_caret(&mut self, deleted: usize, text: String) {
+            self.calls.push(Call::ReplaceText(deleted, text));
         }
 
         fn start_timer(&mut self, timer: Timer, delay: Duration) {
@@ -1044,6 +1079,8 @@ mod tests {
             tokens: TokenCount(1),
             duration: Duration::ZERO,
             word_log_probabilities: Vec::new(),
+            typed_log_probability: LogProbability::default(),
+            correction: None,
         }))
     }
 
@@ -1056,7 +1093,7 @@ mod tests {
 
     fn ghost_at_caret(ghost: Option<&str>, badge: Option<BadgeView>) -> Call {
         Call::RenderAtCaret {
-            ghost: ghost.map(str::to_owned),
+            ghost: ghost.map(|text| Ghost::Text(text.to_owned())),
             badge,
         }
     }
@@ -1326,6 +1363,62 @@ mod tests {
         );
     }
 
+    fn fixed(typed: &str, fixed: &str, text: &str) -> InferenceEvent {
+        let InferenceEvent::Completed(Ok(completion)) = completed(text) else {
+            unreachable!("completed gives a completion");
+        };
+        InferenceEvent::Completed(Ok(Completion {
+            correction: Some(Correction {
+                typed: typed.to_owned(),
+                fixed: fixed.to_owned(),
+            }),
+            ..completion
+        }))
+    }
+
+    fn harness_showing_a_fix() -> Harness {
+        let mut harness = Harness::new(Settings::default());
+        harness.press(Key::Char('B'));
+        harness.answer(fixed("B", "Be", "st regards"));
+        harness
+    }
+
+    #[test]
+    fn fix_shows_when_caret_settles() {
+        let mut harness = harness_showing_a_fix();
+        harness.take_calls();
+
+        harness.settle_caret();
+
+        let fix = WordFix {
+            typo: "B".to_owned(),
+            word: "Best".to_owned(),
+            rest: " regards".to_owned(),
+        };
+        assert_eq!(
+            harness.take_calls(),
+            vec![Call::RenderAtCaret {
+                ghost: Some(Ghost::Fix(fix)),
+                badge: Some(PAUSE_BADGE),
+            }]
+        );
+    }
+
+    #[test]
+    fn tab_on_a_fix_replaces_the_typo_and_swallows_the_key() {
+        let mut harness = harness_showing_a_fix();
+        harness.settle_caret();
+        harness.take_calls();
+
+        let disposition = harness.press(Key::Tab);
+
+        let calls = harness.take_calls();
+        assert!(
+            disposition == Disposition::Swallow && calls.contains(&Call::ReplaceText(1, "Best".to_owned())),
+            "unexpected {disposition:?} {calls:?}"
+        );
+    }
+
     #[test]
     fn untranslated_key_passes() {
         let mut harness = Harness::new(Settings::default());
@@ -1434,6 +1527,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
+            min_typed_log_probability: Some(TYPO_CUT),
+            fixes_typos: true,
         }
     }
 
@@ -1870,6 +1965,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
+                min_typed_log_probability: None,
+                fixes_typos: false,
             })
         );
     }
@@ -2013,6 +2110,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: Some(TYPO_CUT),
+                fixes_typos: true,
             })
         );
     }

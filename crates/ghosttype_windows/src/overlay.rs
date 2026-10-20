@@ -1,14 +1,39 @@
 //! The ghost text: a click-through, never-focused layered window drawn right after the caret.
 
-use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, GetSysColor};
+use ghosttype_core::engine::WordFix;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetSysColor};
 use windows::core::{Result, w};
 
 use crate::focus::Caret;
-use crate::gdi::{Font, FontHeight, TextBitmap, TextLayout};
+use crate::gdi::{FixColors, Font, FontHeight, TextBitmap, TextLayout};
 use crate::pixels::Rgb;
+use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
 
 const UI_FONT_FACES: [&str; 2] = ["Segoe UI Variable Text", "Segoe UI"];
+/// The critical and the success foreground colors of Fluent, for light mode.
+const LIGHT_STRIKE: Rgb = Rgb {
+    red: 0xC4,
+    green: 0x2B,
+    blue: 0x1C,
+};
+const LIGHT_WORD: Rgb = Rgb {
+    red: 0x0F,
+    green: 0x7B,
+    blue: 0x0F,
+};
+/// The critical and the success foreground colors of Fluent, for dark mode.
+const DARK_STRIKE: Rgb = Rgb {
+    red: 0xFF,
+    green: 0x99,
+    blue: 0xA4,
+};
+const DARK_WORD: Rgb = Rgb {
+    red: 0x6C,
+    green: 0xCB,
+    blue: 0x5F,
+};
 
 #[derive(Debug)]
 pub(crate) struct Overlay {
@@ -31,8 +56,51 @@ impl Overlay {
         self.window.show_on_top()
     }
 
+    /// Shows `fix` at `caret`: a line through the typed letters before the caret, then the fixed
+    /// word and the rest of the suggestion. The line spans the width of the letters in the font of
+    /// the ghost text, so it can differ a little from the letters of a control in another font.
+    pub(crate) fn show_fix(&self, fix: &WordFix, caret: &Caret) -> Result<()> {
+        let faces = ghost_text_faces(caret.font_face.as_deref());
+        let font = Font::first_installed(&faces, FontHeight::Cell(caret.height))?;
+        let colors = fix_colors(SystemTheme::read());
+        let word = format!(" {}", fix.word);
+        let (bitmap, typo_width) = TextBitmap::render_fix(&fix.typo, &word, &fix.rest, &font, colors)?;
+        let origin = POINT {
+            x: caret.origin.x - typo_width,
+            y: caret.origin.y,
+        };
+        bitmap.present(self.window.handle(), origin)?;
+        self.window.show_on_top()
+    }
+
     pub(crate) fn hide(&self) {
         self.window.hide();
+    }
+}
+
+/// The colors of a fix in `theme`: Fluent red and green, or the colors of high contrast.
+fn fix_colors(theme: SystemTheme) -> FixColors {
+    let rest = ghost_text_color();
+    match (theme.contrast, theme.mode) {
+        (Contrast::High, _) => {
+            // SAFETY: plain calls.
+            let (text, link) = unsafe { (GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_HOTLIGHT)) };
+            FixColors {
+                strike: Rgb::from_colorref(text),
+                word: Rgb::from_colorref(link),
+                rest,
+            }
+        }
+        (Contrast::Standard, ThemeMode::Light) => FixColors {
+            strike: LIGHT_STRIKE,
+            word: LIGHT_WORD,
+            rest,
+        },
+        (Contrast::Standard, ThemeMode::Dark) => FixColors {
+            strike: DARK_STRIKE,
+            word: DARK_WORD,
+            rest,
+        },
     }
 }
 

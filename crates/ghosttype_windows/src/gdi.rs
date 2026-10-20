@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, HSTRING, Owned, Result};
 
-use crate::pixels::{Rgb, lay_over, tint_by_coverage};
+use crate::pixels::{Rgb, fill_band, lay_over, strike_rows, tint_by_coverage, tint_spans};
 
 const BITS_PER_PIXEL: u16 = 32;
 const MAX_FACE_NAME_UNITS: usize = 32;
@@ -101,6 +101,17 @@ pub(crate) enum TextLayout {
     CenteredSquare(i32),
 }
 
+/// The colors of the fix of a typo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FixColors {
+    /// The line through the typed letters.
+    pub(crate) strike: Rgb,
+    /// The fixed word.
+    pub(crate) word: Rgb,
+    /// The rest of the suggestion.
+    pub(crate) rest: Rgb,
+}
+
 /// A 32-bit bitmap holding text in a single color over transparency, premultiplied.
 #[derive(Debug)]
 pub(crate) struct TextBitmap {
@@ -126,6 +137,50 @@ impl TextBitmap {
         // SAFETY: the section is alive and GDI is done writing to it.
         tint_by_coverage(unsafe { section.pixels() }, color);
         Ok(Self { section, size })
+    }
+
+    /// Renders the fix of a typo: a line as wide as `typo` in `font`, then `word` and `rest`, each in
+    /// its color of `colors`. Returns the bitmap and the width of the line, which ends at the caret.
+    pub(crate) fn render_fix(
+        typo: &str,
+        word: &str,
+        rest: &str,
+        font: &Font,
+        colors: FixColors,
+    ) -> Result<(Self, i32)> {
+        let context = MemoryContext::new()?;
+        let _font = context.select(HGDIOBJ(font.0.0));
+        let typo_size = measure(&context, &utf16(typo))?;
+        let mut word_units = utf16(word);
+        let word_size = measure(&context, &word_units)?;
+        let mut rest_units = utf16(rest);
+        let rest_size = measure(&context, &rest_units)?;
+        let size = SIZE {
+            cx: typo_size.cx + word_size.cx + rest_size.cx,
+            cy: typo_size.cy.max(word_size.cy).max(rest_size.cy),
+        };
+        let mut section = PixelSection::new(size)?;
+        let _bitmap = context.select(HGDIOBJ(section.bitmap.0));
+        draw_at(&context, &mut word_units, typo_size.cx)?;
+        draw_at(&context, &mut rest_units, typo_size.cx + word_size.cx)?;
+        // SAFETY: plain call.
+        unsafe { GdiFlush() }.ok()?;
+        let [typo_end, word_end, width, height] =
+            [typo_size.cx, typo_size.cx + word_size.cx, size.cx, size.cy]
+                .map(|value| usize::try_from(value).unwrap_or(0));
+        // SAFETY: the section is alive and GDI is done writing to it.
+        let pixels = unsafe { section.pixels() };
+        tint_spans(
+            pixels,
+            width,
+            &[
+                (0..typo_end, colors.strike),
+                (typo_end..word_end, colors.word),
+                (word_end..width, colors.rest),
+            ],
+        );
+        fill_band(pixels, width, 0..typo_end, strike_rows(height), colors.strike);
+        Ok((Self { section, size }, typo_size.cx))
     }
 
     /// Puts `backdrop` behind the text: premultiplied BGRA pixels of the same size, top row first.
@@ -216,6 +271,29 @@ fn measure(context: &MemoryContext, units: &[u16]) -> Result<SIZE> {
     // SAFETY: the text and the output size are valid for the call.
     unsafe { GetTextExtentPoint32W(context.handle, units, &raw mut size) }.ok()?;
     Ok(size)
+}
+
+fn utf16(text: &str) -> Vec<u16> {
+    text.encode_utf16().collect()
+}
+
+/// Draws `units` in white on the transparent bitmap of `context`, `left` pixels from its left edge.
+/// Draws nothing for no units.
+fn draw_at(context: &MemoryContext, units: &mut [u16], left: i32) -> Result<()> {
+    if units.is_empty() {
+        return Ok(());
+    }
+    // SAFETY: plain calls on a context this module owns; the text outlives the call.
+    let is_drawn = unsafe {
+        SetTextColor(context.handle, COLORREF(Rgb::WHITE.to_colorref()));
+        SetBkMode(context.handle, TRANSPARENT);
+        TextOutW(context.handle, left, 0, units)
+    };
+    if is_drawn.as_bool() {
+        Ok(())
+    } else {
+        Err(Error::from_thread())
+    }
 }
 
 fn draw(context: &MemoryContext, units: &mut [u16], size: SIZE, layout: TextLayout) -> Result<()> {

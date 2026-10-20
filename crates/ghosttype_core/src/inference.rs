@@ -86,6 +86,13 @@ pub enum InferenceRequest {
         /// stops before a token that makes the text less likely, and leaves out the word of that
         /// token.
         min_log_probability: Option<LogProbability>,
+        /// The least likely that the typed letters of the last word of `prompt` can be, if any.
+        /// When the model finds them less likely, they often hold a typo, and the runner adds no
+        /// text.
+        min_typed_log_probability: Option<LogProbability>,
+        /// Whether the runner fixes the typo that `min_typed_log_probability` finds, when the model
+        /// expects a word one edit away. The completion then continues the fixed letters.
+        fixes_typos: bool,
     },
     /// Unloads the loaded model to free its memory.
     Unload,
@@ -166,6 +173,43 @@ pub struct Completion {
     /// last word of the prompt, the first word also holds how likely the model found the end of
     /// that word, among the texts that agree with the letters that the prompt has of it.
     pub word_log_probabilities: Vec<LogProbability>,
+    /// How likely the model found the typed letters of the last word of the prompt, which the
+    /// runner writes again before the added text. Zero when the prompt ends without such letters.
+    /// When the runner stops for a typo, it holds how likely the letters were up to that point.
+    pub typed_log_probability: LogProbability,
+    /// The fix of a typo in the typed letters of the last word of the prompt, if any. The added
+    /// text then continues the fixed letters, not the prompt.
+    pub correction: Option<Correction>,
+}
+
+/// A fix of the typed letters at the end of a prompt. `Debug` shows only the lengths, so logs
+/// never hold what the user wrote.
+///
+/// ```
+/// use ghosttype_core::inference::Correction;
+///
+/// let correction = Correction { typed: " dlei".to_owned(), fixed: " deli".to_owned() };
+///
+/// assert_eq!(format!("{correction:?}"), "Correction(5 chars → 5 chars)");
+/// ```
+#[derive(Clone, PartialEq, Eq)]
+pub struct Correction {
+    /// The end of the prompt with the typo: the letters of the last word, with the whitespace
+    /// before them.
+    pub typed: String,
+    /// The text that replaces `typed`.
+    pub fixed: String,
+}
+
+impl fmt::Debug for Correction {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Correction({} chars → {} chars)",
+            self.typed.chars().count(),
+            self.fixed.chars().count()
+        )
+    }
 }
 
 /// The natural log of a probability: zero for a certain event, and lower for a less likely one.

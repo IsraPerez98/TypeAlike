@@ -9,7 +9,7 @@ use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
     ClipboardAccess, HistoryAccess, HistoryApp, KeptTexts, OcrLevel, PersonalizationSettings,
     PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings, SettingsStore,
-    SuggestionDisplay, SuggestionLength, WordChoice, WriterName, WriterNotes,
+    SuggestionDisplay, SuggestionLength, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +82,8 @@ struct StoredSettings {
     prompt_preparation: StoredPromptPreparation,
     suggestion_display: StoredSuggestionDisplay,
     suggestion_length: StoredSuggestionLength,
+    typo_rule: StoredTypoRule,
+    typo_fix: StoredTypoFix,
 }
 
 impl Default for StoredSettings {
@@ -323,6 +325,20 @@ enum StoredSuggestionDisplay {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+enum StoredTypoRule {
+    HideSuggestions,
+    Suggest,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredTypoFix {
+    Offer,
+    Off,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum StoredSuggestionLength {
     VeryShort,
     Short,
@@ -368,6 +384,14 @@ impl From<Settings> for StoredSettings {
             SuggestionLength::Long => StoredSuggestionLength::Long,
             SuggestionLength::VeryLong => StoredSuggestionLength::VeryLong,
         };
+        let typo_rule = match settings.typo_rule {
+            TypoRule::HideSuggestions => StoredTypoRule::HideSuggestions,
+            TypoRule::Suggest => StoredTypoRule::Suggest,
+        };
+        let typo_fix = match settings.typo_fix {
+            TypoFix::Offer => StoredTypoFix::Offer,
+            TypoFix::Off => StoredTypoFix::Off,
+        };
         Self {
             backend,
             suggestion_model,
@@ -380,6 +404,8 @@ impl From<Settings> for StoredSettings {
             prompt_preparation,
             suggestion_display,
             suggestion_length,
+            typo_rule,
+            typo_fix,
         }
     }
 }
@@ -415,6 +441,14 @@ impl From<StoredSettings> for Settings {
             StoredSuggestionLength::Long => SuggestionLength::Long,
             StoredSuggestionLength::VeryLong => SuggestionLength::VeryLong,
         };
+        let typo_rule = match stored.typo_rule {
+            StoredTypoRule::HideSuggestions => TypoRule::HideSuggestions,
+            StoredTypoRule::Suggest => TypoRule::Suggest,
+        };
+        let typo_fix = match stored.typo_fix {
+            StoredTypoFix::Offer => TypoFix::Offer,
+            StoredTypoFix::Off => TypoFix::Off,
+        };
         let writer_notes = match (stored.writer_notes, stored.system_prompt) {
             (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
             (_, Some(system_prompt)) => WriterNotes(system_prompt),
@@ -432,6 +466,8 @@ impl From<StoredSettings> for Settings {
             prompt_preparation,
             suggestion_display,
             suggestion_length,
+            typo_rule,
+            typo_fix,
         }
     }
 }
@@ -697,6 +733,41 @@ mod tests {
     }
 
     #[test]
+    fn typo_rule_reads_from_its_name() {
+        let files = [
+            r#"{ "typo_rule": "hide_suggestions" }"#,
+            r#"{ "typo_rule": "suggest" }"#,
+        ];
+
+        let rules = files.map(|json| parse(json).map(|settings| settings.typo_rule).ok());
+
+        assert_eq!(rules, [Some(TypoRule::HideSuggestions), Some(TypoRule::Suggest)]);
+    }
+
+    #[test]
+    fn typo_fix_reads_from_its_name() {
+        let files = [r#"{ "typo_fix": "offer" }"#, r#"{ "typo_fix": "off" }"#];
+
+        let typo_fixes = files.map(|json| parse(json).map(|settings| settings.typo_fix).ok());
+
+        assert_eq!(typo_fixes, [Some(TypoFix::Offer), Some(TypoFix::Off)]);
+    }
+
+    #[test]
+    fn file_without_a_typo_fix_offers_fixes() {
+        let fix = parse("{}").map(|settings| settings.typo_fix).ok();
+
+        assert_eq!(fix, Some(TypoFix::Offer));
+    }
+
+    #[test]
+    fn file_without_a_typo_rule_hides_suggestions_on_typos() {
+        let rule = parse("{}").map(|settings| settings.typo_rule).ok();
+
+        assert_eq!(rule, Some(TypoRule::HideSuggestions));
+    }
+
+    #[test]
     fn suggestion_length_reads_from_its_name() {
         let files = [
             r#"{ "suggestion_length": "very_short" }"#,
@@ -770,6 +841,8 @@ mod tests {
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,
             suggestion_length: SuggestionLength::Long,
+            typo_rule: TypoRule::Suggest,
+            typo_fix: TypoFix::Off,
         };
 
         file.save(&settings);

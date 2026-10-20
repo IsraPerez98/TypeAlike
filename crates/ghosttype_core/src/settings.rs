@@ -361,6 +361,29 @@ pub enum SuggestionDisplay {
     WordByWord,
 }
 
+/// What suggestions do while the word before the caret looks misspelled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TypoRule {
+    /// No suggestion finishes the word, so that Tab never keeps a typo. A rare name or term can also
+    /// look misspelled.
+    #[default]
+    HideSuggestions,
+    /// Suggestions show as for any other word.
+    Suggest,
+}
+
+/// Whether a suggestion fixes the word before the caret when it looks misspelled. It works only
+/// while [`TypoRule::HideSuggestions`] finds typos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TypoFix {
+    /// The suggestion shows the typo struck through and the fixed word after it. Tab replaces the
+    /// word.
+    #[default]
+    Offer,
+    /// No suggestion shows for a word with a typo.
+    Off,
+}
+
 /// The most text that one suggestion shows, from the shortest to the longest. A shorter
 /// suggestion shows sooner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -422,6 +445,10 @@ pub struct Settings {
     pub suggestion_display: SuggestionDisplay,
     /// The most text that one suggestion shows.
     pub suggestion_length: SuggestionLength,
+    /// What suggestions do while the word before the caret looks misspelled.
+    pub typo_rule: TypoRule,
+    /// Whether a suggestion fixes the word before the caret when it looks misspelled.
+    pub typo_fix: TypoFix,
 }
 
 impl Settings {

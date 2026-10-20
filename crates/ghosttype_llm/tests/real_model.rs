@@ -39,6 +39,8 @@ fn real_model_continues_text() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         },
         &sink,
     );

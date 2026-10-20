@@ -31,6 +31,8 @@ fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         },
         &sink,
     );

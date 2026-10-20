@@ -9,6 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use ghosttype_core::app::BadgeView;
+use ghosttype_core::controller::Ghost;
 use ghosttype_core::desktop::{FieldLabels, FieldText};
 use windows::core::Result;
 
@@ -185,7 +186,7 @@ impl KeptFieldText {
 /// What shows at the caret after a read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CaretView {
-    pub(crate) ghost: Option<String>,
+    pub(crate) ghost: Option<Ghost>,
     pub(crate) badge: Option<BadgeView>,
 }
 
@@ -245,7 +246,7 @@ mod tests {
 
     fn ghost_and_badge() -> CaretView {
         CaretView {
-            ghost: Some("world".to_owned()),
+            ghost: Some(Ghost::Text("world".to_owned())),
             badge: Some(BADGE),
         }
     }
@@ -390,7 +391,7 @@ mod tests {
         assert_eq!(
             view,
             Some(CaretView {
-                ghost: Some("world".to_owned()),
+                ghost: Some(Ghost::Text("world".to_owned())),
                 badge: None,
             })
         );

@@ -6,8 +6,8 @@ use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest};
 use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{
-    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, WriterName,
-    WriterNotes,
+    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
+    TypoRule, WriterName, WriterNotes,
 };
 use crate::settings_view::{
     ChoiceText, ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
@@ -41,6 +41,16 @@ pub enum GeneralAction {
     ShowWordByWord,
     /// Turned off the switch that shows each word of a suggestion as soon as the model writes it.
     ShowWhenComplete,
+    /// Turned on the switch that hides suggestions while the word before the caret looks like it
+    /// has a typo.
+    HideSuggestionsOnTypos,
+    /// Turned off the switch that hides suggestions while the word before the caret looks like it
+    /// has a typo.
+    SuggestOnTypos,
+    /// Turned on the switch that fixes the word before the caret when it looks like it has a typo.
+    FixTypos,
+    /// Turned off the switch that fixes the word before the caret when it looks like it has a typo.
+    LeaveTypos,
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),
     /// Picked this downloaded model to suggest text.
@@ -60,6 +70,8 @@ pub(crate) const AUTOSTART: &str = "autostart";
 pub(crate) const CLIPBOARD: &str = "clipboard";
 pub(crate) const PREPARATION: &str = "prompt-preparation";
 pub(crate) const DISPLAY: &str = "suggestion-display";
+pub(crate) const TYPO_RULE: &str = "typo-rule";
+pub(crate) const TYPO_FIX: &str = "typo-fix";
 pub(crate) const LENGTH: &str = "suggestion-length";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
@@ -85,6 +97,12 @@ const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model re
 const DISPLAY_LABEL: &str = "Show words early";
 const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
      word then shows sooner, but the suggestion grows while you read it.";
+const TYPO_RULE_LABEL: &str = "Hide suggestions on typos";
+const TYPO_RULE_DESCRIPTION: &str = "While the word that you type looks like it has a typo, no suggestion \
+     finishes the word, so that Tab does not keep the typo. A rare name or term can also look like a typo.";
+const TYPO_FIX_LABEL: &str = "Fix typos";
+const TYPO_FIX_DESCRIPTION: &str = "When the word that you type looks like it has a typo, the suggestion shows \
+     the word struck through and a fix after it. Tab replaces the word with the fix.";
 const LENGTH_LABEL: &str = "Suggestion length";
 const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length or at the end of a sentence. A shorter \
      suggestion shows sooner.";
@@ -227,6 +245,10 @@ impl GeneralPane {
             GeneralAction::ShowWhenComplete => {
                 self.change_suggestion_display(SuggestionDisplay::WhenComplete)
             }
+            GeneralAction::HideSuggestionsOnTypos => self.change_typo_rule(TypoRule::HideSuggestions),
+            GeneralAction::SuggestOnTypos => self.change_typo_rule(TypoRule::Suggest),
+            GeneralAction::FixTypos => self.change_setting(TypoFix::Offer, |settings| &mut settings.typo_fix),
+            GeneralAction::LeaveTypos => self.change_setting(TypoFix::Off, |settings| &mut settings.typo_fix),
             GeneralAction::SelectSuggestionLength(length) => {
                 self.change_setting(length, |settings| &mut settings.suggestion_length)
             }
@@ -272,7 +294,7 @@ impl GeneralPane {
                 is_on: autostart.is_enabled(),
             })
         });
-        let settings = [
+        let switches = [
             Row::Switch(Switch {
                 id: ControlId::new(CLIPBOARD),
                 label: CLIPBOARD_LABEL,
@@ -291,6 +313,22 @@ impl GeneralPane {
                 description: DISPLAY_DESCRIPTION,
                 is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
             }),
+            Row::Switch(Switch {
+                id: ControlId::new(TYPO_RULE),
+                label: TYPO_RULE_LABEL,
+                description: TYPO_RULE_DESCRIPTION,
+                is_on: self.settings.typo_rule == TypoRule::HideSuggestions,
+            }),
+        ];
+        let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
+            Row::Switch(Switch {
+                id: ControlId::new(TYPO_FIX),
+                label: TYPO_FIX_LABEL,
+                description: TYPO_FIX_DESCRIPTION,
+                is_on: self.settings.typo_fix == TypoFix::Offer,
+            })
+        });
+        let pickers = [
             Row::Picker(self.suggestion_length_picker()),
             Row::Picker(playground.model_picker(
                 installed,
@@ -301,13 +339,19 @@ impl GeneralPane {
         let backend = self
             .has_backend_menu
             .then(|| Row::Picker(self.backend_picker(playground)));
+        let settings = autostart
+            .into_iter()
+            .chain(switches)
+            .chain(typo_fix)
+            .chain(pickers)
+            .chain(backend);
         Page {
             title: PANE_TITLE,
             icon: PageIcon::Gear,
             summary: PANE_SUMMARY,
             search: None,
             sections: vec![
-                Section::new(autostart.into_iter().chain(settings).chain(backend).collect()),
+                Section::new(settings.collect()),
                 Section::new(vec![
                     Row::TextLine(self.writer_name_line()),
                     Row::TextArea(self.writer_notes_area()),
@@ -337,6 +381,10 @@ impl GeneralPane {
 
     fn change_suggestion_display(&mut self, display: SuggestionDisplay) -> GeneralOutcome {
         self.change_setting(display, |settings| &mut settings.suggestion_display)
+    }
+
+    fn change_typo_rule(&mut self, rule: TypoRule) -> GeneralOutcome {
+        self.change_setting(rule, |settings| &mut settings.typo_rule)
     }
 
     /// Keeps `value` in the setting that `field` picks, and returns the settings when they changed.
@@ -462,6 +510,11 @@ fn switch_action(id: &str, is_on: bool) -> Option<GeneralAction> {
         CLIPBOARD => (GeneralAction::AllowClipboard, GeneralAction::DenyClipboard),
         PREPARATION => (GeneralAction::PrepareOnFocus, GeneralAction::PrepareOnFirstKey),
         DISPLAY => (GeneralAction::ShowWordByWord, GeneralAction::ShowWhenComplete),
+        TYPO_RULE => (
+            GeneralAction::HideSuggestionsOnTypos,
+            GeneralAction::SuggestOnTypos,
+        ),
+        TYPO_FIX => (GeneralAction::FixTypos, GeneralAction::LeaveTypos),
         _ => return None,
     };
     Some(if is_on { turn_on } else { turn_off })
@@ -570,6 +623,13 @@ mod tests {
         }
     }
 
+    fn typo_settings(typo_rule: TypoRule) -> Settings {
+        Settings {
+            typo_rule,
+            ..Settings::default()
+        }
+    }
+
     fn edit_writer_notes(pane: &mut GeneralPane, text: &str) -> GeneralOutcome {
         pane.on_action(
             GeneralAction::EditWriterNotes(WriterNotes(text.to_owned())),
@@ -650,6 +710,24 @@ mod tests {
         pane.action_for(input, &PlaygroundPane::new(), &[])
     }
 
+    fn typo_rule_switch() -> Row {
+        Row::Switch(Switch {
+            id: ControlId::new(TYPO_RULE),
+            label: "Hide suggestions on typos",
+            description: "While the word that you type looks like it has a typo, no suggestion finishes the word, so that Tab does not keep the typo. A rare name or term can also look like a typo.",
+            is_on: true,
+        })
+    }
+
+    fn typo_fix_switch() -> Row {
+        Row::Switch(Switch {
+            id: ControlId::new(TYPO_FIX),
+            label: "Fix typos",
+            description: "When the word that you type looks like it has a typo, the suggestion shows the word struck through and a fix after it. Tab replaces the word with the fix.",
+            is_on: true,
+        })
+    }
+
     #[test]
     fn page_shows_the_settings_and_then_the_writer_notes() {
         let pane = GeneralPane::new(settings(Backend::Vulkan));
@@ -683,6 +761,8 @@ mod tests {
                             description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                             is_on: false,
                         }),
+                        typo_rule_switch(),
+                        typo_fix_switch(),
                         Row::Picker(Picker {
                             id: ControlId::new(LENGTH),
                             label: "Suggestion length",
@@ -799,6 +879,10 @@ mod tests {
             toggled(PREPARATION, false),
             toggled(DISPLAY, true),
             toggled(DISPLAY, false),
+            toggled(TYPO_RULE, true),
+            toggled(TYPO_RULE, false),
+            toggled(TYPO_FIX, true),
+            toggled(TYPO_FIX, false),
         ];
 
         let actions = inputs.map(|input| action_for(&pane, &input));
@@ -814,6 +898,10 @@ mod tests {
                 GeneralAction::PrepareOnFirstKey,
                 GeneralAction::ShowWordByWord,
                 GeneralAction::ShowWhenComplete,
+                GeneralAction::HideSuggestionsOnTypos,
+                GeneralAction::SuggestOnTypos,
+                GeneralAction::FixTypos,
+                GeneralAction::LeaveTypos,
             ]
             .map(Some)
         );
@@ -1435,6 +1523,74 @@ mod tests {
         let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
 
         let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
+
+        assert_eq!(outcome, GeneralOutcome::default());
+    }
+
+    #[test]
+    fn suggesting_on_typos_keeps_it_and_turns_the_switch_off() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = pane.on_action(GeneralAction::SuggestOnTypos, &mut PlaygroundPane::new());
+
+        let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
+        assert_eq!(
+            (outcome, is_on),
+            (settings_outcome(typo_settings(TypoRule::Suggest)), false)
+        );
+    }
+
+    #[test]
+    fn hiding_suggestions_on_typos_keeps_it_and_turns_the_switch_on() {
+        let mut pane = GeneralPane::new(typo_settings(TypoRule::Suggest));
+
+        let outcome = pane.on_action(GeneralAction::HideSuggestionsOnTypos, &mut PlaygroundPane::new());
+
+        let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
+        assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
+    }
+
+    #[test]
+    fn leaving_typos_keeps_it_and_turns_the_fix_switch_off() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = pane.on_action(GeneralAction::LeaveTypos, &mut PlaygroundPane::new());
+
+        let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
+        let saved = Settings {
+            typo_fix: TypoFix::Off,
+            ..Settings::default()
+        };
+        assert_eq!((outcome, is_on), (settings_outcome(saved), false));
+    }
+
+    #[test]
+    fn fixing_typos_keeps_it_and_turns_the_fix_switch_on() {
+        let mut pane = GeneralPane::new(Settings {
+            typo_fix: TypoFix::Off,
+            ..Settings::default()
+        });
+
+        let outcome = pane.on_action(GeneralAction::FixTypos, &mut PlaygroundPane::new());
+
+        let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
+        assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
+    }
+
+    #[test]
+    fn suggesting_on_typos_hides_the_fix_switch() {
+        let pane = GeneralPane::new(typo_settings(TypoRule::Suggest));
+
+        let shown = default_page(&pane);
+
+        assert_eq!(shown.row(TYPO_FIX), None);
+    }
+
+    #[test]
+    fn choosing_the_current_typo_rule_does_nothing() {
+        let mut pane = GeneralPane::new(Settings::default());
+
+        let outcome = pane.on_action(GeneralAction::HideSuggestionsOnTypos, &mut PlaygroundPane::new());
 
         assert_eq!(outcome, GeneralOutcome::default());
     }

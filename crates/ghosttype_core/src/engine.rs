@@ -8,21 +8,25 @@ use crate::desktop::{
 };
 use crate::history::{self, HistoryEntry, Phrases};
 use crate::inference::{
-    CONTEXT_TOKENS, Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt,
-    TokenCount, WordBias,
+    CONTEXT_TOKENS, Completion, Correction, InferenceError, InferenceRequest, LogProbability, NextWordBias,
+    Prompt, TokenCount, WordBias,
 };
 use crate::key::Key;
 use crate::place;
 use crate::prompt::{self, Writer, estimated_tokens, last_chars, last_tokens};
 use crate::settings::{
     ClipboardAccess, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp, ScreenTextSettings,
-    Settings, SuggestionLength, WriterName, WriterNotes,
+    Settings, SuggestionLength, TypoFix, TypoRule, WriterName, WriterNotes,
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
 /// The least likely that a suggestion can get after its first word: about 2 percent. In the prompt
 /// eval, this cut leaves out more than half of the wrong words and almost no right word.
 pub(crate) const TAIL_CUT: LogProbability = LogProbability(-3.9);
+/// The least likely that the typed letters of the last word can be before GhostType takes them
+/// for a typo. In the prompt eval, this cut catches 26 to 29 of the 29 typos and hides 1 to 3 of
+/// 393 other cases, each a rare name or word that the suggestion did not finish right.
+pub(crate) const TYPO_CUT: LogProbability = LogProbability(-11.0);
 /// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
@@ -53,10 +57,58 @@ pub enum Reaction {
         /// The ghost text to show after the typed text, or `None` to hide the ghost text.
         rest: Option<String>,
     },
+    /// Let the key through and show this fix of a typo before the caret.
+    ShowFix(WordFix),
+    /// Swallow the key, delete the typed letters before the caret, and type the fixed word.
+    Replace {
+        /// The characters to delete before the caret.
+        deleted: usize,
+        /// The text to type at the caret after the deletion.
+        text: String,
+        /// The ghost text to show after the typed text, or `None` to hide the ghost text.
+        rest: Option<String>,
+    },
     /// Let the key through, hide any ghost text and submit this request to the model runner.
     /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion). It replaces
     /// the requests that the runner did not answer yet.
     Request(InferenceRequest),
+}
+
+/// The fix of a typo in the word before the caret, as the ghost text shows it: the typed letters
+/// struck through, and the fixed word and the rest of the suggestion after the caret. `Debug` shows
+/// only the lengths, so logs never hold what the user wrote.
+///
+/// ```
+/// use ghosttype_core::engine::WordFix;
+///
+/// let fix = WordFix {
+///     typo: "dlei".to_owned(),
+///     word: "delivery".to_owned(),
+///     rest: " soon".to_owned(),
+/// };
+///
+/// assert_eq!(format!("{fix:?}"), "WordFix(4 chars → 8 chars, 5 chars)");
+/// ```
+#[derive(Clone, PartialEq, Eq)]
+pub struct WordFix {
+    /// The typed letters just before the caret, which the fix replaces.
+    pub typo: String,
+    /// The word that replaces `typo`.
+    pub word: String,
+    /// The rest of the suggestion after `word`, which can be empty.
+    pub rest: String,
+}
+
+impl fmt::Debug for WordFix {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "WordFix({} chars → {} chars, {} chars)",
+            self.typo.chars().count(),
+            self.word.chars().count(),
+            self.rest.chars().count()
+        )
+    }
 }
 
 /// Tracks the text at the caret and the model's suggestion for it.
@@ -68,6 +120,8 @@ pub(crate) struct Engine {
     writer_name: WriterName,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
+    typo_rule: TypoRule,
+    typo_fix: TypoFix,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
     matching_examples: usize,
     screen: Screen,
@@ -96,6 +150,8 @@ impl Default for Engine {
             writer_name: WriterName::default(),
             clipboard_access: ClipboardAccess::default(),
             suggestion_length: SuggestionLength::default(),
+            typo_rule: TypoRule::default(),
+            typo_fix: TypoFix::default(),
             matching_examples: 0,
             screen: Screen::default(),
             newest_screen_read: ScreenReadId::default(),
@@ -164,6 +220,15 @@ impl Session {
         self.text_before.pop();
         self.field_chars = self.field_chars.min(self.text_before.chars().count());
     }
+
+    /// Replaces `typo` at the end of the text before the caret with `word`.
+    fn replace_end(&mut self, typo: &str, word: &str) {
+        if let Some(kept) = self.text_before.strip_suffix(typo).map(str::len) {
+            self.text_before.truncate(kept);
+        }
+        self.field_chars = self.field_chars.min(self.text_before.chars().count());
+        self.text_before.push_str(word);
+    }
 }
 
 /// What the engine knows of the text near the field on the screen.
@@ -190,6 +255,8 @@ enum Offer {
         shown: String,
     },
     Shown(String),
+    /// The fix of a typo before the caret.
+    Fix(WordFix),
 }
 
 impl Engine {
@@ -202,6 +269,8 @@ impl Engine {
         self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
+        self.typo_rule = settings.typo_rule;
+        self.typo_fix = settings.typo_fix;
         self.matching_examples = settings.matching_examples();
         if self.personalization.word_choice != word_choice {
             self.refresh_word_choice();
@@ -308,6 +377,8 @@ impl Engine {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         })
     }
 
@@ -333,12 +404,46 @@ impl Engine {
             return self.ghost_reaction();
         }
         if let Ok(completion) = result {
-            self.grow(&completion.text);
+            match &completion.correction {
+                None => {
+                    self.grow(&completion.text);
+                }
+                Some(correction) => {
+                    if let Some(fix) = self.fix_of(correction, &completion.text) {
+                        self.offer = Offer::Fix(fix);
+                    }
+                }
+            }
         }
         match mem::take(&mut self.offer) {
             Offer::Growing { shown, .. } | Offer::Shown(shown) if !shown.is_empty() => self.show(shown),
+            Offer::Fix(fix) => self.show_fix(fix),
             Offer::Idle | Offer::Growing { .. } | Offer::Shown(_) => Reaction::Hide,
         }
+    }
+
+    /// Returns the fix that the `correction` and the added `text` of the newest request give, when
+    /// the user typed nothing since the request, the text before the caret ends with the typo and
+    /// the suggestion after the fixed letters is not bad.
+    fn fix_of(&self, correction: &Correction, text: &str) -> Option<WordFix> {
+        let is_untouched = matches!(&self.offer, Offer::Growing { typed, .. } if typed.is_empty());
+        if !is_untouched || self.typo_fix == TypoFix::Off {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
+        let fixed_before = format!("{before_typo}{}", correction.fixed);
+        let suggestion = suggestion_after(&fixed_before, text).unwrap_or_default();
+        if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
+            return None;
+        }
+        let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
+        let (word_rest, rest) = suggestion.split_at(word_end);
+        Some(WordFix {
+            typo: correction.typed.trim_start().to_owned(),
+            word: format!("{}{word_rest}", correction.fixed.trim_start()),
+            rest: rest.to_owned(),
+        })
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
@@ -351,6 +456,9 @@ impl Engine {
 
     /// Returns the reaction that shows the ghost text, or hides it when it is empty.
     fn ghost_reaction(&self) -> Reaction {
+        if let Offer::Fix(fix) = &self.offer {
+            return Reaction::ShowFix(fix.clone());
+        }
         match self.shown() {
             "" => Reaction::Hide,
             shown => Reaction::Show(shown.to_owned()),
@@ -594,6 +702,10 @@ impl Engine {
     }
 
     fn accept(&mut self) -> Reaction {
+        if let Offer::Fix(fix) = &self.offer {
+            let fix = fix.clone();
+            return self.accept_fix(fix);
+        }
         let suggestion = self.shown().to_owned();
         let Some(session) = self.session.as_mut().filter(|_| !suggestion.is_empty()) else {
             return self.reset();
@@ -609,6 +721,24 @@ impl Engine {
         }
     }
 
+    /// Replaces the typo of `fix` before the caret with its word, and keeps the rest as the ghost
+    /// text.
+    fn accept_fix(&mut self, fix: WordFix) -> Reaction {
+        let Some(session) = self.session.as_mut() else {
+            return self.reset();
+        };
+        session.replace_end(&fix.typo, &fix.word);
+        session.has_accepted = true;
+        self.keep_recent_text();
+        let rest = (!fix.rest.is_empty()).then_some(fix.rest);
+        self.offer = rest.clone().map_or(Offer::Idle, Offer::Shown);
+        Reaction::Replace {
+            deleted: fix.typo.chars().count(),
+            text: fix.word,
+            rest,
+        }
+    }
+
     /// Records that `taken`, the start of the ghost text, is now before the caret, and that
     /// `rest` stays as the ghost text.
     fn take_from_ghost(&mut self, taken: &str, rest: &str) {
@@ -617,7 +747,7 @@ impl Engine {
                 typed.push_str(taken);
                 rest.clone_into(shown);
             }
-            offer @ (Offer::Idle | Offer::Shown(_)) => {
+            offer @ (Offer::Idle | Offer::Shown(_) | Offer::Fix(_)) => {
                 *offer = if rest.is_empty() {
                     Offer::Idle
                 } else {
@@ -652,7 +782,15 @@ impl Engine {
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
             min_log_probability: Some(TAIL_CUT),
+            min_typed_log_probability: self.typo_cut(),
+            fixes_typos: self.typo_rule == TypoRule::HideSuggestions && self.typo_fix == TypoFix::Offer,
         })
+    }
+
+    /// The least likely that the typed letters of the last word can be, when the rule for typos
+    /// hides suggestions.
+    fn typo_cut(&self) -> Option<LogProbability> {
+        (self.typo_rule == TypoRule::HideSuggestions).then_some(TYPO_CUT)
     }
 
     /// The word bias, when the personalization allows the app of the session.
@@ -719,10 +857,15 @@ impl Engine {
         Reaction::Show(suggestion)
     }
 
+    fn show_fix(&mut self, fix: WordFix) -> Reaction {
+        self.offer = Offer::Fix(fix.clone());
+        Reaction::ShowFix(fix)
+    }
+
     /// Returns the ghost text, which is empty when none shows.
     fn shown(&self) -> &str {
         match &self.offer {
-            Offer::Idle => "",
+            Offer::Idle | Offer::Fix(_) => "",
             Offer::Growing { shown, .. } | Offer::Shown(shown) => shown,
         }
     }
@@ -992,6 +1135,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
+            min_typed_log_probability: Some(TYPO_CUT),
+            fixes_typos: true,
         })
     }
 
@@ -1006,6 +1151,8 @@ mod tests {
             tokens: TokenCount(1),
             duration: Duration::ZERO,
             word_log_probabilities: Vec::new(),
+            typed_log_probability: LogProbability::default(),
+            correction: None,
         })
     }
 
@@ -1115,6 +1262,149 @@ mod tests {
         let reactions = cases.map(|text| engine_waiting_for("hel").on_completion(completion(text)));
 
         assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
+    fn correction(typed: &str, fixed: &str, text: &str) -> Result<Completion, InferenceError> {
+        Ok(Completion {
+            correction: Some(Correction {
+                typed: typed.to_owned(),
+                fixed: fixed.to_owned(),
+            }),
+            ..completion(text).expect("the completion has text")
+        })
+    }
+
+    fn word_fix(typo: &str, word: &str, rest: &str) -> WordFix {
+        WordFix {
+            typo: typo.to_owned(),
+            word: word.to_owned(),
+            rest: rest.to_owned(),
+        }
+    }
+
+    fn engine_showing_a_fix() -> Engine {
+        let mut engine = engine_waiting_for("the dlei");
+        engine.on_completion(correction(" dlei", " deli", "very soon"));
+        engine
+    }
+
+    #[test]
+    fn completion_that_fixes_a_typo_shows_the_fix() {
+        let mut engine = engine_waiting_for("the dlei");
+
+        let reaction = engine.on_completion(correction(" dlei", " deli", "very soon"));
+
+        assert_eq!(reaction, Reaction::ShowFix(word_fix("dlei", "delivery", " soon")));
+    }
+
+    #[test]
+    fn fix_that_finishes_its_word_shows_the_rest_after_it() {
+        let mut engine = engine_waiting_for("I will recieve");
+
+        let reaction = engine.on_completion(correction(" recieve", " receive", " the parcel"));
+
+        assert_eq!(
+            reaction,
+            Reaction::ShowFix(word_fix("recieve", "receive", " the parcel"))
+        );
+    }
+
+    #[test]
+    fn tab_on_a_fix_replaces_the_typo_with_the_fixed_word() {
+        let mut engine = engine_showing_a_fix();
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(
+            reaction,
+            Reaction::Replace {
+                deleted: 4,
+                text: "delivery".to_owned(),
+                rest: Some(" soon".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn text_before_the_caret_holds_the_fixed_word_after_tab() {
+        let mut engine = engine_showing_a_fix();
+        press(&mut engine, Key::Tab);
+        press(&mut engine, Key::Escape);
+
+        let reaction = press(&mut engine, Key::Backspace);
+
+        assert_eq!(reaction, request("the deliver"));
+    }
+
+    #[test]
+    fn typing_while_a_fix_shows_asks_again() {
+        let mut engine = engine_showing_a_fix();
+
+        let reaction = press(&mut engine, Key::Char('v'));
+
+        assert_eq!(reaction, request("the dleiv"));
+    }
+
+    #[test]
+    fn escape_hides_a_fix() {
+        let mut engine = engine_showing_a_fix();
+
+        let reaction = press(&mut engine, Key::Escape);
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn fix_with_a_bad_suggestion_after_it_hides() {
+        let mut engine = engine_waiting_for("the dlei");
+
+        let reaction = engine.on_completion(correction(" dlei", " deli", "very very very very"));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn fix_of_text_that_does_not_end_the_text_before_the_caret_hides() {
+        let mut engine = engine_waiting_for("the dlei");
+
+        let reaction = engine.on_completion(correction(" plea", " please", " help"));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn fix_with_typo_fixes_off_hides() {
+        let mut engine = engine_with(&Settings {
+            typo_fix: TypoFix::Off,
+            ..Settings::default()
+        });
+        type_text(&mut engine, "the dlei");
+
+        let reaction = engine.on_completion(correction(" dlei", " deli", "very soon"));
+
+        assert_eq!(reaction, Reaction::Hide);
+    }
+
+    #[test]
+    fn typo_fixes_off_asks_for_no_fixes() {
+        let mut engine = engine_with(&Settings {
+            typo_fix: TypoFix::Off,
+            ..Settings::default()
+        });
+
+        let reaction = press(&mut engine, Key::Char('h'));
+
+        assert!(
+            matches!(
+                reaction,
+                Reaction::Request(InferenceRequest::Complete {
+                    fixes_typos: false,
+                    ..
+                })
+            ),
+            "unexpected {reaction:?}"
+        );
     }
 
     #[test]
@@ -1930,6 +2220,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: Some(TYPO_CUT),
+                fixes_typos: true,
             })
         );
     }
@@ -2495,6 +2787,31 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: Some(TYPO_CUT),
+                fixes_typos: true,
+            })
+        );
+    }
+
+    #[test]
+    fn typo_rule_that_suggests_asks_for_no_typo_cut() {
+        let mut engine = engine_with(&Settings {
+            typo_rule: TypoRule::Suggest,
+            ..Settings::default()
+        });
+
+        let reaction = press(&mut engine, Key::Char('h'));
+
+        assert_eq!(
+            reaction,
+            Reaction::Request(InferenceRequest::Complete {
+                prompt: prompt::framed_prompt(&[], "h"),
+                max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
+                word_bias: None,
+                next_word_bias: NextWordBias::default(),
+                min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: None,
+                fixes_typos: false,
             })
         );
     }
@@ -2517,6 +2834,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: Some(TYPO_CUT),
+                fixes_typos: true,
             })
         );
     }
@@ -2553,6 +2872,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         })
     }
 

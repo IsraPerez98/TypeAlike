@@ -8,7 +8,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
-use ghosttype_core::controller::{BackendChoice, Controller, Delivery, FocusChange, Services, Shell, Timer};
+use ghosttype_core::controller::{
+    BackendChoice, Controller, Delivery, FocusChange, Ghost, Services, Shell, Timer,
+};
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
@@ -35,7 +37,7 @@ use crate::badge::Badge;
 use crate::caret_reader::{CaretRead, CaretReader, CaretView, FieldRead, KeptFieldText, PendingView};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::{Caret, FocusTracker};
-use crate::injection::{self, INJECTION_TAG};
+use crate::injection::{self, INJECTION_TAG, Replacement};
 use crate::keys;
 use crate::mailbox::Mailbox;
 use crate::ocr::OcrSupport;
@@ -365,7 +367,7 @@ struct Win32Shell {
     kept_field_text: KeptFieldText,
     tray: Tray,
     window: Window,
-    pending_injection: Option<String>,
+    pending_injection: Option<Replacement>,
     settings: SettingsThread,
 }
 
@@ -411,16 +413,20 @@ impl Win32Shell {
         let Some(view) = self.pending_view.take(read.id) else {
             return;
         };
-        self.show_ghost(view.ghost.as_deref(), read.caret.as_ref());
+        self.show_ghost(view.ghost.as_ref(), read.caret.as_ref());
         self.show_badge(view.badge, read.caret.as_ref());
     }
 
-    fn show_ghost(&mut self, ghost: Option<&str>, caret: Option<&Caret>) {
-        let (Some(text), Some(caret)) = (ghost, caret) else {
+    fn show_ghost(&mut self, ghost: Option<&Ghost>, caret: Option<&Caret>) {
+        let (Some(ghost), Some(caret)) = (ghost, caret) else {
             self.overlay.hide();
             return;
         };
-        if let Err(error) = self.overlay.show(text, caret) {
+        let shown = match ghost {
+            Ghost::Text(text) => self.overlay.show(text, caret),
+            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret),
+        };
+        if let Err(error) = shown {
             tracing::warn!(%error, "failed to show ghost text");
         }
     }
@@ -467,9 +473,9 @@ impl Shell for Win32Shell {
 
     /// Asks the caret reader for the caret, then shows `ghost` and `badge` at it when the answer
     /// comes.
-    fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>) {
+    fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>) {
         let read = self.pending_view.wait(CaretView {
-            ghost: ghost.map(str::to_owned),
+            ghost: ghost.cloned(),
             badge,
         });
         self.caret_reader.read(read);
@@ -486,7 +492,11 @@ impl Shell for Win32Shell {
     }
 
     fn type_text(&mut self, text: String) {
-        self.pending_injection = Some(text);
+        self.replace_before_caret(0, text);
+    }
+
+    fn replace_before_caret(&mut self, deleted: usize, text: String) {
+        self.pending_injection = Some(Replacement { deleted, text });
         if let Err(error) = self.post(INJECT_MESSAGE) {
             tracing::warn!(%error, "failed to queue accepted text");
         }
@@ -570,9 +580,9 @@ fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
 }
 
 fn inject_pending_text() -> LRESULT {
-    let text = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
-    if let Some(text) = text
-        && let Err(error) = injection::type_text(&text)
+    let replacement = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
+    if let Some(replacement) = replacement
+        && let Err(error) = injection::replace_text(&replacement)
     {
         tracing::warn!(%error, "failed to type accepted text");
     }

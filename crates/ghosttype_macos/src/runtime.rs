@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Services, Shell, Timer,
+    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
@@ -34,7 +34,7 @@ use crate::badge::Badge;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::{self, FocusTracker};
-use crate::injection::{self, INJECTION_TAG};
+use crate::injection::{self, INJECTION_TAG, Replacement};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
@@ -224,7 +224,7 @@ struct AppKitShell {
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
-    pending_injection: Option<String>,
+    pending_injection: Option<Replacement>,
     settings: Option<SettingsWindow>,
 }
 
@@ -278,14 +278,15 @@ impl Shell for AppKitShell {
         self.focus.refresh()
     }
 
-    fn render_at_caret(&mut self, ghost: Option<&str>, badge: Option<BadgeView>) {
+    fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>) {
         let caret = self.focus.caret();
         match (badge, caret) {
             (Some(badge), Some(caret)) => self.badge.show(&badge, caret),
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
-            (Some(text), Some(caret)) => self.overlay.show(text, caret),
+            (Some(Ghost::Text(text)), Some(caret)) => self.overlay.show(text, caret),
+            (Some(Ghost::Fix(fix)), Some(caret)) => self.overlay.show_fix(fix, caret),
             _ => self.overlay.hide(),
         }
     }
@@ -299,7 +300,11 @@ impl Shell for AppKitShell {
     }
 
     fn type_text(&mut self, text: String) {
-        self.pending_injection = Some(text);
+        self.replace_before_caret(0, text);
+    }
+
+    fn replace_before_caret(&mut self, deleted: usize, text: String) {
+        self.pending_injection = Some(Replacement { deleted, text });
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
     }
 
@@ -426,9 +431,9 @@ define_class!(
         // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
-            let text = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
-            if let Some(text) = text
-                && let Err(error) = injection::type_text(&text)
+            let replacement = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
+            if let Some(replacement) = replacement
+                && let Err(error) = injection::replace_text(&replacement)
             {
                 tracing::warn!(%error, "failed to type accepted text");
             }

@@ -31,6 +31,23 @@ impl TokenPieces {
         shorter.chain(self.starting_with(text))
     }
 
+    /// Returns the tokens that write as much of the start of `text` as one token can: the longest
+    /// tokens whose text is a start of `text`, and the tokens whose text starts with all of `text`.
+    pub(crate) fn covering<'pieces>(
+        &'pieces self,
+        text: &'pieces [u8],
+    ) -> impl Iterator<Item = LlamaToken> + 'pieces {
+        let has_all = self.with_text(text).next().is_some();
+        let longest_start = (1..text.len())
+            .rev()
+            .filter(move |_| !has_all)
+            .find(|&length| self.with_text(&text[..length]).next().is_some());
+        let starts = longest_start
+            .into_iter()
+            .flat_map(move |length| self.with_text(&text[..length]));
+        starts.chain(self.starting_with(text))
+    }
+
     fn with_text<'pieces>(&'pieces self, text: &'pieces [u8]) -> impl Iterator<Item = LlamaToken> + 'pieces {
         self.from(text)
             .take_while(move |(piece, _)| piece == text)
@@ -84,6 +101,26 @@ mod tests {
         agreeing.sort_unstable();
 
         assert_eq!(agreeing, [0, 1, 4, 5, 7].map(LlamaToken));
+    }
+
+    #[test]
+    fn longest_token_inside_the_text_and_the_tokens_that_write_all_of_it_cover_it() {
+        let pieces = pieces(&[" ", " n", " net", " netw", " network", " networks", " nest"]);
+
+        let mut covering = pieces.covering(b" netwo").collect::<Vec<_>>();
+        covering.sort_unstable();
+
+        assert_eq!(covering, [3, 4, 5].map(LlamaToken));
+    }
+
+    #[test]
+    fn token_with_all_of_the_text_leaves_the_shorter_tokens_out_of_the_cover() {
+        let pieces = pieces(&[" ", " co", " cost", " costume", " cot"]);
+
+        let mut covering = pieces.covering(b" cost").collect::<Vec<_>>();
+        covering.sort_unstable();
+
+        assert_eq!(covering, [2, 3].map(LlamaToken));
     }
 
     #[test]

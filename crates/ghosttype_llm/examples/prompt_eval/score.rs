@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 const GATE_PROBABILITIES: [f64; 6] = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5];
 /// The probabilities of the suggestion up to the end of a word that the report tries as a cut.
 const CUT_PROBABILITIES: [f64; 7] = [0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005];
+/// The natural logs of the probabilities of the typed letters that the report tries as a typo cut.
+const TYPO_LOG_PROBABILITIES: [f64; 9] = [-6.0, -8.0, -10.0, -11.0, -12.0, -14.0, -16.0, -18.0, -20.0];
 
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +134,63 @@ pub struct Outcome {
     /// The shown words against the words of the text that the writer typed next.
     #[serde(default)]
     pub words: WordCounts,
+    /// The natural log of the probability that the model gave to the typed letters of the last
+    /// word, as the model runner gave it, or `None` when no completion came.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_log_probability: Option<f64>,
+    /// The word that the fix of a typo writes, as [`fixed_word`] gives it, or `None` when no fix
+    /// shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_word: Option<String>,
+    /// Whether `fixed_word` is the word that the writer meant, as [`intended_word`] gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_fix_right: Option<bool>,
+}
+
+/// Returns the word that the fix of a typo writes, from the `word` that the ghost text shows: its
+/// letters and digits, without the signs after them.
+pub fn fixed_word(word: &str) -> &str {
+    word_start(word.trim_start())
+}
+
+/// Returns the word that the writer meant: the letters and digits at the end of `before`, the
+/// text before the caret without the typo, and at the start of `next`.
+pub fn intended_word(before: &str, next: &str) -> String {
+    let end = before
+        .char_indices()
+        .rev()
+        .take_while(|(_, character)| character.is_alphanumeric())
+        .last()
+        .map_or(before.len(), |(start, _)| start);
+    format!("{}{}", &before[end..], word_start(next))
+}
+
+/// Returns the letters and digits at the start of `text`.
+fn word_start(text: &str) -> &str {
+    let end = text
+        .find(|character: char| !character.is_alphanumeric())
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+/// How many fixes of a typo wrote the word that the writer meant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Fixes {
+    /// The fixes that wrote the word that the writer meant.
+    pub right: usize,
+    /// The other fixes.
+    pub wrong: usize,
+}
+
+impl Fixes {
+    fn of<'outcome>(outcomes: impl Iterator<Item = &'outcome Outcome>) -> Self {
+        outcomes
+            .filter_map(|outcome| outcome.is_fix_right)
+            .fold(Self::default(), |fixes, is_right| Self {
+                right: fixes.right + usize::from(is_right),
+                wrong: fixes.wrong + usize::from(!is_right),
+            })
+    }
 }
 
 /// The words of a suggestion against the words of the text that the writer typed next.
@@ -270,6 +329,53 @@ impl CutPoint {
     }
 }
 
+/// What a cut for the typed letters of the last word does: no suggestion shows when the letters
+/// are less likely.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypoPoint {
+    /// The natural log of the cut.
+    pub log_probability: f64,
+    /// The typo cases with a probability of the typed letters.
+    pub typos: usize,
+    /// The typo cases that the cut catches.
+    pub caught: usize,
+    /// The cases with a next word and a probability of the typed letters.
+    pub others: usize,
+    /// The cases with a next word that the cut hides.
+    pub hidden: usize,
+    /// The cases with a next word that match and that the cut hides.
+    pub hidden_matches: usize,
+}
+
+impl TypoPoint {
+    /// Returns what the cut `log_probability` does to `outcomes`.
+    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+        let mut point = Self {
+            log_probability,
+            typos: 0,
+            caught: 0,
+            others: 0,
+            hidden: 0,
+            hidden_matches: 0,
+        };
+        for outcome in outcomes {
+            let Some(typed) = outcome.typed_log_probability else {
+                continue;
+            };
+            let is_caught = typed < log_probability;
+            if outcome.kind == CaseKind::Typo {
+                point.typos += 1;
+                point.caught += usize::from(is_caught);
+            } else if outcome.kind.has_next_word() {
+                point.others += 1;
+                point.hidden += usize::from(is_caught);
+                point.hidden_matches += usize::from(is_caught && outcome.is_match);
+            }
+        }
+        point
+    }
+}
+
 /// How many cases matched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Score {
@@ -338,6 +444,12 @@ pub struct Summary {
     pub gate: Vec<GatePoint>,
     /// What no cut, then each cut of the tail does to the cases with a next word.
     pub cut: Vec<CutPoint>,
+    /// What each cut for the typed letters does.
+    pub typo_cut: Vec<TypoPoint>,
+    /// The fixes of the typo cases.
+    pub typo_fixes: Fixes,
+    /// The fixes of the other cases, which had no typo.
+    pub other_fixes: Fixes,
 }
 
 impl Summary {
@@ -398,6 +510,11 @@ impl Summary {
                 .chain(CUT_PROBABILITIES)
                 .map(|probability| CutPoint::of(&with_next_word, probability.ln()))
                 .collect(),
+            typo_cut: TYPO_LOG_PROBABILITIES
+                .map(|log_probability| TypoPoint::of(outcomes, log_probability))
+                .to_vec(),
+            typo_fixes: Fixes::of(outcomes.iter().filter(|outcome| outcome.kind == CaseKind::Typo)),
+            other_fixes: Fixes::of(outcomes.iter().filter(|outcome| outcome.kind != CaseKind::Typo)),
         }
     }
 }
@@ -507,6 +624,9 @@ mod tests {
             log_probability: None,
             cumulative_log_probabilities: Vec::new(),
             words: WordCounts::default(),
+            typed_log_probability: None,
+            fixed_word: None,
+            is_fix_right: None,
         }
     }
 
@@ -682,6 +802,45 @@ mod tests {
         assert_eq!(
             (summary.next_word, summary.typo),
             (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
+        );
+    }
+
+    #[test]
+    fn word_of_a_fix_leaves_out_the_signs_after_it() {
+        let word = fixed_word("delivery,");
+
+        assert_eq!(word, "delivery");
+    }
+
+    #[test]
+    fn intended_word_is_the_last_word_without_the_typo_and_its_rest() {
+        let word = intended_word("the new deli", "very, soon");
+
+        assert_eq!(word, "delivery");
+    }
+
+    fn fixed(id: &str, kind: CaseKind, is_fix_right: bool) -> Outcome {
+        Outcome {
+            is_fix_right: Some(is_fix_right),
+            ..outcome(id, kind, true, 10)
+        }
+    }
+
+    #[test]
+    fn summary_counts_the_right_and_the_wrong_fixes_of_typo_cases_and_of_other_cases() {
+        let outcomes = [
+            fixed("a", CaseKind::Typo, true),
+            fixed("b", CaseKind::Typo, false),
+            fixed("c", CaseKind::Typo, true),
+            fixed("d", CaseKind::PartialWord, false),
+            outcome("e", CaseKind::Typo, true, 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.typo_fixes, summary.other_fixes),
+            (Fixes { right: 2, wrong: 1 }, Fixes { right: 0, wrong: 1 })
         );
     }
 
@@ -953,6 +1112,40 @@ mod tests {
                 shown: 5,
                 right: 4,
                 wrong: 1
+            }
+        );
+    }
+
+    fn typed(id: &str, kind: CaseKind, is_match: bool, typed_log_probability: Option<f64>) -> Outcome {
+        Outcome {
+            typed_log_probability,
+            ..outcome(id, kind, is_match, 10)
+        }
+    }
+
+    #[test]
+    fn typo_cut_catches_the_typos_and_hides_the_other_cases_below_it() {
+        let outcomes = [
+            typed("a", CaseKind::Typo, true, Some(-20.0)),
+            typed("b", CaseKind::Typo, false, Some(-5.0)),
+            typed("c", CaseKind::PartialWord, true, Some(-11.0)),
+            typed("d", CaseKind::NextWord, false, Some(-13.0)),
+            typed("e", CaseKind::NextWord, true, Some(-1.0)),
+            typed("f", CaseKind::NoNewLine, true, Some(-30.0)),
+            typed("g", CaseKind::PartialWord, true, None),
+        ];
+
+        let point = TypoPoint::of(&outcomes, -10.0);
+
+        assert_eq!(
+            point,
+            TypoPoint {
+                log_probability: -10.0,
+                typos: 2,
+                caught: 1,
+                others: 3,
+                hidden: 2,
+                hidden_matches: 1
             }
         );
     }

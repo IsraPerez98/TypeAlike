@@ -7,25 +7,43 @@ pub(crate) const INJECTION_TAG: i64 = 0x4754_5950;
 
 const MAX_UTF16_UNITS_APPS_READ_PER_EVENT: usize = 20;
 const UNUSED_KEY_CODE: CGKeyCode = 0;
+/// The key that deletes the character before the caret (`kVK_Delete`).
+const DELETE_KEY_CODE: CGKeyCode = 0x33;
 
 /// A keyboard event for accepted text could not be created.
 #[derive(Debug, thiserror::Error)]
 #[error("failed to create a keyboard event")]
 pub(crate) struct InjectionError;
 
-/// Posts `text` as Unicode key presses to whatever has keyboard focus.
-pub(crate) fn type_text(text: &str) -> Result<(), InjectionError> {
-    utf16_chunks(text).iter().try_for_each(|chunk| post_chunk(chunk))
+/// Text to type at the caret, after the deletion of characters before it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Replacement {
+    /// The characters to delete before the caret.
+    pub(crate) deleted: usize,
+    /// The text to type after the deletion.
+    pub(crate) text: String,
 }
 
-fn post_chunk(units: &[u16]) -> Result<(), InjectionError> {
+/// Posts a delete key press for each deleted character, then the text as Unicode key presses, to
+/// whatever has keyboard focus.
+pub(crate) fn replace_text(replacement: &Replacement) -> Result<(), InjectionError> {
+    (0..replacement.deleted).try_for_each(|_| post_key(DELETE_KEY_CODE, &[]))?;
+    utf16_chunks(&replacement.text)
+        .iter()
+        .try_for_each(|chunk| post_key(UNUSED_KEY_CODE, chunk))
+}
+
+/// Posts a press and a release of `key_code`, which types `units` when they are not empty.
+fn post_key(key_code: CGKeyCode, units: &[u16]) -> Result<(), InjectionError> {
     let unit_count = units.len().try_into().expect("chunk length fits in UniCharCount");
     for is_key_down in [true, false] {
-        let event = CGEvent::new_keyboard_event(None, UNUSED_KEY_CODE, is_key_down).ok_or(InjectionError)?;
+        let event = CGEvent::new_keyboard_event(None, key_code, is_key_down).ok_or(InjectionError)?;
         CGEvent::set_flags(Some(&event), CGEventFlags::empty());
         CGEvent::set_integer_value_field(Some(&event), CGEventField::EventSourceUserData, INJECTION_TAG);
-        // SAFETY: `units` is valid for the length passed.
-        unsafe { CGEvent::keyboard_set_unicode_string(Some(&event), unit_count, units.as_ptr()) };
+        if !units.is_empty() {
+            // SAFETY: `units` is valid for the length passed.
+            unsafe { CGEvent::keyboard_set_unicode_string(Some(&event), unit_count, units.as_ptr()) };
+        }
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&event));
     }
     Ok(())

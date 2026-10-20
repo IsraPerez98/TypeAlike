@@ -288,6 +288,8 @@ impl PlaygroundPane {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         })
     }
 
@@ -441,7 +443,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::inference::Prompt;
+    use crate::inference::{LogProbability, Prompt};
 
     const LOADING: Note = Note {
         text: "Loading the model…",
@@ -494,6 +496,8 @@ mod tests {
             tokens: TokenCount(tokens),
             duration,
             word_log_probabilities: Vec::new(),
+            typed_log_probability: LogProbability::default(),
+            correction: None,
         }
     }
 
@@ -1019,6 +1023,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
+                min_typed_log_probability: None,
+                fixes_typos: false,
             })
         );
     }
@@ -1041,6 +1047,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
+                min_typed_log_probability: None,
+                fixes_typos: false,
             })
         );
     }
@@ -1063,6 +1071,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
+                min_typed_log_probability: None,
+                fixes_typos: false,
             })
         );
     }

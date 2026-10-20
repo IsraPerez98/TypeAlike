@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Backend, CONTEXT_TOKENS, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink,
-    InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, WordBias,
+    Backend, CONTEXT_TOKENS, Completion, Correction, CpuCores, InferenceError, InferenceEvent,
+    InferenceEventSink, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, WordBias,
 };
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
@@ -33,6 +33,7 @@ use llama_cpp_2::{
 };
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
+use crate::correction;
 use crate::pieces::TokenPieces;
 
 /// The most prompt tokens that one decode takes. The context keeps GPU memory for the outputs of a
@@ -65,6 +66,8 @@ const MIN_LETTERS_BEFORE_PERIOD: usize = 3;
 const MAX_SNAPSHOTS: usize = 4;
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
+/// The most likely tokens at the start of a word with a typo that a fix looks at.
+const FIX_CANDIDATES: usize = 64;
 const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
 
 /// A request and where its event goes.
@@ -194,6 +197,8 @@ fn serve(
             word_bias,
             next_word_bias,
             min_log_probability,
+            min_typed_log_probability,
+            fixes_typos,
         } = &job.request
         else {
             queue.give_back(job);
@@ -206,6 +211,8 @@ fn serve(
         let limits = Limits {
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
             min_log_probability: *min_log_probability,
+            min_typed_log_probability: *min_typed_log_probability,
+            fixes_typos: *fixes_typos,
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
@@ -219,6 +226,10 @@ struct Limits {
     max_added: usize,
     /// The least likely that the added text can get after its first word.
     min_log_probability: Option<LogProbability>,
+    /// The least likely that the healed text can be before the completion adds no text.
+    min_typed_log_probability: Option<LogProbability>,
+    /// Whether the completion fixes a typo that `min_typed_log_probability` finds.
+    fixes_typos: bool,
 }
 
 /// What a running completion asks and tells its job.
@@ -428,6 +439,8 @@ impl LoadedModel<'_> {
             tokens: TokenCount(u32::try_from(added.tokens.len()).expect("added tokens fit in the context")),
             duration: started.elapsed(),
             word_log_probabilities: added.word_log_probabilities,
+            typed_log_probability: added.typed_log_probability,
+            correction: added.correction,
         })
     }
 
@@ -496,20 +509,23 @@ impl LoadedModel<'_> {
             )?);
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
+        let healing = Healing {
+            pieces: &self.pieces,
+            text: &healed_text,
+            first_token: None,
+        };
         let added = cache
             .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| {
-                let healing = Healing {
-                    pieces: &self.pieces,
-                    text: &healed_text,
-                };
-                cache.continue_prompt(&vocab, &healing, limits, token_bias, progress)
-            });
+            .and_then(|()| cache.continue_prompt(&vocab, &healing, limits, token_bias, progress))
+            .and_then(|added| cache.continue_fixed(&vocab, &healing, added, limits, token_bias, progress));
         match added {
-            Ok(added) => Ok((
-                added_text(&vocab, &prompt_tokens, &added.tokens, &healed_text),
-                added,
-            )),
+            Ok(added) => {
+                let healed = added
+                    .correction
+                    .as_ref()
+                    .map_or(healed_text.as_slice(), |correction| correction.fixed.as_bytes());
+                Ok((added_text(&vocab, &prompt_tokens, &added.tokens, healed), added))
+            }
             Err(GenerateError::Superseded) => Err(GenerateError::Superseded),
             Err(error) => {
                 self.cache = None;
@@ -688,7 +704,8 @@ impl<'model> PromptCache<'model> {
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
     /// the end of a sentence and at the `limits`. It leaves out the word that the minimum
     /// probability cuts, and the last word at the token limit unless that word ends a sentence,
-    /// because the limit can cut it. It never leaves out the only word. Before each decode, it
+    /// because the limit can cut it. It never leaves out the only word. It adds no tokens when the
+    /// healing text is less likely than the minimum for typed letters. Before each decode, it
     /// stops when `progress` tells so, and else sends the text that it added so far.
     fn continue_prompt(
         &mut self,
@@ -698,6 +715,7 @@ impl<'model> PromptCache<'model> {
         token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
+        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
         let mut batch = LlamaBatch::new(1, 1);
@@ -707,9 +725,30 @@ impl<'model> PromptCache<'model> {
         let mut added = Vec::new();
         let mut written = Vec::new();
         let mut words = WordLogProbabilities::default();
+        let mut typed = TypedLetters::default();
         while added.len() < limits.max_added {
+            if !unwritten.is_empty() {
+                typed.add(logits, healing.pieces, unwritten);
+                if limits
+                    .min_typed_log_probability
+                    .is_some_and(|min| typed.log_probability() < min)
+                {
+                    return Ok(AddedTokens {
+                        tokens: Vec::new(),
+                        word_log_probabilities: Vec::new(),
+                        typed_log_probability: typed.log_probability(),
+                        correction: None,
+                    });
+                }
+            }
             let scores = with_bias(logits, token_bias.at(added.len()), &mut biased);
-            let (token, log_probability) = choose_token(scores, logits, healing.pieces, unwritten);
+            let (token, log_probability) = match healing.first_token.filter(|_| added.is_empty()) {
+                Some(token) => (
+                    token,
+                    agreeing_log_probability(logits, token, healing.pieces.agreeing_with(unwritten)),
+                ),
+                None => choose_token(scores, logits, healing.pieces, unwritten),
+            };
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
@@ -758,6 +797,59 @@ impl<'model> PromptCache<'model> {
         Ok(AddedTokens {
             tokens: added,
             word_log_probabilities: words.into_vec(),
+            typed_log_probability: typed.log_probability(),
+            correction: None,
+        })
+    }
+}
+
+impl PromptCache<'_> {
+    /// Continues the prompt again when `added` stopped for a typo in the `healing` text and a fix
+    /// comes: the first step takes the token of the fix, and the added tokens continue the fixed
+    /// letters. Their parts do not go to `progress`, because they do not continue the prompt.
+    /// Returns `added` when it did not stop for a typo, the `limits` ask for no fix, or no fix
+    /// comes.
+    fn continue_fixed(
+        &mut self,
+        vocab: &LlamaVocab<'_>,
+        healing: &Healing<'_>,
+        added: AddedTokens,
+        limits: Limits,
+        token_bias: &TokenBias,
+        progress: &mut Progress<'_>,
+    ) -> Result<AddedTokens, GenerateError> {
+        let Some(min) = limits.min_typed_log_probability.filter(|&min| {
+            limits.fixes_typos && added.tokens.is_empty() && added.typed_log_probability < min
+        }) else {
+            return Ok(added);
+        };
+        let Some((token, fixed)) = typo_fix(&self.logits, healing.pieces, healing.text, min, |token| {
+            vocab.token_to_piece(token, false, None)
+        }) else {
+            return Ok(added);
+        };
+        let fixed_healing = Healing {
+            pieces: healing.pieces,
+            text: fixed.as_bytes(),
+            first_token: Some(token),
+        };
+        let mut quiet = Progress {
+            is_outdated: &mut *progress.is_outdated,
+            send_partial: &mut |_| {},
+        };
+        let limits = Limits {
+            min_typed_log_probability: None,
+            fixes_typos: false,
+            ..limits
+        };
+        let fixed_added = self.continue_prompt(vocab, &fixed_healing, limits, token_bias, &mut quiet)?;
+        Ok(AddedTokens {
+            typed_log_probability: added.typed_log_probability,
+            correction: Some(Correction {
+                typed: String::from_utf8_lossy(healing.text).into_owned(),
+                fixed,
+            }),
+            ..fixed_added
         })
     }
 }
@@ -794,12 +886,45 @@ impl TokenBias {
 struct Healing<'text> {
     pieces: &'text TokenPieces,
     text: &'text [u8],
+    /// The token that the first step takes, from the fix of a typo, if any.
+    first_token: Option<LlamaToken>,
 }
 
-/// The tokens that a completion added, and how likely the model found each word of them.
+/// How likely the model finds the healed text, which holds the typed letters of the last word. It
+/// takes the higher of two estimates. The healing path can write a word in pieces that the model
+/// seldom saw, such as a lone space and then the word. The tokens that cover the text at the first
+/// step miss a word that the model splits in other places.
+#[derive(Debug, Default)]
+struct TypedLetters {
+    /// The sum of the log probabilities of the agreeing tokens at each healing step.
+    path: f32,
+    /// The log probability of the tokens that cover the healed text at the first healing step.
+    cover: Option<f32>,
+}
+
+impl TypedLetters {
+    /// Adds a healing step with `logits`, where the `unwritten` text stays to write.
+    fn add(&mut self, logits: &[f32], pieces: &TokenPieces, unwritten: &[u8]) {
+        self.path += typed_log_probability(logits, pieces.agreeing_with(unwritten));
+        self.cover
+            .get_or_insert_with(|| typed_log_probability(logits, pieces.covering(unwritten)));
+    }
+
+    /// The higher of the two estimates, or zero before a healing step.
+    fn log_probability(&self) -> LogProbability {
+        LogProbability(self.cover.map_or(self.path, |cover| cover.max(self.path)))
+    }
+}
+
+/// The tokens that a completion added, how likely the model found each word of them, and how likely
+/// it found the healed text.
 struct AddedTokens {
     tokens: Vec<LlamaToken>,
     word_log_probabilities: Vec<LogProbability>,
+    /// How likely the model found the healed text, up to the stop for a typo.
+    typed_log_probability: LogProbability,
+    /// The fix of a typo in the healed text, which the tokens continue, if any.
+    correction: Option<Correction>,
 }
 
 /// Sums the log probabilities of the added tokens for each word that they write.
@@ -961,6 +1086,59 @@ fn agreeing_log_probability(
         .map(|other| (logit_of(logits, other) - chosen).exp())
         .sum::<f32>();
     -total.ln()
+}
+
+/// Returns the most likely token among the first [`FIX_CANDIDATES`] of `logits` whose text,
+/// `piece_of`, fixes the `typed` letters with one edit, and the fixed letters. The fixed letters
+/// must be at least as likely as `min`, so that the fix is not a typo too. `None` when no such
+/// token comes.
+fn typo_fix(
+    logits: &[f32],
+    pieces: &TokenPieces,
+    typed: &[u8],
+    min: LogProbability,
+    piece_of: impl Fn(LlamaToken) -> Vec<u8>,
+) -> Option<(LlamaToken, String)> {
+    let typed = str::from_utf8(typed).ok()?;
+    most_likely_tokens(logits, FIX_CANDIDATES)
+        .into_iter()
+        .filter_map(|token| {
+            let piece = String::from_utf8(piece_of(token)).ok()?;
+            Some((token, correction::fixed_letters(typed, &piece)?))
+        })
+        .find(|(_, fixed)| typed_log_probability(logits, pieces.covering(fixed.as_bytes())) >= min.0)
+}
+
+/// Returns the `count` most likely tokens of `logits`, the most likely first, with the lowest id
+/// first among equally likely ones.
+fn most_likely_tokens(logits: &[f32], count: usize) -> Vec<LlamaToken> {
+    let mut ranked = logits
+        .iter()
+        .enumerate()
+        .map(|(index, &logit)| (logit, index))
+        .collect::<Vec<_>>();
+    let by_logit =
+        |left: &(f32, usize), right: &(f32, usize)| right.0.total_cmp(&left.0).then(left.1.cmp(&right.1));
+    if count < ranked.len() {
+        ranked.select_nth_unstable_by(count, by_logit);
+        ranked.truncate(count);
+    }
+    ranked.sort_unstable_by(by_logit);
+    ranked
+        .into_iter()
+        .map(|(_, index)| LlamaToken(i32::try_from(index).expect("the vocabulary fits in i32")))
+        .collect()
+}
+
+/// Returns the natural log of the probability that `logits` give to all of the `agreeing` tokens
+/// together: how likely the model finds the next typed letters.
+fn typed_log_probability(logits: &[f32], agreeing: impl Iterator<Item = LlamaToken>) -> f32 {
+    let highest = highest_of(logits);
+    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
+    let typed = agreeing
+        .map(|token| (logit_of(logits, token) - highest).exp())
+        .sum::<f32>();
+    typed.ln() - total.ln()
 }
 
 fn highest_of(logits: &[f32]) -> f32 {
@@ -1357,6 +1535,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         }
     }
 
@@ -1521,6 +1701,166 @@ mod tests {
             agreeing_log_probability(&logits, LlamaToken(0), [LlamaToken(0), LlamaToken(1)].into_iter());
 
         assert_near(log_probability, 0.75_f32.ln());
+    }
+
+    #[test]
+    fn typed_log_probability_is_the_softmax_share_of_all_agreeing_tokens() {
+        let logits = [3.0_f32.ln(), 1.0_f32.ln(), 5.0_f32.ln()];
+
+        let log_probability = typed_log_probability(&logits, [LlamaToken(0), LlamaToken(1)].into_iter());
+
+        assert_near(log_probability, (4.0_f32 / 9.0).ln());
+    }
+
+    fn space_and_cost_pieces() -> TokenPieces {
+        TokenPieces::new(
+            [" ", " cost", " costume", "cost", " cat"]
+                .iter()
+                .zip(0..)
+                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
+        )
+    }
+
+    #[test]
+    fn typed_letters_are_as_likely_as_the_tokens_that_cover_them_when_the_healing_path_is_less_likely() {
+        let pieces = space_and_cost_pieces();
+        let mut typed = TypedLetters::default();
+
+        typed.add(
+            &[
+                4.0_f32.ln(),
+                1.0_f32.ln(),
+                3.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+            ],
+            &pieces,
+            b" cost",
+        );
+        typed.add(
+            &[
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                96.0_f32.ln(),
+            ],
+            &pieces,
+            b"cost",
+        );
+
+        assert_near(typed.log_probability().0, 0.4_f32.ln());
+    }
+
+    #[test]
+    fn typed_letters_are_as_likely_as_the_healing_path_when_the_cover_is_less_likely() {
+        let pieces = space_and_cost_pieces();
+        let mut typed = TypedLetters::default();
+
+        typed.add(
+            &[
+                8.0_f32.ln(),
+                1.0_f32.ln(),
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                1.0_f32.ln(),
+            ],
+            &pieces,
+            b" cost",
+        );
+        typed.add(
+            &[
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                1.0_f32.ln(),
+                0.0_f32.ln(),
+            ],
+            &pieces,
+            b"cost",
+        );
+
+        assert_near(typed.log_probability().0, 0.9_f32.ln());
+    }
+
+    fn delivery_pieces() -> Vec<&'static str> {
+        vec![" de", " delivery", " dlei", " details", " deli", " the"]
+    }
+
+    fn piece_of(pieces: &[&str], token: LlamaToken) -> Vec<u8> {
+        let index = usize::try_from(token.0).expect("a test token is never negative");
+        pieces[index].as_bytes().to_vec()
+    }
+
+    fn token_pieces(pieces: &[&str]) -> TokenPieces {
+        TokenPieces::new(
+            pieces
+                .iter()
+                .zip(0..)
+                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
+        )
+    }
+
+    #[test]
+    fn most_likely_tokens_come_first() {
+        let tokens = most_likely_tokens(&[1.0, 5.0, 3.0, 4.0], 3);
+
+        assert_eq!(tokens, [1, 3, 2].map(LlamaToken));
+    }
+
+    #[test]
+    fn typo_gets_the_fix_of_the_most_likely_token_one_edit_away() {
+        let pieces = delivery_pieces();
+        let logits = [2.0, 6.0, 0.0, 1.0, 1.0, 9.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" dlei",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, Some((LlamaToken(1), " deli".to_owned())));
+    }
+
+    #[test]
+    fn fix_that_also_looks_like_a_typo_is_left_out() {
+        let pieces = delivery_pieces();
+        let logits = [0.0, 0.0, 0.0, 0.0, 0.0, 20.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" dlei",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn letters_without_a_close_token_get_no_fix() {
+        let pieces = delivery_pieces();
+        let logits = [2.0, 6.0, 0.0, 1.0, 1.0, 9.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" qzxw",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn letters_without_a_healing_step_are_certain() {
+        let typed = TypedLetters::default();
+
+        assert_near(typed.log_probability().0, 0.0);
     }
 
     #[test]

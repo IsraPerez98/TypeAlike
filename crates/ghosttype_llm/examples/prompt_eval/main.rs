@@ -5,7 +5,7 @@
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
-//!     [--tail-cut on|off]
+//!     [--tail-cut on|off] [--typo-rule on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -35,6 +35,7 @@
 //!   the case has words, the word bias comes from them, and else from `history`.
 //! - `next`: the text that the writer typed next. It is empty when Enter did not start a new line.
 //! - `typo`: `true` when the last word of `before` has a typo. It can be left out.
+//! - `fixed`: for a typo case, `before` without the typo. It can be left out.
 //!
 //! The eval uses the default settings with the backend of `--backend`, the clipboard and the
 //! earlier writing on, and `clipboard` is a copy that came just before. `--notes` gives the notes
@@ -111,6 +112,13 @@
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
 //! has no log probability.
+//!
+//! `--typo-rule` turns the rule for typos of the app `on` (the default) or `off`. The report gives
+//! a table for each cut of the typed letters of the last word: the typo cases that it catches, and
+//! the cases with a next word that it hides. Run it with `--typo-rule off` to choose a cut. With the
+//! rule on, the app also fixes typos. The report counts the fixes of the typo cases that write the
+//! word of `fixed` and `next` (`typo fixes`), and the fixes of the other cases (`other fixes`),
+//! which each change a word without a typo.
 
 mod likelihood;
 mod score;
@@ -137,8 +145,8 @@ use ghosttype_core::inference::{
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, WordChoice,
-    WriterName, WriterNotes,
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, TypoRule,
+    WordChoice, WriterName, WriterNotes,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
@@ -146,13 +154,13 @@ use serde::de::DeserializeOwned;
 
 use crate::likelihood::Continuation;
 use crate::score::{
-    CaseKind, Comparison, Outcome, Summary, WordCounts, cumulative_log_probabilities, is_match, next_word,
-    words,
+    CaseKind, Comparison, Outcome, Summary, WordCounts, cumulative_log_probabilities, fixed_word,
+    intended_word, is_match, next_word, words,
 };
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--word-choice off|light|medium|strong] [--tail-cut on|off]";
+     [--word-choice off|light|medium|strong] [--tail-cut on|off] [--typo-rule on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -166,6 +174,7 @@ struct Arguments {
     cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
     tail_cut: TailCut,
+    typo_rule: TypoRule,
 }
 
 /// Whether the suggestions stop when the text after the first word gets unlikely, as in the app.
@@ -192,6 +201,7 @@ impl Arguments {
             cpu_cores: None,
             word_choice: WordChoice::Off,
             tail_cut: TailCut::On,
+            typo_rule: TypoRule::default(),
         };
         for option in options.chunks(2) {
             match option {
@@ -203,6 +213,7 @@ impl Arguments {
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
+                [name, rule] if name == "--typo-rule" => parsed.typo_rule = typo_rule_named(rule)?,
                 _ => return None,
             }
         }
@@ -226,6 +237,15 @@ fn tail_cut_named(name: &str) -> Option<TailCut> {
     match name {
         "on" => Some(TailCut::On),
         "off" => Some(TailCut::Off),
+        _ => None,
+    }
+}
+
+/// Returns the typo rule with `name` in [`USAGE`], or `None` for another name.
+fn typo_rule_named(name: &str) -> Option<TypoRule> {
+    match name {
+        "on" => Some(TypoRule::HideSuggestions),
+        "off" => Some(TypoRule::Suggest),
         _ => None,
     }
 }
@@ -279,6 +299,8 @@ struct Case {
     next: String,
     #[serde(default)]
     typo: bool,
+    #[serde(default)]
+    fixed: Option<String>,
 }
 
 impl Case {
@@ -555,6 +577,8 @@ struct Answer {
     reaction: Reaction,
     prompt: Option<String>,
     word_log_probabilities: Vec<LogProbability>,
+    typed_log_probability: Option<LogProbability>,
+    fixed_word: Option<String>,
 }
 
 /// What one key in the field of a case gave.
@@ -617,6 +641,8 @@ impl Typing<'_> {
                 reaction,
                 prompt: None,
                 word_log_probabilities: Vec::new(),
+                typed_log_probability: None,
+                fixed_word: None,
             });
         };
         let prompt = match &request {
@@ -630,10 +656,21 @@ impl Typing<'_> {
             .as_ref()
             .map(|completion| completion.word_log_probabilities.clone())
             .unwrap_or_default();
+        let typed_log_probability = completion
+            .as_ref()
+            .ok()
+            .map(|completion| completion.typed_log_probability);
+        let reaction = app.on_completion(completion);
+        let fixed_word = match &reaction {
+            Reaction::ShowFix(fix) => Some(fixed_word(&fix.word).to_owned()),
+            _ => None,
+        };
         Ok(Answer {
-            reaction: app.on_completion(completion),
+            reaction,
             prompt,
             word_log_probabilities,
+            typed_log_probability,
+            fixed_word,
         })
     }
 
@@ -697,7 +734,7 @@ fn run_case(
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, &typing.typed_field) {
-        Reaction::Accept { text, .. } => text,
+        Reaction::Accept { text, .. } | Reaction::Replace { text, .. } => text,
         _ => String::new(),
     };
     let (_, warm) = typing.press_last_key(model, Preparation::Decode)?;
@@ -724,6 +761,14 @@ fn run_case(
                 words(shown).len(),
             ),
             words: WordCounts::of(shown, &case.next),
+            typed_log_probability: cold
+                .answer
+                .typed_log_probability
+                .map(|log_probability| f64::from(log_probability.0)),
+            is_fix_right: cold.answer.fixed_word.as_ref().map(|word| {
+                *word == intended_word(case.fixed.as_deref().unwrap_or(&case.before), &case.next)
+            }),
+            fixed_word: cold.answer.fixed_word,
             suggestion,
             millis: cold.millis,
             warm_millis: Some(warm.millis),
@@ -769,7 +814,17 @@ fn write_report(
     writeln!(output, "partial word:  {}", summary.partial_word)?;
     if summary.typo.cases > 0 {
         writeln!(output, "typo word:     {}", summary.typo)?;
+        writeln!(
+            output,
+            "typo fixes:    {} right, {} wrong",
+            summary.typo_fixes.right, summary.typo_fixes.wrong
+        )?;
     }
+    writeln!(
+        output,
+        "other fixes:   {} right, {} wrong",
+        summary.other_fixes.right, summary.other_fixes.wrong
+    )?;
     if summary.no_new_line.cases > 0 {
         writeln!(output, "no new line:   {}", summary.no_new_line)?;
     }
@@ -847,6 +902,19 @@ fn write_word_report(output: &mut impl Write, summary: &Summary) -> io::Result<(
             point.wrong
         )?;
     }
+    writeln!(output, "typo cut        caught  hidden  matches hidden")?;
+    for point in &summary.typo_cut {
+        writeln!(
+            output,
+            "  {:>5.1}         {:>2}/{:<3}  {:>3}/{:<4} {}",
+            point.log_probability,
+            point.caught,
+            point.typos,
+            point.hidden,
+            point.others,
+            point.hidden_matches
+        )?;
+    }
     Ok(())
 }
 
@@ -879,6 +947,7 @@ fn main() -> anyhow::Result<()> {
         writer_notes: WriterNotes(arguments.notes.clone()),
         writer_name: WriterName(arguments.name.clone()),
         prompt_preparation: PromptPreparation::OnFocus,
+        typo_rule: arguments.typo_rule,
         personalization: PersonalizationSettings {
             history: HistoryAccess::On,
             word_choice: arguments.word_choice,
@@ -1058,7 +1127,22 @@ mod tests {
                 cpu_cores: None,
                 word_choice: WordChoice::Off,
                 tail_cut: TailCut::On,
+                typo_rule: TypoRule::HideSuggestions,
             })
+        );
+    }
+
+    #[test]
+    fn typo_rule_option_turns_the_typo_rule_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let rules = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--typo-rule", name]).map(|arguments| arguments.typo_rule)
+        });
+
+        assert_eq!(
+            rules,
+            [Some(TypoRule::HideSuggestions), Some(TypoRule::Suggest), None]
         );
     }
 

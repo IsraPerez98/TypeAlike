@@ -1,12 +1,18 @@
 //! Colors, and shapes and grayscale text coverage turned into premultiplied color pixels for
 //! alpha-blended windows.
 
+use std::ops::Range;
+
 /// Samples along each axis of a pixel, to find how much of the pixel a shape covers.
 const SAMPLES_PER_AXIS: i32 = 4;
 const SAMPLES_PER_PIXEL: u32 = 16;
 /// Sample coordinates count in steps of half the distance between samples, so that each sample is
 /// in the middle of its part of the pixel.
 const STEPS_PER_PIXEL: i32 = 2 * SAMPLES_PER_AXIS;
+/// A line through text is about this many times thinner than the text is high.
+const STRIKE_THICKNESS_DIVISOR: usize = 14;
+/// The middle of the small letters of a line of text, in percent of its height from the top.
+const STRIKE_MIDDLE_PERCENT: usize = 55;
 
 /// An opaque color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +60,47 @@ pub(crate) fn tint_by_coverage(pixels: &mut [u32], color: Rgb) {
     for pixel in pixels {
         *pixel = premultiplied(color, coverage(*pixel));
     }
+}
+
+/// Recolors `pixels` (BGRA, white text drawn on black, `width` pixels in each row) as
+/// [`tint_by_coverage`] does, with the color of the span of `spans` that holds the column of each
+/// pixel. A pixel in no span keeps its coverage in white.
+pub(crate) fn tint_spans(pixels: &mut [u32], width: usize, spans: &[(Range<usize>, Rgb)]) {
+    for (index, pixel) in pixels.iter_mut().enumerate() {
+        let column = index % width.max(1);
+        let color = spans
+            .iter()
+            .find(|(columns, _)| columns.contains(&column))
+            .map_or(Rgb::WHITE, |&(_, color)| color);
+        *pixel = premultiplied(color, coverage(*pixel));
+    }
+}
+
+/// Fills the pixels at `columns` and `rows` of `pixels` (`width` pixels in each row) with the
+/// opaque `color`.
+pub(crate) fn fill_band(
+    pixels: &mut [u32],
+    width: usize,
+    columns: Range<usize>,
+    rows: Range<usize>,
+    color: Rgb,
+) {
+    for row in rows {
+        for column in columns.clone().filter(|&column| column < width) {
+            if let Some(pixel) = pixels.get_mut(row * width + column) {
+                *pixel = premultiplied(color, u8::MAX);
+            }
+        }
+    }
+}
+
+/// Returns the rows of a line through text `height` pixels high: about one fourteenth of the height
+/// thick, and at the middle of the small letters.
+pub(crate) fn strike_rows(height: usize) -> Range<usize> {
+    let thickness = (height / STRIKE_THICKNESS_DIVISOR).max(1);
+    let middle = height * STRIKE_MIDDLE_PERCENT / 100;
+    let top = middle.saturating_sub(thickness / 2);
+    top..(top + thickness).min(height)
 }
 
 fn coverage(pixel: u32) -> u8 {
@@ -171,6 +218,46 @@ fn over(front: u32, backdrop: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const RED: Rgb = Rgb {
+        red: 255,
+        green: 0,
+        blue: 0,
+    };
+
+    #[test]
+    fn each_span_tints_its_columns_by_coverage() {
+        let mut pixels = [u32::MAX; 4];
+
+        tint_spans(&mut pixels, 2, &[(0..1, RED), (1..2, Rgb::BLACK)]);
+
+        assert_eq!(
+            pixels,
+            [
+                premultiplied(RED, 255),
+                premultiplied(Rgb::BLACK, 255),
+                premultiplied(RED, 255),
+                premultiplied(Rgb::BLACK, 255)
+            ]
+        );
+    }
+
+    #[test]
+    fn band_fills_only_its_columns_and_rows() {
+        let mut pixels = [0_u32; 6];
+
+        fill_band(&mut pixels, 3, 0..2, 1..2, RED);
+
+        let red = premultiplied(RED, 255);
+        assert_eq!(pixels, [0, 0, 0, red, red, 0]);
+    }
+
+    #[test]
+    fn strike_is_one_row_for_small_text_and_thicker_for_large_text() {
+        let rows = [strike_rows(14), strike_rows(42)];
+
+        assert_eq!(rows, [7..8, 22..25]);
+    }
 
     const GRAY: Rgb = Rgb {
         red: 0x80,

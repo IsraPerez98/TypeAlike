@@ -10,8 +10,8 @@ use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
-    NextWordBias, Prompt, TokenCount,
+    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability,
+    ModelRunner, NextWordBias, Prompt, TokenCount,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{PromptPreparation, Settings};
@@ -118,14 +118,30 @@ const TWO_WORDS_REMOVED: &str = "Thank you for the quick reply. I read the new t
 const LAST_WORD_CHANGED: &str = "Thank you for the quick reply. I read the new terms for the";
 
 fn completion_request(prompt: &str) -> Reaction {
+    request_of(prompt, Typos::Ignore)
+}
+
+/// What a request does with a typo in the last word of its prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typos {
+    Ignore,
+    Hide,
+    Fix,
+}
+
+fn request_of(prompt: &str, typos: Typos) -> Reaction {
     Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
+        min_typed_log_probability: (typos != Typos::Ignore).then_some(TYPO_CUT),
+        fixes_typos: typos == Typos::Fix,
     })
 }
+
+const TYPO_CUT: LogProbability = LogProbability(-11.0);
 
 fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
     model
@@ -166,6 +182,8 @@ fn next_word_bias_picks_only_the_first_word() {
         word_bias: None,
         next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
         min_log_probability: None,
+        min_typed_log_probability: None,
+        fixes_typos: false,
     });
 
     let text = model
@@ -278,6 +296,8 @@ fn long_prompt_after_another_long_prompt_completes() {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
+        min_typed_log_probability: None,
+        fixes_typos: false,
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -363,6 +383,55 @@ fn completion_gives_a_log_probability_for_each_word() {
 
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn word_with_a_typo_adds_no_text_below_the_typo_cut() {
+    let mut model = LoadedModel::load();
+
+    let completion = model
+        .complete(request_of("Thank you for the quick rpel", Typos::Hide))
+        .expect("the model answers the prompt");
+
+    assert!(
+        completion.text.is_empty() && completion.typed_log_probability < TYPO_CUT,
+        "unexpected {completion:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
+    let mut model = LoadedModel::load();
+
+    let completion = model
+        .complete(request_of("Thank you for the quick rpel", Typos::Fix))
+        .expect("the model answers the prompt");
+
+    let fixed = completion
+        .correction
+        .as_ref()
+        .map(|correction| correction.fixed.as_str());
+    assert!(
+        fixed == Some(" repl") && completion.text.starts_with('y'),
+        "unexpected {completion:?} with {fixed:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
+fn word_without_a_typo_finishes_above_the_typo_cut() {
+    let mut model = LoadedModel::load();
+
+    let completion = model
+        .complete(request_of("Thank you for the quick rep", Typos::Hide))
+        .expect("the model completes the prompt");
+
+    assert!(
+        !completion.text.is_empty() && completion.typed_log_probability > TYPO_CUT,
+        "unexpected {completion:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn completion_of_no_tokens_adds_no_text() {
     let mut model = LoadedModel::load();
 
@@ -372,6 +441,8 @@ fn completion_of_no_tokens_adds_no_text() {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
+        min_typed_log_probability: None,
+        fixes_typos: false,
     }));
 
     assert!(

@@ -118,7 +118,7 @@ pub enum SettledWork {
 /// use ghosttype_core::app::{App, Field};
 /// use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
 /// use ghosttype_core::engine::Reaction;
-/// use ghosttype_core::inference::{Completion, TokenCount};
+/// use ghosttype_core::inference::{Completion, LogProbability, TokenCount};
 /// use ghosttype_core::key::Key;
 ///
 /// struct Editor;
@@ -136,6 +136,8 @@ pub enum SettledWork {
 ///     tokens: TokenCount(2),
 ///     duration: Duration::from_millis(80),
 ///     word_log_probabilities: Vec::new(),
+///     typed_log_probability: LogProbability::default(),
+///     correction: None,
 /// }));
 ///
 /// assert_eq!(
@@ -394,8 +396,8 @@ mod tests {
     use crate::desktop::{
         Confidence, CopiedText, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings,
     };
-    use crate::engine::TAIL_CUT;
-    use crate::inference::{NextWordBias, TokenCount};
+    use crate::engine::{TAIL_CUT, TYPO_CUT};
+    use crate::inference::{LogProbability, NextWordBias, TokenCount};
     use crate::prompt::{framed_prompt, prompt_with_notes};
     use crate::settings::{HistoryAccess, OcrLevel, PersonalizationSettings, ScreenTextAccess, WriterNotes};
 
@@ -487,6 +489,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
         }
     }
 
@@ -497,6 +501,8 @@ mod tests {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(TAIL_CUT),
+            min_typed_log_probability: Some(TYPO_CUT),
+            fixes_typos: true,
         })
     }
 
@@ -511,6 +517,8 @@ mod tests {
             tokens: TokenCount(1),
             duration: Duration::ZERO,
             word_log_probabilities: Vec::new(),
+            typed_log_probability: LogProbability::default(),
+            correction: None,
         })
     }
 
@@ -621,6 +629,8 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(TAIL_CUT),
+                min_typed_log_probability: Some(TYPO_CUT),
+                fixes_typos: true,
             })
         );
     }

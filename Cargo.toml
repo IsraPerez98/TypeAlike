@@ -80,6 +80,7 @@ objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "std",
     "NSArray",
+    "NSAttributedString",
     "NSDate",
     "NSEnumerator",
     "NSGeometry",
@@ -91,12 +92,14 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "NSString",
     "NSTimer",
     "NSURL",
+    "NSValue",
 ] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "std",
     "libc",
     "NSAccessibilityProtocols",
     "NSApplication",
+    "NSAttributedString",
     "NSBox",
     "NSButton",
     "NSCell",
@@ -127,6 +130,7 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSStatusBar",
     "NSStatusBarButton",
     "NSStatusItem",
+    "NSStringDrawing",
     "NSSwitch",
     "NSTabView",
     "NSTabViewController",
