@@ -112,6 +112,8 @@ pub enum Row {
     AppSwitch(AppSwitch),
     /// A setting that takes one value of a list.
     Picker(Picker),
+    /// A setting that takes one value of a list for one app.
+    AppPicker(AppPicker),
     /// Text of several lines that the user writes.
     TextArea(TextArea),
     /// A line of text that the user writes.
@@ -138,6 +140,7 @@ impl Row {
             Self::Switch(switch) => Some(&switch.id),
             Self::AppSwitch(switch) => Some(&switch.id),
             Self::Picker(picker) => Some(&picker.id),
+            Self::AppPicker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
             Self::TextLine(text_line) => Some(&text_line.id),
             Self::TextField(text_field) => Some(&text_field.id),
@@ -196,6 +199,27 @@ pub struct Picker {
     pub is_enabled: bool,
     /// The status of the setting, or a hint, below the description.
     pub note: Option<Note>,
+}
+
+/// A menu that picks the value of a setting for one app, after the icon and the name of the app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppPicker {
+    /// The menu. Picking an entry gives [`SettingsInput::Picked`].
+    pub id: ControlId,
+    /// The id of the app, from which the platform finds the app and its icon on macOS.
+    pub app_id: String,
+    /// The full path of the program of the app, from which the platform loads its icon on
+    /// Windows.
+    pub app_path: Option<String>,
+    /// The name of the app, as the user knows it.
+    pub app_name: String,
+    /// Menu entries, top to bottom, as labels in sentence case, which each platform shows in its
+    /// own case. Never empty.
+    pub choices: Vec<String>,
+    /// Index of the entry the menu shows.
+    pub selected: usize,
+    /// Whether the user can open the menu. A menu that the user cannot open shows dimmed.
+    pub is_enabled: bool,
 }
 
 /// What the text of the entries of a menu is.

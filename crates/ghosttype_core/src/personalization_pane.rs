@@ -1,9 +1,11 @@
 //! The Personalization pane of the settings window: whether suggestions use the text that the
 //! user wrote before, in which apps, and how much they prefer the words of the user.
 
-use crate::settings::{HistoryAccess, HistoryApp, KeptTexts, PersonalizationSettings, WordChoice};
+use crate::settings::{
+    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
+};
 use crate::settings_view::{
-    AppSwitch, Button, ChoiceText, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
+    AppPicker, Button, ChoiceText, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
     SettingsInput, Switch,
 };
 
@@ -16,12 +18,12 @@ pub enum PersonalizationAction {
     SelectKeptTexts(KeptTexts),
     /// Picked how much suggestions prefer the words of the user.
     SelectWordChoice(WordChoice),
-    /// Turned the switch of the app with this id on or off.
-    SwitchApp {
+    /// Picked which earlier writing the app with this id gives and gets.
+    SelectAppScope {
         /// The id of the app.
         app_id: String,
-        /// Whether the switch is on now.
-        is_on: bool,
+        /// The scope that the menu shows now.
+        scope: HistoryScope,
     },
     /// Pressed the button that deletes all the saved text.
     Delete,
@@ -44,7 +46,7 @@ pub enum PersonalizationChange {
 pub(crate) const HISTORY: &str = "personalization";
 const KEPT_TEXTS: &str = "personalization-kept-texts";
 const WORD_CHOICE: &str = "personalization-word-choice";
-const APP_SWITCH_PREFIX: &str = "personalization-app:";
+const APP_PREFIX: &str = "personalization-app:";
 pub(crate) const DELETE: &str = "personalization-delete";
 const PANE_TITLE: &str = "Personalization";
 const PANE_SUMMARY: &str = "Suggestions can use text that you wrote before. GhostType saves this text only on \
@@ -71,9 +73,15 @@ const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
 ];
 const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
 const APPS_HEADING: &str = "Apps";
-const APPS_FOOTER: &str = "GhostType saves text only from the apps that are on. When you type in an app for the \
-     first time, GhostType adds the app to this list. When you turn off an app, GhostType deletes the text that \
-     it saved from the app.";
+const APP_SCOPE_CHOICES: [(HistoryScope, &str); 3] = [
+    (HistoryScope::Off, "Off"),
+    (HistoryScope::ThisApp, "Only this app"),
+    (HistoryScope::AllApps, "All apps"),
+];
+const APPS_FOOTER: &str = "GhostType saves text only from the apps that are not off. The text of an app with “All \
+     apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text of the same app \
+     first. When you type in an app for the first time, GhostType adds the app to this list. When you turn off \
+     an app, GhostType deletes the text that it saved from the app.";
 const NO_APPS: &str = "This list has no apps.";
 const DELETE_DESCRIPTION: &str = "This deletes all the text that GhostType saved. You cannot undo this.";
 const DELETE_LABEL: &str = "Delete all earlier writing";
@@ -142,22 +150,22 @@ impl PersonalizationPane {
             PersonalizationAction::SelectWordChoice(choice) => {
                 change_to(&mut self.settings.word_choice, choice)
             }
-            PersonalizationAction::SwitchApp { app_id, is_on } => self.switch_app(app_id, is_on),
+            PersonalizationAction::SelectAppScope { app_id, scope } => self.select_app_scope(app_id, scope),
         }
     }
 
-    fn switch_app(&mut self, app_id: String, is_on: bool) -> PersonalizationChange {
+    fn select_app_scope(&mut self, app_id: String, scope: HistoryScope) -> PersonalizationChange {
         let Some(app) = self.settings.apps.iter_mut().find(|app| app.app_id == app_id) else {
             return PersonalizationChange::None;
         };
-        if app.is_on == is_on {
+        if app.scope == scope {
             return PersonalizationChange::None;
         }
-        app.is_on = is_on;
-        if is_on {
-            PersonalizationChange::Settings
-        } else {
+        app.scope = scope;
+        if scope == HistoryScope::Off {
             PersonalizationChange::AppOff(app_id)
+        } else {
+            PersonalizationChange::Settings
         }
     }
 
@@ -179,11 +187,12 @@ impl PersonalizationPane {
                     HistoryAccess::Off
                 }))
             }
-            SettingsInput::Toggled { id, is_on } => {
-                let app_id = id.as_str().strip_prefix(APP_SWITCH_PREFIX)?;
-                Some(PersonalizationAction::SwitchApp {
+            SettingsInput::Picked { id, index } => {
+                let app_id = id.as_str().strip_prefix(APP_PREFIX)?;
+                let &(scope, _) = APP_SCOPE_CHOICES.get(*index)?;
+                Some(PersonalizationAction::SelectAppScope {
                     app_id: app_id.to_owned(),
-                    is_on: *is_on,
+                    scope,
                 })
             }
             _ => None,
@@ -258,12 +267,19 @@ impl PersonalizationPane {
             .apps
             .iter()
             .map(|app| {
-                Row::AppSwitch(AppSwitch {
-                    id: ControlId::from(format!("{APP_SWITCH_PREFIX}{}", app.app_id)),
+                Row::AppPicker(AppPicker {
+                    id: ControlId::from(format!("{APP_PREFIX}{}", app.app_id)),
                     app_id: app.app_id.clone(),
                     app_path: app.app_path.clone(),
                     app_name: app.app_name.clone(),
-                    is_on: app.is_on,
+                    choices: APP_SCOPE_CHOICES
+                        .iter()
+                        .map(|&(_, title)| title.to_owned())
+                        .collect(),
+                    selected: APP_SCOPE_CHOICES
+                        .iter()
+                        .position(|&(scope, _)| scope == app.scope)
+                        .expect("each scope has a menu entry"),
                     is_enabled,
                 })
             })
@@ -307,12 +323,12 @@ fn picker<Value: PartialEq + Copy>(
 mod tests {
     use super::*;
 
-    fn app(app_id: &str, app_name: &str, is_on: bool) -> HistoryApp {
+    fn app(app_id: &str, app_name: &str, scope: HistoryScope) -> HistoryApp {
         HistoryApp {
             app_id: app_id.to_owned(),
             app_name: app_name.to_owned(),
             app_path: None,
-            is_on,
+            scope,
         }
     }
 
@@ -328,6 +344,13 @@ mod tests {
         SettingsInput::Toggled {
             id: ControlId::from(id.to_owned()),
             is_on,
+        }
+    }
+
+    fn app_picked(app_id: &str, index: usize) -> SettingsInput {
+        SettingsInput::Picked {
+            id: ControlId::from(format!("personalization-app:{app_id}")),
+            index,
         }
     }
 
@@ -437,21 +460,43 @@ mod tests {
     }
 
     #[test]
-    fn app_switches_show_each_app_and_dim_when_the_main_switch_is_off() {
-        let pane = pane_with(HistoryAccess::Off, vec![app("com.apple.mail", "Mail", true)]);
+    fn app_menus_show_the_scope_of_each_app_and_dim_when_the_main_switch_is_off() {
+        let pane = pane_with(
+            HistoryAccess::Off,
+            vec![app("com.apple.mail", "Mail", HistoryScope::ThisApp)],
+        );
 
         let shown = pane.page();
 
         assert_eq!(
             shown.sections[1].rows,
-            [Row::AppSwitch(AppSwitch {
+            [Row::AppPicker(AppPicker {
                 id: ControlId::from("personalization-app:com.apple.mail".to_owned()),
                 app_id: "com.apple.mail".to_owned(),
                 app_path: None,
                 app_name: "Mail".to_owned(),
-                is_on: true,
+                choices: ["Off", "Only this app", "All apps"].map(str::to_owned).to_vec(),
+                selected: 1,
                 is_enabled: false,
             })]
+        );
+    }
+
+    #[test]
+    fn app_list_tells_what_each_scope_does() {
+        let pane = pane_with(HistoryAccess::On, Vec::new());
+
+        let shown = pane.page();
+
+        assert_eq!(
+            shown.sections[1].footer,
+            Some(
+                "GhostType saves text only from the apps that are not off. The text of an app with “All \
+                 apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text \
+                 of the same app first. When you type in an app for the first time, GhostType adds the app \
+                 to this list. When you turn off an app, GhostType deletes the text that it saved from the \
+                 app."
+            )
         );
     }
 
@@ -479,7 +524,8 @@ mod tests {
             picked(KEPT_TEXTS, 1),
             picked(WORD_CHOICE, 3),
             picked(WORD_CHOICE, 4),
-            toggled("personalization-app:com.apple.mail", false),
+            app_picked("com.apple.mail", 1),
+            app_picked("com.apple.mail", 3),
             SettingsInput::Pressed(ControlId::new(DELETE)),
             toggled("screen-text-app:com.apple.mail", false),
         ];
@@ -494,10 +540,11 @@ mod tests {
                 Some(PersonalizationAction::SelectKeptTexts(KeptTexts::All)),
                 Some(PersonalizationAction::SelectWordChoice(WordChoice::Strong)),
                 None,
-                Some(PersonalizationAction::SwitchApp {
+                Some(PersonalizationAction::SelectAppScope {
                     app_id: "com.apple.mail".to_owned(),
-                    is_on: false,
+                    scope: HistoryScope::ThisApp,
                 }),
+                None,
                 Some(PersonalizationAction::Delete),
                 None,
             ]
@@ -537,18 +584,28 @@ mod tests {
     }
 
     #[test]
-    fn app_off_asks_to_delete_its_text_and_app_on_only_changes_the_settings() {
-        let mut pane = pane_with(HistoryAccess::On, vec![app("com.apple.mail", "Mail", true)]);
-        let switch = |is_on| PersonalizationAction::SwitchApp {
+    fn app_off_asks_to_delete_its_text_and_other_scopes_only_change_the_settings() {
+        let mut pane = pane_with(
+            HistoryAccess::On,
+            vec![app("com.apple.mail", "Mail", HistoryScope::AllApps)],
+        );
+        let select = |scope| PersonalizationAction::SelectAppScope {
             app_id: "com.apple.mail".to_owned(),
-            is_on,
+            scope,
         };
 
-        let changes = [switch(false), switch(false), switch(true)].map(|action| pane.on_action(action));
+        let changes = [
+            HistoryScope::ThisApp,
+            HistoryScope::Off,
+            HistoryScope::Off,
+            HistoryScope::AllApps,
+        ]
+        .map(|scope| pane.on_action(select(scope)));
 
         assert_eq!(
             changes,
             [
+                PersonalizationChange::Settings,
                 PersonalizationChange::AppOff("com.apple.mail".to_owned()),
                 PersonalizationChange::None,
                 PersonalizationChange::Settings,
@@ -560,9 +617,9 @@ mod tests {
     fn unknown_app_changes_nothing() {
         let mut pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let change = pane.on_action(PersonalizationAction::SwitchApp {
+        let change = pane.on_action(PersonalizationAction::SelectAppScope {
             app_id: "unknown.exe".to_owned(),
-            is_on: false,
+            scope: HistoryScope::Off,
         });
 
         assert_eq!(change, PersonalizationChange::None);

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ghosttype_core::settings_view::{
-    self as view, Accessory, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker, Row,
-    SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
+    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker,
+    Row, SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, Component, ComponentContext,
@@ -127,6 +127,7 @@ impl Renderer<'_, '_> {
             Row::Switch(switch) => self.switch_card(switch),
             Row::AppSwitch(switch) => self.app_switch_card(switch),
             Row::Picker(picker) => self.picker_card(picker),
+            Row::AppPicker(picker) => self.app_picker_card(picker),
             Row::TextArea(area) => self.text_area_card(area),
             Row::TextLine(line) => self.text_line_card(line),
             Row::TextField(field) => self.text_field_card(field),
@@ -166,10 +167,34 @@ impl Renderer<'_, '_> {
                     is_on,
                 })
             }));
-        let icon = switch
-            .app_path
-            .as_ref()
-            .and_then(|path| self.app_icons.get(path).cloned().flatten());
+        self.app_card(switch.app_path.as_deref(), &switch.app_name, toggle.into())
+    }
+
+    /// A card with the icon and the name of an app at the leading edge and its menu at the
+    /// trailing edge.
+    fn app_picker_card(&self, picker: &AppPicker) -> View {
+        let id = picker.id.clone();
+        let menu = ComboBox::new()
+            .items_source(picker.choices.iter().map(String::as_str))
+            .selected_index(picker.selected)
+            .is_enabled(picker.is_enabled)
+            .min_width(PICKER_MIN_WIDTH)
+            .automation_name(&picker.app_name)
+            .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
+                selection.map_or(PageMessage::Ignore, |index| {
+                    PageMessage::Input(SettingsInput::Picked {
+                        id: id.clone(),
+                        index,
+                    })
+                })
+            }));
+        self.app_card(picker.app_path.as_deref(), &picker.app_name, menu.into())
+    }
+
+    /// A card with the icon of the program at `app_path` and `app_name` at the leading edge, and
+    /// `control` at the trailing edge.
+    fn app_card(&self, app_path: Option<&str>, app_name: &str, control: View) -> View {
+        let icon = app_path.and_then(|path| self.app_icons.get(path).cloned().flatten());
         let icon: View = match icon {
             Some(icon) => Image::new()
                 .source_data(icon)
@@ -187,7 +212,7 @@ impl Renderer<'_, '_> {
                     .vertical_alignment(VerticalAlignment::Center)
                     .content(icon),
                 TextBlock::new()
-                    .text(&switch.app_name)
+                    .text(app_name)
                     .vertical_alignment(VerticalAlignment::Center)
                     .text_wrapping(TextWrapping::Wrap),
             ));
@@ -195,7 +220,7 @@ impl Renderer<'_, '_> {
             Grid::new()
                 .columns([GridLength::STAR, GridLength::Auto])
                 .column_spacing(CONTROL_GAP)
-                .children((name.grid_column(0), control_with_column(toggle.into())))
+                .children((name.grid_column(0), control_with_column(control)))
                 .into(),
         )
     }

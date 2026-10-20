@@ -6,7 +6,7 @@ use std::{fmt, mem};
 use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
-use crate::history::{self, HistoryEntry, Phrases};
+use crate::history::{self, HistoryEntry, HistoryPool, HistoryTables, Place};
 use crate::inference::{
     CONTEXT_TOKENS, Completion, Correction, InferenceError, InferenceRequest, LogProbability, NextWordBias,
     Prompt, TokenCount, WordBias,
@@ -15,8 +15,8 @@ use crate::key::Key;
 use crate::place;
 use crate::prompt::{self, Writer, estimated_tokens, last_chars, last_tokens};
 use crate::settings::{
-    ClipboardAccess, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp, ScreenTextSettings,
-    Settings, SuggestionLength, TypoFix, TypoRule, WriterName, WriterNotes,
+    ClipboardAccess, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp,
+    ScreenTextSettings, Settings, SuggestionLength, TypoFix, TypoRule, WriterName, WriterNotes,
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
@@ -131,12 +131,11 @@ pub(crate) struct Engine {
     history: Vec<HistoryEntry>,
     /// Whether `history` changed since the last [`Engine::history_to_save`].
     has_unsaved_history: bool,
-    /// The preference for the words of `history`, if the word choice is on.
-    word_bias: Option<WordBias>,
+    /// The preference for the words of each pool of `history`, the phrases that it repeats and the
+    /// words after its runs of words, which have none when the word choice is off.
+    tables: HistoryTables,
+    /// The newest version of a word bias of `tables`.
     word_bias_version: u64,
-    /// The phrases that `history` repeats and the words after its runs of words, which have none
-    /// when the word choice is off.
-    phrases: Phrases,
 }
 
 impl Default for Engine {
@@ -158,9 +157,8 @@ impl Default for Engine {
             personalization: PersonalizationSettings::default(),
             history: Vec::new(),
             has_unsaved_history: false,
-            word_bias: None,
+            tables: HistoryTables::default(),
             word_bias_version: 0,
-            phrases: Phrases::default(),
         };
         engine.use_settings(&Settings::default());
         engine
@@ -263,7 +261,7 @@ impl Engine {
     /// Uses the writer name, the writer notes, the clipboard access and the personalization of
     /// `settings` from the next session on, and its suggestion length from the next request on.
     pub fn use_settings(&mut self, settings: &Settings) {
-        let word_choice = self.personalization.word_choice;
+        let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
         self.writer_notes = settings.writer_notes.clone();
         self.writer_name = settings.writer_name.clone();
         self.personalization = settings.personalization.clone();
@@ -272,15 +270,15 @@ impl Engine {
         self.typo_rule = settings.typo_rule;
         self.typo_fix = settings.typo_fix;
         self.matching_examples = settings.matching_examples();
-        if self.personalization.word_choice != word_choice {
-            self.refresh_word_choice();
+        if needs_new_tables {
+            self.refresh_tables();
         }
     }
 
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next session on.
     pub fn use_history(&mut self, entries: Vec<HistoryEntry>) {
         self.history = entries;
-        self.refresh_word_choice();
+        self.refresh_tables();
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
@@ -388,12 +386,7 @@ impl Engine {
         if self.history.is_empty() {
             return false;
         }
-        let surroundings = desktop.surroundings();
-        let is_allowed = surroundings
-            .app_id
-            .as_deref()
-            .is_some_and(|app_id| self.personalization.allows(app_id));
-        is_allowed && history::has_text_in_place(&self.history, &surroundings)
+        history::session_texts(&self.history, &desktop.surroundings(), &self.personalization).has_local()
     }
 
     /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
@@ -496,7 +489,10 @@ impl Engine {
             return;
         };
         let is_wanted = session.has_accepted || self.personalization.kept_texts == KeptTexts::All;
-        if session.is_excluded || !is_wanted || !self.personalization.allows(&app.app_id) {
+        if session.is_excluded
+            || !is_wanted
+            || self.personalization.scope_of(&app.app_id) == HistoryScope::Off
+        {
             return;
         }
         let domain = session.domain.as_deref();
@@ -506,11 +502,12 @@ impl Engine {
             session.field_chars,
             &app.app_id,
             domain,
+            &self.personalization,
         );
         let Some(entry) = HistoryEntry::of(written, &app.app_id, domain) else {
             return;
         };
-        history::add(&mut self.history, entry);
+        history::add(&mut self.history, entry, &self.personalization);
         self.has_unsaved_history = true;
     }
 
@@ -520,7 +517,7 @@ impl Engine {
         if !mem::take(&mut self.has_unsaved_history) {
             return None;
         }
-        self.refresh_word_choice();
+        self.refresh_tables();
         Some(&self.history)
     }
 
@@ -672,12 +669,8 @@ impl Engine {
             Screen::Read(text) => Some(text),
             Screen::Unknown | Screen::Reading { .. } => None,
         };
-        let examples = surroundings
-            .app_id
-            .as_ref()
-            .filter(|app_id| self.personalization.allows(app_id))
-            .map(|_| history::examples(&self.history, surroundings, screen, self.matching_examples))
-            .unwrap_or_default();
+        let texts = history::session_texts(&self.history, surroundings, &self.personalization);
+        let examples = history::examples(&texts, surroundings, screen, self.matching_examples);
         let writer = Writer {
             notes: &self.writer_notes.0,
             name: &self.writer_name.0,
@@ -793,55 +786,50 @@ impl Engine {
         (self.typo_rule == TypoRule::HideSuggestions).then_some(TYPO_CUT)
     }
 
-    /// The word bias, when the personalization allows the app of the session.
-    fn session_word_bias(&self) -> Option<WordBias> {
-        let app = self.session.as_ref()?.app.as_ref()?;
-        self.personalization
-            .allows(&app.app_id)
-            .then(|| self.word_bias.clone())
-            .flatten()
+    /// The pool of the earlier writing that the session uses, and the place of the session. `None`
+    /// when no session runs or its app is off.
+    fn session_pool(&self) -> Option<(&Session, HistoryPool, Place<&str>)> {
+        let session = self.session.as_ref()?;
+        let app = session.app.as_ref()?;
+        let pool = HistoryPool::of(&app.app_id, &self.personalization)?;
+        Some((session, pool, Place::of(&app.app_id, session.domain.as_deref())))
     }
 
-    /// The words that the writer wrote after the last words before the caret, when the
-    /// personalization allows the app of the session.
+    /// The word bias of the pool of the session.
+    fn session_word_bias(&self) -> Option<WordBias> {
+        let (_, pool, _) = self.session_pool()?;
+        self.tables.word_bias(&pool)
+    }
+
+    /// The words that the writer wrote after the last words before the caret, in the pool of the
+    /// session.
     fn session_next_word_bias(&self) -> NextWordBias {
-        self.session
-            .as_ref()
-            .filter(|session| {
-                let app = session.app.as_ref();
-                app.is_some_and(|app| self.personalization.allows(&app.app_id))
-            })
-            .map(|session| self.phrases.next_word_bias(&session.text_before))
+        self.session_pool()
+            .map(|(session, pool, place)| self.tables.next_word_bias(&pool, place, &session.text_before))
             .unwrap_or_default()
     }
 
-    /// The rest of a phrase that the writer repeats after the text before the caret, when the
-    /// personalization allows the app of the session and the line after the caret is empty.
+    /// The rest of a phrase that the writer repeats after the text before the caret, in the pool
+    /// of the session, when the line after the caret is empty.
     fn repeated_phrase(&self) -> Option<String> {
-        let session = self.session.as_ref().filter(|session| !session.is_excluded)?;
-        let app = session.app.as_ref()?;
+        let (session, pool, place) = self.session_pool()?;
         let is_line_end = session
             .text_after
             .lines()
             .next()
             .is_none_or(|line| line.trim().is_empty());
-        if !is_line_end || !self.personalization.allows(&app.app_id) {
+        if session.is_excluded || !is_line_end {
             return None;
         }
-        self.phrases
-            .continuation_of(&session.text_before)
+        self.tables
+            .continuation_of(&pool, place, &session.text_before)
             .map(str::to_owned)
     }
 
-    /// Builds the word bias, with a new version, and the phrases again from the history.
-    fn refresh_word_choice(&mut self) {
-        self.word_bias_version = self.word_bias_version.wrapping_add(1);
-        self.word_bias = history::word_bias(
-            &self.history,
-            self.personalization.word_choice,
-            self.word_bias_version,
-        );
-        self.phrases = history::phrases(&self.history, self.personalization.word_choice);
+    /// Builds the word bias of each pool, with new versions, and the phrases again from the
+    /// history.
+    fn refresh_tables(&mut self) {
+        self.tables = HistoryTables::of(&self.history, &self.personalization, &mut self.word_bias_version);
     }
 
     /// Returns the prompt for the text before the caret, or `None` when that text has no words or
@@ -885,6 +873,18 @@ impl Engine {
 
 /// Returns the most estimated tokens of the text before the caret in a prompt with `preface`, so
 /// that the prompt leaves room for the longest completion.
+/// Whether the tables of the earlier writing for the personalization `new` differ from the tables
+/// for `old`: another word choice, or another scope of an app.
+fn needs_new_tables(old: &PersonalizationSettings, new: &PersonalizationSettings) -> bool {
+    old.word_choice != new.word_choice
+        || old.history != new.history
+        || old
+            .apps
+            .iter()
+            .chain(&new.apps)
+            .any(|app| old.scope_of(&app.app_id) != new.scope_of(&app.app_id))
+}
+
 fn tokens_before_caret(preface: &str) -> TokenCount {
     let room = CONTEXT_TOKENS
         .0
@@ -2258,12 +2258,12 @@ mod tests {
         }
     }
 
-    fn mail_app(is_on: bool) -> HistoryApp {
+    fn mail_app(scope: HistoryScope) -> HistoryApp {
         HistoryApp {
             app_id: "com.apple.mail".to_owned(),
             app_name: "Mail".to_owned(),
             app_path: None,
-            is_on,
+            scope,
         }
     }
 
@@ -2305,7 +2305,7 @@ mod tests {
     fn earlier_writing_stays_out_when_the_history_or_the_app_is_off() {
         let settings = [
             history_settings(HistoryAccess::Off, Vec::new()),
-            history_settings(HistoryAccess::On, vec![mail_app(false)]),
+            history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
         ];
 
         let reactions =
@@ -2410,7 +2410,7 @@ mod tests {
                 field_of(Some("com.apple.mail"), None, GREETING),
             ),
             (
-                history_settings(HistoryAccess::On, vec![mail_app(false)]),
+                history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
                 field_of(Some("com.apple.mail"), None, GREETING),
             ),
             (
@@ -2571,7 +2571,7 @@ mod tests {
     fn request_has_no_word_bias_when_the_history_or_the_app_is_off() {
         let settings = [
             word_choice_settings(HistoryAccess::Off, Vec::new()),
-            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
         ];
 
         let biases = settings.map(|settings| {
@@ -2584,20 +2584,29 @@ mod tests {
     #[test]
     fn new_word_choice_or_new_history_gives_a_new_version() {
         let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
-        let first = engine.word_bias.clone().map(|bias| bias.version);
+        let first = engine
+            .tables
+            .word_bias(&HistoryPool::Shared)
+            .map(|bias| bias.version);
         engine.use_settings(&{
             let mut settings = word_choice_settings(HistoryAccess::On, Vec::new());
             settings.personalization.word_choice = WordChoice::Strong;
             settings
         });
-        let second = engine.word_bias.clone().map(|bias| bias.version);
+        let second = engine
+            .tables
+            .word_bias(&HistoryPool::Shared)
+            .map(|bias| bias.version);
         finish_typing(
             &mut engine,
             &field_of(Some("com.apple.mail"), None, GREETING),
             true,
         );
 
-        let third = engine.word_bias.clone().map(|bias| bias.version);
+        let third = engine
+            .tables
+            .word_bias(&HistoryPool::Shared)
+            .map(|bias| bias.version);
 
         assert!(first < second && second < third, "{first:?} {second:?} {third:?}");
     }
@@ -2646,7 +2655,7 @@ mod tests {
         let settings = [
             history_settings(HistoryAccess::On, Vec::new()),
             word_choice_settings(HistoryAccess::Off, Vec::new()),
-            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
         ];
 
         let requests = settings.map(|settings| {
@@ -2684,7 +2693,7 @@ mod tests {
         let settings = [
             history_settings(HistoryAccess::On, Vec::new()),
             word_choice_settings(HistoryAccess::Off, Vec::new()),
-            word_choice_settings(HistoryAccess::On, vec![mail_app(false)]),
+            word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
         ];
 
         let next = settings.map(|settings| next_word_bias_after(&settings, "Please let me know"));
@@ -2701,6 +2710,115 @@ mod tests {
         let reaction = engine.on_completion(Err(InferenceError::Superseded));
 
         assert_eq!(reaction, show(" if"));
+    }
+
+    const CHAT_APP: &str = "net.whatsapp.WhatsApp";
+    const OTHER_CHAT_APP: &str = "com.tinyspeck.slackmacgap";
+
+    fn app_with(app_id: &str, scope: HistoryScope) -> HistoryApp {
+        HistoryApp {
+            app_id: app_id.to_owned(),
+            app_name: app_id.to_owned(),
+            app_path: None,
+            scope,
+        }
+    }
+
+    fn chat_entry(text: &str) -> HistoryEntry {
+        HistoryEntry {
+            app_id: CHAT_APP.to_owned(),
+            ..mail_entry(text)
+        }
+    }
+
+    /// The settings of each case of the pools: the chat app, then the other chat app.
+    fn pool_cases() -> [(HistoryScope, HistoryScope); 3] {
+        [
+            (HistoryScope::AllApps, HistoryScope::AllApps),
+            (HistoryScope::ThisApp, HistoryScope::AllApps),
+            (HistoryScope::AllApps, HistoryScope::ThisApp),
+        ]
+    }
+
+    fn pool_settings((chat, other_chat): (HistoryScope, HistoryScope)) -> Settings {
+        word_choice_settings(
+            HistoryAccess::On,
+            vec![app_with(CHAT_APP, chat), app_with(OTHER_CHAT_APP, other_chat)],
+        )
+    }
+
+    #[test]
+    fn only_apps_with_all_apps_give_examples_to_each_other() {
+        let shared = pool_cases().map(|scopes| {
+            let mut engine = engine_with(&pool_settings(scopes));
+            engine.use_history(vec![chat_entry("See you at the station at six")]);
+            let reaction = engine.on_key(Key::Char('h'), &field_of(Some(OTHER_CHAT_APP), None, ""));
+            matches!(reaction, Reaction::Request(InferenceRequest::Complete { prompt, .. })
+                if prompt.0.contains("See you at the station"))
+        });
+
+        assert_eq!(shared, [true, false, false]);
+    }
+
+    #[test]
+    fn only_apps_with_all_apps_give_phrases_to_each_other() {
+        let shown = pool_cases().map(|scopes| {
+            let mut engine = engine_with(&pool_settings(scopes));
+            engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+            let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
+            engine.on_key(Key::Char(' '), &desktop) == show("if")
+        });
+
+        assert_eq!(shown, [true, false, false]);
+    }
+
+    #[test]
+    fn only_apps_with_all_apps_give_next_words_and_word_bias_to_each_other() {
+        let biases = pool_cases().map(|scopes| {
+            let mut engine = engine_with(&pool_settings(scopes));
+            engine.use_history(vec![
+                chat_entry("Let me know if it works. Reckon reckon reckon."),
+                chat_entry("Let me know when you can."),
+            ]);
+            let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
+            match engine.on_key(Key::Char(' '), &desktop) {
+                Reaction::Request(InferenceRequest::Complete {
+                    word_bias,
+                    next_word_bias,
+                    ..
+                }) => (word_bias.is_some(), !next_word_bias.0.is_empty()),
+                _ => (false, false),
+            }
+        });
+
+        assert_eq!(biases, [(true, true), (false, false), (false, false)]);
+    }
+
+    #[test]
+    fn app_with_only_this_app_uses_its_own_texts() {
+        let mut engine = engine_with(&pool_settings((HistoryScope::ThisApp, HistoryScope::AllApps)));
+        engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+
+        let reaction = engine.on_key(
+            Key::Char(' '),
+            &field_of(Some(CHAT_APP), None, "Please let me know"),
+        );
+
+        assert_eq!(reaction, show("if"));
+    }
+
+    #[test]
+    fn new_scope_of_an_app_builds_the_tables_again() {
+        let mut engine = engine_with(&pool_settings((HistoryScope::AllApps, HistoryScope::AllApps)));
+        engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+        engine.use_settings(&pool_settings((HistoryScope::ThisApp, HistoryScope::AllApps)));
+
+        let reaction = engine.on_key(
+            Key::Char(' '),
+            &field_of(Some(OTHER_CHAT_APP), None, "Please let me know"),
+        );
+
+        assert!(matches!(reaction, Reaction::Request(_)), "{reaction:?}");
     }
 
     #[test]

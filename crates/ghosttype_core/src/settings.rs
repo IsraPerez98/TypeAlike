@@ -220,8 +220,21 @@ pub enum WordChoice {
     Strong,
 }
 
-/// An app of the Personalization pane, and whether GhostType saves and uses the text that the
-/// user writes in it.
+/// Which earlier writing an app gives to suggestions and gets from them. An app gives its text
+/// only to the apps that it gets text from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryScope {
+    /// GhostType saves no text of the app, and suggestions in the app use no earlier writing.
+    Off,
+    /// GhostType saves the text of the app, and suggestions in the app use only the text of the
+    /// app.
+    ThisApp,
+    /// GhostType saves the text of the app, and suggestions in each app with this scope use the
+    /// text of all these apps, the text of the same app or web page first.
+    AllApps,
+}
+
+/// An app of the Personalization pane, and which earlier writing it gives and gets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryApp {
     /// The id of the app, as [`Surroundings::app_id`] gives it.
@@ -230,19 +243,19 @@ pub struct HistoryApp {
     pub app_name: String,
     /// The full path of the program of the app, as [`Surroundings::app_path`] gives it.
     pub app_path: Option<String>,
-    /// Whether GhostType saves and uses the text of the app.
-    pub is_on: bool,
+    /// Which earlier writing the app gives and gets.
+    pub scope: HistoryScope,
 }
 
 impl HistoryApp {
-    /// The entry of `app`, where the user types, which is on unless the app is a password manager
-    /// or a terminal.
+    /// The entry of `app`, where the user types, which shares its text with all apps unless the
+    /// app is a password manager or a terminal.
     pub(crate) fn of(app: &ScreenTextApp) -> Self {
         Self {
             app_id: app.app_id.clone(),
             app_name: app.app_name.clone(),
             app_path: app.app_path.clone(),
-            is_on: is_history_on_by_default(&app.app_id),
+            scope: default_scope(&app.app_id),
         }
     }
 }
@@ -261,25 +274,30 @@ pub struct PersonalizationSettings {
 }
 
 impl PersonalizationSettings {
-    /// Whether GhostType saves and uses the text of the app with `app_id`. An app that is not in
-    /// the list yet is on, unless it is a password manager or a terminal.
+    /// Which earlier writing the app with `app_id` gives and gets. Each app is off while the main
+    /// switch is off. An app that is not in the list yet shares with all apps, unless it is a
+    /// password manager or a terminal.
     ///
     /// ```
-    /// use ghosttype_core::settings::{HistoryAccess, PersonalizationSettings};
+    /// use ghosttype_core::settings::{HistoryAccess, HistoryScope, PersonalizationSettings};
     ///
     /// let settings = PersonalizationSettings {
     ///     history: HistoryAccess::On,
     ///     ..PersonalizationSettings::default()
     /// };
     ///
-    /// assert!(settings.allows("com.apple.mail"));
-    /// assert!(!settings.allows("com.apple.Terminal"));
+    /// assert_eq!(settings.scope_of("com.apple.mail"), HistoryScope::AllApps);
+    /// assert_eq!(settings.scope_of("com.apple.Terminal"), HistoryScope::Off);
     /// ```
     #[must_use]
-    pub fn allows(&self, app_id: &str) -> bool {
-        let entry = self.apps.iter().find(|app| app.app_id == app_id);
-        self.history == HistoryAccess::On
-            && entry.map_or_else(|| is_history_on_by_default(app_id), |app| app.is_on)
+    pub fn scope_of(&self, app_id: &str) -> HistoryScope {
+        if self.history == HistoryAccess::Off {
+            return HistoryScope::Off;
+        }
+        self.apps
+            .iter()
+            .find(|app| app.app_id == app_id)
+            .map_or_else(|| default_scope(app_id), |app| app.scope)
     }
 
     /// Adds `app` to the list in its alphabetical place, unless the list has an app with its id.
@@ -297,8 +315,12 @@ impl PersonalizationSettings {
     }
 }
 
-fn is_history_on_by_default(app_id: &str) -> bool {
-    !is_password_manager(app_id) && !is_terminal(app_id)
+fn default_scope(app_id: &str) -> HistoryScope {
+    if is_password_manager(app_id) || is_terminal(app_id) {
+        HistoryScope::Off
+    } else {
+        HistoryScope::AllApps
+    }
 }
 
 /// Whether the app with `app_id` is a terminal, whose text GhostType does not save unless the
@@ -627,12 +649,12 @@ mod tests {
         assert_eq!(settings.apps, [app("com.apple.mail", "Mail", false)]);
     }
 
-    fn history_app(app_id: &str, app_name: &str, is_on: bool) -> HistoryApp {
+    fn history_app(app_id: &str, app_name: &str, scope: HistoryScope) -> HistoryApp {
         HistoryApp {
             app_id: app_id.to_owned(),
             app_name: app_name.to_owned(),
             app_path: None,
-            is_on,
+            scope,
         }
     }
 
@@ -645,51 +667,63 @@ mod tests {
     }
 
     #[test]
-    fn new_history_app_is_on_unless_the_app_is_a_password_manager_or_a_terminal() {
+    fn new_history_app_shares_with_all_apps_unless_it_is_a_password_manager_or_a_terminal() {
         let cases = [
-            ("com.apple.mail", true),
-            ("com.1password.1password", false),
-            ("com.apple.Terminal", false),
-            ("WindowsTerminal.exe", false),
-            ("pwsh.exe", false),
+            ("com.apple.mail", HistoryScope::AllApps),
+            ("com.1password.1password", HistoryScope::Off),
+            ("com.apple.Terminal", HistoryScope::Off),
+            ("WindowsTerminal.exe", HistoryScope::Off),
+            ("pwsh.exe", HistoryScope::Off),
         ];
 
-        let switches = cases.map(|(app_id, _)| HistoryApp::of(&app(app_id, "App", true)).is_on);
+        let scopes = cases.map(|(app_id, _)| HistoryApp::of(&app(app_id, "App", true)).scope);
 
-        assert_eq!(switches, cases.map(|(_, is_on)| is_on));
+        assert_eq!(scopes, cases.map(|(_, scope)| scope));
     }
 
     #[test]
-    fn history_app_switch_decides_for_its_app() {
+    fn scope_of_an_app_in_the_list_is_its_own() {
         let settings = personalization(
             HistoryAccess::On,
             vec![
-                history_app("com.apple.mail", "Mail", false),
-                history_app("com.apple.Terminal", "Terminal", true),
+                history_app("com.apple.mail", "Mail", HistoryScope::Off),
+                history_app("com.apple.Notes", "Notes", HistoryScope::ThisApp),
+                history_app("com.apple.Terminal", "Terminal", HistoryScope::AllApps),
             ],
         );
 
-        let allowed = [
-            "com.apple.mail",
-            "com.apple.Terminal",
-            "com.apple.notes",
-            "cmd.exe",
-        ]
-        .map(|app_id| settings.allows(app_id));
+        let scopes = ["com.apple.mail", "com.apple.Notes", "com.apple.Terminal"]
+            .map(|app_id| settings.scope_of(app_id));
 
-        assert_eq!(allowed, [false, true, true, false]);
+        assert_eq!(
+            scopes,
+            [HistoryScope::Off, HistoryScope::ThisApp, HistoryScope::AllApps]
+        );
     }
 
     #[test]
-    fn history_off_allows_no_app() {
+    fn scope_of_an_app_that_is_not_in_the_list_is_all_apps_unless_it_is_a_password_manager_or_a_terminal() {
+        let settings = personalization(HistoryAccess::On, Vec::new());
+
+        let scopes =
+            ["com.apple.notes", "com.1password.1password", "cmd.exe"].map(|app_id| settings.scope_of(app_id));
+
+        assert_eq!(
+            scopes,
+            [HistoryScope::AllApps, HistoryScope::Off, HistoryScope::Off]
+        );
+    }
+
+    #[test]
+    fn history_off_turns_off_each_app() {
         let settings = personalization(
             HistoryAccess::Off,
-            vec![history_app("com.apple.mail", "Mail", true)],
+            vec![history_app("com.apple.mail", "Mail", HistoryScope::AllApps)],
         );
 
-        let allowed = ["com.apple.mail", "com.apple.notes"].map(|app_id| settings.allows(app_id));
+        let scopes = ["com.apple.mail", "com.apple.notes"].map(|app_id| settings.scope_of(app_id));
 
-        assert_eq!(allowed, [false, false]);
+        assert_eq!(scopes, [HistoryScope::Off, HistoryScope::Off]);
     }
 
     #[test]
@@ -697,9 +731,9 @@ mod tests {
         let mut settings = personalization(HistoryAccess::On, Vec::new());
 
         let added = [
-            history_app("slack.exe", "Slack", true),
-            history_app("com.apple.mail", "mail", true),
-            history_app("slack.exe", "Slack", false),
+            history_app("slack.exe", "Slack", HistoryScope::AllApps),
+            history_app("com.apple.mail", "mail", HistoryScope::AllApps),
+            history_app("slack.exe", "Slack", HistoryScope::Off),
         ]
         .map(|entry| settings.add(&entry));
 
@@ -707,8 +741,8 @@ mod tests {
         assert_eq!(
             settings.apps,
             [
-                history_app("com.apple.mail", "mail", true),
-                history_app("slack.exe", "Slack", true)
+                history_app("com.apple.mail", "mail", HistoryScope::AllApps),
+                history_app("slack.exe", "Slack", HistoryScope::AllApps)
             ]
         );
     }

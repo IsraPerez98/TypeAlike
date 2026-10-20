@@ -10,7 +10,7 @@ use crate::desktop::{FieldText, ScreenText, Surroundings};
 use crate::inference::{NextWordBias, TokenCount, WordBias};
 use crate::place::{self, Format};
 use crate::prompt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens};
-use crate::settings::WordChoice;
+use crate::settings::{HistoryScope, PersonalizationSettings, WordChoice};
 
 /// The most texts that GhostType keeps. The oldest text of the place with the most texts goes
 /// first.
@@ -129,12 +129,8 @@ impl HistoryEntry {
         })
     }
 
-    fn place(&self) -> Place<'_> {
+    fn place(&self) -> Place<&str> {
         Place::of(&self.app_id, self.domain.as_deref())
-    }
-
-    fn is_in_place_of(&self, surroundings: &Surroundings) -> bool {
-        Place::of_field(surroundings) == Some(self.place())
     }
 
     /// Whether the texts start with the same [`MIN_SHARED_CHARS`] characters, or end with them.
@@ -155,17 +151,20 @@ impl HistoryEntry {
     }
 }
 
-/// Where the user wrote a text: a web page in any browser, else an app.
+/// Where the user wrote a text: a web page in any browser, else an app. `Text` is `&str` for a
+/// place that borrows the names, and `String` for a key of a table.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Place<'text> {
+pub(crate) enum Place<Text = String> {
     /// The host of the web page.
-    WebPage(&'text str),
+    WebPage(Text),
     /// The id of the app.
-    App(&'text str),
+    App(Text),
 }
 
-impl<'text> Place<'text> {
-    fn of(app_id: &'text str, domain: Option<&'text str>) -> Self {
+impl<'text> Place<&'text str> {
+    /// The place of a text that the user wrote in the app with `app_id`, on the web page of
+    /// `domain` if any.
+    pub(crate) fn of(app_id: &'text str, domain: Option<&'text str>) -> Self {
         domain.map_or(Self::App(app_id), Self::WebPage)
     }
 
@@ -177,6 +176,47 @@ impl<'text> Place<'text> {
             (None, None) => None,
         }
     }
+
+    fn owned(self) -> Place {
+        match self {
+            Self::WebPage(domain) => Place::WebPage(domain.to_owned()),
+            Self::App(app_id) => Place::App(app_id.to_owned()),
+        }
+    }
+}
+
+/// The earlier writing that a session can use: the texts of the apps whose scope gives them to
+/// the app of the session. `Debug` shows only the app id of a pool of one app.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum HistoryPool {
+    /// The texts of all the apps with [`HistoryScope::AllApps`].
+    Shared,
+    /// The texts of the app with this id, which has [`HistoryScope::ThisApp`].
+    App(String),
+}
+
+impl HistoryPool {
+    /// The pool of the app with `app_id`, or `None` when `personalization` turns the app off.
+    pub(crate) fn of(app_id: &str, personalization: &PersonalizationSettings) -> Option<Self> {
+        match personalization.scope_of(app_id) {
+            HistoryScope::Off => None,
+            HistoryScope::ThisApp => Some(Self::App(app_id.to_owned())),
+            HistoryScope::AllApps => Some(Self::Shared),
+        }
+    }
+}
+
+/// Whether `left` and `right` are in the same place and in the same pool, so that one text can
+/// replace or continue the other.
+fn is_same_spot(
+    left: &HistoryEntry,
+    right: &HistoryEntry,
+    personalization: &PersonalizationSettings,
+) -> bool {
+    left.place() == right.place()
+        && (left.app_id == right.app_id
+            || HistoryPool::of(&left.app_id, personalization)
+                == HistoryPool::of(&right.app_id, personalization))
 }
 
 /// Keeps the earlier writing of the user between runs, on this computer only.
@@ -217,21 +257,26 @@ pub trait KeyVault {
     fn store(&mut self, key: &HistoryKey) -> io::Result<()>;
 }
 
-/// Adds `entry` as the newest of `entries`. An older entry of the same place whose text the new
-/// text holds goes, and the new entry does not come when an older one holds its text. An older
-/// entry of the same place that starts or ends like the new text (a near copy) also goes. While
+/// Adds `entry` as the newest of `entries`. An older entry of the same place and the same pool of
+/// `personalization` whose text the new text holds goes, and the new entry does not come when such
+/// an older one holds its text. Such an older entry that starts or ends like the new text (a near
+/// copy) also goes. While
 /// there are more than [`MAX_ENTRIES`], the oldest entry of the place with the most entries goes,
 /// so that a busy place does not push out the texts of the rare places.
-pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
+pub(crate) fn add(
+    entries: &mut Vec<HistoryEntry>,
+    entry: HistoryEntry,
+    personalization: &PersonalizationSettings,
+) {
     let is_known = entries
         .iter()
-        .any(|known| known.place() == entry.place() && known.text.contains(&entry.text));
+        .any(|known| is_same_spot(known, &entry, personalization) && known.text.contains(&entry.text));
     if is_known {
         return;
     }
     entries.retain(|known| {
         let is_replaced = entry.text.contains(&known.text) || entry.shares_an_edge_with(known);
-        !(known.place() == entry.place() && is_replaced)
+        !(is_same_spot(known, &entry, personalization) && is_replaced)
     });
     entries.push(entry);
     while entries.len() > MAX_ENTRIES {
@@ -243,7 +288,7 @@ pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
 /// Returns the index of the oldest of `entries` in the place with the most entries. Among places
 /// with the same number of entries, the place with the oldest entry goes first.
 fn oldest_of_largest_place(entries: &[HistoryEntry]) -> usize {
-    let mut counts = HashMap::<Place<'_>, usize>::new();
+    let mut counts = HashMap::<Place<&str>, usize>::new();
     for entry in entries {
         *counts.entry(entry.place()).or_default() += 1;
     }
@@ -256,15 +301,17 @@ fn oldest_of_largest_place(entries: &[HistoryEntry]) -> usize {
 
 /// Returns the part of `text`, the text before the caret at the end of a session in the place of
 /// `app_id` and `domain`, that the user wrote. The first `field_chars` characters came from the
-/// field. They count as written by the user when `entries` hold them, because the user continues
-/// a draft, or when the user added at least [`MIN_OWN_PERCENT`] of the text. Else only the added
-/// part counts, from its first whole word.
+/// field. They count as written by the user when an entry of the same place and the same pool of
+/// `personalization` holds them, because the user continues a draft, or when the user added at
+/// least [`MIN_OWN_PERCENT`] of the text. Else only the added part counts, from its first whole
+/// word.
 pub(crate) fn own_text<'text>(
     entries: &[HistoryEntry],
     text: &'text str,
     field_chars: usize,
     app_id: &str,
     domain: Option<&str>,
+    personalization: &PersonalizationSettings,
 ) -> &'text str {
     let added_start = text
         .char_indices()
@@ -274,7 +321,7 @@ pub(crate) fn own_text<'text>(
     let is_draft = HistoryEntry::of(field, app_id, domain).is_some_and(|draft| {
         entries
             .iter()
-            .any(|known| known.place() == draft.place() && known.text.contains(&draft.text))
+            .any(|known| is_same_spot(known, &draft, personalization) && known.text.contains(&draft.text))
     });
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
     if field.trim().is_empty() || is_draft || is_mostly_added {
@@ -283,45 +330,67 @@ pub(crate) fn own_text<'text>(
     from_word(text, added)
 }
 
-/// Returns the texts of `entries`, oldest first, that a prompt in `surroundings` shows as
-/// examples: the `matching` best matching texts of the same place. In a place with at most
+/// The texts of the pool of a session, each with its index in the history, oldest first.
+pub(crate) struct SessionTexts<'entries> {
+    /// The texts in the place of the session.
+    local: Vec<(usize, &'entries HistoryEntry)>,
+    /// The texts in the other places.
+    wide: Vec<(usize, &'entries HistoryEntry)>,
+}
+
+impl SessionTexts<'_> {
+    /// Whether the session has a text of its place.
+    pub(crate) fn has_local(&self) -> bool {
+        !self.local.is_empty()
+    }
+}
+
+/// Returns the texts of `entries` that a session in the field of `surroundings` can use: the texts
+/// of the pool that `personalization` gives its app. It has none when the app is off or has no id.
+pub(crate) fn session_texts<'entries>(
+    entries: &'entries [HistoryEntry],
+    surroundings: &Surroundings,
+    personalization: &PersonalizationSettings,
+) -> SessionTexts<'entries> {
+    let pool = surroundings
+        .app_id
+        .as_deref()
+        .and_then(|app_id| HistoryPool::of(app_id, personalization));
+    let place = Place::of_field(surroundings);
+    let (local, wide) = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| pool.is_some() && HistoryPool::of(&entry.app_id, personalization) == pool)
+        .partition(|(_, entry)| Some(entry.place()) == place);
+    SessionTexts { local, wide }
+}
+
+/// Returns the texts of `texts`, oldest first, that a prompt in `surroundings` shows as examples:
+/// the `matching` best matching texts of the same place. In a place with at most
 /// [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to [`RECENT_IN_PLACE`].
 /// A place without texts gets the newest texts of other places with the same format. A text
-/// matches when it shares rare words with the text near the caret, the window, the labels of the
-/// field and the `screen`. Each example keeps the start and the end of its text. A text that the
-/// field holds now is no example, and two examples never hold the same text.
+/// matches when it shares rare words with the
+/// text near the caret, the window, the labels of the field and the `screen`. Each example keeps
+/// the start and the end of its text. A text that the field holds now is no example, and two
+/// examples never hold the same text.
 pub(crate) fn examples(
-    entries: &[HistoryEntry],
+    texts: &SessionTexts<'_>,
     surroundings: &Surroundings,
     screen: Option<&ScreenText>,
     matching: usize,
 ) -> Vec<String> {
-    let candidates = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| !is_copy_of_field(entry, surroundings.field_text.as_ref()))
-        .rev();
-    let (in_place, elsewhere): (Vec<_>, Vec<_>) =
-        candidates.partition(|(_, entry)| entry.is_in_place_of(surroundings));
-    let topics = Topics::of(entries, surroundings, screen);
-    let newest_first = in_place.clone();
-    let mut scored = in_place
-        .iter()
-        .map(|&candidate| (topics.score(&candidate.1.text), candidate))
-        .filter(|(score, _)| *score > 0.0)
-        .collect::<Vec<_>>();
-    scored.sort_by(|(left, _), (right, _)| right.total_cmp(left));
-    let best_first = scored
-        .into_iter()
-        .map(|(_, candidate)| candidate)
-        .collect::<Vec<_>>();
+    let field = surroundings.field_text.as_ref();
+    let in_place = newest_not_in_field(&texts.local, field);
+    let elsewhere = newest_not_in_field(&texts.wide, field);
+    let pool = texts.local.iter().chain(&texts.wide).map(|&(_, entry)| entry);
+    let topics = Topics::of(pool, surroundings, screen);
     let mut picked = Vec::new();
-    pick(&mut picked, &best_first, matching);
-    if newest_first.len() <= MAX_SMALL_PLACE_TEXTS {
+    pick(&mut picked, &topics.best_first(&in_place), matching);
+    if in_place.len() <= MAX_SMALL_PLACE_TEXTS {
         let missing = RECENT_IN_PLACE.saturating_sub(picked.len());
-        pick(&mut picked, &newest_first, missing);
+        pick(&mut picked, &in_place, missing);
     }
-    if newest_first.is_empty() {
+    if in_place.is_empty() {
         let format = Format::of(surroundings).filter(|format| *format != Format::WebPage);
         let same_format = elsewhere
             .iter()
@@ -339,9 +408,17 @@ pub(crate) fn examples(
         .collect()
 }
 
-/// Whether `entries` hold a text of the place of `surroundings`.
-pub(crate) fn has_text_in_place(entries: &[HistoryEntry], surroundings: &Surroundings) -> bool {
-    entries.iter().any(|entry| entry.is_in_place_of(surroundings))
+/// Returns `candidates`, newest first, without the texts that are copies of `field`.
+fn newest_not_in_field<'entries>(
+    candidates: &[(usize, &'entries HistoryEntry)],
+    field: Option<&FieldText>,
+) -> Vec<(usize, &'entries HistoryEntry)> {
+    candidates
+        .iter()
+        .rev()
+        .copied()
+        .filter(|(_, entry)| !is_copy_of_field(entry, field))
+        .collect()
 }
 
 /// Calls `visit` with each word of `text` in lowercase.
@@ -367,7 +444,11 @@ struct Topics {
 }
 
 impl Topics {
-    fn of(entries: &[HistoryEntry], surroundings: &Surroundings, screen: Option<&ScreenText>) -> Self {
+    fn of<'entries>(
+        entries: impl IntoIterator<Item = &'entries HistoryEntry>,
+        surroundings: &Surroundings,
+        screen: Option<&ScreenText>,
+    ) -> Self {
         let labels = place::field_labels(surroundings);
         let mut texts = vec![];
         if let Some(field) = &surroundings.field_text {
@@ -386,7 +467,9 @@ impl Topics {
                 }
             });
         }
+        let mut count = 0;
         for entry in entries {
+            count += 1;
             let mut seen = Vec::<String>::new();
             each_lowercase_word(&entry.text, |word| {
                 let Some(holding) = query.get_mut(word) else {
@@ -399,9 +482,24 @@ impl Topics {
             });
         }
         Self {
-            entries: entries.len(),
+            entries: count,
             query,
         }
+    }
+
+    /// Returns the `candidates` that hold a query word, best match first, from the newest among
+    /// the same matches.
+    fn best_first<'entries>(
+        &self,
+        candidates: &[(usize, &'entries HistoryEntry)],
+    ) -> Vec<(usize, &'entries HistoryEntry)> {
+        let mut scored = candidates
+            .iter()
+            .map(|&candidate| (self.score(&candidate.1.text), candidate))
+            .filter(|(score, _)| *score > 0.0)
+            .collect::<Vec<_>>();
+        scored.sort_by(|(left, _), (right, _)| right.total_cmp(left));
+        scored.into_iter().map(|(_, candidate)| candidate).collect()
     }
 
     /// The sum of the weights of the query words that `text` holds. A word that few entries hold
@@ -489,7 +587,7 @@ fn end_at_word(text: &str, count: usize) -> &str {
 /// [`MIN_WORD_CHARS`] letters, which the entries hold at least [`MIN_WORD_COUNT`] times in any
 /// case and which is not one of the [`COMMON_WORDS`]. The preference has the spelling that the
 /// entries use most.
-pub(crate) fn word_bias(entries: &[HistoryEntry], choice: WordChoice, version: u64) -> Option<WordBias> {
+fn word_bias(entries: &[&HistoryEntry], choice: WordChoice, version: u64) -> Option<WordBias> {
     let mut counts = HashMap::<String, u32>::new();
     for entry in entries {
         for word in words(&entry.text.replace(REDACTED, " ")) {
@@ -585,52 +683,164 @@ impl fmt::Debug for Phrases {
 }
 
 impl Phrases {
-    /// Returns the rest of a phrase after `text_before`, the text before the caret, up to the end
-    /// of its next word, or `None`. The text can end inside that word. The rest never goes past
-    /// the end of the line. A phrase needs the same next word, with the same signs before it, at
-    /// least [`MIN_PHRASE_COUNT`] times and in at least [`MIN_PHRASE_PERCENT`] of the times that
-    /// the writer wrote the [`PHRASE_CONTEXT_WORDS`] words before it.
-    pub(crate) fn continuation_of(&self, text_before: &str) -> Option<&str> {
-        let followers = self.followers_of(PHRASE_CONTEXT_WORDS)?;
-        let spans = runs_of(text_before, is_phrase_character);
-        let ends_inside_word = text_before.ends_with(is_phrase_character);
-        let partial_word = ends_inside_word.then(|| spans.len().checked_sub(1)).flatten();
-        [partial_word, Some(spans.len())]
-            .into_iter()
-            .flatten()
-            .find_map(|context_end| {
-                let context = spans.get(context_end.checked_sub(PHRASE_CONTEXT_WORDS)?..context_end)?;
-                let follower = repeated_follower(followers.get(&context_key(text_before, context))?)?;
-                let typed = &text_before[context.last()?.end..];
-                let rest = follower.strip_prefix(typed)?;
-                (!rest.is_empty() && !rest.contains(['\r', '\n'])).then_some(rest)
-            })
-    }
-
-    /// Returns the preference for the words that the writer wrote after the last words of
-    /// `text_before`, the text before the caret: the words after the longest run that has some.
-    /// Each word gets the strength times its share of the words after the run. When the text ends
-    /// inside a word, the run ends before that word and the words start with its letters. A word
-    /// gets no preference when a line break or no space comes before it.
-    pub(crate) fn next_word_bias(&self, text_before: &str) -> NextWordBias {
-        let spans = runs_of(text_before, is_phrase_character);
-        let partial_words = usize::from(text_before.ends_with(is_phrase_character));
-        let context_end = spans.len().saturating_sub(partial_words);
-        let words = self.runs.iter().find_map(|(context_words, followers)| {
-            let context = spans.get(context_end.checked_sub(*context_words)?..context_end)?;
-            let counts = followers.get(&context_key(text_before, context))?;
-            let typed = &text_before[context.last()?.end..];
-            let words = preferred_words(counts, typed, self.strength);
-            (!words.is_empty()).then_some(words)
-        });
-        NextWordBias(words.unwrap_or_default())
-    }
-
     fn followers_of(&self, context_words: usize) -> Option<&Followers> {
         self.runs
             .iter()
             .find(|(words, _)| *words == context_words)
             .map(|(_, followers)| followers)
+    }
+}
+
+/// Returns the rest of a phrase after `text_before`, the text before the caret, up to the end of
+/// its next word, or `None`. The text can end inside that word. The rest never goes past the end
+/// of the line. The first of `tables` that has the [`PHRASE_CONTEXT_WORDS`] words before the next
+/// word decides. A phrase needs the same next word, with the same signs before it, at least
+/// [`MIN_PHRASE_COUNT`] times and in at least [`MIN_PHRASE_PERCENT`] of the times that the writer
+/// wrote these words.
+fn continuation_in<'tables>(tables: &[&'tables Phrases], text_before: &str) -> Option<&'tables str> {
+    let spans = runs_of(text_before, is_phrase_character);
+    let ends_inside_word = text_before.ends_with(is_phrase_character);
+    let partial_word = ends_inside_word.then(|| spans.len().checked_sub(1)).flatten();
+    [partial_word, Some(spans.len())]
+        .into_iter()
+        .flatten()
+        .find_map(|context_end| {
+            let context = spans.get(context_end.checked_sub(PHRASE_CONTEXT_WORDS)?..context_end)?;
+            let key = context_key(text_before, context);
+            let counts = tables
+                .iter()
+                .find_map(|table| table.followers_of(PHRASE_CONTEXT_WORDS)?.get(&key))?;
+            let follower = repeated_follower(counts)?;
+            let typed = &text_before[context.last()?.end..];
+            let rest = follower.strip_prefix(typed)?;
+            (!rest.is_empty() && !rest.contains(['\r', '\n'])).then_some(rest)
+        })
+}
+
+/// Returns the preference for the words that the writer wrote after the last words of
+/// `text_before`, the text before the caret: the words after the longest run of the first of
+/// `tables` that has some. Each word gets the strength times its share of the words after the run.
+/// When the text ends inside a word, the run ends before that word and the words start with its
+/// letters. A word gets no preference when a line break or no space comes before it.
+fn next_word_bias_in(tables: &[&Phrases], text_before: &str) -> NextWordBias {
+    let spans = runs_of(text_before, is_phrase_character);
+    let partial_words = usize::from(text_before.ends_with(is_phrase_character));
+    let context_end = spans.len().saturating_sub(partial_words);
+    let words = tables
+        .iter()
+        .flat_map(|table| table.runs.iter().map(|run| (table.strength, run)))
+        .find_map(|(strength, (context_words, followers))| {
+            let context = spans.get(context_end.checked_sub(*context_words)?..context_end)?;
+            let counts = followers.get(&context_key(text_before, context))?;
+            let typed = &text_before[context.last()?.end..];
+            let words = preferred_words(counts, typed, strength);
+            (!words.is_empty()).then_some(words)
+        });
+    NextWordBias(words.unwrap_or_default())
+}
+
+/// The word bias and the phrases of each pool of the earlier writing, and the phrases of each place
+/// of a pool. `Debug` shows only the number of pools, so logs never hold what the user wrote.
+#[derive(Default)]
+pub(crate) struct HistoryTables {
+    pools: HashMap<HistoryPool, PoolTables>,
+}
+
+struct PoolTables {
+    word_bias: Option<WordBias>,
+    phrases: Phrases,
+    place_phrases: HashMap<Place, Phrases>,
+}
+
+impl fmt::Debug for HistoryTables {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HistoryTables")
+            .field("pools", &self.pools.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl HistoryTables {
+    /// Builds the tables of `entries` for the pools and the word choice of `personalization`. Each
+    /// word bias gets a new version after `versions`, which then holds the newest version.
+    pub(crate) fn of(
+        entries: &[HistoryEntry],
+        personalization: &PersonalizationSettings,
+        versions: &mut u64,
+    ) -> Self {
+        let mut pools = HashMap::<HistoryPool, Vec<&HistoryEntry>>::new();
+        for entry in entries {
+            if let Some(pool) = HistoryPool::of(&entry.app_id, personalization) {
+                pools.entry(pool).or_default().push(entry);
+            }
+        }
+        let pools = pools
+            .into_iter()
+            .map(|(pool, texts)| {
+                *versions = versions.wrapping_add(1);
+                (
+                    pool,
+                    PoolTables::of(&texts, personalization.word_choice, *versions),
+                )
+            })
+            .collect();
+        Self { pools }
+    }
+
+    /// The word bias of `pool`, if the word choice is on.
+    pub(crate) fn word_bias(&self, pool: &HistoryPool) -> Option<WordBias> {
+        self.pools.get(pool)?.word_bias.clone()
+    }
+
+    /// Returns the rest of a phrase that the writer repeats after `text_before`, the text before
+    /// the caret in `place`, from the texts of `pool`. The texts of the place decide when they have
+    /// the last words, else all the texts of the pool.
+    pub(crate) fn continuation_of(
+        &self,
+        pool: &HistoryPool,
+        place: Place<&str>,
+        text_before: &str,
+    ) -> Option<&str> {
+        continuation_in(&self.pool_tables(pool, place)?, text_before)
+    }
+
+    /// Returns the preference for the words that the writer wrote after the last words of
+    /// `text_before`, the text before the caret in `place`, from the texts of `pool`: the words of
+    /// the texts of the place, else the words of all the texts of the pool.
+    pub(crate) fn next_word_bias(
+        &self,
+        pool: &HistoryPool,
+        place: Place<&str>,
+        text_before: &str,
+    ) -> NextWordBias {
+        self.pool_tables(pool, place)
+            .map(|tables| next_word_bias_in(&tables, text_before))
+            .unwrap_or_default()
+    }
+
+    /// The phrases of `place` in `pool`, if any, then the phrases of `pool`.
+    fn pool_tables(&self, pool: &HistoryPool, place: Place<&str>) -> Option<Vec<&Phrases>> {
+        let tables = self.pools.get(pool)?;
+        let place_phrases = tables.place_phrases.get(&place.owned());
+        Some(place_phrases.into_iter().chain([&tables.phrases]).collect())
+    }
+}
+
+impl PoolTables {
+    fn of(texts: &[&HistoryEntry], choice: WordChoice, version: u64) -> Self {
+        let mut places = HashMap::<Place<&str>, Vec<&HistoryEntry>>::new();
+        for &entry in texts {
+            places.entry(entry.place()).or_default().push(entry);
+        }
+        Self {
+            word_bias: word_bias(texts, choice, version),
+            phrases: phrases(texts, choice),
+            place_phrases: places
+                .into_iter()
+                .map(|(place, texts)| (place.owned(), phrases(&texts, choice)))
+                .collect(),
+        }
     }
 }
 
@@ -671,7 +881,7 @@ fn small_count(count: u32) -> f32 {
 }
 
 /// Returns the phrases of `entries` for `choice`, which have none when the choice is off.
-pub(crate) fn phrases(entries: &[HistoryEntry], choice: WordChoice) -> Phrases {
+fn phrases(entries: &[&HistoryEntry], choice: WordChoice) -> Phrases {
     let Some(strength) = strength_of(choice) else {
         return Phrases::default();
     };
@@ -685,7 +895,7 @@ pub(crate) fn phrases(entries: &[HistoryEntry], choice: WordChoice) -> Phrases {
 /// Returns, for each run of `context_words` words of `entries` in any case that the writer wrote
 /// at least [`MIN_RUN_COUNT`] times, the texts that came after it up to the end of the next word,
 /// with the signs before that word, and their counts.
-fn repeated_runs(entries: &[HistoryEntry], context_words: usize) -> Followers {
+fn repeated_runs(entries: &[&HistoryEntry], context_words: usize) -> Followers {
     let mut followers = HashMap::<String, Vec<(&str, u32)>>::new();
     for part in entries.iter().flat_map(|entry| entry.text.split(REDACTED)) {
         let spans = runs_of(part, is_phrase_character);
@@ -871,6 +1081,7 @@ fn card_number_spans(text: &str) -> Vec<Range<usize>> {
 mod tests {
     use super::*;
     use crate::desktop::{Confidence, ScreenLine, ScreenRect};
+    use crate::settings::{HistoryAccess, HistoryApp};
 
     fn entry(text: &str, app_id: &str, domain: Option<&str>) -> HistoryEntry {
         HistoryEntry {
@@ -896,8 +1107,29 @@ mod tests {
         }
     }
 
+    fn shared() -> PersonalizationSettings {
+        PersonalizationSettings {
+            history: HistoryAccess::On,
+            ..PersonalizationSettings::default()
+        }
+    }
+
+    fn examples_with(
+        entries: &[HistoryEntry],
+        surroundings: &Surroundings,
+        screen: Option<&ScreenText>,
+        matching: usize,
+    ) -> Vec<String> {
+        let texts = session_texts(entries, surroundings, &shared());
+        examples(&texts, surroundings, screen, matching)
+    }
+
     fn examples_in(entries: &[HistoryEntry], surroundings: &Surroundings) -> Vec<String> {
-        examples(entries, surroundings, None, 2)
+        examples_with(entries, surroundings, None, 2)
+    }
+
+    fn refs(entries: &[HistoryEntry]) -> Vec<&HistoryEntry> {
+        entries.iter().collect()
     }
 
     fn words_of(bias: Option<WordBias>) -> Option<Vec<(String, f32)>> {
@@ -908,7 +1140,7 @@ mod tests {
     fn word_bias_holds_the_words_of_three_letters_that_come_three_times() {
         let entries = [mail("Cheers mate, ok ok ok. Cheers"), mail("Cheers MATE! Mate's")];
 
-        let bias = word_bias(&entries, WordChoice::Medium, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Medium, 1);
 
         assert_eq!(
             words_of(bias),
@@ -920,7 +1152,7 @@ mod tests {
     fn word_bias_has_the_spelling_that_the_writer_uses_most() {
         let entries = [mail("Bluefin bluefin Bluefin. reckon Reckon reckon")];
 
-        let bias = word_bias(&entries, WordChoice::Medium, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Medium, 1);
 
         let spellings =
             words_of(bias).map(|words| words.into_iter().map(|(word, _)| word).collect::<Vec<_>>());
@@ -931,7 +1163,7 @@ mod tests {
     fn word_bias_has_the_lowercase_spelling_when_two_spellings_come_the_same_times() {
         let entries = [mail("Cheers cheers Cheers cheers")];
 
-        let bias = word_bias(&entries, WordChoice::Medium, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Medium, 1);
 
         let spellings =
             words_of(bias).map(|words| words.into_iter().map(|(word, _)| word).collect::<Vec<_>>());
@@ -943,7 +1175,7 @@ mod tests {
         let entries = [mail(&"reckon ".repeat(25))];
         let choices = [WordChoice::Light, WordChoice::Medium, WordChoice::Strong];
 
-        let biases = choices.map(|choice| words_of(word_bias(&entries, choice, 1)));
+        let biases = choices.map(|choice| words_of(word_bias(&refs(&entries), choice, 1)));
 
         assert_eq!(
             biases,
@@ -955,7 +1187,7 @@ mod tests {
     fn common_words_get_no_preference() {
         let entries = [mail(&"the reckon que ".repeat(25))];
 
-        let bias = word_bias(&entries, WordChoice::Medium, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Medium, 1);
 
         assert_eq!(words_of(bias), Some(vec![("reckon".to_owned(), 1.0)]));
     }
@@ -964,7 +1196,7 @@ mod tests {
     fn word_choice_off_gives_no_bias() {
         let entries = [mail(&"reckon ".repeat(25))];
 
-        let bias = word_bias(&entries, WordChoice::Off, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Off, 1);
 
         assert_eq!(bias, None);
     }
@@ -973,7 +1205,7 @@ mod tests {
     fn redacted_secrets_are_not_words_of_the_writer() {
         let entries = [mail("key [redacted] and [redacted] or [redacted]")];
 
-        let bias = word_bias(&entries, WordChoice::Medium, 1);
+        let bias = word_bias(&refs(&entries), WordChoice::Medium, 1);
 
         assert_eq!(words_of(bias), Some(Vec::new()));
     }
@@ -986,10 +1218,8 @@ mod tests {
         ]
     }
 
-    fn continuation_in(entries: &[HistoryEntry], text_before: &str) -> Option<String> {
-        phrases(entries, WordChoice::Medium)
-            .continuation_of(text_before)
-            .map(str::to_owned)
+    fn continuation_after(entries: &[HistoryEntry], text_before: &str) -> Option<String> {
+        continuation_in(&[&phrases(&refs(entries), WordChoice::Medium)], text_before).map(str::to_owned)
     }
 
     #[test]
@@ -1002,7 +1232,7 @@ mod tests {
             ("Can you let us know ", None),
         ];
 
-        let continuations = cases.map(|(text_before, _)| continuation_in(&phrase_entries(), text_before));
+        let continuations = cases.map(|(text_before, _)| continuation_after(&phrase_entries(), text_before));
 
         assert_eq!(continuations, cases.map(|(_, next)| next.map(str::to_owned)));
     }
@@ -1021,7 +1251,7 @@ mod tests {
                 .iter()
                 .map(|word| mail(&format!("let me know {word} it works")))
                 .collect::<Vec<_>>();
-            continuation_in(&entries, "Can you let me know ")
+            continuation_after(&entries, "Can you let me know ")
         });
 
         assert_eq!(continuations, cases.map(|(_, next)| next.map(str::to_owned)));
@@ -1031,7 +1261,7 @@ mod tests {
     fn phrase_keeps_the_signs_and_the_spelling_of_the_writer() {
         let entries = vec![mail("Thanks a lot.\nBest regards,\nJordan"); 3];
 
-        let continuation = continuation_in(&entries, "Thanks a lot.\nBest regards,\nJ");
+        let continuation = continuation_after(&entries, "Thanks a lot.\nBest regards,\nJ");
 
         assert_eq!(continuation.as_deref(), Some("ordan"));
     }
@@ -1040,7 +1270,7 @@ mod tests {
     fn phrase_ends_at_the_end_of_the_line() {
         let entries = vec![mail("Thanks, kind regards,\nMateo"); 3];
 
-        let continuation = continuation_in(&entries, "Thanks, kind regards");
+        let continuation = continuation_after(&entries, "Thanks, kind regards");
 
         assert_eq!(continuation, None);
     }
@@ -1049,16 +1279,18 @@ mod tests {
     fn redacted_secret_is_no_phrase() {
         let entries = vec![mail("the code is [redacted] today"); 3];
 
-        let continuation = continuation_in(&entries, "So the code is ");
+        let continuation = continuation_after(&entries, "So the code is ");
 
         assert_eq!(continuation, None);
     }
 
     #[test]
     fn word_choice_off_gives_no_phrases() {
-        let continuation = phrases(&phrase_entries(), WordChoice::Off)
-            .continuation_of("Can you let me know ")
-            .map(str::to_owned);
+        let continuation = continuation_in(
+            &[&phrases(&refs(&phrase_entries()), WordChoice::Off)],
+            "Can you let me know ",
+        )
+        .map(str::to_owned);
 
         assert_eq!(continuation, None);
     }
@@ -1067,7 +1299,7 @@ mod tests {
     fn debug_of_the_phrases_hides_the_text() {
         let entries = [mail("let me know if"), mail("let me know if")];
 
-        let debug = format!("{:?}", phrases(&entries, WordChoice::Medium));
+        let debug = format!("{:?}", phrases(&refs(&entries), WordChoice::Medium));
 
         assert_eq!(debug, "Phrases { runs: 3, .. }");
     }
@@ -1079,7 +1311,7 @@ mod tests {
     }
 
     fn next_words_in(entries: &[HistoryEntry], choice: WordChoice, text_before: &str) -> Vec<(String, f32)> {
-        phrases(entries, choice).next_word_bias(text_before).0
+        next_word_bias_in(&[&phrases(&refs(entries), choice)], text_before).0
     }
 
     fn word(word: &str, weight: f32) -> (String, f32) {
@@ -1161,6 +1393,70 @@ mod tests {
 
         assert_eq!(next.first(), Some(&word("ax", 0.2)));
         assert_eq!(next.len(), 8);
+    }
+
+    fn place_and_pool_entries() -> Vec<HistoryEntry> {
+        let mut entries = vec![mail("Let me know when you can."); 2];
+        entries.extend(vec![
+            entry(
+                "Let me know if it works.",
+                "net.whatsapp.WhatsApp",
+                None
+            );
+            5
+        ]);
+        entries
+    }
+
+    fn tables_of(entries: &[HistoryEntry]) -> HistoryTables {
+        HistoryTables::of(entries, &shared(), &mut 0)
+    }
+
+    #[test]
+    fn phrases_of_the_place_decide_when_they_have_the_last_words() {
+        let tables = tables_of(&place_and_pool_entries());
+        let apps = ["com.apple.mail", "com.apple.Notes"];
+
+        let continuations = apps.map(|app_id| {
+            tables.continuation_of(
+                &HistoryPool::Shared,
+                Place::of(app_id, None),
+                "Please let me know ",
+            )
+        });
+
+        assert_eq!(continuations, [None, Some("if")]);
+    }
+
+    #[test]
+    fn next_words_of_the_place_come_before_the_next_words_of_the_pool() {
+        let tables = tables_of(&place_and_pool_entries());
+        let apps = ["com.apple.mail", "com.apple.Notes"];
+
+        let next = apps.map(|app_id| {
+            tables
+                .next_word_bias(
+                    &HistoryPool::Shared,
+                    Place::of(app_id, None),
+                    "Please let me know ",
+                )
+                .0
+        });
+
+        assert_eq!(
+            next,
+            [
+                vec![word("when", 1.0)],
+                vec![word("if", 5.0 / 7.0), word("when", 2.0 / 7.0)]
+            ]
+        );
+    }
+
+    #[test]
+    fn debug_of_the_tables_hides_the_text() {
+        let debug = format!("{:?}", tables_of(&place_and_pool_entries()));
+
+        assert_eq!(debug, "HistoryTables { pools: 1, .. }");
     }
 
     #[test]
@@ -1305,7 +1601,7 @@ mod tests {
     const DRAFT: &str = "Dear Ana, I send you the report of the third quarter with all the numbers.";
 
     fn own(entries: &[HistoryEntry], text: &str, field_chars: usize) -> String {
-        own_text(entries, text, field_chars, "com.apple.mail", None).to_owned()
+        own_text(entries, text, field_chars, "com.apple.mail", None, &shared()).to_owned()
     }
 
     #[test]
@@ -1382,6 +1678,7 @@ mod tests {
             DRAFT.chars().count(),
             "com.google.Chrome",
             Some("mail.example.com"),
+            &shared(),
         );
 
         assert_eq!(own, text);
@@ -1400,7 +1697,7 @@ mod tests {
     fn added_entry_is_the_newest() {
         let mut entries = vec![mail("Old text of the writer")];
 
-        add(&mut entries, mail("New text of the writer"));
+        add(&mut entries, mail("New text of the writer"), &shared());
 
         assert_eq!(
             entries,
@@ -1415,7 +1712,7 @@ mod tests {
             entry("Dear Ana, the report", "notes", None),
         ];
 
-        add(&mut entries, mail("Dear Ana, the report is ready."));
+        add(&mut entries, mail("Dear Ana, the report is ready."), &shared());
 
         assert_eq!(
             entries,
@@ -1430,7 +1727,7 @@ mod tests {
     fn entry_that_an_older_text_of_its_place_holds_is_not_added() {
         let mut entries = vec![mail("Dear Ana, the report is ready.")];
 
-        add(&mut entries, mail("Dear Ana, the report"));
+        add(&mut entries, mail("Dear Ana, the report"), &shared());
 
         assert_eq!(entries, [mail("Dear Ana, the report is ready.")]);
     }
@@ -1442,7 +1739,7 @@ mod tests {
         let new = format!("{start} The costs went down by four percent. Best, Tom");
         let mut entries = vec![mail(&old)];
 
-        add(&mut entries, mail(&new));
+        add(&mut entries, mail(&new), &shared());
 
         assert_eq!(entries, [mail(&new)]);
     }
@@ -1452,7 +1749,7 @@ mod tests {
         let end = "the numbers of the third quarter are ready and the costs went down. Best, Tom";
         let mut entries = vec![mail(&format!("Hi Ana, {end}"))];
 
-        add(&mut entries, mail(&format!("Hello Anna, {end}")));
+        add(&mut entries, mail(&format!("Hello Anna, {end}")), &shared());
 
         assert_eq!(entries, [mail(&format!("Hello Anna, {end}"))]);
     }
@@ -1461,7 +1758,11 @@ mod tests {
     fn short_texts_with_the_same_greeting_stay_two_entries() {
         let mut entries = vec![mail("Dear Ana, the report is ready for you.")];
 
-        add(&mut entries, mail("Dear Ana, the meeting moved to Friday."));
+        add(
+            &mut entries,
+            mail("Dear Ana, the meeting moved to Friday."),
+            &shared(),
+        );
 
         assert_eq!(entries.len(), 2);
     }
@@ -1475,9 +1776,53 @@ mod tests {
             Some("mail.example.com"),
         );
 
-        add(&mut entries, continued.clone());
+        add(&mut entries, continued.clone(), &shared());
 
         assert_eq!(entries, [continued]);
+    }
+
+    fn safari_on_its_own() -> PersonalizationSettings {
+        PersonalizationSettings {
+            apps: vec![HistoryApp {
+                app_id: "com.apple.Safari".to_owned(),
+                app_name: "Safari".to_owned(),
+                app_path: None,
+                scope: HistoryScope::ThisApp,
+            }],
+            ..shared()
+        }
+    }
+
+    #[test]
+    fn draft_of_an_app_with_only_this_app_stays_when_another_browser_continues_it() {
+        let draft = entry(DRAFT, "com.apple.Safari", Some("mail.example.com"));
+        let mut entries = vec![draft.clone()];
+        let continued = entry(
+            &format!("{DRAFT} PS: call me."),
+            "com.google.Chrome",
+            Some("mail.example.com"),
+        );
+
+        add(&mut entries, continued.clone(), &safari_on_its_own());
+
+        assert_eq!(entries, [draft, continued]);
+    }
+
+    #[test]
+    fn own_text_is_only_the_added_part_when_the_draft_is_in_another_pool() {
+        let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
+        let text = format!("{DRAFT} PS: call me.");
+
+        let own = own_text(
+            &entries,
+            &text,
+            DRAFT.chars().count(),
+            "com.google.Chrome",
+            Some("mail.example.com"),
+            &safari_on_its_own(),
+        );
+
+        assert_eq!(own, "PS: call me.");
     }
 
     #[test]
@@ -1498,7 +1843,7 @@ mod tests {
         let text = "Dear Ana, I send you the report of the third quarter with all the numbers. Best, Tom";
         let mut entries = vec![entry(text, "com.apple.Notes", None)];
 
-        add(&mut entries, mail(&format!("{text} PS")));
+        add(&mut entries, mail(&format!("{text} PS")), &shared());
 
         assert_eq!(entries.len(), 2);
     }
@@ -1509,7 +1854,7 @@ mod tests {
             .map(|index| mail(&format!("text {index}.")))
             .collect::<Vec<_>>();
 
-        add(&mut entries, mail("newest"));
+        add(&mut entries, mail("newest"), &shared());
 
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert_eq!(entries.first(), Some(&mail("text 1.")));
@@ -1524,7 +1869,7 @@ mod tests {
             .chain((1..MAX_ENTRIES).map(|index| chat(&format!("chat {index}."))))
             .collect::<Vec<_>>();
 
-        add(&mut entries, chat("newest chat."));
+        add(&mut entries, chat("newest chat."), &shared());
 
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert_eq!(entries[..2], [document, chat("chat 2.")]);
@@ -1590,7 +1935,7 @@ mod tests {
     fn one_wanted_match_gives_only_the_best_matching_text_of_a_large_place() {
         let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
 
-        let examples = examples(&large_mail_place(), &surroundings, None, 1);
+        let examples = examples_with(&large_mail_place(), &surroundings, None, 1);
 
         assert_eq!(examples, ["Bluefin budget review with Dana tomorrow morning."]);
     }
@@ -1599,7 +1944,7 @@ mod tests {
     fn newest_texts_of_a_small_place_fill_the_second_example() {
         let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
 
-        let examples = examples(&bluefin_entries(), &surroundings, None, 1);
+        let examples = examples_with(&bluefin_entries(), &surroundings, None, 1);
 
         assert_eq!(
             examples,
@@ -1643,7 +1988,7 @@ mod tests {
             ..ScreenText::default()
         };
 
-        let examples = examples(
+        let examples = examples_with(
             &bluefin_entries(),
             &place("com.apple.mail", None, "Hi Sam"),
             Some(&screen),

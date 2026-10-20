@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::Backend;
 use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, HistoryApp, KeptTexts, OcrLevel, PersonalizationSettings,
+    ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings,
     PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Settings, SettingsStore,
     SuggestionDisplay, SuggestionLength, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
 };
@@ -206,8 +206,29 @@ impl From<StoredScreenText> for ScreenTextSettings {
 struct StoredPersonalization {
     history: StoredHistoryAccess,
     kept_texts: StoredKeptTexts,
-    apps: Vec<StoredScreenTextApp>,
+    apps: Vec<StoredHistoryApp>,
     word_choice: StoredWordChoice,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredHistoryApp {
+    app_id: String,
+    app_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_path: Option<String>,
+    #[serde(default)]
+    scope: Option<StoredHistoryScope>,
+    /// The switch of an app in a file of an older version, which had no scope.
+    #[serde(default, skip_serializing)]
+    is_on: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredHistoryScope {
+    Off,
+    ThisApp,
+    AllApps,
 }
 
 impl Default for StoredPersonalization {
@@ -252,11 +273,16 @@ impl From<PersonalizationSettings> for StoredPersonalization {
         let apps = settings
             .apps
             .into_iter()
-            .map(|app| StoredScreenTextApp {
+            .map(|app| StoredHistoryApp {
                 app_id: app.app_id,
                 app_name: app.app_name,
                 app_path: app.app_path,
-                is_on: app.is_on,
+                scope: Some(match app.scope {
+                    HistoryScope::Off => StoredHistoryScope::Off,
+                    HistoryScope::ThisApp => StoredHistoryScope::ThisApp,
+                    HistoryScope::AllApps => StoredHistoryScope::AllApps,
+                }),
+                is_on: None,
             })
             .collect();
         let word_choice = match settings.word_choice {
@@ -288,10 +314,14 @@ impl From<StoredPersonalization> for PersonalizationSettings {
             .apps
             .into_iter()
             .map(|app| HistoryApp {
+                scope: match (app.scope, app.is_on) {
+                    (Some(StoredHistoryScope::Off), _) | (None, Some(false)) => HistoryScope::Off,
+                    (Some(StoredHistoryScope::ThisApp), _) => HistoryScope::ThisApp,
+                    (Some(StoredHistoryScope::AllApps) | None, _) => HistoryScope::AllApps,
+                },
                 app_id: app.app_id,
                 app_name: app.app_name,
                 app_path: app.app_path,
-                is_on: app.is_on,
             })
             .collect();
         let word_choice = match stored.word_choice {
@@ -696,6 +726,74 @@ mod tests {
         );
     }
 
+    fn history_apps_of(json: &str) -> Vec<(String, HistoryScope)> {
+        parse(json)
+            .unwrap()
+            .personalization
+            .apps
+            .into_iter()
+            .map(|app| (app.app_id, app.scope))
+            .collect()
+    }
+
+    #[test]
+    fn history_app_reads_its_scope_from_its_name() {
+        let json = r#"{ "personalization": { "apps": [
+            { "app_id": "a.exe", "app_name": "A", "scope": "off" },
+            { "app_id": "b.exe", "app_name": "B", "scope": "this_app" },
+            { "app_id": "c.exe", "app_name": "C", "scope": "all_apps" }
+        ] } }"#;
+
+        let apps = history_apps_of(json);
+
+        assert_eq!(
+            apps,
+            [
+                ("a.exe".to_owned(), HistoryScope::Off),
+                ("b.exe".to_owned(), HistoryScope::ThisApp),
+                ("c.exe".to_owned(), HistoryScope::AllApps),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_app_of_an_older_file_reads_its_switch_as_off_or_all_apps() {
+        let json = r#"{ "personalization": { "apps": [
+            { "app_id": "a.exe", "app_name": "A", "is_on": false },
+            { "app_id": "b.exe", "app_name": "B", "is_on": true }
+        ] } }"#;
+
+        let apps = history_apps_of(json);
+
+        assert_eq!(
+            apps,
+            [
+                ("a.exe".to_owned(), HistoryScope::Off),
+                ("b.exe".to_owned(), HistoryScope::AllApps),
+            ]
+        );
+    }
+
+    #[test]
+    fn saved_history_app_has_a_scope_and_no_switch() {
+        let settings = Settings {
+            personalization: PersonalizationSettings {
+                apps: vec![HistoryApp {
+                    app_id: "a.exe".to_owned(),
+                    app_name: "A".to_owned(),
+                    app_path: None,
+                    scope: HistoryScope::ThisApp,
+                }],
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        };
+
+        let json = to_json(&settings);
+
+        assert!(json.contains(r#""scope": "this_app""#) && !json.contains("is_on"));
+    }
+
     #[test]
     fn prompt_preparation_reads_from_its_name() {
         let files = [
@@ -834,7 +932,7 @@ mod tests {
                     app_id: "slack.exe".to_owned(),
                     app_name: "Slack".to_owned(),
                     app_path: Some("C:\\Slack\\slack.exe".to_owned()),
-                    is_on: false,
+                    scope: HistoryScope::ThisApp,
                 }],
                 word_choice: WordChoice::Strong,
             },

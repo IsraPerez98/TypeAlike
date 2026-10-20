@@ -679,7 +679,7 @@ mod tests {
     use crate::prompt::framed_prompt;
     use crate::screen_text_pane::SCREEN_TEXT;
     use crate::settings::{
-        KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
+        HistoryScope, KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
         ScreenTextSettings, SuggestionDisplay, WordChoice,
     };
     use crate::settings_view::{ControlId, Page};
@@ -2000,7 +2000,7 @@ mod tests {
                     ..ScreenTextSettings::default()
                 },
                 personalization: PersonalizationSettings {
-                    apps: vec![mail_history_app(true)],
+                    apps: vec![mail_history_app(HistoryScope::AllApps)],
                     ..PersonalizationSettings::default()
                 },
                 ..Settings::default()
@@ -2008,12 +2008,12 @@ mod tests {
         );
     }
 
-    fn mail_history_app(is_on: bool) -> HistoryApp {
+    fn mail_history_app(scope: HistoryScope) -> HistoryApp {
         HistoryApp {
             app_id: "com.apple.mail".to_owned(),
             app_name: "Mail".to_owned(),
             app_path: None,
-            is_on,
+            scope,
         }
     }
 
@@ -2030,7 +2030,7 @@ mod tests {
             personalization: PersonalizationSettings {
                 history: HistoryAccess::On,
                 kept_texts: KeptTexts::All,
-                apps: vec![mail_history_app(true)],
+                apps: vec![mail_history_app(HistoryScope::AllApps)],
                 word_choice: WordChoice::Off,
             },
             ..Settings::default()
@@ -2125,7 +2125,7 @@ mod tests {
         let mut harness =
             Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom"), notes.clone()]);
 
-        harness.toggle("personalization-app:com.apple.mail", false);
+        harness.pick("personalization-app:com.apple.mail", 0);
 
         assert_eq!(harness.history_saves(), vec![vec![notes]]);
     }
@@ -2141,7 +2141,7 @@ mod tests {
         let mut harness =
             Harness::with_kept_history(settings, vec![mail_entry("Cheers,\nTom"), notes.clone()]);
 
-        harness.toggle("personalization-app:com.apple.mail", false);
+        harness.pick("personalization-app:com.apple.mail", 0);
 
         assert_eq!(harness.history_saves(), vec![vec![notes]]);
     }

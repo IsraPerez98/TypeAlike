@@ -315,6 +315,10 @@ impl SectionView {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::Picker(PickerRow::add(rows_stack, &picker.id, binder))
                 }
+                Row::AppPicker(picker) => {
+                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
+                    RowView::AppPicker(AppPickerRow::add(rows_stack, &picker.id, binder))
+                }
                 Row::TextLine(text_line) => {
                     let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
                     RowView::TextLine(TextLineRow::add(rows_stack, &text_line.id, binder.main_thread))
@@ -372,6 +376,7 @@ enum RowView {
     Switch(SwitchRow),
     AppSwitch(AppSwitchRow),
     Picker(PickerRow),
+    AppPicker(AppPickerRow),
     TextArea(TextAreaRow),
     TextLine(TextLineRow),
     TextField(TextFieldRow),
@@ -388,6 +393,7 @@ impl RowView {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.id == switch.id,
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.id == switch.id,
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.id == picker.id,
+            (Self::AppPicker(row_view), Row::AppPicker(picker)) => row_view.id == picker.id,
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.id == text_area.id,
             (Self::TextLine(row_view), Row::TextLine(text_line)) => row_view.id == text_line.id,
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.id == text_field.id,
@@ -405,6 +411,7 @@ impl RowView {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.render(switch, binder),
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.render(switch, binder),
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.render(picker, binder),
+            (Self::AppPicker(row_view), Row::AppPicker(picker)) => row_view.render(picker, binder),
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.render(text_area, binder),
             (Self::TextLine(row_view), Row::TextLine(text_line)) => row_view.render(text_line),
             (Self::TextField(row_view), Row::TextField(text_field)) => row_view.render(text_field, binder),
@@ -494,28 +501,18 @@ impl SwitchRow {
     }
 }
 
-/// A row with the icon and the name of an app, and a switch that turns a setting on and off for
-/// the app.
+/// The icon and the name of an app at the leading edge of a row.
 #[derive(Debug)]
-struct AppSwitchRow {
+struct AppLabel {
+    texts: Retained<NSStackView>,
     icon: Retained<NSImageView>,
     name: Retained<NSTextField>,
-    switch: Retained<NSSwitch>,
-    id: ControlId,
     /// The app whose icon shows, so that a render loads the icon only for another app.
     icon_app_id: Option<String>,
 }
 
-impl AppSwitchRow {
-    fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
-        let main_thread = binder.main_thread;
-        let switch = NSSwitch::new(main_thread);
-        // SAFETY: the target implements the toggle action, taking the switch, and `SettingsWindow`
-        // keeps the target alive as long as the switch.
-        unsafe {
-            switch.setTarget(Some(&binder.target.target));
-            switch.setAction(Some(binder.target.toggle_action));
-        }
+impl AppLabel {
+    fn new(main_thread: MainThreadMarker) -> Self {
         let icon = NSImageView::new(main_thread);
         NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
             icon.widthAnchor().constraintEqualToConstant(APP_ICON_SIDE),
@@ -534,26 +531,62 @@ impl AppSwitchRow {
             NSLayoutPriorityDefaultLow,
             NSLayoutConstraintOrientation::Horizontal,
         );
-        switch.setContentHuggingPriority_forOrientation(
-            NSLayoutPriorityDefaultHigh,
-            NSLayoutConstraintOrientation::Horizontal,
-        );
-        add_grouped_row(rows_stack, &texts, &[&switch], main_thread);
         Self {
+            texts,
             icon,
             name,
-            switch,
-            id: id.clone(),
             icon_app_id: None,
         }
     }
 
-    fn render(&mut self, shown: &view::AppSwitch, binder: &mut Binder<'_>) {
-        set_text(&self.name, &shown.app_name);
-        if self.icon_app_id.as_deref() != Some(shown.app_id.as_str()) {
-            self.icon.setImage(app_icon(&shown.app_id).as_deref());
-            self.icon_app_id = Some(shown.app_id.clone());
+    /// Adds a row with the label and `control` at the bottom of `rows_stack`.
+    fn add_row(&self, rows_stack: &NSStackView, control: &NSView, main_thread: MainThreadMarker) {
+        control.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultHigh,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        add_grouped_row(rows_stack, &self.texts, &[control], main_thread);
+    }
+
+    fn render(&mut self, app_id: &str, app_name: &str) {
+        set_text(&self.name, app_name);
+        if self.icon_app_id.as_deref() != Some(app_id) {
+            self.icon.setImage(app_icon(app_id).as_deref());
+            self.icon_app_id = Some(app_id.to_owned());
         }
+    }
+}
+
+/// A row with the icon and the name of an app, and a switch that turns a setting on and off for
+/// the app.
+#[derive(Debug)]
+struct AppSwitchRow {
+    app: AppLabel,
+    switch: Retained<NSSwitch>,
+    id: ControlId,
+}
+
+impl AppSwitchRow {
+    fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let switch = NSSwitch::new(main_thread);
+        // SAFETY: the target implements the toggle action, taking the switch, and `SettingsWindow`
+        // keeps the target alive as long as the switch.
+        unsafe {
+            switch.setTarget(Some(&binder.target.target));
+            switch.setAction(Some(binder.target.toggle_action));
+        }
+        let app = AppLabel::new(main_thread);
+        app.add_row(rows_stack, &switch, main_thread);
+        Self {
+            app,
+            switch,
+            id: id.clone(),
+        }
+    }
+
+    fn render(&mut self, shown: &view::AppSwitch, binder: &mut Binder<'_>) {
+        self.app.render(&shown.app_id, &shown.app_name);
         self.switch
             .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
         let state = if shown.is_on {
@@ -564,6 +597,45 @@ impl AppSwitchRow {
         self.switch.setState(state);
         self.switch.setEnabled(shown.is_enabled);
         binder.bind(&self.switch, &shown.id);
+    }
+}
+
+/// A row with the icon and the name of an app, and a pop-up menu that picks the value of a setting
+/// for the app. The menu rebuilds its entries only when they change, so an open menu stays open.
+#[derive(Debug)]
+struct AppPickerRow {
+    app: AppLabel,
+    menu: Retained<NSPopUpButton>,
+    titles: Vec<String>,
+    id: ControlId,
+}
+
+impl AppPickerRow {
+    fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+        let menu = pop_up_button(binder.target, binder.target.pick_action, binder.main_thread);
+        let app = AppLabel::new(binder.main_thread);
+        app.add_row(rows_stack, &menu, binder.main_thread);
+        Self {
+            app,
+            menu,
+            titles: Vec::new(),
+            id: id.clone(),
+        }
+    }
+
+    fn render(&mut self, shown: &view::AppPicker, binder: &mut Binder<'_>) {
+        self.app.render(&shown.app_id, &shown.app_name);
+        self.menu
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
+        let titles: Vec<String> = shown.choices.iter().map(|choice| title_case(choice)).collect();
+        if titles != self.titles {
+            rebuild_menu(&self.menu, &titles);
+            self.titles = titles;
+        }
+        let selected = isize::try_from(shown.selected).expect("a menu never holds isize::MAX entries");
+        self.menu.selectItemAtIndex(selected);
+        self.menu.setEnabled(shown.is_enabled);
+        binder.bind(&self.menu, &shown.id);
     }
 }
 

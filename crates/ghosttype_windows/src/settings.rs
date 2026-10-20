@@ -243,6 +243,7 @@ impl SettingsPage {
             .flat_map(|section| &section.rows)
             .filter_map(|row| match row {
                 Row::AppSwitch(switch) => switch.app_path.as_deref(),
+                Row::AppPicker(picker) => picker.app_path.as_deref(),
                 _ => None,
             });
         for path in app_paths {
