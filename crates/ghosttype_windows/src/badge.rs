@@ -1,4 +1,4 @@
-//! The badge above the caret: a small button that pauses or resumes suggestions. The mouse hook
+//! The badge above the caret: a small button that opens the menu of GhostType. The mouse hook
 //! takes its clicks, so its window lets clicks through and never takes focus.
 
 use ghosttype_core::app::BadgeView;
@@ -17,8 +17,8 @@ use crate::tray::status_glyph;
 use crate::window::{Window, WindowSpec};
 
 const DEFAULT_DPI: i32 = 96;
-const BADGE_SIDE_DIPS: i32 = 20;
-const GLYPH_SIDE_DIPS: i32 = 12;
+const BADGE_SIDE_DIPS: i32 = 24;
+const GLYPH_SIDE_DIPS: i32 = 14;
 const CORNER_RADIUS_DIPS: i32 = 4;
 const BORDER_WIDTH_DIPS: i32 = 1;
 const GAP_ABOVE_CARET_DIPS: i32 = 4;
@@ -79,6 +79,14 @@ impl Badge {
     pub(crate) fn hide(&mut self) {
         self.window.hide();
         self.shown_frame = None;
+    }
+
+    /// The bottom-left corner of the shown badge in physical screen pixels, where its menu starts.
+    pub(crate) fn menu_anchor(&self) -> Option<POINT> {
+        self.shown_frame.map(|frame| POINT {
+            x: frame.left,
+            y: frame.bottom,
+        })
     }
 
     /// Whether `point`, in physical screen pixels, is on the shown badge.
@@ -180,12 +188,12 @@ mod tests {
             layout,
             BadgeLayout {
                 frame: RECT {
-                    left: 280,
-                    top: 76,
+                    left: 276,
+                    top: 72,
                     right: 300,
                     bottom: 96,
                 },
-                glyph_side: 12,
+                glyph_side: 14,
                 corner_radius: 4,
                 border_width: 1,
             }
@@ -200,12 +208,12 @@ mod tests {
             layout,
             BadgeLayout {
                 frame: RECT {
-                    left: 270,
-                    top: 64,
+                    left: 264,
+                    top: 58,
                     right: 300,
                     bottom: 94,
                 },
-                glyph_side: 18,
+                glyph_side: 21,
                 corner_radius: 6,
                 border_width: 2,
             }

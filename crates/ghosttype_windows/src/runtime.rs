@@ -7,7 +7,7 @@ use std::mem;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
+use ghosttype_core::app::{BadgeCommand, BadgeMenu, BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, FocusChange, GhostView, Services, Shell, Timer,
 };
@@ -40,6 +40,7 @@ use crate::focus::{Caret, FocusTracker};
 use crate::injection::{self, INJECTION_TAG, Replacement};
 use crate::keys;
 use crate::mailbox::Mailbox;
+use crate::menu;
 use crate::ocr::OcrSupport;
 use crate::overlay::Overlay;
 use crate::screen_text::{ScreenAnswer, ScreenTextReader};
@@ -250,8 +251,8 @@ impl Runtime {
         disposition
     }
 
-    /// Takes the clicks on the badge, so that the app under it never gets them. The click itself
-    /// runs after the hook returns.
+    /// Takes the clicks on the badge, so that the app under it never gets them. The badge menu
+    /// shows after the hook returns, outside the borrow of the runtime.
     fn on_mouse(&mut self, message: u32, point: POINT) -> Disposition {
         match message {
             WM_LBUTTONDOWN if self.shell.badge.contains(point) => {
@@ -289,6 +290,16 @@ impl Runtime {
         self.controller.on_tray_command(command, &mut self.shell);
     }
 
+    /// The menu of the badge and where it starts, or `None` while no badge shows.
+    fn badge_menu(&self) -> Option<(BadgeMenu, POINT)> {
+        let anchor = self.shell.badge.menu_anchor()?;
+        Some((self.controller.badge_menu()?, anchor))
+    }
+
+    fn on_badge_command(&mut self, command: BadgeCommand) {
+        self.controller.on_badge_command(command, &mut self.shell);
+    }
+
     fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         match message {
             WM_TIMER if wparam.0 == CARET_TIMER_ID => self.on_timer(Timer::CaretSettle),
@@ -302,7 +313,6 @@ impl Runtime {
             CARET_READ_MESSAGE => self.take_caret_reads(),
             FIELD_READ_MESSAGE => self.take_field_reads(),
             SCREEN_READ_MESSAGE => self.take_screen_reads(),
-            BADGE_CLICK_MESSAGE => self.controller.on_badge_click(&mut self.shell),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if message == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
@@ -580,6 +590,7 @@ extern "system" fn main_window_procedure(
         TRAY_CALLBACK_MESSAGE => {
             tray::menu_request(wparam, lparam).map(|request| show_tray_menu(window, request))
         }
+        BADGE_CLICK_MESSAGE => Some(show_badge_menu(window)),
         INJECT_MESSAGE => Some(inject_pending_text()),
         _ => with_runtime(|runtime| runtime.on_window_message(message, wparam, lparam)).flatten(),
     };
@@ -597,6 +608,21 @@ fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
         }
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "failed to show tray menu"),
+    }
+    HANDLED
+}
+
+fn show_badge_menu(window: HWND) -> LRESULT {
+    let Some((view, anchor)) = with_runtime(|runtime| runtime.badge_menu()).flatten() else {
+        return HANDLED;
+    };
+    match menu::pick_badge_item(window, &view, anchor) {
+        Ok(picked) => {
+            if let Some(command) = picked.and_then(|index| view.command(index).cloned()) {
+                with_runtime(|runtime| runtime.on_badge_command(command));
+            }
+        }
+        Err(error) => tracing::warn!(%error, "failed to show the badge menu"),
     }
     HANDLED
 }

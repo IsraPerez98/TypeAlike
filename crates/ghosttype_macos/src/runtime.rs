@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dispatch2::DispatchQueue;
-use ghosttype_core::app::{BadgeView, Field, TrayView};
+use ghosttype_core::app::{BadgeMenu, BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostPlacement, GhostView,
     Services, Shell, Timer,
@@ -24,14 +24,16 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenuItem, NSPopUpButton, NSSwitch,
-    NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidActivateApplicationNotification,
+    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenu, NSMenuItem, NSPopUpButton,
+    NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSWorkspaceDidActivateApplicationNotification,
 };
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
-use objc2_foundation::{NSNotification, NSTimeInterval, NSTimer};
+use objc2_foundation::{NSNotification, NSPoint, NSTimeInterval, NSTimer};
 
 use crate::RunError;
 use crate::badge::Badge;
+use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::{self, Caret, FocusTracker};
@@ -105,6 +107,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         tap,
         release_filter: ReleaseFilter::default(),
         is_badge_pressed: false,
+        badge_menu: None,
     }));
     tracing::info!("running in the menu bar");
     application.run();
@@ -141,6 +144,8 @@ struct Runtime {
     tap: EventTap,
     release_filter: ReleaseFilter<CGKeyCode>,
     is_badge_pressed: bool,
+    /// The badge menu that shows now, whose entries a pick names by their index.
+    badge_menu: Option<BadgeMenu>,
 }
 
 impl Runtime {
@@ -157,7 +162,7 @@ impl Runtime {
             }
             CGEventType::LeftMouseDown if self.shell.badge.contains(CGEvent::location(Some(event))) => {
                 self.is_badge_pressed = true;
-                self.controller.on_badge_click(&mut self.shell);
+                self.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(showBadgeMenu:));
                 Disposition::Swallow
             }
             CGEventType::LeftMouseUp if mem::take(&mut self.is_badge_pressed) => Disposition::Swallow,
@@ -202,6 +207,26 @@ impl Runtime {
     fn on_menu_item(&mut self, tag: isize) {
         if let Some(command) = menu_bar::command_for_tag(&self.controller.tray_view().items, tag) {
             self.controller.on_tray_command(command, &mut self.shell);
+        }
+    }
+
+    /// Builds the menu of the badge, and keeps its view for the pick. Returns the menu and where
+    /// it starts, or `None` while no badge shows.
+    fn open_badge_menu(&mut self) -> Option<(Retained<NSMenu>, NSPoint)> {
+        let location = self.shell.badge.menu_location()?;
+        let view = self.controller.badge_menu()?;
+        let target = &self.shell.target;
+        let menu = badge_menu::build(&view, target, sel!(pickBadgeMenuItem:), target.mtm());
+        self.badge_menu = Some(view);
+        Some((menu, location))
+    }
+
+    fn on_badge_menu_item(&mut self, tag: isize) {
+        let command = usize::try_from(tag)
+            .ok()
+            .and_then(|index| self.badge_menu.as_ref()?.command(index).cloned());
+        if let Some(command) = command {
+            self.controller.on_badge_command(command, &mut self.shell);
         }
     }
 
@@ -317,8 +342,9 @@ impl Shell for AppKitShell {
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let caret = self.focus.caret();
-        match (badge, caret) {
-            (Some(badge), Some(caret)) => self.badge.show(&badge, caret),
+        let badge_caret = caret.or_else(|| self.focus.field_frame().and_then(Caret::at_start_of));
+        match (badge, badge_caret) {
+            (Some(badge), Some(badge_caret)) => self.badge.show(&badge, badge_caret),
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
@@ -423,6 +449,23 @@ define_class!(
         fn pick_menu_item(&self, sender: &NSMenuItem) {
             let tag = sender.tag();
             with_runtime(|runtime| runtime.on_menu_item(tag));
+        }
+
+        // SAFETY: matches the action signature, called with the picked item of the badge menu.
+        #[unsafe(method(pickBadgeMenuItem:))]
+        fn pick_badge_menu_item(&self, sender: &NSMenuItem) {
+            let tag = sender.tag();
+            with_runtime(|runtime| runtime.on_badge_menu_item(tag));
+        }
+
+        // SAFETY: matches the timer action signature.
+        #[unsafe(method(showBadgeMenu:))]
+        fn show_badge_menu(&self, _timer: &NSTimer) {
+            // The menu runs an event loop of its own, which must not run inside the borrow of the
+            // runtime.
+            if let Some((menu, location)) = with_runtime(Runtime::open_badge_menu).flatten() {
+                menu.popUpMenuPositioningItem_atLocation_inView(None, location, None);
+            }
         }
 
         // SAFETY: matches the action signature, called with a switch of a settings page.

@@ -71,10 +71,11 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Exception: when text follows the caret on its line, inline ghost text would cover that text. The overlay then shows the ghost text on a card below the caret line: the colors of the Fluent tooltip (as the badge), radius 4, a 1 DIP border, 8 x 4 DIPs padding, 4 DIPs below the line. The card goes above the line when it does not fit in the work area.
 
 ## Caret badge
-- A small button above the caret, on its left, where the ghost text never goes. A click pauses or resumes suggestions (`BadgeView`). The glyph is the tray glyph of the status.
-- 20 x 20 DIPs, 4 DIPs above the caret, radius 4, a 1 DIP border, a 12 DIP glyph. Scale with the DPI of the monitor at the caret.
+- A small button above the caret, on its left, where the ghost text never goes. A click opens the badge menu (`BadgeMenu`) below the badge. The glyph is the tray glyph of the status.
+- 24 x 24 DIPs, 4 DIPs above the caret, radius 4, a 1 DIP border, a 14 DIP glyph. Scale with the DPI of the monitor at the caret.
 - Colors of the Fluent tooltip for the apps theme: the fill, the surface stroke and the secondary text. High contrast: `COLOR_WINDOW` fill, `COLOR_WINDOWTEXT` border and glyph.
 - Same window styles as the ghost text overlay. The mouse hook swallows a left click on the badge and posts it to the main window. The app under the badge never gets the click.
+- The badge menu is a native popup menu, as the tray menu, with a submenu and check marks. The window that had the focus gets it back after the menu closes.
 
 ## Tray & menus
 - Tray icon: theme-aware glyph (light variant on dark taskbar, dark on light), swap on theme change. Multi-resolution `.ico` (16/20/24/32 px), crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone.

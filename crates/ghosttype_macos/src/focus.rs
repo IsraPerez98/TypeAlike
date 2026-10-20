@@ -85,6 +85,12 @@ impl Caret {
             height: bounds.size.height,
         })
     }
+
+    /// A caret at the top-left corner of `field`, as high as the field, for a field that gives no
+    /// caret; `None` when the field has no height.
+    pub(crate) fn at_start_of(field: CGRect) -> Option<Self> {
+        Self::from_bounds(CGRect::new(field.origin, CGSize::new(0.0, field.size.height)))
+    }
 }
 
 /// Follows the frontmost app and classifies whether GhostType may observe and type into it.
@@ -624,6 +630,20 @@ mod tests {
         let bounds = CGRect::new(CGPoint::new(100.0, 40.0), CGSize::new(0.0, 0.0));
 
         assert_eq!(Caret::from_bounds(bounds), None);
+    }
+
+    #[test]
+    fn caret_at_the_start_of_a_field_is_at_its_left_edge_and_as_high_as_the_field() {
+        let field = CGRect::new(CGPoint::new(511.0, 101.0), CGSize::new(860.0, 18.0));
+
+        assert_eq!(
+            Caret::at_start_of(field),
+            Some(Caret {
+                left: 511.0,
+                top: 101.0,
+                height: 18.0
+            })
+        );
     }
 
     #[test]

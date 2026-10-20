@@ -6,7 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, mem};
 
-use crate::app::{App, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView};
+use crate::app::{
+    App, BadgeCommand, BadgeMenu, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome,
+    TrayView,
+};
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Reaction, WordFix};
 use crate::general_pane::{GeneralAction, GeneralPane};
@@ -146,8 +149,8 @@ pub trait Shell: Desktop {
 
     /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
     /// at the caret, from one look at the caret. Hides the ghost text for no `ghost` and the badge
-    /// for no `badge`. When the caret is not known, it hides the badge, and shows the mirror of
-    /// `ghost` next to the focused field, or hides it.
+    /// for no `badge`. When the caret is not known, it can show the badge at the start of the
+    /// focused field and the mirror of `ghost` next to the field, else it hides them.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
 
     /// Hides the ghost text at once.
@@ -344,10 +347,32 @@ impl Controller {
         }
     }
 
-    /// Handles a click on the badge at the caret.
-    pub fn on_badge_click(&mut self, shell: &mut dyn Shell) {
-        if let Some(badge) = self.app.badge_view() {
-            self.on_tray_command(badge.command, shell);
+    /// Returns the menu that a click on the badge at the caret shows, or `None` while no badge
+    /// shows.
+    #[must_use]
+    pub fn badge_menu(&self) -> Option<BadgeMenu> {
+        self.app
+            .badge_menu(self.screen_text.settings(), self.personalization.settings())
+    }
+
+    /// Runs a command that the user picked in the menu of the badge at the caret, then shows the
+    /// panes as they are now.
+    pub fn on_badge_command(&mut self, command: BadgeCommand, shell: &mut dyn Shell) {
+        match command {
+            BadgeCommand::TogglePause => self.on_tray_command(TrayCommand::TogglePause, shell),
+            BadgeCommand::SwitchScreenText { app_id, is_on } => {
+                if self
+                    .screen_text
+                    .on_action(ScreenTextAction::SwitchApp { app_id, is_on })
+                {
+                    self.keep_pane_settings();
+                }
+                self.render_settings(shell);
+            }
+            BadgeCommand::SelectHistoryScope { app_id, scope } => {
+                self.on_personalization_action(PersonalizationAction::SelectAppScope { app_id, scope });
+                self.render_settings(shell);
+            }
         }
     }
 
@@ -743,16 +768,14 @@ mod tests {
     };
     use crate::settings_view::{ControlId, Page};
 
-    const PAUSE_BADGE: BadgeView = BadgeView {
+    const ACTIVE_BADGE: BadgeView = BadgeView {
         status: Status::Active,
-        label: "Pause suggestions",
-        command: TrayCommand::TogglePause,
+        label: "GhostType",
     };
 
-    const RESUME_BADGE: BadgeView = BadgeView {
+    const PAUSED_BADGE: BadgeView = BadgeView {
         status: Status::Paused,
-        label: "Resume suggestions",
-        command: TrayCommand::TogglePause,
+        label: "GhostType (paused)",
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1328,7 +1351,7 @@ mod tests {
 
         assert_eq!(
             harness.take_calls(),
-            vec![ghost_at_caret(None, Some(PAUSE_BADGE))]
+            vec![ghost_at_caret(None, Some(ACTIVE_BADGE))]
         );
     }
 
@@ -1354,7 +1377,7 @@ mod tests {
 
         assert_eq!(
             harness.take_calls(),
-            vec![ghost_at_caret(Some("est"), Some(PAUSE_BADGE))]
+            vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
         );
     }
 
@@ -1434,7 +1457,7 @@ mod tests {
 
         assert_eq!(
             harness.take_calls(),
-            vec![ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE))]
+            vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
         );
     }
 
@@ -1462,7 +1485,7 @@ mod tests {
         assert_eq!(
             harness.take_calls(),
             vec![
-                ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE)),
+                ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE)),
                 Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
             ]
         );
@@ -1481,7 +1504,7 @@ mod tests {
 
         assert_eq!(
             harness.take_calls(),
-            vec![ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE))]
+            vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
         );
         assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
     }
@@ -1545,7 +1568,7 @@ mod tests {
             harness.take_calls(),
             vec![Call::RenderAtCaret {
                 ghost: Some(Ghost::Fix(fix)),
-                badge: Some(PAUSE_BADGE),
+                badge: Some(ACTIVE_BADGE),
             }]
         );
     }
@@ -1696,7 +1719,7 @@ mod tests {
             (harness.last_request(), harness.take_calls()),
             (
                 Some(suggestion_request("Best regards,\n")),
-                vec![ghost_at_caret(Some("Sara Novak"), Some(PAUSE_BADGE))]
+                vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
             )
         );
     }
@@ -1739,22 +1762,135 @@ mod tests {
     }
 
     #[test]
-    fn badge_click_pauses_suggestions() {
-        let mut harness = Harness::new(Settings::default());
+    fn badge_command_pauses_suggestions_and_unloads_the_model() {
+        let mut harness = Harness::new(suggestion_settings());
         harness.press(Key::Char('B'));
 
-        harness.controller.on_badge_click(&mut harness.shell);
+        harness
+            .controller
+            .on_badge_command(BadgeCommand::TogglePause, &mut harness.shell);
 
-        assert_eq!(harness.controller.tray_view().status, Status::Paused);
+        assert_eq!(
+            (harness.controller.tray_view().status, harness.last_request()),
+            (Status::Paused, Some(InferenceRequest::Unload))
+        );
+    }
+
+    /// The labels of the entries of the badge menu that run a command, top to bottom.
+    fn badge_item_labels(harness: &Harness) -> Vec<String> {
+        harness
+            .controller
+            .badge_menu()
+            .expect("the badge shows")
+            .items()
+            .map(|item| item.label.clone())
+            .collect()
     }
 
     #[test]
-    fn click_without_badge_changes_nothing() {
+    fn badge_menu_offers_the_switches_of_the_app_where_the_user_types() {
+        let mut harness = Harness::new(history_on());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+
+        harness.press(Key::Char('H'));
+
+        assert_eq!(
+            badge_item_labels(&harness),
+            [
+                "Pause suggestions",
+                "Use screen text in Mail",
+                "Off",
+                "Only this app",
+                "All apps"
+            ]
+        );
+    }
+
+    #[test]
+    fn badge_menu_while_paused_offers_the_switches_of_the_app_where_the_user_types() {
+        let mut harness = Harness::new(history_on());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness
+            .controller
+            .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+
+        harness.press(Key::Char('H'));
+
+        assert_eq!(
+            badge_item_labels(&harness).first().map(String::as_str),
+            Some("Resume suggestions")
+        );
+        assert_eq!(badge_item_labels(&harness).len(), 5);
+    }
+
+    #[test]
+    fn badge_screen_text_command_turns_off_the_app_and_keeps_the_setting() {
         let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.press(Key::Char('H'));
 
-        harness.controller.on_badge_click(&mut harness.shell);
+        harness.controller.on_badge_command(
+            BadgeCommand::SwitchScreenText {
+                app_id: "com.apple.mail".to_owned(),
+                is_on: false,
+            },
+            &mut harness.shell,
+        );
 
-        assert_eq!(harness.take_calls(), Vec::new());
+        assert_eq!(
+            harness
+                .saved()
+                .last()
+                .map(|settings| settings.screen_text.apps.clone()),
+            Some(vec![mail_app(false)])
+        );
+    }
+
+    #[test]
+    fn badge_scope_command_turns_off_the_app_and_deletes_its_text() {
+        let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.press(Key::Char('H'));
+
+        harness.controller.on_badge_command(
+            BadgeCommand::SelectHistoryScope {
+                app_id: "com.apple.mail".to_owned(),
+                scope: HistoryScope::Off,
+            },
+            &mut harness.shell,
+        );
+
+        assert_eq!(
+            (
+                harness
+                    .saved()
+                    .last()
+                    .map(|settings| settings.personalization.apps.clone()),
+                harness.history_saves().last().cloned(),
+            ),
+            (Some(vec![mail_history_app(HistoryScope::Off)]), Some(Vec::new()))
+        );
+    }
+
+    #[test]
+    fn badge_scope_command_shows_the_new_scope_in_the_settings_window() {
+        let mut harness = Harness::new(history_on());
+        harness.focus_text_field_of("com.apple.mail", "Mail");
+        harness.press(Key::Char('H'));
+        harness.take_calls();
+
+        harness.controller.on_badge_command(
+            BadgeCommand::SelectHistoryScope {
+                app_id: "com.apple.mail".to_owned(),
+                scope: HistoryScope::ThisApp,
+            },
+            &mut harness.shell,
+        );
+
+        assert!(matches!(
+            harness.take_calls().as_slice(),
+            [Call::RenderSettings(_)]
+        ));
     }
 
     #[test]
@@ -1793,7 +1929,7 @@ mod tests {
     }
 
     #[test]
-    fn pause_shows_resume_badge_at_caret() {
+    fn pause_shows_paused_badge_at_caret() {
         let mut harness = Harness::new(Settings::default());
         harness.press(Key::Char('B'));
 
@@ -1804,7 +1940,7 @@ mod tests {
         assert!(
             harness
                 .take_calls()
-                .contains(&ghost_at_caret(None, Some(RESUME_BADGE)))
+                .contains(&ghost_at_caret(None, Some(PAUSED_BADGE)))
         );
     }
 

@@ -1,4 +1,4 @@
-//! The badge above the caret: a small button that pauses or resumes suggestions. The event tap
+//! The badge above the caret: a small button that opens the menu of GhostType. The event tap
 //! takes its clicks, so its panel lets clicks through and never takes focus.
 
 use ghosttype_core::app::BadgeView;
@@ -11,9 +11,9 @@ use objc2_foundation::{NSPoint, NSRect, NSSize};
 use crate::focus::Caret;
 use crate::{menu_bar, overlay};
 
-const BADGE_SIZE: CGFloat = 20.0;
-const BADGE_PADDING: CGFloat = 3.0;
-const BADGE_CORNER_RADIUS: CGFloat = 6.0;
+const BADGE_SIZE: CGFloat = 24.0;
+const BADGE_PADDING: CGFloat = 4.0;
+const BADGE_CORNER_RADIUS: CGFloat = 7.0;
 const BADGE_BORDER_WIDTH: CGFloat = 1.0;
 const GAP_ABOVE_CARET: CGFloat = 2.0;
 
@@ -71,6 +71,12 @@ impl Badge {
         self.shown_frame = None;
     }
 
+    /// The bottom-left corner of the shown badge in AppKit's screen coordinates, where its menu
+    /// starts.
+    pub(crate) fn menu_location(&self) -> Option<NSPoint> {
+        self.shown_frame.map(|_| self.panel.frame().origin)
+    }
+
     /// Whether `point`, in global points with a top-left origin, is on the shown badge.
     pub(crate) fn contains(&self, point: CGPoint) -> bool {
         self.shown_frame.is_some_and(|frame| frame_contains(frame, point))
@@ -116,7 +122,7 @@ mod tests {
 
         assert_eq!(
             frame,
-            CGRect::new(CGPoint::new(280.0, 78.0), CGSize::new(20.0, 20.0))
+            CGRect::new(CGPoint::new(276.0, 74.0), CGSize::new(24.0, 24.0))
         );
     }
 

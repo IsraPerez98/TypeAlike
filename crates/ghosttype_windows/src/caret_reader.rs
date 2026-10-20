@@ -277,7 +277,7 @@ impl PendingView {
 mod tests {
     use std::ptr;
 
-    use ghosttype_core::app::{Status, TrayCommand};
+    use ghosttype_core::app::Status;
     use ghosttype_core::controller::{Ghost, GhostPlacement};
     use ghosttype_core::desktop::{FieldLabels, FieldText};
     use windows::Win32::Foundation::HWND;
@@ -286,8 +286,7 @@ mod tests {
 
     const BADGE: BadgeView = BadgeView {
         status: Status::Active,
-        label: "Pause suggestions",
-        command: TrayCommand::TogglePause,
+        label: "GhostType",
     };
 
     fn world() -> GhostView {

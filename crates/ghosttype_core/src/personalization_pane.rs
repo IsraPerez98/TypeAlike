@@ -73,7 +73,7 @@ const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
 ];
 const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
 const APPS_HEADING: &str = "Apps";
-const APP_SCOPE_CHOICES: [(HistoryScope, &str); 3] = [
+pub(crate) const APP_SCOPE_CHOICES: [(HistoryScope, &str); 3] = [
     (HistoryScope::Off, "Off"),
     (HistoryScope::ThisApp, "Only this app"),
     (HistoryScope::AllApps, "All apps"),

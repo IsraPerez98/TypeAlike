@@ -7,6 +7,7 @@
 #![cfg(target_os = "macos")]
 
 mod badge;
+mod badge_menu;
 mod clipboard;
 mod event_tap;
 mod focus;
