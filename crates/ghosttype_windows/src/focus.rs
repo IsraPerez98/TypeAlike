@@ -2,23 +2,26 @@
 //! around the caret of a classic edit control, and which app and window it is in.
 
 use std::ops::Range;
+use std::ptr;
 
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings};
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+use windows::Win32::System::Variant::VARIANT;
+use windows::Win32::UI::Accessibility::{IAccessible, ObjectFromLresult};
 use windows::Win32::UI::WindowsAndMessaging::{
-    ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
-    GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
-    WM_GETFONT, WM_GETTEXT,
+    CHILDID_SELF, ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow,
+    GetGUIThreadInfo, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, OBJID_CARET,
+    SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETFONT, WM_GETOBJECT, WM_GETTEXT,
 };
-use windows::core::{Owned, PWSTR, Result};
+use windows::core::{Interface, Owned, PWSTR, Result};
 
 const EDIT_CLASS_NAME: &str = "Edit";
 const MAX_CLASS_NAME_UNITS: usize = 16;
@@ -28,6 +31,9 @@ const NUL_UNITS: usize = 1;
 /// The message that asks an edit control for its selection. It is in `Win32_UI_Controls`, a large
 /// feature of the windows crate that GhostType does not enable for one message.
 const EM_GETSEL: u32 = 0x00B0;
+/// The state of an accessible object that does not show. It is in `Win32_UI_Controls`, for the
+/// same reason as [`EM_GETSEL`].
+const STATE_SYSTEM_INVISIBLE: i32 = 0x8000;
 const MAX_WINDOW_TITLE_UNITS: usize = 256;
 const MAX_PATH_UNITS: usize = 1024;
 
@@ -210,9 +216,16 @@ fn program_file_name(image_path: &str) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
-/// Locates the system caret of the focused control in the foreground window, when it has one.
+/// Locates the caret of the focused control in the foreground window: the system caret, else the
+/// caret that the caret object of the focused window shows. Chromium apps (Chrome, Edge and
+/// Electron apps such as VS Code) have only the caret object. The thread must be in a COM apartment.
 pub(crate) fn caret() -> Option<Caret> {
     let info = foreground_thread_info()?;
+    system_caret(&info).or_else(|| accessible_caret(info.hwndFocus))
+}
+
+/// Locates the system caret of the thread that `info` describes, when it has one.
+fn system_caret(info: &GUITHREADINFO) -> Option<Caret> {
     if info.hwndCaret.is_invalid() {
         return None;
     }
@@ -234,9 +247,93 @@ pub(crate) fn caret() -> Option<Caret> {
         .flatten()
 }
 
+/// Locates the caret that the caret object of `window` shows. `None` when no window has the focus,
+/// when the window has no caret object, and when the caret object hides its caret, as Chromium
+/// does while the focused element takes no text.
+fn accessible_caret(window: HWND) -> Option<Caret> {
+    if window.is_invalid() {
+        return None;
+    }
+    let caret_object = caret_object(window)?;
+    let child = VARIANT::from(CHILDID_SELF.cast_signed());
+    // SAFETY: plain call on an interface of this thread.
+    let state = unsafe { caret_object.get_accState(&child) }.ok()?;
+    if is_hidden(i32::try_from(&state).ok()?) {
+        return None;
+    }
+    let mut location = ObjectLocation::default();
+    // SAFETY: the output pointers refer to the fields of a local.
+    unsafe {
+        caret_object.accLocation(
+            &raw mut location.left,
+            &raw mut location.top,
+            &raw mut location.width,
+            &raw mut location.height,
+            &child,
+        )
+    }
+    .ok()?;
+    location.caret()
+}
+
+/// Gets the caret object that `window` gives, when it answers in time. `None` for a window without
+/// a caret object of its own. The standard caret object of the system tells only the system caret.
+fn caret_object(window: HWND) -> Option<IAccessible> {
+    // `AccessibleObjectFromWindow` waits without a limit for a busy window, so ask with a timeout.
+    // The id goes in the low 32 bits, as `AccessibleObjectFromWindow` sends it.
+    let object_id = isize::try_from(OBJID_CARET.0.cast_unsigned()).ok()?;
+    let reply = ask(window, WM_GETOBJECT, LPARAM(object_id)).filter(|&reply| reply != 0)?;
+    let mut object = ptr::null_mut();
+    // SAFETY: the reply comes from WM_GETOBJECT, sent with the WPARAM 0 that is passed here. The
+    // IID names the interface that `object` receives, and `object` is a local.
+    unsafe {
+        ObjectFromLresult(
+            LRESULT(reply.cast_signed()),
+            &IAccessible::IID,
+            WPARAM(0),
+            &raw mut object,
+        )
+    }
+    .ok()?;
+    // SAFETY: a non-null `object` is an IAccessible with a reference that nothing else owns.
+    (!object.is_null()).then(|| unsafe { IAccessible::from_raw(object) })
+}
+
+/// Where an accessible object is, as `accLocation` gives it, in physical screen pixels.
+#[derive(Debug, Clone, Copy, Default)]
+struct ObjectLocation {
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+}
+
+impl ObjectLocation {
+    /// The caret that a caret object at this location shows.
+    fn caret(self) -> Option<Caret> {
+        let bottom_right = POINT {
+            x: self.left.saturating_add(self.width),
+            y: self.top.saturating_add(self.height),
+        };
+        Caret::from_corners(
+            POINT {
+                x: self.left,
+                y: self.top,
+            },
+            bottom_right,
+            None,
+        )
+    }
+}
+
+/// Whether `state`, the state of an accessible object, tells that the object does not show.
+fn is_hidden(state: i32) -> bool {
+    state & STATE_SYSTEM_INVISIBLE != 0
+}
+
 /// Reads the font face that `window` draws its text in, when the window reports one in time.
 fn font_face(window: HWND) -> Option<String> {
-    let font = ask(window, WM_GETFONT).filter(|&font| font != 0)?;
+    let font = ask(window, WM_GETFONT, LPARAM(0)).filter(|&font| font != 0)?;
     let mut description = LOGFONTW::default();
     // SAFETY: the output buffer is a local of exactly the size passed; a stale handle only fails.
     let written = unsafe {
@@ -264,7 +361,7 @@ fn face_name(units: &[u16]) -> Option<String> {
 /// control, for a password field and for a control that does not answer in time.
 pub(crate) fn edit_field_text() -> Option<FieldText> {
     let window = focused_edit_control().filter(|&window| !is_password_edit(window))?;
-    let selection = selection_from_reply(ask(window, EM_GETSEL)?)?;
+    let selection = selection_from_reply(ask(window, EM_GETSEL, LPARAM(0))?)?;
     let units = copy_text(window, selection.end.saturating_add(MAX_CHARS_AFTER_CARET))?;
     Some(cut_at_selection(&units, selection))
 }
@@ -300,9 +397,9 @@ pub(crate) fn whole_chars(units: &[u16]) -> String {
         .collect()
 }
 
-/// Sends `message`, which has no parameters, to `window`. Returns the reply when the window
-/// answers in time.
-fn ask(window: HWND, message: u32) -> Option<usize> {
+/// Sends `message` to `window`, with `lparam` as its only parameter. Returns the reply when the
+/// window answers in time.
+fn ask(window: HWND, message: u32, lparam: LPARAM) -> Option<usize> {
     let mut reply = 0;
     // SAFETY: the message carries no pointer, and the result pointer refers to a local.
     let replied = unsafe {
@@ -310,7 +407,7 @@ fn ask(window: HWND, message: u32) -> Option<usize> {
             window,
             message,
             WPARAM(0),
-            LPARAM(0),
+            lparam,
             SMTO_ABORTIFHUNG,
             REPLY_TIMEOUT_MS,
             Some(&raw mut reply),
@@ -432,6 +529,42 @@ mod tests {
                 font_face: None,
             })
         );
+    }
+
+    #[test]
+    fn caret_object_caret_starts_right_of_its_location() {
+        let location = ObjectLocation {
+            left: 636,
+            top: 106,
+            width: 1,
+            height: 19,
+        };
+
+        let caret = location.caret();
+
+        assert_eq!(
+            caret,
+            Some(Caret {
+                origin: POINT { x: 637, y: 106 },
+                height: 19,
+                font_face: None,
+            })
+        );
+    }
+
+    #[test]
+    fn invisible_state_hides_the_caret_object() {
+        const FOCUSED: i32 = 0x4;
+        let cases = [
+            (0, false),
+            (FOCUSED, false),
+            (STATE_SYSTEM_INVISIBLE, true),
+            (STATE_SYSTEM_INVISIBLE | FOCUSED, true),
+        ];
+
+        let hidden = cases.map(|(state, _)| is_hidden(state));
+
+        assert_eq!(hidden, cases.map(|(_, is_hidden)| is_hidden));
     }
 
     #[test]

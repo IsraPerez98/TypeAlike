@@ -1,6 +1,6 @@
 //! The focused control as UI Automation (UIA) tells it: the text around its caret, its labels, the
 //! web page that holds it, and its caret for apps that draw a caret of their own and have no
-//! system caret (browsers, Electron apps and WinUI apps).
+//! system caret and no caret object (such as WinUI apps).
 
 use std::fmt;
 use std::marker::PhantomData;

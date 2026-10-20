@@ -1,9 +1,10 @@
 //! Reads the caret and the focused field on a thread of its own. The caret is the system caret
-//! when the focused app has one, else the caret that UI Automation (UIA) reports. The text comes
-//! from UIA, else from a classic edit control. UIA can wait long for a busy app, so the thread of
-//! the hooks never reads it. What shows at the caret waits for the newest read of the caret. The
-//! hooks use the newest read of the text while no input changed the field, and treat the focused
-//! field as a password field until a read after the last move of the focus tells otherwise.
+//! when the focused app has one, else the caret of its caret object, else the caret that UI
+//! Automation (UIA) reports. The text comes from UIA, else from a classic edit control. UIA can
+//! wait long for a busy app, so the thread of the hooks never reads it. What shows at the caret
+//! waits for the newest read of the caret. The hooks use the newest read of the text while no input
+//! changed the field, and treat the focused field as a password field until a read after the last
+//! move of the focus tells otherwise.
 
 use std::iter;
 use std::sync::mpsc;
