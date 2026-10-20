@@ -29,8 +29,6 @@ const CARET_SETTLE_DELAY: Duration = Duration::from_millis(40);
 const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 /// The most looks at the caret after a key, before the ghost text shows at the caret where it is.
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
-/// The most characters of the line before the caret that the mirror shows.
-const MIRROR_LINE_CHARS: usize = 40;
 
 /// A timer that the shell runs for the controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,63 +126,15 @@ pub enum GhostPlacement {
 
 /// What the platform shows for a suggestion: the ghost text at the caret or in the mirror below
 /// it, else, when it finds no caret, the mirror next to the focused field.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GhostView {
     /// The ghost text.
     pub ghost: Ghost,
-    /// The end of the line before the caret, without the typo of a fix. The mirror next to the
-    /// field shows it before the ghost text.
-    pub line_before_caret: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
     /// Whether a key changed the text since the ghost text showed last. The platform then shows
     /// the ghost text only at a caret that moved from where the ghost text showed last.
     pub is_after_edit: bool,
-}
-
-impl GhostView {
-    /// Shows `ghost` after `text_before_caret`, the text of the session before the caret, at
-    /// `placement`.
-    #[must_use]
-    pub fn new(ghost: Ghost, text_before_caret: &str, placement: GhostPlacement) -> Self {
-        let text_before_typo = match &ghost {
-            Ghost::Fix(fix) => text_before_caret
-                .strip_suffix(fix.typo.as_str())
-                .unwrap_or(text_before_caret),
-            Ghost::Text(_) => text_before_caret,
-        };
-        let line = text_before_typo
-            .rsplit(['\n', '\r'])
-            .next()
-            .unwrap_or_default()
-            .trim_start();
-        let cut_chars = line.chars().count().saturating_sub(MIRROR_LINE_CHARS);
-        let line_before_caret = match line.char_indices().nth(cut_chars) {
-            Some((start, _)) if cut_chars > 0 => format!("…{}", &line[start..]),
-            _ => line.to_owned(),
-        };
-        Self {
-            ghost,
-            line_before_caret,
-            placement,
-            is_after_edit: false,
-        }
-    }
-}
-
-impl fmt::Debug for GhostView {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GhostView")
-            .field("ghost", &self.ghost)
-            .field(
-                "line_before_caret",
-                &format_args!("{} chars", self.line_before_caret.chars().count()),
-            )
-            .field("placement", &self.placement)
-            .field("is_after_edit", &self.is_after_edit)
-            .finish()
-    }
 }
 
 /// The platform as the controller drives it: the desktop that it reads, and what it shows and
@@ -744,8 +694,9 @@ impl Controller {
             GhostPlacement::BelowCaret
         };
         let ghost = self.pending_ghost.clone().map(|ghost| GhostView {
+            ghost,
+            placement,
             is_after_edit: self.caret_move_checks_left > 0,
-            ..GhostView::new(ghost, self.app.text_before_caret(), placement)
         });
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
     }
@@ -1546,60 +1497,6 @@ mod tests {
             }),
             ..completion
         }))
-    }
-
-    #[test]
-    fn mirror_shows_the_end_of_the_last_line_before_the_caret() {
-        let texts_before_caret = [
-            "Dear Ana,\nThanks for the",
-            "fn main() {\r\n    let total",
-            "This line is longer than what the mirror shows before the ghost",
-        ];
-
-        let lines = texts_before_caret.map(|text| {
-            GhostView::new(Ghost::Text(" rest".to_owned()), text, GhostPlacement::AfterCaret)
-                .line_before_caret
-        });
-
-        assert_eq!(
-            lines,
-            [
-                "Thanks for the".to_owned(),
-                "let total".to_owned(),
-                "…n what the mirror shows before the ghost".to_owned(),
-            ]
-        );
-    }
-
-    #[test]
-    fn mirror_leaves_out_the_typo_that_a_fix_replaces() {
-        let fix = WordFix {
-            typo: "B".to_owned(),
-            word: "Best".to_owned(),
-            rest: " regards".to_owned(),
-        };
-
-        let view = GhostView::new(Ghost::Fix(fix), "Thanks again.\nB", GhostPlacement::AfterCaret);
-
-        assert_eq!(view.line_before_caret, "");
-    }
-
-    #[test]
-    fn ghost_view_gets_the_text_before_the_caret() {
-        let mut harness = Harness::new(Settings::default());
-        harness.press(Key::Char('H'));
-        harness.answer(completed("ello there"));
-
-        harness.settle_caret();
-
-        assert_eq!(
-            harness
-                .shell
-                .ghost_view
-                .map(|view| view.line_before_caret)
-                .as_deref(),
-            Some("H")
-        );
     }
 
     #[test]

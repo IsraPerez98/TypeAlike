@@ -1,8 +1,8 @@
-//! The mirror: a small panel next to a focused field whose caret Accessibility does not give, as
-//! in the editor of VS Code. It shows the end of the line before the caret and the ghost text.
-//! When text follows the caret on its line, it shows only the ghost text, below the caret.
+//! The mirror: a small panel with the ghost text next to a focused field whose caret Accessibility
+//! does not give, as in the editor of VS Code. When text follows the caret on its line, it shows
+//! the ghost text below the caret.
 
-use ghosttype_core::controller::{Ghost, GhostView};
+use ghosttype_core::controller::Ghost;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSBox, NSBoxType, NSColor, NSFont, NSPanel, NSScreen, NSTextField, NSTitlePosition};
@@ -49,20 +49,15 @@ impl Mirror {
         }
     }
 
-    /// Shows `view` below `field`, the frame of the focused field in global points with a top-left
-    /// origin, or above it when it does not fit below.
-    pub(crate) fn show(&self, view: &GhostView, field: CGRect) {
-        self.present(&view.line_before_caret, &view.ghost, field);
-    }
-
     /// Shows `ghost` below the line of `caret` with its first letter under the caret, or above the
     /// line when it does not fit below.
     pub(crate) fn show_below_caret(&self, ghost: &Ghost, caret: Caret) {
-        self.present("", ghost, caret_line(caret));
+        self.show(ghost, caret_line(caret));
     }
 
-    /// Shows `line_before_caret` and `ghost` below `anchor`, or above it when they do not fit below.
-    fn present(&self, line_before_caret: &str, ghost: &Ghost, anchor: CGRect) {
+    /// Shows `ghost` below `anchor`, a frame in global points with a top-left origin, or above it
+    /// when it does not fit below.
+    pub(crate) fn show(&self, ghost: &Ghost, anchor: CGRect) {
         let Some(primary_screen_height) = overlay::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
@@ -72,8 +67,7 @@ impl Mirror {
             return;
         };
         let font = NSFont::systemFontOfSize(NSFont::systemFontSize());
-        self.label
-            .setAttributedStringValue(&mirror_text(line_before_caret, ghost, &font));
+        self.label.setAttributedStringValue(&mirror_text(ghost, &font));
         let text_size = self.text_size();
         self.label.setFrameSize(text_size);
         let inset = 2.0 * TEXT_INSET;
@@ -101,14 +95,12 @@ impl Mirror {
     }
 }
 
-/// The line before the caret in the color of text, then the ghost text as the overlay shows it,
-/// with the typo of a fix in the color of text.
-fn mirror_text(line_before_caret: &str, ghost: &Ghost, font: &NSFont) -> Retained<NSMutableAttributedString> {
+/// The ghost text as the overlay shows it, with the typo of a fix in the color of text.
+fn mirror_text(ghost: &Ghost, font: &NSFont) -> Retained<NSMutableAttributedString> {
     let text = NSMutableAttributedString::new();
     let append = |part: &str, color: &NSColor, strike_color: Option<&NSColor>| {
         text.appendAttributedString(&overlay::attributed(part, font, color, strike_color));
     };
-    append(line_before_caret, &NSColor::labelColor(), None);
     match ghost {
         Ghost::Text(ghost) => append(ghost, &NSColor::secondaryLabelColor(), None),
         Ghost::Fix(fix) => {

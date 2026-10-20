@@ -481,14 +481,6 @@ impl Engine {
         }
     }
 
-    /// Returns the text before the caret in the session, empty without a session.
-    #[must_use]
-    pub fn text_before_caret(&self) -> &str {
-        self.session
-            .as_ref()
-            .map_or("", |session| session.text_before.as_str())
-    }
-
     /// Whether the line of the caret has no text after the caret, also without a session.
     #[must_use]
     pub fn is_caret_at_line_end(&self) -> bool {

@@ -255,7 +255,7 @@ impl AppKitShell {
     fn show_mirror(&self, view: &GhostView) {
         self.overlay.hide();
         match self.focus.field_frame() {
-            Some(field) => self.mirror.show(view, field),
+            Some(field) => self.mirror.show(&view.ghost, field),
             None => self.mirror.hide(),
         }
     }

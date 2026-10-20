@@ -291,11 +291,11 @@ mod tests {
     };
 
     fn world() -> GhostView {
-        GhostView::new(
-            Ghost::Text("world".to_owned()),
-            "Hello ",
-            GhostPlacement::AfterCaret,
-        )
+        GhostView {
+            ghost: Ghost::Text("world".to_owned()),
+            placement: GhostPlacement::AfterCaret,
+            is_after_edit: false,
+        }
     }
 
     fn ghost_and_badge() -> CaretView {
