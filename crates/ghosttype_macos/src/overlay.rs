@@ -143,7 +143,7 @@ fn font_at(caret: Caret) -> Retained<NSFont> {
 }
 
 /// Returns `text` in `font` and `color`, struck through in `strike_color` when it has one.
-fn attributed(
+pub(crate) fn attributed(
     text: &str,
     font: &NSFont,
     color: &NSColor,

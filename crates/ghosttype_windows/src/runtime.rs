@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, FocusChange, Ghost, Services, Shell, Timer,
+    BackendChoice, Controller, Delivery, FocusChange, Ghost, GhostView, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
@@ -499,9 +499,9 @@ impl Shell for Win32Shell {
 
     /// Asks the caret reader for the caret, then shows `ghost` and `badge` at it when the answer
     /// comes.
-    fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>) {
+    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let read = self.pending_view.wait(CaretView {
-            ghost: ghost.cloned(),
+            ghost: ghost.map(|view| view.ghost.clone()),
             badge,
         });
         self.caret_reader.read(read);

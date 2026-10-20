@@ -16,6 +16,7 @@ mod keys;
 mod labels;
 mod main_menu;
 mod menu_bar;
+mod mirror;
 mod ocr;
 mod overlay;
 mod runtime;

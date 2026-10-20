@@ -135,6 +135,14 @@ impl FocusTracker {
         caret_bounds(&*self.focused_element()?).and_then(Caret::from_bounds)
     }
 
+    /// The frame of the focused control when it holds text, as a field does, even when it gives
+    /// no caret.
+    pub(crate) fn field_frame(&self) -> Option<CGRect> {
+        let element = self.focused_element()?;
+        selected_range(&element)?;
+        frame(&element)
+    }
+
     fn is_secure_text_focused(&self) -> bool {
         self.focused_element()
             .is_some_and(|element| is_secure_text(&element))

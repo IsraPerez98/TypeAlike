@@ -87,7 +87,7 @@ fn badge_frame(caret: Caret) -> CGRect {
 }
 
 /// The origin of `frame` in AppKit's bottom-left screen coordinates.
-fn appkit_origin(frame: CGRect, primary_screen_height: CGFloat) -> NSPoint {
+pub(crate) fn appkit_origin(frame: CGRect, primary_screen_height: CGFloat) -> NSPoint {
     NSPoint::new(
         frame.origin.x,
         primary_screen_height - frame.origin.y - frame.size.height,

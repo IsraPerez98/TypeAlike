@@ -474,6 +474,14 @@ impl Engine {
         }
     }
 
+    /// Returns the text before the caret in the session, empty without a session.
+    #[must_use]
+    pub fn text_before_caret(&self) -> &str {
+        self.session
+            .as_ref()
+            .map_or("", |session| session.text_before.as_str())
+    }
+
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text
     /// before the caret when the personalization allows it.
     pub fn reset(&mut self) -> Reaction {

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, Services, Shell, Timer,
+    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
@@ -33,11 +33,12 @@ use crate::RunError;
 use crate::badge::Badge;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
-use crate::focus::{self, FocusTracker};
+use crate::focus::{self, Caret, FocusTracker};
 use crate::injection::{self, INJECTION_TAG, Replacement};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
+use crate::mirror::Mirror;
 use crate::ocr;
 use crate::overlay::Overlay;
 use crate::screen_text::ScreenTextReader;
@@ -91,6 +92,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             clipboard: ClipboardWatch::start(),
             menu_bar,
             overlay: Overlay::new(main_thread),
+            mirror: Mirror::new(main_thread),
             badge: Badge::new(main_thread),
             target,
             caret_timer: None,
@@ -220,6 +222,7 @@ struct AppKitShell {
     clipboard: ClipboardWatch,
     menu_bar: MenuBarItem,
     overlay: Overlay,
+    mirror: Mirror,
     badge: Badge,
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
@@ -229,6 +232,24 @@ struct AppKitShell {
 }
 
 impl AppKitShell {
+    fn show_at_caret(&self, ghost: &Ghost, caret: Caret) {
+        self.mirror.hide();
+        match ghost {
+            Ghost::Text(text) => self.overlay.show(text, caret),
+            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret),
+        }
+    }
+
+    /// Shows `view` in the mirror next to the focused field, which gives no caret. Hides it when
+    /// the focused control holds no text.
+    fn show_mirror(&self, view: &GhostView) {
+        self.overlay.hide();
+        match self.focus.field_frame() {
+            Some(field) => self.mirror.show(view, field),
+            None => self.mirror.hide(),
+        }
+    }
+
     fn schedule(&self, delay: NSTimeInterval, action: Sel) -> Retained<NSTimer> {
         // SAFETY: every action passed here is a method of the target that takes the timer.
         unsafe {
@@ -272,10 +293,9 @@ impl Desktop for AppKitShell {
         OcrLevels::Selectable
     }
 
-    /// The overlay hides the ghost text when Accessibility gives no caret, as in the editor of VS
-    /// Code while its screen reader mode is off.
+    /// The ghost text shows at the caret, else in the mirror next to a field without a caret.
     fn is_ghost_shown(&self) -> bool {
-        self.overlay.is_shown()
+        self.overlay.is_shown() || self.mirror.is_shown()
     }
 }
 
@@ -284,21 +304,22 @@ impl Shell for AppKitShell {
         self.focus.refresh()
     }
 
-    fn render_at_caret(&mut self, ghost: Option<&Ghost>, badge: Option<BadgeView>) {
+    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let caret = self.focus.caret();
         match (badge, caret) {
             (Some(badge), Some(caret)) => self.badge.show(&badge, caret),
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
-            (Some(Ghost::Text(text)), Some(caret)) => self.overlay.show(text, caret),
-            (Some(Ghost::Fix(fix)), Some(caret)) => self.overlay.show_fix(fix, caret),
-            _ => self.overlay.hide(),
+            (Some(view), Some(caret)) => self.show_at_caret(&view.ghost, caret),
+            (Some(view), None) => self.show_mirror(view),
+            (None, _) => self.hide_ghost(),
         }
     }
 
     fn hide_ghost(&mut self) {
         self.overlay.hide();
+        self.mirror.hide();
     }
 
     fn hide_badge(&mut self) {

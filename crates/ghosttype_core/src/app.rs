@@ -352,6 +352,12 @@ impl App {
         }
     }
 
+    /// Returns the text before the caret in the session, empty without a session.
+    #[must_use]
+    pub fn text_before_caret(&self) -> &str {
+        self.engine.text_before_caret()
+    }
+
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
     /// GhostType watches.
     #[must_use]
