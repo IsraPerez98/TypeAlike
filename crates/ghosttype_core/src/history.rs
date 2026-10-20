@@ -28,6 +28,9 @@ const MAX_SMALL_PLACE_TEXTS: usize = 3;
 /// The newest texts of other places with the same format that a prompt shows, when the place has
 /// no text.
 const RECENT_IN_FORMAT: usize = 1;
+/// The fewest topic words that a text of another place shares with the field, for an example. A
+/// text of another place often has another topic or style, which harms more than no example.
+const MIN_WIDE_WORDS: usize = 3;
 /// The most estimated tokens of an example.
 const EXAMPLE_TOKENS: TokenCount = TokenCount(160);
 /// The estimated tokens of the start of a text longer than [`EXAMPLE_TOKENS`], which its example
@@ -368,8 +371,9 @@ pub(crate) fn session_texts<'entries>(
 /// Returns the texts of `texts`, oldest first, that a prompt in `surroundings` shows as examples:
 /// the `matching` best matching texts of the same place. In a place with at most
 /// [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to [`RECENT_IN_PLACE`].
-/// A place without texts gets the newest texts of other places with the same format. A text
-/// matches when it shares rare words with the
+/// The best matching texts of other places with at least [`MIN_WIDE_WORDS`] topic words fill the
+/// rest of the `matching` examples. A place without texts gets the newest texts of other places
+/// with the same format in the free examples. A text matches when it shares rare words with the
 /// text near the caret, the window, the labels of the field and the `screen`. Each example keeps
 /// the start and the end of its text. A text that the field holds now is no example, and two
 /// examples never hold the same text.
@@ -385,11 +389,17 @@ pub(crate) fn examples(
     let pool = texts.local.iter().chain(&texts.wide).map(|&(_, entry)| entry);
     let topics = Topics::of(pool, surroundings, screen);
     let mut picked = Vec::new();
-    pick(&mut picked, &topics.best_first(&in_place), matching);
+    pick(&mut picked, &topics.best_first(&in_place, 1), matching);
     if in_place.len() <= MAX_SMALL_PLACE_TEXTS {
         let missing = RECENT_IN_PLACE.saturating_sub(picked.len());
         pick(&mut picked, &in_place, missing);
     }
+    let missing = matching.saturating_sub(picked.len());
+    pick(
+        &mut picked,
+        &topics.best_first(&elsewhere, MIN_WIDE_WORDS),
+        missing,
+    );
     if in_place.is_empty() {
         let format = Format::of(surroundings).filter(|format| *format != Format::WebPage);
         let same_format = elsewhere
@@ -399,7 +409,8 @@ pub(crate) fn examples(
                 format.is_some() && Format::of_place(Some(&entry.app_id), entry.domain.as_deref()) == format
             })
             .collect::<Vec<_>>();
-        pick(&mut picked, &same_format, RECENT_IN_FORMAT);
+        let missing = matching.saturating_sub(picked.len());
+        pick(&mut picked, &same_format, RECENT_IN_FORMAT.min(missing));
     }
     picked.sort_by_key(|&(index, _)| index);
     picked
@@ -487,24 +498,26 @@ impl Topics {
         }
     }
 
-    /// Returns the `candidates` that hold a query word, best match first, from the newest among
-    /// the same matches.
+    /// Returns the `candidates` that hold at least `min_words` query words, best match first, from
+    /// the newest among the same matches.
     fn best_first<'entries>(
         &self,
         candidates: &[(usize, &'entries HistoryEntry)],
+        min_words: usize,
     ) -> Vec<(usize, &'entries HistoryEntry)> {
         let mut scored = candidates
             .iter()
             .map(|&candidate| (self.score(&candidate.1.text), candidate))
-            .filter(|(score, _)| *score > 0.0)
+            .filter(|((_, words), _)| *words >= min_words)
             .collect::<Vec<_>>();
-        scored.sort_by(|(left, _), (right, _)| right.total_cmp(left));
+        scored.sort_by(|((left, _), _), ((right, _), _)| right.total_cmp(left));
         scored.into_iter().map(|(_, candidate)| candidate).collect()
     }
 
-    /// The sum of the weights of the query words that `text` holds. A word that few entries hold
-    /// weighs more than a word that many entries hold, but each word weighs something.
-    fn score(&self, text: &str) -> f32 {
+    /// The sum of the weights of the query words that `text` holds, and the number of these words.
+    /// A word that few entries hold weighs more than a word that many entries hold, but each word
+    /// weighs something.
+    fn score(&self, text: &str) -> (f32, usize) {
         let mut seen = Vec::<String>::new();
         let mut total = 0.0;
         each_lowercase_word(text, |word| {
@@ -518,7 +531,7 @@ impl Topics {
             let entries = f32::from(u16::try_from(self.entries).unwrap_or(u16::MAX));
             total += (entries / f32::from(u16::try_from(holding).unwrap_or(u16::MAX).max(1))).ln_1p();
         });
-        total
+        (total, seen.len())
     }
 }
 
@@ -1953,6 +1966,55 @@ mod tests {
                 "Bluefin budget review with Dana tomorrow morning."
             ]
         );
+    }
+
+    fn notes(text: &str) -> HistoryEntry {
+        entry(text, "com.apple.Notes", None)
+    }
+
+    const KESTREL_NOTE: &str = "Kestrel portal: carrier sign-in goes through the Pinwheel gateway.";
+
+    #[test]
+    fn matching_text_of_another_app_fills_a_free_example() {
+        let mut entries = large_mail_place();
+        entries.push(notes(KESTREL_NOTE));
+        let surroundings = place(
+            "com.apple.mail",
+            None,
+            "Update on the Kestrel portal: carrier sign-in",
+        );
+
+        let examples = examples_with(&entries, &surroundings, None, 1);
+
+        assert_eq!(examples, [KESTREL_NOTE]);
+    }
+
+    #[test]
+    fn matching_text_of_another_app_never_takes_the_place_of_a_text_of_the_place() {
+        let mut entries = large_mail_place();
+        entries.push(notes(
+            "Update: Bluefin budget review, the Bluefin budget goes to the launch demo.",
+        ));
+        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+
+        let examples = examples_with(&entries, &surroundings, None, 1);
+
+        assert_eq!(examples, ["Bluefin budget review with Dana tomorrow morning."]);
+    }
+
+    #[test]
+    fn text_of_another_app_needs_three_topic_words_of_the_field() {
+        let mut entries = large_mail_place();
+        entries.push(notes("Kestrel portal ideas for the lake trip this week."));
+        let surroundings = place(
+            "com.apple.mail",
+            None,
+            "Update on the Kestrel portal: carrier sign-in",
+        );
+
+        let examples = examples_with(&entries, &surroundings, None, 1);
+
+        assert_eq!(examples, Vec::<&str>::new());
     }
 
     #[test]
