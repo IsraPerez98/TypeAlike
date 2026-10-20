@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use ghosttype_core::app::BadgeView;
-use ghosttype_core::controller::Ghost;
+use ghosttype_core::controller::GhostView;
 use windows::core::Result;
 
 use crate::focus::{self, Caret, WindowId};
@@ -230,7 +230,7 @@ impl KeptFieldText {
 /// What shows at the caret after a read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CaretView {
-    pub(crate) ghost: Option<Ghost>,
+    pub(crate) ghost: Option<GhostView>,
     pub(crate) badge: Option<BadgeView>,
 }
 
@@ -278,6 +278,7 @@ mod tests {
     use std::ptr;
 
     use ghosttype_core::app::{Status, TrayCommand};
+    use ghosttype_core::controller::{Ghost, GhostPlacement};
     use ghosttype_core::desktop::{FieldLabels, FieldText};
     use windows::Win32::Foundation::HWND;
 
@@ -289,9 +290,17 @@ mod tests {
         command: TrayCommand::TogglePause,
     };
 
+    fn world() -> GhostView {
+        GhostView::new(
+            Ghost::Text("world".to_owned()),
+            "Hello ",
+            GhostPlacement::AfterCaret,
+        )
+    }
+
     fn ghost_and_badge() -> CaretView {
         CaretView {
-            ghost: Some(Ghost::Text("world".to_owned())),
+            ghost: Some(world()),
             badge: Some(BADGE),
         }
     }
@@ -520,7 +529,7 @@ mod tests {
         assert_eq!(
             view,
             Some(CaretView {
-                ghost: Some(Ghost::Text("world".to_owned())),
+                ghost: Some(world()),
                 badge: None,
             })
         );

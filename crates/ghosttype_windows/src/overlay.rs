@@ -1,17 +1,27 @@
-//! The ghost text: a click-through, never-focused layered window drawn right after the caret.
+//! The ghost text: a click-through, never-focused layered window drawn right after the caret, or
+//! the mirror on a card below the caret when text follows the caret on its line.
 
-use ghosttype_core::engine::WordFix;
-use windows::Win32::Foundation::POINT;
-use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetSysColor};
+use ghosttype_core::controller::{Ghost, GhostPlacement, GhostView};
+use windows::Win32::Foundation::{POINT, RECT, SIZE};
+use windows::Win32::Graphics::Gdi::{
+    COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetMonitorInfoW, GetSysColor, MONITOR_DEFAULTTONEAREST,
+    MONITORINFO, MonitorFromPoint,
+};
 use windows::core::{Result, w};
 
+use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
 use crate::focus::Caret;
 use crate::gdi::{FixColors, Font, FontHeight, TextBitmap, TextLayout};
-use crate::pixels::Rgb;
+use crate::pixels::{Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
 
 const UI_FONT_FACES: [&str; 2] = ["Segoe UI Variable Text", "Segoe UI"];
+const CARD_HORIZONTAL_PADDING_DIPS: i32 = 8;
+const CARD_VERTICAL_PADDING_DIPS: i32 = 4;
+const CARD_CORNER_RADIUS_DIPS: i32 = 4;
+const CARD_BORDER_WIDTH_DIPS: i32 = 1;
+const GAP_TO_CARET_LINE_DIPS: i32 = 4;
 /// The critical and the success foreground colors of Fluent, for light mode.
 const LIGHT_STRIKE: Rgb = Rgb {
     red: 0xC4,
@@ -46,31 +56,51 @@ impl Overlay {
         Ok(Self { window })
     }
 
-    /// Shows `text` starting at `caret`, sized to the caret, in the font face of the control at the
-    /// caret when it is installed, else in the system UI font.
-    pub(crate) fn show(&self, text: &str, caret: &Caret) -> Result<()> {
+    /// Shows the ghost text of `view` at its placement at `caret`, sized to the caret, in the font
+    /// face of the control at the caret when it is installed, else in the system UI font.
+    pub(crate) fn show(&self, view: &GhostView, caret: &Caret) -> Result<()> {
         let faces = ghost_text_faces(caret.font_face.as_deref());
         let font = Font::first_installed(&faces, FontHeight::Cell(caret.height))?;
-        let bitmap = TextBitmap::render(text, &font, ghost_text_color(), TextLayout::Fit)?;
-        bitmap.present(self.window.handle(), caret.origin)?;
+        let theme = SystemTheme::read();
+        match view.placement {
+            GhostPlacement::AfterCaret => {
+                let (bitmap, typo_width) = render(&view.ghost, &font, fix_colors(theme, ghost_text_color()))?;
+                let origin = POINT {
+                    x: caret.origin.x - typo_width,
+                    y: caret.origin.y,
+                };
+                bitmap.present(self.window.handle(), origin)?;
+            }
+            GhostPlacement::BelowCaret => self.present_card(&view.ghost, &font, theme, caret)?,
+        }
         self.window.show_on_top()
     }
 
-    /// Shows `fix` at `caret`: a line through the typed letters before the caret, then the fixed
-    /// word and the rest of the suggestion. The line spans the width of the letters in the font of
-    /// the ghost text, so it can differ a little from the letters of a control in another font.
-    pub(crate) fn show_fix(&self, fix: &WordFix, caret: &Caret) -> Result<()> {
-        let faces = ghost_text_faces(caret.font_face.as_deref());
-        let font = Font::first_installed(&faces, FontHeight::Cell(caret.height))?;
-        let colors = fix_colors(SystemTheme::read());
-        let word = format!(" {}", fix.word);
-        let (bitmap, typo_width) = TextBitmap::render_fix(&fix.typo, &word, &fix.rest, &font, colors)?;
-        let origin = POINT {
-            x: caret.origin.x - typo_width,
-            y: caret.origin.y,
+    /// Shows `ghost` on a card below the line of `caret`, with the text under the caret, or above
+    /// the line when the card does not fit below.
+    fn present_card(&self, ghost: &Ghost, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
+        let colors = TooltipColors::for_theme(theme);
+        let (text, typo_width) = render(ghost, font, fix_colors(theme, colors.text))?;
+        let text_left = caret.origin.x - typo_width;
+        let line = RECT {
+            left: text_left,
+            top: caret.origin.y,
+            right: text_left,
+            bottom: caret.origin.y + caret.height,
         };
-        bitmap.present(self.window.handle(), origin)?;
-        self.window.show_on_top()
+        let layout = CardLayout::new(
+            line,
+            text.size(),
+            work_area(caret.origin)?,
+            monitor_dpi(caret.origin),
+        );
+        let mut bitmap = text.padded(layout.padding)?;
+        bitmap.lay_over(&layout.plate(colors).pixels());
+        let top_left = POINT {
+            x: layout.frame.left,
+            y: layout.frame.top,
+        };
+        bitmap.present(self.window.handle(), top_left)
     }
 
     pub(crate) fn hide(&self) {
@@ -82,9 +112,92 @@ impl Overlay {
     }
 }
 
-/// The colors of a fix in `theme`: Fluent red and green, or the colors of high contrast.
-fn fix_colors(theme: SystemTheme) -> FixColors {
-    let rest = ghost_text_color();
+/// Renders `ghost` in `colors`. A fix starts with a line through the typed letters before the
+/// caret, as wide as the letters in `font`, so it can differ a little from the letters of a control
+/// in another font. Returns the bitmap and the width of that line.
+fn render(ghost: &Ghost, font: &Font, colors: FixColors) -> Result<(TextBitmap, i32)> {
+    match ghost {
+        Ghost::Text(text) => Ok((TextBitmap::render(text, font, colors.rest, TextLayout::Fit)?, 0)),
+        Ghost::Fix(fix) => {
+            let word = format!(" {}", fix.word);
+            TextBitmap::render_fix(&fix.typo, &word, &fix.rest, font, colors)
+        }
+    }
+}
+
+/// Where the card below the caret shows and how large its parts are, in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CardLayout {
+    frame: RECT,
+    padding: SIZE,
+    corner_radius: i32,
+    border_width: i32,
+}
+
+impl CardLayout {
+    /// Puts a card around text of `text_size` below `line`, the line of the caret at the left edge
+    /// of the text, on a monitor of `dpi`. The card goes above the line when it does not fit below
+    /// in `work_area`, and stays inside `work_area`.
+    fn new(line: RECT, text_size: SIZE, work_area: RECT, dpi: i32) -> Self {
+        let padding = SIZE {
+            cx: to_pixels(CARD_HORIZONTAL_PADDING_DIPS, dpi),
+            cy: to_pixels(CARD_VERTICAL_PADDING_DIPS, dpi),
+        };
+        let gap = to_pixels(GAP_TO_CARET_LINE_DIPS, dpi);
+        let width = text_size.cx + 2 * padding.cx;
+        let height = text_size.cy + 2 * padding.cy;
+        let below = line.bottom + gap;
+        let top = if below + height <= work_area.bottom {
+            below
+        } else {
+            (line.top - gap - height).max(work_area.top)
+        };
+        let left = (line.left - padding.cx)
+            .min(work_area.right - width)
+            .max(work_area.left);
+        Self {
+            frame: RECT {
+                left,
+                top,
+                right: left + width,
+                bottom: top + height,
+            },
+            padding,
+            corner_radius: to_pixels(CARD_CORNER_RADIUS_DIPS, dpi),
+            border_width: to_pixels(CARD_BORDER_WIDTH_DIPS, dpi),
+        }
+    }
+
+    fn plate(&self, colors: TooltipColors) -> RoundedRectangle {
+        RoundedRectangle {
+            width: self.frame.right - self.frame.left,
+            height: self.frame.bottom - self.frame.top,
+            corner_radius: self.corner_radius,
+            border_width: self.border_width,
+            fill: colors.fill,
+            border: colors.border,
+        }
+    }
+}
+
+/// Reads the work area of the monitor that shows `point`: the monitor without the taskbar.
+fn work_area(point: POINT) -> Result<RECT> {
+    // SAFETY: plain call.
+    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>()
+            .try_into()
+            .expect("monitor info size fits in u32"),
+        ..MONITORINFO::default()
+    };
+    // SAFETY: `info` is a local with its size set.
+    unsafe { GetMonitorInfoW(monitor, &raw mut info) }.ok()?;
+    Ok(info.rcWork)
+}
+
+/// The colors of a fix in `theme`, with the rest of the suggestion in `rest`: Fluent red and
+/// green, or the colors of high contrast.
+fn fix_colors(theme: SystemTheme, rest: Rgb) -> FixColors {
     match (theme.contrast, theme.mode) {
         (Contrast::High, _) => {
             // SAFETY: plain calls.
@@ -127,6 +240,62 @@ mod tests {
         let faces = ghost_text_faces(Some("Consolas"));
 
         assert_eq!(faces, ["Consolas", "Segoe UI Variable Text", "Segoe UI"]);
+    }
+
+    const WORK_AREA: RECT = RECT {
+        left: 0,
+        top: 0,
+        right: 1920,
+        bottom: 1040,
+    };
+    const TEXT_SIZE: SIZE = SIZE { cx: 120, cy: 20 };
+
+    fn caret_line(left: i32, top: i32) -> RECT {
+        RECT {
+            left,
+            top,
+            right: left,
+            bottom: top + 20,
+        }
+    }
+
+    #[test]
+    fn card_starts_its_text_under_the_caret_below_its_line() {
+        let layout = CardLayout::new(caret_line(600, 200), TEXT_SIZE, WORK_AREA, 96);
+
+        assert_eq!(
+            layout.frame,
+            RECT {
+                left: 592,
+                top: 224,
+                right: 728,
+                bottom: 252,
+            }
+        );
+    }
+
+    #[test]
+    fn card_shows_above_a_caret_line_at_the_bottom_of_the_work_area() {
+        let layout = CardLayout::new(caret_line(600, 1010), TEXT_SIZE, WORK_AREA, 96);
+
+        assert_eq!(layout.frame.top, 978);
+    }
+
+    #[test]
+    fn card_stays_inside_the_right_edge_of_the_work_area() {
+        let layout = CardLayout::new(caret_line(1900, 200), TEXT_SIZE, WORK_AREA, 96);
+
+        assert_eq!(layout.frame.right, 1920);
+    }
+
+    #[test]
+    fn card_scales_with_the_monitor() {
+        let layout = CardLayout::new(caret_line(600, 200), TEXT_SIZE, WORK_AREA, 144);
+
+        assert_eq!(
+            (layout.padding, layout.corner_radius, layout.border_width),
+            (SIZE { cx: 12, cy: 6 }, 6, 2)
+        );
     }
 
     #[test]

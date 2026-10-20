@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, Field, TrayCommand, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, FocusChange, Ghost, GhostView, Services, Shell, Timer,
+    BackendChoice, Controller, Delivery, FocusChange, GhostView, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
@@ -427,16 +427,12 @@ impl Win32Shell {
         self.show_badge(view.badge, read.caret.as_ref());
     }
 
-    fn show_ghost(&mut self, ghost: Option<&Ghost>, caret: Option<&Caret>) {
+    fn show_ghost(&mut self, ghost: Option<&GhostView>, caret: Option<&Caret>) {
         let (Some(ghost), Some(caret)) = (ghost, caret) else {
             self.overlay.hide();
             return;
         };
-        let shown = match ghost {
-            Ghost::Text(text) => self.overlay.show(text, caret),
-            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret),
-        };
-        if let Err(error) = shown {
+        if let Err(error) = self.overlay.show(ghost, caret) {
             tracing::warn!(%error, "failed to show ghost text");
         }
     }
@@ -501,7 +497,7 @@ impl Shell for Win32Shell {
     /// comes.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let read = self.pending_view.wait(CaretView {
-            ghost: ghost.map(|view| view.ghost.clone()),
+            ghost: ghost.cloned(),
             badge,
         });
         self.caret_reader.read(read);

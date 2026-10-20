@@ -115,16 +115,16 @@ impl BadgeLayout {
     }
 }
 
-/// The colors of the badge: the fill, the border and the text of the Fluent tooltip.
+/// The colors of the badge and of the mirror below the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TooltipColors {
-    fill: Rgb,
-    border: Rgb,
-    text: Rgb,
+pub(crate) struct TooltipColors {
+    pub(crate) fill: Rgb,
+    pub(crate) border: Rgb,
+    pub(crate) text: Rgb,
 }
 
 impl TooltipColors {
-    fn for_theme(theme: SystemTheme) -> Self {
+    pub(crate) fn for_theme(theme: SystemTheme) -> Self {
         match (theme.contrast, theme.mode) {
             (Contrast::High, _) => Self::high_contrast(),
             (Contrast::Standard, ThemeMode::Light) => LIGHT_COLORS,
@@ -144,7 +144,7 @@ impl TooltipColors {
 }
 
 /// Reads the DPI of the monitor that shows `point`, or the default DPI when the monitor does not tell.
-fn monitor_dpi(point: POINT) -> i32 {
+pub(crate) fn monitor_dpi(point: POINT) -> i32 {
     // SAFETY: plain call.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     let mut horizontal = 0;
@@ -158,7 +158,7 @@ fn monitor_dpi(point: POINT) -> i32 {
 }
 
 /// Scales `dips` to physical pixels on a monitor of `dpi`.
-fn to_pixels(dips: i32, dpi: i32) -> i32 {
+pub(crate) fn to_pixels(dips: i32, dpi: i32) -> i32 {
     (dips * dpi + DEFAULT_DPI / 2) / DEFAULT_DPI
 }
 

@@ -200,6 +200,13 @@ struct Session {
 }
 
 impl Session {
+    fn is_caret_at_line_end(&self) -> bool {
+        self.text_after
+            .lines()
+            .next()
+            .is_none_or(|line| line.trim().is_empty())
+    }
+
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the
     /// caret that does not fit after it.
     fn use_preface(&mut self, preface: String) {
@@ -480,6 +487,12 @@ impl Engine {
         self.session
             .as_ref()
             .map_or("", |session| session.text_before.as_str())
+    }
+
+    /// Whether the line of the caret has no text after the caret, also without a session.
+    #[must_use]
+    pub fn is_caret_at_line_end(&self) -> bool {
+        self.session.as_ref().is_none_or(Session::is_caret_at_line_end)
     }
 
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text
@@ -821,12 +834,7 @@ impl Engine {
     /// of the session, when the line after the caret is empty.
     fn repeated_phrase(&self) -> Option<String> {
         let (session, pool, place) = self.session_pool()?;
-        let is_line_end = session
-            .text_after
-            .lines()
-            .next()
-            .is_none_or(|line| line.trim().is_empty());
-        if session.is_excluded || !is_line_end {
+        if session.is_excluded || !session.is_caret_at_line_end() {
             return None;
         }
         self.tables
@@ -1522,6 +1530,22 @@ mod tests {
         });
 
         assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+    }
+
+    #[test]
+    fn caret_is_at_the_line_end_while_its_line_has_no_text_after_it() {
+        let texts_after = ["", "  \nSee you", " on Friday."];
+
+        let line_ends = texts_after.map(|text_after| {
+            let mut engine = Engine::default();
+            engine.on_key(
+                Key::Char(' '),
+                &FakeDesktop::with_text_around("Let's meet", text_after),
+            );
+            engine.is_caret_at_line_end()
+        });
+
+        assert_eq!(line_ends, [true, true, false]);
     }
 
     #[test]

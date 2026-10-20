@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, HSTRING, Owned, Result};
 
-use crate::pixels::{Rgb, fill_band, lay_over, strike_rows, tint_by_coverage, tint_spans};
+use crate::pixels::{Rgb, fill_band, lay_over, pad, strike_rows, tint_by_coverage, tint_spans};
 
 const BITS_PER_PIXEL: u16 = 32;
 const MAX_FACE_NAME_UNITS: usize = 32;
@@ -181,6 +181,23 @@ impl TextBitmap {
         );
         fill_band(pixels, width, 0..typo_end, strike_rows(height), colors.strike);
         Ok((Self { section, size }, typo_size.cx))
+    }
+
+    /// Returns the text inside a transparent frame, `padding.cx` pixels wide at the left and the
+    /// right and `padding.cy` pixels high at the top and the bottom.
+    pub(crate) fn padded(mut self, padding: SIZE) -> Result<Self> {
+        let size = SIZE {
+            cx: self.size.cx + 2 * padding.cx,
+            cy: self.size.cy + 2 * padding.cy,
+        };
+        let [width, horizontal, vertical] =
+            [self.size.cx, padding.cx, padding.cy].map(|value| usize::try_from(value).unwrap_or(0));
+        // SAFETY: no device context has the bitmap selected, so GDI does not draw into it.
+        let pixels = pad(unsafe { self.section.pixels() }, width, horizontal, vertical);
+        let mut section = PixelSection::new(size)?;
+        // SAFETY: no device context has the new bitmap selected, so GDI does not draw into it.
+        unsafe { section.pixels() }.copy_from_slice(&pixels);
+        Ok(Self { section, size })
     }
 
     /// Puts `backdrop` behind the text: premultiplied BGRA pixels of the same size, top row first.

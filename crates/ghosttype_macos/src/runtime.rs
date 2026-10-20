@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeView, Field, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView, Services, Shell, Timer,
+    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostPlacement, GhostView,
+    Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
@@ -232,9 +233,14 @@ struct AppKitShell {
 }
 
 impl AppKitShell {
-    fn show_at_caret(&self, ghost: &Ghost, caret: Caret) {
+    fn show_at_caret(&self, view: &GhostView, caret: Caret) {
+        if view.placement == GhostPlacement::BelowCaret {
+            self.overlay.hide();
+            self.mirror.show_below_caret(&view.ghost, caret);
+            return;
+        }
         self.mirror.hide();
-        match ghost {
+        match &view.ghost {
             Ghost::Text(text) => self.overlay.show(text, caret),
             Ghost::Fix(fix) => self.overlay.show_fix(fix, caret),
         }
@@ -311,7 +317,7 @@ impl Shell for AppKitShell {
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
-            (Some(view), Some(caret)) => self.show_at_caret(&view.ghost, caret),
+            (Some(view), Some(caret)) => self.show_at_caret(view, caret),
             (Some(view), None) => self.show_mirror(view),
             (None, _) => self.hide_ghost(),
         }

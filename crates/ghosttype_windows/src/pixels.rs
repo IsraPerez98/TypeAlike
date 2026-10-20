@@ -1,6 +1,7 @@
 //! Colors, and shapes and grayscale text coverage turned into premultiplied color pixels for
 //! alpha-blended windows.
 
+use std::iter;
 use std::ops::Range;
 
 /// Samples along each axis of a pixel, to find how much of the pixel a shape covers.
@@ -198,6 +199,22 @@ fn sample_step(pixel: i32, sample: i32) -> i32 {
     pixel * STEPS_PER_PIXEL + 2 * sample + 1
 }
 
+/// Puts `pixels`, in rows of `width`, inside a transparent frame of `horizontal` pixels at the left
+/// and the right and `vertical` pixels at the top and the bottom.
+pub(crate) fn pad(pixels: &[u32], width: usize, horizontal: usize, vertical: usize) -> Vec<u32> {
+    let blank_rows = iter::repeat_n(0, (width + 2 * horizontal) * vertical);
+    let side = || iter::repeat_n(0, horizontal);
+    blank_rows
+        .clone()
+        .chain(
+            pixels
+                .chunks(width.max(1))
+                .flat_map(|row| side().chain(row.iter().copied()).chain(side())),
+        )
+        .chain(blank_rows)
+        .collect()
+}
+
 /// Lays `front` over `backdrop`, both premultiplied BGRA pixels of the same size: the backdrop
 /// shows where the front is transparent.
 pub(crate) fn lay_over(front: &mut [u32], backdrop: &[u32]) {
@@ -360,6 +377,13 @@ mod tests {
             [pixels[4 * 20], pixels[4 * 20 + 10], pixels[4 * 20 + 19]],
             [0xFF00_0000, 0xFFFF_FFFF, 0xFF00_0000]
         );
+    }
+
+    #[test]
+    fn padding_puts_transparent_pixels_around_the_text() {
+        let padded = pad(&[0xFFFF_FFFF, 0x8080_8080], 2, 1, 1);
+
+        assert_eq!(padded, [0, 0, 0, 0, 0, 0xFFFF_FFFF, 0x8080_8080, 0, 0, 0, 0, 0,]);
     }
 
     #[test]

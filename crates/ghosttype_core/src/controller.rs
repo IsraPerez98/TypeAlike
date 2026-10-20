@@ -111,21 +111,34 @@ pub enum Ghost {
     Fix(WordFix),
 }
 
-/// What the platform shows for a suggestion: the ghost text at the caret, else, when it finds no
-/// caret, the mirror next to the focused field.
+/// Where the platform shows the ghost text when it finds the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GhostPlacement {
+    /// Right after the caret, at the end of its line.
+    AfterCaret,
+    /// In the mirror below the caret, because at the caret the ghost text would cover the text
+    /// that follows the caret on its line.
+    BelowCaret,
+}
+
+/// What the platform shows for a suggestion: the ghost text at the caret or in the mirror below
+/// it, else, when it finds no caret, the mirror next to the focused field.
 #[derive(Clone, PartialEq, Eq)]
 pub struct GhostView {
     /// The ghost text.
     pub ghost: Ghost,
-    /// The end of the line before the caret, without the typo of a fix. The mirror shows it
-    /// before the ghost text.
+    /// The end of the line before the caret, without the typo of a fix. The mirror next to the
+    /// field shows it before the ghost text.
     pub line_before_caret: String,
+    /// Where the ghost text shows when the platform finds the caret.
+    pub placement: GhostPlacement,
 }
 
 impl GhostView {
-    /// Shows `ghost` after `text_before_caret`, the text of the session before the caret.
+    /// Shows `ghost` after `text_before_caret`, the text of the session before the caret, at
+    /// `placement`.
     #[must_use]
-    pub fn new(ghost: Ghost, text_before_caret: &str) -> Self {
+    pub fn new(ghost: Ghost, text_before_caret: &str, placement: GhostPlacement) -> Self {
         let text_before_typo = match &ghost {
             Ghost::Fix(fix) => text_before_caret
                 .strip_suffix(fix.typo.as_str())
@@ -145,6 +158,7 @@ impl GhostView {
         Self {
             ghost,
             line_before_caret,
+            placement,
         }
     }
 }
@@ -158,6 +172,7 @@ impl fmt::Debug for GhostView {
                 "line_before_caret",
                 &format_args!("{} chars", self.line_before_caret.chars().count()),
             )
+            .field("placement", &self.placement)
             .finish()
     }
 }
@@ -169,10 +184,10 @@ pub trait Shell: Desktop {
     /// since the last look.
     fn refresh_focus(&mut self) -> FocusChange;
 
-    /// Shows the `ghost` text at the caret of the focused field and the `badge` at the caret,
-    /// from one look at the caret. Hides the ghost text for no `ghost` and the badge for no
-    /// `badge`. When the caret is not known, it hides the badge, and shows the mirror of `ghost`
-    /// next to the focused field, or hides it.
+    /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
+    /// at the caret, from one look at the caret. Hides the ghost text for no `ghost` and the badge
+    /// for no `badge`. When the caret is not known, it hides the badge, and shows the mirror of
+    /// `ghost` next to the focused field, or hides it.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
 
     /// Hides the ghost text at once.
@@ -697,10 +712,15 @@ impl Controller {
     }
 
     fn render_at_caret(&self, shell: &mut dyn Shell) {
+        let placement = if self.app.is_caret_at_line_end() {
+            GhostPlacement::AfterCaret
+        } else {
+            GhostPlacement::BelowCaret
+        };
         let ghost = self
             .pending_ghost
             .clone()
-            .map(|ghost| GhostView::new(ghost, self.app.text_before_caret()));
+            .map(|ghost| GhostView::new(ghost, self.app.text_before_caret(), placement));
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
     }
 
@@ -785,7 +805,7 @@ mod tests {
         focus_change: FocusChange,
         ocr: OcrAvailability,
         calls: Vec<Call>,
-        line_before_caret: Option<String>,
+        ghost_view: Option<GhostView>,
     }
 
     impl Desktop for FakeShell {
@@ -812,7 +832,7 @@ mod tests {
         }
 
         fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
-            self.line_before_caret = ghost.map(|view| view.line_before_caret.clone());
+            self.ghost_view = ghost.cloned();
             self.calls.push(Call::RenderAtCaret {
                 ghost: ghost.map(|view| view.ghost.clone()),
                 badge,
@@ -984,7 +1004,7 @@ mod tests {
                     focus_change: FocusChange::Unchanged,
                     ocr: OcrAvailability::Unsupported,
                     calls: Vec::new(),
-                    line_before_caret: None,
+                    ghost_view: None,
                 },
                 recorder,
                 deliveries,
@@ -1449,8 +1469,10 @@ mod tests {
             "This line is longer than what the mirror shows before the ghost",
         ];
 
-        let lines = texts_before_caret
-            .map(|text| GhostView::new(Ghost::Text(" rest".to_owned()), text).line_before_caret);
+        let lines = texts_before_caret.map(|text| {
+            GhostView::new(Ghost::Text(" rest".to_owned()), text, GhostPlacement::AfterCaret)
+                .line_before_caret
+        });
 
         assert_eq!(
             lines,
@@ -1470,7 +1492,7 @@ mod tests {
             rest: " regards".to_owned(),
         };
 
-        let view = GhostView::new(Ghost::Fix(fix), "Thanks again.\nB");
+        let view = GhostView::new(Ghost::Fix(fix), "Thanks again.\nB", GhostPlacement::AfterCaret);
 
         assert_eq!(view.line_before_caret, "");
     }
@@ -1483,7 +1505,37 @@ mod tests {
 
         harness.settle_caret();
 
-        assert_eq!(harness.shell.line_before_caret.as_deref(), Some("H"));
+        assert_eq!(
+            harness
+                .shell
+                .ghost_view
+                .map(|view| view.line_before_caret)
+                .as_deref(),
+            Some("H")
+        );
+    }
+
+    #[test]
+    fn ghost_text_goes_below_the_caret_while_text_follows_the_caret_on_its_line() {
+        let texts_after = ["", "\nSee you", " on Friday."];
+
+        let placements = texts_after.map(|text_after| {
+            let mut harness = Harness::new(Settings::default());
+            harness.shell.surroundings = field_around("Let's meet", text_after);
+            harness.press(Key::Char(' '));
+            harness.answer(completed("tomorrow"));
+            harness.settle_caret();
+            harness.shell.ghost_view.map(|view| view.placement)
+        });
+
+        assert_eq!(
+            placements,
+            [
+                Some(GhostPlacement::AfterCaret),
+                Some(GhostPlacement::AfterCaret),
+                Some(GhostPlacement::BelowCaret),
+            ]
+        );
     }
 
     fn harness_showing_a_fix() -> Harness {
@@ -1611,10 +1663,14 @@ mod tests {
     }
 
     fn field_with_text(before_caret: &str) -> Surroundings {
+        field_around(before_caret, "")
+    }
+
+    fn field_around(before_caret: &str, after_caret: &str) -> Surroundings {
         Surroundings {
             field_text: Some(FieldText {
                 before_caret: before_caret.to_owned(),
-                after_caret: String::new(),
+                after_caret: after_caret.to_owned(),
             }),
             ..Surroundings::default()
         }

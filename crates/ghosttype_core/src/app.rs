@@ -358,6 +358,12 @@ impl App {
         self.engine.text_before_caret()
     }
 
+    /// Whether the line of the caret has no text after the caret, also without a session.
+    #[must_use]
+    pub fn is_caret_at_line_end(&self) -> bool {
+        self.engine.is_caret_at_line_end()
+    }
+
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
     /// GhostType watches.
     #[must_use]
