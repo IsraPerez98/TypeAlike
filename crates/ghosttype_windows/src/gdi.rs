@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, HSTRING, Owned, Result};
 
-use crate::pixels::{Rgb, fill_band, lay_over, pad, strike_rows, tint_by_coverage, tint_spans};
+use crate::pixels::{Ink, Rgb, fill_band, lay_over, pad, strike_rows, tint_by_coverage, tint_spans};
 
 const BITS_PER_PIXEL: u16 = 32;
 const MAX_FACE_NAME_UNITS: usize = 32;
@@ -109,7 +109,7 @@ pub(crate) struct FixColors {
     /// The fixed word.
     pub(crate) word: Rgb,
     /// The rest of the suggestion.
-    pub(crate) rest: Rgb,
+    pub(crate) rest: Ink,
 }
 
 /// A 32-bit bitmap holding text in a single color over transparency, premultiplied.
@@ -120,8 +120,8 @@ pub(crate) struct TextBitmap {
 }
 
 impl TextBitmap {
-    /// Renders `text` into a new bitmap sized by `layout`.
-    pub(crate) fn render(text: &str, font: &Font, color: Rgb, layout: TextLayout) -> Result<Self> {
+    /// Renders `text` in `ink` into a new bitmap sized by `layout`.
+    pub(crate) fn render(text: &str, font: &Font, ink: Ink, layout: TextLayout) -> Result<Self> {
         let context = MemoryContext::new()?;
         let _font = context.select(HGDIOBJ(font.0.0));
         let mut units: Vec<u16> = text.encode_utf16().collect();
@@ -135,7 +135,7 @@ impl TextBitmap {
         // SAFETY: plain call.
         unsafe { GdiFlush() }.ok()?;
         // SAFETY: the section is alive and GDI is done writing to it.
-        tint_by_coverage(unsafe { section.pixels() }, color);
+        tint_by_coverage(unsafe { section.pixels() }, ink);
         Ok(Self { section, size })
     }
 
@@ -174,8 +174,8 @@ impl TextBitmap {
             pixels,
             width,
             &[
-                (0..typo_end, colors.strike),
-                (typo_end..word_end, colors.word),
+                (0..typo_end, colors.strike.into()),
+                (typo_end..word_end, colors.word.into()),
                 (word_end..width, colors.rest),
             ],
         );
@@ -248,7 +248,7 @@ impl TextBitmap {
 /// a square of `side` pixels.
 pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
     let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side))?;
-    TextBitmap::render(glyph, &font, color, TextLayout::CenteredSquare(side))
+    TextBitmap::render(glyph, &font, color.into(), TextLayout::CenteredSquare(side))
 }
 
 /// Renders `glyph` of the system icon font as a square icon of `side` pixels in `color`.

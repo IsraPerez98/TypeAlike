@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ghosttype_core::desktop::{
     Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, ScreenLine,
-    ScreenRect, ScreenText,
+    ScreenRect, ScreenText, TextColor,
 };
 use windows::Foundation::Uri;
 use windows::Win32::Foundation::{POINT, RECT};
@@ -22,14 +22,16 @@ use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCondition, IUIAutomationElement,
     IUIAutomationElement6, IUIAutomationTextPattern, IUIAutomationTextRange, IUIAutomationTreeWalker,
     TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Descendants,
-    UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_DocumentControlTypeId, UIA_FrameworkIdPropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId,
-    UIA_TextControlTypeId, UIA_TextPatternId, UIA_ValueValuePropertyId,
+    UIA_BackgroundColorAttributeId, UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId,
+    UIA_ControlTypePropertyId, UIA_DocumentControlTypeId, UIA_ForegroundColorAttributeId,
+    UIA_FrameworkIdPropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
+    UIA_TextPatternId, UIA_ValueValuePropertyId,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{BOOL, BSTR, HSTRING, Interface, Result};
 
 use crate::focus::{self, Caret, whole_chars};
+use crate::pixels::Rgb;
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
 const VALUES_PER_RECTANGLE: usize = 4;
@@ -117,9 +119,14 @@ impl UiaCaret {
     }
 
     /// Locates the caret of the focused control: the system caret, else the caret that the control
-    /// draws itself.
+    /// draws itself. The caret has the color of the text before it, when the control tells it.
     pub(crate) fn read(&self) -> Option<Caret> {
-        focus::system_caret().or_else(|| self.drawn_caret(&self.focused_element()?))
+        let element = self.focused_element();
+        let caret = focus::system_caret().or_else(|| self.drawn_caret(element.as_ref()?))?;
+        Some(Caret {
+            text_color: element.as_ref().and_then(text_color),
+            ..caret
+        })
     }
 
     /// Locates the caret that `element`, the focused control, draws itself: the caret of the caret
@@ -136,9 +143,7 @@ impl UiaCaret {
     /// Reads the hidden input box of a terminal of xterm.js and the top of its screen, when
     /// `element` is that input box.
     fn terminal_input(&self, element: &IUIAutomationElement) -> Option<TerminalInput> {
-        // SAFETY: plain call on an interface of this thread.
-        let class = unsafe { element.CurrentClassName() }.ok()?;
-        if class != XTERM_INPUT_CLASS {
+        if !is_terminal_input(element) {
             return None;
         }
         let screen = self.terminal_screen(element)?;
@@ -371,8 +376,12 @@ fn caret_of(element: &IUIAutomationElement) -> Option<Caret> {
     if is_password(element) {
         return None;
     }
-    let range = caret_range(element)?;
     // Many apps give no bounds for the empty range at the caret, so measure the character before it.
+    caret_from_rectangles(&bounding_rectangles(&character_before_caret(element)?)?)
+}
+
+fn character_before_caret(element: &IUIAutomationElement) -> Option<IUIAutomationTextRange> {
+    let range = caret_range(element)?;
     // SAFETY: plain call on an interface of this thread.
     unsafe {
         range.MoveEndpointByUnit(
@@ -382,7 +391,41 @@ fn caret_of(element: &IUIAutomationElement) -> Option<Caret> {
         )
     }
     .ok()?;
-    caret_from_rectangles(&bounding_rectangles(&range)?)
+    Some(range)
+}
+
+/// Reads the color of the character before the caret of `element`. `None` for the hidden input box
+/// of a terminal of xterm.js, which does not show its text.
+fn text_color(element: &IUIAutomationElement) -> Option<TextColor> {
+    if is_terminal_input(element) {
+        return None;
+    }
+    let range = character_before_caret(element)?;
+    // SAFETY: plain calls on an interface of this thread.
+    let (text, background) = unsafe {
+        (
+            range.GetAttributeValue(UIA_ForegroundColorAttributeId).ok()?,
+            range.GetAttributeValue(UIA_BackgroundColorAttributeId).ok(),
+        )
+    };
+    shown_text_color(colorref(&text)?, background.as_ref().and_then(colorref))
+}
+
+/// Reads a `COLORREF` attribute value. `None` when UIA gives a value of another type: the value
+/// for an attribute that the control does not support, or for colors that change in the range.
+fn colorref(value: &VARIANT) -> Option<u32> {
+    i32::try_from(value).ok().map(i32::cast_unsigned)
+}
+
+/// The color of text in the `COLORREF` `text` on the `COLORREF` `background`. `None` when both
+/// are the same: Chromium drops the alpha of the transparent text of a hidden input box.
+fn shown_text_color(text: u32, background: Option<u32>) -> Option<TextColor> {
+    (background != Some(text)).then(|| Rgb::from_colorref(text).into())
+}
+
+fn is_terminal_input(element: &IUIAutomationElement) -> bool {
+    // SAFETY: plain call on an interface of this thread.
+    unsafe { element.CurrentClassName() }.is_ok_and(|class| class == XTERM_INPUT_CLASS)
 }
 
 /// Reads the labels of `element`. UIA has no placeholder property, so the placeholder stays `None`.
@@ -600,6 +643,7 @@ mod tests {
                 origin: POINT { x: 107, y: 40 },
                 height: 18,
                 font_face: None,
+                text_color: None,
             })
         );
     }
@@ -616,6 +660,7 @@ mod tests {
                 origin: POINT { x: 108, y: 41 },
                 height: 18,
                 font_face: None,
+                text_color: None,
             })
         );
     }
@@ -626,6 +671,7 @@ mod tests {
             origin: POINT { x: 107, y: 40 },
             height: 18,
             font_face: None,
+            text_color: None,
         };
 
         let frame = caret_frame(&caret);
@@ -646,6 +692,7 @@ mod tests {
             origin: POINT { x: 443, y },
             height: 16,
             font_face: None,
+            text_color: None,
         }
     }
 
@@ -693,6 +740,28 @@ mod tests {
         let caret = caret_from_rectangles(&[]);
 
         assert_eq!(caret, None);
+    }
+
+    #[test]
+    fn text_color_comes_from_its_colorref() {
+        let colors = [
+            shown_text_color(0x0033_2211, Some(0x00FF_FFFF)),
+            shown_text_color(0x0033_2211, None),
+        ];
+
+        let expected = Some(TextColor {
+            red: 0x11,
+            green: 0x22,
+            blue: 0x33,
+        });
+        assert_eq!(colors, [expected; 2]);
+    }
+
+    #[test]
+    fn text_in_the_color_of_its_background_has_no_color() {
+        let color = shown_text_color(0, Some(0));
+
+        assert_eq!(color, None);
     }
 
     #[test]

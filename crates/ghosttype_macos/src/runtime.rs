@@ -244,9 +244,10 @@ impl AppKitShell {
             return;
         }
         self.mirror.hide();
+        let text_color = self.focus.text_color();
         match &view.ghost {
-            Ghost::Text(text) => self.overlay.show(text, caret),
-            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret),
+            Ghost::Text(text) => self.overlay.show(text, caret, text_color),
+            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret, text_color),
         }
     }
 

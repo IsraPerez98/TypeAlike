@@ -1,14 +1,16 @@
 //! The ghost text: a click-through, never-focused panel drawn right after the caret.
 
+use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use ghosttype_core::engine::WordFix;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSBackingStoreType, NSColor, NSFont, NSFontAttributeName,
-    NSForegroundColorAttributeName, NSPanel, NSScreen, NSStatusWindowLevel,
+    NSAppearance, NSAppearanceCustomization, NSAppearanceName, NSAppearanceNameAqua,
+    NSAppearanceNameDarkAqua, NSAttributedStringNSStringDrawing, NSBackingStoreType, NSColor, NSFont,
+    NSFontAttributeName, NSForegroundColorAttributeName, NSPanel, NSScreen, NSStatusWindowLevel,
     NSStrikethroughColorAttributeName, NSStrikethroughStyleAttributeName, NSTextField, NSUnderlineStyle,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{
@@ -38,11 +40,14 @@ impl Overlay {
         }
     }
 
-    /// Shows `text` starting at `caret`, in the system font sized to the caret.
-    pub(crate) fn show(&self, text: &str, caret: Caret) {
+    /// Shows `text` starting at `caret`, in the system font sized to the caret, in the colors for a
+    /// field with text in `text_color`.
+    pub(crate) fn show(&self, text: &str, caret: Caret, text_color: Option<TextColor>) {
+        self.match_field(text_color);
+        let contrast = Contrast::read();
         let font = font_at(caret);
         self.label.setFont(Some(&font));
-        self.label.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        self.label.setTextColor(Some(&ghost_color(text_color, contrast)));
         self.label.setStringValue(&NSString::from_str(text));
         self.present(caret);
     }
@@ -50,7 +55,9 @@ impl Overlay {
     /// Shows `fix` at `caret`: a red line through the typed letters before the caret, then the
     /// fixed word in green and the rest of the suggestion as ghost text. The line spans the width of
     /// the letters in the system font, so it can differ a little from the letters of the app.
-    pub(crate) fn show_fix(&self, fix: &WordFix, caret: Caret) {
+    pub(crate) fn show_fix(&self, fix: &WordFix, caret: Caret, text_color: Option<TextColor>) {
+        self.match_field(text_color);
+        let contrast = Contrast::read();
         let font = font_at(caret);
         let typo = attributed(
             &fix.typo,
@@ -69,7 +76,7 @@ impl Overlay {
         text.appendAttributedString(&attributed(
             &fix.rest,
             &font,
-            &NSColor::secondaryLabelColor(),
+            &ghost_color(text_color, contrast),
             None,
         ));
         self.label.setAttributedStringValue(&text);
@@ -77,6 +84,14 @@ impl Overlay {
             left: caret.left - typo.size().width,
             ..caret
         });
+    }
+
+    /// Draws in the appearance for the background of a field with text in `text_color`, so that
+    /// the colors of a fix keep their contrast there. Without it, the panel follows the app.
+    fn match_field(&self, text_color: Option<TextColor>) {
+        let appearance =
+            text_color.and_then(|color| NSAppearance::appearanceNamed(field_appearance_name(color)));
+        self.panel.setAppearance(appearance.as_deref());
     }
 
     /// Sizes the panel to the label and shows it with its left edge at `caret`.
@@ -98,6 +113,52 @@ impl Overlay {
 
     pub(crate) fn is_shown(&self) -> bool {
         self.panel.isVisible()
+    }
+}
+
+/// Whether the user asks macOS for more contrast with Increase Contrast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Contrast {
+    Standard,
+    Increased,
+}
+
+impl Contrast {
+    fn read() -> Self {
+        if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldIncreaseContrast() {
+            Self::Increased
+        } else {
+            Self::Standard
+        }
+    }
+}
+
+/// The color of ghost text in a field with text in `text_color`: that color at less opacity, or
+/// with Increase Contrast the secondary label color, which is stronger then. Without `text_color`,
+/// the background is unknown: the system gray is the same in the light and the dark appearance, so
+/// it shows on both.
+fn ghost_color(text_color: Option<TextColor>, contrast: Contrast) -> Retained<NSColor> {
+    match (text_color, contrast) {
+        (None, _) => NSColor::systemGrayColor(),
+        (Some(_), Contrast::Increased) => NSColor::secondaryLabelColor(),
+        (Some(color), Contrast::Standard) => {
+            let [red, green, blue, alpha] = [color.red, color.green, color.blue, GHOST_TEXT_ALPHA]
+                .map(|channel| CGFloat::from(channel) / CGFloat::from(u8::MAX));
+            NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, alpha)
+        }
+    }
+}
+
+/// The appearance for the background of a field with text in `text_color`: dark behind light
+/// text, else light. AppKit gives each its Increase Contrast variant when that setting is on.
+fn field_appearance_name(text_color: TextColor) -> &'static NSAppearanceName {
+    // SAFETY: the names are constants of AppKit.
+    unsafe {
+        if text_color.is_light() {
+            NSAppearanceNameDarkAqua
+        } else {
+            NSAppearanceNameAqua
+        }
     }
 }
 
@@ -207,6 +268,53 @@ mod tests {
         let origin = panel_origin(caret, 1000.0, 24.0);
 
         assert_eq!(origin, NSPoint::new(300.0, 878.0));
+    }
+
+    const LIGHT_TEXT: TextColor = TextColor {
+        red: 212,
+        green: 212,
+        blue: 212,
+    };
+    const DARK_TEXT: TextColor = TextColor {
+        red: 31,
+        green: 35,
+        blue: 40,
+    };
+
+    #[test]
+    fn field_appearance_is_dark_behind_light_text_and_light_behind_dark_text() {
+        let names = [LIGHT_TEXT, DARK_TEXT].map(field_appearance_name);
+
+        // SAFETY: the names are constants of AppKit.
+        let expected = unsafe { [NSAppearanceNameDarkAqua, NSAppearanceNameAqua] };
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn ghost_text_has_the_field_text_color_at_the_ghost_text_alpha() {
+        let color = ghost_color(Some(LIGHT_TEXT), Contrast::Standard);
+
+        let expected = NSColor::colorWithSRGBRed_green_blue_alpha(
+            212.0 / 255.0,
+            212.0 / 255.0,
+            212.0 / 255.0,
+            f64::from(GHOST_TEXT_ALPHA) / 255.0,
+        );
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn increase_contrast_keeps_the_secondary_label_color() {
+        let color = ghost_color(Some(LIGHT_TEXT), Contrast::Increased);
+
+        assert_eq!(color, NSColor::secondaryLabelColor());
+    }
+
+    #[test]
+    fn field_without_a_text_color_gets_the_gray_that_shows_on_light_and_dark() {
+        let colors = [Contrast::Standard, Contrast::Increased].map(|contrast| ghost_color(None, contrast));
+
+        assert_eq!(colors, [NSColor::systemGrayColor(), NSColor::systemGrayColor()]);
     }
 
     #[test]

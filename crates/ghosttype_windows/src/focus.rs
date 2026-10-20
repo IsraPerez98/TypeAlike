@@ -6,7 +6,9 @@ use std::ptr;
 
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
-use ghosttype_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings};
+use ghosttype_core::desktop::{
+    FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
+};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
@@ -44,6 +46,8 @@ pub(crate) struct Caret {
     pub(crate) height: i32,
     /// The font face of the control that owns the caret, when the control reports one.
     pub(crate) font_face: Option<String>,
+    /// The color of the text before the caret, when the control tells it.
+    pub(crate) text_color: Option<TextColor>,
 }
 
 impl Caret {
@@ -61,6 +65,7 @@ impl Caret {
             },
             height,
             font_face,
+            text_color: None,
         })
     }
 }
@@ -523,6 +528,7 @@ mod tests {
                 origin: POINT { x: 102, y: 40 },
                 height: 20,
                 font_face: None,
+                text_color: None,
             })
         );
     }
@@ -544,6 +550,7 @@ mod tests {
                 origin: POINT { x: 637, y: 106 },
                 height: 19,
                 font_face: None,
+                text_color: None,
             })
         );
     }

@@ -7,16 +7,17 @@ use std::ptr::{self, NonNull};
 use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{
-    FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings,
+    FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
 };
-use objc2_app_kit::{NSRunningApplication, NSWorkspace};
+use objc2_app_kit::{NSColor, NSColorSpace, NSRunningApplication, NSWorkspace};
 use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
-    CFArray, CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat,
-    CGPoint, CGRect, CGSize, Type,
+    CFArray, CFAttributedString, CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType,
+    CFURL, CGFloat, CGPoint, CGRect, CGSize, Type,
 };
+use objc2_core_graphics::CGColor;
 
 pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
 const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
@@ -24,6 +25,11 @@ const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
 const BOUNDS_FOR_RANGE_ATTRIBUTE: &str = "AXBoundsForRange";
 const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
+const ATTRIBUTED_STRING_FOR_RANGE_ATTRIBUTE: &str = "AXAttributedStringForRange";
+const FOREGROUND_COLOR_TEXT_ATTRIBUTE: &str = "AXForegroundColor";
+/// The least opacity of text that shows. A web editor takes keys in a hidden input box whose text
+/// is transparent.
+const MIN_SHOWN_TEXT_ALPHA: CGFloat = 0.5;
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const VALUE_ATTRIBUTE: &str = "AXValue";
 pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
@@ -144,6 +150,11 @@ impl FocusTracker {
         caret_bounds(&*self.focused_element()?).and_then(Caret::from_bounds)
     }
 
+    /// The color of the text before the caret of the focused control, when the control tells it.
+    pub(crate) fn text_color(&self) -> Option<TextColor> {
+        text_color(&*self.focused_element()?)
+    }
+
     /// The frame of the focused control when it holds text, as a field does, even when it gives
     /// no caret.
     pub(crate) fn field_frame(&self) -> Option<CGRect> {
@@ -240,10 +251,62 @@ pub(crate) fn caret_bounds(element: &AXUIElement) -> Option<CGRect> {
     if has_dom_class(element, XTERM_INPUT_CLASS) {
         return terminal_input(element)?.caret_bounds();
     }
-    let selection = selected_range(element)?;
-    let caret_index = selection.location.checked_add(selection.length)?;
     // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
-    bounds_for_range(element, previous_unit_range(caret_index)?)
+    bounds_for_range(element, unit_before_caret(element)?)
+}
+
+fn unit_before_caret(element: &AXUIElement) -> Option<CFRange> {
+    let selection = selected_range(element)?;
+    previous_unit_range(selection.location.checked_add(selection.length)?)
+}
+
+/// Reads the color of the character before the caret of `element`. `None` for the hidden input box
+/// of a terminal of xterm.js, which does not show its text.
+fn text_color(element: &AXUIElement) -> Option<TextColor> {
+    if has_dom_class(element, XTERM_INPUT_CLASS) {
+        return None;
+    }
+    let text = copy_attribute_for_range(
+        element,
+        ATTRIBUTED_STRING_FOR_RANGE_ATTRIBUTE,
+        unit_before_caret(element)?,
+    )?
+    .downcast::<CFAttributedString>()
+    .ok()
+    .filter(|text| text.length() > 0)?;
+    let attribute = CFString::from_static_str(FOREGROUND_COLOR_TEXT_ATTRIBUTE);
+    // SAFETY: the location is inside the string, and a null pointer asks for no effective range.
+    let color = unsafe { text.attribute(0, Some(&attribute), ptr::null_mut()) }?
+        .downcast::<CGColor>()
+        .ok()?;
+    let color = NSColor::colorWithCGColor(&color)?.colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())?;
+    text_color_of_components(
+        [
+            color.redComponent(),
+            color.greenComponent(),
+            color.blueComponent(),
+        ],
+        color.alphaComponent(),
+    )
+}
+
+/// The color of text with the sRGB `components` and `alpha`, each from 0 to 1. `None` for text
+/// that is mostly transparent, which does not show.
+fn text_color_of_components(components: [CGFloat; 3], alpha: CGFloat) -> Option<TextColor> {
+    if alpha < MIN_SHOWN_TEXT_ALPHA {
+        return None;
+    }
+    let [red, green, blue] = components.map(channel);
+    Some(TextColor { red, green, blue })
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "no conversion from f64 to u8 exists without `as`, and `as` saturates"
+)]
+fn channel(component: CGFloat) -> u8 {
+    (component * CGFloat::from(u8::MAX)).round() as u8
 }
 
 /// The hidden input box of a terminal of xterm.js, which the terminal moves to the cell of its
@@ -577,6 +640,27 @@ mod tests {
     #[test]
     fn caret_at_start_has_no_previous_unit() {
         assert_eq!(previous_unit_range(0), None);
+    }
+
+    #[test]
+    fn opaque_color_components_round_to_channels() {
+        let color = text_color_of_components([1.0, 0.5, 0.0], 1.0);
+
+        assert_eq!(
+            color,
+            Some(TextColor {
+                red: 255,
+                green: 128,
+                blue: 0
+            })
+        );
+    }
+
+    #[test]
+    fn mostly_transparent_text_has_no_color() {
+        let color = text_color_of_components([1.0, 1.0, 1.0], 0.0);
+
+        assert_eq!(color, None);
     }
 
     fn terminal_input(top: CGFloat, height: CGFloat) -> TerminalInput {

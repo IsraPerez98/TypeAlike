@@ -2,6 +2,7 @@
 //! the mirror on a card below the caret when text follows the caret on its line.
 
 use ghosttype_core::controller::{Ghost, GhostPlacement, GhostView};
+use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use windows::Win32::Foundation::{POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetMonitorInfoW, GetSysColor, MONITOR_DEFAULTTONEAREST,
@@ -12,7 +13,7 @@ use windows::core::{Result, w};
 use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
 use crate::focus::Caret;
 use crate::gdi::{FixColors, Font, FontHeight, TextBitmap, TextLayout};
-use crate::pixels::{Rgb, RoundedRectangle};
+use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
 
@@ -44,6 +45,9 @@ const DARK_WORD: Rgb = Rgb {
     green: 0xCB,
     blue: 0x5F,
 };
+/// The gray of ghost text in a field that gives no text color, whose background is unknown. It is
+/// the same in light and dark mode, and it shows on both: about 5:1 on #1E1E1E, 3.3:1 on white.
+const NEUTRAL_GRAY: Rgb = Rgb::gray(0x8E);
 
 #[derive(Debug)]
 pub(crate) struct Overlay {
@@ -64,7 +68,8 @@ impl Overlay {
         let theme = SystemTheme::read();
         match view.placement {
             GhostPlacement::AfterCaret => {
-                let (bitmap, typo_width) = render(&view.ghost, &font, fix_colors(theme, ghost_text_color()))?;
+                let (bitmap, typo_width) =
+                    render(&view.ghost, &font, inline_colors(theme, caret.text_color))?;
                 let origin = POINT {
                     x: caret.origin.x - typo_width,
                     y: caret.origin.y,
@@ -80,7 +85,7 @@ impl Overlay {
     /// the line when the card does not fit below.
     fn present_card(&self, ghost: &Ghost, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
         let colors = TooltipColors::for_theme(theme);
-        let (text, typo_width) = render(ghost, font, fix_colors(theme, colors.text))?;
+        let (text, typo_width) = render(ghost, font, fix_colors(theme, colors.text.into()))?;
         let text_left = caret.origin.x - typo_width;
         let line = RECT {
             left: text_left,
@@ -195,9 +200,31 @@ fn work_area(point: POINT) -> Result<RECT> {
     Ok(info.rcWork)
 }
 
+/// The colors of ghost text after the caret of a field with text in `text_color`: that color at
+/// less opacity, with the fix colors for the background of the field. Without that color, the
+/// neutral gray with the fix colors of `theme`. In high contrast, the gray text color of the system.
+fn inline_colors(theme: SystemTheme, text_color: Option<TextColor>) -> FixColors {
+    match (theme.contrast, text_color) {
+        (Contrast::High, _) => fix_colors(theme, ghost_text_color().into()),
+        (Contrast::Standard, None) => fix_colors(theme, NEUTRAL_GRAY.into()),
+        (Contrast::Standard, Some(text_color)) => {
+            let mode = if text_color.is_light() {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            };
+            let ink = Ink {
+                color: text_color.into(),
+                alpha: GHOST_TEXT_ALPHA,
+            };
+            fix_colors(SystemTheme { mode, ..theme }, ink)
+        }
+    }
+}
+
 /// The colors of a fix in `theme`, with the rest of the suggestion in `rest`: Fluent red and
 /// green, or the colors of high contrast.
-fn fix_colors(theme: SystemTheme, rest: Rgb) -> FixColors {
+fn fix_colors(theme: SystemTheme, rest: Ink) -> FixColors {
     match (theme.contrast, theme.mode) {
         (Contrast::High, _) => {
             // SAFETY: plain calls.
@@ -296,6 +323,62 @@ mod tests {
             (layout.padding, layout.corner_radius, layout.border_width),
             (SIZE { cx: 12, cy: 6 }, 6, 2)
         );
+    }
+
+    #[test]
+    fn ghost_text_in_a_field_with_light_text_takes_its_color_and_the_dark_fix_colors() {
+        let theme = SystemTheme {
+            mode: ThemeMode::Light,
+            contrast: Contrast::Standard,
+        };
+        let light_text = TextColor {
+            red: 212,
+            green: 212,
+            blue: 212,
+        };
+
+        let colors = inline_colors(theme, Some(light_text));
+
+        assert_eq!(
+            colors,
+            FixColors {
+                strike: DARK_STRIKE,
+                word: DARK_WORD,
+                rest: Ink {
+                    color: Rgb::gray(212),
+                    alpha: GHOST_TEXT_ALPHA,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn ghost_text_in_a_field_with_dark_text_takes_the_light_fix_colors() {
+        let theme = SystemTheme {
+            mode: ThemeMode::Dark,
+            contrast: Contrast::Standard,
+        };
+        let dark_text = TextColor {
+            red: 31,
+            green: 35,
+            blue: 40,
+        };
+
+        let colors = inline_colors(theme, Some(dark_text));
+
+        assert_eq!((colors.strike, colors.word), (LIGHT_STRIKE, LIGHT_WORD));
+    }
+
+    #[test]
+    fn ghost_text_in_a_field_without_a_text_color_takes_the_neutral_gray() {
+        let themes = [ThemeMode::Light, ThemeMode::Dark].map(|mode| SystemTheme {
+            mode,
+            contrast: Contrast::Standard,
+        });
+
+        let colors = themes.map(|theme| inline_colors(theme, None).rest);
+
+        assert_eq!(colors, [Ink::from(NEUTRAL_GRAY); 2]);
     }
 
     #[test]

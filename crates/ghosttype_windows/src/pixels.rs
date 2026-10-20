@@ -4,6 +4,8 @@
 use std::iter;
 use std::ops::Range;
 
+use ghosttype_core::desktop::TextColor;
+
 /// Samples along each axis of a pixel, to find how much of the pixel a shape covers.
 const SAMPLES_PER_AXIS: i32 = 4;
 const SAMPLES_PER_PIXEL: u32 = 16;
@@ -56,24 +58,61 @@ impl Rgb {
     }
 }
 
-/// Recolors `pixels` (BGRA, white text drawn on black) to `color`, with text coverage as alpha.
-pub(crate) fn tint_by_coverage(pixels: &mut [u32], color: Rgb) {
+impl From<TextColor> for Rgb {
+    fn from(color: TextColor) -> Self {
+        Self {
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+        }
+    }
+}
+
+impl From<Rgb> for TextColor {
+    fn from(color: Rgb) -> Self {
+        Self {
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+        }
+    }
+}
+
+/// A color of text, with the opacity of its letters out of 255.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Ink {
+    pub(crate) color: Rgb,
+    pub(crate) alpha: u8,
+}
+
+impl From<Rgb> for Ink {
+    fn from(color: Rgb) -> Self {
+        Self {
+            color,
+            alpha: u8::MAX,
+        }
+    }
+}
+
+/// Recolors `pixels` (BGRA, white text drawn on black) to `ink`, with text coverage times the
+/// alpha of `ink` as alpha.
+pub(crate) fn tint_by_coverage(pixels: &mut [u32], ink: Ink) {
     for pixel in pixels {
-        *pixel = premultiplied(color, coverage(*pixel));
+        *pixel = inked(ink, coverage(*pixel));
     }
 }
 
 /// Recolors `pixels` (BGRA, white text drawn on black, `width` pixels in each row) as
-/// [`tint_by_coverage`] does, with the color of the span of `spans` that holds the column of each
+/// [`tint_by_coverage`] does, with the ink of the span of `spans` that holds the column of each
 /// pixel. A pixel in no span keeps its coverage in white.
-pub(crate) fn tint_spans(pixels: &mut [u32], width: usize, spans: &[(Range<usize>, Rgb)]) {
+pub(crate) fn tint_spans(pixels: &mut [u32], width: usize, spans: &[(Range<usize>, Ink)]) {
     for (index, pixel) in pixels.iter_mut().enumerate() {
         let column = index % width.max(1);
-        let color = spans
+        let ink = spans
             .iter()
             .find(|(columns, _)| columns.contains(&column))
-            .map_or(Rgb::WHITE, |&(_, color)| color);
-        *pixel = premultiplied(color, coverage(*pixel));
+            .map_or(Ink::from(Rgb::WHITE), |&(_, ink)| ink);
+        *pixel = inked(ink, coverage(*pixel));
     }
 }
 
@@ -109,12 +148,19 @@ fn coverage(pixel: u32) -> u8 {
     blue.max(green).max(red)
 }
 
+fn inked(ink: Ink, coverage: u8) -> u32 {
+    premultiplied(ink.color, scaled(coverage, ink.alpha))
+}
+
 fn premultiplied(color: Rgb, alpha: u8) -> u32 {
-    let scale = |channel: u8| {
-        u8::try_from(u16::from(channel) * u16::from(alpha) / u16::from(u8::MAX))
-            .expect("a channel scaled by at most one fits in a byte")
-    };
+    let scale = |channel: u8| scaled(channel, alpha);
     u32::from_le_bytes([scale(color.blue), scale(color.green), scale(color.red), alpha])
+}
+
+/// Scales `value` by `factor` out of 255.
+fn scaled(value: u8, factor: u8) -> u8 {
+    u8::try_from(u16::from(value) * u16::from(factor) / u16::from(u8::MAX))
+        .expect("a byte scaled by at most one fits in a byte")
 }
 
 /// A rectangle with rounded corners: a fill inside a border, in physical pixels.
@@ -226,12 +272,9 @@ pub(crate) fn lay_over(front: &mut [u32], backdrop: &[u32]) {
 fn over(front: u32, backdrop: u32) -> u32 {
     let front = front.to_le_bytes();
     let backdrop = backdrop.to_le_bytes();
-    let transparency = u16::from(u8::MAX - front[3]);
-    let channels: [u8; 4] = std::array::from_fn(|index| {
-        let behind = u8::try_from(u16::from(backdrop[index]) * transparency / u16::from(u8::MAX))
-            .expect("a byte scaled by at most one fits in a byte");
-        front[index].saturating_add(behind)
-    });
+    let transparency = u8::MAX - front[3];
+    let channels: [u8; 4] =
+        std::array::from_fn(|index| front[index].saturating_add(scaled(backdrop[index], transparency)));
     u32::from_le_bytes(channels)
 }
 
@@ -249,7 +292,7 @@ mod tests {
     fn each_span_tints_its_columns_by_coverage() {
         let mut pixels = [u32::MAX; 4];
 
-        tint_spans(&mut pixels, 2, &[(0..1, RED), (1..2, Rgb::BLACK)]);
+        tint_spans(&mut pixels, 2, &[(0..1, RED.into()), (1..2, Rgb::BLACK.into())]);
 
         assert_eq!(
             pixels,
@@ -289,7 +332,7 @@ mod tests {
     fn full_coverage_is_opaque_color() {
         let mut pixels = [0x00FF_FFFF];
 
-        tint_by_coverage(&mut pixels, GRAY);
+        tint_by_coverage(&mut pixels, GRAY.into());
 
         assert_eq!(pixels, [0xFF80_6040]);
     }
@@ -298,7 +341,7 @@ mod tests {
     fn no_coverage_is_transparent() {
         let mut pixels = [0x0000_0000];
 
-        tint_by_coverage(&mut pixels, GRAY);
+        tint_by_coverage(&mut pixels, GRAY.into());
 
         assert_eq!(pixels, [0x0000_0000]);
     }
@@ -307,7 +350,20 @@ mod tests {
     fn partial_coverage_is_premultiplied() {
         let mut pixels = [0x0080_8080];
 
-        tint_by_coverage(&mut pixels, Rgb::WHITE);
+        tint_by_coverage(&mut pixels, Rgb::WHITE.into());
+
+        assert_eq!(pixels, [0x8080_8080]);
+    }
+
+    #[test]
+    fn ink_alpha_scales_the_coverage() {
+        let mut pixels = [0x00FF_FFFF];
+        let ink = Ink {
+            color: Rgb::WHITE,
+            alpha: 0x80,
+        };
+
+        tint_by_coverage(&mut pixels, ink);
 
         assert_eq!(pixels, [0x8080_8080]);
     }

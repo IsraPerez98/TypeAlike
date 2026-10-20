@@ -97,7 +97,9 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "std",
     "libc",
+    "NSAccessibility",
     "NSAccessibilityProtocols",
+    "NSAppearance",
     "NSApplication",
     "NSAttributedString",
     "NSBox",
@@ -105,6 +107,7 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSCell",
     "NSClipView",
     "NSColor",
+    "NSColorSpace",
     "NSControl",
     "NSFont",
     "NSFontDescriptor",
@@ -144,10 +147,12 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSWindow",
     "NSWorkspace",
     "objc2-core-foundation",
+    "objc2-core-graphics",
 ] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
     "std",
     "CFArray",
+    "CFAttributedString",
     "CFCGTypes",
     "CFData",
     "CFDictionary",
@@ -161,6 +166,7 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
     "std",
     "CGEvent",
     "CGEventTypes",
+    "CGColor",
     "CGColorSpace",
     "CGDataProvider",
     "CGImage",
