@@ -95,6 +95,10 @@ impl Overlay {
     pub(crate) fn hide(&self) {
         self.panel.orderOut(None);
     }
+
+    pub(crate) fn is_shown(&self) -> bool {
+        self.panel.isVisible()
+    }
 }
 
 /// Builds a borderless panel that floats over every app on every Space. It never takes focus,

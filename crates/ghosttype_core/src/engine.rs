@@ -295,10 +295,10 @@ impl Engine {
                 self.start_session(desktop).delete_last_character();
                 self.request()
             }
-            Key::Tab => self.accept(),
+            Key::Tab if desktop.is_ghost_shown() => self.accept(),
             Key::Escape | Key::Dead => self.dismiss(),
             Key::Enter => self.wait_for_new_line(desktop),
-            Key::Char(_) | Key::Other => self.reset(),
+            Key::Char(_) | Key::Tab | Key::Other => self.reset(),
         }
     }
 
@@ -1057,6 +1057,7 @@ mod tests {
         copied: Option<CopiedText>,
         surroundings_reads: Cell<usize>,
         clipboard_reads: Cell<usize>,
+        is_ghost_hidden: bool,
     }
 
     impl FakeDesktop {
@@ -1115,6 +1116,10 @@ mod tests {
         fn copied_text(&self) -> Option<CopiedText> {
             self.clipboard_reads.set(self.clipboard_reads.get() + 1);
             self.copied.clone()
+        }
+
+        fn is_ghost_shown(&self) -> bool {
+            !self.is_ghost_hidden
         }
     }
 
@@ -1725,6 +1730,19 @@ mod tests {
         let reaction = press(&mut engine, Key::Tab);
 
         assert_eq!(reaction, accept("lo", Some(" big world")));
+    }
+
+    #[test]
+    fn tab_passes_to_the_app_while_the_ghost_text_is_not_on_the_screen() {
+        let mut engine = engine_showing("hel", "lo big world");
+        let desktop = FakeDesktop {
+            is_ghost_hidden: true,
+            ..FakeDesktop::default()
+        };
+
+        let reaction = engine.on_key(Key::Tab, &desktop);
+
+        assert_eq!(reaction, Reaction::Hide);
     }
 
     #[test]

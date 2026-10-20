@@ -76,6 +76,10 @@ impl Overlay {
     pub(crate) fn hide(&self) {
         self.window.hide();
     }
+
+    pub(crate) fn is_shown(&self) -> bool {
+        self.window.is_visible()
+    }
 }
 
 /// The colors of a fix in `theme`: Fluent red and green, or the colors of high contrast.

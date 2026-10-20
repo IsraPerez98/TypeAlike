@@ -262,6 +262,12 @@ pub trait Desktop {
     fn ocr_levels(&self) -> OcrLevels {
         OcrLevels::One
     }
+
+    /// Tells whether the ghost text shows on the screen now. The platform hides it when it finds
+    /// no caret to put it at. A desktop that always shows its ghost text keeps this default.
+    fn is_ghost_shown(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

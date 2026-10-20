@@ -271,6 +271,12 @@ impl Desktop for AppKitShell {
     fn ocr_levels(&self) -> OcrLevels {
         OcrLevels::Selectable
     }
+
+    /// The overlay hides the ghost text when Accessibility gives no caret, as in the editor of VS
+    /// Code while its screen reader mode is off.
+    fn is_ghost_shown(&self) -> bool {
+        self.overlay.is_shown()
+    }
 }
 
 impl Shell for AppKitShell {

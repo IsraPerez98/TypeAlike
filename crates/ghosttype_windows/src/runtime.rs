@@ -485,6 +485,11 @@ impl Desktop for Win32Shell {
     fn ocr_availability(&self) -> OcrAvailability {
         self.ocr.availability()
     }
+
+    /// The overlay hides the ghost text when the caret reader finds no caret.
+    fn is_ghost_shown(&self) -> bool {
+        self.overlay.is_shown()
+    }
 }
 
 impl Shell for Win32Shell {
