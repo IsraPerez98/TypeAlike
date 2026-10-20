@@ -5,7 +5,7 @@
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
-//!     [--tail-cut on|off] [--typo-rule on|off]
+//!     [--word-bias on|off] [--tail-cut on|off] [--typo-rule on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -111,7 +111,8 @@
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
-//! has no log probability.
+//! has no log probability. `--word-bias off` takes only the word bias out of each request, and
+//! keeps the next-word bias and the phrase rule of the word choice.
 //!
 //! `--typo-rule` turns the rule for typos of the app `on` (the default) or `off`. The report gives
 //! a table for each cut of the typed letters of the last word: the typo cases that it catches, and
@@ -160,7 +161,7 @@ use crate::score::{
 
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--word-choice off|light|medium|strong] [--tail-cut on|off] [--typo-rule on|off]";
+     [--word-choice off|light|medium|strong] [--word-bias on|off] [--tail-cut on|off] [--typo-rule on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -173,8 +174,16 @@ struct Arguments {
     backend: Backend,
     cpu_cores: Option<CpuCores>,
     word_choice: WordChoice,
+    word_bias: WordBiasUse,
     tail_cut: TailCut,
     typo_rule: TypoRule,
+}
+
+/// Whether a request of the word choice has the word bias, next to the next-word bias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WordBiasUse {
+    On,
+    Off,
 }
 
 /// Whether the suggestions stop when the text after the first word gets unlikely, as in the app.
@@ -200,6 +209,7 @@ impl Arguments {
             backend: BUILT_IN_BACKEND,
             cpu_cores: None,
             word_choice: WordChoice::Off,
+            word_bias: WordBiasUse::On,
             tail_cut: TailCut::On,
             typo_rule: TypoRule::default(),
         };
@@ -212,6 +222,7 @@ impl Arguments {
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
+                [name, bias] if name == "--word-bias" => parsed.word_bias = word_bias_named(bias)?,
                 [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
                 [name, rule] if name == "--typo-rule" => parsed.typo_rule = typo_rule_named(rule)?,
                 _ => return None,
@@ -228,6 +239,15 @@ fn word_choice_named(name: &str) -> Option<WordChoice> {
         "light" => Some(WordChoice::Light),
         "medium" => Some(WordChoice::Medium),
         "strong" => Some(WordChoice::Strong),
+        _ => None,
+    }
+}
+
+/// Returns the use of the word bias with `name` in [`USAGE`], or `None` for another name.
+fn word_bias_named(name: &str) -> Option<WordBiasUse> {
+    match name {
+        "on" => Some(WordBiasUse::On),
+        "off" => Some(WordBiasUse::Off),
         _ => None,
     }
 }
@@ -530,16 +550,20 @@ struct CaseRun {
 }
 
 /// Returns `request` with the word bias of the `words` of `case`, or else with the bias that the
-/// app built from the history of the case. The bias gets `version`, because each case starts a new
-/// app, and the runner prepares each version one time.
+/// app built from the history of the case, or without a word bias when `bias_use` is off. The bias
+/// gets `version`, because each case starts a new app, and the runner prepares each version one
+/// time.
 fn with_case_bias(
     mut request: InferenceRequest,
     case: &Case,
     choice: WordChoice,
+    bias_use: WordBiasUse,
     version: u64,
 ) -> InferenceRequest {
     if let InferenceRequest::Complete { word_bias, .. } = &mut request {
-        *word_bias = if case.words.is_empty() {
+        *word_bias = if bias_use == WordBiasUse::Off {
+            None
+        } else if case.words.is_empty() {
             word_bias.take().map(|bias| WordBias { version, ..bias })
         } else {
             word_bias_of_counts(case.words.clone(), choice, version)
@@ -605,6 +629,7 @@ struct Typing<'case> {
     /// The field after the last key.
     typed_field: CaseField,
     version: u64,
+    word_bias: WordBiasUse,
     tail_cut: TailCut,
 }
 
@@ -650,7 +675,7 @@ impl Typing<'_> {
             _ => None,
         };
         let choice = self.settings.personalization.word_choice;
-        let request = with_case_bias(request, self.case, choice, self.version);
+        let request = with_case_bias(request, self.case, choice, self.word_bias, self.version);
         let completion = model.complete(with_tail_cut(request, self.tail_cut))?;
         let word_log_probabilities = completion
             .as_ref()
@@ -719,7 +744,7 @@ fn run_case(
     history: &[HistoryEntry],
     settings: &Settings,
     version: u64,
-    tail_cut: TailCut,
+    arguments: &Arguments,
 ) -> anyhow::Result<CaseRun> {
     let (before_key, last_key) = case.last_key()?;
     let typing = Typing {
@@ -730,7 +755,8 @@ fn run_case(
         last_key,
         typed_field: case.field(case.before.clone()),
         version,
-        tail_cut,
+        word_bias: arguments.word_bias,
+        tail_cut: arguments.tail_cut,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, &typing.typed_field) {
@@ -961,7 +987,7 @@ fn main() -> anyhow::Result<()> {
         .zip(1..)
         .map(|(case, version)| {
             let history = history_of(case, &writers)?;
-            run_case(&mut model, case, &history, &settings, version, arguments.tail_cut)
+            run_case(&mut model, case, &history, &settings, version, &arguments)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
@@ -1126,6 +1152,7 @@ mod tests {
                 backend: BUILT_IN_BACKEND,
                 cpu_cores: None,
                 word_choice: WordChoice::Off,
+                word_bias: WordBiasUse::On,
                 tail_cut: TailCut::On,
                 typo_rule: TypoRule::HideSuggestions,
             })
@@ -1178,6 +1205,17 @@ mod tests {
                 None
             ]
         );
+    }
+
+    #[test]
+    fn word_bias_option_turns_only_the_word_bias_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let switches = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--word-bias", name]).map(|arguments| arguments.word_bias)
+        });
+
+        assert_eq!(switches, [Some(WordBiasUse::On), Some(WordBiasUse::Off), None]);
     }
 
     #[test]
