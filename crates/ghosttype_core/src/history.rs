@@ -128,15 +128,12 @@ impl HistoryEntry {
         })
     }
 
-    fn is_in_place_of(&self, surroundings: &Surroundings) -> bool {
-        match &surroundings.domain {
-            Some(domain) => self.domain.as_ref() == Some(domain),
-            None => surroundings.app_id.as_ref() == Some(&self.app_id),
-        }
+    fn place(&self) -> Place<'_> {
+        Place::of(&self.app_id, self.domain.as_deref())
     }
 
-    fn is_same_place(&self, other: &Self) -> bool {
-        self.app_id == other.app_id && self.domain == other.domain
+    fn is_in_place_of(&self, surroundings: &Surroundings) -> bool {
+        Place::of_field(surroundings) == Some(self.place())
     }
 
     /// Whether the texts start with the same [`MIN_SHARED_CHARS`] characters, or end with them.
@@ -154,6 +151,30 @@ impl HistoryEntry {
 
     fn overlaps(&self, other: &Self) -> bool {
         self.text.contains(&other.text) || other.text.contains(&self.text)
+    }
+}
+
+/// Where the user wrote a text: a web page in any browser, else an app.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place<'text> {
+    /// The host of the web page.
+    WebPage(&'text str),
+    /// The id of the app.
+    App(&'text str),
+}
+
+impl<'text> Place<'text> {
+    fn of(app_id: &'text str, domain: Option<&'text str>) -> Self {
+        domain.map_or(Self::App(app_id), Self::WebPage)
+    }
+
+    /// The place of the field of `surroundings`, or `None` when it has no app id and no domain.
+    fn of_field(surroundings: &'text Surroundings) -> Option<Self> {
+        match (&surroundings.domain, &surroundings.app_id) {
+            (Some(domain), _) => Some(Self::WebPage(domain)),
+            (None, Some(app_id)) => Some(Self::App(app_id)),
+            (None, None) => None,
+        }
     }
 }
 
@@ -202,13 +223,13 @@ pub trait KeyVault {
 pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
     let is_known = entries
         .iter()
-        .any(|known| known.is_same_place(&entry) && known.text.contains(&entry.text));
+        .any(|known| known.place() == entry.place() && known.text.contains(&entry.text));
     if is_known {
         return;
     }
     entries.retain(|known| {
         let is_replaced = entry.text.contains(&known.text) || entry.shares_an_edge_with(known);
-        !(known.is_same_place(&entry) && is_replaced)
+        !(known.place() == entry.place() && is_replaced)
     });
     entries.push(entry);
     let excess = entries.len().saturating_sub(MAX_ENTRIES);
@@ -235,7 +256,7 @@ pub(crate) fn own_text<'text>(
     let is_draft = HistoryEntry::of(field, app_id, domain).is_some_and(|draft| {
         entries
             .iter()
-            .any(|known| known.is_same_place(&draft) && known.text.contains(&draft.text))
+            .any(|known| known.place() == draft.place() && known.text.contains(&draft.text))
     });
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
     if field.trim().is_empty() || is_draft || is_mostly_added {
@@ -1333,6 +1354,22 @@ mod tests {
     }
 
     #[test]
+    fn own_text_is_all_the_text_when_an_entry_of_the_same_page_in_another_browser_holds_the_field() {
+        let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
+        let text = format!("{DRAFT} PS: call me.");
+
+        let own = own_text(
+            &entries,
+            &text,
+            DRAFT.chars().count(),
+            "com.google.Chrome",
+            Some("mail.example.com"),
+        );
+
+        assert_eq!(own, text);
+    }
+
+    #[test]
     fn own_text_is_only_the_added_words_when_the_user_adds_a_few_words_to_a_template() {
         let text = format!("{DRAFT} Thanks.");
 
@@ -1409,6 +1446,33 @@ mod tests {
         add(&mut entries, mail("Dear Ana, the meeting moved to Friday."));
 
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn added_entry_replaces_the_draft_of_the_same_page_in_another_browser() {
+        let mut entries = vec![entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
+        let continued = entry(
+            &format!("{DRAFT} PS: call me."),
+            "com.google.Chrome",
+            Some("mail.example.com"),
+        );
+
+        add(&mut entries, continued.clone());
+
+        assert_eq!(entries, [continued]);
+    }
+
+    #[test]
+    fn text_of_a_web_page_is_no_example_in_its_browser_outside_of_a_page() {
+        let entries = [entry(
+            "Review of the pull request",
+            "com.google.Chrome",
+            Some("github.com"),
+        )];
+
+        let examples = examples_in(&entries, &place("com.google.Chrome", None, "Hi"));
+
+        assert_eq!(examples, Vec::<&str>::new());
     }
 
     #[test]
