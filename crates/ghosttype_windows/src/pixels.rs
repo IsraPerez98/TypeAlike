@@ -116,21 +116,22 @@ fn premultiplied(color: Rgb, alpha: u8) -> u32 {
     u32::from_le_bytes([scale(color.blue), scale(color.green), scale(color.red), alpha])
 }
 
-/// A square with rounded corners: a fill inside a border, in physical pixels.
+/// A rectangle with rounded corners: a fill inside a border, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RoundedSquare {
-    pub(crate) side: i32,
+pub(crate) struct RoundedRectangle {
+    pub(crate) width: i32,
+    pub(crate) height: i32,
     pub(crate) corner_radius: i32,
     pub(crate) border_width: i32,
     pub(crate) fill: Rgb,
     pub(crate) border: Rgb,
 }
 
-impl RoundedSquare {
-    /// Draws the square as premultiplied BGRA pixels, top row first, with smooth edges.
+impl RoundedRectangle {
+    /// Draws the rectangle as premultiplied BGRA pixels, top row first, with smooth edges.
     pub(crate) fn pixels(&self) -> Vec<u32> {
-        (0..self.side)
-            .flat_map(|row| (0..self.side).map(move |column| self.pixel(column, row)))
+        (0..self.height)
+            .flat_map(|row| (0..self.width).map(move |column| self.pixel(column, row)))
             .collect()
     }
 
@@ -152,7 +153,7 @@ impl RoundedSquare {
         ])
     }
 
-    /// Counts the samples of the pixel at `column` and `row` inside the square made smaller by
+    /// Counts the samples of the pixel at `column` and `row` inside the rectangle made smaller by
     /// `inset` on each side.
     fn covered_samples(&self, column: i32, row: i32, inset: i32) -> u32 {
         let samples = 0..SAMPLES_PER_AXIS;
@@ -174,18 +175,20 @@ impl RoundedSquare {
         u32::try_from(covered).expect("a pixel has few samples")
     }
 
-    /// Whether the point at `x` and `y`, in sample steps, is inside the square made smaller by
-    /// `inset` pixels on each side. The smaller square has corners smaller by the same inset.
+    /// Whether the point at `x` and `y`, in sample steps, is inside the rectangle made smaller by
+    /// `inset` pixels on each side. The smaller rectangle has corners smaller by the same inset.
     fn contains(&self, x: i32, y: i32, inset: i32) -> bool {
         let low = inset * STEPS_PER_PIXEL;
-        let high = (self.side - inset) * STEPS_PER_PIXEL;
-        let is_in_box = (low..=high).contains(&x) && (low..=high).contains(&y);
+        let right = (self.width - inset) * STEPS_PER_PIXEL;
+        let bottom = (self.height - inset) * STEPS_PER_PIXEL;
+        let is_in_box = (low..=right).contains(&x) && (low..=bottom).contains(&y);
         if !is_in_box {
             return false;
         }
-        let radius = ((self.corner_radius - inset) * STEPS_PER_PIXEL).clamp(0, (high - low) / 2);
-        let horizontal = x - x.clamp(low + radius, high - radius);
-        let vertical = y - y.clamp(low + radius, high - radius);
+        let shorter_side = (right - low).min(bottom - low);
+        let radius = ((self.corner_radius - inset) * STEPS_PER_PIXEL).clamp(0, shorter_side / 2);
+        let horizontal = x - x.clamp(low + radius, right - radius);
+        let vertical = y - y.clamp(low + radius, bottom - radius);
         horizontal * horizontal + vertical * vertical <= radius * radius
     }
 }
@@ -292,8 +295,9 @@ mod tests {
         assert_eq!(pixels, [0x8080_8080]);
     }
 
-    const SQUARE: RoundedSquare = RoundedSquare {
-        side: 12,
+    const SQUARE: RoundedRectangle = RoundedRectangle {
+        width: 12,
+        height: 12,
         corner_radius: 4,
         border_width: 1,
         fill: Rgb::WHITE,
@@ -339,6 +343,23 @@ mod tests {
         let pixels = SQUARE.pixels();
 
         assert_eq!(pixels.len(), 144);
+    }
+
+    #[test]
+    fn short_sides_of_a_wide_rectangle_are_opaque_border() {
+        let wide = RoundedRectangle {
+            width: 20,
+            height: 8,
+            corner_radius: 2,
+            ..SQUARE
+        };
+
+        let pixels = wide.pixels();
+
+        assert_eq!(
+            [pixels[4 * 20], pixels[4 * 20 + 10], pixels[4 * 20 + 19]],
+            [0xFF00_0000, 0xFFFF_FFFF, 0xFF00_0000]
+        );
     }
 
     #[test]

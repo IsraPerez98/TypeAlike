@@ -11,7 +11,7 @@ use windows::core::{Result, w};
 
 use crate::focus::Caret;
 use crate::gdi::glyph_bitmap;
-use crate::pixels::{Rgb, RoundedSquare};
+use crate::pixels::{Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::tray::status_glyph;
 use crate::window::{Window, WindowSpec};
@@ -25,15 +25,15 @@ const GAP_ABOVE_CARET_DIPS: i32 = 4;
 
 /// The light and dark colors follow the Fluent tooltip: its fill, then the surface stroke and the
 /// secondary text, each blended over the fill.
-const LIGHT_COLORS: BadgeColors = BadgeColors {
+const LIGHT_COLORS: TooltipColors = TooltipColors {
     fill: Rgb::gray(0xF9),
     border: Rgb::gray(0xC4),
-    glyph: Rgb::gray(0x5F),
+    text: Rgb::gray(0x5F),
 };
-const DARK_COLORS: BadgeColors = BadgeColors {
+const DARK_COLORS: TooltipColors = TooltipColors {
     fill: Rgb::gray(0x2C),
     border: Rgb::gray(0x49),
-    glyph: Rgb::gray(0xCF),
+    text: Rgb::gray(0xCF),
 };
 
 #[derive(Debug)]
@@ -54,16 +54,17 @@ impl Badge {
     /// Shows `view` above `caret`, on the left of it, where the ghost text never goes.
     pub(crate) fn show(&mut self, view: &BadgeView, caret: &Caret) -> Result<()> {
         let layout = BadgeLayout::new(caret.origin, monitor_dpi(caret.origin));
-        let colors = BadgeColors::for_theme(SystemTheme::read());
+        let colors = TooltipColors::for_theme(SystemTheme::read());
         let side = layout.frame.right - layout.frame.left;
-        let plate = RoundedSquare {
-            side,
+        let plate = RoundedRectangle {
+            width: side,
+            height: side,
             corner_radius: layout.corner_radius,
             border_width: layout.border_width,
             fill: colors.fill,
             border: colors.border,
         };
-        let mut bitmap = glyph_bitmap(status_glyph(view.status), layout.glyph_side, side, colors.glyph)?;
+        let mut bitmap = glyph_bitmap(status_glyph(view.status), layout.glyph_side, side, colors.text)?;
         bitmap.lay_over(&plate.pixels());
         let top_left = POINT {
             x: layout.frame.left,
@@ -114,15 +115,15 @@ impl BadgeLayout {
     }
 }
 
-/// The colors of the badge.
+/// The colors of the badge: the fill, the border and the text of the Fluent tooltip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BadgeColors {
+struct TooltipColors {
     fill: Rgb,
     border: Rgb,
-    glyph: Rgb,
+    text: Rgb,
 }
 
-impl BadgeColors {
+impl TooltipColors {
     fn for_theme(theme: SystemTheme) -> Self {
         match (theme.contrast, theme.mode) {
             (Contrast::High, _) => Self::high_contrast(),
@@ -137,7 +138,7 @@ impl BadgeColors {
         Self {
             fill: Rgb::from_colorref(window),
             border: Rgb::from_colorref(text),
-            glyph: Rgb::from_colorref(text),
+            text: Rgb::from_colorref(text),
         }
     }
 }
