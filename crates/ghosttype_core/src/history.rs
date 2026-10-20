@@ -12,7 +12,8 @@ use crate::place::{self, Format};
 use crate::prompt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens};
 use crate::settings::WordChoice;
 
-/// The most texts that GhostType keeps. The oldest text goes first.
+/// The most texts that GhostType keeps. The oldest text of the place with the most texts goes
+/// first.
 const MAX_ENTRIES: usize = 2000;
 /// The fewest characters of a text that GhostType saves.
 const MIN_KEPT_CHARS: usize = 40;
@@ -155,7 +156,7 @@ impl HistoryEntry {
 }
 
 /// Where the user wrote a text: a web page in any browser, else an app.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Place<'text> {
     /// The host of the web page.
     WebPage(&'text str),
@@ -218,8 +219,9 @@ pub trait KeyVault {
 
 /// Adds `entry` as the newest of `entries`. An older entry of the same place whose text the new
 /// text holds goes, and the new entry does not come when an older one holds its text. An older
-/// entry of the same place that starts or ends like the new text (a near copy) also goes. The
-/// oldest entries go when there are more than [`MAX_ENTRIES`].
+/// entry of the same place that starts or ends like the new text (a near copy) also goes. While
+/// there are more than [`MAX_ENTRIES`], the oldest entry of the place with the most entries goes,
+/// so that a busy place does not push out the texts of the rare places.
 pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
     let is_known = entries
         .iter()
@@ -232,8 +234,24 @@ pub(crate) fn add(entries: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
         !(known.place() == entry.place() && is_replaced)
     });
     entries.push(entry);
-    let excess = entries.len().saturating_sub(MAX_ENTRIES);
-    entries.drain(..excess);
+    while entries.len() > MAX_ENTRIES {
+        let oldest = oldest_of_largest_place(entries);
+        entries.remove(oldest);
+    }
+}
+
+/// Returns the index of the oldest of `entries` in the place with the most entries. Among places
+/// with the same number of entries, the place with the oldest entry goes first.
+fn oldest_of_largest_place(entries: &[HistoryEntry]) -> usize {
+    let mut counts = HashMap::<Place<'_>, usize>::new();
+    for entry in entries {
+        *counts.entry(entry.place()).or_default() += 1;
+    }
+    let largest = counts.values().copied().max().unwrap_or_default();
+    entries
+        .iter()
+        .position(|entry| counts[&entry.place()] == largest)
+        .unwrap_or_default()
 }
 
 /// Returns the part of `text`, the text before the caret at the end of a session in the place of
@@ -1496,6 +1514,21 @@ mod tests {
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert_eq!(entries.first(), Some(&mail("text 1.")));
         assert_eq!(entries.last(), Some(&mail("newest")));
+    }
+
+    #[test]
+    fn full_store_drops_the_oldest_text_of_the_place_with_the_most_texts() {
+        let chat = |text: &str| entry(text, "net.whatsapp.WhatsApp", None);
+        let document = entry("Notes on the roof repair.", "md.obsidian", None);
+        let mut entries = std::iter::once(document.clone())
+            .chain((1..MAX_ENTRIES).map(|index| chat(&format!("chat {index}."))))
+            .collect::<Vec<_>>();
+
+        add(&mut entries, chat("newest chat."));
+
+        assert_eq!(entries.len(), MAX_ENTRIES);
+        assert_eq!(entries[..2], [document, chat("chat 2.")]);
+        assert_eq!(entries.last(), Some(&chat("newest chat.")));
     }
 
     fn place_with(app_id: &str, before_caret: &str, window_title: Option<&str>) -> Surroundings {
