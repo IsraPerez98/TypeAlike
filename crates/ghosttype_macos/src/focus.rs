@@ -1,6 +1,7 @@
 //! What has keyboard focus: whether GhostType may suggest there, where its caret is, and the text
 //! around the caret.
 
+use std::iter;
 use std::ptr::{self, NonNull};
 
 use ghosttype_core::app::Field;
@@ -13,8 +14,8 @@ use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
-    CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat, CGPoint,
-    CGRect, CGSize, Type,
+    CFArray, CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CFURL, CGFloat,
+    CGPoint, CGRect, CGSize, Type,
 };
 
 pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
@@ -40,6 +41,14 @@ const WEB_AREA_ROLE: &str = "AXWebArea";
 pub(crate) const WINDOW_ROLE: &str = "AXWindow";
 /// The most elements that GhostType reads on the way up from the focused field to its web area.
 const MAX_WEB_AREA_DISTANCE: usize = 64;
+const DOM_CLASS_LIST_ATTRIBUTE: &str = "AXDOMClassList";
+/// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
+const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
+/// The class of the screen of a terminal of xterm.js, which holds its rows.
+const XTERM_SCREEN_CLASS: &str = "xterm-screen";
+/// The most elements that GhostType reads on the way up from the input box of a terminal to its
+/// screen, which holds the box two levels up.
+const MAX_TERMINAL_SCREEN_DISTANCE: usize = 4;
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
 const ENHANCED_USER_INTERFACE_ATTRIBUTE: &str = "AXEnhancedUserInterface";
 const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
@@ -228,10 +237,70 @@ pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
 
 /// The bounds of the text that ends at the caret of `element`.
 pub(crate) fn caret_bounds(element: &AXUIElement) -> Option<CGRect> {
+    if has_dom_class(element, XTERM_INPUT_CLASS) {
+        return terminal_input(element)?.caret_bounds();
+    }
     let selection = selected_range(element)?;
     let caret_index = selection.location.checked_add(selection.length)?;
     // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
     bounds_for_range(element, previous_unit_range(caret_index)?)
+}
+
+/// The hidden input box of a terminal of xterm.js, which the terminal moves to the cell of its
+/// cursor, and the screen of the terminal. The text in the box is not the text of the terminal:
+/// xterm.js keeps the text of each input event there until Enter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TerminalInput {
+    /// The frame of the input box, which is one row high.
+    frame: CGRect,
+    /// The top of the screen, where the first row starts.
+    screen_top: CGFloat,
+}
+
+impl TerminalInput {
+    /// The left edge of the cell of the cursor, as bounds without width, at the top of the row
+    /// that holds the input box. VS Code draws the input box below the top of that row.
+    fn caret_bounds(self) -> Option<CGRect> {
+        let row_height = self.frame.size.height;
+        if row_height <= 0.0 {
+            return None;
+        }
+        let below_row = (self.frame.origin.y - self.screen_top).rem_euclid(row_height);
+        Some(CGRect::new(
+            CGPoint::new(self.frame.origin.x, self.frame.origin.y - below_row),
+            CGSize::new(0.0, row_height),
+        ))
+    }
+}
+
+/// Reads the input box of a terminal of xterm.js, `element`, and the top of its screen.
+fn terminal_input(element: &AXUIElement) -> Option<TerminalInput> {
+    let screen = iter::successors(parent(element), |current| parent(current))
+        .take(MAX_TERMINAL_SCREEN_DISTANCE)
+        .find(|ancestor| has_dom_class(ancestor, XTERM_SCREEN_CLASS))?;
+    Some(TerminalInput {
+        frame: frame(element)?,
+        screen_top: frame(&screen)?.origin.y,
+    })
+}
+
+fn parent(element: &AXUIElement) -> Option<CFRetained<AXUIElement>> {
+    copy_attribute(element, PARENT_ATTRIBUTE)?.downcast().ok()
+}
+
+/// Whether the web element `element` has the HTML class `class`.
+fn has_dom_class(element: &AXUIElement, class: &str) -> bool {
+    let Some(classes) =
+        copy_attribute(element, DOM_CLASS_LIST_ATTRIBUTE).and_then(|value| value.downcast::<CFArray>().ok())
+    else {
+        return false;
+    };
+    // SAFETY: the array of an Accessibility attribute holds CF objects.
+    let classes = unsafe { classes.cast_unchecked::<CFType>() };
+    classes
+        .iter()
+        .filter_map(|name| name.downcast::<CFString>().ok())
+        .any(|name| name.to_string() == class)
 }
 
 fn previous_unit_range(caret_index: isize) -> Option<CFRange> {
@@ -508,6 +577,44 @@ mod tests {
     #[test]
     fn caret_at_start_has_no_previous_unit() {
         assert_eq!(previous_unit_range(0), None);
+    }
+
+    fn terminal_input(top: CGFloat, height: CGFloat) -> TerminalInput {
+        TerminalInput {
+            frame: CGRect::new(CGPoint::new(645.0, top), CGSize::new(8.0, height)),
+            screen_top: 262.0,
+        }
+    }
+
+    #[test]
+    fn terminal_caret_moves_up_to_the_row_of_the_input_box() {
+        let input = terminal_input(810.0, 15.0);
+
+        let bounds = input.caret_bounds();
+
+        assert_eq!(
+            bounds,
+            Some(CGRect::new(CGPoint::new(645.0, 802.0), CGSize::new(0.0, 15.0)))
+        );
+    }
+
+    #[test]
+    fn terminal_caret_of_an_input_box_on_its_row_stays() {
+        let input = terminal_input(802.0, 15.0);
+
+        let bounds = input.caret_bounds();
+
+        assert_eq!(
+            bounds,
+            Some(CGRect::new(CGPoint::new(645.0, 802.0), CGSize::new(0.0, 15.0)))
+        );
+    }
+
+    #[test]
+    fn terminal_input_box_without_height_has_no_caret() {
+        let input = terminal_input(810.0, 0.0);
+
+        assert_eq!(input.caret_bounds(), None);
     }
 
     fn range(location: isize, length: isize) -> CFRange {
