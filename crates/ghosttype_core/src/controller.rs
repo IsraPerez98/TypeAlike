@@ -24,6 +24,11 @@ use crate::settings_view::{SettingsInput, SettingsView};
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
 const CARET_SETTLE_DELAY: Duration = Duration::from_millis(40);
+/// The time between two looks at a caret that did not move yet after a key. A terminal moves its
+/// caret only after the program in it writes the typed text back.
+const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
+/// The most looks at the caret after a key, before the ghost text shows at the caret where it is.
+const MAX_CARET_MOVE_CHECKS: u8 = 20;
 /// The most characters of the line before the caret that the mirror shows.
 const MIRROR_LINE_CHARS: usize = 40;
 
@@ -132,6 +137,9 @@ pub struct GhostView {
     pub line_before_caret: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
+    /// Whether a key changed the text since the ghost text showed last. The platform then shows
+    /// the ghost text only at a caret that moved from where the ghost text showed last.
+    pub is_after_edit: bool,
 }
 
 impl GhostView {
@@ -159,6 +167,7 @@ impl GhostView {
             ghost,
             line_before_caret,
             placement,
+            is_after_edit: false,
         }
     }
 }
@@ -173,6 +182,7 @@ impl fmt::Debug for GhostView {
                 &format_args!("{} chars", self.line_before_caret.chars().count()),
             )
             .field("placement", &self.placement)
+            .field("is_after_edit", &self.is_after_edit)
             .finish()
     }
 }
@@ -257,6 +267,9 @@ pub struct Controller {
     suggestion_sink: InferenceEventSink,
     pending_ghost: Option<Ghost>,
     is_caret_timer_pending: bool,
+    /// The looks at the caret that are left before the ghost text shows at a caret that did not
+    /// move after the last key.
+    caret_move_checks_left: u8,
     /// Whether the Screen text or Personalization pane has an app that the settings store does not
     /// have yet.
     has_unsaved_app: bool,
@@ -269,6 +282,7 @@ impl fmt::Debug for Controller {
             .field("app", &self.app)
             .field("has_pending_ghost", &self.pending_ghost.is_some())
             .field("is_caret_timer_pending", &self.is_caret_timer_pending)
+            .field("caret_move_checks_left", &self.caret_move_checks_left)
             .finish_non_exhaustive()
     }
 }
@@ -327,6 +341,7 @@ impl Controller {
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             pending_ghost: None,
             is_caret_timer_pending: false,
+            caret_move_checks_left: 0,
             has_unsaved_app: false,
         };
         controller.load_history_when_on();
@@ -353,6 +368,7 @@ impl Controller {
         let Some(key) = key else {
             return Disposition::Pass;
         };
+        self.caret_move_checks_left = MAX_CARET_MOVE_CHECKS;
         let reaction = self.app.on_key(key, &*shell);
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
@@ -488,6 +504,16 @@ impl Controller {
     fn on_caret_settled(&mut self, shell: &mut dyn Shell) {
         self.is_caret_timer_pending = false;
         self.render_at_caret(shell);
+        if self.pending_ghost.is_none() {
+            return;
+        }
+        if shell.is_ghost_shown() {
+            self.caret_move_checks_left = 0;
+        } else if let Some(checks_left) = self.caret_move_checks_left.checked_sub(1) {
+            self.caret_move_checks_left = checks_left;
+            shell.start_timer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY);
+            self.is_caret_timer_pending = true;
+        }
     }
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
@@ -717,10 +743,10 @@ impl Controller {
         } else {
             GhostPlacement::BelowCaret
         };
-        let ghost = self
-            .pending_ghost
-            .clone()
-            .map(|ghost| GhostView::new(ghost, self.app.text_before_caret(), placement));
+        let ghost = self.pending_ghost.clone().map(|ghost| GhostView {
+            is_after_edit: self.caret_move_checks_left > 0,
+            ..GhostView::new(ghost, self.app.text_before_caret(), placement)
+        });
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
     }
 
@@ -806,6 +832,7 @@ mod tests {
         ocr: OcrAvailability,
         calls: Vec<Call>,
         ghost_view: Option<GhostView>,
+        is_ghost_shown: bool,
     }
 
     impl Desktop for FakeShell {
@@ -823,6 +850,10 @@ mod tests {
 
         fn ocr_availability(&self) -> OcrAvailability {
             self.ocr
+        }
+
+        fn is_ghost_shown(&self) -> bool {
+            self.is_ghost_shown
         }
     }
 
@@ -1005,6 +1036,7 @@ mod tests {
                     ocr: OcrAvailability::Unsupported,
                     calls: Vec::new(),
                     ghost_view: None,
+                    is_ghost_shown: true,
                 },
                 recorder,
                 deliveries,
@@ -1017,6 +1049,13 @@ mod tests {
 
         fn settle_caret(&mut self) {
             self.controller.on_timer(Timer::CaretSettle, &mut self.shell);
+        }
+
+        /// Settles the caret once for each check that waits for the caret to move.
+        fn run_out_caret_checks(&mut self) {
+            for _ in 0..MAX_CARET_MOVE_CHECKS {
+                self.settle_caret();
+            }
         }
 
         /// Answers the last inference request with `event`, through the sink of the request.
@@ -1446,6 +1485,54 @@ mod tests {
             harness.take_calls(),
             vec![ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE))]
         );
+    }
+
+    #[test]
+    fn ghost_after_a_key_shows_only_at_a_caret_that_moved() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est regards");
+        harness.press(Key::Tab);
+
+        harness.settle_caret();
+
+        assert!(harness.shell.ghost_view.expect("a ghost view").is_after_edit);
+    }
+
+    #[test]
+    fn ghost_that_does_not_show_after_a_key_checks_the_caret_again() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est regards");
+        harness.press(Key::Tab);
+        harness.shell.is_ghost_shown = false;
+        harness.take_calls();
+
+        harness.settle_caret();
+
+        assert_eq!(
+            harness.take_calls(),
+            vec![
+                ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE)),
+                Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+            ]
+        );
+    }
+
+    #[test]
+    fn ghost_shows_at_any_caret_after_the_last_check() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est regards");
+        harness.press(Key::Tab);
+        harness.shell.is_ghost_shown = false;
+        harness.run_out_caret_checks();
+        harness.take_calls();
+
+        harness.settle_caret();
+
+        assert_eq!(
+            harness.take_calls(),
+            vec![ghost_at_caret(Some(" regards"), Some(PAUSE_BADGE))]
+        );
+        assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
     }
 
     fn fixed(typed: &str, fixed: &str, text: &str) -> InferenceEvent {

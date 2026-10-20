@@ -95,6 +95,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             overlay: Overlay::new(main_thread),
             mirror: Mirror::new(main_thread),
             badge: Badge::new(main_thread),
+            ghost_caret: None,
             target,
             caret_timer: None,
             settle_timer: None,
@@ -225,6 +226,8 @@ struct AppKitShell {
     overlay: Overlay,
     mirror: Mirror,
     badge: Badge,
+    /// The caret where the ghost text showed last.
+    ghost_caret: Option<Caret>,
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
@@ -233,7 +236,8 @@ struct AppKitShell {
 }
 
 impl AppKitShell {
-    fn show_at_caret(&self, view: &GhostView, caret: Caret) {
+    fn show_at_caret(&mut self, view: &GhostView, caret: Caret) {
+        self.ghost_caret = Some(caret);
         if view.placement == GhostPlacement::BelowCaret {
             self.overlay.hide();
             self.mirror.show_below_caret(&view.ghost, caret);
@@ -317,6 +321,9 @@ impl Shell for AppKitShell {
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
+            (Some(view), Some(caret)) if view.is_after_edit && self.ghost_caret == Some(caret) => {
+                self.hide_ghost();
+            }
             (Some(view), Some(caret)) => self.show_at_caret(view, caret),
             (Some(view), None) => self.show_mirror(view),
             (None, _) => self.hide_ghost(),
