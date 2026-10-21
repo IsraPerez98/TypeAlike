@@ -87,15 +87,17 @@ impl HistoryFile {
             .ok_or(HistoryError::Locked)
     }
 
-    /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
-    /// write never leaves a damaged file. No entries removes the file.
-    fn write(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
-        if entries.is_empty() {
-            return match fs::remove_file(&self.path) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
-                _ => Ok(()),
-            };
+    /// Removes the file, also when no read came before. A missing file is not an error.
+    fn remove(&self) -> Result<(), HistoryError> {
+        match fs::remove_file(&self.path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
         }
+    }
+
+    /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
+    /// write never leaves a damaged file.
+    fn write(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
         if !self.may_replace {
             return Err(HistoryError::Unread);
         }
@@ -154,7 +156,12 @@ impl WritingHistory for HistoryFile {
     }
 
     fn save(&mut self, entries: &[HistoryEntry]) {
-        if let Err(error) = self.write(entries) {
+        let saved = if entries.is_empty() {
+            self.remove()
+        } else {
+            self.write(entries)
+        };
+        if let Err(error) = saved {
             tracing::warn!(%error, "failed to save the earlier writing");
         }
     }
