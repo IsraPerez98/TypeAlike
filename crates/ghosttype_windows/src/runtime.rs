@@ -95,12 +95,17 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         ScreenTextReader::start(screen_mailbox).map_err(RunError::during("start the screen text reader"))?;
     let ocr = OcrSupport::detect();
     tracing::info!(?ocr, "found the OCR support");
-    let (mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
+    let (delivery_mailbox, deliveries) = Mailbox::new(window.handle(), DELIVERY_MESSAGE);
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
         SettingsThread::start(settings_mailbox).map_err(RunError::during("start the settings window"))?;
     let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
-    let controller = Controller::new(settings, services, BackendChoice::User, &mailbox.into_sink());
+    let controller = Controller::new(
+        settings,
+        services,
+        BackendChoice::User,
+        &delivery_mailbox.into_sink(),
+    );
     let tray =
         Tray::add(window.handle(), &controller.tray_view()).map_err(RunError::during("add the tray icon"))?;
     // SAFETY: plain call with a static, nul-terminated name.

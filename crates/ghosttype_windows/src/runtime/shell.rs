@@ -61,8 +61,8 @@ impl Win32Shell {
     /// Forgets the kept field text, because an input can change the field now, and reads it again
     /// after [`FIELD_READ_DELAY`].
     pub(super) fn forget_field_text(&mut self) {
-        self.kept_field_text.forget();
-        self.set_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
+        self.kept_field_text.forget_text();
+        self.start_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
     }
 
     /// Forgets the kept field text and whether the focused field hides its text, because a click
@@ -70,17 +70,17 @@ impl Win32Shell {
     /// after [`FIELD_READ_DELAY`].
     pub(super) fn forget_focused_field(&mut self) {
         self.kept_field_text.forget_focused_field();
-        self.set_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
+        self.start_window_timer(FIELD_TIMER_ID, FIELD_READ_DELAY);
     }
 
     /// Asks the caret reader for the field text as it is now.
     pub(super) fn read_field_text(&mut self) {
-        self.kill_window_timer(FIELD_TIMER_ID);
+        self.stop_window_timer(FIELD_TIMER_ID);
         self.caret_reader.read_field_text(self.kept_field_text.newest());
     }
 
     /// Starts the window timer `id`, or starts it again when it runs.
-    fn set_window_timer(&self, id: usize, delay: Duration) {
+    fn start_window_timer(&self, id: usize, delay: Duration) {
         let delay_ms = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: plain call on our own window.
         let is_started = unsafe { SetTimer(Some(self.window.handle()), id, delay_ms, None) } != 0;
@@ -89,7 +89,7 @@ impl Win32Shell {
         }
     }
 
-    fn kill_window_timer(&self, id: usize) {
+    fn stop_window_timer(&self, id: usize) {
         // Fails only when no timer is pending, which needs no handling.
         // SAFETY: plain call on our own window.
         let _ = unsafe { KillTimer(Some(self.window.handle()), id) };
@@ -198,11 +198,11 @@ impl Shell for Win32Shell {
     }
 
     fn start_timer(&mut self, timer: Timer, delay: Duration) {
-        self.set_window_timer(timer_id(timer), delay);
+        self.start_window_timer(timer_id(timer), delay);
     }
 
     fn stop_timer(&mut self, timer: Timer) {
-        self.kill_window_timer(timer_id(timer));
+        self.stop_window_timer(timer_id(timer));
     }
 
     fn render_tray(&mut self, view: &TrayView) {

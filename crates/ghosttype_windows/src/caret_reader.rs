@@ -184,7 +184,7 @@ impl KeptFieldText {
     /// Forgets the kept text, because an input can change the field now. The answers to the reads
     /// asked for before are stale. Whether the field hides its text stays, because an input that
     /// moves the focus, such as Tab, also comes as a move of the focus.
-    pub(crate) fn forget(&mut self) {
+    pub(crate) fn forget_text(&mut self) {
         self.newest = FieldReadId(self.newest.0.wrapping_add(1));
         self.kept = None;
     }
@@ -192,7 +192,7 @@ impl KeptFieldText {
     /// Forgets the kept text and whether the focused field hides its text, because a click or a
     /// move of the focus can put the focus in another field now.
     pub(crate) fn forget_focused_field(&mut self) {
-        self.forget();
+        self.forget_text();
         self.first_after_focus_move = self.newest;
         self.visibility = TextVisibility::Unknown;
     }
@@ -419,7 +419,7 @@ mod tests {
         let hides_text = reads.map(|read| {
             let mut kept = KeptFieldText::default();
             kept.keep(read);
-            kept.forget();
+            kept.forget_text();
             kept.may_hide_text()
         });
 
@@ -452,7 +452,7 @@ mod tests {
         let mut kept = KeptFieldText::default();
         kept.forget_focused_field();
         let read = field_read(kept.newest(), window(1));
-        kept.forget();
+        kept.forget_text();
 
         kept.keep(read);
 
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn read_after_last_input_gives_its_text() {
         let mut kept = KeptFieldText::default();
-        kept.forget();
+        kept.forget_text();
         let read = field_read(kept.newest(), window(1));
 
         kept.keep(read.clone());
@@ -474,7 +474,7 @@ mod tests {
     fn read_asked_for_before_an_input_is_dropped() {
         let mut kept = KeptFieldText::default();
         let stale = field_read(kept.newest(), window(1));
-        kept.forget();
+        kept.forget_text();
 
         kept.keep(stale);
 
@@ -486,7 +486,7 @@ mod tests {
         let mut kept = KeptFieldText::default();
         kept.keep(field_read(kept.newest(), window(1)));
 
-        kept.forget();
+        kept.forget_text();
 
         assert_eq!(kept.read_in(window(1)), None);
     }
