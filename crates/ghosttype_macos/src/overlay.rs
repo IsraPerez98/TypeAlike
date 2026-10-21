@@ -4,13 +4,12 @@ use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use ghosttype_core::engine::WordFix;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
+use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceName, NSAppearanceNameAqua,
-    NSAppearanceNameDarkAqua, NSAttributedStringNSStringDrawing, NSBackingStoreType, NSColor, NSFont,
-    NSFontAttributeName, NSForegroundColorAttributeName, NSPanel, NSScreen, NSStatusWindowLevel,
-    NSStrikethroughColorAttributeName, NSStrikethroughStyleAttributeName, NSTextField, NSUnderlineStyle,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
+    NSAppearanceNameDarkAqua, NSAttributedStringNSStringDrawing, NSColor, NSFont, NSFontAttributeName,
+    NSForegroundColorAttributeName, NSPanel, NSStrikethroughColorAttributeName,
+    NSStrikethroughStyleAttributeName, NSTextField, NSUnderlineStyle, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{
@@ -19,6 +18,7 @@ use objc2_foundation::{
 };
 
 use crate::geometry::Caret;
+use crate::panel;
 
 #[derive(Debug)]
 pub(crate) struct Overlay {
@@ -31,7 +31,7 @@ impl Overlay {
     pub(crate) fn new(main_thread: MainThreadMarker) -> Self {
         let label = NSTextField::labelWithString(&NSString::new(), main_thread);
         label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        let panel = floating_panel(main_thread);
+        let panel = panel::floating_panel(main_thread);
         panel.setContentView(Some(&label));
         Self {
             panel,
@@ -96,7 +96,7 @@ impl Overlay {
 
     /// Sizes the panel to the label and shows it with its left edge at `caret`.
     fn present(&self, caret: Caret) {
-        let Some(primary_screen_height) = primary_screen_height(self.main_thread) else {
+        let Some(primary_screen_height) = panel::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
         };
@@ -160,41 +160,6 @@ fn field_appearance_name(text_color: TextColor) -> &'static NSAppearanceName {
             NSAppearanceNameAqua
         }
     }
-}
-
-/// Builds a borderless panel that floats over every app on every Space. It never takes focus,
-/// and clicks go through it.
-pub(crate) fn floating_panel(main_thread: MainThreadMarker) -> Retained<NSPanel> {
-    let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
-        NSPanel::alloc(main_thread),
-        NSRect::ZERO,
-        NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
-        NSBackingStoreType::Buffered,
-        false,
-    );
-    // SAFETY: the caller owns the panel, so AppKit must not release it on close.
-    unsafe { panel.setReleasedWhenClosed(false) };
-    panel.setIgnoresMouseEvents(true);
-    panel.setOpaque(false);
-    panel.setBackgroundColor(Some(&NSColor::clearColor()));
-    panel.setHasShadow(false);
-    panel.setHidesOnDeactivate(false);
-    panel.setLevel(NSStatusWindowLevel);
-    panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
-    panel.setCollectionBehavior(
-        NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary
-            | NSWindowCollectionBehavior::IgnoresCycle
-            | NSWindowCollectionBehavior::Stationary,
-    );
-    panel
-}
-
-/// The height of the primary screen, which turns the top-left global coordinates of the caret
-/// into the bottom-left ones of AppKit.
-pub(crate) fn primary_screen_height(main_thread: MainThreadMarker) -> Option<CGFloat> {
-    let primary_screen = NSScreen::screens(main_thread).firstObject()?;
-    Some(primary_screen.frame().size.height)
 }
 
 /// Returns the system font whose line fits the caret.

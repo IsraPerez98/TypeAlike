@@ -23,10 +23,12 @@ mod menu_bar;
 mod mirror;
 mod ocr;
 mod overlay;
+mod panel;
 mod runtime;
 mod screen_text;
 mod settings;
 mod single_instance;
+mod symbol;
 
 pub use keychain::Keychain;
 pub use launch_agent::LaunchAgent;

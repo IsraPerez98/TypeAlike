@@ -9,7 +9,7 @@ use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::geometry::{self, Caret, appkit_origin};
-use crate::{menu_bar, overlay};
+use crate::{panel, symbol};
 
 const BADGE_SIZE: CGFloat = 24.0;
 const BADGE_PADDING: CGFloat = 4.0;
@@ -38,7 +38,7 @@ impl Badge {
         background.setFillColor(&NSColor::windowBackgroundColor());
         background.setContentViewMargins(NSSize::new(BADGE_PADDING, BADGE_PADDING));
         background.setContentView(Some(&glyph));
-        let panel = overlay::floating_panel(main_thread);
+        let panel = panel::floating_panel(main_thread);
         panel.setContentView(Some(&background));
         Self {
             panel,
@@ -50,11 +50,11 @@ impl Badge {
 
     /// Shows `view` above `caret`, on the left of it, where the ghost text never goes.
     pub(crate) fn show(&mut self, view: &BadgeView, caret: Caret) {
-        let Some(primary_screen_height) = overlay::primary_screen_height(self.main_thread) else {
+        let Some(primary_screen_height) = panel::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
         };
-        let image = menu_bar::symbol_image(view.status, view.label);
+        let image = symbol::symbol_image(view.status, view.label);
         if image.is_none() {
             tracing::warn!(status = ?view.status, "badge symbol is unavailable");
         }

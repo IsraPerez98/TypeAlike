@@ -13,8 +13,8 @@ use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSPoint, NSRect, NSSize, NSString};
 
 use crate::geometry::{self, Caret, contains, top_left_frame};
-use crate::overlay;
 use crate::overlay::Contrast;
+use crate::{overlay, panel};
 
 const MIRROR_PADDING: CGFloat = 6.0;
 const MIRROR_CORNER_RADIUS: CGFloat = 6.0;
@@ -47,7 +47,7 @@ impl Mirror {
         background.setFillColor(&NSColor::windowBackgroundColor());
         background.setContentViewMargins(NSSize::new(MIRROR_PADDING, MIRROR_PADDING));
         background.setContentView(Some(&label));
-        let panel = overlay::floating_panel(main_thread);
+        let panel = panel::floating_panel(main_thread);
         panel.setContentView(Some(&background));
         Self {
             panel,
@@ -72,7 +72,7 @@ impl Mirror {
     /// Shows `text` below `anchor`, a frame in global points with a top-left origin, or above it
     /// when it does not fit below.
     fn present(&self, text: &NSAttributedString, anchor: CGRect) {
-        let Some(primary_screen_height) = overlay::primary_screen_height(self.main_thread) else {
+        let Some(primary_screen_height) = panel::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
         };

@@ -1,16 +1,15 @@
 //! The menu bar extra and its menu.
 
-use ghosttype_core::app::{Status, TrayCommand, TrayItem, TrayView};
+use ghosttype_core::app::{TrayCommand, TrayItem, TrayView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
+use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
 use objc2_foundation::NSString;
 
 use crate::labels::title_case;
+use crate::symbol::symbol_image;
 
-const ACTIVE_SYMBOL: &str = "character.cursor.ibeam";
-const PAUSED_SYMBOL: &str = "pause.circle";
 const SETTINGS_KEY_EQUIVALENT: &str = ",";
 const QUIT_KEY_EQUIVALENT: &str = "q";
 const NO_KEY_EQUIVALENT: &str = "";
@@ -97,18 +96,6 @@ impl Drop for MenuBarItem {
 pub(crate) fn command_for_tag(items: &[TrayItem], tag: isize) -> Option<TrayCommand> {
     let index = usize::try_from(tag).ok()?;
     items.get(index).map(|item| item.command)
-}
-
-/// The SF Symbol that shows `status`, which assistive technology reads as `description`.
-pub(crate) fn symbol_image(status: Status, description: &str) -> Option<Retained<NSImage>> {
-    let symbol = match status {
-        Status::Active => ACTIVE_SYMBOL,
-        Status::Paused => PAUSED_SYMBOL,
-    };
-    NSImage::imageWithSystemSymbolName_accessibilityDescription(
-        &NSString::from_str(symbol),
-        Some(&NSString::from_str(description)),
-    )
 }
 
 fn key_equivalent(command: TrayCommand) -> &'static str {
