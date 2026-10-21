@@ -88,7 +88,7 @@ impl ModelsPane {
             Fetch::Failed(error) => {
                 failure_message(*error, ModelsAction::ShowFiles(open_repo.id.clone()), buttons)
             }
-            Fetch::Done(files) if files.is_empty() => message(NO_USABLE_FILES_TEXT.to_owned()),
+            Fetch::Done(files) if files.is_empty() => message_rows(NO_USABLE_FILES_TEXT.to_owned()),
             Fetch::Done(files) => files
                 .iter()
                 .map(|sized| {
@@ -197,7 +197,7 @@ fn results_section(query: &str, results: &Fetch<Vec<RepoSummary>>, buttons: &mut
     let rows = match results {
         Fetch::Pending => vec![Row::Loading(SEARCHING_TEXT)],
         Fetch::Failed(error) => failure_message(*error, ModelsAction::Search(query.to_owned()), buttons),
-        Fetch::Done(repos) if repos.is_empty() => message(format!("No models match “{query}”.")),
+        Fetch::Done(repos) if repos.is_empty() => message_rows(format!("No models match “{query}”.")),
         Fetch::Done(repos) => repos.iter().map(|repo| repo_row(repo, buttons)).collect(),
     };
     Section {
@@ -225,7 +225,7 @@ fn repo_row(repo: &RepoSummary, buttons: &mut Buttons) -> Row {
     })
 }
 
-fn message(text: String) -> Vec<Row> {
+fn message_rows(text: String) -> Vec<Row> {
     vec![Row::Message(Message { text, button: None })]
 }
 

@@ -103,7 +103,6 @@ impl Buttons {
         }
     }
 
-    /// The action of the button `id`.
     fn action_of(self, id: &ControlId) -> Option<ModelsAction> {
         self.0
             .into_iter()
@@ -130,12 +129,7 @@ impl ModelsPane {
         match action {
             ModelsAction::Search(query) => self.start_search(query.trim()),
             ModelsAction::ShowFiles(repo) => self.open_repo(repo),
-            ModelsAction::BackToResults => {
-                if let Some(search) = &mut self.search {
-                    search.open_repo = None;
-                }
-                None
-            }
+            ModelsAction::BackToResults => self.back_to_results(),
             ModelsAction::Download(sized) => self.start_download(sized),
             ModelsAction::Cancel(file) => self.cancel_download(file),
             ModelsAction::Delete(file) => self.delete(file),
@@ -213,6 +207,13 @@ impl ModelsPane {
             files: Fetch::Pending,
         });
         Some(HubRequest::ListFiles { repo })
+    }
+
+    fn back_to_results(&mut self) -> Option<HubRequest> {
+        if let Some(search) = &mut self.search {
+            search.open_repo = None;
+        }
+        None
     }
 
     fn start_download(&mut self, sized: SizedFile) -> Option<HubRequest> {

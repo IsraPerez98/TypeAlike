@@ -109,30 +109,29 @@ impl ScreenTextPane {
     /// Returns the action of `input`, when `input` is for a control of the pane.
     #[must_use]
     pub fn action_for(&self, input: &SettingsInput) -> Option<ScreenTextAction> {
-        let (id, is_on) = match input {
+        match input {
             SettingsInput::Pressed(id) if id.as_str() == OCR_PERMISSION => {
-                return Some(ScreenTextAction::AskForOcrPermission);
+                Some(ScreenTextAction::AskForOcrPermission)
             }
-            SettingsInput::Picked { id, index } if id.as_str() == OCR_LEVEL => {
-                return OCR_LEVEL_CHOICES
-                    .get(*index)
-                    .map(|&(level, _)| ScreenTextAction::SelectOcrLevel(level));
+            SettingsInput::Picked { id, index } if id.as_str() == OCR_LEVEL => OCR_LEVEL_CHOICES
+                .get(*index)
+                .map(|&(level, _)| ScreenTextAction::SelectOcrLevel(level)),
+            SettingsInput::Toggled { id, is_on } if id.as_str() == SCREEN_TEXT => {
+                Some(ScreenTextAction::SwitchScreenText(if *is_on {
+                    ScreenTextAccess::Allowed
+                } else {
+                    ScreenTextAccess::Denied
+                }))
             }
-            SettingsInput::Toggled { id, is_on } => (id, is_on),
-            _ => return None,
-        };
-        if id.as_str() == SCREEN_TEXT {
-            return Some(ScreenTextAction::SwitchScreenText(if *is_on {
-                ScreenTextAccess::Allowed
-            } else {
-                ScreenTextAccess::Denied
-            }));
+            SettingsInput::Toggled { id, is_on } => {
+                let app_id = id.as_str().strip_prefix(APP_SWITCH_PREFIX)?;
+                Some(ScreenTextAction::SwitchApp {
+                    app_id: app_id.to_owned(),
+                    is_on: *is_on,
+                })
+            }
+            _ => None,
         }
-        let app_id = id.as_str().strip_prefix(APP_SWITCH_PREFIX)?;
-        Some(ScreenTextAction::SwitchApp {
-            app_id: app_id.to_owned(),
-            is_on: *is_on,
-        })
     }
 
     /// Returns the page that the pane shows now, with the menu of the OCR level when the platform
