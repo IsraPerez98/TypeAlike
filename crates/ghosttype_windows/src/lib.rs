@@ -6,7 +6,6 @@
 
 #![cfg(windows)]
 
-mod app_icon;
 mod badge;
 mod caret;
 mod caret_reader;

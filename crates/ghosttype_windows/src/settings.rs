@@ -2,6 +2,7 @@
 //! page of the core settings view, with a navigation item for each page. This module is also the
 //! one place reactor callbacks on that thread reach the window's state.
 
+mod app_icon;
 mod page;
 
 use std::cell::RefCell;
@@ -20,7 +21,6 @@ use windows_reactor::{
     View, ViewContext, WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
 };
 
-use crate::app_icon;
 use crate::mailbox::Mailbox;
 use crate::settings::page::Renderer;
 

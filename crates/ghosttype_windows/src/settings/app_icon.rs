@@ -26,7 +26,7 @@ const LARGEST_SIDE: u32 = 256;
 
 /// Returns the large icon in the program file at `program_path`, as an icon file. `None` when the
 /// file has no icon that GhostType can read.
-pub(crate) fn app_icon_file(program_path: &str) -> Option<Vec<u8>> {
+pub(super) fn app_icon_file(program_path: &str) -> Option<Vec<u8>> {
     let path = program_path
         .encode_utf16()
         .chain(iter::once(0))
