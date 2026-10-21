@@ -91,8 +91,9 @@ impl fmt::Debug for Engine {
 }
 
 impl Engine {
-    /// Uses the writer name, the writer notes, the clipboard access and the personalization of
-    /// `settings` from the next session on, and its suggestion length from the next request on.
+    /// Uses the writer name, the writer notes, the clipboard access, the personalization and the
+    /// number of matching examples of `settings` from the next session on. Uses its suggestion
+    /// length, its typo rule and its typo fix from the next request on.
     pub(crate) fn use_settings(&mut self, settings: &Settings) {
         let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
         self.writer_notes = settings.writer_notes.clone();
