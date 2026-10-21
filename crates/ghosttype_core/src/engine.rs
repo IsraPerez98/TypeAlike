@@ -57,8 +57,8 @@ pub enum Reaction {
     Accept {
         /// The text to type at the caret.
         text: String,
-        /// The ghost text to show after the typed text, or `None` to hide the ghost text.
-        rest: Option<String>,
+        /// What follows the typed text.
+        then: AfterAccept,
     },
     /// Let the key through and show this fix of a typo before the caret.
     ShowFix(WordFix),
@@ -68,13 +68,23 @@ pub enum Reaction {
         deleted: usize,
         /// The text to type at the caret after the deletion.
         text: String,
-        /// The ghost text to show after the typed text, or `None` to hide the ghost text.
-        rest: Option<String>,
+        /// What follows the typed text.
+        then: AfterAccept,
     },
     /// Let the key through, hide any ghost text and submit this request to the model runner.
     /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion). It replaces
     /// the requests that the runner did not answer yet.
     Request(InferenceRequest),
+}
+
+/// What follows the text that Tab types: the rest of the suggestion, else what the text before the
+/// caret gets after a typed key.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AfterAccept {
+    /// Show this rest of the suggestion after the typed text. The user saw it before Tab.
+    Rest(String),
+    /// The suggestion has no more text. Do what this reaction asks, as after a typed key.
+    Next(Box<Reaction>),
 }
 
 /// The fix of a typo in the word before the caret, as the ghost text shows it: the typed letters
@@ -734,7 +744,7 @@ impl Engine {
         self.take_from_ghost(part, rest);
         Reaction::Accept {
             text: part.to_owned(),
-            rest: (!rest.is_empty()).then(|| rest.to_owned()),
+            then: after_accept(rest),
         }
     }
 
@@ -747,12 +757,11 @@ impl Engine {
         session.replace_end(&fix.typo, &fix.word);
         session.has_accepted = true;
         self.keep_recent_text();
-        let rest = (!fix.rest.is_empty()).then_some(fix.rest);
-        self.offer = rest.clone().map_or(Offer::Idle, Offer::Shown);
+        self.take_from_ghost(&fix.word, &fix.rest);
         Reaction::Replace {
             deleted: fix.typo.chars().count(),
+            then: after_accept(&fix.rest),
             text: fix.word,
-            rest,
         }
     }
 
@@ -1043,6 +1052,16 @@ fn complete_words(text: &str) -> &str {
     text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
 }
 
+/// Returns what follows a part that Tab typed: `rest`, the rest of the suggestion, else no ghost
+/// text.
+fn after_accept(rest: &str) -> AfterAccept {
+    if rest.is_empty() {
+        AfterAccept::Next(Box::new(Reaction::Hide))
+    } else {
+        AfterAccept::Rest(rest.to_owned())
+    }
+}
+
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
 /// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
 /// A word of only signs is one part.
@@ -1195,10 +1214,17 @@ mod tests {
         Reaction::Show(text.to_owned())
     }
 
-    fn accept(text: &str, rest: Option<&str>) -> Reaction {
+    fn accept(text: &str, rest: &str) -> Reaction {
         Reaction::Accept {
             text: text.to_owned(),
-            rest: rest.map(str::to_owned),
+            then: AfterAccept::Rest(rest.to_owned()),
+        }
+    }
+
+    fn accept_last(text: &str, next: Reaction) -> Reaction {
+        Reaction::Accept {
+            text: text.to_owned(),
+            then: AfterAccept::Next(Box::new(next)),
         }
     }
 
@@ -1356,7 +1382,7 @@ mod tests {
             Reaction::Replace {
                 deleted: 4,
                 text: "delivery".to_owned(),
-                rest: Some(" soon".to_owned()),
+                then: AfterAccept::Rest(" soon".to_owned()),
             }
         );
     }
@@ -1373,7 +1399,7 @@ mod tests {
             Reaction::Replace {
                 deleted: 4,
                 text: "delivery".to_owned(),
-                rest: Some(", soon".to_owned()),
+                then: AfterAccept::Rest(", soon".to_owned()),
             }
         );
     }
@@ -1772,7 +1798,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept("lo", Some(" big")));
+        assert_eq!(reaction, accept("lo", " big"));
     }
 
     #[test]
@@ -1808,7 +1834,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept("lo", Some(" big world")));
+        assert_eq!(reaction, accept("lo", " big world"));
     }
 
     #[test]
@@ -1824,7 +1850,7 @@ mod tests {
         let reactions =
             cases.map(|(suggestion, _, _)| press(&mut engine_showing("I see", suggestion), Key::Tab));
 
-        assert_eq!(reactions, cases.map(|(_, word, rest)| accept(word, Some(rest))));
+        assert_eq!(reactions, cases.map(|(_, word, rest)| accept(word, rest)));
     }
 
     #[test]
@@ -1834,7 +1860,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept(",", Some(" Sam")));
+        assert_eq!(reaction, accept(",", " Sam"));
     }
 
     #[test]
@@ -1846,10 +1872,10 @@ mod tests {
         assert_eq!(
             reactions,
             [
-                accept(" don't", Some(" know")),
-                accept(" 3.5%", Some(" more")),
-                accept(" e-mail", Some(" me")),
-                accept(" U.S", Some(". law")),
+                accept(" don't", " know"),
+                accept(" 3.5%", " more"),
+                accept(" e-mail", " me"),
+                accept(" U.S", ". law"),
             ]
         );
     }
@@ -1861,7 +1887,7 @@ mod tests {
         let reactions =
             cases.map(|(suggestion, _, _)| press(&mut engine_showing("I see", suggestion), Key::Tab));
 
-        assert_eq!(reactions, cases.map(|(_, part, rest)| accept(part, Some(rest))));
+        assert_eq!(reactions, cases.map(|(_, part, rest)| accept(part, rest)));
     }
 
     #[test]
@@ -1883,7 +1909,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept(" big", Some(" world")));
+        assert_eq!(reaction, accept(" big", " world"));
     }
 
     #[test]
@@ -1893,7 +1919,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept(" big", Some(" world")));
+        assert_eq!(reaction, accept(" big", " world"));
     }
 
     #[test]
@@ -1902,7 +1928,7 @@ mod tests {
 
         let reaction = press(&mut engine, Key::Tab);
 
-        assert_eq!(reaction, accept("lo", None));
+        assert_eq!(reaction, accept_last("lo", Reaction::Hide));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::app::{
 use crate::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenRead, ScreenReadId, ScreenSource, Surroundings,
 };
-use crate::engine::{Reaction, WordFix};
+use crate::engine::{AfterAccept, Reaction, WordFix};
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
@@ -665,26 +665,31 @@ impl Controller {
                 self.hide_ghost(shell);
                 Disposition::Pass
             }
-            Reaction::Accept { text, rest } => {
+            Reaction::Accept { text, then } => {
                 self.hide_ghost(shell);
                 shell.type_text(text);
-                if let Some(rest) = rest {
-                    self.show_rest_after_caret_settles(rest, shell);
-                }
+                self.apply_after_accept(then, shell);
                 Disposition::Swallow
             }
-            Reaction::Replace { deleted, text, rest } => {
+            Reaction::Replace { deleted, text, then } => {
                 self.hide_ghost(shell);
                 shell.replace_before_caret(deleted, text);
-                if let Some(rest) = rest {
-                    self.show_rest_after_caret_settles(rest, shell);
-                }
+                self.apply_after_accept(then, shell);
                 Disposition::Swallow
             }
             Reaction::Request(request) => {
                 self.hide_ghost(shell);
                 self.runner.submit(request, &self.suggestion_sink);
                 Disposition::Pass
+            }
+        }
+    }
+
+    fn apply_after_accept(&mut self, then: AfterAccept, shell: &mut dyn Shell) {
+        match then {
+            AfterAccept::Rest(rest) => self.show_rest_after_caret_settles(rest, shell),
+            AfterAccept::Next(reaction) => {
+                self.apply(*reaction, shell);
             }
         }
     }

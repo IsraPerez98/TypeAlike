@@ -214,7 +214,7 @@ pub enum SettledWork {
 ///
 /// use ghosttype_core::app::{App, Field};
 /// use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
-/// use ghosttype_core::engine::Reaction;
+/// use ghosttype_core::engine::{AfterAccept, Reaction};
 /// use ghosttype_core::inference::{Completion, LogProbability, TokenCount};
 /// use ghosttype_core::key::Key;
 ///
@@ -239,11 +239,11 @@ pub enum SettledWork {
 ///
 /// assert_eq!(
 ///     app.on_key(Key::Tab, &Editor),
-///     Reaction::Accept { text: "est".to_owned(), rest: Some(" regards".to_owned()) }
+///     Reaction::Accept { text: "est".to_owned(), then: AfterAccept::Rest(" regards".to_owned()) }
 /// );
 /// assert_eq!(
 ///     app.on_key(Key::Tab, &Editor),
-///     Reaction::Accept { text: " regards".to_owned(), rest: None }
+///     Reaction::Accept { text: " regards".to_owned(), then: AfterAccept::Next(Box::new(Reaction::Hide)) }
 /// );
 /// ```
 #[derive(Debug, Default)]
