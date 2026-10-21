@@ -36,7 +36,7 @@ use windows::core::{Interface, factory};
 
 use super::OcrError;
 use super::geometry::{PixelRect, band_in_frame, reach_for};
-use crate::uia;
+use crate::display::screen_rect;
 
 /// `Windows.Graphics.Capture` gives the first frame in less than 100 ms. A longer wait means
 /// that the capture failed.
@@ -188,7 +188,7 @@ fn window_bounds(window: HWND) -> Result<ScreenRect, OcrError> {
             u32::try_from(size_of::<RECT>())?,
         )
     }?;
-    Ok(uia::screen_rect(bounds))
+    Ok(screen_rect(bounds))
 }
 
 /// A capture of a window, which stops when it drops.

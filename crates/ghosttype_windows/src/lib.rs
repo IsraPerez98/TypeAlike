@@ -11,6 +11,7 @@ mod caret;
 mod caret_reader;
 mod clipboard;
 mod cpu_cores;
+mod display;
 mod focus;
 mod gdi;
 mod injection;

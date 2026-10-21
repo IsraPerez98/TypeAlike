@@ -9,8 +9,6 @@ mod screen;
 
 use std::time::Duration;
 
-use ghosttype_core::desktop::ScreenRect;
-use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
@@ -98,14 +96,5 @@ fn caret_range(element: &IUIAutomationElement) -> Option<IUIAutomationTextRange>
     unsafe {
         let pattern: IUIAutomationTextPattern = element.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
         pattern.GetSelection().ok()?.GetElement(0).ok()
-    }
-}
-
-pub(crate) fn screen_rect(rect: RECT) -> ScreenRect {
-    ScreenRect {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
     }
 }

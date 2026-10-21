@@ -3,20 +3,17 @@
 
 use ghosttype_core::app::BadgeView;
 use windows::Win32::Foundation::{POINT, RECT};
-use windows::Win32::Graphics::Gdi::{
-    COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor, MONITOR_DEFAULTTONEAREST, MonitorFromPoint,
-};
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor};
 use windows::core::{Result, w};
 
 use crate::caret::Caret;
+use crate::display::{monitor_dpi, to_pixels};
 use crate::gdi::glyph_bitmap;
 use crate::pixels::{Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::tray::status_glyph;
 use crate::window::{Window, WindowSpec};
 
-const DEFAULT_DPI: i32 = 96;
 const BADGE_SIDE_DIPS: i32 = 24;
 const GLYPH_SIDE_DIPS: i32 = 14;
 const CORNER_RADIUS_DIPS: i32 = 4;
@@ -149,25 +146,6 @@ impl TooltipColors {
             text: Rgb::from_colorref(text),
         }
     }
-}
-
-/// Reads the DPI of the monitor that shows `point`, or the default DPI when the monitor does not tell.
-pub(crate) fn monitor_dpi(point: POINT) -> i32 {
-    // SAFETY: plain call.
-    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
-    let mut horizontal = 0;
-    let mut vertical = 0;
-    // SAFETY: the outputs are locals.
-    let read =
-        unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &raw mut horizontal, &raw mut vertical) };
-    read.ok()
-        .and_then(|()| i32::try_from(horizontal).ok())
-        .unwrap_or(DEFAULT_DPI)
-}
-
-/// Scales `dips` to physical pixels on a monitor of `dpi`.
-pub(crate) fn to_pixels(dips: i32, dpi: i32) -> i32 {
-    (dips * dpi + DEFAULT_DPI / 2) / DEFAULT_DPI
 }
 
 fn frame_contains(frame: RECT, point: POINT) -> bool {

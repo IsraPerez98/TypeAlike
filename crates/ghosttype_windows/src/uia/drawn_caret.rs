@@ -15,6 +15,7 @@ use windows::Win32::UI::Accessibility::{
 use super::com::SafeArray;
 use super::{Uia, caret_range, is_password, is_terminal_input};
 use crate::caret::{self, Caret};
+use crate::display::round_to_pixel;
 use crate::pixels::Rgb;
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
@@ -147,12 +148,12 @@ fn bounding_rectangles(range: &IUIAutomationTextRange) -> Option<Vec<f64>> {
 fn caret_from_rectangles(rectangles: &[f64]) -> Option<Caret> {
     let [left, top, width, height] = *rectangles.as_chunks::<VALUES_PER_RECTANGLE>().0.last()?;
     let top_left = POINT {
-        x: to_pixel(left),
-        y: to_pixel(top),
+        x: round_to_pixel(left),
+        y: round_to_pixel(top),
     };
     let bottom_right = POINT {
-        x: to_pixel(left + width),
-        y: to_pixel(top + height),
+        x: round_to_pixel(left + width),
+        y: round_to_pixel(top + height),
     };
     Caret::from_corners(top_left, bottom_right, None)
 }
@@ -186,14 +187,6 @@ impl TerminalInput {
             ..caret
         }
     }
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "no conversion from f64 to i32 exists without `as`, and `as` saturates"
-)]
-fn to_pixel(coordinate: f64) -> i32 {
-    coordinate.round() as i32
 }
 
 #[cfg(test)]

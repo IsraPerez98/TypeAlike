@@ -11,8 +11,9 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-use super::{Uia, is_password, screen_rect};
+use super::{Uia, is_password};
 use crate::caret::{self, Caret};
+use crate::display::screen_rect;
 
 /// The most text elements that one read of the screen keeps.
 const MAX_TEXT_ELEMENTS: i32 = 2000;

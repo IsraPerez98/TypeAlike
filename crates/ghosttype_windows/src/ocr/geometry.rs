@@ -8,12 +8,12 @@ use ghosttype_core::desktop::ScreenRect;
 use windows::Graphics::SizeInt32;
 use windows::Win32::Foundation::POINT;
 
+use crate::display::DEFAULT_DPI;
+
 /// The height of the window above and below the field that the OCR reads, in pixels at a scale
 /// of 100 %. Core keeps only the lines nearest to the caret, so an OCR of the lines farther away
 /// is wasted work.
 const BAND_DIPS: i32 = 600;
-/// The pixels in one inch at a scale of 100 %.
-const DEFAULT_DPI: i32 = 96;
 
 /// A rectangle of pixels from the top left corner of an image or a window: the columns
 /// `left..right` of the rows `top..bottom`.

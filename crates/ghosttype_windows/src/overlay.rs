@@ -4,14 +4,12 @@
 use ghosttype_core::controller::{Ghost, GhostPlacement, GhostView};
 use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use windows::Win32::Foundation::{POINT, RECT, SIZE};
-use windows::Win32::Graphics::Gdi::{
-    COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetMonitorInfoW, GetSysColor, MONITOR_DEFAULTTONEAREST,
-    MONITORINFO, MonitorFromPoint,
-};
+use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetSysColor};
 use windows::core::{Result, w};
 
-use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
+use crate::badge::TooltipColors;
 use crate::caret::Caret;
+use crate::display::{monitor_dpi, to_pixels, work_area};
 use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
@@ -270,21 +268,6 @@ impl CardLayout {
             border: colors.border,
         }
     }
-}
-
-/// Reads the work area of the monitor that shows `point`: the monitor without the taskbar.
-fn work_area(point: POINT) -> Result<RECT> {
-    // SAFETY: plain call.
-    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>()
-            .try_into()
-            .expect("monitor info size fits in u32"),
-        ..MONITORINFO::default()
-    };
-    // SAFETY: `info` is a local with its size set.
-    unsafe { GetMonitorInfoW(monitor, &raw mut info) }.ok()?;
-    Ok(info.rcWork)
 }
 
 /// The colors of ghost text after the caret of a field with text in `text_color`: that color at

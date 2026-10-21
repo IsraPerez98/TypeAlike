@@ -24,6 +24,7 @@ use windows::core::h;
 
 use self::capture::{Band, Capturer};
 use self::geometry::PixelRect;
+use crate::display::round_to_pixel;
 use crate::focus::WindowId;
 use crate::uia::{FocusedField, Uia};
 
@@ -236,10 +237,10 @@ fn recognized_line(line: &OcrLine) -> Option<RecognizedLine> {
 fn enclosing_rect(rects: impl Iterator<Item = Rect>) -> Option<PixelRect> {
     rects
         .map(|rect| PixelRect {
-            left: to_pixel(rect.X),
-            top: to_pixel(rect.Y),
-            right: to_pixel(rect.X + rect.Width),
-            bottom: to_pixel(rect.Y + rect.Height),
+            left: round_to_pixel(f64::from(rect.X)),
+            top: round_to_pixel(f64::from(rect.Y)),
+            right: round_to_pixel(f64::from(rect.X + rect.Width)),
+            bottom: round_to_pixel(f64::from(rect.Y + rect.Height)),
         })
         .reduce(|first, second| PixelRect {
             left: first.left.min(second.left),
@@ -247,14 +248,6 @@ fn enclosing_rect(rects: impl Iterator<Item = Rect>) -> Option<PixelRect> {
             right: first.right.max(second.right),
             bottom: first.bottom.max(second.bottom),
         })
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "no conversion from f32 to i32 exists without `as`, and `as` saturates"
-)]
-fn to_pixel(coordinate: f32) -> i32 {
-    coordinate.round() as i32
 }
 
 #[cfg(test)]
