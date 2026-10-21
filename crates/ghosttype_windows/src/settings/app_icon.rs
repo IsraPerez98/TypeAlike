@@ -2,12 +2,11 @@
 //! settings window can show.
 
 use std::ffi::c_void;
-use std::iter;
 
 use windows::Win32::Graphics::Gdi::{BITMAP, DIB_RGB_COLORS, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::{GetIconInfo, HICON, ICONINFO};
-use windows::core::{Owned, PCWSTR};
+use windows::core::{HSTRING, Owned};
 
 use crate::gdi::{BITS_PER_PIXEL, MemoryContext, top_down_bitmap_format};
 
@@ -24,13 +23,9 @@ const LARGEST_SIDE: u32 = 256;
 /// Returns the large icon in the program file at `program_path`, as an icon file. `None` when the
 /// file has no icon that GhostType can read.
 pub(super) fn app_icon_file(program_path: &str) -> Option<Vec<u8>> {
-    let path = program_path
-        .encode_utf16()
-        .chain(iter::once(0))
-        .collect::<Vec<_>>();
     let mut large = HICON::default();
-    // SAFETY: the path is nul-terminated, and the output pointer refers to a local.
-    let count = unsafe { ExtractIconExW(PCWSTR(path.as_ptr()), 0, Some(&raw mut large), None, 1) };
+    // SAFETY: the path outlives the call, and the output pointer refers to a local.
+    let count = unsafe { ExtractIconExW(&HSTRING::from(program_path), 0, Some(&raw mut large), None, 1) };
     if count == 0 || large.is_invalid() {
         return None;
     }
