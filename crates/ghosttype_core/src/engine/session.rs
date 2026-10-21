@@ -30,7 +30,7 @@ pub(super) struct Session {
     pub(super) text_after: String,
     /// Whether the field hides the text on the line of the caret, so that text can follow the
     /// caret also when `text_after` has none.
-    pub(super) is_caret_line_hidden: bool,
+    is_caret_line_hidden: bool,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     pub(super) is_excluded: bool,
     /// The app where the user types, if it has an id.
