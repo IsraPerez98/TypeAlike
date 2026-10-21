@@ -3,8 +3,6 @@
 //! [`LlamaCpp`] implements the core [`ModelRunner`] seam. One worker thread owns llama.cpp and the
 //! loaded model and runs requests in order, so the caller's thread never waits for a model.
 
-mod correction;
-mod pieces;
 mod worker;
 
 use std::mem;

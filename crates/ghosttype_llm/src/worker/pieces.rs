@@ -5,13 +5,13 @@ use llama_cpp_2::token::LlamaToken;
 /// The text of each token of a vocabulary, sorted by text, so that the tokens that agree with a
 /// text come without a scan of the whole vocabulary.
 #[derive(Debug)]
-pub(crate) struct TokenPieces {
+pub(super) struct TokenPieces {
     sorted: Vec<(Vec<u8>, LlamaToken)>,
 }
 
 impl TokenPieces {
     /// Keeps each token with its text. It leaves out the tokens without text, which never agree.
-    pub(crate) fn new(pieces: impl IntoIterator<Item = (LlamaToken, Vec<u8>)>) -> Self {
+    pub(super) fn new(pieces: impl IntoIterator<Item = (LlamaToken, Vec<u8>)>) -> Self {
         let mut sorted = pieces
             .into_iter()
             .filter(|(_, piece)| !piece.is_empty())
@@ -23,7 +23,7 @@ impl TokenPieces {
 
     /// Returns the tokens that can write the start of `text`: their text is a start of `text`, or
     /// starts with all of `text`.
-    pub(crate) fn agreeing_with<'pieces>(
+    pub(super) fn agreeing_with<'pieces>(
         &'pieces self,
         text: &'pieces [u8],
     ) -> impl Iterator<Item = LlamaToken> + 'pieces {
@@ -33,7 +33,7 @@ impl TokenPieces {
 
     /// Returns the tokens that write as much of the start of `text` as one token can: the longest
     /// tokens whose text is a start of `text`, and the tokens whose text starts with all of `text`.
-    pub(crate) fn covering<'pieces>(
+    pub(super) fn covering<'pieces>(
         &'pieces self,
         text: &'pieces [u8],
     ) -> impl Iterator<Item = LlamaToken> + 'pieces {

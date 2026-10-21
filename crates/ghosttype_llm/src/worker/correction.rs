@@ -1,9 +1,19 @@
 //! The fix of a typo in the typed letters of the last word, from the text of a token that the
 //! model expects there.
 
+use std::str;
+
+use ghosttype_core::inference::LogProbability;
+use llama_cpp_2::token::LlamaToken;
+
+use super::logits::{most_likely_tokens, typed_log_probability};
+use super::pieces::TokenPieces;
+
 /// The fewest letters of a word, without its leading whitespace, that a fix can change. A shorter
 /// word has many other words one edit away.
 const MIN_FIXED_LETTERS: usize = 3;
+/// The most likely tokens at the start of a word with a typo that a fix looks at.
+const FIX_CANDIDATES: usize = 64;
 
 /// Returns the edits that turn `left` into `right`: a swap of two letters next to each other, a
 /// change, an extra or a missing letter count one edit each.
@@ -33,7 +43,7 @@ fn edits(left: &[char], right: &[char]) -> usize {
 /// start, or all of them with more after. `None` when `piece` already agrees with the letters,
 /// is more than one edit away, starts with other whitespace, changes the first letter, or the word
 /// or its fix is short.
-pub(crate) fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
+fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
     let (space, typed) = split_space(letters);
     let (piece_space, written) = split_space(piece);
     if space != piece_space || typed.len() < MIN_FIXED_LETTERS || written.len() < MIN_FIXED_LETTERS {
@@ -91,9 +101,57 @@ fn text(characters: &[char]) -> String {
     characters.iter().collect()
 }
 
+/// How likely the model finds the healed text, which holds the typed letters of the last word. It
+/// takes the higher of two estimates. The healing path can write a word in pieces that the model
+/// seldom saw, such as a lone space and then the word. The tokens that cover the text at the first
+/// step miss a word that the model splits in other places.
+#[derive(Debug, Default)]
+pub(super) struct TypedLetters {
+    /// The sum of the log probabilities of the agreeing tokens at each healing step.
+    path: f32,
+    /// The log probability of the tokens that cover the healed text at the first healing step.
+    cover: Option<f32>,
+}
+
+impl TypedLetters {
+    /// Adds a healing step with `logits`, where the `unwritten` text stays to write.
+    pub(super) fn add(&mut self, logits: &[f32], pieces: &TokenPieces, unwritten: &[u8]) {
+        self.path += typed_log_probability(logits, pieces.agreeing_with(unwritten));
+        self.cover
+            .get_or_insert_with(|| typed_log_probability(logits, pieces.covering(unwritten)));
+    }
+
+    /// The higher of the two estimates, or zero before a healing step.
+    pub(super) fn log_probability(&self) -> LogProbability {
+        LogProbability(self.cover.map_or(self.path, |cover| cover.max(self.path)))
+    }
+}
+
+/// Returns the most likely token among the first [`FIX_CANDIDATES`] of `logits` whose text,
+/// `piece_of`, fixes the `typed` letters with one edit, and the fixed letters. The fixed letters
+/// must be at least as likely as `min`, so that the fix is not a typo too. `None` when no such
+/// token comes.
+pub(super) fn typo_fix(
+    logits: &[f32],
+    pieces: &TokenPieces,
+    typed: &[u8],
+    min: LogProbability,
+    piece_of: impl Fn(LlamaToken) -> Vec<u8>,
+) -> Option<(LlamaToken, String)> {
+    let typed = str::from_utf8(typed).ok()?;
+    most_likely_tokens(logits, FIX_CANDIDATES)
+        .into_iter()
+        .filter_map(|token| {
+            let piece = String::from_utf8(piece_of(token)).ok()?;
+            Some((token, fixed_letters(typed, &piece)?))
+        })
+        .find(|(_, fixed)| typed_log_probability(logits, pieces.covering(fixed.as_bytes())) >= min.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker::test_support::assert_near;
 
     fn edits_between(left: &str, right: &str) -> usize {
         edits(
@@ -191,5 +249,149 @@ mod tests {
         let fixed = cases.map(|(typed, piece)| fixed_letters(typed, piece));
 
         assert_eq!(fixed, [None, None, None]);
+    }
+
+    fn space_and_cost_pieces() -> TokenPieces {
+        TokenPieces::new(
+            [" ", " cost", " costume", "cost", " cat"]
+                .iter()
+                .zip(0..)
+                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
+        )
+    }
+
+    #[test]
+    fn typed_letters_are_as_likely_as_the_tokens_that_cover_them_when_the_healing_path_is_less_likely() {
+        let pieces = space_and_cost_pieces();
+        let mut typed = TypedLetters::default();
+
+        typed.add(
+            &[
+                4.0_f32.ln(),
+                1.0_f32.ln(),
+                3.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+            ],
+            &pieces,
+            b" cost",
+        );
+        typed.add(
+            &[
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                1.0_f32.ln(),
+                96.0_f32.ln(),
+            ],
+            &pieces,
+            b"cost",
+        );
+
+        assert_near(typed.log_probability().0, 0.4_f32.ln());
+    }
+
+    #[test]
+    fn typed_letters_are_as_likely_as_the_healing_path_when_the_cover_is_less_likely() {
+        let pieces = space_and_cost_pieces();
+        let mut typed = TypedLetters::default();
+
+        typed.add(
+            &[
+                8.0_f32.ln(),
+                1.0_f32.ln(),
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                1.0_f32.ln(),
+            ],
+            &pieces,
+            b" cost",
+        );
+        typed.add(
+            &[
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                0.0_f32.ln(),
+                1.0_f32.ln(),
+                0.0_f32.ln(),
+            ],
+            &pieces,
+            b"cost",
+        );
+
+        assert_near(typed.log_probability().0, 0.9_f32.ln());
+    }
+
+    fn delivery_pieces() -> Vec<&'static str> {
+        vec![" de", " delivery", " dlei", " details", " deli", " the"]
+    }
+
+    fn piece_of(pieces: &[&str], token: LlamaToken) -> Vec<u8> {
+        let index = usize::try_from(token.0).expect("a test token is never negative");
+        pieces[index].as_bytes().to_vec()
+    }
+
+    fn token_pieces(pieces: &[&str]) -> TokenPieces {
+        TokenPieces::new(
+            pieces
+                .iter()
+                .zip(0..)
+                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
+        )
+    }
+
+    #[test]
+    fn typo_gets_the_fix_of_the_most_likely_token_one_edit_away() {
+        let pieces = delivery_pieces();
+        let logits = [2.0, 6.0, 0.0, 1.0, 1.0, 9.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" dlei",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, Some((LlamaToken(1), " deli".to_owned())));
+    }
+
+    #[test]
+    fn fix_that_also_looks_like_a_typo_is_left_out() {
+        let pieces = delivery_pieces();
+        let logits = [0.0, 0.0, 0.0, 0.0, 0.0, 20.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" dlei",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn letters_without_a_close_token_get_no_fix() {
+        let pieces = delivery_pieces();
+        let logits = [2.0, 6.0, 0.0, 1.0, 1.0, 9.0];
+
+        let fix = typo_fix(
+            &logits,
+            &token_pieces(&pieces),
+            b" qzxw",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix, None);
+    }
+
+    #[test]
+    fn letters_without_a_healing_step_are_certain() {
+        let typed = TypedLetters::default();
+
+        assert_near(typed.log_probability().0, 0.0);
     }
 }
