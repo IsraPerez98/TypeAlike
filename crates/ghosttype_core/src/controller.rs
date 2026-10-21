@@ -2,6 +2,7 @@
 //! settings window and the answers of the services. The platform reports its events to the
 //! [`Controller`] and does what the controller asks through the [`Shell`].
 
+mod caret_wait;
 mod ghost_view;
 mod services;
 mod shell;
@@ -13,6 +14,7 @@ pub use shell::{FocusChange, Shell, Timer};
 use std::time::Duration;
 use std::{fmt, mem};
 
+use caret_wait::CaretWait;
 use services::delivering_sink;
 
 use crate::app::{
@@ -55,10 +57,6 @@ enum PaneAction {
 
 /// GhostType while it runs: the suggestions at the caret, the panes of the settings window and
 /// the services, driven by the events of the platform.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is an independent fact of the controller"
-)]
 pub struct Controller {
     app: App,
     models: ModelsPane,
@@ -75,15 +73,7 @@ pub struct Controller {
     hub_sink: HubEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
-    pending_ghost: Option<Ghost>,
-    is_caret_timer_pending: bool,
-    /// Whether `pending_ghost` is the rest of a suggestion that Tab took a part of, and waits for
-    /// the caret. The rest counts as shown, so that a quick Tab types its next part and does not
-    /// reach the app.
-    is_rest_pending: bool,
-    /// The looks at the caret that are left before the ghost text shows at a caret that did not
-    /// move after the last key.
-    caret_move_checks_left: u8,
+    caret_wait: CaretWait,
     /// Whether the Screen text or Personalization pane has an app that the settings store does not
     /// have yet.
     has_unsaved_app: bool,
@@ -94,10 +84,7 @@ impl fmt::Debug for Controller {
         formatter
             .debug_struct("Controller")
             .field("app", &self.app)
-            .field("has_pending_ghost", &self.pending_ghost.is_some())
-            .field("is_caret_timer_pending", &self.is_caret_timer_pending)
-            .field("is_rest_pending", &self.is_rest_pending)
-            .field("caret_move_checks_left", &self.caret_move_checks_left)
+            .field("caret_wait", &self.caret_wait)
             .finish_non_exhaustive()
     }
 }
@@ -154,10 +141,7 @@ impl Controller {
             hub_sink: delivering_sink(deliver, Delivery::Hub),
             playground_sink,
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
-            pending_ghost: None,
-            is_caret_timer_pending: false,
-            is_rest_pending: false,
-            caret_move_checks_left: 0,
+            caret_wait: CaretWait::default(),
             has_unsaved_app: false,
         };
         controller.load_history_when_on();
@@ -184,8 +168,8 @@ impl Controller {
         let Some(key) = key else {
             return Disposition::Pass;
         };
-        self.caret_move_checks_left = MAX_CARET_MOVE_CHECKS;
-        let reaction = if self.is_rest_pending {
+        self.caret_wait.on_key();
+        let reaction = if self.caret_wait.is_rest() {
             self.app.on_key(key, &DesktopWithPendingRest(&*shell))
         } else {
             self.app.on_key(key, &*shell)
@@ -344,19 +328,9 @@ impl Controller {
     }
 
     fn on_caret_settled(&mut self, shell: &mut dyn Shell) {
-        self.is_caret_timer_pending = false;
+        self.caret_wait.on_timer();
         self.render_at_caret(shell);
-        if self.pending_ghost.is_none() {
-            return;
-        }
-        if shell.is_ghost_shown() {
-            self.caret_move_checks_left = 0;
-        } else if let Some(checks_left) = self.caret_move_checks_left.checked_sub(1) {
-            self.caret_move_checks_left = checks_left;
-            shell.start_timer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY);
-            self.is_caret_timer_pending = true;
-        }
-        self.is_rest_pending &= self.is_caret_timer_pending;
+        self.caret_wait.after_render(shell);
     }
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
@@ -454,11 +428,11 @@ impl Controller {
     fn apply(&mut self, reaction: Reaction, shell: &mut dyn Shell) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
-                self.show_ghost_after_caret_settles(Ghost::Text(text), shell);
+                self.caret_wait.show_after_settle(Ghost::Text(text), shell);
                 Disposition::Pass
             }
             Reaction::ShowFix(fix) => {
-                self.show_ghost_after_caret_settles(Ghost::Fix(fix), shell);
+                self.caret_wait.show_after_settle(Ghost::Fix(fix), shell);
                 Disposition::Pass
             }
             Reaction::Hide => {
@@ -487,7 +461,7 @@ impl Controller {
 
     fn apply_after_accept(&mut self, then: AfterAccept, shell: &mut dyn Shell) {
         match then {
-            AfterAccept::Rest(rest) => self.show_rest_after_caret_settles(rest, shell),
+            AfterAccept::Rest(rest) => self.caret_wait.show_rest_after_settle(rest, shell),
             AfterAccept::Next(reaction) => {
                 self.apply(*reaction, shell);
             }
@@ -502,11 +476,11 @@ impl Controller {
         };
         match reaction {
             // A completion does not move the caret, so it must not make the wait for the caret longer.
-            Some(Reaction::Show(text)) if self.is_caret_timer_pending => {
-                self.pending_ghost = Some(Ghost::Text(text));
+            Some(Reaction::Show(text)) if self.caret_wait.is_timer_pending() => {
+                self.caret_wait.replace_ghost(Ghost::Text(text));
             }
-            Some(Reaction::ShowFix(fix)) if self.is_caret_timer_pending => {
-                self.pending_ghost = Some(Ghost::Fix(fix));
+            Some(Reaction::ShowFix(fix)) if self.caret_wait.is_timer_pending() => {
+                self.caret_wait.replace_ghost(Ghost::Fix(fix));
             }
             Some(reaction) => {
                 self.apply(reaction, shell);
@@ -567,28 +541,12 @@ impl Controller {
         }
     }
 
-    fn show_ghost_after_caret_settles(&mut self, ghost: Ghost, shell: &mut dyn Shell) {
-        self.pending_ghost = Some(ghost);
-        self.restart_caret_timer(shell);
-    }
-
-    /// Shows `rest`, the rest of a suggestion that Tab took a part of, after the caret settles.
-    fn show_rest_after_caret_settles(&mut self, rest: String, shell: &mut dyn Shell) {
-        self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
-        self.is_rest_pending = true;
-    }
-
     fn render_badge_after_caret_settles(&mut self, shell: &mut dyn Shell) {
         if self.app.badge_view().is_some() {
-            self.restart_caret_timer(shell);
+            self.caret_wait.restart_timer(shell);
         } else {
             shell.hide_badge();
         }
-    }
-
-    fn restart_caret_timer(&mut self, shell: &mut dyn Shell) {
-        shell.start_timer(Timer::CaretSettle, CARET_SETTLE_DELAY);
-        self.is_caret_timer_pending = true;
     }
 
     fn render_at_caret(&self, shell: &mut dyn Shell) {
@@ -597,18 +555,14 @@ impl Controller {
         } else {
             GhostPlacement::BelowCaret
         };
-        let ghost = self.pending_ghost.clone().map(|ghost| GhostView {
-            is_after_edit: self.caret_move_checks_left > 0,
-            ..GhostView::new(ghost, self.app.text_before_caret(), placement)
-        });
+        let ghost = self
+            .caret_wait
+            .ghost_view(self.app.text_before_caret(), placement);
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
-        self.pending_ghost = None;
-        shell.stop_timer(Timer::CaretSettle);
-        self.is_caret_timer_pending = false;
-        self.is_rest_pending = false;
+        self.caret_wait.stop(shell);
         shell.hide_ghost();
     }
 }
