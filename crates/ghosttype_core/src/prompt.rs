@@ -69,6 +69,29 @@ pub(crate) fn preface(
     clipboard: Option<&str>,
     screen: Option<&ScreenText>,
 ) -> String {
+    preface_lines(budgeted_parts(writer, surroundings, clipboard, screen))
+}
+
+/// The parts of a preface after their cut to the budget, before their layout.
+struct PrefaceParts<'text> {
+    notes: Option<String>,
+    name: Option<String>,
+    place: Option<String>,
+    examples: Vec<&'text str>,
+    clipboard: Option<&'text str>,
+    below: String,
+    after_caret: Option<&'text str>,
+    above: String,
+}
+
+/// Returns the parts of the preface, each cut to its cap and to what is left of
+/// [`PREFACE_TOKENS`]. The parts take the budget in the order of their priority.
+fn budgeted_parts<'text>(
+    writer: &'text Writer<'_>,
+    surroundings: &'text Surroundings,
+    clipboard: Option<&'text str>,
+    screen: Option<&ScreenText>,
+) -> PrefaceParts<'text> {
     let mut budget = Budget(PREFACE_TOKENS);
     budget.spend(FRAME);
     let notes = budgeted_line(Some(writer.notes), NOTES_TOKENS)
@@ -98,28 +121,46 @@ pub(crate) fn preface(
     budget.spend(&below);
     let examples = budget.take_examples(&writer.examples);
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
+    PrefaceParts {
+        notes,
+        name,
+        place,
+        examples,
+        clipboard,
+        below,
+        after_caret,
+        above,
+    }
+}
+
+/// Returns the lines of the `parts` in reading order after the [`FRAME`], without the empty parts.
+fn preface_lines(parts: PrefaceParts<'_>) -> String {
     let lines = [
         Some(FRAME.to_owned()),
-        notes.map(|text| format!("Notes about me: “{text}”")),
-        name,
-        place
+        parts.notes.map(|text| format!("Notes about me: “{text}”")),
+        parts.name,
+        parts
+            .place
             .filter(|line| !line.is_empty())
             .map(|line| format!("Where I am typing: {line}")),
-        (!examples.is_empty()).then(|| {
-            let quoted = examples
+        (!parts.examples.is_empty()).then(|| {
+            let quoted = parts
+                .examples
                 .iter()
                 .map(|text| format!("“{text}”"))
                 .collect::<Vec<_>>();
             format!("My earlier writing:\n{}", quoted.join("\n"))
         }),
-        clipboard
+        parts
+            .clipboard
             .and_then(non_empty)
             .map(|text| format!("Text on my clipboard: “{text}”")),
-        non_empty(&below).map(|text| format!("Below the field on my screen: “{text}”")),
-        after_caret
+        non_empty(&parts.below).map(|text| format!("Below the field on my screen: “{text}”")),
+        parts
+            .after_caret
             .and_then(non_empty)
             .map(|text| format!("My text after the cursor: “{text}”")),
-        non_empty(&above).map(|text| format!("Above the field on my screen: “{text}”")),
+        non_empty(&parts.above).map(|text| format!("Above the field on my screen: “{text}”")),
     ];
     lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
 }
