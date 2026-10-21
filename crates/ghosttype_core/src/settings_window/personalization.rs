@@ -198,7 +198,21 @@ impl PersonalizationPane {
     #[must_use]
     pub fn page(&self) -> Page {
         let is_on = self.settings.history == HistoryAccess::On;
-        let main_section = Section::new(vec![
+        Page {
+            title: PANE_TITLE,
+            icon: PageIcon::PersonText,
+            summary: PANE_SUMMARY,
+            search: None,
+            sections: vec![
+                self.main_section(is_on),
+                app_list_section(self.app_rows(is_on), APPS_FOOTER),
+                self.delete_section(),
+            ],
+        }
+    }
+
+    fn main_section(&self, is_on: bool) -> Section {
+        Section::new(vec![
             Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
                 label: HISTORY_LABEL,
@@ -231,9 +245,11 @@ impl PersonalizationPane {
                     is_on,
                 )
             }),
-        ]);
-        let app_list = app_list_section(self.app_rows(is_on), APPS_FOOTER);
-        let delete = Section::new(vec![Row::Message(Message {
+        ])
+    }
+
+    fn delete_section(&self) -> Section {
+        Section::new(vec![Row::Message(Message {
             text: DELETE_DESCRIPTION.to_owned(),
             button: Some(Button {
                 id: ControlId::new(DELETE),
@@ -244,14 +260,7 @@ impl PersonalizationPane {
                 },
                 is_enabled: true,
             }),
-        })]);
-        Page {
-            title: PANE_TITLE,
-            icon: PageIcon::PersonText,
-            summary: PANE_SUMMARY,
-            search: None,
-            sections: vec![main_section, app_list, delete],
-        }
+        })])
     }
 
     fn app_rows(&self, is_enabled: bool) -> Vec<Row> {

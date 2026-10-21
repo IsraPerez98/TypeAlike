@@ -278,6 +278,29 @@ impl GeneralPane {
     /// `playground` selected and the downloaded `installed` model files.
     #[must_use]
     pub fn page(&self, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
+        let switches = self.switch_rows();
+        let pickers = [
+            Row::Picker(self.suggestion_length_picker()),
+            Row::Picker(playground.model_picker(
+                installed,
+                ControlId::new(SUGGESTION_MODEL),
+                SUGGESTION_MODEL_DESCRIPTION,
+            )),
+        ];
+        let backend = self
+            .has_backend_menu
+            .then(|| Row::Picker(self.backend_picker(playground)));
+        let settings = switches.chain(pickers).chain(backend);
+        Page {
+            title: PANE_TITLE,
+            icon: PageIcon::Gear,
+            summary: PANE_SUMMARY,
+            search: None,
+            sections: vec![Section::new(settings.collect()), self.writer_section()],
+        }
+    }
+
+    fn switch_rows(&self) -> impl Iterator<Item = Row> {
         let autostart = self.autostart.as_ref().map(|autostart| {
             Row::Switch(Switch {
                 id: ControlId::new(AUTOSTART),
@@ -320,36 +343,25 @@ impl GeneralPane {
                 is_on: self.settings.typo_fix == TypoFix::Offer,
             })
         });
-        let pickers = [
-            Row::Picker(self.suggestion_length_picker()),
-            Row::Picker(playground.model_picker(
-                installed,
-                ControlId::new(SUGGESTION_MODEL),
-                SUGGESTION_MODEL_DESCRIPTION,
-            )),
-        ];
-        let backend = self
-            .has_backend_menu
-            .then(|| Row::Picker(self.backend_picker(playground)));
-        let settings = autostart
-            .into_iter()
-            .chain(switches)
-            .chain(typo_fix)
-            .chain(pickers)
-            .chain(backend);
-        Page {
-            title: PANE_TITLE,
-            icon: PageIcon::Gear,
-            summary: PANE_SUMMARY,
-            search: None,
-            sections: vec![
-                Section::new(settings.collect()),
-                Section::new(vec![
-                    Row::TextLine(self.writer_name_line()),
-                    Row::TextArea(self.writer_notes_area()),
-                ]),
-            ],
-        }
+        autostart.into_iter().chain(switches).chain(typo_fix)
+    }
+
+    fn writer_section(&self) -> Section {
+        Section::new(vec![
+            Row::TextLine(TextLine {
+                id: ControlId::new(WRITER_NAME),
+                label: WRITER_NAME_LABEL,
+                description: WRITER_NAME_DESCRIPTION,
+                text: self.settings.writer_name.0.clone(),
+            }),
+            Row::TextArea(TextArea {
+                id: ControlId::new(WRITER_NOTES),
+                label: WRITER_NOTES_LABEL,
+                description: WRITER_NOTES_DESCRIPTION,
+                text: self.settings.writer_notes.0.clone(),
+                button: None,
+            }),
+        ])
     }
 
     fn select_backend(&mut self, backend: Backend, playground: &mut PlaygroundPane) -> GeneralOutcome {
@@ -449,25 +461,6 @@ impl GeneralPane {
             self.settings.backend,
             !playground.is_busy(),
         )
-    }
-
-    fn writer_name_line(&self) -> TextLine {
-        TextLine {
-            id: ControlId::new(WRITER_NAME),
-            label: WRITER_NAME_LABEL,
-            description: WRITER_NAME_DESCRIPTION,
-            text: self.settings.writer_name.0.clone(),
-        }
-    }
-
-    fn writer_notes_area(&self) -> TextArea {
-        TextArea {
-            id: ControlId::new(WRITER_NOTES),
-            label: WRITER_NOTES_LABEL,
-            description: WRITER_NOTES_DESCRIPTION,
-            text: self.settings.writer_notes.0.clone(),
-            button: None,
-        }
     }
 }
 
