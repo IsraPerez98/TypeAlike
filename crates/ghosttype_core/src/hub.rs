@@ -44,6 +44,22 @@ pub struct ModelFile {
     pub name: String,
 }
 
+const GGUF_EXTENSION: &str = ".gguf";
+const VISION_PROJECTOR_MARKER: &str = "mmproj";
+const DRAFT_MODEL_PREFIX: &str = "mtp-";
+const SPLIT_PART_SEPARATOR: &str = "-of-";
+
+impl ModelFile {
+    /// The name that the settings window shows for the file: its file name without the GGUF
+    /// extension.
+    pub(crate) fn model_name(&self) -> String {
+        self.name
+            .strip_suffix(GGUF_EXTENSION)
+            .unwrap_or(&self.name)
+            .to_owned()
+    }
+}
+
 /// A model file and how big it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SizedFile {
@@ -51,6 +67,34 @@ pub struct SizedFile {
     pub file: ModelFile,
     /// Its size on the hub or on disk.
     pub size: ByteSize,
+}
+
+/// The files of `files` that GhostType can load as a language model, smallest first.
+pub(crate) fn usable_model_files(files: Vec<SizedFile>) -> Vec<SizedFile> {
+    let mut usable: Vec<_> = files
+        .into_iter()
+        .filter(|sized| is_single_file_language_model(&sized.file.name))
+        .collect();
+    usable.sort_by_key(|sized| sized.size);
+    usable
+}
+
+fn is_single_file_language_model(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(GGUF_EXTENSION) else {
+        return false;
+    };
+    let is_companion_file =
+        stem.to_lowercase().contains(VISION_PROJECTOR_MARKER) || stem.starts_with(DRAFT_MODEL_PREFIX);
+    !is_companion_file && !is_split_part(stem)
+}
+
+/// Whether `stem` names one part of a split model, like `Model-00001-of-00003`.
+fn is_split_part(stem: &str) -> bool {
+    let is_number = |text: &str| !text.is_empty() && text.chars().all(|character| character.is_ascii_digit());
+    stem.rsplit_once(SPLIT_PART_SEPARATOR)
+        .is_some_and(|(head, total)| {
+            is_number(total) && head.rsplit_once('-').is_some_and(|(_, part)| is_number(part))
+        })
 }
 
 /// A model repository found by a search.

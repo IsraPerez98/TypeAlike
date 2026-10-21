@@ -5,7 +5,7 @@ use std::iter;
 use crate::hub::{ByteSize, HubError, RepoSummary, SizedFile, rounded_quotient};
 use crate::settings_window::models::catalog::SUGGESTED_MODELS;
 use crate::settings_window::models::{
-    Buttons, Fetch, FileState, ModelsAction, ModelsPane, OpenRepo, SEARCH, Search, TrackedFile, model_name,
+    Buttons, Fetch, FileState, ModelsAction, ModelsPane, OpenRepo, SEARCH, Search, TrackedFile,
 };
 use crate::settings_window::view::{
     Accessory, ControlId, Item, Message, Page, PageIcon, Permille, Row, SearchField, Section,
@@ -93,7 +93,7 @@ impl ModelsPane {
                 .iter()
                 .map(|sized| {
                     let shown = ShownFile {
-                        title: model_name(&sized.file),
+                        title: sized.file.model_name(),
                         idle_subtitle: String::new(),
                         sized: sized.clone(),
                     };
@@ -115,7 +115,7 @@ impl ModelsPane {
             .iter()
             .map(|(file, tracked)| {
                 let shown = ShownFile {
-                    title: model_name(file),
+                    title: file.model_name(),
                     idle_subtitle: file.repo.clone(),
                     sized: SizedFile {
                         file: file.clone(),

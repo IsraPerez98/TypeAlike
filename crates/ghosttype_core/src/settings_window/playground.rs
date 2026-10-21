@@ -9,7 +9,6 @@ use crate::inference::{
 };
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
-use crate::settings_window::models::model_name;
 use crate::settings_window::view::{
     ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
     TextField,
@@ -313,7 +312,7 @@ impl PlaygroundPane {
             choices: menu
                 .entries
                 .iter()
-                .map(|entry| entry.map_or_else(|| placeholder.to_owned(), model_name))
+                .map(|entry| entry.map_or_else(|| placeholder.to_owned(), ModelFile::model_name))
                 .collect(),
             choice_text: ChoiceText::Name,
             selected: menu.selected,

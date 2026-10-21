@@ -5,7 +5,9 @@ mod page;
 
 use std::collections::BTreeMap;
 
-use crate::hub::{ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile};
+use crate::hub::{
+    ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, usable_model_files,
+};
 use crate::settings_window::view::{Button, ControlId, Page, SettingsInput};
 
 /// Something the user did in the Models pane.
@@ -26,10 +28,6 @@ pub enum ModelsAction {
 }
 
 pub(crate) const SEARCH: &str = "models-search";
-const GGUF_EXTENSION: &str = ".gguf";
-const VISION_PROJECTOR_MARKER: &str = "mmproj";
-const DRAFT_MODEL_PREFIX: &str = "mtp-";
-const SPLIT_PART_SEPARATOR: &str = "-of-";
 
 /// State of the Models pane: running downloads, downloaded files and the current search.
 ///
@@ -334,40 +332,6 @@ fn button_id(action: &ModelsAction) -> ControlId {
         ModelsAction::Delete(file) => format!("delete/{}/{}", file.repo, file.name),
     };
     ControlId::from(name)
-}
-
-pub(super) fn model_name(file: &ModelFile) -> String {
-    file.name
-        .strip_suffix(GGUF_EXTENSION)
-        .unwrap_or(&file.name)
-        .to_owned()
-}
-
-fn usable_model_files(files: Vec<SizedFile>) -> Vec<SizedFile> {
-    let mut usable: Vec<_> = files
-        .into_iter()
-        .filter(|sized| is_single_file_language_model(&sized.file.name))
-        .collect();
-    usable.sort_by_key(|sized| sized.size);
-    usable
-}
-
-fn is_single_file_language_model(name: &str) -> bool {
-    let Some(stem) = name.strip_suffix(GGUF_EXTENSION) else {
-        return false;
-    };
-    let is_companion_file =
-        stem.to_lowercase().contains(VISION_PROJECTOR_MARKER) || stem.starts_with(DRAFT_MODEL_PREFIX);
-    !is_companion_file && !is_split_part(stem)
-}
-
-/// Whether `stem` names one part of a split model, like `Model-00001-of-00003`.
-fn is_split_part(stem: &str) -> bool {
-    let is_number = |text: &str| !text.is_empty() && text.chars().all(|character| character.is_ascii_digit());
-    stem.rsplit_once(SPLIT_PART_SEPARATOR)
-        .is_some_and(|(head, total)| {
-            is_number(total) && head.rsplit_once('-').is_some_and(|(_, part)| is_number(part))
-        })
 }
 
 #[cfg(test)]
