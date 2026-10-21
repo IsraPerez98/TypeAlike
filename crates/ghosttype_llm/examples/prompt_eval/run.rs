@@ -1,4 +1,4 @@
-//! The model of the eval, and the run of one case through a new app.
+//! The model session of the eval, and the run of one case through a new app.
 
 use std::path::Path;
 use std::sync::{Arc, mpsc};
@@ -26,13 +26,14 @@ use crate::score::{
     next_word, words,
 };
 
-pub struct Model {
+/// The runner of the eval with its loaded model, and the events of its requests.
+pub struct ModelSession {
     runner: LlamaCpp,
     sink: InferenceEventSink,
     events: mpsc::Receiver<InferenceEvent>,
 }
 
-impl Model {
+impl ModelSession {
     pub fn load(path: &Path, backend: Backend, cpu_cores: Option<CpuCores>) -> anyhow::Result<Self> {
         let path = path.to_owned();
         let runner = LlamaCpp::new(move |_| Some(path.clone()), cpu_cores);
@@ -160,7 +161,11 @@ impl Typing<'_> {
     /// Opens the field in a new app, lets the input settle with the `preparation`, presses the last
     /// key and waits for the ghost text. After Enter, the input settles again before the ghost
     /// text. Returns the app, for the keys after it.
-    fn press_last_key(&self, model: &mut Model, preparation: Preparation) -> anyhow::Result<(App, KeyRun)> {
+    fn press_last_key(
+        &self,
+        model: &mut ModelSession,
+        preparation: Preparation,
+    ) -> anyhow::Result<(App, KeyRun)> {
         let mut app = App::new();
         app.use_settings(self.settings);
         app.use_history(self.history.to_vec());
@@ -183,7 +188,12 @@ impl Typing<'_> {
 
     /// Returns what the app does after the completion of the request of `reaction`. Returns
     /// `reaction` itself when it has no request.
-    fn complete(&self, model: &mut Model, app: &mut App, reaction: Reaction) -> anyhow::Result<Answer> {
+    fn complete(
+        &self,
+        model: &mut ModelSession,
+        app: &mut App,
+        reaction: Reaction,
+    ) -> anyhow::Result<Answer> {
         let Reaction::Request(request) = reaction else {
             return Ok(Answer {
                 reaction,
@@ -226,7 +236,7 @@ impl Typing<'_> {
     /// each read of the screen, and does the `preparation` with each prompt that the app prepares.
     fn settle(
         &self,
-        model: &mut Model,
+        model: &mut ModelSession,
         app: &mut App,
         field: &CaseField,
         preparation: Preparation,
@@ -262,7 +272,7 @@ impl Typing<'_> {
 }
 
 pub fn run_case(
-    model: &mut Model,
+    model: &mut ModelSession,
     case: &Case,
     history: &[HistoryEntry],
     settings: &Settings,

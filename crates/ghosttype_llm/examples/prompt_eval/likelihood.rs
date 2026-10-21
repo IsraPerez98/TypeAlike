@@ -55,14 +55,14 @@ pub fn measure(
         .iter()
         .map(|continuation| {
             continuation
-                .map(|continuation| measured(&mut context, &model, continuation))
+                .map(|continuation| measure_one(&mut context, &model, continuation))
                 .transpose()
         })
         .collect()
 }
 
 /// Returns the tokens of the prompt and the log probability of the continuation text after it.
-fn measured(
+fn measure_one(
     context: &mut LlamaContext<'_>,
     model: &LlamaModel,
     continuation: &Continuation,

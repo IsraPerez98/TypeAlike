@@ -150,7 +150,7 @@ use serde::de::DeserializeOwned;
 use crate::arguments::{Arguments, USAGE};
 use crate::case::{Case, history_of, read_writers, settings_for_case};
 use crate::report::write_report;
-use crate::run::{Model, run_case};
+use crate::run::{ModelSession, run_case};
 use crate::score::{Comparison, Outcome, Summary};
 
 fn read_json_lines<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Vec<T>> {
@@ -200,7 +200,7 @@ fn main() -> anyhow::Result<()> {
         },
         ..Settings::default()
     };
-    let mut model = Model::load(&arguments.model, arguments.backend, arguments.cpu_cores)?;
+    let mut model = ModelSession::load(&arguments.model, arguments.backend, arguments.cpu_cores)?;
     let runs = cases
         .iter()
         .zip(1..)
