@@ -30,6 +30,7 @@ impl Engine {
 
     /// Whether the earlier writing that suggestions may use holds a text of the place of the
     /// focused field of `desktop`.
+    #[must_use]
     pub(crate) fn has_earlier_writing_in(&self, desktop: &dyn Desktop) -> bool {
         if self.history.is_empty() {
             return false;

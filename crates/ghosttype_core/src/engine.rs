@@ -151,11 +151,13 @@ impl Engine {
     }
 
     /// Whether a session runs.
+    #[must_use]
     pub(crate) fn has_session(&self) -> bool {
         self.session.is_some()
     }
 
     /// The app of the session, if a session runs in an app with an id.
+    #[must_use]
     pub(crate) fn session_app(&self) -> Option<&ScreenTextApp> {
         self.session.as_ref()?.app.as_ref()
     }
