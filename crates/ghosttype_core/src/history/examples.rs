@@ -268,7 +268,7 @@ mod tests {
     use crate::history::store::session_texts;
     use crate::history::test_support::{entry, mail, shared};
 
-    fn place(app_id: &str, domain: Option<&str>, before_caret: &str) -> Surroundings {
+    fn field_in(app_id: &str, domain: Option<&str>, before_caret: &str) -> Surroundings {
         Surroundings {
             app_id: Some(app_id.to_owned()),
             domain: domain.map(str::to_owned),
@@ -294,23 +294,10 @@ mod tests {
         examples_with(entries, surroundings, None, 2)
     }
 
-    #[test]
-    fn text_of_a_web_page_is_no_example_in_its_browser_outside_of_a_page() {
-        let entries = [entry(
-            "Review of the pull request",
-            "com.google.Chrome",
-            Some("github.com"),
-        )];
-
-        let examples = examples_in(&entries, &place("com.google.Chrome", None, "Hi"));
-
-        assert_eq!(examples, Vec::<&str>::new());
-    }
-
-    fn place_with(app_id: &str, before_caret: &str, window_title: Option<&str>) -> Surroundings {
+    fn field_with_title(app_id: &str, before_caret: &str, window_title: Option<&str>) -> Surroundings {
         Surroundings {
             window_title: window_title.map(str::to_owned),
-            ..place(app_id, None, before_caret)
+            ..field_in(app_id, None, before_caret)
         }
     }
 
@@ -327,7 +314,7 @@ mod tests {
     fn examples_are_the_two_texts_of_the_app_that_match_the_text_near_the_caret_oldest_first() {
         let examples = examples_in(
             &bluefin_entries(),
-            &place("com.apple.mail", None, "Update on the Bluefin budget"),
+            &field_in("com.apple.mail", None, "Update on the Bluefin budget"),
         );
 
         assert_eq!(
@@ -341,7 +328,7 @@ mod tests {
 
     #[test]
     fn examples_are_the_two_newest_texts_of_the_app_when_no_text_matches() {
-        let examples = examples_in(&bluefin_entries(), &place("com.apple.mail", None, "Hi Sam"));
+        let examples = examples_in(&bluefin_entries(), &field_in("com.apple.mail", None, "Hi Sam"));
 
         assert_eq!(
             examples,
@@ -364,7 +351,7 @@ mod tests {
 
     #[test]
     fn one_wanted_match_gives_only_the_best_matching_text_of_a_large_place() {
-        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+        let surroundings = field_in("com.apple.mail", None, "Update on the Bluefin budget");
 
         let examples = examples_with(&large_mail_place(), &surroundings, None, 1);
 
@@ -373,7 +360,7 @@ mod tests {
 
     #[test]
     fn newest_texts_of_a_small_place_fill_the_second_example() {
-        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+        let surroundings = field_in("com.apple.mail", None, "Update on the Bluefin budget");
 
         let examples = examples_with(&bluefin_entries(), &surroundings, None, 1);
 
@@ -396,7 +383,7 @@ mod tests {
     fn matching_text_of_another_app_fills_a_free_example() {
         let mut entries = large_mail_place();
         entries.push(notes(KESTREL_NOTE));
-        let surroundings = place(
+        let surroundings = field_in(
             "com.apple.mail",
             None,
             "Update on the Kestrel portal: carrier sign-in",
@@ -413,7 +400,7 @@ mod tests {
         entries.push(notes(
             "Update: Bluefin budget review, the Bluefin budget goes to the launch demo.",
         ));
-        let surroundings = place("com.apple.mail", None, "Update on the Bluefin budget");
+        let surroundings = field_in("com.apple.mail", None, "Update on the Bluefin budget");
 
         let examples = examples_with(&entries, &surroundings, None, 1);
 
@@ -424,7 +411,7 @@ mod tests {
     fn text_of_another_app_needs_three_topic_words_of_the_field() {
         let mut entries = large_mail_place();
         entries.push(notes("Kestrel portal ideas for the lake trip this week."));
-        let surroundings = place(
+        let surroundings = field_in(
             "com.apple.mail",
             None,
             "Update on the Kestrel portal: carrier sign-in",
@@ -437,14 +424,14 @@ mod tests {
 
     #[test]
     fn large_place_without_matching_texts_has_no_examples() {
-        let examples = examples_in(&large_mail_place(), &place("com.apple.mail", None, "Hi Sam"));
+        let examples = examples_in(&large_mail_place(), &field_in("com.apple.mail", None, "Hi Sam"));
 
         assert_eq!(examples, Vec::<&str>::new());
     }
 
     #[test]
     fn title_of_the_window_tells_the_topic_and_the_newest_text_fills_the_second_place() {
-        let surroundings = place_with("com.apple.mail", "Hi Sam", Some("Launch"));
+        let surroundings = field_with_title("com.apple.mail", "Hi Sam", Some("Launch"));
 
         let examples = examples_in(&bluefin_entries(), &surroundings);
 
@@ -470,7 +457,7 @@ mod tests {
 
         let examples = examples_with(
             &bluefin_entries(),
-            &place("com.apple.mail", None, "Hi Sam"),
+            &field_in("com.apple.mail", None, "Hi Sam"),
             Some(&screen),
             2,
         );
@@ -494,7 +481,7 @@ mod tests {
             entry("Text of another app", "com.apple.Notes", None),
         ];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, "meeting zebra"));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, "meeting zebra"));
 
         assert_eq!(examples, ["Meeting notes on the garage", "A zebra at the zoo"]);
     }
@@ -510,16 +497,32 @@ mod tests {
             ),
         ];
 
-        let examples = examples_in(&entries, &place("com.google.Chrome", Some("github.com"), "LGTM"));
+        let examples = examples_in(
+            &entries,
+            &field_in("com.google.Chrome", Some("github.com"), "LGTM"),
+        );
 
         assert_eq!(examples, ["Review from Safari"]);
+    }
+
+    #[test]
+    fn text_of_a_web_page_is_no_example_in_its_browser_outside_of_a_page() {
+        let entries = [entry(
+            "Review of the pull request",
+            "com.google.Chrome",
+            Some("github.com"),
+        )];
+
+        let examples = examples_in(&entries, &field_in("com.google.Chrome", None, "Hi"));
+
+        assert_eq!(examples, Vec::<&str>::new());
     }
 
     #[test]
     fn example_keeps_the_start_and_the_end_of_a_long_text_from_a_word() {
         let entries = [mail(&format!("Hola equipo, {}fin", "word ".repeat(120)))];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, ""));
 
         assert_eq!(
             examples,
@@ -535,7 +538,7 @@ mod tests {
     fn example_of_a_text_with_wide_characters_keeps_fewer_characters() {
         let entries = [mail(&format!("Hola equipo, {}fin", "ñu ".repeat(200)))];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, ""));
 
         assert_eq!(
             examples,
@@ -552,7 +555,7 @@ mod tests {
         let text = format!("Hola equipo, {}fin", "word ".repeat(90));
         let entries = [mail(&text)];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, ""));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, ""));
 
         assert_eq!(examples, [text]);
     }
@@ -566,7 +569,7 @@ mod tests {
             entry("Newest mail text of the writer", "OUTLOOK.EXE", None),
         ];
 
-        let examples = examples_in(&entries, &place("com.tinyspeck.slackmacgap", None, "Hi"));
+        let examples = examples_in(&entries, &field_in("com.tinyspeck.slackmacgap", None, "Hi"));
 
         assert_eq!(examples, ["Newest chat text of the writer"]);
     }
@@ -575,7 +578,7 @@ mod tests {
     fn place_without_texts_gets_no_text_of_another_format() {
         let entries = [entry("Mail text of the writer", "com.apple.mail", None)];
 
-        let examples = examples_in(&entries, &place("com.tinyspeck.slackmacgap", None, "Hi"));
+        let examples = examples_in(&entries, &field_in("com.tinyspeck.slackmacgap", None, "Hi"));
 
         assert_eq!(examples, Vec::<&str>::new());
     }
@@ -590,7 +593,7 @@ mod tests {
 
         let examples = examples_in(
             &entries,
-            &place("com.google.Chrome", Some("news.example.com"), "Hi"),
+            &field_in("com.google.Chrome", Some("news.example.com"), "Hi"),
         );
 
         assert_eq!(examples, Vec::<&str>::new());
@@ -603,7 +606,7 @@ mod tests {
 
         let examples = examples_in(
             &entries,
-            &place("com.apple.mail", None, &format!("{earlier}\n\nBest,")),
+            &field_in("com.apple.mail", None, &format!("{earlier}\n\nBest,")),
         );
 
         assert_eq!(examples, ["Other text."]);
@@ -614,7 +617,7 @@ mod tests {
         let field = "Dear Ana,\n\nThe report is ready and the numbers look";
         let entries = [mail(&format!("{field} good. Best, Tom")), mail("Other text.")];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, field));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, field));
 
         assert_eq!(examples, ["Other text."]);
     }
@@ -626,7 +629,7 @@ mod tests {
             mail("Dear Ana, the report"),
         ];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, "Hi"));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, "Hi"));
 
         assert_eq!(examples, ["Dear Ana, the report"]);
     }
@@ -635,7 +638,7 @@ mod tests {
     fn place_without_entries_has_no_examples() {
         let entries = [entry("Text of another app", "com.apple.Notes", None)];
 
-        let examples = examples_in(&entries, &place("com.apple.mail", None, "Hi"));
+        let examples = examples_in(&entries, &field_in("com.apple.mail", None, "Hi"));
 
         assert_eq!(examples, Vec::<&str>::new());
     }
