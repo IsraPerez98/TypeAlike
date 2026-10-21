@@ -7,12 +7,12 @@ mod surroundings;
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{Field, Surroundings, TextColor};
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
-use objc2_application_services::{AXError, AXUIElement};
+use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
 
 use crate::accessibility::{
-    ACCESSIBILITY_QUERY_TIMEOUT_SECONDS, FOCUSED_ELEMENT_ATTRIBUTE, copy_attribute, frame, has_dom_class,
-    is_secure_text, selected_range,
+    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, copy_element, frame, has_dom_class, is_secure_text,
+    selected_range,
 };
 use crate::focus::caret::{XTERM_INPUT_CLASS, caret_bounds, text_color};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
@@ -44,11 +44,7 @@ impl FocusTracker {
     pub(crate) fn new() -> Self {
         // SAFETY: plain call.
         let system_wide = unsafe { AXUIElement::new_system_wide() };
-        // SAFETY: plain call on a valid element.
-        let error = unsafe { system_wide.set_messaging_timeout(ACCESSIBILITY_QUERY_TIMEOUT_SECONDS) };
-        if error != AXError::Success {
-            tracing::warn!(code = error.0, "failed to bound accessibility queries");
-        }
+        bound_queries(&system_wide);
         Self {
             system_wide,
             frontmost_process: None,
@@ -112,9 +108,7 @@ impl FocusTracker {
     }
 
     fn focused_element(&self) -> Option<CFRetained<AXUIElement>> {
-        copy_attribute(&self.system_wide, FOCUSED_ELEMENT_ATTRIBUTE)?
-            .downcast::<AXUIElement>()
-            .ok()
+        copy_element(&self.system_wide, FOCUSED_ELEMENT_ATTRIBUTE)
     }
 
     /// Classifies the focused control right now: excluded for secure text and ineligible apps.
@@ -193,14 +187,8 @@ pub(crate) struct FocusedField {
 pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
     // SAFETY: plain call.
     let app = unsafe { AXUIElement::new_application(process) };
-    // SAFETY: plain call on a valid element.
-    let error = unsafe { app.set_messaging_timeout(ACCESSIBILITY_QUERY_TIMEOUT_SECONDS) };
-    if error != AXError::Success {
-        tracing::warn!(code = error.0, "failed to bound accessibility queries");
-    }
-    let element = copy_attribute(&app, FOCUSED_ELEMENT_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()?;
+    bound_queries(&app);
+    let element = copy_element(&app, FOCUSED_ELEMENT_ATTRIBUTE)?;
     if is_secure_text(&element) {
         return None;
     }

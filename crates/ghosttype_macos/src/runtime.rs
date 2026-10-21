@@ -60,7 +60,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-    if !accessibility::request_accessibility_access() {
+    if !accessibility::request_access() {
         tracing::warn!("accessibility access is not granted yet");
     }
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;

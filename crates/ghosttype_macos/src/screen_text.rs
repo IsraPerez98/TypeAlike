@@ -13,12 +13,13 @@ use ghosttype_core::desktop::{Confidence, ScreenLine, ScreenRead, ScreenReadId, 
 use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFRetained, CGRect, Type};
 
-use crate::accessibility::{self, ROLE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, children, is_same, parent};
+use crate::accessibility::{
+    self, ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, children, is_same, parent,
+};
 use crate::focus::focused_field;
 use crate::geometry::screen_rect;
 use crate::ocr::Ocr;
 
-const VALUE_ATTRIBUTE: &str = "AXValue";
 const STATIC_TEXT_ROLE: &str = "AXStaticText";
 /// The most elements that one read looks at, so that the read of a large window ends soon.
 const MAX_ELEMENTS: usize = 2000;
@@ -99,9 +100,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
 /// field.
 fn read_screen_text(process: i32) -> Option<ScreenText> {
     let field = focused_field(process)?;
-    let window = accessibility::copy_attribute(&field.element, WINDOW_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()?;
+    let window = accessibility::copy_element(&field.element, WINDOW_ATTRIBUTE)?;
     let visible = accessibility::frame(&window)?;
     Some(ScreenText {
         lines: nearby_static_texts(&field.element, visible),

@@ -20,19 +20,30 @@ pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
 const POSITION_ATTRIBUTE: &str = "AXPosition";
 const SIZE_ATTRIBUTE: &str = "AXSize";
 pub(crate) const ROLE_ATTRIBUTE: &str = "AXRole";
-pub(crate) const PARENT_ATTRIBUTE: &str = "AXParent";
+const PARENT_ATTRIBUTE: &str = "AXParent";
+pub(crate) const VALUE_ATTRIBUTE: &str = "AXValue";
 pub(crate) const WINDOW_ROLE: &str = "AXWindow";
 const DOM_CLASS_LIST_ATTRIBUTE: &str = "AXDOMClassList";
 const CHILDREN_ATTRIBUTE: &str = "AXChildren";
-pub(crate) const ACCESSIBILITY_QUERY_TIMEOUT_SECONDS: f32 = 0.1;
+const QUERY_TIMEOUT_SECONDS: f32 = 0.1;
 
 /// Returns whether GhostType may use Accessibility, asking macOS to prompt the user when not.
-pub(crate) fn request_accessibility_access() -> bool {
+pub(crate) fn request_access() -> bool {
     // SAFETY: reads an immutable system constant.
     let prompt_key = unsafe { kAXTrustedCheckOptionPrompt };
     let options = CFDictionary::from_slices(&[prompt_key], &[CFBoolean::new(true)]);
     // SAFETY: the options map a CFString key to a CFBoolean value, as the call expects.
     unsafe { AXIsProcessTrustedWithOptions(Some(options.as_ref())) }
+}
+
+/// Bounds the Accessibility queries through `element` by a short timeout, so that an app that
+/// does not answer cannot stop GhostType.
+pub(crate) fn bound_queries(element: &AXUIElement) {
+    // SAFETY: plain call on a valid element.
+    let error = unsafe { element.set_messaging_timeout(QUERY_TIMEOUT_SECONDS) };
+    if error != AXError::Success {
+        tracing::warn!(code = error.0, "failed to bound accessibility queries");
+    }
 }
 
 /// Whether `element` hides its text, as a password field does.
@@ -41,36 +52,28 @@ pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
 }
 
 pub(crate) fn parent(element: &AXUIElement) -> Option<CFRetained<AXUIElement>> {
-    copy_attribute(element, PARENT_ATTRIBUTE)?.downcast().ok()
+    copy_element(element, PARENT_ATTRIBUTE)
 }
 
 /// Whether the web element `element` has the HTML class `class`.
 pub(crate) fn has_dom_class(element: &AXUIElement, class: &str) -> bool {
-    let Some(classes) =
-        copy_attribute(element, DOM_CLASS_LIST_ATTRIBUTE).and_then(|value| value.downcast::<CFArray>().ok())
-    else {
-        return false;
-    };
-    // SAFETY: the array of an Accessibility attribute holds CF objects.
-    let classes = unsafe { classes.cast_unchecked::<CFType>() };
-    classes
-        .iter()
-        .filter_map(|name| name.downcast::<CFString>().ok())
-        .any(|name| name.to_string() == class)
+    copy_array(element, DOM_CLASS_LIST_ATTRIBUTE).is_some_and(|classes| {
+        classes
+            .iter()
+            .filter_map(|name| name.downcast::<CFString>().ok())
+            .any(|name| name.to_string() == class)
+    })
 }
 
 pub(crate) fn children(element: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {
-    let Some(children) =
-        copy_attribute(element, CHILDREN_ATTRIBUTE).and_then(|value| value.downcast::<CFArray>().ok())
-    else {
-        return Vec::new();
-    };
-    // SAFETY: the array of an Accessibility attribute holds CF objects.
-    let children = unsafe { children.cast_unchecked::<CFType>() };
-    children
-        .iter()
-        .filter_map(|child| child.downcast::<AXUIElement>().ok())
-        .collect()
+    copy_array(element, CHILDREN_ATTRIBUTE)
+        .map(|children| {
+            children
+                .iter()
+                .filter_map(|child| child.downcast::<AXUIElement>().ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) fn is_same(first: &AXUIElement, second: &AXUIElement) -> bool {
@@ -91,6 +94,19 @@ pub(crate) fn copy_string(element: &AXUIElement, attribute: &'static str) -> Opt
         .downcast::<CFString>()
         .ok()
         .map(|text| text.to_string())
+}
+
+pub(crate) fn copy_element(
+    element: &AXUIElement,
+    attribute: &'static str,
+) -> Option<CFRetained<AXUIElement>> {
+    copy_attribute(element, attribute)?.downcast().ok()
+}
+
+fn copy_array(element: &AXUIElement, attribute: &'static str) -> Option<CFRetained<CFArray<CFType>>> {
+    let array = copy_attribute(element, attribute)?.downcast::<CFArray>().ok()?;
+    // SAFETY: the array of an Accessibility attribute holds CF objects.
+    Some(unsafe { CFRetained::cast_unchecked(array) })
 }
 
 pub(crate) fn copy_attribute_for_range(

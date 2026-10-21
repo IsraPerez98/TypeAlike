@@ -8,13 +8,12 @@ use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFNumber, CFRange, CFString, CFURL, Type};
 
 use crate::accessibility::{
-    PARENT_ATTRIBUTE, ROLE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute,
-    copy_attribute_for_range, copy_string, selected_range,
+    ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_attribute_for_range,
+    copy_element, copy_string, parent, selected_range,
 };
 
 const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
-const VALUE_ATTRIBUTE: &str = "AXValue";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
 const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
@@ -26,9 +25,7 @@ const WEB_AREA_ROLE: &str = "AXWebArea";
 const MAX_WEB_AREA_DISTANCE: usize = 64;
 
 pub(super) fn window_title(element: &AXUIElement) -> Option<String> {
-    let window = copy_attribute(element, WINDOW_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()?;
+    let window = copy_element(element, WINDOW_ATTRIBUTE)?;
     copy_string(&window, TITLE_ATTRIBUTE)
 }
 
@@ -44,9 +41,7 @@ pub(super) fn field_labels(element: &AXUIElement) -> FieldLabels {
 }
 
 fn title_element_text(element: &AXUIElement) -> Option<String> {
-    let title_element = copy_attribute(element, TITLE_UI_ELEMENT_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()?;
+    let title_element = copy_element(element, TITLE_UI_ELEMENT_ATTRIBUTE)?;
     first_text(&title_element, &[VALUE_ATTRIBUTE, TITLE_ATTRIBUTE])
 }
 
@@ -66,7 +61,7 @@ pub(super) fn web_domain(element: &AXUIElement) -> Option<String> {
         match copy_string(&current, ROLE_ATTRIBUTE).as_deref() {
             Some(WEB_AREA_ROLE) => return url_host(&current),
             Some(WINDOW_ROLE) | None => return None,
-            Some(_) => current = copy_attribute(&current, PARENT_ATTRIBUTE)?.downcast().ok()?,
+            Some(_) => current = parent(&current)?,
         }
     }
     None
