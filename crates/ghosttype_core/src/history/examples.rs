@@ -27,12 +27,15 @@ const EXAMPLE_TOKENS: TokenCount = TokenCount(160);
 /// The estimated tokens of the start of a text longer than [`EXAMPLE_TOKENS`], which its example
 /// keeps before its end: the greeting of a long text.
 const EXAMPLE_START_TOKENS: TokenCount = TokenCount(33);
+/// The estimated tokens of the end of a text longer than [`EXAMPLE_TOKENS`], which its example
+/// keeps after its start.
+const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_START_TOKENS.0);
 
 /// Returns the texts of `texts`, oldest first, that a prompt in `surroundings` shows as examples:
-/// the `matching` best matching texts of the same place. In a place with at most
+/// the `matching_examples` best matching texts of the same place. In a place with at most
 /// [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to [`RECENT_IN_PLACE`].
 /// The best matching texts of other places with at least [`MIN_WIDE_WORDS`] topic words fill the
-/// rest of the `matching` examples. A place without texts gets the newest texts of other places
+/// rest of the `matching_examples`. A place without texts gets the newest texts of other places
 /// with the same format in the free examples. A text matches when it shares rare words with the
 /// text near the caret, the window, the labels of the field and the `screen`. Each example keeps
 /// the start and the end of its text. A text that the field holds now is no example, and two
@@ -41,41 +44,58 @@ pub(crate) fn examples(
     texts: &SessionTexts<'_>,
     surroundings: &Surroundings,
     screen: Option<&ScreenText>,
-    matching: usize,
+    matching_examples: usize,
 ) -> Vec<String> {
     let field = surroundings.field_text.as_ref();
     let in_place = newest_not_in_field(&texts.local, field);
     let elsewhere = newest_not_in_field(&texts.wide, field);
-    let pool = texts.local.iter().chain(&texts.wide).map(|&(_, entry)| entry);
-    let topics = Topics::of(pool, surroundings, screen);
+    let pool = texts
+        .local
+        .iter()
+        .chain(&texts.wide)
+        .map(|&(_, entry)| entry)
+        .collect::<Vec<_>>();
+    let topics = Topics::of(&pool, surroundings, screen);
     let mut picked = Vec::new();
-    pick(&mut picked, &topics.best_first(&in_place, 1), matching);
+    pick(&mut picked, &topics.best_first(&in_place, 1), matching_examples);
     if in_place.len() <= MAX_SMALL_PLACE_TEXTS {
         let missing = RECENT_IN_PLACE.saturating_sub(picked.len());
         pick(&mut picked, &in_place, missing);
     }
-    let missing = matching.saturating_sub(picked.len());
+    let missing = matching_examples.saturating_sub(picked.len());
     pick(
         &mut picked,
         &topics.best_first(&elsewhere, MIN_WIDE_WORDS),
         missing,
     );
     if in_place.is_empty() {
-        let format = Format::of(surroundings).filter(|format| *format != Format::WebPage);
-        let same_format = elsewhere
-            .iter()
-            .copied()
-            .filter(|(_, entry)| {
-                format.is_some() && Format::of_place(Some(&entry.app_id), entry.domain.as_deref()) == format
-            })
-            .collect::<Vec<_>>();
-        let missing = matching.saturating_sub(picked.len());
-        pick(&mut picked, &same_format, RECENT_IN_FORMAT.min(missing));
+        let missing = matching_examples.saturating_sub(picked.len());
+        pick(
+            &mut picked,
+            &same_format_texts(&elsewhere, surroundings),
+            RECENT_IN_FORMAT.min(missing),
+        );
     }
     picked.sort_by_key(|&(index, _)| index);
     picked
         .into_iter()
         .map(|(_, entry)| example_of(&entry.text))
+        .collect()
+}
+
+/// Returns the `candidates` with the format of the field of `surroundings`. It has none when that
+/// format is unknown or a web page.
+fn same_format_texts<'entries>(
+    candidates: &[(usize, &'entries HistoryEntry)],
+    surroundings: &Surroundings,
+) -> Vec<(usize, &'entries HistoryEntry)> {
+    let Some(format) = Format::of(surroundings).filter(|format| *format != Format::WebPage) else {
+        return Vec::new();
+    };
+    candidates
+        .iter()
+        .copied()
+        .filter(|(_, entry)| Format::of_place(Some(&entry.app_id), entry.domain.as_deref()) == Some(format))
         .collect()
 }
 
@@ -104,51 +124,28 @@ fn each_lowercase_word(text: &str, mut visit: impl FnMut(&str)) {
 
 /// The topic words of the text near the caret, each with the number of entries that hold it.
 struct Topics {
-    entries: usize,
-    query: HashMap<String, u32>,
+    entry_count: usize,
+    holders_by_word: HashMap<String, u32>,
+}
+
+/// How well a text matches the topic words: the sum of the weights of the topic words that it
+/// holds, and the number of these words.
+struct TopicMatch {
+    weight: f32,
+    words: usize,
 }
 
 impl Topics {
-    fn of<'entries>(
-        entries: impl IntoIterator<Item = &'entries HistoryEntry>,
-        surroundings: &Surroundings,
-        screen: Option<&ScreenText>,
-    ) -> Self {
-        let labels = place::field_labels(surroundings);
-        let mut texts = vec![];
-        if let Some(field) = &surroundings.field_text {
-            texts.extend([field.before_caret.as_str(), field.after_caret.as_str()]);
-        }
-        texts.extend(surroundings.window_title.as_deref());
-        texts.extend(labels.iter().map(String::as_str));
-        if let Some(screen) = screen {
-            texts.extend(screen.lines.iter().map(|line| line.text.as_str()));
-        }
-        let mut query = HashMap::new();
-        for text in texts {
-            each_lowercase_word(text, |word| {
-                if is_distinctive_word(word) {
-                    query.entry(word.to_owned()).or_insert(0);
-                }
-            });
-        }
-        let mut count = 0;
+    fn of(entries: &[&HistoryEntry], surroundings: &Surroundings, screen: Option<&ScreenText>) -> Self {
+        let mut holders_by_word = query_words(surroundings, screen);
         for entry in entries {
-            count += 1;
-            let mut seen = Vec::<String>::new();
-            each_lowercase_word(&entry.text, |word| {
-                let Some(holding) = query.get_mut(word) else {
-                    return;
-                };
-                if !seen.iter().any(|known| known == word) {
-                    seen.push(word.to_owned());
-                    *holding += 1;
-                }
-            });
+            for word in distinct_query_words(&holders_by_word, &entry.text) {
+                *holders_by_word.entry(word).or_default() += 1;
+            }
         }
         Self {
-            entries: count,
-            query,
+            entry_count: entries.len(),
+            holders_by_word,
         }
     }
 
@@ -162,31 +159,62 @@ impl Topics {
         let mut scored = candidates
             .iter()
             .map(|&candidate| (self.score(&candidate.1.text), candidate))
-            .filter(|((_, words), _)| *words >= min_words)
+            .filter(|(topic_match, _)| topic_match.words >= min_words)
             .collect::<Vec<_>>();
-        scored.sort_by(|((left, _), _), ((right, _), _)| right.total_cmp(left));
+        scored.sort_by(|(left, _), (right, _)| right.weight.total_cmp(&left.weight));
         scored.into_iter().map(|(_, candidate)| candidate).collect()
     }
 
-    /// The sum of the weights of the query words that `text` holds, and the number of these words.
-    /// A word that few entries hold weighs more than a word that many entries hold, but each word
-    /// weighs something.
-    fn score(&self, text: &str) -> (f32, usize) {
-        let mut seen = Vec::<String>::new();
-        let mut total = 0.0;
-        each_lowercase_word(text, |word| {
-            let Some(&holding) = self.query.get(word) else {
-                return;
-            };
-            if seen.iter().any(|known| known == word) {
-                return;
-            }
-            seen.push(word.to_owned());
-            let entries = small_count(self.entries);
-            total += (entries / small_count(holding).max(1.0)).ln_1p();
-        });
-        (total, seen.len())
+    /// Returns how well `text` matches. A word that few entries hold weighs more than a word that
+    /// many entries hold, but each word weighs something.
+    fn score(&self, text: &str) -> TopicMatch {
+        let entry_count = small_count(self.entry_count);
+        let words = distinct_query_words(&self.holders_by_word, text);
+        let mut weight = 0.0;
+        for &holders in words.iter().filter_map(|word| self.holders_by_word.get(word)) {
+            weight += (entry_count / small_count(holders).max(1.0)).ln_1p();
+        }
+        TopicMatch {
+            weight,
+            words: words.len(),
+        }
     }
+}
+
+/// Returns the topic words of the text near the caret, the window title, the labels of the field
+/// and the `screen`, each with no holders yet.
+fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> HashMap<String, u32> {
+    let labels = place::field_labels(surroundings);
+    let mut texts = vec![];
+    if let Some(field) = &surroundings.field_text {
+        texts.extend([field.before_caret.as_str(), field.after_caret.as_str()]);
+    }
+    texts.extend(surroundings.window_title.as_deref());
+    texts.extend(labels.iter().map(String::as_str));
+    if let Some(screen) = screen {
+        texts.extend(screen.lines.iter().map(|line| line.text.as_str()));
+    }
+    let mut query = HashMap::new();
+    for text in texts {
+        each_lowercase_word(text, |word| {
+            if is_distinctive_word(word) {
+                query.entry(word.to_owned()).or_insert(0);
+            }
+        });
+    }
+    query
+}
+
+/// Returns the words of `query` that `text` holds, each one time, in the order of their first
+/// place in `text`.
+fn distinct_query_words(query: &HashMap<String, u32>, text: &str) -> Vec<String> {
+    let mut seen = Vec::<String>::new();
+    each_lowercase_word(text, |word| {
+        if query.contains_key(word) && !seen.iter().any(|known| known == word) {
+            seen.push(word.to_owned());
+        }
+    });
+    seen
 }
 
 /// Returns the example that `text` gives: all of it when it fits in [`EXAMPLE_TOKENS`], else its
@@ -195,8 +223,7 @@ fn example_of(text: &str) -> String {
     if estimated_tokens(text) <= EXAMPLE_TOKENS {
         return text.to_owned();
     }
-    let end_tokens = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_START_TOKENS.0);
-    let end = from_word(text, last_tokens(text, end_tokens));
+    let end = from_word(text, last_tokens(text, EXAMPLE_END_TOKENS));
     format!(
         "{} … {end}",
         start_at_word(text, first_tokens(text, EXAMPLE_START_TOKENS))
@@ -257,10 +284,10 @@ mod tests {
         entries: &[HistoryEntry],
         surroundings: &Surroundings,
         screen: Option<&ScreenText>,
-        matching: usize,
+        matching_examples: usize,
     ) -> Vec<String> {
         let texts = session_texts(entries, surroundings, &shared());
-        examples(&texts, surroundings, screen, matching)
+        examples(&texts, surroundings, screen, matching_examples)
     }
 
     fn examples_in(entries: &[HistoryEntry], surroundings: &Surroundings) -> Vec<String> {
