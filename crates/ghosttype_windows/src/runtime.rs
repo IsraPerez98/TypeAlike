@@ -155,7 +155,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
 }
 
 fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Result<Owned<HHOOK>> {
-    // SAFETY: plain call.
+    // SAFETY: a null name asks for the module of this program, and the call takes no other argument.
     let module = unsafe { GetModuleHandleW(None) }?;
     // SAFETY: the procedure lives for the whole program; low-level hooks run on this thread.
     let hook = unsafe { SetWindowsHookExW(kind, procedure, Some(module.into()), 0) }?;

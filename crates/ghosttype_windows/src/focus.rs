@@ -87,7 +87,7 @@ impl FocusTracker {
     }
 
     fn is_eligible_process(&self, process_id: u32) -> bool {
-        // SAFETY: plain call.
+        // SAFETY: the call takes no argument and has no precondition.
         let is_own_process = process_id == unsafe { GetCurrentProcessId() };
         let has_owner = process_id != 0;
         if !has_owner || is_own_process {

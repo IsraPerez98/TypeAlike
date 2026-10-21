@@ -18,7 +18,7 @@ pub(crate) const DEFAULT_DPI: i32 = 96;
 
 /// Reads the DPI of the monitor that shows `point`, or the default DPI when the monitor does not tell.
 pub(crate) fn monitor_dpi(point: POINT) -> i32 {
-    // SAFETY: plain call.
+    // SAFETY: the call takes no pointer, and it gives the nearest monitor for any point.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     let mut horizontal = 0;
     let mut vertical = 0;
@@ -37,7 +37,7 @@ pub(crate) fn to_pixels(dips: i32, dpi: i32) -> i32 {
 
 /// Reads the work area of the monitor that shows `point`: the monitor without the taskbar.
 pub(crate) fn work_area(point: POINT) -> Result<RECT> {
-    // SAFETY: plain call.
+    // SAFETY: the call takes no pointer, and it gives the nearest monitor for any point.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     let mut areas = MONITORINFO {
         cbSize: struct_size::<MONITORINFO>(),

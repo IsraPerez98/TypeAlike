@@ -153,7 +153,7 @@ struct WindowClass {
 impl WindowClass {
     /// Registers the class of `spec`.
     fn register(spec: &WindowSpec) -> Result<Self> {
-        // SAFETY: plain call.
+        // SAFETY: a null name asks for the module of this program, and the call takes no other argument.
         let instance: HINSTANCE = unsafe { GetModuleHandleW(None) }?.into();
         // SAFETY: plain call that loads a shared system cursor, which is never freed.
         let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }?;

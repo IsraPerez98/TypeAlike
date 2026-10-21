@@ -36,7 +36,7 @@ pub(crate) fn pick_badge_item(owner: HWND, view: &BadgeMenu, anchor: POINT) -> R
     let picked = track(owner, *menu, anchor, TPM_TOPALIGN);
     if !focused.is_invalid() {
         // Best effort: when Windows refuses, the user clicks the field again.
-        // SAFETY: plain call.
+        // SAFETY: the call takes no pointer, and a stale window only makes it fail.
         let _ = unsafe { SetForegroundWindow(focused) };
     }
     picked

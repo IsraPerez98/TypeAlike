@@ -78,7 +78,7 @@ impl TextBitmap {
         let mut section = PixelSection::new(size)?;
         let _bitmap = context.select(HGDIOBJ(section.bitmap.0));
         draw_centered(&context, &mut units, size)?;
-        // SAFETY: plain call.
+        // SAFETY: the call takes no argument and has no precondition.
         unsafe { GdiFlush() }.ok()?;
         // SAFETY: the section is alive and GDI is done writing to it.
         tint_by_coverage(unsafe { section.pixels() }, ink);
@@ -108,7 +108,7 @@ impl TextBitmap {
         for (run, &left) in runs.iter().zip(&edges).filter(|(run, _)| !run.ink.is_clear()) {
             run.draw(&context, left)?;
         }
-        // SAFETY: plain call.
+        // SAFETY: the call takes no argument and has no precondition.
         unsafe { GdiFlush() }.ok()?;
         let columns = edges
             .windows(2)

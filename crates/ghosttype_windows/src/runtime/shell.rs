@@ -231,7 +231,7 @@ impl Shell for Win32Shell {
     fn ask_for_ocr_permission(&mut self) {}
 
     fn quit(&mut self) {
-        // SAFETY: plain call.
+        // SAFETY: the call takes no pointer and only posts a message to this thread.
         unsafe { PostQuitMessage(0) };
     }
 }

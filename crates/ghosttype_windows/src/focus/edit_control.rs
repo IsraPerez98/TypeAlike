@@ -91,7 +91,7 @@ fn focused_edit_control() -> Option<HWND> {
 }
 
 fn is_password_edit(window: HWND) -> bool {
-    // SAFETY: plain call.
+    // SAFETY: the call takes no pointer, and a stale window only makes it fail.
     let style = unsafe { GetWindowLongW(window, GWL_STYLE) };
     style & ES_PASSWORD != 0
 }

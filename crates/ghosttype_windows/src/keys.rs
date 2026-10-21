@@ -150,7 +150,7 @@ fn current_keyboard_state() -> [u8; VIRTUAL_KEY_COUNT] {
             state[usize::from(key.0)] = KEY_DOWN_BIT;
         }
     }
-    // SAFETY: plain call.
+    // SAFETY: the call takes no pointer and has no precondition.
     let caps_lock = unsafe { GetKeyState(i32::from(VK_CAPITAL.0)) };
     if caps_lock & i16::from(KEY_TOGGLED_BIT) != 0 {
         state[usize::from(VK_CAPITAL.0)] = KEY_TOGGLED_BIT;
@@ -159,7 +159,7 @@ fn current_keyboard_state() -> [u8; VIRTUAL_KEY_COUNT] {
 }
 
 fn is_held(key: VIRTUAL_KEY) -> bool {
-    // SAFETY: plain call.
+    // SAFETY: the call takes no pointer and has no precondition.
     let state = unsafe { GetAsyncKeyState(i32::from(key.0)) };
     state < 0
 }

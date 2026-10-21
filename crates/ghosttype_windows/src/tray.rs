@@ -122,7 +122,7 @@ pub(crate) fn status_glyph(status: Status) -> &'static str {
 }
 
 fn render_icon(status: Status) -> Result<Owned<HICON>> {
-    // SAFETY: plain calls.
+    // SAFETY: the calls take no pointer and have no precondition.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
     let color = if is_taskbar_light() {
         Rgb::BLACK
