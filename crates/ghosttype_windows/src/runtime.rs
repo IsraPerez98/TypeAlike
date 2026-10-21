@@ -32,7 +32,7 @@ use crate::badge::Badge;
 use crate::caret_reader::{CaretRead, CaretReader, FieldRead, KeptFieldText, PendingView};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::FocusTracker;
-use crate::injection::{self, INJECTION_TAG};
+use crate::injection::{self, INJECTION_TAG, ReplacementQueue};
 use crate::keys;
 use crate::mailbox::Mailbox;
 use crate::menu;
@@ -131,7 +131,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 kept_field_text: KeptFieldText::default(),
                 tray,
                 window,
-                pending_injection: None,
+                pending_injections: ReplacementQueue::default(),
                 settings: settings_thread,
             },
             release_filter: ReleaseFilter::default(),
@@ -400,7 +400,7 @@ fn show_badge_menu(window: HWND) -> LRESULT {
 }
 
 fn inject_pending_text() -> LRESULT {
-    let replacement = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
+    let replacement = with_runtime(|runtime| runtime.shell.pending_injections.take_oldest()).flatten();
     if let Some(replacement) = replacement
         && let Err(error) = injection::replace_text(&replacement)
     {

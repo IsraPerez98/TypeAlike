@@ -20,7 +20,7 @@ use crate::caret::Caret;
 use crate::caret_reader::{CaretRead, CaretReader, CaretView, KeptFieldText, PendingView};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::FocusTracker;
-use crate::injection::Replacement;
+use crate::injection::{Replacement, ReplacementQueue};
 use crate::ocr::OcrSupport;
 use crate::overlay::Overlay;
 use crate::screen_text::ScreenTextReader;
@@ -48,7 +48,7 @@ pub(super) struct Win32Shell {
     pub(super) kept_field_text: KeptFieldText,
     pub(super) tray: Tray,
     pub(super) window: Window,
-    pub(super) pending_injection: Option<Replacement>,
+    pub(super) pending_injections: ReplacementQueue,
     pub(super) settings: SettingsThread,
 }
 
@@ -187,8 +187,11 @@ impl Shell for Win32Shell {
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
-        self.pending_injection = Some(Replacement { deleted, text });
-        if let Err(error) = self.post(INJECT_MESSAGE) {
+        let window = self.window.handle();
+        let posting = self.pending_injections.queue(Replacement { deleted, text }, || {
+            post_message(window, INJECT_MESSAGE)
+        });
+        if let Err(error) = posting {
             tracing::warn!(%error, "failed to queue accepted text");
         }
     }

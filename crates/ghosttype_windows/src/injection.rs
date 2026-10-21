@@ -1,5 +1,6 @@
 //! Types accepted text into the focused app.
 
+use std::collections::VecDeque;
 use std::fmt;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -28,6 +29,33 @@ impl fmt::Debug for Replacement {
             .field("deleted", &self.deleted)
             .field("text_chars", &self.text.chars().count())
             .finish()
+    }
+}
+
+/// The replacements that wait for the message that types them, oldest first. Each message types
+/// one replacement, so a second accept before the first message keeps the first text.
+#[derive(Debug, Default)]
+pub(crate) struct ReplacementQueue {
+    waiting: VecDeque<Replacement>,
+}
+
+impl ReplacementQueue {
+    /// Queues `replacement`, and asks with `post` for the message that types it. When `post`
+    /// fails, no message comes, so the queue drops the replacement again.
+    pub(crate) fn queue(
+        &mut self,
+        replacement: Replacement,
+        post: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        self.waiting.push_back(replacement);
+        post().inspect_err(|_| {
+            self.waiting.pop_back();
+        })
+    }
+
+    /// Takes the oldest replacement, for one message.
+    pub(crate) fn take_oldest(&mut self) -> Option<Replacement> {
+        self.waiting.pop_front()
     }
 }
 
@@ -78,6 +106,8 @@ fn key_input(key: VIRTUAL_KEY, unit: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 
 #[cfg(test)]
 mod tests {
+    use windows::Win32::Foundation::E_FAIL;
+
     use super::*;
 
     fn replacement(deleted: usize, text: &str) -> Replacement {
@@ -85,6 +115,30 @@ mod tests {
             deleted,
             text: text.to_owned(),
         }
+    }
+
+    #[test]
+    fn replacements_wait_for_their_messages_in_order() {
+        let mut queue = ReplacementQueue::default();
+        queue.queue(replacement(0, "est"), || Ok(())).unwrap();
+        queue.queue(replacement(0, " regards"), || Ok(())).unwrap();
+
+        let typed = [queue.take_oldest(), queue.take_oldest()];
+
+        assert_eq!(
+            typed,
+            [Some(replacement(0, "est")), Some(replacement(0, " regards"))]
+        );
+    }
+
+    #[test]
+    fn replacement_without_a_message_is_dropped() {
+        let mut queue = ReplacementQueue::default();
+        queue
+            .queue(replacement(0, "est"), || Err(Error::from_hresult(E_FAIL)))
+            .unwrap_err();
+
+        assert_eq!(queue.take_oldest(), None);
     }
 
     #[test]
