@@ -16,6 +16,7 @@ use crate::menu;
 use crate::pixels::Rgb;
 use crate::struct_size;
 use crate::system_theme::is_taskbar_light;
+use crate::window::{high_word, low_word};
 
 /// Message the shell sends to the owner window for icon clicks.
 pub(crate) const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
@@ -39,14 +40,6 @@ pub(crate) fn menu_request(wparam: WPARAM, lparam: LPARAM) -> Option<MenuRequest
         y: signed(high_word(wparam.0)),
     };
     opens_menu.then_some(MenuRequest { anchor })
-}
-
-fn low_word(value: usize) -> u16 {
-    u16::try_from(value & usize::from(u16::MAX)).expect("masked to 16 bits")
-}
-
-fn high_word(value: usize) -> u16 {
-    low_word(value >> u16::BITS)
 }
 
 fn signed(word: u16) -> i32 {

@@ -13,6 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::{REPLY_TIMEOUT_MS, ask, foreground_thread_state};
 use crate::utf16::whole_chars;
+use crate::window::{high_word, low_word};
 
 const EDIT_CLASS_NAME: &str = "Edit";
 const MAX_CLASS_NAME_UNITS: usize = 16;
@@ -34,9 +35,8 @@ pub(crate) fn edit_field_text() -> Option<FieldText> {
 /// Reads the selection from the reply to `EM_GETSEL`: its start in the low word and its end in
 /// the high word. `None` for the reply to a selection past the limit of a word.
 fn selection_from_reply(reply: usize) -> Option<Range<usize>> {
-    let [start_low, start_high, end_low, end_high, ..] = reply.to_le_bytes();
-    let start = u16::from_le_bytes([start_low, start_high]);
-    let end = u16::from_le_bytes([end_low, end_high]);
+    let start = low_word(reply);
+    let end = high_word(reply);
     let is_past_limit = start == u16::MAX && end == u16::MAX;
     (!is_past_limit).then(|| usize::from(start)..usize::from(end))
 }

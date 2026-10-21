@@ -1,6 +1,7 @@
 //! Windows owned by GhostType, each with a class of its own.
 //!
-//! It also gives the id of a window for another thread, and posts messages to a window.
+//! It also gives the id of a window for another thread, posts messages to a window, and reads the
+//! words that a message packs in its parameters.
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -35,6 +36,16 @@ impl From<HWND> for WindowId {
 pub(crate) fn post_message(window: HWND, message: u32) -> Result<()> {
     // SAFETY: the message carries no pointer, and the call fails safely when the window is gone.
     unsafe { PostMessageW(Some(window), message, WPARAM(0), LPARAM(0)) }
+}
+
+/// The low word of `value`: its 16 lowest bits.
+pub(crate) fn low_word(value: usize) -> u16 {
+    u16::try_from(value & usize::from(u16::MAX)).expect("masked to 16 bits")
+}
+
+/// The high word of `value`: the 16 bits above its low word.
+pub(crate) fn high_word(value: usize) -> u16 {
+    low_word(value >> u16::BITS)
 }
 
 /// What a window looks like to the system.
