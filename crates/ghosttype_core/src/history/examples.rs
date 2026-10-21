@@ -195,12 +195,13 @@ fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> Hash
         texts.extend(screen.lines.iter().map(|line| line.text.as_str()));
     }
     let mut query = HashMap::new();
+    let mut add_distinctive = |word: &str| {
+        if is_distinctive_word(word) {
+            query.entry(word.to_owned()).or_insert(0);
+        }
+    };
     for text in texts {
-        each_lowercase_word(text, |word| {
-            if is_distinctive_word(word) {
-                query.entry(word.to_owned()).or_insert(0);
-            }
-        });
+        each_lowercase_word(text, &mut add_distinctive);
     }
     query
 }
