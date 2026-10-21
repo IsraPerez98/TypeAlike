@@ -1,5 +1,7 @@
 //! Types accepted text into the focused app.
 
+use std::fmt;
+
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGKeyCode};
 
 use crate::keys::DELETE_KEY_CODE;
@@ -15,13 +17,24 @@ const UNUSED_KEY_CODE: CGKeyCode = 0;
 #[error("failed to create a keyboard event")]
 pub(crate) struct InjectionError;
 
-/// Text to type at the caret, after the deletion of characters before it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Text to type at the caret, after the deletion of characters before it. `Debug` shows only the
+/// length of the text, so logs never hold the text.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Replacement {
     /// The characters to delete before the caret.
     pub(crate) deleted: usize,
     /// The text to type after the deletion.
     pub(crate) text: String,
+}
+
+impl fmt::Debug for Replacement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Replacement")
+            .field("deleted", &self.deleted)
+            .field("text_chars", &self.text.chars().count())
+            .finish()
+    }
 }
 
 /// Posts a delete key press for each deleted character, then the text as Unicode key presses, to
@@ -72,6 +85,18 @@ fn utf16_chunks(text: &str) -> Vec<Vec<u16>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_of_a_replacement_hides_the_text() {
+        let replacement = Replacement {
+            deleted: 2,
+            text: "secret".to_owned(),
+        };
+
+        let debug = format!("{replacement:?}");
+
+        assert_eq!(debug, "Replacement { deleted: 2, text_chars: 6 }");
+    }
 
     #[test]
     fn short_text_fits_one_event() {

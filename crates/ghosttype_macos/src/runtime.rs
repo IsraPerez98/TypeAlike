@@ -241,7 +241,7 @@ struct AppKitShell {
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
-    /// The texts that Tab accepted, oldest first. Each scheduled inject pass types one.
+    /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
 }
