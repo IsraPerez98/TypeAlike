@@ -105,7 +105,7 @@ fn answer_reads(
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         if let Some(id) = newest.caret {
-            let caret = uia.as_ref().map_or_else(caret::system_caret, Uia::read);
+            let caret = uia.as_ref().map_or_else(caret::system_caret, Uia::caret);
             carets.send(CaretRead { id, caret });
         }
         if let Some(id) = newest.field_text {

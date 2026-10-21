@@ -26,7 +26,7 @@ const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 impl Uia {
     /// Locates the caret of the focused control: the system caret, else the caret that the control
     /// draws itself. The caret has the color of the text before it, when the control tells it.
-    pub(crate) fn read(&self) -> Option<Caret> {
+    pub(crate) fn caret(&self) -> Option<Caret> {
         let element = self.focused_element();
         let caret = caret::system_caret().or_else(|| self.drawn_caret(element.as_ref()?))?;
         Some(Caret {
