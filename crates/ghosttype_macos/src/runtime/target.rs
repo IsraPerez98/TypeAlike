@@ -92,7 +92,7 @@ define_class!(
         // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
-            let replacement = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
+            let replacement = with_runtime(|runtime| runtime.shell.pending_injections.pop_front()).flatten();
             if let Some(replacement) = replacement
                 && let Err(error) = injection::replace_text(&replacement)
             {

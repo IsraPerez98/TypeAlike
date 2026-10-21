@@ -3,6 +3,7 @@
 mod target;
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
@@ -93,7 +94,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             target,
             caret_timer: None,
             settle_timer: None,
-            pending_injection: None,
+            pending_injections: VecDeque::new(),
             settings: None,
         },
         tap,
@@ -240,7 +241,8 @@ struct AppKitShell {
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
-    pending_injection: Option<Replacement>,
+    /// The texts that Tab accepted, oldest first. Each scheduled inject pass types one.
+    pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
 }
 
@@ -351,7 +353,7 @@ impl Shell for AppKitShell {
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
-        self.pending_injection = Some(Replacement { deleted, text });
+        self.pending_injections.push_back(Replacement { deleted, text });
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
     }
 
