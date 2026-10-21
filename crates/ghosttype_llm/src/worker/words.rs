@@ -115,13 +115,17 @@ pub(super) fn ends_sentence(healed: &[u8], written: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    fn words_of(tokens: &[(&str, f32)]) -> WordLogProbabilities {
+        let mut words = WordLogProbabilities::default();
+        for (text, log_probability) in tokens {
+            words.add(text.as_bytes(), *log_probability);
+        }
+        words
+    }
+
     #[test]
     fn token_after_the_end_of_a_word_starts_the_next_word() {
-        let mut words = WordLogProbabilities::default();
-
-        for (text, log_probability) in [("very", -1.0), (" soon", -2.0), (",", -0.5), (" thanks", -3.0)] {
-            words.add(text.as_bytes(), log_probability);
-        }
+        let words = words_of(&[("very", -1.0), (" soon", -2.0), (",", -0.5), (" thanks", -3.0)]);
 
         assert_eq!(
             words.into_vec(),
@@ -131,32 +135,16 @@ mod tests {
 
     #[test]
     fn token_that_only_writes_the_healed_text_belongs_to_the_first_word() {
-        let mut words = WordLogProbabilities::default();
-
-        for (text, log_probability) in [("", -0.5), (" meeting", -1.0), (" at", -2.0)] {
-            words.add(text.as_bytes(), log_probability);
-        }
+        let words = words_of(&[("", -0.5), (" meeting", -1.0), (" at", -2.0)]);
 
         assert_eq!(words.into_vec(), [LogProbability(-1.5), LogProbability(-2.0)]);
     }
 
     #[test]
     fn whitespace_after_whitespace_stays_in_its_word() {
-        let mut words = WordLogProbabilities::default();
-
-        for (text, log_probability) in [("Hi", -1.0), (" ", -1.0), (" there", -1.0)] {
-            words.add(text.as_bytes(), log_probability);
-        }
+        let words = words_of(&[("Hi", -1.0), (" ", -1.0), (" there", -1.0)]);
 
         assert_eq!(words.into_vec(), [LogProbability(-1.0), LogProbability(-2.0)]);
-    }
-
-    fn words_of(tokens: &[(&str, f32)]) -> WordLogProbabilities {
-        let mut words = WordLogProbabilities::default();
-        for (text, log_probability) in tokens {
-            words.add(text.as_bytes(), *log_probability);
-        }
-        words
     }
 
     #[test]

@@ -243,11 +243,16 @@ mod tests {
             vec![(LlamaToken(1), 1.0)],
             vec![(LlamaToken(1), 0.5), (LlamaToken(2), 0.25)],
         );
-
         let mut first = bias.at(0).to_vec();
         first.sort_by_key(|(token, _)| token.0);
-        assert_eq!(first, [(LlamaToken(1), 1.5), (LlamaToken(2), 0.25)]);
-        assert_eq!(bias.at(1), [(LlamaToken(1), 1.0)]);
+
+        assert_eq!(
+            (first, bias.at(1).to_vec()),
+            (
+                vec![(LlamaToken(1), 1.5), (LlamaToken(2), 0.25)],
+                vec![(LlamaToken(1), 1.0)]
+            )
+        );
     }
 
     #[test]

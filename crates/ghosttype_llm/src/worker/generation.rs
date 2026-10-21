@@ -322,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_text_is_kept() {
+    fn text_without_a_cut_character_is_kept() {
         let text = text_without_cut_character("café".as_bytes());
 
         assert_eq!(text, "café");
