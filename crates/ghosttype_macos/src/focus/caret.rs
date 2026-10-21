@@ -23,7 +23,7 @@ const FOREGROUND_COLOR_TEXT_ATTRIBUTE: &str = "AXForegroundColor";
 /// is transparent.
 const MIN_SHOWN_TEXT_ALPHA: CGFloat = 0.5;
 /// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
-pub(super) const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
+const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
 /// The class of the screen of a terminal of xterm.js, which holds its rows.
 const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 /// The most elements that GhostType reads on the way up from the input box of a terminal to its
@@ -32,7 +32,7 @@ const MAX_TERMINAL_SCREEN_DISTANCE: usize = 4;
 
 /// The bounds of the text that ends at the caret of `element`.
 pub(super) fn caret_bounds(element: &AXUIElement) -> Option<CGRect> {
-    if has_dom_class(element, XTERM_INPUT_CLASS) {
+    if is_terminal_input(element) {
         return terminal_input(element)?.caret_bounds();
     }
     // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
@@ -47,7 +47,7 @@ fn unit_before_caret(element: &AXUIElement) -> Option<CFRange> {
 /// Reads the color of the character before the caret of `element`. `None` for the hidden input box
 /// of a terminal of xterm.js, which does not show its text.
 pub(super) fn text_color(element: &AXUIElement) -> Option<TextColor> {
-    if has_dom_class(element, XTERM_INPUT_CLASS) {
+    if is_terminal_input(element) {
         return None;
     }
     let text = copy_attribute_for_range(
@@ -120,6 +120,11 @@ impl TerminalInput {
     }
 }
 
+/// Whether `element` is the hidden input box of a terminal of xterm.js.
+pub(super) fn is_terminal_input(element: &AXUIElement) -> bool {
+    has_dom_class(element, XTERM_INPUT_CLASS)
+}
+
 /// Reads the input box of a terminal of xterm.js, `element`, and the top of its screen.
 fn terminal_input(element: &AXUIElement) -> Option<TerminalInput> {
     let screen = iter::successors(parent(element), |current| parent(current))
@@ -186,7 +191,7 @@ mod tests {
         assert_eq!(color, None);
     }
 
-    fn terminal_input(top: CGFloat, height: CGFloat) -> TerminalInput {
+    fn terminal_input_at(top: CGFloat, height: CGFloat) -> TerminalInput {
         TerminalInput {
             frame: CGRect::new(CGPoint::new(645.0, top), CGSize::new(8.0, height)),
             screen_top: 262.0,
@@ -195,7 +200,7 @@ mod tests {
 
     #[test]
     fn terminal_caret_moves_up_to_the_row_of_the_input_box() {
-        let input = terminal_input(810.0, 15.0);
+        let input = terminal_input_at(810.0, 15.0);
 
         let bounds = input.caret_bounds();
 
@@ -207,7 +212,7 @@ mod tests {
 
     #[test]
     fn terminal_caret_of_an_input_box_on_its_row_stays() {
-        let input = terminal_input(802.0, 15.0);
+        let input = terminal_input_at(802.0, 15.0);
 
         let bounds = input.caret_bounds();
 
@@ -219,7 +224,7 @@ mod tests {
 
     #[test]
     fn terminal_input_box_without_height_has_no_caret() {
-        let input = terminal_input(810.0, 0.0);
+        let input = terminal_input_at(810.0, 0.0);
 
         assert_eq!(input.caret_bounds(), None);
     }

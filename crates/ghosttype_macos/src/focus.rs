@@ -11,10 +11,9 @@ use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
 
 use crate::accessibility::{
-    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, copy_element, frame, has_dom_class, is_secure_text,
-    selected_range,
+    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, copy_element, frame, is_secure_text, selected_range,
 };
-use crate::focus::caret::{XTERM_INPUT_CLASS, caret_bounds, text_color};
+use crate::focus::caret::{caret_bounds, is_terminal_input, text_color};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
 use crate::geometry::Caret;
 
@@ -130,9 +129,7 @@ impl FocusTracker {
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
-            is_caret_line_hidden: element
-                .as_deref()
-                .is_some_and(|element| has_dom_class(element, XTERM_INPUT_CLASS)),
+            is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
         }
     }
 }
