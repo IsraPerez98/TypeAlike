@@ -25,6 +25,7 @@ use crate::overlay::Overlay;
 use crate::screen_text::ScreenTextReader;
 use crate::settings::SettingsThread;
 use crate::tray::Tray;
+use crate::uia::ShownField;
 use crate::window::Window;
 
 /// The time that the focused app takes to handle a key, a click or a move of the focus. The caret
@@ -143,13 +144,7 @@ impl Desktop for Win32Shell {
             .kept_field_text
             .read_in(self.focus.foreground())
             .and_then(|read| read.shown.as_ref());
-        Surroundings {
-            field_text: field.and_then(|field| field.text.clone()),
-            field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
-            domain: field.and_then(|field| field.domain.clone()),
-            is_caret_line_hidden: field.is_some_and(|field| field.is_caret_line_hidden),
-            ..self.focus.surroundings()
-        }
+        merged_surroundings(self.focus.surroundings(), field)
     }
 
     fn copied_text(&self) -> Option<CopiedText> {
@@ -245,5 +240,79 @@ fn timer_id(timer: Timer) -> usize {
     match timer {
         Timer::CaretSettle => CARET_TIMER_ID,
         Timer::InputSettle => SETTLE_TIMER_ID,
+    }
+}
+
+/// Adds to `app`, the surroundings of the foreground app, what `field`, the focused field that
+/// shows its text, tells about itself. Without that field, the field parts stay empty.
+fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroundings {
+    Surroundings {
+        field_text: field.and_then(|field| field.text.clone()),
+        field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
+        domain: field.and_then(|field| field.domain.clone()),
+        is_caret_line_hidden: field.is_some_and(|field| field.is_caret_line_hidden),
+        ..app
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ghosttype_core::desktop::{FieldLabels, FieldText};
+
+    use super::*;
+
+    fn notepad() -> Surroundings {
+        Surroundings {
+            app_name: Some("notepad".to_owned()),
+            window_title: Some("Notes".to_owned()),
+            ..Surroundings::default()
+        }
+    }
+
+    #[test]
+    fn shown_field_gives_its_text_labels_and_web_page() {
+        let field = ShownField {
+            text: Some(FieldText {
+                before_caret: "Dear ".to_owned(),
+                after_caret: String::new(),
+            }),
+            labels: FieldLabels {
+                name: Some("Message".to_owned()),
+                ..FieldLabels::default()
+            },
+            domain: Some("mail.example.com".to_owned()),
+            is_caret_line_hidden: false,
+        };
+
+        let surroundings = merged_surroundings(notepad(), Some(&field));
+
+        assert_eq!(
+            surroundings,
+            Surroundings {
+                field_text: field.text.clone(),
+                field_labels: field.labels.clone(),
+                domain: field.domain.clone(),
+                ..notepad()
+            }
+        );
+    }
+
+    #[test]
+    fn no_shown_field_keeps_only_the_app() {
+        let surroundings = merged_surroundings(notepad(), None);
+
+        assert_eq!(surroundings, notepad());
+    }
+
+    #[test]
+    fn field_that_hides_its_caret_line_tells_it() {
+        let field = ShownField {
+            is_caret_line_hidden: true,
+            ..ShownField::default()
+        };
+
+        let surroundings = merged_surroundings(notepad(), Some(&field));
+
+        assert!(surroundings.is_caret_line_hidden);
     }
 }
