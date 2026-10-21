@@ -133,54 +133,31 @@ impl Renderer<'_, '_> {
     }
 
     fn switch_card(&self, switch: &Switch) -> View {
-        let id = switch.id.clone();
         let toggle = ToggleSwitch::new()
             .is_on(switch.is_on)
             .automation_name(switch.label)
-            .on_toggled(self.context.callback(move |is_on| {
-                PageMessage::Input(SettingsInput::Toggled {
-                    id: id.clone(),
-                    is_on,
-                })
-            }));
+            .on_toggled(self.toggled_callback(&switch.id));
         control_card(switch.label, switch.description, None, toggle.into())
     }
 
     /// A card with the icon and the name of an app at the leading edge and its switch at the
     /// trailing edge.
     fn app_switch_card(&self, switch: &AppSwitch) -> View {
-        let id = switch.id.clone();
         let toggle = ToggleSwitch::new()
             .is_on(switch.is_on)
             .is_enabled(switch.is_enabled)
             .automation_name(&switch.app_name)
-            .on_toggled(self.context.callback(move |is_on| {
-                PageMessage::Input(SettingsInput::Toggled {
-                    id: id.clone(),
-                    is_on,
-                })
-            }));
+            .on_toggled(self.toggled_callback(&switch.id));
         self.app_card(switch.app_path.as_deref(), &switch.app_name, toggle.into())
     }
 
     /// A card with the icon and the name of an app at the leading edge and its menu at the
     /// trailing edge.
     fn app_picker_card(&self, picker: &AppPicker) -> View {
-        let id = picker.id.clone();
-        let menu = ComboBox::new()
-            .items_source(picker.choices.iter().map(String::as_str))
-            .selected_index(picker.selected)
+        let menu = self
+            .picker_menu(&picker.id, &picker.choices, picker.selected)
             .is_enabled(picker.is_enabled)
-            .min_width(PICKER_MIN_WIDTH)
-            .automation_name(&picker.app_name)
-            .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
-                selection.map_or(PageMessage::Ignore, |index| {
-                    PageMessage::Input(SettingsInput::Picked {
-                        id: id.clone(),
-                        index,
-                    })
-                })
-            }));
+            .automation_name(&picker.app_name);
         self.app_card(picker.app_path.as_deref(), &picker.app_name, menu.into())
     }
 
@@ -219,21 +196,10 @@ impl Renderer<'_, '_> {
     }
 
     fn picker_card(&self, picker: &Picker) -> View {
-        let id = picker.id.clone();
-        let menu = ComboBox::new()
-            .items_source(picker.choices.iter().map(String::as_str))
-            .selected_index(picker.selected)
+        let menu = self
+            .picker_menu(&picker.id, &picker.choices, picker.selected)
             .is_enabled(picker.is_enabled)
-            .min_width(PICKER_MIN_WIDTH)
-            .automation_name(picker.label)
-            .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
-                selection.map_or(PageMessage::Ignore, |index| {
-                    PageMessage::Input(SettingsInput::Picked {
-                        id: id.clone(),
-                        index,
-                    })
-                })
-            }));
+            .automation_name(picker.label);
         control_card(
             picker.label,
             picker.description,
@@ -243,16 +209,10 @@ impl Renderer<'_, '_> {
     }
 
     fn text_area_card(&self, area: &TextArea) -> View {
-        let id = area.id.clone();
         let field = View::component::<TextAreaBox>(TextAreaBoxInput {
             text: self.typed_text(&area.id, &area.text).to_owned(),
             label: area.label,
-            on_text_changed: self.context.callback(move |text: Rc<str>| {
-                PageMessage::Input(SettingsInput::Edited {
-                    id: id.clone(),
-                    text: text.to_string(),
-                })
-            }),
+            on_text_changed: self.edited_callback(&area.id),
         });
         let button = area
             .button
@@ -271,17 +231,11 @@ impl Renderer<'_, '_> {
     }
 
     fn text_line_card(&self, line: &TextLine) -> View {
-        let id = line.id.clone();
         let field = TextBox::new()
             .text(self.typed_text(&line.id, &line.text))
             .min_width(TEXT_LINE_MIN_WIDTH)
             .automation_name(line.label)
-            .on_text_changed(self.context.callback(move |text: Rc<str>| {
-                PageMessage::Input(SettingsInput::Edited {
-                    id: id.clone(),
-                    text: text.to_string(),
-                })
-            }));
+            .on_text_changed(self.edited_callback(&line.id));
         control_card(line.label, line.description, None, field.into())
     }
 
@@ -407,6 +361,24 @@ impl Renderer<'_, '_> {
         )
     }
 
+    /// A menu of `choices`, at least as wide as a picker, that shows the choice at `selected` and
+    /// sends each pick of the user for the control `id`.
+    fn picker_menu(&self, id: &ControlId, choices: &[String], selected: usize) -> ComboBox {
+        let id = id.clone();
+        ComboBox::new()
+            .items_source(choices.iter().map(String::as_str))
+            .selected_index(selected)
+            .min_width(PICKER_MIN_WIDTH)
+            .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
+                selection.map_or(PageMessage::Ignore, |index| {
+                    PageMessage::Input(SettingsInput::Picked {
+                        id: id.clone(),
+                        index,
+                    })
+                })
+            }))
+    }
+
     fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
         Button::new()
             .content(button.label)
@@ -441,6 +413,26 @@ impl Renderer<'_, '_> {
         self.context.callback(move |text: Rc<str>| PageMessage::Typed {
             id: id.clone(),
             text: text.to_string(),
+        })
+    }
+
+    fn edited_callback(&self, id: &ControlId) -> Callback<Rc<str>> {
+        let id = id.clone();
+        self.context.callback(move |text: Rc<str>| {
+            PageMessage::Input(SettingsInput::Edited {
+                id: id.clone(),
+                text: text.to_string(),
+            })
+        })
+    }
+
+    fn toggled_callback(&self, id: &ControlId) -> Callback<bool> {
+        let id = id.clone();
+        self.context.callback(move |is_on| {
+            PageMessage::Input(SettingsInput::Toggled {
+                id: id.clone(),
+                is_on,
+            })
         })
     }
 }
