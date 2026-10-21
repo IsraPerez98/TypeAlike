@@ -18,7 +18,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSRect, NSSize, NSString};
 
 use crate::labels::title_case;
-use crate::settings::{ActionTarget, Binder};
+use crate::settings::{ActionTarget, Binder, ControlAction};
 use crate::symbol::system_symbol;
 
 const DETAIL_FONT_SIZE: CGFloat = 12.0;
@@ -28,21 +28,11 @@ const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const ICON_BUTTON_SIDE: CGFloat = 24.0;
 const BACK_SYMBOL: &str = "chevron.left";
 
-/// Returns a pop-up button that sends `action` to the target of `target` when the user picks an
-/// entry.
-pub(super) fn pop_up_button(
-    target: &ActionTarget,
-    action: Sel,
-    main_thread: MainThreadMarker,
-) -> Retained<NSPopUpButton> {
+/// Returns a pop-up button that sends the pick action to the target when the user picks an entry.
+pub(super) fn pop_up_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSPopUpButton> {
     let button = NSPopUpButton::new(main_thread);
     button.setPullsDown(false);
-    // SAFETY: the target implements `action`, taking the pop-up button, and `SettingsWindow`
-    // keeps the target alive as long as the button.
-    unsafe {
-        button.setTarget(Some(&target.target));
-        button.setAction(Some(action));
-    }
+    target.connect(&button, ControlAction::Pick);
     button
 }
 

@@ -43,6 +43,31 @@ pub(crate) struct ActionTarget {
     pub(crate) edit_action: Sel,
 }
 
+/// An action that a control of a settings page sends to the action target.
+#[derive(Debug, Clone, Copy)]
+enum ControlAction {
+    Toggle,
+    Pick,
+    Submit,
+}
+
+impl ActionTarget {
+    /// Makes `control` send `action` to the target.
+    fn connect(&self, control: &NSControl, action: ControlAction) {
+        let selector = match action {
+            ControlAction::Toggle => self.toggle_action,
+            ControlAction::Pick => self.pick_action,
+            ControlAction::Submit => self.submit_action,
+        };
+        // SAFETY: the target implements each of these actions, taking the control, and
+        // `SettingsWindow` keeps the target alive as long as its controls.
+        unsafe {
+            control.setTarget(Some(&self.target));
+            control.setAction(Some(selector));
+        }
+    }
+}
+
 /// Creates the controls of the settings pages, which report to the action target, and tags each
 /// control with the index of its id.
 struct Binder<'a> {

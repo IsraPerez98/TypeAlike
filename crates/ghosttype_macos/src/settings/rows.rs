@@ -22,12 +22,12 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
 
 use crate::labels::title_case;
-use crate::settings::Binder;
 use crate::settings::controls::{
     control_state, detail_font, pop_up_button, push_button, rebuild_menu, secondary_wrapping_label, set_text,
     show_push_button, spinner, start_spinning, stop_spinning, truncating_label, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
+use crate::settings::{Binder, ControlAction};
 
 const MESSAGE_SPACING: CGFloat = 8.0;
 const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
@@ -141,12 +141,7 @@ pub(super) struct SwitchRow {
 impl SwitchRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let switch = NSSwitch::new(binder.main_thread);
-        // SAFETY: the target implements the toggle action, taking the switch, and `SettingsWindow`
-        // keeps the target alive as long as the switch.
-        unsafe {
-            switch.setTarget(Some(&binder.target.target));
-            switch.setAction(Some(binder.target.toggle_action));
-        }
+        binder.target.connect(&switch, ControlAction::Toggle);
         Self {
             setting: SettingRow::add(rows_stack, &switch, binder.main_thread),
             switch,
@@ -176,7 +171,7 @@ pub(super) struct PickerRow {
 
 impl PickerRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
-        let menu = pop_up_button(binder.target, binder.target.pick_action, binder.main_thread);
+        let menu = pop_up_button(binder.target, binder.main_thread);
         let setting = SettingRow::add(rows_stack, &menu, binder.main_thread);
         let note = NoteView::new(binder.main_thread);
         setting.texts.addArrangedSubview(&note.container);

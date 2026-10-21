@@ -12,11 +12,11 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSString};
 
 use crate::labels::title_case;
-use crate::settings::Binder;
 use crate::settings::controls::{
     control_state, pop_up_button, rebuild_menu, set_text, symbol, truncating_label,
 };
 use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, add_grouped_row, stack};
+use crate::settings::{Binder, ControlAction};
 
 const APP_ICON_SIDE: CGFloat = 20.0;
 const UNKNOWN_APP_SYMBOL: &str = "app.dashed";
@@ -91,12 +91,7 @@ impl AppSwitchRow {
     pub(crate) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let switch = NSSwitch::new(main_thread);
-        // SAFETY: the target implements the toggle action, taking the switch, and `SettingsWindow`
-        // keeps the target alive as long as the switch.
-        unsafe {
-            switch.setTarget(Some(&binder.target.target));
-            switch.setAction(Some(binder.target.toggle_action));
-        }
+        binder.target.connect(&switch, ControlAction::Toggle);
         let app = AppLabel::new(main_thread);
         app.add_row(rows_stack, &switch, main_thread);
         Self {
@@ -128,7 +123,7 @@ pub(crate) struct AppPickerRow {
 
 impl AppPickerRow {
     pub(crate) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
-        let menu = pop_up_button(binder.target, binder.target.pick_action, binder.main_thread);
+        let menu = pop_up_button(binder.target, binder.main_thread);
         let app = AppLabel::new(binder.main_thread);
         app.add_row(rows_stack, &menu, binder.main_thread);
         Self {

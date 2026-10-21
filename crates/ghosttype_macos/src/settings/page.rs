@@ -26,7 +26,7 @@ use crate::settings::rows::{
     AppPickerRow, AppSwitchRow, ItemRow, MessageRow, NoteView, OutputRow, PickerRow, RowView, SwitchRow,
     TextAreaRow, TextFieldRow, TextLineRow,
 };
-use crate::settings::{ActionTarget, Binder};
+use crate::settings::{ActionTarget, Binder, ControlAction};
 
 const CONTENT_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 20.0,
@@ -160,12 +160,7 @@ impl SearchView {
         let field = NSSearchField::new(main_thread);
         field.setControlSize(NSControlSize::Large);
         field.setSendsWholeSearchString(true);
-        // SAFETY: the target implements the submit action, taking the field, and `SettingsWindow`
-        // keeps the target alive as long as the field.
-        unsafe {
-            field.setTarget(Some(&target.target));
-            field.setAction(Some(target.submit_action));
-        }
+        target.connect(&field, ControlAction::Submit);
         Self { field, id: None }
     }
 

@@ -14,10 +14,10 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::NSString;
 
 use crate::labels::title_case;
-use crate::settings::Binder;
 use crate::settings::controls::{button, heading, secondary_wrapping_label, set_text, text_area};
 use crate::settings::layout::{fill_width, trailing_row};
 use crate::settings::rows::SettingRow;
+use crate::settings::{Binder, ControlAction};
 
 const TEXT_FIELD_HEIGHT: CGFloat = 88.0;
 const TEXT_LINE_WIDTH: CGFloat = 200.0;
@@ -161,12 +161,7 @@ impl TextFieldRow {
             .heightAnchor()
             .constraintEqualToConstant(TEXT_FIELD_HEIGHT)
             .setActive(true);
-        // SAFETY: the target implements the submit action, taking the field, and `SettingsWindow`
-        // keeps the target alive as long as the field.
-        unsafe {
-            field.setTarget(Some(&binder.target.target));
-            field.setAction(Some(binder.target.submit_action));
-        }
+        binder.target.connect(&field, ControlAction::Submit);
         let button = button(binder.target, binder.target.submit_action, main_thread);
         let button_row = trailing_row(&button, main_thread);
         let parts: [&NSView; 3] = [&heading, &field, &button_row];
