@@ -56,11 +56,12 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
     let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
     let closes_after_space =
         context.ends_with(char::is_whitespace) && suggestion.starts_with(CLOSING_PUNCTUATION);
+    let suggested = words(suggestion).collect::<Vec<_>>();
     has_no_word
         || closes_after_space
-        || repeats_text_after(suggestion, text_after)
-        || copies_last_words(suggestion, context)
-        || repeats_a_pattern(suggestion)
+        || repeats_text_after(&suggested, text_after)
+        || copies_last_words(&suggested, context)
+        || repeats_a_pattern(&suggested)
 }
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
@@ -70,28 +71,25 @@ fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
         .map(str::to_lowercase)
 }
 
-/// Whether the words of `suggestion` and of `text_after` are the same up to the end of the
-/// shorter.
-fn repeats_text_after(suggestion: &str, text_after: &str) -> bool {
-    let suggested = words(suggestion).collect::<Vec<_>>();
+/// Whether `suggested`, the words of a suggestion, and the words of `text_after` are the same up to
+/// the end of the shorter.
+fn repeats_text_after(suggested: &[String], text_after: &str) -> bool {
     let after = words(text_after).take(suggested.len()).collect::<Vec<_>>();
     !after.is_empty() && suggested.starts_with(&after)
 }
 
-fn copies_last_words(suggestion: &str, context: &str) -> bool {
+fn copies_last_words(suggested: &[String], context: &str) -> bool {
     let mut last_words = words(context).rev().take(COPIED_WORDS).collect::<Vec<_>>();
     last_words.reverse();
-    let suggested = words(suggestion).collect::<Vec<_>>();
     last_words.len() == COPIED_WORDS
         && suggested
             .windows(COPIED_WORDS)
             .any(|run| run == last_words.as_slice())
 }
 
-/// Whether `suggestion` has a pattern of one to [`MAX_PATTERN_WORDS`] words
-/// [`PATTERN_REPEATS`] times in a row.
-fn repeats_a_pattern(suggestion: &str) -> bool {
-    let suggested = words(suggestion).collect::<Vec<_>>();
+/// Whether `suggested`, the words of a suggestion, has a pattern of one to [`MAX_PATTERN_WORDS`]
+/// words [`PATTERN_REPEATS`] times in a row.
+fn repeats_a_pattern(suggested: &[String]) -> bool {
     (1..=MAX_PATTERN_WORDS).any(|pattern_words| {
         suggested
             .windows(pattern_words * PATTERN_REPEATS)
