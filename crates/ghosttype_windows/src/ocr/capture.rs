@@ -250,8 +250,7 @@ impl CaptureSession {
 
 impl Drop for CaptureSession {
     fn drop(&mut self) {
-        // A failed close leaves nothing to recover, and the release of the objects also stops the
-        // capture.
+        // A failed close leaves nothing to recover, and the release also stops the capture.
         let _ = self.session.Close();
         let _ = self.pool.Close();
     }

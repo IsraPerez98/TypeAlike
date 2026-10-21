@@ -110,9 +110,9 @@ pub(crate) fn accessible_caret() -> Option<Caret> {
 /// Gets the caret object that `window` gives, when it answers in time. `None` for a window without
 /// a caret object of its own. The standard caret object of the system tells only the system caret.
 fn caret_object(window: HWND) -> Option<IAccessible> {
-    // `AccessibleObjectFromWindow` waits without a limit for a busy window, so ask with a timeout.
     // The id goes in the low 32 bits, as `AccessibleObjectFromWindow` sends it.
     let object_id = isize::try_from(OBJID_CARET.0.cast_unsigned()).ok()?;
+    // `AccessibleObjectFromWindow` waits without a limit for a busy window, so ask with a timeout.
     let reply = ask(window, WM_GETOBJECT, LPARAM(object_id)).filter(|&reply| reply != 0)?;
     let mut object = ptr::null_mut();
     // SAFETY: the reply comes from WM_GETOBJECT, sent with the WPARAM 0 that is passed here. The
