@@ -2,6 +2,7 @@
 //! of an email that get no suggestions.
 
 use crate::desktop::Surroundings;
+use crate::excerpt::one_line;
 
 /// The kind of writing in a place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +170,7 @@ pub(crate) fn field_labels(surroundings: &Surroundings) -> Vec<String> {
     let lines = [&labels.caption, &labels.name, &labels.placeholder, &labels.help]
         .into_iter()
         .flatten()
-        .map(|label| label.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|label| one_line(label))
         .filter(|label| !label.is_empty());
     let mut kept: Vec<String> = Vec::new();
     for label in lines {

@@ -1,6 +1,12 @@
-//! The token estimate of a text and the cuts of a text to a count of tokens or characters.
+//! The token estimate of a text, the cuts of a text to a count of tokens or characters, and the
+//! text on one line.
 
 use crate::inference::TokenCount;
+
+/// Returns `text` with each run of whitespace as one space, and no whitespace at its ends.
+pub(crate) fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
 /// Returns the last `count` characters of `text`.
 pub(crate) fn last_chars(text: &str, count: usize) -> &str {

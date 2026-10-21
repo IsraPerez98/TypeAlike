@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use crate::desktop::{Confidence, FieldText, ScreenRect, ScreenText};
-use crate::excerpt::estimated_tokens;
+use crate::excerpt::{estimated_tokens, one_line};
 use crate::inference::TokenCount;
 
 /// The lowest confidence of a recognized line that is not noise. Vision gives 30% to its guesses.
@@ -223,11 +223,6 @@ fn is_any_of(word: &str, known_words: &[&str]) -> bool {
 /// Whether `word` only divides the parts of a line, as "—" does.
 fn is_separator(word: &str) -> bool {
     !word.chars().any(char::is_alphanumeric)
-}
-
-/// Returns `text` with each run of whitespace as one space, and no whitespace at its ends.
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

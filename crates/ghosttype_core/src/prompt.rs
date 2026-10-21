@@ -5,7 +5,7 @@
 //! changes least to the part that changes most.
 
 use crate::desktop::{ScreenText, Surroundings};
-use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens};
+use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, one_line};
 use crate::inference::{Prompt, TokenCount};
 use crate::place::{self, Format};
 use crate::screen;
@@ -57,9 +57,9 @@ pub(crate) fn preface(
 ) -> String {
     let mut budget = Budget(PREFACE_TOKENS);
     budget.spend(FRAME);
-    let notes = one_line(Some(writer.notes), NOTES_TOKENS)
+    let notes = budgeted_line(Some(writer.notes), NOTES_TOKENS)
         .map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
-    let name = one_line(Some(writer.name), NAME_TOKENS).map(|name| {
+    let name = budgeted_line(Some(writer.name), NAME_TOKENS).map(|name| {
         let line = format!("My name is {name}.");
         budget.spend(&line);
         line
@@ -159,8 +159,8 @@ pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
 /// Where the user types, as one line of labeled parts. A window title that names the app stands
 /// without the app. The first label of the field names it, and its other labels give a hint.
 fn place(surroundings: &Surroundings) -> Option<String> {
-    let app = one_line(surroundings.app_name.as_deref(), PREFACE_TOKENS);
-    let title = one_line(surroundings.window_title.as_deref(), WINDOW_TITLE_TOKENS);
+    let app = budgeted_line(surroundings.app_name.as_deref(), PREFACE_TOKENS);
+    let title = budgeted_line(surroundings.window_title.as_deref(), WINDOW_TITLE_TOKENS);
     let names_app = matches!((&app, &title), (Some(app), Some(title))
         if title.to_lowercase().contains(&app.to_lowercase()));
     let mut labels = place::field_labels(surroundings).into_iter();
@@ -173,8 +173,8 @@ fn place(surroundings: &Surroundings) -> Option<String> {
         ),
         ("App", app.filter(|_| !names_app)),
         ("Title", title),
-        ("Field", one_line(field.as_deref(), FIELD_LABEL_TOKENS)),
-        ("Hint", one_line(Some(&hint), FIELD_LABEL_TOKENS)),
+        ("Field", budgeted_line(field.as_deref(), FIELD_LABEL_TOKENS)),
+        ("Hint", budgeted_line(Some(&hint), FIELD_LABEL_TOKENS)),
     ];
     let line = parts
         .into_iter()
@@ -186,8 +186,8 @@ fn place(surroundings: &Surroundings) -> Option<String> {
 
 /// Returns the start of `text` that fits in `budget`, with each run of whitespace as one space, or
 /// `None` when it has no other characters.
-fn one_line(text: Option<&str>, budget: TokenCount) -> Option<String> {
-    let line = text?.split_whitespace().collect::<Vec<_>>().join(" ");
+fn budgeted_line(text: Option<&str>, budget: TokenCount) -> Option<String> {
+    let line = one_line(text?);
     non_empty(first_tokens(&line, budget)).map(str::to_owned)
 }
 
