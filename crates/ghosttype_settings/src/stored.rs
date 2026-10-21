@@ -16,7 +16,7 @@ use screen_text::StoredScreenText;
 
 /// The settings as the file stores them. Missing fields take their default values, so a file
 /// from an older version still loads.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct StoredSettings {
     backend: StoredBackend,
