@@ -81,12 +81,18 @@ impl Arguments {
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
-                [name, bias] if name == "--word-bias" => parsed.word_bias = word_bias_named(bias)?,
-                [name, shared] if name == "--shared-history" => {
-                    parsed.shared_history = shared_history_named(shared)?;
+                [name, bias] if name == "--word-bias" => {
+                    parsed.word_bias = on_off(bias, WordBiasUse::On, WordBiasUse::Off)?;
                 }
-                [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
-                [name, rule] if name == "--typo-rule" => parsed.typo_rule = typo_rule_named(rule)?,
+                [name, shared] if name == "--shared-history" => {
+                    parsed.shared_history = on_off(shared, SharedHistory::On, SharedHistory::Off)?;
+                }
+                [name, cut] if name == "--tail-cut" => {
+                    parsed.tail_cut = on_off(cut, TailCut::On, TailCut::Off)?;
+                }
+                [name, rule] if name == "--typo-rule" => {
+                    parsed.typo_rule = on_off(rule, TypoRule::HideSuggestions, TypoRule::Suggest)?;
+                }
                 [name, length] if name == "--length" => parsed.length = length_named(length)?,
                 _ => return None,
             }
@@ -106,38 +112,12 @@ fn word_choice_named(name: &str) -> Option<WordChoice> {
     }
 }
 
-/// Returns the use of the word bias with `name` in [`USAGE`], or `None` for another name.
-fn word_bias_named(name: &str) -> Option<WordBiasUse> {
+/// Returns `on` for the name `on` and `off` for the name `off` of a switch in [`USAGE`], or `None`
+/// for another name.
+fn on_off<T>(name: &str, on: T, off: T) -> Option<T> {
     match name {
-        "on" => Some(WordBiasUse::On),
-        "off" => Some(WordBiasUse::Off),
-        _ => None,
-    }
-}
-
-/// Returns the sharing of the earlier writing with `name` in [`USAGE`], or `None` for another name.
-fn shared_history_named(name: &str) -> Option<SharedHistory> {
-    match name {
-        "on" => Some(SharedHistory::On),
-        "off" => Some(SharedHistory::Off),
-        _ => None,
-    }
-}
-
-/// Returns the tail cut with `name` in [`USAGE`], or `None` for another name.
-fn tail_cut_named(name: &str) -> Option<TailCut> {
-    match name {
-        "on" => Some(TailCut::On),
-        "off" => Some(TailCut::Off),
-        _ => None,
-    }
-}
-
-/// Returns the typo rule with `name` in [`USAGE`], or `None` for another name.
-fn typo_rule_named(name: &str) -> Option<TypoRule> {
-    match name {
-        "on" => Some(TypoRule::HideSuggestions),
-        "off" => Some(TypoRule::Suggest),
+        "on" => Some(on),
+        "off" => Some(off),
         _ => None,
     }
 }
