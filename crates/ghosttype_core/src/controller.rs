@@ -212,12 +212,7 @@ impl Controller {
         match command {
             BadgeCommand::TogglePause => self.on_tray_command(TrayCommand::TogglePause, shell),
             BadgeCommand::SwitchScreenText { app_id, is_on } => {
-                if self
-                    .screen_text
-                    .on_action(ScreenTextAction::SwitchApp { app_id, is_on })
-                {
-                    self.keep_pane_settings();
-                }
+                self.on_screen_text_action(ScreenTextAction::SwitchApp { app_id, is_on });
                 self.render_settings(shell);
             }
             BadgeCommand::SelectHistoryScope { app_id, scope } => {
@@ -260,11 +255,7 @@ impl Controller {
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
                 shell.ask_for_ocr_permission();
             }
-            Some(PaneAction::ScreenText(action)) => {
-                if self.screen_text.on_action(action) {
-                    self.keep_pane_settings();
-                }
-            }
+            Some(PaneAction::ScreenText(action)) => self.on_screen_text_action(action),
             Some(PaneAction::Personalization(action)) => self.on_personalization_action(action),
             Some(PaneAction::Models(action)) => {
                 if let Some(request) = self.models.on_action(action) {
@@ -368,18 +359,25 @@ impl Controller {
     /// Keeps the settings of the Screen text and Personalization panes for the next run, and uses
     /// them.
     fn keep_pane_settings(&mut self) {
-        let settings = self.with_pane_settings(self.general.settings().clone());
-        self.settings_store.save(&settings);
+        let settings = self.save_settings(self.general.settings().clone());
         self.app.use_settings(&settings);
     }
 
-    /// Returns `settings` of the General pane with the settings of the Screen text and
-    /// Personalization panes.
-    fn with_pane_settings(&self, settings: Settings) -> Settings {
-        Settings {
+    /// Saves `general`, the settings of the General pane, with the settings of the Screen text
+    /// and Personalization panes, and returns them all.
+    fn save_settings(&mut self, general: Settings) -> Settings {
+        let settings = Settings {
             screen_text: self.screen_text.settings().clone(),
             personalization: self.personalization.settings().clone(),
-            ..settings
+            ..general
+        };
+        self.settings_store.save(&settings);
+        settings
+    }
+
+    fn on_screen_text_action(&mut self, action: ScreenTextAction) {
+        if self.screen_text.on_action(action) {
+            self.keep_pane_settings();
         }
     }
 
@@ -492,7 +490,7 @@ impl Controller {
     fn on_playground_event(&mut self, event: InferenceEvent, shell: &mut dyn Shell) {
         self.playground.on_event(event);
         if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
-            self.settings_store.save(&self.with_pane_settings(settings));
+            self.save_settings(settings);
         }
         self.render_settings(shell);
     }
@@ -500,8 +498,7 @@ impl Controller {
     fn on_general_action(&mut self, action: GeneralAction, shell: &mut dyn Shell) {
         let outcome = self.general.on_action(action, &mut self.playground);
         if let Some(settings) = outcome.settings {
-            let settings = self.with_pane_settings(settings);
-            self.settings_store.save(&settings);
+            let settings = self.save_settings(settings);
             self.app.use_settings(&settings);
             self.playground.use_settings(&settings);
             shell.use_clipboard_access(settings.clipboard_access);
