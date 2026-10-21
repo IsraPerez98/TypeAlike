@@ -173,19 +173,28 @@ fn entry_side(side: u32) -> u8 {
 mod tests {
     use super::*;
 
+    const RED: [u8; 4] = [0, 0, 255, 255];
+    const BLUE: [u8; 4] = [255, 0, 0, 255];
+
     #[test]
-    fn icon_file_has_one_image_with_its_rows_bottom_up() {
-        let red = [0, 0, 255, 255];
-        let blue = [255, 0, 0, 255];
-        let pixels = [red, blue].concat();
+    fn icon_file_directory_has_one_image_entry() {
+        let pixels = [RED, BLUE].concat();
 
         let file = icon_file(1, 2, &pixels);
 
         assert_eq!(&file[..6], &[0, 0, 1, 0, 1, 0]);
         assert_eq!(&file[6..10], &[1, 2, 0, 0]);
         assert_eq!(&file[18..22], &22_u32.to_le_bytes());
+    }
+
+    #[test]
+    fn icon_file_rows_go_bottom_up() {
+        let pixels = [RED, BLUE].concat();
+
+        let file = icon_file(1, 2, &pixels);
+
         assert_eq!(&file[30..34], &4_i32.to_le_bytes());
-        assert_eq!(&file[62..70], &[blue, red].concat()[..]);
+        assert_eq!(&file[62..70], &[BLUE, RED].concat()[..]);
         assert_eq!(file.len(), 62 + 8 + 8);
     }
 
