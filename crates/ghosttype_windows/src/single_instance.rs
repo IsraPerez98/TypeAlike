@@ -6,9 +6,10 @@ use windows::core::{Owned, w};
 
 /// Held while this process is the session's GhostType instance.
 #[derive(Debug)]
-pub(crate) struct InstanceLock(
-    #[expect(dead_code, reason = "held only to keep the mutex open")] Owned<HANDLE>,
-);
+pub(crate) struct InstanceLock {
+    /// Held only to keep the mutex open.
+    _mutex: Owned<HANDLE>,
+}
 
 /// Returns the lock, or `None` when another instance already holds it.
 pub(crate) fn acquire() -> windows::core::Result<Option<InstanceLock>> {
@@ -17,6 +18,7 @@ pub(crate) fn acquire() -> windows::core::Result<Option<InstanceLock>> {
     // SAFETY: reads the calling thread's last error, set by CreateMutexW just above.
     let already_exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
     // SAFETY: CreateMutexW returned a valid handle that nothing else owns.
-    let lock = InstanceLock(unsafe { Owned::new(handle) });
+    let mutex = unsafe { Owned::new(handle) };
+    let lock = InstanceLock { _mutex: mutex };
     Ok((!already_exists).then_some(lock))
 }

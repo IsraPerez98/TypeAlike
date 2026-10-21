@@ -78,11 +78,8 @@ impl WindowSpec {
 #[derive(Debug)]
 pub(crate) struct Window {
     handle: HWND,
-    #[expect(
-        dead_code,
-        reason = "held to unregister the class after the window is destroyed"
-    )]
-    class: WindowClass,
+    /// Held to unregister the class after the window is destroyed.
+    _class: WindowClass,
 }
 
 impl Window {
@@ -106,7 +103,10 @@ impl Window {
                 None,
             )
         }?;
-        Ok(Self { handle, class })
+        Ok(Self {
+            handle,
+            _class: class,
+        })
     }
 
     /// Raw window handle, valid while `self` lives.
