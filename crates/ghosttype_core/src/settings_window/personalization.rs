@@ -303,6 +303,20 @@ mod tests {
         })
     }
 
+    fn mail_pane(scope: HistoryScope) -> PersonalizationPane {
+        pane_with(
+            HistoryAccess::On,
+            vec![history_app("com.apple.mail", "Mail", scope)],
+        )
+    }
+
+    fn select_mail_scope(scope: HistoryScope) -> PersonalizationAction {
+        PersonalizationAction::SelectAppScope {
+            app_id: "com.apple.mail".to_owned(),
+            scope,
+        }
+    }
+
     fn app_picked(app_id: &str, index: usize) -> SettingsInput {
         SettingsInput::Picked {
             id: ControlId::from(format!("personalization-app:{app_id}")),
@@ -533,33 +547,34 @@ mod tests {
     }
 
     #[test]
-    fn app_off_asks_to_delete_its_text_and_other_scopes_only_change_the_settings() {
-        let mut pane = pane_with(
-            HistoryAccess::On,
-            vec![history_app("com.apple.mail", "Mail", HistoryScope::AllApps)],
-        );
-        let select = |scope| PersonalizationAction::SelectAppScope {
-            app_id: "com.apple.mail".to_owned(),
-            scope,
-        };
+    fn turning_off_an_app_asks_to_delete_its_text() {
+        let mut pane = mail_pane(HistoryScope::AllApps);
 
-        let changes = [
-            HistoryScope::ThisApp,
-            HistoryScope::Off,
-            HistoryScope::Off,
-            HistoryScope::AllApps,
-        ]
-        .map(|scope| pane.on_action(select(scope)));
+        let change = pane.on_action(select_mail_scope(HistoryScope::Off));
+
+        assert_eq!(change, PersonalizationChange::AppOff("com.apple.mail".to_owned()));
+    }
+
+    #[test]
+    fn other_app_scopes_only_change_the_settings() {
+        let mut pane = mail_pane(HistoryScope::Off);
+
+        let changes = [HistoryScope::ThisApp, HistoryScope::AllApps]
+            .map(|scope| pane.on_action(select_mail_scope(scope)));
 
         assert_eq!(
             changes,
-            [
-                PersonalizationChange::Settings,
-                PersonalizationChange::AppOff("com.apple.mail".to_owned()),
-                PersonalizationChange::None,
-                PersonalizationChange::Settings,
-            ]
+            [PersonalizationChange::Settings, PersonalizationChange::Settings]
         );
+    }
+
+    #[test]
+    fn selecting_the_scope_that_the_app_has_changes_nothing() {
+        let mut pane = mail_pane(HistoryScope::Off);
+
+        let change = pane.on_action(select_mail_scope(HistoryScope::Off));
+
+        assert_eq!(change, PersonalizationChange::None);
     }
 
     #[test]
@@ -611,19 +626,34 @@ mod tests {
     }
 
     #[test]
-    fn other_action_or_cancel_makes_the_delete_button_wait_for_its_first_press() {
-        let mut first = pane_with(HistoryAccess::On, Vec::new());
-        let mut second = pane_with(HistoryAccess::On, Vec::new());
-        first.on_action(PersonalizationAction::Delete);
-        second.on_action(PersonalizationAction::Delete);
+    fn other_action_makes_the_delete_button_wait_for_its_first_press() {
+        let mut pane = pane_with(HistoryAccess::On, Vec::new());
+        pane.on_action(PersonalizationAction::Delete);
+        pane.on_action(PersonalizationAction::SelectWordChoice(WordChoice::Light));
 
-        first.on_action(PersonalizationAction::SelectWordChoice(WordChoice::Light));
-        let was_pending = second.cancel_delete();
+        let change = pane.on_action(PersonalizationAction::Delete);
+
+        assert_eq!(change, PersonalizationChange::None);
+    }
+
+    #[test]
+    fn cancel_tells_that_the_delete_button_waited_for_its_second_press() {
+        let mut pane = pane_with(HistoryAccess::On, Vec::new());
+        pane.on_action(PersonalizationAction::Delete);
+
+        let was_pending = pane.cancel_delete();
 
         assert!(was_pending);
-        assert_eq!(
-            [first, second].map(|mut pane| pane.on_action(PersonalizationAction::Delete)),
-            [PersonalizationChange::None, PersonalizationChange::None]
-        );
+    }
+
+    #[test]
+    fn cancel_makes_the_delete_button_wait_for_its_first_press() {
+        let mut pane = pane_with(HistoryAccess::On, Vec::new());
+        pane.on_action(PersonalizationAction::Delete);
+        pane.cancel_delete();
+
+        let change = pane.on_action(PersonalizationAction::Delete);
+
+        assert_eq!(change, PersonalizationChange::None);
     }
 }

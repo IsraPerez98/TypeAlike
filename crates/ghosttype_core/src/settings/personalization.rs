@@ -225,23 +225,38 @@ mod tests {
     }
 
     #[test]
-    fn history_apps_go_in_alphabetical_order_and_once() {
+    fn history_apps_go_in_alphabetical_order() {
         let mut settings = personalization(HistoryAccess::On, Vec::new());
 
         let added = [
             history_app("slack.exe", "Slack", HistoryScope::AllApps),
             history_app("com.apple.mail", "mail", HistoryScope::AllApps),
-            history_app("slack.exe", "Slack", HistoryScope::Off),
         ]
         .map(|entry| settings.add(&entry));
 
-        assert_eq!(added, [true, true, false]);
+        assert_eq!(added, [true, true]);
         assert_eq!(
             settings.apps,
             [
                 history_app("com.apple.mail", "mail", HistoryScope::AllApps),
                 history_app("slack.exe", "Slack", HistoryScope::AllApps)
             ]
+        );
+    }
+
+    #[test]
+    fn known_history_app_is_not_added_again() {
+        let mut settings = personalization(
+            HistoryAccess::On,
+            vec![history_app("slack.exe", "Slack", HistoryScope::AllApps)],
+        );
+
+        let added = settings.add(&history_app("slack.exe", "Slack", HistoryScope::Off));
+
+        assert!(!added);
+        assert_eq!(
+            settings.apps,
+            [history_app("slack.exe", "Slack", HistoryScope::AllApps)]
         );
     }
 }

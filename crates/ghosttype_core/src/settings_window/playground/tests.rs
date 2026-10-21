@@ -69,12 +69,11 @@ fn can_complete(page: &Page) -> bool {
     }
 }
 
-/// The section below the prompt field, which shows the last completion.
-fn output(page: &Page) -> Option<Section> {
+fn shown_completion(page: &Page) -> Option<Section> {
     page.sections.get(2).cloned()
 }
 
-fn output_section(row: Row) -> Section {
+fn completion_section(row: Row) -> Section {
     Section {
         heading: Some("Suggestion".to_owned()),
         ..Section::new(vec![row])
@@ -85,7 +84,7 @@ fn completed_output(text: &str, tokens: u32, duration: Duration) -> Option<Secti
     let file = model_file("a.gguf");
     let mut pane = completing_pane(&file);
     pane.on_event(InferenceEvent::Completed(Ok(completion(text, tokens, duration))));
-    output(&pane.page(&[file]))
+    shown_completion(&pane.page(&[file]))
 }
 
 fn submitted(text: &str) -> SettingsInput {
@@ -322,7 +321,7 @@ fn changing_the_backend_clears_the_output() {
 
     pane.change_backend(Backend::Vulkan);
 
-    assert_eq!(output(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file])), None);
 }
 
 #[test]
@@ -654,12 +653,12 @@ fn running_completion_shows_status_and_locks_the_controls() {
         (
             model_menu(&shown).is_enabled,
             can_complete(&shown),
-            output(&shown)
+            shown_completion(&shown)
         ),
         (
             false,
             false,
-            Some(output_section(Row::Note(Note {
+            Some(completion_section(Row::Note(Note {
                 text: "Completing the text…",
                 tone: NoteTone::Busy,
             }))),
@@ -682,7 +681,7 @@ fn finished_completion_shows_text_and_timing() {
 
     assert_eq!(
         shown,
-        Some(output_section(Row::Output(Output {
+        Some(completion_section(Row::Output(Output {
             text: " Sir,".to_owned(),
             detail: "12 tokens in 0.42 seconds".to_owned(),
         })))
@@ -695,7 +694,7 @@ fn one_token_completion_counts_in_singular() {
 
     assert_eq!(
         shown,
-        Some(output_section(Row::Output(Output {
+        Some(completion_section(Row::Output(Output {
             text: " Sir".to_owned(),
             detail: "1 token in 0.05 seconds".to_owned(),
         })))
@@ -708,7 +707,7 @@ fn empty_completion_says_that_no_text_was_added() {
 
     assert_eq!(
         shown,
-        Some(output_section(Row::Note(Note {
+        Some(completion_section(Row::Note(Note {
             text: "The model did not add text.",
             tone: NoteTone::Plain,
         })))
@@ -724,10 +723,10 @@ fn failed_completion_tells_why_and_allows_another_try() {
     let shown = pane.page(&[file]);
 
     assert_eq!(
-        (can_complete(&shown), output(&shown)),
+        (can_complete(&shown), shown_completion(&shown)),
         (
             true,
-            Some(output_section(Row::Note(Note {
+            Some(completion_section(Row::Note(Note {
                 text: "The text is too long for this model. Use shorter text.",
                 tone: NoteTone::Error,
             }))),
@@ -746,7 +745,7 @@ fn completion_without_a_request_is_ignored() {
         Duration::ZERO,
     ))));
 
-    assert_eq!(output(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file])), None);
 }
 
 #[test]
@@ -761,7 +760,7 @@ fn selecting_another_model_clears_the_output() {
 
     pane.on_action(PlaygroundAction::SelectModel(model_file("b.gguf")));
 
-    assert_eq!(output(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file])), None);
 }
 
 #[test]
@@ -798,6 +797,7 @@ fn every_error_has_its_own_message() {
         InferenceError::NoModel,
         InferenceError::PromptTooLong,
         InferenceError::Failed,
+        InferenceError::Superseded,
     ];
 
     let messages = errors.map(load_failure_text);
@@ -816,6 +816,7 @@ fn every_error_has_its_own_message() {
             Some("Select a model first."),
             Some("The text is too long for this model. Use shorter text."),
             Some("GhostType cannot complete the text. Try again."),
+            Some("A newer request stopped this completion. Try again."),
         ]
     );
 }

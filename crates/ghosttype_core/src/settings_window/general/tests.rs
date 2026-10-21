@@ -319,7 +319,7 @@ fn saved_backend_that_the_menu_does_not_offer_becomes_the_default() {
 }
 
 #[test]
-fn turning_a_switch_turns_its_setting_on_or_off() {
+fn each_switch_gives_its_on_and_off_action() {
     let pane = GeneralPane::new(Settings::default());
     let inputs = [
         toggled(AUTOSTART, true),
@@ -490,7 +490,7 @@ fn editing_the_name_field_edits_the_writer_name() {
 }
 
 #[test]
-fn editing_the_writer_name_keeps_it_and_shows_it_in_the_name_field() {
+fn editing_the_writer_name_keeps_it() {
     let mut pane = GeneralPane::new(Settings::default());
     let name_settings = Settings {
         writer_name: WriterName("Sara Novak".to_owned()),
@@ -502,11 +502,20 @@ fn editing_the_writer_name_keeps_it_and_shows_it_in_the_name_field() {
         &mut PlaygroundPane::new(),
     );
 
-    let shown = text_line(&default_page(&pane), WRITER_NAME).text;
-    assert_eq!(
-        (outcome, shown),
-        (settings_outcome(name_settings), "Sara Novak".to_owned())
+    assert_eq!(outcome, settings_outcome(name_settings));
+}
+
+#[test]
+fn name_field_shows_the_edited_writer_name() {
+    let mut pane = GeneralPane::new(Settings::default());
+    pane.on_action(
+        GeneralAction::EditWriterName(WriterName("Sara Novak".to_owned())),
+        &mut PlaygroundPane::new(),
     );
+
+    let shown = text_line(&default_page(&pane), WRITER_NAME).text;
+
+    assert_eq!(shown, "Sara Novak");
 }
 
 #[test]

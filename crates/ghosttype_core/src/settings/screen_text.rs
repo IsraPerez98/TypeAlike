@@ -118,7 +118,20 @@ mod tests {
     }
 
     #[test]
-    fn app_entry_keeps_the_path_and_names_an_app_without_a_name_by_its_id() {
+    fn app_entry_keeps_the_path_of_the_app() {
+        let entry = ScreenTextApp::of(&surroundings_of(Some("notepad.exe"), Some("Notepad")));
+
+        assert_eq!(
+            entry,
+            Some(ScreenTextApp {
+                app_path: Some("C:\\Program Files\\App\\app.exe".to_owned()),
+                ..screen_text_app("notepad.exe", "Notepad", true)
+            })
+        );
+    }
+
+    #[test]
+    fn app_without_a_name_is_named_by_its_id() {
         let entry = ScreenTextApp::of(&surroundings_of(Some("notepad.exe"), None));
 
         assert_eq!(
