@@ -12,17 +12,20 @@ use super::words::starts_word;
 /// bias does not change it.
 const SURE_PROBABILITY: f32 = 0.5;
 
+/// A token and the logit that a bias adds to it.
+pub(super) type LogitBias = (LlamaToken, f32);
+
 /// The logits that a completion adds to its first token, and to each later token.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct TokenBias {
-    first: Vec<(LlamaToken, f32)>,
-    later: Vec<(LlamaToken, f32)>,
+    first: Vec<LogitBias>,
+    later: Vec<LogitBias>,
 }
 
 impl TokenBias {
     /// Returns the bias that adds `word_tokens` to each token, and also `next_word_tokens` to the
     /// first token.
-    pub(super) fn new(word_tokens: Vec<(LlamaToken, f32)>, next_word_tokens: Vec<(LlamaToken, f32)>) -> Self {
+    pub(super) fn new(word_tokens: Vec<LogitBias>, next_word_tokens: Vec<LogitBias>) -> Self {
         let mut first = word_tokens.iter().copied().collect::<HashMap<_, _>>();
         for (token, bias) in next_word_tokens {
             *first.entry(token).or_default() += bias;
@@ -34,7 +37,7 @@ impl TokenBias {
     }
 
     /// Returns the logits to add to the token after `added` tokens.
-    pub(super) fn at(&self, added: usize) -> &[(LlamaToken, f32)] {
+    pub(super) fn at(&self, added: usize) -> &[LogitBias] {
         if added == 0 { &self.first } else { &self.later }
     }
 }
@@ -142,7 +145,7 @@ fn best_token_agreeing_with(logits: &[f32], pieces: &TokenPieces, unwritten: &[u
 
 /// Returns the first token of each of `words` after a space, with the most logits of the words
 /// that start with it. It leaves out a token that does not start a word or that is only a space.
-pub(super) fn first_word_tokens(vocab: &LlamaVocab<'_>, words: &[(String, f32)]) -> Vec<(LlamaToken, f32)> {
+pub(super) fn first_word_tokens(vocab: &LlamaVocab<'_>, words: &[(String, f32)]) -> Vec<LogitBias> {
     let mut biases = HashMap::<LlamaToken, f32>::new();
     for (word, bias) in words {
         let Some(&first) = vocab
@@ -165,7 +168,7 @@ pub(super) fn first_word_tokens(vocab: &LlamaVocab<'_>, words: &[(String, f32)])
 /// out when the model is sure of its first choice, at least [`SURE_PROBABILITY`].
 pub(super) fn with_bias<'logits>(
     logits: &'logits [f32],
-    token_bias: &[(LlamaToken, f32)],
+    token_bias: &[LogitBias],
     biased: &'logits mut Vec<f32>,
 ) -> &'logits [f32] {
     if token_bias.is_empty() || top_probability(logits) >= SURE_PROBABILITY {

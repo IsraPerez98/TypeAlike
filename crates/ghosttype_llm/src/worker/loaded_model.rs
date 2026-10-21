@@ -7,12 +7,11 @@ use ghosttype_core::inference::{
 };
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
-use llama_cpp_2::token::LlamaToken;
 
 use super::generation::{
     AddedTokens, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
 };
-use super::logits::{TokenBias, first_word_tokens};
+use super::logits::{LogitBias, TokenBias, first_word_tokens};
 use super::model_params::CpuThreads;
 use super::pieces::TokenPieces;
 use super::prompt_cache::{GenerateError, PromptCache};
@@ -24,7 +23,7 @@ pub(super) struct LoadedModel<'model> {
     pub(super) cpu_threads: Option<CpuThreads>,
     pub(super) cache: Option<PromptCache<'model>>,
     /// The version of the last word bias, and the logits that it adds to each token.
-    pub(super) word_tokens: Option<(u64, Vec<(LlamaToken, f32)>)>,
+    pub(super) word_tokens: Option<(u64, Vec<LogitBias>)>,
     pub(super) pieces: TokenPieces,
 }
 
@@ -70,7 +69,7 @@ impl LoadedModel<'_> {
 
     /// Returns the logits that `word_bias` adds to each token, which it finds one time for each
     /// version.
-    fn word_tokens(&mut self, word_bias: Option<&WordBias>) -> Vec<(LlamaToken, f32)> {
+    fn word_tokens(&mut self, word_bias: Option<&WordBias>) -> Vec<LogitBias> {
         let Some(word_bias) = word_bias else {
             return Vec::new();
         };
