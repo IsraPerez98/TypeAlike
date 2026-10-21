@@ -34,20 +34,22 @@ const MAX_NEXT_WORDS: usize = 8;
 pub(super) struct Phrases {
     /// The logits for a word that always came after its run.
     strength: f32,
-    /// For each number of words of a run, longest first, the texts after each run up to the end
-    /// of the next word, with the signs before that word, and their counts.
-    runs: Vec<(usize, Followers)>,
+    /// The followers of the runs of each number of words, longest first.
+    runs: Vec<RunFollowers>,
+}
+
+/// For each run of `context_words` words, the texts after it up to the end of the next word, with
+/// the signs before that word, and their counts.
+struct RunFollowers {
+    context_words: usize,
+    followers: Followers,
 }
 
 type Followers = HashMap<String, Vec<(String, u32)>>;
 
 impl fmt::Debug for Phrases {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let runs = self
-            .runs
-            .iter()
-            .map(|(_, followers)| followers.len())
-            .sum::<usize>();
+        let runs = self.runs.iter().map(|run| run.followers.len()).sum::<usize>();
         formatter
             .debug_struct("Phrases")
             .field("runs", &runs)
@@ -59,8 +61,8 @@ impl Phrases {
     fn followers_of(&self, context_words: usize) -> Option<&Followers> {
         self.runs
             .iter()
-            .find(|(words, _)| *words == context_words)
-            .map(|(_, followers)| followers)
+            .find(|run| run.context_words == context_words)
+            .map(|run| &run.followers)
     }
 }
 
@@ -81,14 +83,11 @@ pub(super) fn continuation_in<'tables>(
         .into_iter()
         .flatten()
         .find_map(|context_end| {
-            let context = spans.get(context_end.checked_sub(PHRASE_CONTEXT_WORDS)?..context_end)?;
-            let key = context_key(text_before, context);
+            let (key, typed) = run_before(text_before, &spans, context_end, PHRASE_CONTEXT_WORDS)?;
             let counts = tables
                 .iter()
                 .find_map(|table| table.followers_of(PHRASE_CONTEXT_WORDS)?.get(&key))?;
-            let follower = repeated_follower(counts)?;
-            let typed = &text_before[context.last()?.end..];
-            let rest = follower.strip_prefix(typed)?;
+            let rest = repeated_follower(counts)?.strip_prefix(typed)?;
             (!rest.is_empty() && !rest.contains(['\r', '\n'])).then_some(rest)
         })
 }
@@ -105,14 +104,25 @@ pub(super) fn next_word_bias_in(tables: &[&Phrases], text_before: &str) -> NextW
     let words = tables
         .iter()
         .flat_map(|table| table.runs.iter().map(|run| (table.strength, run)))
-        .find_map(|(strength, (context_words, followers))| {
-            let context = spans.get(context_end.checked_sub(*context_words)?..context_end)?;
-            let counts = followers.get(&context_key(text_before, context))?;
-            let typed = &text_before[context.last()?.end..];
-            let words = preferred_words(counts, typed, strength);
+        .find_map(|(strength, run)| {
+            let (key, typed) = run_before(text_before, &spans, context_end, run.context_words)?;
+            let words = preferred_words(run.followers.get(&key)?, typed, strength);
             (!words.is_empty()).then_some(words)
         });
     NextWordBias(words.unwrap_or_default())
+}
+
+/// Returns the key of the `context_words` words of `spans` that end at the span `context_end`, and
+/// the typed letters of `text_before` after these words. The spans are the words of `text_before`.
+fn run_before<'text>(
+    text_before: &'text str,
+    spans: &[Range<usize>],
+    context_end: usize,
+    context_words: usize,
+) -> Option<(String, &'text str)> {
+    let context = spans.get(context_end.checked_sub(context_words)?..context_end)?;
+    let typed = &text_before[context.last()?.end..];
+    Some((context_key(text_before, context), typed))
 }
 
 /// Returns the text of `counts` that the writer wrote at least [`MIN_PHRASE_COUNT`] times and in
@@ -153,7 +163,10 @@ pub(super) fn phrases(entries: &[&HistoryEntry], choice: WordChoice) -> Phrases 
     };
     let runs = RUN_WORDS
         .iter()
-        .map(|&context_words| (context_words, repeated_runs(entries, context_words)))
+        .map(|&context_words| RunFollowers {
+            context_words,
+            followers: repeated_runs(entries, context_words),
+        })
         .collect();
     Phrases { strength, runs }
 }
@@ -164,26 +177,7 @@ pub(super) fn phrases(entries: &[&HistoryEntry], choice: WordChoice) -> Phrases 
 fn repeated_runs(entries: &[&HistoryEntry], context_words: usize) -> Followers {
     let mut followers = HashMap::<String, Vec<(&str, u32)>>::new();
     for part in entries.iter().flat_map(|entry| entry.text.split(REDACTED)) {
-        let spans = runs_of(part, is_phrase_character);
-        let lowercase = spans
-            .iter()
-            .map(|span| {
-                part[span.clone()]
-                    .chars()
-                    .flat_map(char::to_lowercase)
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>();
-        for (start, window) in spans.windows(context_words + 1).enumerate() {
-            let follower = &part[window[context_words - 1].end..window[context_words].end];
-            let counts = followers
-                .entry(lowercase[start..start + context_words].join(" "))
-                .or_default();
-            match counts.iter_mut().find(|(known, _)| *known == follower) {
-                Some((_, count)) => *count += 1,
-                None => counts.push((follower, 1)),
-            }
-        }
+        count_followers(part, context_words, &mut followers);
     }
     followers
         .into_iter()
@@ -196,6 +190,26 @@ fn repeated_runs(entries: &[&HistoryEntry], context_words: usize) -> Followers {
             (context, owned)
         })
         .collect()
+}
+
+/// Counts in `followers` the texts of `part` after each run of `context_words` words, up to the
+/// end of the next word, with the signs before that word.
+fn count_followers<'text>(
+    part: &'text str,
+    context_words: usize,
+    followers: &mut HashMap<String, Vec<(&'text str, u32)>>,
+) {
+    let spans = runs_of(part, is_phrase_character);
+    for window in spans.windows(context_words + 1) {
+        let follower = &part[window[context_words - 1].end..window[context_words].end];
+        let counts = followers
+            .entry(context_key(part, &window[..context_words]))
+            .or_default();
+        match counts.iter_mut().find(|(known, _)| *known == follower) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((follower, 1)),
+        }
+    }
 }
 
 /// Returns the words of `context`, spans of `text`, in lowercase with one space between them.

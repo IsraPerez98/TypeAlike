@@ -74,7 +74,7 @@ impl HistoryTables {
         place: Place<&str>,
         text_before: &str,
     ) -> Option<&str> {
-        continuation_in(&self.pool_tables(pool, place)?, text_before)
+        continuation_in(&self.phrases_of(pool, place)?, text_before)
     }
 
     /// Returns the preference for the words that the writer wrote after the last words of
@@ -86,13 +86,13 @@ impl HistoryTables {
         place: Place<&str>,
         text_before: &str,
     ) -> NextWordBias {
-        self.pool_tables(pool, place)
+        self.phrases_of(pool, place)
             .map(|tables| next_word_bias_in(&tables, text_before))
             .unwrap_or_default()
     }
 
     /// The phrases of `place` in `pool`, if any, then the phrases of `pool`.
-    fn pool_tables(&self, pool: &HistoryPool, place: Place<&str>) -> Option<Vec<&Phrases>> {
+    fn phrases_of(&self, pool: &HistoryPool, place: Place<&str>) -> Option<Vec<&Phrases>> {
         let tables = self.pools.get(pool)?;
         let place_phrases = tables.place_phrases.get(&place.owned());
         Some(place_phrases.into_iter().chain([&tables.phrases]).collect())
