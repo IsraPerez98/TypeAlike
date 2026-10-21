@@ -50,7 +50,7 @@ pub struct GatePoint {
 impl GatePoint {
     /// Returns what the minimum `log_probability` does to the suggestions of the model in
     /// `outcomes`.
-    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+    fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
         let mut point = Self {
             log_probability,
             kept: 0,
@@ -88,7 +88,7 @@ pub struct CutPoint {
 
 impl CutPoint {
     /// Returns what the cut `log_probability` does to the suggestions of the model in `outcomes`.
-    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+    fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
         let mut point = Self {
             log_probability,
             shown: 0,
@@ -134,7 +134,7 @@ pub struct TypoPoint {
 
 impl TypoPoint {
     /// Returns what the cut `log_probability` does to `outcomes`.
-    pub fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
+    fn of(outcomes: &[Outcome], log_probability: f64) -> Self {
         let mut point = Self {
             log_probability,
             typos: 0,
@@ -165,7 +165,7 @@ impl TypoPoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Score {
     /// The cases that match, as [`is_match`](super::is_match) tells.
-    pub matches: usize,
+    matches: usize,
     /// All the cases.
     pub cases: usize,
 }
