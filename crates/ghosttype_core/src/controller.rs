@@ -7,10 +7,12 @@ use std::time::Duration;
 use std::{fmt, mem};
 
 use crate::app::{
-    App, BadgeCommand, BadgeMenu, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome,
-    TrayView,
+    App, BadgeCommand, BadgeMenu, BadgeView, Field, INPUT_SETTLE_DELAY, SettledWork, TrayCommand,
+    TrayOutcome, TrayView,
 };
-use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{
+    CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenRead, ScreenReadId, ScreenSource, Surroundings,
+};
 use crate::engine::{Reaction, WordFix};
 use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::history::WritingHistory;
@@ -253,6 +255,10 @@ pub trait Shell: Desktop {
 
 /// GhostType while it runs: the suggestions at the caret, the panes of the settings window and
 /// the services, driven by the events of the platform.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent fact of the controller"
+)]
 pub struct Controller {
     app: App,
     models: ModelsPane,
@@ -271,6 +277,10 @@ pub struct Controller {
     suggestion_sink: InferenceEventSink,
     pending_ghost: Option<Ghost>,
     is_caret_timer_pending: bool,
+    /// Whether `pending_ghost` is the rest of a suggestion that Tab took a part of, and waits for
+    /// the caret. The rest counts as shown, so that a quick Tab types its next part and does not
+    /// reach the app.
+    is_rest_pending: bool,
     /// The looks at the caret that are left before the ghost text shows at a caret that did not
     /// move after the last key.
     caret_move_checks_left: u8,
@@ -286,6 +296,7 @@ impl fmt::Debug for Controller {
             .field("app", &self.app)
             .field("has_pending_ghost", &self.pending_ghost.is_some())
             .field("is_caret_timer_pending", &self.is_caret_timer_pending)
+            .field("is_rest_pending", &self.is_rest_pending)
             .field("caret_move_checks_left", &self.caret_move_checks_left)
             .finish_non_exhaustive()
     }
@@ -345,6 +356,7 @@ impl Controller {
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             pending_ghost: None,
             is_caret_timer_pending: false,
+            is_rest_pending: false,
             caret_move_checks_left: 0,
             has_unsaved_app: false,
         };
@@ -373,7 +385,11 @@ impl Controller {
             return Disposition::Pass;
         };
         self.caret_move_checks_left = MAX_CARET_MOVE_CHECKS;
-        let reaction = self.app.on_key(key, &*shell);
+        let reaction = if self.is_rest_pending {
+            self.app.on_key(key, &DesktopWithPendingRest(&*shell))
+        } else {
+            self.app.on_key(key, &*shell)
+        };
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
         self.add_typed_app();
@@ -540,6 +556,7 @@ impl Controller {
             shell.start_timer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY);
             self.is_caret_timer_pending = true;
         }
+        self.is_rest_pending &= self.is_caret_timer_pending;
     }
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
@@ -652,7 +669,7 @@ impl Controller {
                 self.hide_ghost(shell);
                 shell.type_text(text);
                 if let Some(rest) = rest {
-                    self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
+                    self.show_rest_after_caret_settles(rest, shell);
                 }
                 Disposition::Swallow
             }
@@ -660,7 +677,7 @@ impl Controller {
                 self.hide_ghost(shell);
                 shell.replace_before_caret(deleted, text);
                 if let Some(rest) = rest {
-                    self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
+                    self.show_rest_after_caret_settles(rest, shell);
                 }
                 Disposition::Swallow
             }
@@ -750,6 +767,12 @@ impl Controller {
         self.restart_caret_timer(shell);
     }
 
+    /// Shows `rest`, the rest of a suggestion that Tab took a part of, after the caret settles.
+    fn show_rest_after_caret_settles(&mut self, rest: String, shell: &mut dyn Shell) {
+        self.show_ghost_after_caret_settles(Ghost::Text(rest), shell);
+        self.is_rest_pending = true;
+    }
+
     fn render_badge_after_caret_settles(&mut self, shell: &mut dyn Shell) {
         if self.app.badge_view().is_some() {
             self.restart_caret_timer(shell);
@@ -780,7 +803,38 @@ impl Controller {
         self.pending_ghost = None;
         shell.stop_timer(Timer::CaretSettle);
         self.is_caret_timer_pending = false;
+        self.is_rest_pending = false;
         shell.hide_ghost();
+    }
+}
+
+/// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the
+/// caret. The rest counts as shown, because the user saw it before Tab.
+struct DesktopWithPendingRest<'shell>(&'shell dyn Shell);
+
+impl Desktop for DesktopWithPendingRest<'_> {
+    fn field(&self) -> Field {
+        self.0.field()
+    }
+
+    fn surroundings(&self) -> Surroundings {
+        self.0.surroundings()
+    }
+
+    fn copied_text(&self) -> Option<CopiedText> {
+        self.0.copied_text()
+    }
+
+    fn ocr_availability(&self) -> OcrAvailability {
+        self.0.ocr_availability()
+    }
+
+    fn ocr_levels(&self) -> OcrLevels {
+        self.0.ocr_levels()
+    }
+
+    fn is_ghost_shown(&self) -> bool {
+        true
     }
 }
 
@@ -800,8 +854,8 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::app::{Field, Status};
-    use crate::desktop::{CopiedText, FieldText, OcrAvailability, ScreenText, Surroundings};
+    use crate::app::Status;
+    use crate::desktop::{FieldText, ScreenText};
     use crate::engine::{TAIL_CUT, TYPO_CUT};
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
@@ -1509,6 +1563,49 @@ mod tests {
             harness.take_calls(),
             vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
         );
+    }
+
+    #[test]
+    fn tab_while_the_rest_waits_for_the_caret_types_its_next_part() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est regards to you");
+        harness.press(Key::Tab);
+        harness.shell.is_ghost_shown = false;
+        harness.take_calls();
+
+        let disposition = harness.press(Key::Tab);
+
+        let calls = harness.take_calls();
+        assert!(
+            disposition == Disposition::Swallow && calls.contains(&Call::TypeText(" regards".to_owned())),
+            "unexpected {disposition:?} {calls:?}"
+        );
+    }
+
+    #[test]
+    fn tab_after_the_rest_did_not_show_at_the_caret_passes_to_the_app() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est regards to you");
+        harness.press(Key::Tab);
+        harness.shell.is_ghost_shown = false;
+        harness.run_out_caret_checks();
+        harness.settle_caret();
+
+        let disposition = harness.press(Key::Tab);
+
+        assert_eq!(disposition, Disposition::Pass);
+    }
+
+    #[test]
+    fn tab_while_a_new_suggestion_waits_for_the_caret_passes_to_the_app() {
+        let mut harness = Harness::new(Settings::default());
+        harness.press(Key::Char('B'));
+        harness.answer(completed("est regards"));
+        harness.shell.is_ghost_shown = false;
+
+        let disposition = harness.press(Key::Tab);
+
+        assert_eq!(disposition, Disposition::Pass);
     }
 
     #[test]
