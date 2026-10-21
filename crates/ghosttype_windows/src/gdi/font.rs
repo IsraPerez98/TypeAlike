@@ -10,6 +10,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::core::{Error, HSTRING, Owned, Result};
 
 use super::memory::MemoryContext;
+use crate::utf16::until_nul;
 
 const MAX_FACE_NAME_UNITS: usize = 32;
 
@@ -86,7 +87,7 @@ impl Font {
         // SAFETY: the buffer is valid for the call and the font is selected into the context.
         let written = unsafe { GetTextFaceW(context.handle, Some(&mut units)) };
         let written = usize::try_from(written).ok().ok_or_else(Error::from_thread)?;
-        let name = units.get(..written).unwrap_or_default();
-        Ok(String::from_utf16_lossy(name).trim_end_matches('\0').to_owned())
+        let name = until_nul(units.get(..written).unwrap_or_default());
+        Ok(String::from_utf16_lossy(name))
     }
 }

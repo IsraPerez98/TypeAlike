@@ -17,7 +17,7 @@ use windows::Win32::UI::Accessibility::{
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
 use super::{Uia, caret_range, is_password, is_terminal_input};
-use crate::focus::whole_chars;
+use crate::utf16::whole_chars;
 
 /// The length that asks `GetText` for all the text of a range.
 const WHOLE_RANGE: i32 = -1;

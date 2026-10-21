@@ -167,13 +167,6 @@ fn program_file_name(image_path: &str) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
-/// Decodes UTF-16 `units`, without the halves of the characters that a cut divided.
-pub(crate) fn whole_chars(units: &[u16]) -> String {
-    char::decode_utf16(units.iter().copied())
-        .filter_map(std::result::Result::ok)
-        .collect()
-}
-
 /// Sends `message` to `window`, with `lparam` as its only parameter. Returns the reply when the
 /// window answers in time.
 pub(crate) fn ask(window: HWND, message: u32, lparam: LPARAM) -> Option<usize> {

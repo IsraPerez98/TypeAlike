@@ -31,6 +31,7 @@ mod startup;
 mod system_theme;
 mod tray;
 mod uia;
+mod utf16;
 mod window;
 
 use ghosttype_core::controller::Services;

@@ -14,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{CHILDID_SELF, OBJID_CARET, WM_GETF
 use windows::core::Interface;
 
 use crate::focus::{ask, foreground_thread_info};
+use crate::utf16::until_nul;
 
 /// The state of an accessible object that does not show. It is in `Win32_UI_Controls`, a large
 /// feature of the windows crate that GhostType does not enable for one constant.
@@ -183,7 +184,7 @@ fn font_face(window: HWND) -> Option<String> {
 
 /// Reads a face name that ends at its first nul; `None` when it is empty.
 fn face_name(units: &[u16]) -> Option<String> {
-    let name = units.split(|&unit| unit == 0).next().unwrap_or_default();
+    let name = until_nul(units);
     (!name.is_empty()).then(|| String::from_utf16_lossy(name))
 }
 

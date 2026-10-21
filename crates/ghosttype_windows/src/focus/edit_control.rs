@@ -11,7 +11,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GWL_STYLE, GetClassNameW, GetWindowLongW, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETTEXT,
 };
 
-use super::{REPLY_TIMEOUT_MS, ask, foreground_thread_info, whole_chars};
+use super::{REPLY_TIMEOUT_MS, ask, foreground_thread_info};
+use crate::utf16::whole_chars;
 
 const EDIT_CLASS_NAME: &str = "Edit";
 const MAX_CLASS_NAME_UNITS: usize = 16;

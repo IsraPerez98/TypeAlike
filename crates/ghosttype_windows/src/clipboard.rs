@@ -13,6 +13,8 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows::core::{PCWSTR, w};
 
+use crate::utf16::until_nul;
+
 /// `CF_UNICODETEXT`: text in UTF-16.
 const UNICODE_TEXT_FORMAT: u32 = 13;
 /// The formats that password managers and other apps add to text that no other app may read or
@@ -136,28 +138,4 @@ fn is_private() -> bool {
         // SAFETY: plain calls with a static, nul-terminated name.
         unsafe { IsClipboardFormatAvailable(RegisterClipboardFormatW(name)) }.is_ok()
     })
-}
-
-/// Returns the units of `units` before its first nul.
-fn until_nul(units: &[u16]) -> &[u16] {
-    units.split(|&unit| unit == 0).next().unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn text_ends_at_the_first_nul() {
-        let units = [0x48, 0x69, 0, 0x78];
-
-        assert_eq!(until_nul(&units), [0x48, 0x69]);
-    }
-
-    #[test]
-    fn text_without_nul_is_whole() {
-        let units = [0x48, 0x69];
-
-        assert_eq!(until_nul(&units), [0x48, 0x69]);
-    }
 }
