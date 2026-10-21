@@ -127,7 +127,7 @@ pub(crate) fn current_chord() -> Chord {
 pub(crate) fn typed(key: VIRTUAL_KEY, scan_code: u32) -> Typed {
     let keyboard_state = current_keyboard_state();
     let mut units = [0_u16; MAX_TRANSLATED_UNITS];
-    // SAFETY: plain call; thread 0, for no foreground window, means the current layout.
+    // SAFETY: the call takes no pointer, and thread 0, for no foreground window, means the current layout.
     let layout = unsafe { GetKeyboardLayout(focus::foreground_thread()) };
     // SAFETY: buffers are valid for the call.
     let written = unsafe {
