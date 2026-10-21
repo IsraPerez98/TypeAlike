@@ -57,18 +57,18 @@ impl<Code> Default for ReleaseFilter<Code> {
 }
 
 impl<Code: Copy + PartialEq> ReleaseFilter<Code> {
-    /// Records how the press of `key` was handled.
-    pub fn on_press(&mut self, key: Code, disposition: Disposition) {
+    /// Records how the press of `code` was handled.
+    pub fn on_press(&mut self, code: Code, disposition: Disposition) {
         match disposition {
-            Disposition::Swallow => self.swallowed = Some(key),
-            Disposition::Pass if self.swallowed == Some(key) => self.swallowed = None,
+            Disposition::Swallow => self.swallowed = Some(code),
+            Disposition::Pass if self.swallowed == Some(code) => self.swallowed = None,
             Disposition::Pass => {}
         }
     }
 
-    /// Returns how the release of `key` must be handled.
-    pub fn on_release(&mut self, key: Code) -> Disposition {
-        if self.swallowed != Some(key) {
+    /// Returns how the release of `code` must be handled.
+    pub fn on_release(&mut self, code: Code) -> Disposition {
+        if self.swallowed != Some(code) {
             return Disposition::Pass;
         }
         self.swallowed = None;
