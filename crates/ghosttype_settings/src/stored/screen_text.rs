@@ -1,4 +1,4 @@
-//! Stores the screen text settings in the settings file.
+//! Converts the screen text settings to and from the format of the settings file.
 
 use ghosttype_core::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
 use serde::{Deserialize, Serialize};

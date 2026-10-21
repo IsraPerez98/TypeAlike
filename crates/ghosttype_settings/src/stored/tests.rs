@@ -1,4 +1,4 @@
-//! Tests that the settings file format reads and writes each setting.
+//! Tests the conversion of each setting to and from the format of the settings file.
 
 use super::*;
 use ghosttype_core::settings::{

@@ -1,4 +1,4 @@
-//! Stores the personalization settings in the settings file.
+//! Converts the personalization settings to and from the format of the settings file.
 
 use ghosttype_core::settings::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
