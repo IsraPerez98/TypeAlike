@@ -108,7 +108,11 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let tray =
         Tray::add(window.handle(), &controller.tray_view()).map_err(RunError::during("add the tray icon"))?;
     // SAFETY: plain call with a static, nul-terminated name.
-    let taskbar_created_message = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
+    let taskbar_created_message =
+        Some(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }).filter(|&id| id != 0);
+    if taskbar_created_message.is_none() {
+        tracing::warn!(error = %Error::from_thread(), "failed to register the taskbar message");
+    }
     let keyboard_hook = install_hook(WH_KEYBOARD_LL, Some(keyboard_procedure))
         .map_err(RunError::during("install the keyboard hook"))?;
     let mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
@@ -211,7 +215,9 @@ struct Runtime {
     shell: Win32Shell,
     release_filter: ReleaseFilter<VIRTUAL_KEY>,
     badge_click: BadgeClickFilter,
-    taskbar_created_message: u32,
+    /// The message that comes when the taskbar starts again, or `None` when Windows did not
+    /// register it.
+    taskbar_created_message: Option<u32>,
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
     caret_reads: mpsc::Receiver<CaretRead>,
@@ -302,7 +308,7 @@ impl Runtime {
             FIELD_READ_MESSAGE => self.take_field_reads(),
             SCREEN_READ_MESSAGE => self.take_screen_reads(),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
-            _ if message == self.taskbar_created_message => {
+            _ if Some(message) == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
                     tracing::warn!(%error, "failed to re-add tray icon");
                 }
