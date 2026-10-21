@@ -54,7 +54,8 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 - Menu icons: sparingly. Give icons to all items in a group or to none. Show keyboard equivalents. Never repurpose standard shortcuts.
 
 ## Windows (settings, onboarding)
-- Settings: toolbar of panes (`toolbarStyle = .preference`), not customizable, active pane highlighted. Title = pane name, or `GhostType Settings` if one pane. Minimize and zoom buttons dimmed. Restore the last pane. ⌘, opens, ⌘W closes.
+- Settings: like System Settings. A sidebar at the leading edge (`NSSplitViewItem` sidebar, source list `NSTableView`) with a row for each pane, and the selected pane at its right. Each row shows the SF Symbol of its pane in white on a rounded tile, then the pane name. The tile has a system color (`systemBlueColor` and others) that names the pane, never a state. Title = pane name, in a unified toolbar after the sidebar (`NSToolbarSidebarTrackingSeparatorItemIdentifier`). Minimize and zoom buttons dimmed. Restore the last pane. ⌘, opens, ⌘W closes.
+- Settings width: fixed. Text never makes the window wider. A wrapping label has a low horizontal compression resistance, and a pop-up menu has a maximum width.
 - Few settings, good defaults. Never copy a system setting (appearance, accessibility). Link to the System Settings pane instead.
 - Single instance. Reopen focuses the existing window and brings the app forward.
 - Permissions (Accessibility, Input Monitoring): ask at first launch only because the core feature needs them. Explain why in one clear sentence first. Pre-prompt window: one button that opens the system prompt or System Settings pane. No cancel button, no "Allow" label. Show live status and recover when the user grants access later.

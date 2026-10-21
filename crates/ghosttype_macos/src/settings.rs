@@ -1,36 +1,38 @@
-//! The settings window: a toolbar of panes, one for each page of the core settings view, that
-//! render the pages and report user actions back.
+//! The settings window: a sidebar with a row for each page of the core settings view, and the
+//! panes that render the pages and report user actions back.
 //!
-//! Layout follows System Settings: grouped lists in rounded boxes with hairline separators
-//! between rows, under a pinned header with the search field on a page that has one.
+//! Layout follows System Settings: a source list of the pages at the leading edge, and grouped
+//! lists in rounded boxes with hairline separators between rows, under a pinned header with the
+//! search field on a page that has one.
 
 mod controls;
 mod layout;
 mod page;
 mod rows;
+mod sidebar;
 
-use ghosttype_core::settings_window::view::{self as view, ControlId, PageIcon, SettingsInput, SettingsView};
+use ghosttype_core::settings_window::view::{self as view, ControlId, SettingsInput, SettingsView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSButton, NSControl, NSControlStateValueOn,
-    NSControlTextDidChangeNotification, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton, NSSwitch,
-    NSTabViewController, NSTabViewControllerTabStyle, NSTabViewItem, NSTextDidChangeNotification,
-    NSTitleBinding, NSViewController, NSWindow, NSWindowStyleMask, NSWindowToolbarStyle,
+    NSControlTextDidChangeNotification, NSObjectNSKeyValueBindingCreation as _, NSPopUpButton,
+    NSSplitViewController, NSSplitViewItem, NSSwitch, NSTabViewController, NSTabViewControllerTabStyle,
+    NSTabViewItem, NSTextDidChangeNotification, NSTitleBinding, NSToolbar,
+    NSToolbarSidebarTrackingSeparatorItemIdentifier, NSViewController, NSViewControllerTransitionOptions,
+    NSWindow, NSWindowStyleMask, NSWindowToolbarStyle,
 };
+use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
 
 pub(crate) use crate::settings::controls::control_state;
-use crate::settings::controls::symbol;
+use crate::settings::layout::below_toolbar;
 use crate::settings::page::PageView;
+use crate::settings::sidebar::Sidebar;
 
-const WINDOW_SIZE: NSSize = NSSize::new(680.0, 680.0);
-const GEAR_SYMBOL: &str = "gearshape";
-const CUBE_SYMBOL: &str = "cube";
-const TEXT_CURSOR_SYMBOL: &str = "text.cursor";
-const TEXT_VIEWFINDER_SYMBOL: &str = "text.viewfinder";
-const PERSON_TEXT_SYMBOL: &str = "person.text.rectangle";
+const WINDOW_SIZE: NSSize = NSSize::new(820.0, 680.0);
+const SIDEBAR_WIDTH: CGFloat = 220.0;
 
 /// The object and selectors every settings control reports to.
 #[derive(Debug)]
@@ -91,6 +93,7 @@ impl Binder<'_> {
 pub(crate) struct SettingsWindow {
     window: Retained<NSWindow>,
     tabs: Retained<NSTabViewController>,
+    sidebar: Sidebar,
     panes: Vec<Pane>,
     control_ids: Vec<ControlId>,
     target: ActionTarget,
@@ -98,7 +101,8 @@ pub(crate) struct SettingsWindow {
 }
 
 impl SettingsWindow {
-    /// Builds the window with a pane for each page of `view`, hidden until [`Self::show`].
+    /// Builds the window with a pane and a sidebar row for each page of `view`, hidden until
+    /// [`Self::show`].
     ///
     /// A switch sends `target.toggle_action`, see [`Self::toggled`], a menu sends
     /// `target.pick_action`, see [`Self::picked`], and a button sends `target.press_action`, see
@@ -112,7 +116,10 @@ impl SettingsWindow {
             .map(|page| Pane::new(page, &target, main_thread))
             .collect();
         let tabs = pane_tabs(&panes, main_thread);
-        let window = settings_window(&tabs, main_thread);
+        let icons: Vec<_> = view.pages.iter().map(|page| page.icon).collect();
+        let sidebar = Sidebar::new(&icons, tabs.clone(), main_thread);
+        let split = split_view(&sidebar, &tabs, main_thread);
+        let window = settings_window(&split, &tabs, main_thread);
         // SAFETY: AppKit defines the notification names before any code runs. The target implements
         // the edit action, taking the notification, and the app keeps the target alive while it runs.
         unsafe {
@@ -124,6 +131,7 @@ impl SettingsWindow {
         Self {
             window,
             tabs,
+            sidebar,
             panes,
             control_ids: Vec::new(),
             target,
@@ -149,7 +157,8 @@ impl SettingsWindow {
             pane.set_title(page.title);
             pane.page.render(page, &mut binder);
         }
-        self.show_selected_pane_title();
+        self.sidebar.render(view.pages.iter().map(|page| page.title));
+        show_selected_pane_title(&self.tabs);
     }
 
     /// Reads the input of `switch`, a switch of a page.
@@ -193,16 +202,9 @@ impl SettingsWindow {
         let index = usize::try_from(control.tag()).ok()?;
         self.control_ids.get(index).cloned()
     }
-
-    /// Names the window after the selected pane, which the tab controller does only on a selection change.
-    fn show_selected_pane_title(&self) {
-        if let Some(selected) = self.tabs.tabView().selectedTabViewItem() {
-            self.tabs.setTitle(Some(&selected.label()));
-        }
-    }
 }
 
-/// One pane of the settings toolbar: its view controller, its toolbar item and its page.
+/// One pane of the settings window: its view controller, its tab and its page.
 #[derive(Debug)]
 struct Pane {
     controller: Retained<NSViewController>,
@@ -214,10 +216,8 @@ impl Pane {
     fn new(shown: &view::Page, target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
         let page = PageView::new(shown, target, main_thread);
         let controller = NSViewController::new(main_thread);
-        controller.setView(&page.root);
-        controller.setPreferredContentSize(WINDOW_SIZE);
+        controller.setView(&below_toolbar(&page.root, main_thread));
         let tab = NSTabViewItem::tabViewItemWithViewController(&controller);
-        tab.setImage(symbol(page_symbol(shown.icon), "").as_deref());
         Self {
             controller,
             tab,
@@ -225,7 +225,7 @@ impl Pane {
         }
     }
 
-    /// Names the pane in its toolbar item, and in the window title while the pane is selected.
+    /// Names the pane in its tab, and in the window title while the pane is selected.
     fn set_title(&self, title: &str) {
         let title = NSString::from_str(title);
         self.controller.setTitle(Some(&title));
@@ -233,45 +233,69 @@ impl Pane {
     }
 }
 
-/// The SF Symbol that shows `icon`.
-fn page_symbol(icon: PageIcon) -> &'static str {
-    match icon {
-        PageIcon::Gear => GEAR_SYMBOL,
-        PageIcon::Cube => CUBE_SYMBOL,
-        PageIcon::TextCursor => TEXT_CURSOR_SYMBOL,
-        PageIcon::TextViewfinder => TEXT_VIEWFINDER_SYMBOL,
-        PageIcon::PersonText => PERSON_TEXT_SYMBOL,
+/// Names the window after the selected pane of `tabs`, through the title of `tabs`.
+fn show_selected_pane_title(tabs: &NSTabViewController) {
+    if let Some(selected) = tabs.tabView().selectedTabViewItem() {
+        tabs.setTitle(Some(&selected.label()));
     }
 }
 
+/// The panes without tabs: the sidebar picks the pane that shows.
 fn pane_tabs(panes: &[Pane], main_thread: MainThreadMarker) -> Retained<NSTabViewController> {
     let tabs = NSTabViewController::new(main_thread);
-    tabs.setTabStyle(NSTabViewControllerTabStyle::Toolbar);
+    tabs.setTabStyle(NSTabViewControllerTabStyle::Unspecified);
+    tabs.setTransitionOptions(NSViewControllerTransitionOptions::None);
     for pane in panes {
         tabs.addTabViewItem(&pane.tab);
     }
     tabs
 }
 
-fn settings_window(tabs: &NSTabViewController, main_thread: MainThreadMarker) -> Retained<NSWindow> {
+/// The sidebar at a fixed width, then the panes.
+fn split_view(
+    sidebar: &Sidebar,
+    tabs: &NSTabViewController,
+    main_thread: MainThreadMarker,
+) -> Retained<NSSplitViewController> {
+    let sidebar_controller = NSViewController::new(main_thread);
+    sidebar_controller.setView(&sidebar.view);
+    let sidebar_item = NSSplitViewItem::sidebarWithViewController(&sidebar_controller);
+    sidebar_item.setCanCollapse(false);
+    sidebar_item.setMinimumThickness(SIDEBAR_WIDTH);
+    sidebar_item.setMaximumThickness(SIDEBAR_WIDTH);
+    let panes_item = NSSplitViewItem::splitViewItemWithViewController(tabs);
+    let split = NSSplitViewController::new(main_thread);
+    split.addSplitViewItem(&sidebar_item);
+    split.addSplitViewItem(&panes_item);
+    split
+}
+
+fn settings_window(
+    split: &NSSplitViewController,
+    tabs: &NSTabViewController,
+    main_thread: MainThreadMarker,
+) -> Retained<NSWindow> {
     // SAFETY: the window is released on close by default; the next statement turns that off
     // before the window can close.
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(main_thread),
             NSRect::new(NSPoint::ZERO, WINDOW_SIZE),
-            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable,
+            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::FullSizeContentView,
             NSBackingStoreType::Buffered,
             false,
         )
     };
     // SAFETY: the window is owned by `SettingsWindow`, so AppKit must not release it on close.
     unsafe { window.setReleasedWhenClosed(false) };
-    window.setToolbarStyle(NSWindowToolbarStyle::Preference);
+    window.setToolbar(Some(&title_toolbar(main_thread)));
+    window.setToolbarStyle(NSWindowToolbarStyle::Unified);
     window.setAutorecalculatesKeyViewLoop(true);
-    window.setContentViewController(Some(tabs));
-    // The binding below copies the title to the window, and a window title must not be nil.
+    // The window binds its title to the title of its content view controller, and the binding
+    // below to the title of the panes. A window title must not be nil.
+    split.setTitle(Some(&NSString::new()));
     tabs.setTitle(Some(&NSString::new()));
+    window.setContentViewController(Some(split));
     // SAFETY: `title` of the tab controller is a string the window can show, and the window keeps
     // the tab controller alive as its content view controller.
     unsafe {
@@ -280,4 +304,15 @@ fn settings_window(tabs: &NSTabViewController, main_thread: MainThreadMarker) ->
     window.setContentSize(WINDOW_SIZE);
     window.center();
     window
+}
+
+/// A toolbar that only puts the window title after the sidebar, over the panes.
+fn title_toolbar(main_thread: MainThreadMarker) -> Retained<NSToolbar> {
+    let toolbar = NSToolbar::new(main_thread);
+    // SAFETY: AppKit defines the identifier before any code runs, and the toolbar makes the
+    // standard item itself.
+    unsafe {
+        toolbar.insertItemWithItemIdentifier_atIndex(NSToolbarSidebarTrackingSeparatorItemIdentifier, 0);
+    }
+    toolbar
 }

@@ -219,6 +219,28 @@ pub(super) fn pinned_root(
     root
 }
 
+/// Holds `content` below the toolbar, which covers the top of the panes of the window.
+pub(super) fn below_toolbar(content: &NSView, main_thread: MainThreadMarker) -> Retained<NSView> {
+    let container = NSView::new(main_thread);
+    container.addSubview(content);
+    content.setTranslatesAutoresizingMaskIntoConstraints(false);
+    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+        content
+            .leadingAnchor()
+            .constraintEqualToAnchor(&container.leadingAnchor()),
+        content
+            .trailingAnchor()
+            .constraintEqualToAnchor(&container.trailingAnchor()),
+        content
+            .topAnchor()
+            .constraintEqualToAnchor(&container.safeAreaLayoutGuide().topAnchor()),
+        content
+            .bottomAnchor()
+            .constraintEqualToAnchor(&container.bottomAnchor()),
+    ]));
+    container
+}
+
 /// Returns a row that holds `view` at its trailing edge.
 pub(super) fn trailing_row(view: &NSView, main_thread: MainThreadMarker) -> Retained<NSStackView> {
     let row = stack(
