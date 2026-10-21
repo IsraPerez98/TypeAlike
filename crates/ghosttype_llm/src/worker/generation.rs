@@ -88,9 +88,10 @@ pub(super) fn last_word_start(vocab: &LlamaVocab<'_>, prompt_tokens: &[LlamaToke
     before_last_word.len()
 }
 
-/// Returns what stays unwritten of `unwritten` after a token with `piece` as text.
-pub(super) fn unwritten_after<'text>(unwritten: &'text [u8], piece: &[u8]) -> &'text [u8] {
-    unwritten.strip_prefix(piece).unwrap_or_default()
+/// Returns `bytes` after `prefix`, or nothing when they do not start with it: what stays unwritten
+/// after a token writes `prefix`, or the added text without the text that is already there.
+pub(super) fn after_prefix<'bytes>(bytes: &'bytes [u8], prefix: &[u8]) -> &'bytes [u8] {
+    bytes.strip_prefix(prefix).unwrap_or_default()
 }
 
 /// Whether a token with `piece` as text adds a line break after it writes the `unwritten` text.
@@ -121,13 +122,7 @@ pub(super) fn added_text(
     let added_bytes = all_bytes
         .strip_prefix(prompt_bytes.as_slice())
         .map_or_else(|| vocab.detokenize(added, false, false), <[u8]>::to_vec);
-    text_without_cut_character(text_after_prefix(&added_bytes, healed_text))
-}
-
-/// Returns `bytes` after `prefix`, or nothing when they do not start with it, so that a completion
-/// never types again text that is already there.
-fn text_after_prefix<'bytes>(bytes: &'bytes [u8], prefix: &[u8]) -> &'bytes [u8] {
-    bytes.strip_prefix(prefix).unwrap_or_default()
+    text_without_cut_character(after_prefix(&added_bytes, healed_text))
 }
 
 /// Returns `bytes` as text, without a character that the token limit cut at the end.
@@ -144,13 +139,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn written_piece_leaves_the_rest_unwritten() {
+    fn only_bytes_that_start_with_the_prefix_keep_the_rest_after_it() {
         let cases = [
             (&b" beauti"[..], &b" beaut"[..], &b"i"[..]),
             (b" beauti", b" beautiful", b""),
+            (b" world, hi", b" wor", b"ld, hi"),
+            (b" planet", b" wor", b""),
         ];
 
-        let rests = cases.map(|(unwritten, piece, _)| unwritten_after(unwritten, piece));
+        let rests = cases.map(|(bytes, prefix, _)| after_prefix(bytes, prefix));
 
         assert_eq!(rests, cases.map(|(_, _, rest)| rest));
     }
@@ -181,20 +178,6 @@ mod tests {
         let ends = cases.map(|(piece, unwritten, _)| writes_line_break(piece, unwritten));
 
         assert_eq!(ends, cases.map(|(_, _, ends)| ends));
-    }
-
-    #[test]
-    fn text_after_the_healed_prefix_is_kept() {
-        let text = text_after_prefix(b" world, hi", b" wor");
-
-        assert_eq!(text, b"ld, hi");
-    }
-
-    #[test]
-    fn text_that_does_not_start_with_the_healed_prefix_is_dropped() {
-        let text = text_after_prefix(b" planet", b" wor");
-
-        assert_eq!(text, b"");
     }
 
     #[test]

@@ -12,7 +12,7 @@ use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqSta
 
 use super::correction::{TypedLetters, typo_fix};
 use super::generation::{
-    AddedTokens, Healing, Limits, Progress, added_after, added_text, is_markup, unwritten_after,
+    AddedTokens, Healing, Limits, Progress, added_after, added_text, after_prefix, is_markup,
     writes_line_break,
 };
 use super::logits::{TokenBias, agreeing_log_probability, choose_token, with_bias};
@@ -296,7 +296,7 @@ impl<'model> PromptCache<'model> {
             let ends_line = writes_line_break(&piece, unwritten);
             words.add(text, log_probability);
             written.extend_from_slice(text);
-            unwritten = unwritten_after(unwritten, &piece);
+            unwritten = after_prefix(unwritten, &piece);
             added.push(token);
             if ends_line {
                 break;
