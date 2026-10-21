@@ -97,7 +97,7 @@ impl fmt::Debug for Engine {
 impl Engine {
     /// Uses the writer name, the writer notes, the clipboard access and the personalization of
     /// `settings` from the next session on, and its suggestion length from the next request on.
-    pub fn use_settings(&mut self, settings: &Settings) {
+    pub(crate) fn use_settings(&mut self, settings: &Settings) {
         let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
         self.writer_notes = settings.writer_notes.clone();
         self.writer_name = settings.writer_name.clone();
@@ -113,7 +113,7 @@ impl Engine {
     }
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
-    pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
+    pub(crate) fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
         if key != Key::Enter {
             self.read_field_after_enter(desktop);
         }
@@ -136,13 +136,13 @@ impl Engine {
     /// Whether the line of the caret has no text after the caret, also without a session. `false`
     /// in a field that hides that line, because text can follow the caret there.
     #[must_use]
-    pub fn is_caret_at_line_end(&self) -> bool {
+    pub(crate) fn is_caret_at_line_end(&self) -> bool {
         self.session.as_ref().is_none_or(Session::is_caret_at_line_end)
     }
 
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text
     /// before the caret when the personalization allows it.
-    pub fn reset(&mut self) -> Reaction {
+    pub(crate) fn reset(&mut self) -> Reaction {
         if let Some(session) = self.session.take() {
             self.keep_text_of(&session);
         }
@@ -151,12 +151,12 @@ impl Engine {
     }
 
     /// Whether a session runs.
-    pub fn has_session(&self) -> bool {
+    pub(crate) fn has_session(&self) -> bool {
         self.session.is_some()
     }
 
     /// The app of the session, if a session runs in an app with an id.
-    pub fn session_app(&self) -> Option<&ScreenTextApp> {
+    pub(crate) fn session_app(&self) -> Option<&ScreenTextApp> {
         self.session.as_ref()?.app.as_ref()
     }
 
@@ -233,7 +233,7 @@ impl Engine {
 
     /// Returns the text before the caret in the session, empty without a session.
     #[must_use]
-    pub fn text_before_caret(&self) -> &str {
+    pub(crate) fn text_before_caret(&self) -> &str {
         self.session
             .as_ref()
             .map_or("", |session| session.text_before.as_str())

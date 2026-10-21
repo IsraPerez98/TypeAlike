@@ -13,7 +13,7 @@ impl Engine {
     /// Reads the field of `desktop` again after Enter, and returns the suggestion for the new line
     /// when the session continues there. `None` when the user pressed no Enter since the last read,
     /// or when the session ends.
-    pub fn suggest_on_new_line(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
+    pub(crate) fn suggest_on_new_line(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
         self.read_field_after_enter(desktop).then(|| self.request())
     }
 

@@ -23,14 +23,14 @@ pub(super) fn needs_new_tables(old: &PersonalizationSettings, new: &Personalizat
 
 impl Engine {
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next session on.
-    pub fn use_history(&mut self, entries: Vec<HistoryEntry>) {
+    pub(crate) fn use_history(&mut self, entries: Vec<HistoryEntry>) {
         self.history = entries;
         self.refresh_tables();
     }
 
     /// Whether the earlier writing that suggestions may use holds a text of the place of the
     /// focused field of `desktop`.
-    pub fn has_earlier_writing_in(&self, desktop: &dyn Desktop) -> bool {
+    pub(crate) fn has_earlier_writing_in(&self, desktop: &dyn Desktop) -> bool {
         if self.history.is_empty() {
             return false;
         }
@@ -66,7 +66,7 @@ impl Engine {
 
     /// Returns the earlier writing of the user, oldest first, when it changed since the last call.
     /// The word bias and the phrases then come from the new history.
-    pub fn history_to_save(&mut self) -> Option<&[HistoryEntry]> {
+    pub(crate) fn history_to_save(&mut self) -> Option<&[HistoryEntry]> {
         if !mem::take(&mut self.has_unsaved_history) {
             return None;
         }
@@ -75,7 +75,7 @@ impl Engine {
     }
 
     /// Forgets the earlier writing of the app with `app_id`.
-    pub fn forget_history_of(&mut self, app_id: &str) {
+    pub(crate) fn forget_history_of(&mut self, app_id: &str) {
         self.history.retain(|entry| entry.app_id != app_id);
         self.has_unsaved_history = true;
     }

@@ -27,7 +27,7 @@ pub(super) enum Screen {
 impl Engine {
     /// Starts a read of the accessibility tree of the screen, and returns its id. A session that
     /// has its final screen text or waits for a read starts none.
-    pub fn start_screen_read(&mut self) -> Option<ScreenReadId> {
+    pub(crate) fn start_screen_read(&mut self) -> Option<ScreenReadId> {
         if let Some(session) = &self.session {
             let is_reading = matches!(self.screen, Screen::Reading { .. });
             if session.has_screen_read || is_reading {
@@ -40,7 +40,10 @@ impl Engine {
     /// Starts a read of the accessibility tree for the session, when the session is in a text
     /// field of an app that `screen_text` allows, and returns its id. A session that has its
     /// final screen text or waits for a read starts none.
-    pub fn start_session_screen_read(&mut self, screen_text: &ScreenTextSettings) -> Option<ScreenReadId> {
+    pub(crate) fn start_session_screen_read(
+        &mut self,
+        screen_text: &ScreenTextSettings,
+    ) -> Option<ScreenReadId> {
         let session = self.session.as_ref()?;
         let is_allowed = session
             .app
@@ -54,7 +57,7 @@ impl Engine {
 
     /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
     /// the accessibility tree, and returns its id.
-    pub fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
+    pub(crate) fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
         let is_newest_tree_read = matches!(
             self.screen,
             Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
@@ -75,7 +78,7 @@ impl Engine {
     /// session without its final screen text gets the new text, with what else surrounds the caret
     /// in `desktop` now, when its preface changes. The session then has its final screen text. The
     /// next session also gets the new text.
-    pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
+    pub(crate) fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
         if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
             return false;
         }
@@ -101,7 +104,7 @@ impl Engine {
     }
 
     /// Forgets the screen text and the read that runs, for when another field can have the focus.
-    pub fn forget_screen(&mut self) {
+    pub(crate) fn forget_screen(&mut self) {
         self.screen = Screen::Unknown;
     }
 

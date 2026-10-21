@@ -29,7 +29,7 @@ pub(super) enum Offer {
 impl Engine {
     /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
     /// Only the completion of the newest request can show.
-    pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+    pub(crate) fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
         self.unanswered_requests = self.unanswered_requests.saturating_sub(1);
         if self.unanswered_requests > 0 {
             return self.ghost_reaction();
@@ -81,7 +81,7 @@ impl Engine {
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
     /// far. Only its complete words show, and only for the newest request. Returns the reaction
     /// when the ghost text changes, or `None`.
-    pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
+    pub(crate) fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
         let is_newest = self.unanswered_requests == 1;
         (is_newest && self.grow(complete_words(text))).then(|| self.ghost_reaction())
     }

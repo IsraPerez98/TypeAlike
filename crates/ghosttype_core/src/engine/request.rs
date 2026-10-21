@@ -21,7 +21,7 @@ impl Engine {
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
     /// request that decodes its prompt before the next key. Its completion adds no text. `None`
     /// when a completion of the session runs or the field gets no suggestions.
-    pub fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
+    pub(crate) fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
         let is_completing = self.session.is_some() && self.unanswered_requests > 0;
         if is_completing {
             return None;
