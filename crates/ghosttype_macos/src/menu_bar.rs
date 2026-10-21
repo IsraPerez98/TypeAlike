@@ -8,7 +8,7 @@ use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableSta
 use objc2_foundation::NSString;
 
 use crate::labels::title_case;
-use crate::symbol::symbol_image;
+use crate::symbol::status_symbol;
 
 const SETTINGS_KEY_EQUIVALENT: &str = ",";
 const QUIT_KEY_EQUIVALENT: &str = "q";
@@ -48,7 +48,7 @@ impl MenuBarItem {
     /// Re-renders the glyph, tooltip and menu for `view`.
     pub(crate) fn update(&self, view: &TrayView) {
         if let Some(button) = self.status_item.button(self.main_thread) {
-            let image = symbol_image(view.status, view.tooltip);
+            let image = status_symbol(view.status, view.tooltip);
             if image.is_none() {
                 tracing::warn!(status = ?view.status, "menu bar symbol is unavailable");
             }

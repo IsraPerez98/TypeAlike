@@ -18,6 +18,7 @@ use objc2_foundation::{NSArray, NSRect, NSSize, NSString};
 
 use crate::labels::title_case;
 use crate::settings::{ActionTarget, Binder};
+use crate::symbol::system_symbol;
 
 const DETAIL_FONT_SIZE: CGFloat = 12.0;
 const PROGRESS_FULL: f64 = 1000.0;
@@ -94,10 +95,7 @@ pub(super) fn show_status(view: &NSImageView, symbol_name: &str, description: &s
 }
 
 pub(super) fn symbol(name: &str, description: &str) -> Option<Retained<NSImage>> {
-    let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-        &NSString::from_str(name),
-        Some(&NSString::from_str(description)),
-    );
+    let image = system_symbol(name, description);
     if image.is_none() {
         tracing::warn!(name, "settings symbol is unavailable");
     }
