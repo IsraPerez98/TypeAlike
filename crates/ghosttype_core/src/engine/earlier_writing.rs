@@ -39,17 +39,17 @@ impl Engine {
     }
 
     pub(super) fn keep_text_of(&mut self, session: &Session) {
-        let Some(app) = &session.app else {
+        let Some(app) = &session.field.app else {
             return;
         };
         let is_wanted = session.has_accepted || self.personalization.kept_texts == KeptTexts::All;
-        if session.is_excluded
+        if session.field.is_excluded
             || !is_wanted
             || self.personalization.scope_of(&app.app_id) == HistoryScope::Off
         {
             return;
         }
-        let domain = session.domain.as_deref();
+        let domain = session.field.domain.as_deref();
         let written = history::own_text(
             &self.history,
             &session.text_before,

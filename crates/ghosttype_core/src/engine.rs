@@ -157,16 +157,16 @@ impl Engine {
     /// The app of the session, if a session runs in an app with an id.
     #[must_use]
     pub(crate) fn session_app(&self) -> Option<&ScreenTextApp> {
-        self.session.as_ref()?.app.as_ref()
+        self.session.as_ref()?.field.app.as_ref()
     }
 
     /// Returns the session, and starts it with what surrounds the caret in `desktop` when there
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {
-        let session = match self.session.take() {
-            Some(session) => session,
-            None => self.new_session(desktop),
-        };
+        let session = self.session.take().unwrap_or_else(|| {
+            let surroundings = desktop.surroundings();
+            Session::new(self.preface(&surroundings, desktop), &surroundings)
+        });
         self.session.insert(session)
     }
 

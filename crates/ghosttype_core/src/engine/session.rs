@@ -1,25 +1,47 @@
 //! Holds the text of a typing session and keeps it in the token budget of the prompt.
 
-use crate::desktop::{Desktop, MAX_CHARS_BEFORE_CARET};
+use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::{CONTEXT_TOKENS, TokenCount};
 use crate::place;
 use crate::prompt;
 use crate::settings::{ScreenTextApp, SuggestionLength};
 
-use super::Engine;
-
 /// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
 pub(super) const TRIMMED_CHARS_BEFORE_CARET: usize = 3000;
 
+/// The facts of the field where a session types, which stay the same for the whole session.
+pub(super) struct SessionField {
+    /// The app where the user types, if it has an id.
+    pub(super) app: Option<ScreenTextApp>,
+    /// The host of the web page where the user types, if any.
+    pub(super) domain: Option<String>,
+    /// Whether the platform reads the text of the field.
+    pub(super) is_text_field: bool,
+    /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
+    pub(super) is_excluded: bool,
+    /// Whether the field hides the text on the line of the caret, so that text can follow the
+    /// caret also when the field gives no text after the caret.
+    is_caret_line_hidden: bool,
+}
+
+impl SessionField {
+    fn of(surroundings: &Surroundings) -> Self {
+        Self {
+            app: ScreenTextApp::of(surroundings),
+            domain: surroundings.domain.clone(),
+            is_text_field: surroundings.field_text.is_some(),
+            is_excluded: place::is_address_or_subject_field(surroundings),
+            is_caret_line_hidden: surroundings.is_caret_line_hidden,
+        }
+    }
+}
+
 /// The typing in one place: what the model reads before the text, and the text before the caret.
-/// It starts at the first key after a reset, when the key has not reached the app yet.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is an independent fact of the session"
-)]
+/// It starts at the first key after a reset, when the key has not reached the app yet, or at a
+/// preparation.
 pub(super) struct Session {
     pub(super) preface: String,
     pub(super) text_before: String,
@@ -28,18 +50,7 @@ pub(super) struct Session {
     /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
     pub(super) max_tokens_before: TokenCount,
     pub(super) text_after: String,
-    /// Whether the field hides the text on the line of the caret, so that text can follow the
-    /// caret also when `text_after` has none.
-    is_caret_line_hidden: bool,
-    /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
-    pub(super) is_excluded: bool,
-    /// The app where the user types, if it has an id.
-    pub(super) app: Option<ScreenTextApp>,
-    /// Whether the platform reads the text of the field.
-    pub(super) is_text_field: bool,
-    /// The host of the web page where the user types, if any.
-    pub(super) domain: Option<String>,
-    /// Whether the user accepted a suggestion in the session.
+    pub(super) field: SessionField,
     pub(super) has_accepted: bool,
     /// Whether a read of the screen answered during the session. Until then, the preface holds the
     /// stored text of a read before the session, if any. After it, the session starts no other
@@ -52,8 +63,35 @@ pub(super) struct Session {
 }
 
 impl Session {
+    /// Starts a session in the field of `surroundings`, where the model reads `preface` before the
+    /// text. The session keeps the end of the field text before the caret that fits after it.
+    pub(super) fn new(preface: String, surroundings: &Surroundings) -> Self {
+        let max_tokens_before = tokens_before_caret(&preface);
+        let (text_before, text_after) = surroundings
+            .field_text
+            .as_ref()
+            .map(|field_text| {
+                (
+                    recent_text(&field_text.before_caret, max_tokens_before).to_owned(),
+                    field_text.after_caret.clone(),
+                )
+            })
+            .unwrap_or_default();
+        Self {
+            preface,
+            field_chars: text_before.chars().count(),
+            text_before,
+            max_tokens_before,
+            text_after,
+            field: SessionField::of(surroundings),
+            has_accepted: false,
+            has_screen_read: false,
+            field_at_enter: None,
+        }
+    }
+
     pub(super) fn is_caret_at_line_end(&self) -> bool {
-        !self.is_caret_line_hidden
+        !self.field.is_caret_line_hidden
             && self
                 .text_after
                 .lines()
@@ -87,39 +125,6 @@ impl Session {
         }
         self.field_chars = self.field_chars.min(self.text_before.chars().count());
         self.text_before.push_str(word);
-    }
-}
-
-impl Engine {
-    pub(super) fn new_session(&self, desktop: &dyn Desktop) -> Session {
-        let surroundings = desktop.surroundings();
-        let preface = self.preface(&surroundings, desktop);
-        let max_tokens_before = tokens_before_caret(&preface);
-        let (text_before, text_after) = surroundings
-            .field_text
-            .as_ref()
-            .map(|field_text| {
-                (
-                    recent_text(&field_text.before_caret, max_tokens_before).to_owned(),
-                    field_text.after_caret.clone(),
-                )
-            })
-            .unwrap_or_default();
-        Session {
-            preface,
-            field_chars: text_before.chars().count(),
-            text_before,
-            max_tokens_before,
-            text_after,
-            is_caret_line_hidden: surroundings.is_caret_line_hidden,
-            is_excluded: place::is_address_or_subject_field(&surroundings),
-            app: ScreenTextApp::of(&surroundings),
-            domain: surroundings.domain.clone(),
-            has_accepted: false,
-            is_text_field: surroundings.field_text.is_some(),
-            has_screen_read: false,
-            field_at_enter: None,
-        }
     }
 }
 

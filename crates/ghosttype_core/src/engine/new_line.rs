@@ -24,7 +24,7 @@ impl Engine {
         let Some(session) = self
             .session
             .as_mut()
-            .filter(|session| session.is_text_field && !session.is_excluded)
+            .filter(|session| session.field.is_text_field && !session.field.is_excluded)
         else {
             return self.reset();
         };

@@ -100,10 +100,11 @@ impl Engine {
     ) -> Option<ScreenReadId> {
         let session = self.session.as_ref()?;
         let is_allowed = session
+            .field
             .app
             .as_ref()
             .is_some_and(|app| screen_text.allows(&app.app_id));
-        if !session.is_text_field || !is_allowed {
+        if !session.field.is_text_field || !is_allowed {
             return None;
         }
         self.start_screen_read()

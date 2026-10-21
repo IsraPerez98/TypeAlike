@@ -27,7 +27,7 @@ impl Engine {
             return None;
         }
         let session = self.start_session(desktop);
-        if session.is_excluded {
+        if session.field.is_excluded {
             return None;
         }
         let prompt = prompt::prompt(&session.preface, &session.text_before);
@@ -78,9 +78,13 @@ impl Engine {
     /// when no session runs or its app is off.
     fn session_pool(&self) -> Option<(&Session, HistoryPool, Place<&str>)> {
         let session = self.session.as_ref()?;
-        let app = session.app.as_ref()?;
+        let app = session.field.app.as_ref()?;
         let pool = HistoryPool::of(&app.app_id, &self.personalization)?;
-        Some((session, pool, Place::of(&app.app_id, session.domain.as_deref())))
+        Some((
+            session,
+            pool,
+            Place::of(&app.app_id, session.field.domain.as_deref()),
+        ))
     }
 
     /// The word bias of the pool of the session.
@@ -101,7 +105,7 @@ impl Engine {
     /// of the session, when the line after the caret is empty.
     fn repeated_phrase(&self) -> Option<String> {
         let (session, pool, place) = self.session_pool()?;
-        if session.is_excluded || !session.is_caret_at_line_end() {
+        if session.field.is_excluded || !session.is_caret_at_line_end() {
             return None;
         }
         self.tables
@@ -112,7 +116,10 @@ impl Engine {
     /// Returns the prompt for the text before the caret, or `None` when that text has no words or
     /// the field gets no suggestions.
     fn prompt(&self) -> Option<Prompt> {
-        let session = self.session.as_ref().filter(|session| !session.is_excluded)?;
+        let session = self
+            .session
+            .as_ref()
+            .filter(|session| !session.field.is_excluded)?;
         let has_words = !session.text_before.trim().is_empty();
         has_words.then(|| prompt::prompt(&session.preface, &session.text_before))
     }
