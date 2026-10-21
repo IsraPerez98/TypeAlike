@@ -22,7 +22,6 @@ use crate::settings::{ActionTarget, Binder, ControlAction};
 use crate::symbol::system_symbol;
 
 const DETAIL_FONT_SIZE: CGFloat = 12.0;
-const PROGRESS_FULL: f64 = 1000.0;
 const TEXT_AREA_HEIGHT: CGFloat = 120.0;
 const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const ICON_BUTTON_SIDE: CGFloat = 24.0;
@@ -98,7 +97,7 @@ pub(super) fn spinner(main_thread: MainThreadMarker) -> Retained<NSProgressIndic
     spinner.setStyle(NSProgressIndicatorStyle::Spinning);
     spinner.setControlSize(NSControlSize::Small);
     spinner.setMinValue(0.0);
-    spinner.setMaxValue(PROGRESS_FULL);
+    spinner.setMaxValue(f64::from(view::Permille::FULL.0));
     spinner.setHidden(true);
     spinner
 }

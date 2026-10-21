@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ghosttype_core::settings_window::view::{
-    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Output, Page, Picker, Row, SearchField,
-    Section, SettingsInput, Switch, TextArea, TextField, TextLine,
+    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Output, Page, Permille, Picker, Row,
+    SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
@@ -27,7 +27,6 @@ const CARD_GAP: f64 = 4.0;
 const PICKER_MIN_WIDTH: f64 = 200.0;
 const TEXT_LINE_MIN_WIDTH: f64 = 200.0;
 const PROGRESS_WIDTH: f64 = 120.0;
-const PERMILLE_MAX: f64 = 1000.0;
 const RING_SIZE: f64 = 16.0;
 const APP_ICON_SIZE: f64 = 24.0;
 
@@ -308,7 +307,7 @@ impl Renderer<'_, '_> {
                     .spacing(CONTROL_GAP)
                     .children((
                         ProgressBar::new()
-                            .maximum(PERMILLE_MAX)
+                            .maximum(f64::from(Permille::FULL.0))
                             .value(f64::from(progress.0))
                             .width(PROGRESS_WIDTH)
                             .vertical_alignment(VerticalAlignment::Center),

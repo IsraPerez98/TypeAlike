@@ -335,6 +335,11 @@ pub enum Accessory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Permille(pub u16);
 
+impl Permille {
+    /// The whole file.
+    pub const FULL: Self = Self(1000);
+}
+
 /// Why a section has no rows to show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {

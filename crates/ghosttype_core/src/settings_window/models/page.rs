@@ -29,7 +29,6 @@ const GATED_REPO_NOTE: &str = "Needs a Hugging Face account";
 const CANCELING_DETAIL: &str = "Canceling…";
 const COUNT_UNITS: [(u64, &str); 3] = [(1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")];
 const SMALLEST_ABBREVIATED_COUNT: u64 = 1_000;
-const PERMILLE_FULL: u16 = 1000;
 
 impl ModelsPane {
     pub(super) fn build_page(&self, buttons: &mut Buttons) -> Page {
@@ -239,13 +238,13 @@ fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Bu
 fn permille(received: ByteSize, total: ByteSize) -> Permille {
     let thousandths = received
         .0
-        .saturating_mul(u64::from(PERMILLE_FULL))
+        .saturating_mul(u64::from(Permille::FULL.0))
         .checked_div(total.0)
         .unwrap_or_default();
     Permille(
         u16::try_from(thousandths)
-            .unwrap_or(PERMILLE_FULL)
-            .min(PERMILLE_FULL),
+            .unwrap_or(Permille::FULL.0)
+            .min(Permille::FULL.0),
     )
 }
 
