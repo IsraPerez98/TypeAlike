@@ -39,14 +39,16 @@ impl fmt::Debug for HistoryEntry {
 
 impl HistoryEntry {
     /// The entry of `text`, which the user wrote in the app with `app_id`, on the web page of
-    /// `domain` if any, with each secret replaced. `None` when the text is too short.
+    /// `domain` if any, with each secret replaced. It keeps at most the last [`MAX_KEPT_CHARS`]
+    /// characters, from the start of a word. `None` when the text is too short.
     pub(crate) fn of(text: &str, app_id: &str, domain: Option<&str>) -> Option<Self> {
         let text = text.trim();
         if text.chars().count() < MIN_KEPT_CHARS {
             return None;
         }
+        let without_secrets = redacted(text);
         Some(Self {
-            text: end_at_word(&redacted(text), MAX_KEPT_CHARS).to_owned(),
+            text: from_word(&without_secrets, last_chars(&without_secrets, MAX_KEPT_CHARS)).to_owned(),
             app_id: app_id.to_owned(),
             domain: domain.map(str::to_owned),
         })
@@ -72,11 +74,6 @@ impl HistoryEntry {
     pub(super) fn overlaps(&self, other: &Self) -> bool {
         self.text.contains(&other.text) || other.text.contains(&self.text)
     }
-}
-
-/// Returns the end of `text` that has at most `count` characters and starts with a word.
-fn end_at_word(text: &str, count: usize) -> &str {
-    from_word(text, last_chars(text, count))
 }
 
 #[cfg(test)]
