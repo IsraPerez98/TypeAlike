@@ -1,8 +1,7 @@
 //! Tests of the ghost text, the badge and the fixes at the caret.
 
 use super::harness::{
-    ACTIVE_BADGE, Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge, loaded,
-    suggestion_request,
+    Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge, loaded,
 };
 use crate::controller::{
     CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, Delivery, FocusChange, Ghost, GhostPlacement, Timer,
@@ -12,6 +11,7 @@ use crate::engine::WordFix;
 use crate::inference::{Completion, Correction, InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key};
 use crate::settings::{Settings, SuggestionDisplay};
+use crate::test_support::{ACTIVE_BADGE, completion, suggestion_request};
 
 #[test]
 fn key_in_open_field_requests_suggestion() {
@@ -177,7 +177,7 @@ fn tab_on_the_last_part_submits_the_request_for_the_next_suggestion() {
 
     harness.press(Key::Tab);
 
-    assert_eq!(harness.last_request(), Some(suggestion_request("Best")));
+    assert_eq!(harness.last_request(), Some(suggestion_request(&[], "Best")));
 }
 
 #[test]
@@ -272,10 +272,7 @@ fn ghost_shows_at_any_caret_after_the_last_check() {
 }
 
 fn fixed(typed: &str, fixed: &str, text: &str) -> InferenceEvent {
-    let InferenceEvent::Completed(Ok(completion)) = completed(text) else {
-        unreachable!("completed gives a completion");
-    };
-    InferenceEvent::Completed(Ok(Completion {
+    InferenceEvent::Completed(completion(text).map(|completion| Completion {
         correction: Some(Correction {
             typed: typed.to_owned(),
             fixed: fixed.to_owned(),

@@ -1,6 +1,6 @@
 //! Tests of the settings window and its panes.
 
-use super::harness::{Call, Harness, loaded, mail_app, model_file, suggestion_settings};
+use super::harness::{Call, Harness, loaded, model_file, suggestion_settings};
 use crate::controller::{Delivery, Timer};
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest};
@@ -11,6 +11,7 @@ use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
 use crate::settings_window::view::{ControlId, SettingsInput};
+use crate::test_support::mail_app;
 
 #[test]
 fn general_change_saves_settings() {

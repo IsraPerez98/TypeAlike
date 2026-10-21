@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::app::{BadgeView, Status, TrayCommand, TrayView};
+use crate::app::{BadgeView, TrayCommand, TrayView};
 use crate::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView, MAX_CARET_MOVE_CHECKS,
     Services, Shell, Timer,
@@ -16,22 +16,14 @@ use crate::desktop::{
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
-use crate::inference::{
-    Completion, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability, ModelRunner,
-    NextWordBias, TokenCount,
-};
+use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
-use crate::prompt::framed_prompt;
 use crate::settings::{
-    Autostart, ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings,
-    ScreenTextApp, Settings, SettingsStore, WordChoice,
+    Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, Settings,
+    SettingsStore, WordChoice,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
-
-pub(super) const ACTIVE_BADGE: BadgeView = BadgeView {
-    status: Status::Active,
-    label: "GhostType",
-};
+use crate::test_support::{completion, mail_history_app};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
@@ -418,14 +410,7 @@ pub(super) fn suggestion_settings() -> Settings {
 }
 
 pub(super) fn completed(text: &str) -> InferenceEvent {
-    InferenceEvent::Completed(Ok(Completion {
-        text: text.to_owned(),
-        tokens: TokenCount(1),
-        duration: Duration::ZERO,
-        word_log_probabilities: Vec::new(),
-        typed_log_probability: LogProbability::default(),
-        correction: None,
-    }))
+    InferenceEvent::Completed(completion(text))
 }
 
 pub(super) fn loaded() -> InferenceEvent {
@@ -457,36 +442,6 @@ pub(super) fn field_around(before_caret: &str, after_caret: &str) -> Surrounding
             after_caret: after_caret.to_owned(),
         }),
         ..Surroundings::default()
-    }
-}
-
-pub(super) fn suggestion_request(text_before: &str) -> InferenceRequest {
-    InferenceRequest::Complete {
-        prompt: framed_prompt(&[], text_before),
-        max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-        fixes_typos: true,
-    }
-}
-
-pub(super) fn mail_app(is_on: bool) -> ScreenTextApp {
-    ScreenTextApp {
-        app_id: "com.apple.mail".to_owned(),
-        app_name: "Mail".to_owned(),
-        app_path: None,
-        is_on,
-    }
-}
-
-pub(super) fn mail_history_app(scope: HistoryScope) -> HistoryApp {
-    HistoryApp {
-        app_id: "com.apple.mail".to_owned(),
-        app_name: "Mail".to_owned(),
-        app_path: None,
-        scope,
     }
 }
 

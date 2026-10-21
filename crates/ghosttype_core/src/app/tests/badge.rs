@@ -1,23 +1,13 @@
 //! Tests of the badge at the caret and its menu.
 
 use super::fixtures::{FakeDesktop, MAIL, type_key};
-use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView, Status, TrayCommand};
+use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, TrayCommand};
 use crate::desktop::Field;
 use crate::key::Key;
 use crate::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextApp,
-    ScreenTextSettings,
+    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
 };
-
-const ACTIVE_BADGE: BadgeView = BadgeView {
-    status: Status::Active,
-    label: "GhostType",
-};
-
-const PAUSED_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "GhostType (paused)",
-};
+use crate::test_support::{ACTIVE_BADGE, PAUSED_BADGE, mail_app, mail_history_app};
 
 #[test]
 fn new_app_shows_no_badge() {
@@ -78,12 +68,7 @@ fn paused_app_shows_paused_badge_in_open_field() {
 fn mail_screen_text(access: ScreenTextAccess, is_on: bool) -> ScreenTextSettings {
     ScreenTextSettings {
         access,
-        apps: vec![ScreenTextApp {
-            app_id: "com.apple.mail".to_owned(),
-            app_name: "Mail".to_owned(),
-            app_path: None,
-            is_on,
-        }],
+        apps: vec![mail_app(is_on)],
         ..ScreenTextSettings::default()
     }
 }
@@ -91,12 +76,7 @@ fn mail_screen_text(access: ScreenTextAccess, is_on: bool) -> ScreenTextSettings
 fn mail_personalization(history: HistoryAccess, scope: HistoryScope) -> PersonalizationSettings {
     PersonalizationSettings {
         history,
-        apps: vec![HistoryApp {
-            app_id: "com.apple.mail".to_owned(),
-            app_name: "Mail".to_owned(),
-            app_path: None,
-            scope,
-        }],
+        apps: vec![mail_history_app(scope)],
         ..PersonalizationSettings::default()
     }
 }

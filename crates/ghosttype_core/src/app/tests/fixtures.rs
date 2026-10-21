@@ -1,16 +1,11 @@
-//! The fake desktops, requests and completions that the app tests share.
-
-use std::time::Duration;
+//! The fake desktops and the requests that the app tests share.
 
 use crate::app::App;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, OcrAvailability, Surroundings};
 use crate::engine::Reaction;
-use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount,
-};
 use crate::key::Key;
-use crate::prompt::framed_prompt;
 use crate::settings::{PromptPreparation, Settings};
+use crate::test_support::suggestion_request;
 
 pub(super) struct FakeDesktop(pub(super) Field);
 
@@ -65,44 +60,8 @@ pub(super) const MAIL: TextField = TextField {
     has_readable_text: true,
 };
 
-pub(super) fn preparation(lines: &[&str], text_before: &str) -> InferenceRequest {
-    InferenceRequest::Complete {
-        prompt: framed_prompt(lines, text_before),
-        max_tokens: TokenCount(0),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
-    }
-}
-
-fn request_with(lines: &[&str], text_before: &str) -> Reaction {
-    Reaction::Request(InferenceRequest::Complete {
-        prompt: framed_prompt(lines, text_before),
-        max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-        fixes_typos: true,
-    })
-}
-
 pub(super) fn request(text_before: &str) -> Reaction {
-    request_with(&[], text_before)
-}
-
-#[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
-pub(super) fn completion(text: &str) -> Result<Completion, InferenceError> {
-    Ok(Completion {
-        text: text.to_owned(),
-        tokens: TokenCount(1),
-        duration: Duration::ZERO,
-        word_log_probabilities: Vec::new(),
-        typed_log_probability: LogProbability::default(),
-        correction: None,
-    })
+    Reaction::Request(suggestion_request(&[], text_before))
 }
 
 pub(super) fn type_key(app: &mut App, character: char) -> Reaction {

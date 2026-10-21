@@ -1,16 +1,12 @@
 //! Tests of the commands of the tray menu.
 
 use super::harness::{Call, Harness, ghost_at_caret, model_file, suggestion_settings};
-use crate::app::{BadgeView, Status, TrayCommand};
+use crate::app::TrayCommand;
 use crate::hub::HubRequest;
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
 use crate::settings::Settings;
-
-const PAUSED_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "GhostType (paused)",
-};
+use crate::test_support::PAUSED_BADGE;
 
 #[test]
 fn pause_hides_ghost() {

@@ -1,12 +1,12 @@
 //! Tests of the screen reads that the controller starts.
 
-use super::harness::{Call, Harness, mail_app};
+use super::harness::{Call, Harness};
 use crate::controller::{Delivery, Timer};
 use crate::desktop::{OcrAvailability, ScreenRead, ScreenSource, ScreenText};
-use crate::inference::{InferenceRequest, NextWordBias, TokenCount};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextSettings, Settings};
 use crate::settings_window::view::{ControlId, SettingsInput};
+use crate::test_support::{mail_app, preparation_request};
 
 #[test]
 fn settled_input_in_a_text_field_reads_the_screen() {
@@ -73,15 +73,10 @@ fn screen_answer_prepares_the_prompt_on_focus() {
 
     assert_eq!(
         harness.last_request(),
-        Some(InferenceRequest::Complete {
-            prompt: crate::prompt::framed_prompt(&["Where I am typing: Format: email; App: Mail"], ""),
-            max_tokens: TokenCount(0),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
-            min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
-        })
+        Some(preparation_request(
+            &["Where I am typing: Format: email; App: Mail"],
+            ""
+        ))
     );
 }
 

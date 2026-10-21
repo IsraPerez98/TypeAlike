@@ -1,6 +1,6 @@
 //! Tests of the suggestions, the prompt preparation and the pause of the app.
 
-use super::fixtures::{FakeDesktop, app_preparing_on_focus, completion, preparation, request, type_key};
+use super::fixtures::{FakeDesktop, app_preparing_on_focus, request, type_key};
 use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
@@ -8,6 +8,7 @@ use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;
 use crate::prompt::prompt_with_notes;
 use crate::settings::{Settings, SuggestionDisplay, WriterNotes};
+use crate::test_support::{completion, preparation_request};
 
 /// A field of an unknown app with this text before the caret.
 struct EditedField(&'static str);
@@ -147,7 +148,7 @@ fn settled_input_prepares_the_open_field() {
 
     let request = app.on_input_settled(&FakeDesktop(Field::Open));
 
-    assert_eq!(request, Some(SettledWork::Prepare(preparation(&[], ""))));
+    assert_eq!(request, Some(SettledWork::Prepare(preparation_request(&[], ""))));
 }
 
 #[test]
@@ -197,7 +198,7 @@ fn settled_input_after_enter_that_emptied_the_field_prepares_a_new_session() {
 
     let work = app.on_input_settled(&EditedField(""));
 
-    assert_eq!(work, Some(SettledWork::Prepare(preparation(&[], ""))));
+    assert_eq!(work, Some(SettledWork::Prepare(preparation_request(&[], ""))));
 }
 
 #[test]

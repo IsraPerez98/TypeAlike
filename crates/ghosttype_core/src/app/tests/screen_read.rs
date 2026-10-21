@@ -1,6 +1,6 @@
 //! Tests of the screen reads that the app starts and the answers that it uses.
 
-use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_focus, completion, preparation};
+use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_focus};
 use crate::app::{App, SettledWork};
 use crate::desktop::{
     Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
@@ -9,9 +9,10 @@ use crate::desktop::{
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{
-    HistoryAccess, OcrLevel, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
+    HistoryAccess, OcrLevel, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
     ScreenTextSettings, Settings,
 };
+use crate::test_support::{completion, mail_app, preparation_request};
 
 const MAIL_WITH_OCR: TextField = TextField {
     ocr: OcrAvailability::Ready,
@@ -99,7 +100,7 @@ fn screen_text_off_prepares_on_focus_at_once() {
 
     assert_eq!(
         work,
-        Some(SettledWork::Prepare(preparation(
+        Some(SettledWork::Prepare(preparation_request(
             &["Where I am typing: Format: email"],
             ""
         )))
@@ -200,12 +201,7 @@ fn no_read_starts_at_the_first_key_in_an_app_that_is_off() {
     let mut app = App::new();
     app.use_settings(&Settings {
         screen_text: ScreenTextSettings {
-            apps: vec![ScreenTextApp {
-                app_id: "com.apple.mail".to_owned(),
-                app_name: "Mail".to_owned(),
-                app_path: None,
-                is_on: false,
-            }],
+            apps: vec![mail_app(false)],
             ..ScreenTextSettings::default()
         },
         ..Settings::default()
@@ -272,7 +268,7 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
 
     assert_eq!(
         request,
-        Some(SettledWork::Prepare(preparation(
+        Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
                 "Above the field on my screen: “Dinner at 7?”"
@@ -302,7 +298,7 @@ fn answer_to_the_screen_read_prepares_on_focus() {
 
     assert_eq!(
         request,
-        Some(SettledWork::Prepare(preparation(
+        Some(SettledWork::Prepare(preparation_request(
             &["Where I am typing: Format: email"],
             ""
         )))
@@ -345,7 +341,7 @@ fn answer_to_the_screen_read_prepares_a_place_with_earlier_writing_before_the_fi
 
     assert_eq!(
         request,
-        Some(SettledWork::Prepare(preparation(
+        Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
                 "My earlier writing:\n“Dear Ana, the report is ready.”"
@@ -484,7 +480,7 @@ fn answer_of_the_ocr_goes_into_the_prompt() {
 
     assert_eq!(
         work,
-        Some(SettledWork::Prepare(preparation(
+        Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
                 "Above the field on my screen: “Dinner at 7?”"

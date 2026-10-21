@@ -1,12 +1,11 @@
 //! Tests of the menu of the badge at the caret.
 
-use super::harness::{
-    Call, Harness, history_on, mail_app, mail_entry, mail_history_app, suggestion_settings,
-};
+use super::harness::{Call, Harness, history_on, mail_entry, suggestion_settings};
 use crate::app::{BadgeCommand, Status, TrayCommand};
 use crate::inference::InferenceRequest;
 use crate::key::Key;
 use crate::settings::{HistoryScope, Settings};
+use crate::test_support::{mail_app, mail_history_app};
 
 #[test]
 fn badge_command_pauses_suggestions_and_unloads_the_model() {

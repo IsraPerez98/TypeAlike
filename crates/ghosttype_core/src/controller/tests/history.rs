@@ -1,15 +1,14 @@
 //! Tests of the earlier writing that the controller loads and saves.
 
-use super::harness::{Harness, history_on, mail_app, mail_entry, mail_history_app};
+use super::harness::{Harness, history_on, mail_entry};
 use crate::controller::Timer;
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
-use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;
-use crate::prompt::framed_prompt;
 use crate::settings::{HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings};
 use crate::settings_window::general::CLIPBOARD;
 use crate::settings_window::personalization::{DELETE, HISTORY};
+use crate::test_support::{mail_app, mail_history_app, suggestion_request};
 
 #[test]
 fn key_in_a_new_app_saves_nothing_before_the_input_settles() {
@@ -109,21 +108,13 @@ fn earlier_writing_of_the_store_goes_into_the_prompt() {
 
     assert_eq!(
         harness.last_request(),
-        Some(InferenceRequest::Complete {
-            prompt: framed_prompt(
-                &[
-                    "Where I am typing: Format: email; App: Mail",
-                    "My earlier writing:\n“Cheers,\nTom”"
-                ],
-                "H"
-            ),
-            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
-            min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-            fixes_typos: true,
-        })
+        Some(suggestion_request(
+            &[
+                "Where I am typing: Format: email; App: Mail",
+                "My earlier writing:\n“Cheers,\nTom”"
+            ],
+            "H"
+        ))
     );
 }
 

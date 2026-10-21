@@ -1,15 +1,13 @@
 //! Tests of the work that the controller does when the input settles.
 
-use super::harness::{
-    ACTIVE_BADGE, Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge,
-    suggestion_request,
-};
+use super::harness::{Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge};
 use crate::app::INPUT_SETTLE_DELAY;
 use crate::controller::{FocusChange, Timer};
 use crate::desktop::Surroundings;
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, Settings};
+use crate::test_support::{ACTIVE_BADGE, suggestion_request};
 
 #[test]
 fn input_waits_for_input_to_settle() {
@@ -71,7 +69,7 @@ fn suggestion_shows_after_enter_and_a_pause() {
     assert_eq!(
         (harness.last_request(), harness.take_calls()),
         (
-            Some(suggestion_request("Best regards,\n")),
+            Some(suggestion_request(&[], "Best regards,\n")),
             vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
         )
     );
@@ -87,7 +85,7 @@ fn key_before_the_pause_after_enter_continues_the_new_line() {
 
     assert_eq!(
         harness.last_request(),
-        Some(suggestion_request("Best regards,\nS"))
+        Some(suggestion_request(&[], "Best regards,\nS"))
     );
 }
 
