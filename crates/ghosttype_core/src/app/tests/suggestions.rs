@@ -3,7 +3,7 @@
 use super::fixtures::{FakeDesktop, app_preparing_on_focus, completion, preparation, request, type_key};
 use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
-use crate::engine::{Reaction, TYPO_CUT};
+use crate::engine::Reaction;
 use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;
 use crate::prompt::prompt_with_notes;
@@ -135,7 +135,7 @@ fn settings_give_the_writer_notes() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: Some(TYPO_CUT),
+            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
             fixes_typos: true,
         })
     );

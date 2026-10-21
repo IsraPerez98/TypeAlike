@@ -2,7 +2,7 @@
 
 use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
-use crate::engine::{Engine, Reaction, TYPO_CUT};
+use crate::engine::{Engine, Reaction};
 use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount};
 use crate::key::Key;
 use crate::prompt;
@@ -51,7 +51,7 @@ fn cpu_backend_asks_for_short_suggestions() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(SuggestionLength::Short.tail_cut()),
-            min_typed_log_probability: Some(TYPO_CUT),
+            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
             fixes_typos: true,
         })
     );
@@ -98,7 +98,7 @@ fn very_short_suggestion_length_asks_for_three_tokens() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(SuggestionLength::VeryShort.tail_cut()),
-            min_typed_log_probability: Some(TYPO_CUT),
+            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
             fixes_typos: true,
         })
     );
@@ -126,7 +126,7 @@ fn longer_suggestion_lengths_ask_for_more_tokens_and_lower_tail_cuts() {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(LogProbability(cut)),
-                min_typed_log_probability: Some(TYPO_CUT),
+                min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
                 fixes_typos: true,
             })
         })

@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
-use crate::engine::{Engine, Reaction, TYPO_CUT};
+use crate::engine::{Engine, Reaction};
 use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;
 use crate::prompt;
@@ -192,7 +192,7 @@ fn writer_notes_come_after_the_frame() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: Some(TYPO_CUT),
+            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
             fixes_typos: true,
         })
     );

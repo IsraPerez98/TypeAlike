@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use crate::desktop::{CopiedText, Desktop, Field, FieldLabels, FieldText, Surroundings};
-use crate::engine::{AfterAccept, Engine, Reaction, TYPO_CUT};
+use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{
     Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount,
@@ -104,7 +104,7 @@ pub(super) fn request_with(lines: &[&str], text_before: &str) -> Reaction {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Some(TYPO_CUT),
+        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
         fixes_typos: true,
     })
 }

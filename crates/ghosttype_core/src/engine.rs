@@ -26,8 +26,6 @@ use session::Session;
 use suggestion::split_next_part;
 
 pub use reaction::{AfterAccept, Reaction, WordFix};
-#[cfg(test)]
-pub(crate) use request::TYPO_CUT;
 
 /// Tracks the text at the caret and the model's suggestion for it.
 pub(crate) struct Engine {

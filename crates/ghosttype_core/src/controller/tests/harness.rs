@@ -14,7 +14,6 @@ use crate::controller::{
 use crate::desktop::{
     CopiedText, Desktop, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
-use crate::engine::TYPO_CUT;
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
 use crate::inference::{
@@ -466,7 +465,7 @@ pub(super) fn suggestion_request(text_before: &str) -> InferenceRequest {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Some(TYPO_CUT),
+        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
         fixes_typos: true,
     }
 }

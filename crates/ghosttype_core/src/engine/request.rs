@@ -2,7 +2,7 @@
 
 use crate::desktop::Desktop;
 use crate::history::HistoryPool;
-use crate::inference::{InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, WordBias};
+use crate::inference::{InferenceRequest, NextWordBias, Prompt, TokenCount, WordBias};
 use crate::place::Place;
 use crate::prompt;
 use crate::settings::{TypoFix, TypoRule};
@@ -12,10 +12,6 @@ use super::session::Session;
 use super::{Engine, Reaction};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
-/// The least likely that the typed letters of the last word can be before GhostType takes them
-/// for a typo. In the prompt eval, this cut catches 26 to 29 of the 29 typos and hides 1 to 3 of
-/// 393 other cases, each a rare name or word that the suggestion did not finish right.
-pub(crate) const TYPO_CUT: LogProbability = LogProbability(-11.0);
 
 impl Engine {
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
@@ -63,15 +59,9 @@ impl Engine {
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
             min_log_probability: Some(self.suggestion_length.tail_cut()),
-            min_typed_log_probability: self.typo_cut(),
+            min_typed_log_probability: self.typo_rule.typed_letters_cut(),
             fixes_typos: self.typo_rule == TypoRule::HideSuggestions && self.typo_fix == TypoFix::Offer,
         })
-    }
-
-    /// The least likely that the typed letters of the last word can be, when the rule for typos
-    /// hides suggestions.
-    fn typo_cut(&self) -> Option<LogProbability> {
-        (self.typo_rule == TypoRule::HideSuggestions).then_some(TYPO_CUT)
     }
 
     /// The pool of the earlier writing that the session uses, and the place of the session. `None`
