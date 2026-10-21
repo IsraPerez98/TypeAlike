@@ -153,7 +153,9 @@ fn screen_text_of<'a>(
 /// a queue of its own, so this waits for the answer.
 fn capture_band(process: i32, field: CGRect) -> Option<Capture> {
     let (sender, receiver) = mpsc::channel();
-    let on_content = RcBlock::new(move |content: *mut SCShareableContent, _error: *mut NSError| {
+    let on_content = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
+        // SAFETY: `ScreenCaptureKit` gives a valid error or null, which lives during the call.
+        log_capture_error(unsafe { error.as_ref() }, "list the windows");
         // SAFETY: `ScreenCaptureKit` gives a valid object or null.
         let content = unsafe { Retained::retain(content) };
         let is_started = content.is_some_and(|content| start_capture(&content, process, field, &sender));
@@ -169,7 +171,11 @@ fn capture_band(process: i32, field: CGRect) -> Option<Capture> {
             &on_content,
         );
     }
-    receiver.recv_timeout(CAPTURE_TIMEOUT).ok().flatten()
+    receiver
+        .recv_timeout(CAPTURE_TIMEOUT)
+        .inspect_err(|error| tracing::debug!(%error, "the capture gave no answer"))
+        .ok()
+        .flatten()
 }
 
 /// Starts the capture of the band of the window of `process` around `field`, which goes to
@@ -198,7 +204,9 @@ fn start_capture(
     let scale = f64::from(unsafe { SCShareableContent::infoForFilter(&filter).pointPixelScale() });
     let configuration = band_configuration(band, frame.origin, scale);
     let sender = sender.clone();
-    let on_image = RcBlock::new(move |image: *mut CGImage, _error: *mut NSError| {
+    let on_image = RcBlock::new(move |image: *mut CGImage, error: *mut NSError| {
+        // SAFETY: `ScreenCaptureKit` gives a valid error or null, which lives during the call.
+        log_capture_error(unsafe { error.as_ref() }, "capture the band");
         // SAFETY: `ScreenCaptureKit` gives a valid image or null, which the block does not own.
         let image = NonNull::new(image).map(|image| unsafe { CFRetained::retain(image) });
         let capture = image.map(|image| Capture {
@@ -218,6 +226,13 @@ fn start_capture(
         );
     }
     true
+}
+
+/// Logs the code of `error`, which `ScreenCaptureKit` gives when `step` fails.
+fn log_capture_error(error: Option<&NSError>, step: &str) {
+    if let Some(error) = error {
+        tracing::debug!(code = error.code(), step, "ScreenCaptureKit gave an error");
+    }
 }
 
 fn send_capture(sender: &mpsc::Sender<Option<Capture>>, capture: Option<Capture>) {
