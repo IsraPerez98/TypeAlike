@@ -1,5 +1,5 @@
-//! The parts that several panes share to show their controls and to apply what the user does
-//! with them: the menus of a value table, the list of apps, and the change of a setting.
+//! The parts that several panes share to show their controls and to apply the changes of the user.
+//! They are the menus of a value table, the list of apps, and the change of a setting.
 
 use crate::settings_window::view::{ChoiceText, ControlId, Message, Picker, Row, Section};
 

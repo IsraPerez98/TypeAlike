@@ -1,5 +1,5 @@
-//! What a completion takes and gives: its decoder and limits, its progress, the healed text, the
-//! state of each step and the added tokens, with the text that they add.
+//! What a completion takes and gives. It has the decoder, the limits, the progress and the healed
+//! text. It also has the state of each step and the added tokens with their text.
 
 use std::str;
 
