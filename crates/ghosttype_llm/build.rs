@@ -51,15 +51,19 @@ fn copy_dlls(source: &Path, destinations: &[PathBuf]) {
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
         });
     for dll in dlls {
-        let name = dll.file_name().expect("a directory entry has a name");
-        for destination in destinations {
-            if let Err(error) = fs::copy(&dll, destination.join(name)) {
-                println!(
-                    "cargo::warning=cannot copy {} to {}: {error}",
-                    dll.display(),
-                    destination.display()
-                );
-            }
+        copy_dll(&dll, destinations);
+    }
+}
+
+fn copy_dll(dll: &Path, destinations: &[PathBuf]) {
+    let name = dll.file_name().expect("a directory entry has a name");
+    for destination in destinations {
+        if let Err(error) = fs::copy(dll, destination.join(name)) {
+            println!(
+                "cargo::warning=cannot copy {} to {}: {error}",
+                dll.display(),
+                destination.display()
+            );
         }
     }
 }
