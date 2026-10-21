@@ -5,11 +5,14 @@
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSPanel, NSScreen, NSStatusWindowLevel, NSWindowAnimationBehavior,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSBackingStoreType, NSBox, NSBoxType, NSColor, NSPanel, NSScreen, NSStatusWindowLevel, NSTitlePosition,
+    NSView, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::NSRect;
+use objc2_foundation::{NSRect, NSSize};
+
+/// The width of the border of a rounded panel, in points.
+pub(crate) const ROUNDED_PANEL_BORDER_WIDTH: CGFloat = 1.0;
 
 /// Builds a borderless panel that floats over every app on every Space. It never takes focus,
 /// and clicks go through it.
@@ -36,6 +39,28 @@ pub(crate) fn floating_panel(main_thread: MainThreadMarker) -> Retained<NSPanel>
             | NSWindowCollectionBehavior::IgnoresCycle
             | NSWindowCollectionBehavior::Stationary,
     );
+    panel
+}
+
+/// Builds a floating panel that shows `content` in a box with round corners of `corner_radius`
+/// and a hairline border, with `padding` points between the border and `content`.
+pub(crate) fn rounded_panel(
+    content: &NSView,
+    corner_radius: CGFloat,
+    padding: CGFloat,
+    main_thread: MainThreadMarker,
+) -> Retained<NSPanel> {
+    let background = NSBox::new(main_thread);
+    background.setBoxType(NSBoxType::Custom);
+    background.setTitlePosition(NSTitlePosition::NoTitle);
+    background.setCornerRadius(corner_radius);
+    background.setBorderWidth(ROUNDED_PANEL_BORDER_WIDTH);
+    background.setBorderColor(&NSColor::separatorColor());
+    background.setFillColor(&NSColor::windowBackgroundColor());
+    background.setContentViewMargins(NSSize::new(padding, padding));
+    background.setContentView(Some(content));
+    let panel = floating_panel(main_thread);
+    panel.setContentView(Some(&background));
     panel
 }
 

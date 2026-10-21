@@ -4,9 +4,9 @@
 use ghosttype_core::app::BadgeView;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSBox, NSBoxType, NSColor, NSImageView, NSPanel, NSTitlePosition};
+use objc2_app_kit::{NSColor, NSImageView, NSPanel};
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSRect};
 
 use crate::geometry::{self, Caret, appkit_origin};
 use crate::{panel, symbol};
@@ -14,7 +14,6 @@ use crate::{panel, symbol};
 const BADGE_SIZE: CGFloat = 24.0;
 const BADGE_PADDING: CGFloat = 4.0;
 const BADGE_CORNER_RADIUS: CGFloat = 7.0;
-const BADGE_BORDER_WIDTH: CGFloat = 1.0;
 const GAP_ABOVE_CARET: CGFloat = 2.0;
 
 #[derive(Debug)]
@@ -29,17 +28,7 @@ impl Badge {
     pub(crate) fn new(main_thread: MainThreadMarker) -> Self {
         let glyph = NSImageView::new(main_thread);
         glyph.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
-        let background = NSBox::new(main_thread);
-        background.setBoxType(NSBoxType::Custom);
-        background.setTitlePosition(NSTitlePosition::NoTitle);
-        background.setCornerRadius(BADGE_CORNER_RADIUS);
-        background.setBorderWidth(BADGE_BORDER_WIDTH);
-        background.setBorderColor(&NSColor::separatorColor());
-        background.setFillColor(&NSColor::windowBackgroundColor());
-        background.setContentViewMargins(NSSize::new(BADGE_PADDING, BADGE_PADDING));
-        background.setContentView(Some(&glyph));
-        let panel = panel::floating_panel(main_thread);
-        panel.setContentView(Some(&background));
+        let panel = panel::rounded_panel(&glyph, BADGE_CORNER_RADIUS, BADGE_PADDING, main_thread);
         Self {
             panel,
             glyph,

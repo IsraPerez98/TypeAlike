@@ -6,8 +6,7 @@ use ghosttype_core::controller::{Ghost, GhostView};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSBox, NSBoxType, NSColor, NSFont, NSFontWeightSemibold, NSPanel,
-    NSScreen, NSTextField, NSTitlePosition,
+    NSAttributedStringNSStringDrawing, NSColor, NSFont, NSFontWeightSemibold, NSPanel, NSScreen, NSTextField,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSPoint, NSRect, NSSize, NSString};
@@ -18,11 +17,10 @@ use crate::{overlay, panel};
 
 const MIRROR_PADDING: CGFloat = 6.0;
 const MIRROR_CORNER_RADIUS: CGFloat = 6.0;
-const MIRROR_BORDER_WIDTH: CGFloat = 1.0;
 const MAX_TEXT_WIDTH: CGFloat = 480.0;
 const GAP_TO_FIELD: CGFloat = 4.0;
 /// The distance from an edge of the mirror to its text.
-const TEXT_INSET: CGFloat = MIRROR_PADDING + MIRROR_BORDER_WIDTH;
+const TEXT_INSET: CGFloat = MIRROR_PADDING + panel::ROUNDED_PANEL_BORDER_WIDTH;
 /// The opacity of the label color for the ghost text. It keeps a contrast of 5.5:1 on the mirror
 /// in the light appearance, where the secondary label color has only 3.8:1.
 const GHOST_TEXT_OPACITY: CGFloat = 0.6;
@@ -38,17 +36,7 @@ impl Mirror {
     pub(crate) fn new(main_thread: MainThreadMarker) -> Self {
         let label = NSTextField::wrappingLabelWithString(&NSString::new(), main_thread);
         label.setPreferredMaxLayoutWidth(MAX_TEXT_WIDTH);
-        let background = NSBox::new(main_thread);
-        background.setBoxType(NSBoxType::Custom);
-        background.setTitlePosition(NSTitlePosition::NoTitle);
-        background.setCornerRadius(MIRROR_CORNER_RADIUS);
-        background.setBorderWidth(MIRROR_BORDER_WIDTH);
-        background.setBorderColor(&NSColor::separatorColor());
-        background.setFillColor(&NSColor::windowBackgroundColor());
-        background.setContentViewMargins(NSSize::new(MIRROR_PADDING, MIRROR_PADDING));
-        background.setContentView(Some(&label));
-        let panel = panel::floating_panel(main_thread);
-        panel.setContentView(Some(&background));
+        let panel = panel::rounded_panel(&label, MIRROR_CORNER_RADIUS, MIRROR_PADDING, main_thread);
         Self {
             panel,
             label,
