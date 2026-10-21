@@ -14,6 +14,7 @@ use windows::core::{Owned, Result};
 use crate::gdi::glyph_icon;
 use crate::menu;
 use crate::pixels::Rgb;
+use crate::struct_size;
 use crate::system_theme::is_taskbar_light;
 
 /// Message the shell sends to the owner window for icon clicks.
@@ -87,9 +88,7 @@ impl Tray {
 
     fn notify(&self, message: NOTIFY_ICON_MESSAGE) -> Result<()> {
         let data = NOTIFYICONDATAW {
-            cbSize: size_of::<NOTIFYICONDATAW>()
-                .try_into()
-                .expect("data size fits in u32"),
+            cbSize: struct_size::<NOTIFYICONDATAW>(),
             hWnd: self.window,
             uID: ICON_ID,
             uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,

@@ -13,6 +13,7 @@ use windows::core::{PCSTR, PCWSTR, w};
 
 use crate::pixels::Rgb;
 use crate::registry::read_value;
+use crate::struct_size;
 
 const PERSONALIZE_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
 const UXTHEME: PCWSTR = w!("uxtheme.dll");
@@ -176,9 +177,7 @@ fn read_personalize_flag(name: PCWSTR) -> Option<u32> {
 
 fn is_high_contrast_on() -> bool {
     let mut settings = HIGHCONTRASTW {
-        cbSize: size_of::<HIGHCONTRASTW>()
-            .try_into()
-            .expect("settings size fits in u32"),
+        cbSize: struct_size::<HIGHCONTRASTW>(),
         ..HIGHCONTRASTW::default()
     };
     // SAFETY: the structure is a local whose size is set as the call requires.

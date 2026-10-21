@@ -11,6 +11,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::core::Result;
 
+use crate::struct_size;
+
 /// The pixels in one inch at a scale of 100 %.
 pub(crate) const DEFAULT_DPI: i32 = 96;
 
@@ -38,9 +40,7 @@ pub(crate) fn work_area(point: POINT) -> Result<RECT> {
     // SAFETY: plain call.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
     let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>()
-            .try_into()
-            .expect("monitor info size fits in u32"),
+        cbSize: struct_size::<MONITORINFO>(),
         ..MONITORINFO::default()
     };
     // SAFETY: `info` is a local with its size set.

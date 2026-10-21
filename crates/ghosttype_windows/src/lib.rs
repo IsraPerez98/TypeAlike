@@ -56,6 +56,11 @@ impl RunError {
     }
 }
 
+/// The size of the Win32 structure `T`, for the field or the argument that tells Win32 its size.
+fn struct_size<T>() -> u32 {
+    u32::try_from(size_of::<T>()).expect("a Win32 structure is smaller than 4 GiB")
+}
+
 /// Runs GhostType in the tray until the user quits.
 ///
 /// GhostType starts with the saved `settings` and works through `services`. The suggestion model

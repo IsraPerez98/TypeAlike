@@ -12,6 +12,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, Result};
 
+use crate::struct_size;
+
 /// A window, as a value that can go to another thread, which an `HWND` cannot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WindowId(isize);
@@ -145,9 +147,7 @@ impl WindowClass {
         // SAFETY: plain call that loads a shared system cursor, which is never freed.
         let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }?;
         let class = WNDCLASSEXW {
-            cbSize: size_of::<WNDCLASSEXW>()
-                .try_into()
-                .expect("class size fits in u32"),
+            cbSize: struct_size::<WNDCLASSEXW>(),
             lpfnWndProc: spec.procedure,
             hInstance: instance,
             hCursor: cursor,

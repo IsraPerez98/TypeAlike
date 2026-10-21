@@ -10,6 +10,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::{Error, Owned, Result};
 
+use crate::struct_size;
+
 const BITS_PER_PIXEL: u16 = 32;
 
 /// A DIB section bitmap whose pixel memory this process can write.
@@ -25,9 +27,7 @@ impl PixelSection {
     pub(super) fn new(size: SIZE) -> Result<Self> {
         let info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
-                biSize: size_of::<BITMAPINFOHEADER>()
-                    .try_into()
-                    .expect("header size fits in u32"),
+                biSize: struct_size::<BITMAPINFOHEADER>(),
                 biWidth: size.cx,
                 biHeight: -size.cy,
                 biPlanes: 1,

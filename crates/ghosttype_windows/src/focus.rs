@@ -19,6 +19,7 @@ use windows::core::{Owned, PWSTR, Result};
 
 pub(crate) use self::edit_control::edit_field_text;
 use self::edit_control::is_password_focused;
+use crate::struct_size;
 use crate::window::WindowId;
 
 const REPLY_TIMEOUT_MS: u32 = 50;
@@ -196,9 +197,7 @@ pub(crate) fn foreground_thread_info() -> Option<GUITHREADINFO> {
     // SAFETY: plain calls; a null foreground window yields thread 0, which GetGUIThreadInfo rejects.
     let thread = unsafe { GetWindowThreadProcessId(GetForegroundWindow(), None) };
     let mut info = GUITHREADINFO {
-        cbSize: size_of::<GUITHREADINFO>()
-            .try_into()
-            .expect("info size fits in u32"),
+        cbSize: struct_size::<GUITHREADINFO>(),
         ..GUITHREADINFO::default()
     };
     // SAFETY: `info` is a local with its size set.
@@ -228,9 +227,7 @@ fn is_elevated(process: HANDLE) -> Result<bool> {
             *token,
             TokenElevation,
             Some((&raw mut elevation).cast()),
-            size_of::<TOKEN_ELEVATION>()
-                .try_into()
-                .expect("elevation size fits in u32"),
+            struct_size::<TOKEN_ELEVATION>(),
             &raw mut written,
         )
     }?;
