@@ -2,6 +2,8 @@
 //!
 //! It has the page that scrolls, the cards on it and the secondary text.
 
+use std::iter;
+
 use ghosttype_core::settings_window::view::{Note, NoteTone};
 use windows_reactor::{
     Border, Grid, GridLength, ScrollBarVisibility, ScrollViewer, StackPanel, TextBlock, TextWrapping,
@@ -63,21 +65,26 @@ pub(super) fn control_card(label: &str, description: &str, note: Option<&Note>, 
             .flatten()
             .collect::<Vec<View>>(),
         );
+    two_column_card(texts.grid_column(0).into(), Some(control))
+}
+
+/// A card with `leading`, which the caller puts in column 0, at the leading edge, and `trailing`,
+/// when there is one, at the trailing edge.
+pub(super) fn two_column_card(leading: View, trailing: Option<View>) -> View {
+    let trailing = trailing.map(|control| {
+        Border::new()
+            .grid_column(1)
+            .vertical_alignment(VerticalAlignment::Center)
+            .content(control)
+            .into()
+    });
     card(
         Grid::new()
             .columns([GridLength::STAR, GridLength::Auto])
             .column_spacing(CONTROL_GAP)
-            .children((texts.grid_column(0), control_with_column(control)))
+            .children(iter::once(leading).chain(trailing).collect::<Vec<View>>())
             .into(),
     )
-}
-
-pub(super) fn control_with_column(control: View) -> View {
-    Border::new()
-        .grid_column(1)
-        .vertical_alignment(VerticalAlignment::Center)
-        .content(control)
-        .into()
 }
 
 pub(super) fn secondary_text(text: &str) -> TextBlock {

@@ -15,7 +15,7 @@ use windows_reactor::{
 };
 
 use super::layout::{
-    CONTROL_GAP, card, control_card, control_with_column, note_text, scrolling_page, secondary_text,
+    CONTROL_GAP, card, control_card, note_text, scrolling_page, secondary_text, two_column_card,
 };
 use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
 use super::{PageMessage, SettingsPage};
@@ -186,13 +186,7 @@ impl Renderer<'_, '_> {
                     .vertical_alignment(VerticalAlignment::Center)
                     .text_wrapping(TextWrapping::Wrap),
             ));
-        card(
-            Grid::new()
-                .columns([GridLength::STAR, GridLength::Auto])
-                .column_spacing(CONTROL_GAP)
-                .children((name.grid_column(0), control_with_column(control)))
-                .into(),
-        )
+        two_column_card(name.grid_column(0).into(), Some(control))
     }
 
     fn picker_card(&self, picker: &Picker) -> View {
@@ -295,19 +289,11 @@ impl Renderer<'_, '_> {
             .orientation(Orientation::Horizontal)
             .spacing(CONTROL_GAP)
             .children(trailing);
-        card(
-            Grid::new()
-                .columns([GridLength::STAR, GridLength::Auto])
-                .column_spacing(CONTROL_GAP)
-                .children((
-                    StackPanel::new()
-                        .vertical_alignment(VerticalAlignment::Center)
-                        .children(texts)
-                        .grid_column(0),
-                    control_with_column(trailing.into()),
-                ))
-                .into(),
-        )
+        let leading = StackPanel::new()
+            .vertical_alignment(VerticalAlignment::Center)
+            .children(texts)
+            .grid_column(0);
+        two_column_card(leading.into(), Some(trailing.into()))
     }
 
     fn accessory(&self, accessory: &Accessory) -> Option<View> {
@@ -346,19 +332,10 @@ impl Renderer<'_, '_> {
             .button
             .as_ref()
             .map(|button| self.button(button, ButtonStyle::Default));
-        let text = secondary_text(&message.text).vertical_alignment(VerticalAlignment::Center);
-        card(
-            Grid::new()
-                .columns([GridLength::STAR, GridLength::Auto])
-                .column_spacing(CONTROL_GAP)
-                .children(
-                    [Some(text.grid_column(0).into()), button.map(control_with_column)]
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<View>>(),
-                )
-                .into(),
-        )
+        let text = secondary_text(&message.text)
+            .vertical_alignment(VerticalAlignment::Center)
+            .grid_column(0);
+        two_column_card(text.into(), button)
     }
 
     /// A menu of `choices`, at least as wide as a picker, that shows the choice at `selected` and
