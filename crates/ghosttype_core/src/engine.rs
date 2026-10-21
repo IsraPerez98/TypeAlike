@@ -89,7 +89,7 @@ impl fmt::Debug for Engine {
             .debug_struct("Engine")
             .field("text_before_chars", &self.text_before_caret().chars().count())
             .field("is_growing", &matches!(self.offer, Offer::Growing { .. }))
-            .field("has_suggestion", &!self.shown().is_empty())
+            .field("has_suggestion", &!self.offer.shown().is_empty())
             .finish_non_exhaustive()
     }
 }
@@ -174,11 +174,11 @@ impl Engine {
 
     fn on_typed(&mut self, character: char) -> Reaction {
         self.keep_recent_text();
-        let rest = match self.shown().strip_prefix(character) {
+        let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
             _ => return self.request(),
         };
-        self.take_from_ghost(character.encode_utf8(&mut [0; 4]), &rest);
+        self.offer.take(character.encode_utf8(&mut [0; 4]), &rest);
         Reaction::Show(rest)
     }
 
@@ -187,7 +187,7 @@ impl Engine {
             let fix = fix.clone();
             return self.accept_fix(fix);
         }
-        let suggestion = self.shown().to_owned();
+        let suggestion = self.offer.shown().to_owned();
         let Some(session) = self.session.as_mut().filter(|_| !suggestion.is_empty()) else {
             return self.reset();
         };
@@ -195,7 +195,7 @@ impl Engine {
         session.text_before.push_str(part);
         session.has_accepted = true;
         self.keep_recent_text();
-        self.take_from_ghost(part, rest);
+        self.offer.take(part, rest);
         Reaction::Accept {
             text: part.to_owned(),
             then: self.after_accept(rest),
@@ -211,7 +211,7 @@ impl Engine {
         session.replace_end(&fix.typo, &fix.word);
         session.has_accepted = true;
         self.keep_recent_text();
-        self.take_from_ghost(&fix.word, &fix.rest);
+        self.offer.take(&fix.word, &fix.rest);
         Reaction::Replace {
             deleted: fix.typo.chars().count(),
             then: self.after_accept(&fix.rest),

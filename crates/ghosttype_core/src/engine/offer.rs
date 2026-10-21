@@ -26,13 +26,62 @@ pub(super) enum Offer {
     Fix(WordFix),
 }
 
+impl Offer {
+    /// Returns the ghost text, which is empty when none shows.
+    pub(super) fn shown(&self) -> &str {
+        match self {
+            Self::Idle | Self::Fix(_) => "",
+            Self::Growing { shown, .. } | Self::Shown(shown) => shown,
+        }
+    }
+
+    /// Records that `taken`, the start of the ghost text, is now before the caret, and that
+    /// `rest` stays as the ghost text.
+    pub(super) fn take(&mut self, taken: &str, rest: &str) {
+        match self {
+            Self::Growing { typed, shown } => {
+                typed.push_str(taken);
+                rest.clone_into(shown);
+            }
+            Self::Idle | Self::Shown(_) | Self::Fix(_) => {
+                *self = if rest.is_empty() {
+                    Self::Idle
+                } else {
+                    Self::Shown(rest.to_owned())
+                };
+            }
+        }
+    }
+
+    /// Returns the reaction that shows the ghost text, or hides it when it is empty.
+    pub(super) fn reaction(&self) -> Reaction {
+        if let Self::Fix(fix) = self {
+            return Reaction::ShowFix(fix.clone());
+        }
+        match self.shown() {
+            "" => Reaction::Hide,
+            shown => Reaction::Show(shown.to_owned()),
+        }
+    }
+
+    /// Returns what stays after the newest completion ends: the ghost text or the fix, else
+    /// nothing.
+    fn settle(self) -> Self {
+        match self {
+            Self::Growing { shown, .. } | Self::Shown(shown) if !shown.is_empty() => Self::Shown(shown),
+            Self::Fix(fix) => Self::Fix(fix),
+            Self::Idle | Self::Growing { .. } | Self::Shown(_) => Self::Idle,
+        }
+    }
+}
+
 impl Engine {
     /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
     /// Only the completion of the newest request can show.
     pub(crate) fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
         self.unanswered_requests = self.unanswered_requests.saturating_sub(1);
         if self.unanswered_requests > 0 {
-            return self.ghost_reaction();
+            return self.offer.reaction();
         }
         if let Ok(completion) = result {
             match &completion.correction {
@@ -46,11 +95,8 @@ impl Engine {
                 }
             }
         }
-        match mem::take(&mut self.offer) {
-            Offer::Growing { shown, .. } | Offer::Shown(shown) if !shown.is_empty() => self.show(shown),
-            Offer::Fix(fix) => self.show_fix(fix),
-            Offer::Idle | Offer::Growing { .. } | Offer::Shown(_) => Reaction::Hide,
-        }
+        self.offer = mem::take(&mut self.offer).settle();
+        self.offer.reaction()
     }
 
     /// Returns the fix that the `correction` and the added `text` of the newest request give, when
@@ -83,18 +129,7 @@ impl Engine {
     /// when the ghost text changes, or `None`.
     pub(crate) fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
         let is_newest = self.unanswered_requests == 1;
-        (is_newest && self.grow(complete_words(text))).then(|| self.ghost_reaction())
-    }
-
-    /// Returns the reaction that shows the ghost text, or hides it when it is empty.
-    fn ghost_reaction(&self) -> Reaction {
-        if let Offer::Fix(fix) = &self.offer {
-            return Reaction::ShowFix(fix.clone());
-        }
-        match self.shown() {
-            "" => Reaction::Hide,
-            shown => Reaction::Show(shown.to_owned()),
-        }
+        (is_newest && self.grow(complete_words(text))).then(|| self.offer.reaction())
     }
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
@@ -113,24 +148,6 @@ impl Engine {
         }
     }
 
-    /// Records that `taken`, the start of the ghost text, is now before the caret, and that
-    /// `rest` stays as the ghost text.
-    pub(super) fn take_from_ghost(&mut self, taken: &str, rest: &str) {
-        match &mut self.offer {
-            Offer::Growing { typed, shown } => {
-                typed.push_str(taken);
-                rest.clone_into(shown);
-            }
-            offer @ (Offer::Idle | Offer::Shown(_) | Offer::Fix(_)) => {
-                *offer = if rest.is_empty() {
-                    Offer::Idle
-                } else {
-                    Offer::Shown(rest.to_owned())
-                };
-            }
-        }
-    }
-
     pub(super) fn dismiss(&mut self) -> Reaction {
         self.offer = Offer::Idle;
         Reaction::Hide
@@ -139,18 +156,5 @@ impl Engine {
     pub(super) fn show(&mut self, suggestion: String) -> Reaction {
         self.offer = Offer::Shown(suggestion.clone());
         Reaction::Show(suggestion)
-    }
-
-    fn show_fix(&mut self, fix: WordFix) -> Reaction {
-        self.offer = Offer::Fix(fix.clone());
-        Reaction::ShowFix(fix)
-    }
-
-    /// Returns the ghost text, which is empty when none shows.
-    pub(super) fn shown(&self) -> &str {
-        match &self.offer {
-            Offer::Idle | Offer::Fix(_) => "",
-            Offer::Growing { shown, .. } | Offer::Shown(shown) => shown,
-        }
     }
 }
