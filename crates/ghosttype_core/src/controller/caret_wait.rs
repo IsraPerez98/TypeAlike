@@ -8,7 +8,7 @@ use super::{
 };
 
 /// The ghost text that waits for the caret to settle, and the timer that the wait runs.
-/// `Debug` shows only whether a ghost text waits, so logs never hold a suggestion.
+/// `Debug` shows whether a ghost text waits, but not its text, so logs never hold a suggestion.
 #[derive(Default)]
 pub(super) struct CaretWait {
     ghost: Option<Ghost>,
@@ -66,7 +66,7 @@ impl CaretWait {
         self.ghost = Some(ghost);
     }
 
-    /// Starts the caret timer again, so that the badge shows at the settled caret.
+    /// Starts the caret timer again, so that the ghost text and the badge show at the settled caret.
     pub(super) fn restart_timer(&mut self, shell: &mut dyn Shell) {
         shell.start_timer(Timer::CaretSettle, CARET_SETTLE_DELAY);
         self.is_timer_pending = true;
