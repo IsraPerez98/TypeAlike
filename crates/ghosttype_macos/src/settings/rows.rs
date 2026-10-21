@@ -13,17 +13,18 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSAccessibility as _, NSButton, NSColor, NSFont, NSLayoutConstraintOrientation,
-    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSProgressIndicator, NSStackView,
-    NSStackViewGravity, NSSwitch, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSButton, NSColor, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
+    NSLayoutPriorityDefaultLow, NSProgressIndicator, NSStackView, NSStackViewGravity, NSSwitch, NSTextField,
+    NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
 
 use crate::labels::title_case;
 use crate::settings::controls::{
-    MenuChoices, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
-    show_push_button, spinner, start_spinning, stop_spinning, truncating_label, wrapping_label,
+    MenuChoices, body_font, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
+    show_push_button, small_secondary_label, spinner, start_spinning, stop_spinning, truncating_label,
+    wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
 use crate::settings::rows::app::{AppPickerRow, AppSwitchRow};
@@ -150,9 +151,8 @@ struct SettingRow {
 impl SettingRow {
     /// Adds a row with `control` at the bottom of `rows_stack`.
     fn add(rows_stack: &NSStackView, control: &NSView, main_thread: MainThreadMarker) -> Self {
-        let label = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
-        let description = secondary_wrapping_label(main_thread);
-        description.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let label = truncating_label(&body_font(), main_thread);
+        let description = small_secondary_label(main_thread);
         description.setContentCompressionResistancePriority_forOrientation(
             NSLayoutPriorityDefaultLow,
             NSLayoutConstraintOrientation::Horizontal,
@@ -345,8 +345,7 @@ impl NoteView {
     /// Adds the note at the bottom of the vertical stack `parent`.
     fn add(parent: &NSStackView, main_thread: MainThreadMarker) -> Self {
         let spinner = spinner(main_thread);
-        let text = secondary_wrapping_label(main_thread);
-        text.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let text = small_secondary_label(main_thread);
         let container = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
             MESSAGE_SPACING,

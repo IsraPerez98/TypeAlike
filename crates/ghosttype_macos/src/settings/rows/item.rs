@@ -10,8 +10,8 @@ use objc2_foundation::NSString;
 
 use crate::settings::Binder;
 use crate::settings::controls::{
-    detail_font, icon_button, label, push_button, set_text, show_push_button, show_status, spinner,
-    start_spinning, stop_spinning, symbol, truncating_label,
+    body_font, detail_font, icon_button, label, push_button, set_text, show_push_button, show_status,
+    spinner, start_spinning, stop_spinning, symbol, truncating_label,
 };
 use crate::settings::layout::{add_grouped_row, row_texts};
 
@@ -38,7 +38,7 @@ pub(in crate::settings) struct ItemRow {
 impl ItemRow {
     pub(super) fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
-        let title = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
+        let title = truncating_label(&body_font(), main_thread);
         let subtitle = truncating_label(
             &NSFont::systemFontOfSize(NSFont::smallSystemFontSize()),
             main_thread,
@@ -85,12 +85,12 @@ impl ItemRow {
             Accessory::Download(button) | Accessory::Failed { retry: button } => {
                 show_push_button(&self.primary, button, Some(subject), binder);
             }
-            Accessory::Open(button) => show_icon_button(&self.icon, OPEN_SYMBOL, button, subject, binder),
+            Accessory::Open(button) => self.show_icon(OPEN_SYMBOL, button, subject, binder),
             Accessory::Downloading { progress, cancel } => {
                 self.progress.setIndeterminate(false);
                 self.progress.setDoubleValue(f64::from(progress.0));
                 self.progress.setHidden(false);
-                show_icon_button(&self.icon, CANCEL_SYMBOL, cancel, subject, binder);
+                self.show_icon(CANCEL_SYMBOL, cancel, subject, binder);
             }
             Accessory::Canceling => start_spinning(&self.progress),
             Accessory::Installed { delete } => {
@@ -100,7 +100,7 @@ impl ItemRow {
                     INSTALLED_DESCRIPTION,
                     &NSColor::systemGreenColor(),
                 );
-                show_icon_button(&self.icon, DELETE_SYMBOL, delete, subject, binder);
+                self.show_icon(DELETE_SYMBOL, delete, subject, binder);
             }
             Accessory::Unavailable => show_status(
                 &self.status,
@@ -110,22 +110,17 @@ impl ItemRow {
             ),
         }
     }
-}
 
-/// Shows `button` in `view`, an icon button with the symbol `symbol_name`. The screen reader
-/// names it after its `subject`.
-fn show_icon_button(
-    view: &NSButton,
-    symbol_name: &str,
-    button: &view::Button,
-    subject: &str,
-    binder: &mut Binder<'_>,
-) {
-    let spoken_label = format!("{}, {subject}", button.label);
-    view.setImage(symbol(symbol_name, &spoken_label).as_deref());
-    view.setToolTip(Some(&NSString::from_str(button.label)));
-    view.setAccessibilityLabel(Some(&NSString::from_str(&spoken_label)));
-    view.setEnabled(button.is_enabled);
-    binder.bind(view, &button.id);
-    view.setHidden(false);
+    /// Shows `button` in the icon button of the row, with the symbol `symbol_name`. The screen
+    /// reader names it after its `subject`.
+    fn show_icon(&self, symbol_name: &str, button: &view::Button, subject: &str, binder: &mut Binder<'_>) {
+        let spoken_label = format!("{}, {subject}", button.label);
+        self.icon.setImage(symbol(symbol_name, &spoken_label).as_deref());
+        self.icon.setToolTip(Some(&NSString::from_str(button.label)));
+        self.icon
+            .setAccessibilityLabel(Some(&NSString::from_str(&spoken_label)));
+        self.icon.setEnabled(button.is_enabled);
+        binder.bind(&self.icon, &button.id);
+        self.icon.setHidden(false);
+    }
 }

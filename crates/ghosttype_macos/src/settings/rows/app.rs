@@ -4,7 +4,7 @@ use ghosttype_core::settings_window::view::{self as view, ControlId};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAccessibility as _, NSFont, NSImage, NSImageView, NSLayoutConstraint, NSLayoutConstraintOrientation,
+    NSAccessibility as _, NSImage, NSImageView, NSLayoutConstraint, NSLayoutConstraintOrientation,
     NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSStackView, NSSwitch, NSTextField,
     NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
 };
@@ -12,7 +12,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSString};
 
 use crate::labels::title_case;
-use crate::settings::controls::{MenuChoices, control_state, set_text, symbol, truncating_label};
+use crate::settings::controls::{MenuChoices, body_font, control_state, set_text, symbol, truncating_label};
 use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, add_grouped_row, stack};
 use crate::settings::{Binder, ControlAction};
 
@@ -37,7 +37,7 @@ impl AppLabel {
             icon.widthAnchor().constraintEqualToConstant(APP_ICON_SIDE),
             icon.heightAnchor().constraintEqualToConstant(APP_ICON_SIDE),
         ]));
-        let name = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
+        let name = truncating_label(&body_font(), main_thread);
         let texts = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
             ACCESSORY_SPACING,

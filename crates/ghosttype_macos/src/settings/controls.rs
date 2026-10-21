@@ -142,6 +142,14 @@ pub(super) fn secondary_wrapping_label(main_thread: MainThreadMarker) -> Retaine
     label
 }
 
+/// A wrapping label in the secondary label color and the small system font, for the text below
+/// a label or a section.
+pub(super) fn small_secondary_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
+    let label = secondary_wrapping_label(main_thread);
+    label.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+    label
+}
+
 pub(super) fn truncating_label(font: &NSFont, main_thread: MainThreadMarker) -> Retained<NSTextField> {
     let label = label(font, main_thread);
     label.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
@@ -166,7 +174,7 @@ pub(super) fn wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextFi
     label.setBezeled(false);
     label.setDrawsBackground(false);
     label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
-    label.setFont(Some(&NSFont::systemFontOfSize(NSFont::systemFontSize())));
+    label.setFont(Some(&body_font()));
     label.setTextColor(Some(&NSColor::labelColor()));
     Retained::into_super(label)
 }
@@ -277,6 +285,11 @@ pub(super) fn heading(main_thread: MainThreadMarker) -> Retained<NSTextField> {
     )
 }
 
+/// The system font at the size of body text.
+pub(super) fn body_font() -> Retained<NSFont> {
+    NSFont::systemFontOfSize(NSFont::systemFontSize())
+}
+
 /// The font of short facts, such as sizes and timings, with digits of one width.
 pub(super) fn detail_font() -> Retained<NSFont> {
     // SAFETY: reads an AppKit constant that is initialized before any code runs.
@@ -298,7 +311,7 @@ pub(super) fn text_area(main_thread: MainThreadMarker) -> (Retained<NSScrollView
         .expect("a scrollable text view holds a text view");
     text_view.setRichText(false);
     text_view.setAllowsUndo(true);
-    text_view.setFont(Some(&NSFont::systemFontOfSize(NSFont::systemFontSize())));
+    text_view.setFont(Some(&body_font()));
     text_view.setTextContainerInset(TEXT_AREA_INSETS);
     (text_scroll_view, text_view)
 }

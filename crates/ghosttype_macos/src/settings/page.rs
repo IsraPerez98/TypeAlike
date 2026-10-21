@@ -17,7 +17,9 @@ use objc2_app_kit::{
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
 
-use crate::settings::controls::{heading, icon_button, secondary_wrapping_label, set_text, show_back_button};
+use crate::settings::controls::{
+    heading, icon_button, secondary_wrapping_label, set_text, show_back_button, small_secondary_label,
+};
 use crate::settings::layout::{
     ACCESSORY_SPACING, LIST_PART_SPACING, NO_INSETS, fill_width, pinned_root, rounded_group, scroll_view,
     stack,
@@ -190,8 +192,7 @@ impl SectionView {
             NO_INSETS,
             main_thread,
         );
-        let footer = secondary_wrapping_label(main_thread);
-        footer.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let footer = small_secondary_label(main_thread);
         let container = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
             LIST_PART_SPACING,

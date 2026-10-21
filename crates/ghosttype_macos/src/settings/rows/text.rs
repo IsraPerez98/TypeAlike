@@ -7,14 +7,14 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSAccessibility as _, NSButton, NSFont, NSLineBreakMode, NSResponder, NSStackView, NSTextField,
-    NSTextView, NSView,
+    NSAccessibility as _, NSButton, NSLineBreakMode, NSResponder, NSStackView, NSTextField, NSTextView,
+    NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::NSString;
 
 use crate::labels::title_case;
-use crate::settings::controls::{button, heading, secondary_wrapping_label, set_text, text_area};
+use crate::settings::controls::{button, heading, set_text, small_secondary_label, text_area};
 use crate::settings::layout::{fill_width, trailing_row};
 use crate::settings::rows::SettingRow;
 use crate::settings::{Binder, ControlAction};
@@ -81,8 +81,7 @@ impl TextAreaRow {
     pub(super) fn add(container: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let heading = heading(main_thread);
-        let description = secondary_wrapping_label(main_thread);
-        description.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+        let description = small_secondary_label(main_thread);
         let (text_scroll_view, text_view) = text_area(main_thread);
         let button = button(binder.target, binder.target.press_action, main_thread);
         let button_row = trailing_row(&button, main_thread);
