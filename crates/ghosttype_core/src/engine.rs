@@ -11,7 +11,7 @@ mod suggestion;
 
 use std::fmt;
 
-use crate::desktop::{Desktop, ScreenReadId};
+use crate::desktop::Desktop;
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::key::Key;
 use crate::settings::{
@@ -21,7 +21,7 @@ use crate::settings::{
 
 use earlier_writing::needs_new_tables;
 use offer::Offer;
-use preface::Screen;
+use preface::ScreenReads;
 use session::Session;
 use suggestion::split_next_part;
 
@@ -42,8 +42,7 @@ pub(crate) struct Engine {
     typo_fix: TypoFix,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
     matching_examples: usize,
-    screen: Screen,
-    newest_screen_read: ScreenReadId,
+    screen_reads: ScreenReads,
     personalization: PersonalizationSettings,
     /// The earlier writing of the user, oldest first.
     history: Vec<HistoryEntry>,
@@ -70,8 +69,7 @@ impl Default for Engine {
             typo_rule: TypoRule::default(),
             typo_fix: TypoFix::default(),
             matching_examples: 0,
-            screen: Screen::default(),
-            newest_screen_read: ScreenReadId::default(),
+            screen_reads: ScreenReads::default(),
             personalization: PersonalizationSettings::default(),
             history: Vec::new(),
             has_unsaved_history: false,

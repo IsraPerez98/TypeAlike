@@ -14,7 +14,7 @@ pub(super) const MAX_CLIPBOARD_AGE: Duration = Duration::from_mins(5);
 
 /// What the engine knows of the text near the field on the screen.
 #[derive(Default)]
-pub(super) enum Screen {
+enum Screen {
     #[default]
     Unknown,
     /// The platform reads the screen from `source`. A session that starts now gets the text when
@@ -24,17 +24,71 @@ pub(super) enum Screen {
     Read(ScreenText),
 }
 
+/// The reads of the screen that the engine starts, and the text of the newest answer.
+#[derive(Default)]
+pub(super) struct ScreenReads {
+    screen: Screen,
+    /// The id of the newest read that the engine started.
+    newest: ScreenReadId,
+}
+
+impl ScreenReads {
+    fn is_reading(&self) -> bool {
+        matches!(self.screen, Screen::Reading { .. })
+    }
+
+    fn start(&mut self, source: ScreenSource) -> ScreenReadId {
+        self.newest = self.newest.next();
+        self.screen = Screen::Reading {
+            id: self.newest,
+            source,
+        };
+        self.newest
+    }
+
+    /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
+    /// the accessibility tree, and returns its id.
+    fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
+        let is_newest_tree_read = matches!(
+            self.screen,
+            Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
+        );
+        is_newest_tree_read.then(|| self.start(ScreenSource::Ocr(level)))
+    }
+
+    /// Keeps the text of `read` when it answers the newest read, and returns whether it does.
+    fn answer(&mut self, read: ScreenRead) -> bool {
+        if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
+            return false;
+        }
+        self.screen = read.text.map_or(Screen::Unknown, Screen::Read);
+        true
+    }
+
+    /// The text of the newest answer, if it has text.
+    fn text(&self) -> Option<&ScreenText> {
+        match &self.screen {
+            Screen::Read(text) => Some(text),
+            Screen::Unknown | Screen::Reading { .. } => None,
+        }
+    }
+
+    fn forget(&mut self) {
+        self.screen = Screen::Unknown;
+    }
+}
+
 impl Engine {
     /// Starts a read of the accessibility tree of the screen, and returns its id. A session that
     /// has its final screen text or waits for a read starts none.
     pub(crate) fn start_screen_read(&mut self) -> Option<ScreenReadId> {
         if let Some(session) = &self.session {
-            let is_reading = matches!(self.screen, Screen::Reading { .. });
+            let is_reading = self.screen_reads.is_reading();
             if session.has_screen_read || is_reading {
                 return None;
             }
         }
-        Some(self.start_read(ScreenSource::Accessibility))
+        Some(self.screen_reads.start(ScreenSource::Accessibility))
     }
 
     /// Starts a read of the accessibility tree for the session, when the session is in a text
@@ -58,20 +112,7 @@ impl Engine {
     /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
     /// the accessibility tree, and returns its id.
     pub(crate) fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
-        let is_newest_tree_read = matches!(
-            self.screen,
-            Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
-        );
-        is_newest_tree_read.then(|| self.start_read(ScreenSource::Ocr(level)))
-    }
-
-    fn start_read(&mut self, source: ScreenSource) -> ScreenReadId {
-        self.newest_screen_read = self.newest_screen_read.next();
-        self.screen = Screen::Reading {
-            id: self.newest_screen_read,
-            source,
-        };
-        self.newest_screen_read
+        self.screen_reads.start_ocr_after(read, level)
     }
 
     /// Keeps the text of `read` when it answers the newest read, and returns whether it does. A
@@ -79,10 +120,9 @@ impl Engine {
     /// in `desktop` now, when its preface changes. The session then has its final screen text. The
     /// next session also gets the new text.
     pub(crate) fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
-        if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
+        if !self.screen_reads.answer(read) {
             return false;
         }
-        self.screen = read.text.map_or(Screen::Unknown, Screen::Read);
         self.add_screen_to_session(desktop);
         true
     }
@@ -92,7 +132,7 @@ impl Engine {
             .session
             .as_ref()
             .is_some_and(|session| !session.has_screen_read);
-        let has_text = matches!(self.screen, Screen::Read(_));
+        let has_text = self.screen_reads.text().is_some();
         let preface = (is_waiting && has_text).then(|| self.preface(&desktop.surroundings(), desktop));
         let Some(session) = &mut self.session else {
             return;
@@ -105,7 +145,7 @@ impl Engine {
 
     /// Forgets the screen text and the read that runs, for when another field can have the focus.
     pub(crate) fn forget_screen(&mut self) {
-        self.screen = Screen::Unknown;
+        self.screen_reads.forget();
     }
 
     /// Returns what the model reads before the text of the field in `surroundings`.
@@ -116,10 +156,7 @@ impl Engine {
                 .filter(|copied| copied.age.is_some_and(|age| age < MAX_CLIPBOARD_AGE)),
             ClipboardAccess::Denied => None,
         };
-        let screen = match &self.screen {
-            Screen::Read(text) => Some(text),
-            Screen::Unknown | Screen::Reading { .. } => None,
-        };
+        let screen = self.screen_reads.text();
         let texts = history::session_texts(&self.history, surroundings, &self.personalization);
         let examples = history::examples(&texts, surroundings, screen, self.matching_examples);
         let writer = Writer {
