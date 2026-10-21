@@ -1,6 +1,7 @@
 //! The popup menus of the tray icon and of the badge at the caret.
 
 use std::mem;
+use std::ops::RangeFrom;
 
 use ghosttype_core::app::{BadgeEntry, BadgeItem, BadgeMenu};
 use windows::Win32::Foundation::{HWND, POINT};
@@ -30,32 +31,7 @@ pub(crate) fn pick(owner: HWND, labels: &[&str], anchor: POINT) -> Result<Option
 /// Shows the menu of the badge below `anchor`, and returns the index of the picked entry in
 /// [`BadgeMenu::items`], if any. The focus then goes back to the window that had it.
 pub(crate) fn pick_badge_item(owner: HWND, view: &BadgeMenu, anchor: POINT) -> Result<Option<usize>> {
-    let menu = popup_menu()?;
-    let mut ids = FIRST_ITEM_ID..;
-    let mut next_id = move || ids.next().expect("the ids never run out");
-    for entry in &view.entries {
-        match entry {
-            BadgeEntry::Item(item) => append_item(*menu, item, next_id())?,
-            BadgeEntry::Separator => {
-                // SAFETY: the menu is alive, and a separator has no text.
-                unsafe { AppendMenuW(*menu, MF_SEPARATOR, NO_ITEM_ID, PCWSTR::null()) }?;
-            }
-            BadgeEntry::Submenu {
-                label,
-                items,
-                is_enabled,
-            } => {
-                let submenu = popup_menu()?;
-                for item in items {
-                    append_item(*submenu, item, next_id())?;
-                }
-                let handle = submenu.0.expose_provenance();
-                append(*menu, MF_POPUP | enabled_flag(*is_enabled), handle, label)?;
-                // The menu destroys its submenus itself.
-                mem::forget(submenu);
-            }
-        }
-    }
+    let menu = badge_popup_menu(view)?;
     let focused = foreground_hwnd();
     let picked = track(owner, *menu, anchor, TPM_TOPALIGN);
     if !focused.is_invalid() {
@@ -64,6 +40,43 @@ pub(crate) fn pick_badge_item(owner: HWND, view: &BadgeMenu, anchor: POINT) -> R
         let _ = unsafe { SetForegroundWindow(focused) };
     }
     picked
+}
+
+/// Builds the menu of the badge. The items have the ids from [`FIRST_ITEM_ID`] on, in the order of
+/// [`BadgeMenu::items`].
+fn badge_popup_menu(view: &BadgeMenu) -> Result<Owned<HMENU>> {
+    let menu = popup_menu()?;
+    let mut ids = FIRST_ITEM_ID..;
+    for entry in &view.entries {
+        append_entry(*menu, entry, &mut ids)?;
+    }
+    Ok(menu)
+}
+
+/// Appends `entry` to `menu`, and gives each of its items the next id of `ids`.
+fn append_entry(menu: HMENU, entry: &BadgeEntry, ids: &mut RangeFrom<usize>) -> Result<()> {
+    match entry {
+        BadgeEntry::Item(item) => append_item(menu, item, ids.next().expect("the ids never run out")),
+        BadgeEntry::Separator => {
+            // SAFETY: the menu is alive, and a separator has no text.
+            unsafe { AppendMenuW(menu, MF_SEPARATOR, NO_ITEM_ID, PCWSTR::null()) }
+        }
+        BadgeEntry::Submenu {
+            label,
+            items,
+            is_enabled,
+        } => {
+            let submenu = popup_menu()?;
+            for item in items {
+                append_item(*submenu, item, ids.next().expect("the ids never run out"))?;
+            }
+            let handle = submenu.0.expose_provenance();
+            append(menu, MF_POPUP | enabled_flag(*is_enabled), handle, label)?;
+            // The menu destroys its submenus itself.
+            mem::forget(submenu);
+            Ok(())
+        }
+    }
 }
 
 fn popup_menu() -> Result<Owned<HMENU>> {
