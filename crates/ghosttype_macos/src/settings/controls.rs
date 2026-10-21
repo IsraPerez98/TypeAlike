@@ -8,10 +8,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSAccessibility as _, NSBorderType, NSButton, NSColor, NSControl, NSControlSize, NSFont,
-    NSFontWeightRegular, NSImage, NSImageView, NSLayoutConstraint, NSLayoutConstraintOrientation,
-    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSMenuItem, NSPopUpButton, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSTextField, NSTextView, NSView,
+    NSAccessibility as _, NSBorderType, NSButton, NSColor, NSControl, NSControlSize, NSControlStateValue,
+    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage, NSImageView,
+    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
+    NSMenuItem, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView,
+    NSTextField, NSTextView, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSRect, NSSize, NSString};
@@ -62,6 +63,15 @@ pub(super) fn rebuild_menu(button: &NSPopUpButton, titles: &[String]) {
             )
         };
         menu.addItem(&item);
+    }
+}
+
+/// The state of a switch or a menu item that is on when `is_on` is true.
+pub(crate) fn control_state(is_on: bool) -> NSControlStateValue {
+    if is_on {
+        NSControlStateValueOn
+    } else {
+        NSControlStateValueOff
     }
 }
 

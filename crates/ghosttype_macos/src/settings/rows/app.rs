@@ -4,17 +4,18 @@ use ghosttype_core::settings_window::view::{self as view, ControlId};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAccessibility as _, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSImage, NSImageView,
-    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
-    NSLayoutPriorityDefaultLow, NSPopUpButton, NSStackView, NSSwitch, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
+    NSAccessibility as _, NSFont, NSImage, NSImageView, NSLayoutConstraint, NSLayoutConstraintOrientation,
+    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton, NSStackView, NSSwitch,
+    NSTextField, NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSString};
 
 use crate::labels::title_case;
 use crate::settings::Binder;
-use crate::settings::controls::{pop_up_button, rebuild_menu, set_text, symbol, truncating_label};
+use crate::settings::controls::{
+    control_state, pop_up_button, rebuild_menu, set_text, symbol, truncating_label,
+};
 use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, add_grouped_row, stack};
 
 const APP_ICON_SIDE: CGFloat = 20.0;
@@ -109,12 +110,7 @@ impl AppSwitchRow {
         self.app.render(&shown.app_id, &shown.app_name);
         self.switch
             .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
-        let state = if shown.is_on {
-            NSControlStateValueOn
-        } else {
-            NSControlStateValueOff
-        };
-        self.switch.setState(state);
+        self.switch.setState(control_state(shown.is_on));
         self.switch.setEnabled(shown.is_enabled);
         binder.bind(&self.switch, &shown.id);
     }

@@ -14,10 +14,9 @@ use ghosttype_core::settings_window::view::{self as view, ChoiceText, ControlId,
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAccessibility as _, NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont,
-    NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton,
-    NSProgressIndicator, NSStackView, NSStackViewGravity, NSSwitch, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSButton, NSColor, NSFont, NSLayoutConstraintOrientation,
+    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton, NSProgressIndicator, NSStackView,
+    NSStackViewGravity, NSSwitch, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
@@ -25,7 +24,7 @@ use objc2_foundation::{NSEdgeInsets, NSString};
 use crate::labels::title_case;
 use crate::settings::Binder;
 use crate::settings::controls::{
-    detail_font, pop_up_button, push_button, rebuild_menu, secondary_wrapping_label, set_text,
+    control_state, detail_font, pop_up_button, push_button, rebuild_menu, secondary_wrapping_label, set_text,
     show_push_button, spinner, start_spinning, stop_spinning, truncating_label, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
@@ -159,12 +158,7 @@ impl SwitchRow {
         self.setting.render(shown.label, shown.description);
         self.switch
             .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
-        let state = if shown.is_on {
-            NSControlStateValueOn
-        } else {
-            NSControlStateValueOff
-        };
-        self.switch.setState(state);
+        self.switch.setState(control_state(shown.is_on));
         binder.bind(&self.switch, &shown.id);
     }
 }

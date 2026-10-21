@@ -21,6 +21,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
 
+pub(crate) use crate::settings::controls::control_state;
 use crate::settings::controls::symbol;
 use crate::settings::page::PageView;
 

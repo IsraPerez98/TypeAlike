@@ -12,7 +12,7 @@ use crate::symbol::status_symbol;
 
 const SETTINGS_KEY_EQUIVALENT: &str = ",";
 const QUIT_KEY_EQUIVALENT: &str = "q";
-const NO_KEY_EQUIVALENT: &str = "";
+pub(crate) const NO_KEY_EQUIVALENT: &str = "";
 
 /// The extra in the menu bar, removed on drop.
 #[derive(Debug)]
