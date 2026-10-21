@@ -32,19 +32,14 @@ pub(crate) fn is_apostrophe(character: char) -> bool {
 
 /// The spans of the runs of the characters of `text` that `is_part` accepts.
 pub(super) fn runs_of(text: &str, is_part: fn(char) -> bool) -> Vec<Range<usize>> {
-    let mut spans = Vec::new();
-    let mut start = None;
-    for (index, character) in text.char_indices() {
-        match (is_part(character), start) {
-            (true, None) => start = Some(index),
-            (false, Some(begin)) => {
-                spans.push(begin..index);
-                start = None;
-            }
-            _ => {}
+    let mut spans = Vec::<Range<usize>>::new();
+    for (index, character) in text.char_indices().filter(|&(_, character)| is_part(character)) {
+        let end = index + character.len_utf8();
+        match spans.last_mut() {
+            Some(span) if span.end == index => span.end = end,
+            _ => spans.push(index..end),
         }
     }
-    spans.extend(start.map(|begin| begin..text.len()));
     spans
 }
 
