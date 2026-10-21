@@ -384,6 +384,13 @@ mod tests {
     }
 
     #[test]
+    fn word_also_starts_at_whitespace_that_is_not_ascii() {
+        let split = words("see\u{a0}you\u{3000}soon");
+
+        assert_eq!(split, ["see", "\u{a0}you", "\u{3000}soon"]);
+    }
+
+    #[test]
     fn words_count_as_right_up_to_the_first_wrong_word_and_wrong_from_it() {
         let cases = [
             ("very soon, thanks", "very soon. Thanks a lot", 2, 1),
