@@ -39,6 +39,9 @@ const COPIED_WORDS: usize = 4;
 const MAX_PATTERN_WORDS: usize = 3;
 const PATTERN_REPEATS: usize = 3;
 const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
+/// The signs that can close a word: closing punctuation, quotes and brackets. The apostrophe is not
+/// one, because it also ends a possessive, as in "the students'".
+const CLOSING_SIGNS: [char; 13] = [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
 /// The characters that end a line in the text of a field. Word ends a line inside a paragraph with
 /// a vertical tab.
 const LINE_BREAKS: [char; 5] = ['\n', '\r', '\u{b}', '\u{2028}', '\u{2029}'];
@@ -443,7 +446,8 @@ impl Engine {
             return None;
         }
         let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
-        let (word_rest, rest) = suggestion.split_at(word_end);
+        let unclosed_end = suggestion[..word_end].trim_end_matches(CLOSING_SIGNS).len();
+        let (word_rest, rest) = suggestion.split_at(unclosed_end);
         Some(WordFix {
             typo: correction.typed.trim_start().to_owned(),
             word: format!("{}{word_rest}", correction.fixed.trim_start()),
@@ -723,13 +727,13 @@ impl Engine {
         let Some(session) = self.session.as_mut().filter(|_| !suggestion.is_empty()) else {
             return self.reset();
         };
-        let (word, rest) = split_first_word(&suggestion);
-        session.text_before.push_str(word);
+        let (part, rest) = split_next_part(&suggestion);
+        session.text_before.push_str(part);
         session.has_accepted = true;
         self.keep_recent_text();
-        self.take_from_ghost(word, rest);
+        self.take_from_ghost(part, rest);
         Reaction::Accept {
-            text: word.to_owned(),
+            text: part.to_owned(),
             rest: (!rest.is_empty()).then(|| rest.to_owned()),
         }
     }
@@ -1039,12 +1043,21 @@ fn complete_words(text: &str) -> &str {
     text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
 }
 
-/// Splits `suggestion` into its first word, with the whitespace before that word, and the rest.
-fn split_first_word(suggestion: &str) -> (&str, &str) {
+/// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
+/// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
+/// A word of only signs is one part.
+fn split_next_part(suggestion: &str) -> (&str, &str) {
     let rest = suggestion
         .trim_start()
         .trim_start_matches(|character: char| !character.is_whitespace());
-    suggestion.split_at(suggestion.len() - rest.len())
+    let word = &suggestion[..suggestion.len() - rest.len()];
+    let unclosed_word = word.trim_end_matches(CLOSING_SIGNS);
+    let part = if unclosed_word.trim().is_empty() {
+        word
+    } else {
+        unclosed_word
+    };
+    suggestion.split_at(part.len())
 }
 
 impl fmt::Debug for Engine {
@@ -1344,6 +1357,23 @@ mod tests {
                 deleted: 4,
                 text: "delivery".to_owned(),
                 rest: Some(" soon".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn tab_on_a_fix_leaves_the_closing_punctuation_for_the_next_tab() {
+        let mut engine = engine_waiting_for("the dlei");
+        engine.on_completion(correction(" dlei", " deli", "very, soon"));
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(
+            reaction,
+            Reaction::Replace {
+                deleted: 4,
+                text: "delivery".to_owned(),
+                rest: Some(", soon".to_owned()),
             }
         );
     }
@@ -1779,6 +1809,59 @@ mod tests {
         let reaction = press(&mut engine, Key::Tab);
 
         assert_eq!(reaction, accept("lo", Some(" big world")));
+    }
+
+    #[test]
+    fn tab_types_the_word_before_its_closing_punctuation() {
+        let cases = [
+            (" regards, Sam", " regards", ", Sam"),
+            (" you?! Yes", " you", "?! Yes"),
+            (" \"yes.\" Then", " \"yes", ".\" Then"),
+            (" (soon). Then", " (soon", "). Then"),
+            (" so… Then", " so", "… Then"),
+        ];
+
+        let reactions =
+            cases.map(|(suggestion, _, _)| press(&mut engine_showing("I see", suggestion), Key::Tab));
+
+        assert_eq!(reactions, cases.map(|(_, word, rest)| accept(word, Some(rest))));
+    }
+
+    #[test]
+    fn tab_after_a_word_types_its_closing_punctuation() {
+        let mut engine = engine_showing("Best", " regards, Sam");
+        press(&mut engine, Key::Tab);
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(reaction, accept(",", Some(" Sam")));
+    }
+
+    #[test]
+    fn tab_types_a_word_with_signs_inside_it_whole() {
+        let cases = [" don't know", " 3.5% more", " e-mail me", " U.S. law"];
+
+        let reactions = cases.map(|suggestion| press(&mut engine_showing("I see", suggestion), Key::Tab));
+
+        assert_eq!(
+            reactions,
+            [
+                accept(" don't", Some(" know")),
+                accept(" 3.5%", Some(" more")),
+                accept(" e-mail", Some(" me")),
+                accept(" U.S", Some(". law")),
+            ]
+        );
+    }
+
+    #[test]
+    fn tab_types_a_part_of_only_punctuation_whole() {
+        let cases = [(" ... maybe", " ...", " maybe"), (", see you", ",", " see you")];
+
+        let reactions =
+            cases.map(|(suggestion, _, _)| press(&mut engine_showing("I see", suggestion), Key::Tab));
+
+        assert_eq!(reactions, cases.map(|(_, part, rest)| accept(part, Some(rest))));
     }
 
     #[test]
