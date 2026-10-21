@@ -20,9 +20,6 @@ use crate::settings::{
 };
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
-/// The least likely that a suggestion can get after its first word: about 2 percent. In the prompt
-/// eval, this cut leaves out more than half of the wrong words and almost no right word.
-pub(crate) const TAIL_CUT: LogProbability = LogProbability(-3.9);
 /// The least likely that the typed letters of the last word can be before GhostType takes them
 /// for a typo. In the prompt eval, this cut catches 26 to 29 of the 29 typos and hides 1 to 3 of
 /// 393 other cases, each a rare name or word that the suggestion did not finish right.
@@ -821,7 +818,7 @@ impl Engine {
             max_tokens: self.suggestion_length.max_tokens(),
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
-            min_log_probability: Some(TAIL_CUT),
+            min_log_probability: Some(self.suggestion_length.tail_cut()),
             min_typed_log_probability: self.typo_cut(),
             fixes_typos: self.typo_rule == TypoRule::HideSuggestions && self.typo_fix == TypoFix::Offer,
         })
@@ -1192,7 +1189,7 @@ mod tests {
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
             next_word_bias: NextWordBias::default(),
-            min_log_probability: Some(TAIL_CUT),
+            min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
             min_typed_log_probability: Some(TYPO_CUT),
             fixes_typos: true,
         })
@@ -2426,7 +2423,7 @@ mod tests {
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
-                min_log_probability: Some(TAIL_CUT),
+                min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
                 min_typed_log_probability: Some(TYPO_CUT),
                 fixes_typos: true,
             })
@@ -3111,7 +3108,7 @@ mod tests {
                 max_tokens: TokenCount(6),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
-                min_log_probability: Some(TAIL_CUT),
+                min_log_probability: Some(SuggestionLength::Short.tail_cut()),
                 min_typed_log_probability: Some(TYPO_CUT),
                 fixes_typos: true,
             })
@@ -3134,7 +3131,7 @@ mod tests {
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
-                min_log_probability: Some(TAIL_CUT),
+                min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
                 min_typed_log_probability: None,
                 fixes_typos: false,
             })
@@ -3158,9 +3155,38 @@ mod tests {
                 max_tokens: TokenCount(3),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
-                min_log_probability: Some(TAIL_CUT),
+                min_log_probability: Some(SuggestionLength::VeryShort.tail_cut()),
                 min_typed_log_probability: Some(TYPO_CUT),
                 fixes_typos: true,
+            })
+        );
+    }
+
+    #[test]
+    fn longer_suggestion_lengths_ask_for_more_tokens_and_lower_tail_cuts() {
+        let lengths = [SuggestionLength::Long, SuggestionLength::VeryLong];
+
+        let reactions = lengths.map(|suggestion_length| {
+            let mut engine = engine_with(&Settings {
+                backend: Backend::Vulkan,
+                suggestion_length,
+                ..Settings::default()
+            });
+            press(&mut engine, Key::Char('h'))
+        });
+
+        assert_eq!(
+            reactions,
+            [(15, -5.9), (22, -8.6)].map(|(tokens, cut)| {
+                Reaction::Request(InferenceRequest::Complete {
+                    prompt: prompt::framed_prompt(&[], "h"),
+                    max_tokens: TokenCount(tokens),
+                    word_bias: None,
+                    next_word_bias: NextWordBias::default(),
+                    min_log_probability: Some(LogProbability(cut)),
+                    min_typed_log_probability: Some(TYPO_CUT),
+                    fixes_typos: true,
+                })
             })
         );
     }

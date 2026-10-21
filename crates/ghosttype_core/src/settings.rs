@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
-use crate::inference::{Backend, TokenCount};
+use crate::inference::{Backend, LogProbability, TokenCount};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
 /// only its length, so logs never hold what the user wrote. The default notes are true for every
@@ -433,6 +433,18 @@ impl SuggestionLength {
             Self::Medium => TokenCount(10),
             Self::Long => TokenCount(15),
             Self::VeryLong => TokenCount(22),
+        }
+    }
+
+    /// The least likely that a suggestion can get after its first word. Up to medium, about 2
+    /// percent: in the prompt eval, this cut leaves out more than half of the wrong words and
+    /// almost no right word. A longer length keeps the cut of each token at medium (about -0.39),
+    /// because a fixed cut ends most suggestions after 4 or 5 words.
+    pub(crate) fn tail_cut(self) -> LogProbability {
+        match self {
+            Self::VeryShort | Self::Short | Self::Medium => LogProbability(-3.9),
+            Self::Long => LogProbability(-5.9),
+            Self::VeryLong => LogProbability(-8.6),
         }
     }
 }

@@ -861,7 +861,7 @@ mod tests {
     use super::*;
     use crate::app::Status;
     use crate::desktop::{FieldText, ScreenText};
-    use crate::engine::{TAIL_CUT, TYPO_CUT};
+    use crate::engine::TYPO_CUT;
     use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
@@ -1923,7 +1923,7 @@ mod tests {
             max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
             word_bias: None,
             next_word_bias: NextWordBias::default(),
-            min_log_probability: Some(TAIL_CUT),
+            min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
             min_typed_log_probability: Some(TYPO_CUT),
             fixes_typos: true,
         }
@@ -2619,7 +2619,7 @@ mod tests {
                 max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
-                min_log_probability: Some(TAIL_CUT),
+                min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
                 min_typed_log_probability: Some(TYPO_CUT),
                 fixes_typos: true,
             })
