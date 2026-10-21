@@ -97,7 +97,7 @@ pub(crate) fn list_files(agent: &Agent, repo: &str) -> Result<Vec<SizedFile>, Fe
 ///
 /// Stops with [`FetchError::Canceled`] soon after `cancel` turns true. A download that fails or is
 /// canceled leaves no file behind.
-// ponytail: quitting mid-download leaves the `.part` file. Sweep stale ones before the first download if disk use matters.
+// ponytail: a quit mid-download leaves the `.part` file. Sweep them before a download if disk use matters.
 pub(crate) fn download(
     agent: &Agent,
     models_dir: &Path,
