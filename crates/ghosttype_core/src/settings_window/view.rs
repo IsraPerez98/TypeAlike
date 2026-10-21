@@ -187,7 +187,7 @@ pub struct Picker {
     pub id: ControlId,
     /// Text before the menu, in sentence case.
     pub label: &'static str,
-    /// A sentence below the label about what the setting changes; empty when there is none.
+    /// A sentence below the label about what the setting changes. It is empty when there is none.
     pub description: &'static str,
     /// Menu entries, top to bottom. Never empty.
     pub choices: Vec<String>,
@@ -293,9 +293,9 @@ pub struct Output {
 pub struct Item {
     /// Main text.
     pub title: String,
-    /// Secondary text below the title; empty when there is none.
+    /// Secondary text below the title. It is empty when there is none.
     pub subtitle: String,
-    /// Short facts at the trailing edge, such as the file size; empty when there are none.
+    /// Short facts at the trailing edge, such as the file size. It is empty when there are none.
     pub detail: String,
     /// What the user can do with the thing.
     pub accessory: Accessory,

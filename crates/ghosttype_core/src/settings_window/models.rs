@@ -124,7 +124,7 @@ impl ModelsPane {
         HubRequest::ListInstalled
     }
 
-    /// Handles a user action; returns the request it needs, if any.
+    /// Handles a user action. Returns the request that it needs, if any.
     pub fn on_action(&mut self, action: ModelsAction) -> Option<HubRequest> {
         match action {
             ModelsAction::Search(query) => self.start_search(query.trim()),

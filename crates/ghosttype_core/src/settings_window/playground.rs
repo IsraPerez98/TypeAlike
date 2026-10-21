@@ -168,7 +168,7 @@ impl PlaygroundPane {
         Some(InferenceRequest::Unload)
     }
 
-    /// Handles a user action; returns the request it needs, if any.
+    /// Handles a user action. Returns the request that it needs, if any.
     pub fn on_action(&mut self, action: PlaygroundAction) -> Option<InferenceRequest> {
         match action {
             PlaygroundAction::SelectModel(file) => self.select_model(file),
