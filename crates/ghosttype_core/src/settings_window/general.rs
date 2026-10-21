@@ -57,17 +57,17 @@ pub struct GeneralOutcome {
     pub request: Option<InferenceRequest>,
 }
 
-pub(crate) const AUTOSTART: &str = "autostart";
+const AUTOSTART: &str = "autostart";
 pub(crate) const CLIPBOARD: &str = "clipboard";
 pub(crate) const PREPARATION: &str = "prompt-preparation";
-pub(crate) const DISPLAY: &str = "suggestion-display";
-pub(crate) const TYPO_RULE: &str = "typo-rule";
-pub(crate) const TYPO_FIX: &str = "typo-fix";
-pub(crate) const LENGTH: &str = "suggestion-length";
+const DISPLAY: &str = "suggestion-display";
+const TYPO_RULE: &str = "typo-rule";
+const TYPO_FIX: &str = "typo-fix";
+const LENGTH: &str = "suggestion-length";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
-pub(crate) const WRITER_NAME: &str = "writer-name";
-pub(crate) const WRITER_NOTES: &str = "writer-notes";
+const WRITER_NAME: &str = "writer-name";
+const WRITER_NOTES: &str = "writer-notes";
 const PANE_TITLE: &str = "General";
 const PANE_SUMMARY: &str = "Change how GhostType runs on this computer.";
 const AUTOSTART_LABEL: &str = "Open at login";

@@ -68,7 +68,7 @@ enum CompletionState {
 }
 
 pub(crate) const MODEL: &str = "playground-model";
-pub(crate) const PROMPT: &str = "playground-prompt";
+const PROMPT: &str = "playground-prompt";
 const PANE_TITLE: &str = "Playground";
 const PANE_SUMMARY: &str =
     "Select the model that suggests text as you type. Then type the start of a sentence to test the model.";
