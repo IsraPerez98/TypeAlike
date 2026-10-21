@@ -33,21 +33,15 @@ fn screen_with(line: &str) -> ScreenText {
     }
 }
 
+fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> bool {
+    engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default())
+}
+
 fn engine_that_read(line: &str) -> Engine {
     let mut engine = Engine::default();
     let id = engine.start_screen_read().expect("no session runs");
-    engine.on_screen_read(
-        ScreenRead {
-            id,
-            text: Some(screen_with(line)),
-        },
-        &FakeDesktop::default(),
-    );
+    answer_read(&mut engine, id, Some(screen_with(line)));
     engine
-}
-
-fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) {
-    engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default());
 }
 
 #[test]
@@ -77,13 +71,7 @@ fn read_that_comes_during_a_session_goes_into_it() {
     let mut engine = Engine::default();
     let id = engine.start_screen_read().expect("no session runs");
     press(&mut engine, Key::Char('S'));
-    engine.on_screen_read(
-        ScreenRead {
-            id,
-            text: Some(screen_with("Dinner at 7?")),
-        },
-        &FakeDesktop::default(),
-    );
+    answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
 
     let reaction = press(&mut engine, Key::Char('u'));
 
@@ -123,13 +111,7 @@ fn answer_to_an_older_read_is_dropped() {
     let older = engine.start_screen_read().expect("no session runs");
     engine.start_screen_read();
 
-    let is_kept = engine.on_screen_read(
-        ScreenRead {
-            id: older,
-            text: Some(screen_with("Dinner at 7?")),
-        },
-        &FakeDesktop::default(),
-    );
+    let is_kept = answer_read(&mut engine, older, Some(screen_with("Dinner at 7?")));
 
     assert!(!is_kept);
 }
@@ -258,13 +240,7 @@ fn answer_to_the_read_before_an_ocr_read_is_dropped() {
     let read = engine.start_screen_read().expect("no session runs");
     engine.start_ocr_after(read, OcrLevel::Fast);
 
-    let is_kept = engine.on_screen_read(
-        ScreenRead {
-            id: read,
-            text: Some(screen_with("Dinner at 7?")),
-        },
-        &FakeDesktop::default(),
-    );
+    let is_kept = answer_read(&mut engine, read, Some(screen_with("Dinner at 7?")));
 
     assert!(!is_kept);
 }
@@ -275,7 +251,7 @@ fn session_that_got_an_answer_without_text_starts_no_other_read() {
     let id = engine
         .start_screen_read()
         .expect("the session has no screen text");
-    engine.on_screen_read(ScreenRead { id, text: None }, &FakeDesktop::default());
+    answer_read(&mut engine, id, None);
 
     let read = engine.start_screen_read();
 
@@ -298,13 +274,7 @@ fn answer_to_a_forgotten_read_is_dropped() {
     let id = engine.start_screen_read().expect("no session runs");
     engine.forget_screen();
 
-    let is_kept = engine.on_screen_read(
-        ScreenRead {
-            id,
-            text: Some(screen_with("Dinner at 7?")),
-        },
-        &FakeDesktop::default(),
-    );
+    let is_kept = answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
 
     assert!(!is_kept);
 }
