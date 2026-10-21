@@ -1,0 +1,122 @@
+//! Filters the text of a completion and splits a suggestion into the parts that Tab types.
+
+use super::session::Session;
+
+/// The last words before the caret that a suggestion copies when it holds them in a row. Fewer
+/// words are often the correct phrase again.
+const COPIED_WORDS: usize = 4;
+const MAX_PATTERN_WORDS: usize = 3;
+const PATTERN_REPEATS: usize = 3;
+const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
+/// The signs that can close a word: closing punctuation, quotes and brackets. The apostrophe is not
+/// one, because it also ends a possessive, as in "the students'".
+pub(super) const CLOSING_SIGNS: [char; 13] =
+    [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
+
+/// Returns the first line of `completion` up to a placeholder as ghost text after `context`, or
+/// `None` when it has no text. Spaces that would double the space at the end of `context`, or
+/// trail, are dropped.
+pub(super) fn suggestion_after(context: &str, completion: &str) -> Option<String> {
+    let first_line = completion.lines().next().unwrap_or_default();
+    let line = if context.ends_with(char::is_whitespace) {
+        first_line.trim_start()
+    } else {
+        first_line
+    };
+    let suggestion = before_placeholder(line).trim_end();
+    (!suggestion.is_empty()).then(|| suggestion.to_owned())
+}
+
+/// Returns `text` up to the first word after an opening square bracket, such as "[Your Name]",
+/// which a model writes in place of a fact that it does not know. The token limit can cut the
+/// placeholder before its closing bracket.
+fn before_placeholder(text: &str) -> &str {
+    text.match_indices('[')
+        .find(|&(start, _)| text[start + 1..].starts_with(char::is_alphanumeric))
+        .map_or(text, |(start, _)| &text[..start])
+}
+
+/// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
+/// bad suggestion, or `None` when it adds nothing after `typed`. The text before the caret of
+/// `session` ends with `typed`, and the request continued the text before `typed`.
+pub(super) fn suggestion_after_typed(session: &Session, typed: &str, completion: &str) -> Option<String> {
+    let context = session.text_before.strip_suffix(typed)?;
+    let suggestion = suggestion_after(context, completion)?;
+    if is_bad_suggestion(&suggestion, context, &session.text_after) {
+        return Some(String::new());
+    }
+    let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
+    Some(rest.to_owned())
+}
+
+/// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
+/// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
+/// words of `context`, or a loop of a few words.
+pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str) -> bool {
+    let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
+    let closes_after_space =
+        context.ends_with(char::is_whitespace) && suggestion.starts_with(CLOSING_PUNCTUATION);
+    has_no_word
+        || closes_after_space
+        || repeats_text_after(suggestion, text_after)
+        || copies_last_words(suggestion, context)
+        || repeats_a_pattern(suggestion)
+}
+
+/// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
+fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
+    text.split(|character: char| !(character.is_alphanumeric() || matches!(character, '\'' | '’')))
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+}
+
+/// Whether the words of `suggestion` and of `text_after` are the same up to the end of the
+/// shorter.
+fn repeats_text_after(suggestion: &str, text_after: &str) -> bool {
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    let after = words(text_after).take(suggested.len()).collect::<Vec<_>>();
+    !after.is_empty() && suggested.starts_with(&after)
+}
+
+fn copies_last_words(suggestion: &str, context: &str) -> bool {
+    let mut last_words = words(context).rev().take(COPIED_WORDS).collect::<Vec<_>>();
+    last_words.reverse();
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    last_words.len() == COPIED_WORDS
+        && suggested
+            .windows(COPIED_WORDS)
+            .any(|run| run == last_words.as_slice())
+}
+
+/// Whether `suggestion` has a pattern of one to [`MAX_PATTERN_WORDS`] words
+/// [`PATTERN_REPEATS`] times in a row.
+fn repeats_a_pattern(suggestion: &str) -> bool {
+    let suggested = words(suggestion).collect::<Vec<_>>();
+    (1..=MAX_PATTERN_WORDS).any(|pattern_words| {
+        suggested
+            .windows(pattern_words * PATTERN_REPEATS)
+            .any(|run| run[pattern_words..] == run[..run.len() - pattern_words])
+    })
+}
+
+/// Returns `text` up to its last whitespace, without the word after it, which can still grow.
+pub(super) fn complete_words(text: &str) -> &str {
+    text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
+}
+
+/// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
+/// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
+/// A word of only signs is one part.
+pub(super) fn split_next_part(suggestion: &str) -> (&str, &str) {
+    let rest = suggestion
+        .trim_start()
+        .trim_start_matches(|character: char| !character.is_whitespace());
+    let word = &suggestion[..suggestion.len() - rest.len()];
+    let unclosed_word = word.trim_end_matches(CLOSING_SIGNS);
+    let part = if unclosed_word.trim().is_empty() {
+        word
+    } else {
+        unclosed_word
+    };
+    suggestion.split_at(part.len())
+}

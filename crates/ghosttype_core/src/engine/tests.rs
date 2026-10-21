@@ -1,0 +1,12 @@
+//! Tests the engine through its API, in groups of behavior.
+
+mod accept;
+mod completion;
+mod earlier_writing;
+mod new_line;
+mod request;
+mod screen_read;
+mod session;
+mod support;
+mod typo_fix;
+mod word_choice;

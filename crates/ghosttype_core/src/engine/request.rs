@@ -1,0 +1,119 @@
+//! Builds the requests to the model runner, with the word bias and the phrases of the writer.
+
+use crate::desktop::Desktop;
+use crate::history::HistoryPool;
+use crate::inference::{InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, WordBias};
+use crate::place::Place;
+use crate::prompt;
+use crate::settings::{TypoFix, TypoRule};
+
+use super::offer::Offer;
+use super::session::Session;
+use super::{Engine, Reaction};
+
+const PREPARATION_TOKENS: TokenCount = TokenCount(0);
+/// The least likely that the typed letters of the last word can be before GhostType takes them
+/// for a typo. In the prompt eval, this cut catches 26 to 29 of the 29 typos and hides 1 to 3 of
+/// 393 other cases, each a rare name or word that the suggestion did not finish right.
+pub(crate) const TYPO_CUT: LogProbability = LogProbability(-11.0);
+
+impl Engine {
+    /// Starts the session for the focused field of `desktop` when none runs, and returns the
+    /// request that decodes its prompt before the next key. Its completion adds no text. `None`
+    /// when a completion of the session runs or the field gets no suggestions.
+    pub fn prepare(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
+        let is_completing = self.session.is_some() && self.unanswered_requests > 0;
+        if is_completing {
+            return None;
+        }
+        let session = self.start_session(desktop);
+        if session.is_excluded {
+            return None;
+        }
+        let prompt = prompt::prompt(&session.preface, &session.text_before);
+        self.unanswered_requests = self.unanswered_requests.saturating_add(1);
+        Some(InferenceRequest::Complete {
+            prompt,
+            max_tokens: PREPARATION_TOKENS,
+            word_bias: None,
+            next_word_bias: NextWordBias::default(),
+            min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
+        })
+    }
+
+    /// Shows the rest of a phrase that the writer repeats, else requests a completion.
+    pub(super) fn request(&mut self) -> Reaction {
+        if let Some(phrase) = self.repeated_phrase() {
+            return self.show(phrase);
+        }
+        let Some(prompt) = self.prompt() else {
+            self.offer = Offer::Idle;
+            return Reaction::Hide;
+        };
+        self.offer = Offer::Growing {
+            typed: String::new(),
+            shown: String::new(),
+        };
+        self.unanswered_requests = self.unanswered_requests.saturating_add(1);
+        Reaction::Request(InferenceRequest::Complete {
+            prompt,
+            max_tokens: self.suggestion_length.max_tokens(),
+            word_bias: self.session_word_bias(),
+            next_word_bias: self.session_next_word_bias(),
+            min_log_probability: Some(self.suggestion_length.tail_cut()),
+            min_typed_log_probability: self.typo_cut(),
+            fixes_typos: self.typo_rule == TypoRule::HideSuggestions && self.typo_fix == TypoFix::Offer,
+        })
+    }
+
+    /// The least likely that the typed letters of the last word can be, when the rule for typos
+    /// hides suggestions.
+    fn typo_cut(&self) -> Option<LogProbability> {
+        (self.typo_rule == TypoRule::HideSuggestions).then_some(TYPO_CUT)
+    }
+
+    /// The pool of the earlier writing that the session uses, and the place of the session. `None`
+    /// when no session runs or its app is off.
+    fn session_pool(&self) -> Option<(&Session, HistoryPool, Place<&str>)> {
+        let session = self.session.as_ref()?;
+        let app = session.app.as_ref()?;
+        let pool = HistoryPool::of(&app.app_id, &self.personalization)?;
+        Some((session, pool, Place::of(&app.app_id, session.domain.as_deref())))
+    }
+
+    /// The word bias of the pool of the session.
+    fn session_word_bias(&self) -> Option<WordBias> {
+        let (_, pool, _) = self.session_pool()?;
+        self.tables.word_bias(&pool)
+    }
+
+    /// The words that the writer wrote after the last words before the caret, in the pool of the
+    /// session.
+    fn session_next_word_bias(&self) -> NextWordBias {
+        self.session_pool()
+            .map(|(session, pool, place)| self.tables.next_word_bias(&pool, place, &session.text_before))
+            .unwrap_or_default()
+    }
+
+    /// The rest of a phrase that the writer repeats after the text before the caret, in the pool
+    /// of the session, when the line after the caret is empty.
+    fn repeated_phrase(&self) -> Option<String> {
+        let (session, pool, place) = self.session_pool()?;
+        if session.is_excluded || !session.is_caret_at_line_end() {
+            return None;
+        }
+        self.tables
+            .continuation_of(&pool, place, &session.text_before)
+            .map(str::to_owned)
+    }
+
+    /// Returns the prompt for the text before the caret, or `None` when that text has no words or
+    /// the field gets no suggestions.
+    fn prompt(&self) -> Option<Prompt> {
+        let session = self.session.as_ref().filter(|session| !session.is_excluded)?;
+        let has_words = !session.text_before.trim().is_empty();
+        has_words.then(|| prompt::prompt(&session.preface, &session.text_before))
+    }
+}

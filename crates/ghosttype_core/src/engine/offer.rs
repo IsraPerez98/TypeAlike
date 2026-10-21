@@ -1,0 +1,156 @@
+//! Grows the suggestion from the completions and tracks what the ghost text offers.
+
+use std::mem;
+
+use crate::inference::{Completion, Correction, InferenceError};
+use crate::settings::TypoFix;
+
+use super::suggestion::{
+    CLOSING_SIGNS, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
+};
+use super::{Engine, Reaction, WordFix};
+
+#[derive(Default)]
+pub(super) enum Offer {
+    #[default]
+    Idle,
+    /// The completion of the newest request runs, and its parts grow the ghost text.
+    Growing {
+        /// The text that the user typed or accepted from the ghost text after the request.
+        typed: String,
+        /// The ghost text after `typed`, which is empty before the first part.
+        shown: String,
+    },
+    Shown(String),
+    /// The fix of a typo before the caret.
+    Fix(WordFix),
+}
+
+impl Engine {
+    /// Handles the completion of the oldest [`Reaction::Request`] that has no completion yet.
+    /// Only the completion of the newest request can show.
+    pub fn on_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+        self.unanswered_requests = self.unanswered_requests.saturating_sub(1);
+        if self.unanswered_requests > 0 {
+            return self.ghost_reaction();
+        }
+        if let Ok(completion) = result {
+            match &completion.correction {
+                None => {
+                    self.grow(&completion.text);
+                }
+                Some(correction) => {
+                    if let Some(fix) = self.fix_of(correction, &completion.text) {
+                        self.offer = Offer::Fix(fix);
+                    }
+                }
+            }
+        }
+        match mem::take(&mut self.offer) {
+            Offer::Growing { shown, .. } | Offer::Shown(shown) if !shown.is_empty() => self.show(shown),
+            Offer::Fix(fix) => self.show_fix(fix),
+            Offer::Idle | Offer::Growing { .. } | Offer::Shown(_) => Reaction::Hide,
+        }
+    }
+
+    /// Returns the fix that the `correction` and the added `text` of the newest request give, when
+    /// the user typed nothing since the request, the text before the caret ends with the typo and
+    /// the suggestion after the fixed letters is not bad.
+    fn fix_of(&self, correction: &Correction, text: &str) -> Option<WordFix> {
+        let is_untouched = matches!(&self.offer, Offer::Growing { typed, .. } if typed.is_empty());
+        if !is_untouched || self.typo_fix == TypoFix::Off {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
+        let fixed_before = format!("{before_typo}{}", correction.fixed);
+        let suggestion = suggestion_after(&fixed_before, text).unwrap_or_default();
+        if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
+            return None;
+        }
+        let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
+        let unclosed_end = suggestion[..word_end].trim_end_matches(CLOSING_SIGNS).len();
+        let (word_rest, rest) = suggestion.split_at(unclosed_end);
+        Some(WordFix {
+            typo: correction.typed.trim_start().to_owned(),
+            word: format!("{}{word_rest}", correction.fixed.trim_start()),
+            rest: rest.to_owned(),
+        })
+    }
+
+    /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
+    /// far. Only its complete words show, and only for the newest request. Returns the reaction
+    /// when the ghost text changes, or `None`.
+    pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
+        let is_newest = self.unanswered_requests == 1;
+        (is_newest && self.grow(complete_words(text))).then(|| self.ghost_reaction())
+    }
+
+    /// Returns the reaction that shows the ghost text, or hides it when it is empty.
+    fn ghost_reaction(&self) -> Reaction {
+        if let Offer::Fix(fix) = &self.offer {
+            return Reaction::ShowFix(fix.clone());
+        }
+        match self.shown() {
+            "" => Reaction::Hide,
+            shown => Reaction::Show(shown.to_owned()),
+        }
+    }
+
+    /// Makes the ghost text the text of `completion`, from the newest request, after the typed
+    /// text, when it has text there. A bad suggestion empties the ghost text. Returns whether the
+    /// ghost text changed.
+    fn grow(&mut self, completion: &str) -> bool {
+        let (Some(session), Offer::Growing { typed, shown }) = (&self.session, &mut self.offer) else {
+            return false;
+        };
+        match suggestion_after_typed(session, typed, completion) {
+            Some(grown) if grown != *shown => {
+                *shown = grown;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Records that `taken`, the start of the ghost text, is now before the caret, and that
+    /// `rest` stays as the ghost text.
+    pub(super) fn take_from_ghost(&mut self, taken: &str, rest: &str) {
+        match &mut self.offer {
+            Offer::Growing { typed, shown } => {
+                typed.push_str(taken);
+                rest.clone_into(shown);
+            }
+            offer @ (Offer::Idle | Offer::Shown(_) | Offer::Fix(_)) => {
+                *offer = if rest.is_empty() {
+                    Offer::Idle
+                } else {
+                    Offer::Shown(rest.to_owned())
+                };
+            }
+        }
+    }
+
+    pub(super) fn dismiss(&mut self) -> Reaction {
+        self.offer = Offer::Idle;
+        Reaction::Hide
+    }
+
+    pub(super) fn show(&mut self, suggestion: String) -> Reaction {
+        self.offer = Offer::Shown(suggestion.clone());
+        Reaction::Show(suggestion)
+    }
+
+    fn show_fix(&mut self, fix: WordFix) -> Reaction {
+        self.offer = Offer::Fix(fix.clone());
+        Reaction::ShowFix(fix)
+    }
+
+    /// Returns the ghost text, which is empty when none shows.
+    pub(super) fn shown(&self) -> &str {
+        match &self.offer {
+            Offer::Idle | Offer::Fix(_) => "",
+            Offer::Growing { shown, .. } | Offer::Shown(shown) => shown,
+        }
+    }
+}
