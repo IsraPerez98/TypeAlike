@@ -49,7 +49,7 @@ pub struct HistoryFile {
     vault: Box<dyn KeyVault>,
     key: Option<LessSafeKey>,
     random: SystemRandom,
-    may_replace: bool,
+    is_replace_allowed: bool,
 }
 
 impl std::fmt::Debug for HistoryFile {
@@ -72,7 +72,7 @@ impl HistoryFile {
             vault,
             key: None,
             random: SystemRandom::new(),
-            may_replace: false,
+            is_replace_allowed: false,
         }
     }
 
@@ -98,7 +98,7 @@ impl HistoryFile {
     /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
     /// write never leaves a damaged file.
     fn write(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
-        if !self.may_replace {
+        if !self.is_replace_allowed {
             return Err(HistoryError::Unread);
         }
         let plain = entries
@@ -148,7 +148,7 @@ impl HistoryFile {
 impl WritingHistory for HistoryFile {
     fn load(&mut self) -> Vec<HistoryEntry> {
         let entries = self.read();
-        self.may_replace = matches!(entries, Ok(_) | Err(HistoryError::Locked));
+        self.is_replace_allowed = matches!(entries, Ok(_) | Err(HistoryError::Locked));
         entries.unwrap_or_else(|error| {
             tracing::warn!(%error, "failed to read the earlier writing, starting with none");
             Vec::new()
