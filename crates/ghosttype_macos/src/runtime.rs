@@ -4,7 +4,6 @@ mod target;
 
 use std::cell::RefCell;
 use std::ffi::c_void;
-use std::mem;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -19,7 +18,7 @@ use ghosttype_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
 };
 use ghosttype_core::inference::Backend;
-use ghosttype_core::key::{Disposition, Key, ReleaseFilter};
+use ghosttype_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_window::view::{SettingsInput, SettingsView};
 use objc2::rc::Retained;
@@ -99,7 +98,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         },
         tap,
         release_filter: ReleaseFilter::default(),
-        is_badge_pressed: false,
+        badge_click: BadgeClickFilter::default(),
         badge_menu: None,
     }));
     tracing::info!("running in the menu bar");
@@ -128,7 +127,7 @@ struct Runtime {
     shell: AppKitShell,
     tap: EventTap,
     release_filter: ReleaseFilter<CGKeyCode>,
-    is_badge_pressed: bool,
+    badge_click: BadgeClickFilter,
     /// The badge menu that shows now, whose entries a pick names by their index.
     badge_menu: Option<BadgeMenu>,
 }
@@ -146,11 +145,11 @@ impl Runtime {
                 keys::key_code(event).map_or(Disposition::Pass, |key| self.release_filter.on_release(key))
             }
             CGEventType::LeftMouseDown if self.shell.badge.contains(CGEvent::location(Some(event))) => {
-                self.is_badge_pressed = true;
+                let disposition = self.badge_click.on_badge_press();
                 self.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(showBadgeMenu:));
-                Disposition::Swallow
+                disposition
             }
-            CGEventType::LeftMouseUp if mem::take(&mut self.is_badge_pressed) => Disposition::Swallow,
+            CGEventType::LeftMouseUp => self.badge_click.on_release(),
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown | CGEventType::OtherMouseDown => {
                 self.controller.on_context_lost(&mut self.shell);
                 Disposition::Pass

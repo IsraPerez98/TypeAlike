@@ -1,6 +1,8 @@
 //! Keys as the engine understands them, independent of any keyboard layout or OS key code, and
 //! what happens to the key events of the platform.
 
+use std::mem;
+
 /// A key press relevant to suggestions, already translated by the platform layer.
 ///
 /// Modifier-only presses are not keys. Platforms drop them before they reach the engine.
@@ -149,9 +151,73 @@ impl<Code: Copy + PartialEq> ReleaseFilter<Code> {
     }
 }
 
+/// Swallows a left click on the badge: the press of the left button and its release, so the app
+/// under the badge gets neither.
+///
+/// ```
+/// use ghosttype_core::key::{BadgeClickFilter, Disposition};
+///
+/// let mut filter = BadgeClickFilter::default();
+/// filter.on_badge_press();
+///
+/// assert_eq!(filter.on_release(), Disposition::Swallow);
+/// ```
+#[derive(Debug, Default)]
+pub struct BadgeClickFilter {
+    is_pressed: bool,
+}
+
+impl BadgeClickFilter {
+    /// Records a press of the left button on the badge, and returns how the press must be handled.
+    pub fn on_badge_press(&mut self) -> Disposition {
+        self.is_pressed = true;
+        Disposition::Swallow
+    }
+
+    /// Returns how a release of the left button must be handled.
+    pub fn on_release(&mut self) -> Disposition {
+        if mem::take(&mut self.is_pressed) {
+            Disposition::Swallow
+        } else {
+            Disposition::Pass
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn press_on_the_badge_is_swallowed() {
+        let mut filter = BadgeClickFilter::default();
+
+        assert_eq!(filter.on_badge_press(), Disposition::Swallow);
+    }
+
+    #[test]
+    fn release_after_a_press_on_the_badge_is_swallowed() {
+        let mut filter = BadgeClickFilter::default();
+        filter.on_badge_press();
+
+        assert_eq!(filter.on_release(), Disposition::Swallow);
+    }
+
+    #[test]
+    fn release_without_a_press_on_the_badge_passes() {
+        let mut filter = BadgeClickFilter::default();
+
+        assert_eq!(filter.on_release(), Disposition::Pass);
+    }
+
+    #[test]
+    fn badge_release_is_swallowed_once() {
+        let mut filter = BadgeClickFilter::default();
+        filter.on_badge_press();
+        filter.on_release();
+
+        assert_eq!(filter.on_release(), Disposition::Pass);
+    }
 
     const TAB: u16 = 48;
     const LETTER_A: u16 = 0;

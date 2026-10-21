@@ -5,12 +5,11 @@
 mod shell;
 
 use std::cell::RefCell;
-use std::mem;
 use std::sync::mpsc;
 
 use ghosttype_core::app::BadgeMenu;
 use ghosttype_core::controller::{BackendChoice, Controller, Delivery, Services, Shell, Timer};
-use ghosttype_core::key::{Disposition, ReleaseFilter};
+use ghosttype_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
 use ghosttype_core::settings::Settings;
 use ghosttype_core::settings_window::view::SettingsInput;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -136,7 +135,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 settings: settings_thread,
             },
             release_filter: ReleaseFilter::default(),
-            is_badge_pressed: false,
+            badge_click: BadgeClickFilter::default(),
             taskbar_created_message,
             deliveries,
             settings_inputs,
@@ -211,8 +210,7 @@ struct Runtime {
     controller: Controller,
     shell: Win32Shell,
     release_filter: ReleaseFilter<VIRTUAL_KEY>,
-    /// Whether the user pressed the left button on the badge and did not release it yet.
-    is_badge_pressed: bool,
+    badge_click: BadgeClickFilter,
     taskbar_created_message: u32,
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
@@ -254,13 +252,13 @@ impl Runtime {
     fn on_mouse(&mut self, message: u32, point: POINT) -> Disposition {
         match message {
             WM_LBUTTONDOWN if self.shell.badge.contains(point) => {
-                self.is_badge_pressed = true;
+                let disposition = self.badge_click.on_badge_press();
                 if let Err(error) = self.shell.post(BADGE_CLICK_MESSAGE) {
                     tracing::warn!(%error, "failed to queue the badge click");
                 }
-                Disposition::Swallow
+                disposition
             }
-            WM_LBUTTONUP if mem::take(&mut self.is_badge_pressed) => {
+            WM_LBUTTONUP if self.badge_click.on_release() == Disposition::Swallow => {
                 self.controller.on_input(&mut self.shell);
                 Disposition::Swallow
             }
