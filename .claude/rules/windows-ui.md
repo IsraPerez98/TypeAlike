@@ -37,7 +37,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 ## Controls
 - One reactor control for each core row kind (`settings/page.rs`). A new row kind needs one renderer here, never a hand-drawn control.
   - Switch: `ToggleSwitch` at the trailing edge of a card.
-  - Picker: `ComboBox` at the trailing edge, at least 200 px wide.
+  - Picker: `ComboBox` at the trailing edge, 200 to 320 px wide.
   - Text area: multi-line `TextBox` under the label, at least 160 px high, with its button below.
   - Text line: `TextBox` at the trailing edge of a card, at least 200 px wide. Each change goes to the core.
   - Text field: `TextBox` and an accent `Button` that submits. The return key also submits.
@@ -57,6 +57,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Type ramp (size/line, epx): caption 12/16, body 14/20, body strong 14/20 semibold, subtitle 20/28 semibold, title 28/36 semibold. Page titles use title, section headings use body strong.
 - Regular for text, Semibold for titles and emphasis. No Bold, no italic.
 - Sentence case everywhere, titles and menu items included. Left aligned. Wrap long text, never cut it.
+- Text next to an icon or a button goes in a `Grid` with an `Auto` and a `STAR` column. A horizontal `StackPanel` never wraps its text.
 
 ## Title bar
 - `ViewContext::window_frame` gives the standard title bar: the title, the system caption buttons, the drag region and snap layouts. Do not draw a title bar of your own.

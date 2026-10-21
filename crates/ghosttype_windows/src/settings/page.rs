@@ -15,7 +15,8 @@ use windows_reactor::{
 };
 
 use super::layout::{
-    CONTROL_GAP, card, control_card, note_text, scrolling_page, secondary_text, two_column_card,
+    CONTROL_GAP, card, control_card, leading_and_text, note_text, scrolling_page, secondary_text,
+    two_column_card,
 };
 use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
 use super::{PageMessage, SettingsPage};
@@ -25,6 +26,7 @@ const SECTION_GAP: f64 = 28.0;
 const HEADING_GAP: f64 = 8.0;
 const CARD_GAP: f64 = 4.0;
 const PICKER_MIN_WIDTH: f64 = 200.0;
+const PICKER_MAX_WIDTH: f64 = 320.0;
 const TEXT_LINE_MIN_WIDTH: f64 = 200.0;
 const PROGRESS_WIDTH: f64 = 120.0;
 const RING_SIZE: f64 = 16.0;
@@ -84,21 +86,19 @@ impl Renderer<'_, '_> {
                 .back
                 .as_ref()
                 .map(|back| self.button(back, ButtonStyle::Subtle));
-            let title = section.heading.as_ref().map(|heading| {
-                TextBlock::new()
-                    .text(heading)
-                    .font_weight(FontWeight::SEMI_BOLD)
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .text_wrapping(TextWrapping::Wrap)
-                    .into()
-            });
+            let title = TextBlock::new()
+                .text(section.heading.as_deref().unwrap_or_default())
+                .font_weight(FontWeight::SEMI_BOLD)
+                .vertical_alignment(VerticalAlignment::Center)
+                .text_wrapping(TextWrapping::Wrap);
             keyed(
                 format!("{key} heading"),
-                StackPanel::new()
-                    .orientation(Orientation::Horizontal)
-                    .spacing(HEADING_GAP)
-                    .margin(Thickness::new(0.0, SECTION_GAP, 0.0, HEADING_GAP))
-                    .children(back.into_iter().chain(title).collect::<Vec<View>>()),
+                leading_and_text(back, title, HEADING_GAP).margin(Thickness::new(
+                    0.0,
+                    SECTION_GAP,
+                    0.0,
+                    HEADING_GAP,
+                )),
             )
         });
         let rows = section.rows.iter().enumerate().map(|(row_index, row)| {
@@ -172,20 +172,17 @@ impl Renderer<'_, '_> {
                 .into(),
             None => SymbolIcon::new().symbol(Symbol::AllApps).into(),
         };
-        let name = StackPanel::new()
-            .orientation(Orientation::Horizontal)
-            .spacing(CONTROL_GAP)
+        let icon = Border::new()
             .vertical_alignment(VerticalAlignment::Center)
-            .children((
-                Border::new()
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .content(icon),
-                TextBlock::new()
-                    .text(app_name)
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .text_wrapping(TextWrapping::Wrap),
-            ));
-        two_column_card(name.grid_column(0).into(), Some(control))
+            .content(icon)
+            .into();
+        let name = TextBlock::new()
+            .text(app_name)
+            .vertical_alignment(VerticalAlignment::Center)
+            .text_wrapping(TextWrapping::Wrap);
+        let label =
+            leading_and_text(Some(icon), name, CONTROL_GAP).vertical_alignment(VerticalAlignment::Center);
+        two_column_card(label.grid_column(0).into(), Some(control))
     }
 
     fn picker_card(&self, picker: &Picker) -> View {
@@ -345,6 +342,7 @@ impl Renderer<'_, '_> {
             .items_source(choices.iter().map(String::as_str))
             .selected_index(selected)
             .min_width(PICKER_MIN_WIDTH)
+            .max_width(PICKER_MAX_WIDTH)
             .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
                 selection.map_or(PageMessage::Ignore, |index| {
                     PageMessage::Input(SettingsInput::Picked {
@@ -429,19 +427,17 @@ fn output_card(output: &Output) -> View {
 }
 
 fn loading_card(text: &str) -> View {
+    let ring = ProgressRing::new()
+        .is_active(true)
+        .is_indeterminate(true)
+        .width(RING_SIZE)
+        .height(RING_SIZE)
+        .vertical_alignment(VerticalAlignment::Center)
+        .into();
+    let text = secondary_text(text).vertical_alignment(VerticalAlignment::Center);
     card(
-        StackPanel::new()
-            .orientation(Orientation::Horizontal)
-            .spacing(HEADING_GAP)
+        leading_and_text(Some(ring), text, HEADING_GAP)
             .vertical_alignment(VerticalAlignment::Center)
-            .children((
-                ProgressRing::new()
-                    .is_active(true)
-                    .is_indeterminate(true)
-                    .width(RING_SIZE)
-                    .height(RING_SIZE),
-                secondary_text(text).vertical_alignment(VerticalAlignment::Center),
-            ))
             .into(),
     )
 }

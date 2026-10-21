@@ -87,6 +87,18 @@ pub(super) fn two_column_card(leading: View, trailing: Option<View>) -> View {
     )
 }
 
+/// A row with `leading` at its own width, when there is one, then `text`, which wraps in the rest
+/// of the row.
+pub(super) fn leading_and_text(leading: Option<View>, text: TextBlock, spacing: f64) -> Grid {
+    match leading {
+        Some(leading) => Grid::new()
+            .columns([GridLength::Auto, GridLength::STAR])
+            .column_spacing(spacing)
+            .children((leading, text.grid_column(1))),
+        None => Grid::new().columns([GridLength::STAR]).children((text,)),
+    }
+}
+
 pub(super) fn secondary_text(text: &str) -> TextBlock {
     TextBlock::new()
         .text(text)
