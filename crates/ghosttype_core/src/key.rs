@@ -3,14 +3,14 @@
 
 /// A key press relevant to suggestions, already translated by the platform layer.
 ///
-/// Modifier-only presses are not keys; platforms drop them before they reach the engine.
+/// Modifier-only presses are not keys. Platforms drop them before they reach the engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     /// A key that types this character into the focused text.
     Char(char),
     /// Deletes the character before the caret.
     Backspace,
-    /// Plain Tab without modifiers; accepts a visible suggestion.
+    /// Plain Tab without modifiers. It accepts a visible suggestion.
     Tab,
     /// Dismisses a visible suggestion.
     Escape,

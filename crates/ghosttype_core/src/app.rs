@@ -1,4 +1,5 @@
-//! App lifecycle: whether suggestions are on, and the tray menu and caret badge that control it.
+//! The suggestion session and the pause state of GhostType, with the tray menu and the badge at
+//! the caret that show and change them.
 
 mod badge;
 mod tray;
@@ -72,7 +73,7 @@ pub enum SettledWork {
     Suggest(Reaction),
 }
 
-/// GhostType's state while running: suggestion engine plus on/off status.
+/// The suggestion session and the pause state of GhostType, and the views that show them.
 ///
 /// ```
 /// use std::time::Duration;

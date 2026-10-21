@@ -57,13 +57,13 @@ impl TrayView {
     }
 }
 
-/// What the platform must do after a tray command.
+/// What the controller does after a tray command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayOutcome {
-    /// Suggestions stopped: hide any ghost text, re-render the tray and the badge, and unload
+    /// Suggestions stopped: hide any ghost text, show the tray and the badge again, and unload
     /// the suggestion model to free its memory.
     Paused,
-    /// Suggestions started again: re-render the tray and the badge, and load the suggestion
+    /// Suggestions started again: show the tray and the badge again, and load the suggestion
     /// model again.
     Resumed,
     /// The settings window must show and come to the front.
