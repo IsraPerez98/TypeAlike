@@ -1,6 +1,8 @@
 //! The tests of the Models pane.
 
 use super::*;
+use crate::settings_window::models::catalog::SUGGESTED_MODELS;
+use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, Row, SearchField, Section};
 
 const REPO: &str = "owner/Model-GGUF";
 
