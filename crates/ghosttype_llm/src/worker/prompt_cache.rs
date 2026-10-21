@@ -48,17 +48,17 @@ pub(super) enum GenerateError {
     Superseded,
 }
 
-impl GenerateError {
-    pub(super) fn to_inference_error(&self) -> InferenceError {
-        match self {
-            Self::PromptTooLong => InferenceError::PromptTooLong,
-            Self::Superseded => InferenceError::Superseded,
-            Self::EmptyPrompt
-            | Self::Context(_)
-            | Self::Batch(_)
-            | Self::Decode(_)
-            | Self::Sequence(_)
-            | Self::Snapshot(_) => InferenceError::Failed,
+impl From<GenerateError> for InferenceError {
+    fn from(error: GenerateError) -> Self {
+        match error {
+            GenerateError::PromptTooLong => Self::PromptTooLong,
+            GenerateError::Superseded => Self::Superseded,
+            GenerateError::EmptyPrompt
+            | GenerateError::Context(_)
+            | GenerateError::Batch(_)
+            | GenerateError::Decode(_)
+            | GenerateError::Sequence(_)
+            | GenerateError::Snapshot(_) => Self::Failed,
         }
     }
 }

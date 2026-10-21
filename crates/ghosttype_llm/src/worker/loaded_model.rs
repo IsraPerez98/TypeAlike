@@ -45,7 +45,7 @@ impl LoadedModel<'_> {
                 if !matches!(error, GenerateError::Superseded) {
                     tracing::warn!(%error, "failed to complete text");
                 }
-                error.to_inference_error()
+                InferenceError::from(error)
             })?;
         Ok(Completion {
             text,
