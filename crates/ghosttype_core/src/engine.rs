@@ -7,13 +7,13 @@ use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
-use crate::history::{self, HistoryEntry, HistoryPool, HistoryTables, Place};
+use crate::history::{self, HistoryEntry, HistoryPool, HistoryTables};
 use crate::inference::{
     CONTEXT_TOKENS, Completion, Correction, InferenceError, InferenceRequest, LogProbability, NextWordBias,
     Prompt, TokenCount, WordBias,
 };
 use crate::key::Key;
-use crate::place;
+use crate::place::{self, Place};
 use crate::prompt::{self, Writer};
 use crate::settings::{
     ClipboardAccess, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp,

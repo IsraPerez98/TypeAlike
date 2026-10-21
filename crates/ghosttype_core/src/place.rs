@@ -191,6 +191,40 @@ fn is_same_or_subdomain(domain: &str, known: &str) -> bool {
         .is_some_and(|start| start.is_empty() || start.ends_with('.'))
 }
 
+/// Where the user wrote a text: a web page in any browser, else an app. `Text` is `&str` for a
+/// place that borrows the names, and `String` for a key of a table.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Place<Text = String> {
+    /// The host of the web page.
+    WebPage(Text),
+    /// The id of the app.
+    App(Text),
+}
+
+impl<'text> Place<&'text str> {
+    /// The place of a text that the user wrote in the app with `app_id`, on the web page of
+    /// `domain` if any.
+    pub(crate) fn of(app_id: &'text str, domain: Option<&'text str>) -> Self {
+        domain.map_or(Self::App(app_id), Self::WebPage)
+    }
+
+    /// The place of the field of `surroundings`, or `None` when it has no app id and no domain.
+    pub(crate) fn of_field(surroundings: &'text Surroundings) -> Option<Self> {
+        match (&surroundings.domain, &surroundings.app_id) {
+            (Some(domain), _) => Some(Self::WebPage(domain)),
+            (None, Some(app_id)) => Some(Self::App(app_id)),
+            (None, None) => None,
+        }
+    }
+
+    pub(crate) fn owned(self) -> Place {
+        match self {
+            Self::WebPage(domain) => Place::WebPage(domain.to_owned()),
+            Self::App(app_id) => Place::App(app_id.to_owned()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
