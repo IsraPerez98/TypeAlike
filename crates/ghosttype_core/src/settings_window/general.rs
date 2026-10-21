@@ -28,19 +28,19 @@ pub enum GeneralAction {
     EditWriterName(WriterName),
     /// Changed the notes about the user to this text.
     EditWriterNotes(WriterNotes),
-    /// Turned the switch that lets suggestions use the text on the clipboard on or off.
+    /// Turned on or off the switch that lets suggestions use the text on the clipboard.
     SwitchClipboard(ClipboardAccess),
-    /// Turned the switch that gives the text around the caret to the model before the user types
-    /// on or off.
+    /// Turned on or off the switch that gives the text around the caret to the model before the
+    /// user types.
     SwitchPreparation(PromptPreparation),
-    /// Turned the switch that shows each word of a suggestion as soon as the model writes it on or
-    /// off.
+    /// Turned on or off the switch that shows each word of a suggestion as soon as the model
+    /// writes it.
     SwitchDisplay(SuggestionDisplay),
-    /// Turned the switch that hides suggestions while the word before the caret looks like it has
-    /// a typo on or off.
+    /// Turned on or off the switch that hides suggestions while the word before the caret looks
+    /// like it has a typo.
     SwitchTypoRule(TypoRule),
-    /// Turned the switch that fixes the word before the caret when it looks like it has a typo on
-    /// or off.
+    /// Turned on or off the switch that fixes the word before the caret when it looks like it has
+    /// a typo.
     SwitchTypoFix(TypoFix),
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),

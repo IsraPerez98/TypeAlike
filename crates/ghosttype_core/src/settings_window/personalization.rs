@@ -563,8 +563,11 @@ mod tests {
             .map(|scope| pane.on_action(select_mail_scope(scope)));
 
         assert_eq!(
-            changes,
-            [PersonalizationChange::Settings, PersonalizationChange::Settings]
+            (changes, pane.settings().apps.as_slice()),
+            (
+                [PersonalizationChange::Settings, PersonalizationChange::Settings],
+                [history_app("com.apple.mail", "Mail", HistoryScope::AllApps)].as_slice(),
+            )
         );
     }
 
