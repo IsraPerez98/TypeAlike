@@ -1,5 +1,6 @@
 //! Filters the text of a completion and splits a suggestion into the parts that Tab types.
 
+use crate::history::is_apostrophe;
 use crate::inference::Correction;
 
 use super::WordFix;
@@ -72,7 +73,7 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
 fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
-    text.split(|character: char| !(character.is_alphanumeric() || matches!(character, '\'' | '’')))
+    text.split(|character: char| !(character.is_alphanumeric() || is_apostrophe(character)))
         .filter(|word| !word.is_empty())
         .map(str::to_lowercase)
 }

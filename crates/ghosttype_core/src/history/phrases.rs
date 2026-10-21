@@ -7,7 +7,7 @@ use std::ops::Range;
 use super::entry::HistoryEntry;
 use super::redaction::REDACTED;
 use super::word_bias::strength_of;
-use super::words::{runs_of, small_count};
+use super::words::{is_apostrophe, runs_of, small_count};
 use crate::inference::NextWordBias;
 use crate::settings::WordChoice;
 
@@ -212,7 +212,7 @@ fn context_key(text: &str, context: &[Range<usize>]) -> String {
 
 /// The characters of a word of a phrase: letters, digits and apostrophes.
 fn is_phrase_character(character: char) -> bool {
-    character.is_alphanumeric() || matches!(character, '\'' | '’')
+    character.is_alphanumeric() || is_apostrophe(character)
 }
 
 #[cfg(test)]

@@ -21,8 +21,13 @@ pub(super) const MIN_WORD_CHARS: usize = 3;
 
 /// Returns the words of `text` in their spelling: its runs of letters and apostrophes.
 pub(super) fn words(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|character: char| !(character.is_alphabetic() || matches!(character, '\'' | '’')))
+    text.split(|character: char| !(character.is_alphabetic() || is_apostrophe(character)))
         .filter(|word| !word.is_empty())
+}
+
+/// Whether `character` is a straight or a curly apostrophe.
+pub(crate) fn is_apostrophe(character: char) -> bool {
+    matches!(character, '\'' | '’')
 }
 
 /// The spans of the runs of the characters of `text` that `is_part` accepts.
