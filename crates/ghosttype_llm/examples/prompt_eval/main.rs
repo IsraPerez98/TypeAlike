@@ -150,7 +150,7 @@ use serde::de::DeserializeOwned;
 use crate::arguments::{Arguments, USAGE};
 use crate::case::{Case, history_of, read_writers, settings_for_case};
 use crate::report::write_report;
-use crate::run::{ModelSession, run_case};
+use crate::run::{CaseSetup, ModelSession, run_case, with_measures};
 use crate::score::{Comparison, Outcome, Summary};
 
 fn read_json_lines<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Vec<T>> {
@@ -207,7 +207,13 @@ fn main() -> anyhow::Result<()> {
         .map(|(case, version)| {
             let history = history_of(case, &writers)?;
             let settings = settings_for_case(&settings, case, &history, arguments.shared_history);
-            run_case(&mut model, case, &history, &settings, version, &arguments)
+            let setup = CaseSetup {
+                case,
+                history: &history,
+                settings: &settings,
+                version,
+            };
+            run_case(&mut model, setup, &arguments)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     drop(model);
@@ -216,15 +222,7 @@ fn main() -> anyhow::Result<()> {
         .map(|run| run.continuation.as_ref())
         .collect::<Vec<_>>();
     let measures = likelihood::measure(&arguments.model, &continuations)?;
-    let outcomes = runs
-        .into_iter()
-        .zip(measures)
-        .map(|(run, measured)| Outcome {
-            prompt_tokens: measured.map(|measured| measured.prompt_tokens),
-            log_probability: measured.and_then(|measured| measured.log_probability),
-            ..run.outcome
-        })
-        .collect::<Vec<_>>();
+    let outcomes = with_measures(runs, measures);
 
     if let Some(path) = &arguments.save {
         write_json_lines(path, &outcomes)?;
