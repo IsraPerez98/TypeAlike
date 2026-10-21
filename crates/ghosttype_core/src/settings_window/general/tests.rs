@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::inference::{InferenceError, InferenceEvent};
+use crate::settings_window::view::ChoiceText;
 
 #[derive(Debug)]
 struct FakeAutostart {

@@ -8,10 +8,11 @@ use crate::settings::{
     Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
     TypoRule, WriterName, WriterNotes,
 };
+use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::view::{
-    ChoiceText, ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
-    TextArea, TextLine,
+    ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
+    TextLine,
 };
 
 /// Something the user did in the General pane.
@@ -393,11 +394,9 @@ impl GeneralPane {
         value: T,
         field: fn(&mut Settings) -> &mut T,
     ) -> GeneralOutcome {
-        let setting = field(&mut self.settings);
-        if *setting == value {
+        if !replace_if_changed(field(&mut self.settings), value) {
             return GeneralOutcome::default();
         }
-        *setting = value;
         GeneralOutcome {
             settings: Some(self.settings.clone()),
             request: None,
@@ -449,38 +448,32 @@ impl GeneralPane {
 
     fn suggestion_length_picker(&self) -> Picker {
         let choices = self.length_choices();
-        Picker {
-            id: ControlId::new(LENGTH),
+        let text = MenuText {
+            id: LENGTH,
             label: LENGTH_LABEL,
             description: LENGTH_DESCRIPTION,
-            choices: choice_titles(choices),
-            choice_text: ChoiceText::Label,
-            selected: choices
-                .iter()
-                .position(|&(length, _)| length == self.settings.suggestion_length_in_use())
-                .expect("the length in use is at most the longest length that the menu offers"),
-            is_enabled: true,
+        };
+        Picker {
             note: (choices.len() < LENGTH_CHOICES.len()).then_some(Note {
                 text: LENGTH_CPU_NOTE,
                 tone: NoteTone::Plain,
             }),
+            ..picker(text, choices, self.settings.suggestion_length_in_use(), true)
         }
     }
 
     fn backend_picker(&self, playground: &PlaygroundPane) -> Picker {
-        Picker {
-            id: ControlId::new(BACKEND),
+        let text = MenuText {
+            id: BACKEND,
             label: BACKEND_LABEL,
             description: BACKEND_DESCRIPTION,
-            choices: choice_titles(&BACKEND_CHOICES),
-            choice_text: ChoiceText::Label,
-            selected: BACKEND_CHOICES
-                .iter()
-                .position(|&(backend, _)| backend == self.settings.backend)
-                .expect("every backend has a menu entry"),
-            is_enabled: !playground.is_busy(),
-            note: None,
-        }
+        };
+        picker(
+            text,
+            &BACKEND_CHOICES,
+            self.settings.backend,
+            !playground.is_busy(),
+        )
     }
 
     fn writer_name_line(&self) -> TextLine {
@@ -518,10 +511,6 @@ fn switch_action(id: &str, is_on: bool) -> Option<GeneralAction> {
         _ => return None,
     };
     Some(if is_on { turn_on } else { turn_off })
-}
-
-fn choice_titles<Value>(choices: &[(Value, &str)]) -> Vec<String> {
-    choices.iter().map(|(_, title)| (*title).to_owned()).collect()
 }
 
 #[cfg(test)]

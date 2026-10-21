@@ -3,9 +3,9 @@
 
 use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
+use crate::settings_window::controls::{MenuText, app_list_section, picker, replace_if_changed};
 use crate::settings_window::view::{
-    AppSwitch, Button, ChoiceText, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput,
-    Switch,
+    AppSwitch, Button, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
 };
 
 /// Something the user did in the Screen text pane.
@@ -46,9 +46,7 @@ const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
     (OcrLevel::Fast, "Fast (recommended)"),
     (OcrLevel::Accurate, "Accurate"),
 ];
-const APPS_HEADING: &str = "Apps";
 const APPS_FOOTER: &str = "When you type in an app for the first time, GhostType adds the app to this list.";
-const NO_APPS: &str = "This list has no apps.";
 const OCR_PERMISSION_NOTE: &str = "GhostType reads only part of the screen text. To let GhostType read all screen \
      text, go to System Settings > Privacy & Security > Screen & System Audio Recording. Then set the switch for \
      GhostType to on.";
@@ -100,15 +98,11 @@ impl ScreenTextPane {
                 let Some(app) = self.settings.apps.iter_mut().find(|app| app.app_id == app_id) else {
                     return false;
                 };
-                let is_changed = app.is_on != is_on;
-                app.is_on = is_on;
-                is_changed
+                replace_if_changed(&mut app.is_on, is_on)
             }
             ScreenTextAction::AskForOcrPermission => false,
             ScreenTextAction::SelectOcrLevel(level) => {
-                let is_changed = self.settings.ocr_level != level;
-                self.settings.ocr_level = level;
-                is_changed
+                replace_if_changed(&mut self.settings.ocr_level, level)
             }
         }
     }
@@ -148,29 +142,6 @@ impl ScreenTextPane {
     #[must_use]
     pub fn page(&self, ocr: OcrAvailability, levels: OcrLevels) -> Page {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
-        let apps = self
-            .settings
-            .apps
-            .iter()
-            .map(|app| {
-                Row::AppSwitch(AppSwitch {
-                    id: ControlId::from(format!("{APP_SWITCH_PREFIX}{}", app.app_id)),
-                    app_id: app.app_id.clone(),
-                    app_path: app.app_path.clone(),
-                    app_name: app.app_name.clone(),
-                    is_on: app.is_on,
-                    is_enabled: is_allowed,
-                })
-            })
-            .collect::<Vec<_>>();
-        let app_rows = if apps.is_empty() {
-            vec![Row::Message(Message {
-                text: NO_APPS.to_owned(),
-                button: None,
-            })]
-        } else {
-            apps
-        };
         let main_switch = Row::Switch(Switch {
             id: ControlId::new(SCREEN_TEXT),
             label: SCREEN_TEXT_LABEL,
@@ -191,12 +162,7 @@ impl ScreenTextPane {
                 }),
             })])
         });
-        let app_list = Section {
-            heading: Some(APPS_HEADING.to_owned()),
-            back: None,
-            rows: app_rows,
-            footer: Some(APPS_FOOTER),
-        };
+        let app_list = app_list_section(self.app_rows(is_allowed), APPS_FOOTER);
         Page {
             title: PANE_TITLE,
             icon: PageIcon::TextViewfinder,
@@ -210,34 +176,41 @@ impl ScreenTextPane {
     }
 
     fn ocr_level_picker(&self) -> Picker {
-        Picker {
-            id: ControlId::new(OCR_LEVEL),
+        let text = MenuText {
+            id: OCR_LEVEL,
             label: OCR_LEVEL_LABEL,
             description: OCR_LEVEL_DESCRIPTION,
-            choices: OCR_LEVEL_CHOICES
-                .iter()
-                .map(|&(_, title)| title.to_owned())
-                .collect(),
-            choice_text: ChoiceText::Label,
-            selected: OCR_LEVEL_CHOICES
-                .iter()
-                .position(|&(level, _)| level == self.settings.ocr_level)
-                .expect("every OCR level has a menu entry"),
-            is_enabled: self.settings.access == ScreenTextAccess::Allowed,
-            note: None,
-        }
+        };
+        let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
+        picker(text, &OCR_LEVEL_CHOICES, self.settings.ocr_level, is_allowed)
+    }
+
+    fn app_rows(&self, is_enabled: bool) -> Vec<Row> {
+        self.settings
+            .apps
+            .iter()
+            .map(|app| {
+                Row::AppSwitch(AppSwitch {
+                    id: ControlId::from(format!("{APP_SWITCH_PREFIX}{}", app.app_id)),
+                    app_id: app.app_id.clone(),
+                    app_path: app.app_path.clone(),
+                    app_name: app.app_name.clone(),
+                    is_on: app.is_on,
+                    is_enabled,
+                })
+            })
+            .collect()
     }
 
     fn change_access(&mut self, access: ScreenTextAccess) -> bool {
-        let is_changed = self.settings.access != access;
-        self.settings.access = access;
-        is_changed
+        replace_if_changed(&mut self.settings.access, access)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings_window::view::ChoiceText;
 
     fn app(app_id: &str, app_name: &str, is_on: bool) -> ScreenTextApp {
         ScreenTextApp {

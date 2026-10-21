@@ -4,8 +4,11 @@
 use crate::settings::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };
+use crate::settings_window::controls::{
+    MenuText, app_list_section, choice_index, choice_titles, picker, replace_if_changed,
+};
 use crate::settings_window::view::{
-    AppPicker, Button, ChoiceText, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
+    AppPicker, Button, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
     SettingsInput, Switch,
 };
 
@@ -72,7 +75,6 @@ const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
     (WordChoice::Strong, "Strong"),
 ];
 const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
-const APPS_HEADING: &str = "Apps";
 pub(crate) const APP_SCOPE_CHOICES: [(HistoryScope, &str); 3] = [
     (HistoryScope::Off, "Off"),
     (HistoryScope::ThisApp, "Only this app"),
@@ -82,7 +84,6 @@ const APPS_FOOTER: &str = "GhostType saves text only from the apps that are not 
      apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text of the same app \
      first. When you type in an app for the first time, GhostType adds the app to this list. When you turn off \
      an app, GhostType deletes the text that it saved from the app.";
-const NO_APPS: &str = "This list has no apps.";
 const DELETE_DESCRIPTION: &str = "This deletes all the text that GhostType saved. You cannot undo this.";
 const DELETE_LABEL: &str = "Delete all earlier writing";
 const CONFIRM_DELETE_LABEL: &str = "Press again to delete";
@@ -158,10 +159,9 @@ impl PersonalizationPane {
         let Some(app) = self.settings.apps.iter_mut().find(|app| app.app_id == app_id) else {
             return PersonalizationChange::None;
         };
-        if app.scope == scope {
+        if !replace_if_changed(&mut app.scope, scope) {
             return PersonalizationChange::None;
         }
-        app.scope = scope;
         if scope == HistoryScope::Off {
             PersonalizationChange::AppOff(app_id)
         } else {
@@ -211,7 +211,11 @@ impl PersonalizationPane {
                 is_on,
             }),
             Row::Picker(picker(
-                (KEPT_TEXTS, KEPT_TEXTS_LABEL, KEPT_TEXTS_DESCRIPTION),
+                MenuText {
+                    id: KEPT_TEXTS,
+                    label: KEPT_TEXTS_LABEL,
+                    description: KEPT_TEXTS_DESCRIPTION,
+                },
                 &KEPT_TEXTS_CHOICES,
                 self.settings.kept_texts,
                 is_on,
@@ -222,19 +226,18 @@ impl PersonalizationPane {
                     tone: NoteTone::Plain,
                 }),
                 ..picker(
-                    (WORD_CHOICE, WORD_CHOICE_LABEL, WORD_CHOICE_DESCRIPTION),
+                    MenuText {
+                        id: WORD_CHOICE,
+                        label: WORD_CHOICE_LABEL,
+                        description: WORD_CHOICE_DESCRIPTION,
+                    },
                     &WORD_CHOICE_CHOICES,
                     self.settings.word_choice,
                     is_on,
                 )
             }),
         ]);
-        let app_list = Section {
-            heading: Some(APPS_HEADING.to_owned()),
-            back: None,
-            rows: self.app_rows(is_on),
-            footer: Some(APPS_FOOTER),
-        };
+        let app_list = app_list_section(self.app_rows(is_on), APPS_FOOTER);
         let delete = Section::new(vec![Row::Message(Message {
             text: DELETE_DESCRIPTION.to_owned(),
             button: Some(Button {
@@ -257,12 +260,6 @@ impl PersonalizationPane {
     }
 
     fn app_rows(&self, is_enabled: bool) -> Vec<Row> {
-        if self.settings.apps.is_empty() {
-            return vec![Row::Message(Message {
-                text: NO_APPS.to_owned(),
-                button: None,
-            })];
-        }
         self.settings
             .apps
             .iter()
@@ -272,14 +269,8 @@ impl PersonalizationPane {
                     app_id: app.app_id.clone(),
                     app_path: app.app_path.clone(),
                     app_name: app.app_name.clone(),
-                    choices: APP_SCOPE_CHOICES
-                        .iter()
-                        .map(|&(_, title)| title.to_owned())
-                        .collect(),
-                    selected: APP_SCOPE_CHOICES
-                        .iter()
-                        .position(|&(scope, _)| scope == app.scope)
-                        .expect("each scope has a menu entry"),
+                    choices: choice_titles(&APP_SCOPE_CHOICES),
+                    selected: choice_index(&APP_SCOPE_CHOICES, app.scope),
                     is_enabled,
                 })
             })
@@ -287,35 +278,11 @@ impl PersonalizationPane {
     }
 }
 
-/// Sets `setting` to `value`, and tells whether the settings changed.
 fn change_to<Value: PartialEq>(setting: &mut Value, value: Value) -> PersonalizationChange {
-    if *setting == value {
-        return PersonalizationChange::None;
-    }
-    *setting = value;
-    PersonalizationChange::Settings
-}
-
-/// The menu with the `id`, `label` and `description` of `text` that shows the `selected` value of
-/// `choices`.
-fn picker<Value: PartialEq + Copy>(
-    (id, label, description): (&'static str, &'static str, &'static str),
-    choices: &[(Value, &str)],
-    selected: Value,
-    is_enabled: bool,
-) -> Picker {
-    Picker {
-        id: ControlId::new(id),
-        label,
-        description,
-        choices: choices.iter().map(|&(_, title)| title.to_owned()).collect(),
-        choice_text: ChoiceText::Label,
-        selected: choices
-            .iter()
-            .position(|&(value, _)| value == selected)
-            .expect("each value has a menu entry"),
-        is_enabled,
-        note: None,
+    if replace_if_changed(setting, value) {
+        PersonalizationChange::Settings
+    } else {
+        PersonalizationChange::None
     }
 }
 
