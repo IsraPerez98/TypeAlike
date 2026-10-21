@@ -54,6 +54,33 @@ pub(super) enum RowView {
 }
 
 impl RowView {
+    /// Whether `row` sits in a rounded group, which it shares with the grouped rows next to it.
+    pub(super) fn is_grouped(row: &Row) -> bool {
+        !matches!(row, Row::TextArea(_) | Row::TextField(_) | Row::Note(_))
+    }
+
+    /// Adds the views of `row` at the bottom of `container`.
+    pub(super) fn add(row: &Row, container: &NSStackView, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        match row {
+            Row::Switch(switch) => Self::Switch(SwitchRow::add(container, &switch.id, binder)),
+            Row::AppSwitch(switch) => Self::AppSwitch(AppSwitchRow::add(container, &switch.id, binder)),
+            Row::Picker(picker) => Self::Picker(PickerRow::add(container, &picker.id, binder)),
+            Row::AppPicker(picker) => Self::AppPicker(AppPickerRow::add(container, &picker.id, binder)),
+            Row::TextLine(text_line) => {
+                Self::TextLine(TextLineRow::add(container, &text_line.id, main_thread))
+            }
+            Row::Output(_) => Self::Output(OutputRow::add(container, main_thread)),
+            Row::Item(_) => Self::Item(ItemRow::add(container, binder)),
+            Row::Loading(_) | Row::Message(_) => Self::Message(MessageRow::add(container, binder)),
+            Row::TextArea(text_area) => Self::TextArea(TextAreaRow::add(container, &text_area.id, binder)),
+            Row::TextField(text_field) => {
+                Self::TextField(TextFieldRow::add(container, &text_field.id, binder))
+            }
+            Row::Note(_) => Self::Note(NoteView::add(container, main_thread)),
+        }
+    }
+
     /// Whether the views show `row`: a row of their kind, for their control.
     pub(super) fn shows(&self, row: &Row) -> bool {
         match (self, row) {
@@ -173,9 +200,7 @@ impl PickerRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let menu = pop_up_button(binder.target, binder.main_thread);
         let setting = SettingRow::add(rows_stack, &menu, binder.main_thread);
-        let note = NoteView::new(binder.main_thread);
-        setting.texts.addArrangedSubview(&note.container);
-        fill_width(&note.container, &setting.texts);
+        let note = NoteView::add(&setting.texts, binder.main_thread);
         Self {
             setting,
             menu,
@@ -298,13 +323,14 @@ impl MessageRow {
 /// A spinner and a line of status text.
 #[derive(Debug)]
 pub(super) struct NoteView {
-    pub(super) container: Retained<NSStackView>,
+    container: Retained<NSStackView>,
     spinner: Retained<NSProgressIndicator>,
     text: Retained<NSTextField>,
 }
 
 impl NoteView {
-    pub(super) fn new(main_thread: MainThreadMarker) -> Self {
+    /// Adds the note at the bottom of the vertical stack `parent`.
+    fn add(parent: &NSStackView, main_thread: MainThreadMarker) -> Self {
         let spinner = spinner(main_thread);
         let text = secondary_wrapping_label(main_thread);
         text.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
@@ -316,6 +342,8 @@ impl NoteView {
         );
         container.addArrangedSubview(&spinner);
         container.addArrangedSubview(&text);
+        parent.addArrangedSubview(&container);
+        fill_width(&container, parent);
         Self {
             container,
             spinner,
@@ -338,5 +366,73 @@ impl NoteView {
         if note.tone == NoteTone::Busy {
             start_spinning(&self.spinner);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ghosttype_core::settings_window::view::{Message, Output, Switch, TextArea, TextField, TextLine};
+
+    use super::*;
+
+    const ID: ControlId = ControlId::new("setting");
+
+    #[test]
+    fn rows_of_settings_and_lists_share_a_rounded_group() {
+        let rows = [
+            Row::Switch(Switch {
+                id: ID,
+                label: "Label",
+                description: "",
+                is_on: true,
+            }),
+            Row::TextLine(TextLine {
+                id: ID,
+                label: "Label",
+                description: "",
+                text: String::new(),
+            }),
+            Row::Output(Output {
+                text: String::new(),
+                detail: String::new(),
+            }),
+            Row::Loading("Loading"),
+            Row::Message(Message {
+                text: String::new(),
+                button: None,
+            }),
+        ];
+
+        let grouped = rows.map(|row| RowView::is_grouped(&row));
+
+        assert_eq!(grouped, [true; 5]);
+    }
+
+    #[test]
+    fn text_areas_text_fields_and_notes_stand_outside_the_rounded_groups() {
+        let rows = [
+            Row::TextArea(TextArea {
+                id: ID,
+                label: "Label",
+                description: "",
+                text: String::new(),
+                button: None,
+            }),
+            Row::TextField(TextField {
+                id: ID,
+                label: "Label",
+                placeholder: "",
+                submit_label: "Submit",
+                is_submit_enabled: true,
+            }),
+            Row::Note(Note {
+                text: "Note",
+                tone: NoteTone::Plain,
+            }),
+        ];
+
+        let grouped = rows.map(|row| RowView::is_grouped(&row));
+
+        assert_eq!(grouped, [false; 3]);
     }
 }

@@ -22,10 +22,7 @@ use crate::settings::layout::{
     ACCESSORY_SPACING, LIST_PART_SPACING, NO_INSETS, fill_width, pinned_root, rounded_group, scroll_view,
     stack,
 };
-use crate::settings::rows::{
-    AppPickerRow, AppSwitchRow, ItemRow, MessageRow, NoteView, OutputRow, PickerRow, RowView, SwitchRow,
-    TextAreaRow, TextFieldRow, TextLineRow,
-};
+use crate::settings::rows::RowView;
 use crate::settings::{ActionTarget, Binder, ControlAction};
 
 const CONTENT_INSETS: NSEdgeInsets = NSEdgeInsets {
@@ -262,55 +259,13 @@ impl SectionView {
         self.rows.clear();
         let mut group = None;
         for row in rows {
-            let row_view = match row {
-                Row::Switch(switch) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::Switch(SwitchRow::add(rows_stack, &switch.id, binder))
-                }
-                Row::AppSwitch(switch) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::AppSwitch(AppSwitchRow::add(rows_stack, &switch.id, binder))
-                }
-                Row::Picker(picker) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::Picker(PickerRow::add(rows_stack, &picker.id, binder))
-                }
-                Row::AppPicker(picker) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::AppPicker(AppPickerRow::add(rows_stack, &picker.id, binder))
-                }
-                Row::TextLine(text_line) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::TextLine(TextLineRow::add(rows_stack, &text_line.id, binder.main_thread))
-                }
-                Row::Output(_) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::Output(OutputRow::add(rows_stack, binder.main_thread))
-                }
-                Row::Item(_) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::Item(ItemRow::add(rows_stack, binder))
-                }
-                Row::Loading(_) | Row::Message(_) => {
-                    let rows_stack = group.get_or_insert_with(|| self.add_group(binder.main_thread));
-                    RowView::Message(MessageRow::add(rows_stack, binder))
-                }
-                Row::TextArea(text_area) => {
-                    group = None;
-                    RowView::TextArea(TextAreaRow::add(&self.rows_container, &text_area.id, binder))
-                }
-                Row::TextField(text_field) => {
-                    group = None;
-                    RowView::TextField(TextFieldRow::add(&self.rows_container, &text_field.id, binder))
-                }
-                Row::Note(_) => {
-                    group = None;
-                    let note = NoteView::new(binder.main_thread);
-                    self.rows_container.addArrangedSubview(&note.container);
-                    fill_width(&note.container, &self.rows_container);
-                    RowView::Note(note)
-                }
+            let container: &NSStackView = if RowView::is_grouped(row) {
+                group.get_or_insert_with(|| self.add_group(binder.main_thread))
+            } else {
+                group = None;
+                &self.rows_container
             };
+            let row_view = RowView::add(row, container, binder);
             self.rows.push(row_view);
         }
     }
