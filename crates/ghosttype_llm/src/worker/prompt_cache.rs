@@ -23,6 +23,7 @@ use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence};
 const PROMPT_SEQUENCE: i32 = 0;
 /// The sequence that continues a copy of the prompt.
 const COMPLETION_SEQUENCE: i32 = 1;
+/// The index that llama.cpp gives to the output of the last token of a decode.
 const LAST_OUTPUT: i32 = -1;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
 /// backspace across each of these words goes back to a saved state.

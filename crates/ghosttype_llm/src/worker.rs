@@ -57,7 +57,7 @@ impl<'jobs> JobQueue<'jobs> {
     }
 
     /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
-    /// completion for `sink` that runs now.
+    /// completion for `sink` that runs now. It keeps the job that it receives as the next job.
     fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
         if self.next_job.is_none() {
             self.next_job = self.jobs.try_recv().ok();

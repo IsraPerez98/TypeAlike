@@ -20,6 +20,7 @@ const MIN_PROMPT_THREADS: usize = 4;
 /// The most threads for each added token on the CPU. An added token waits mostly for memory, so
 /// more threads use much more CPU time for a small gain.
 const MAX_GENERATION_THREADS: usize = 4;
+/// The sequences of a context: the prompt and its completion.
 const SEQUENCES: u32 = 2;
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
