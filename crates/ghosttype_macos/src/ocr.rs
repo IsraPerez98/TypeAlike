@@ -24,7 +24,7 @@ use objc2_screen_capture_kit::{
 use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel};
 
 use crate::focus::{self, FocusedField};
-use crate::geometry::{moved_by, screen_rect};
+use crate::geometry::{contains, moved_by, screen_rect};
 
 /// The height of the window above and below the field that the OCR reads, in points. Core keeps
 /// only the lines nearest to the caret, so an OCR of the lines farther away is wasted work.
@@ -76,7 +76,7 @@ struct Recognition {
 #[derive(PartialEq, Eq)]
 struct RecognitionInput {
     window: u32,
-    pixels: u64,
+    pixels_hash: u64,
     level: OcrLevel,
 }
 
@@ -105,7 +105,7 @@ impl Ocr {
         let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
-            pixels: pixels_hash(&capture, field.frame)?,
+            pixels_hash: pixels_hash(&capture, field.frame)?,
             level,
         };
         let hashed = Instant::now();
@@ -237,11 +237,6 @@ fn is_window_of(window: &SCWindow, process: i32, point: CGPoint) -> bool {
         )
     };
     owner == Some(process) && layer == 0 && contains(frame, point)
-}
-
-fn contains(frame: CGRect, point: CGPoint) -> bool {
-    let (min, max) = (frame.min(), frame.max());
-    (min.x..max.x).contains(&point.x) && (min.y..max.y).contains(&point.y)
 }
 
 /// Returns the band of `window` from [`BAND_POINTS`] above `field` to [`BAND_POINTS`] below it,

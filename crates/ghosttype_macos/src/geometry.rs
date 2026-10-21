@@ -46,6 +46,8 @@ pub(crate) fn top_left_frame(frame: CGRect, primary_screen_height: CGFloat) -> C
     CGRect::new(CGPoint::new(frame.origin.x, top), frame.size)
 }
 
+/// Whether `frame` holds `point`. The left and top edges are in the frame, and the right and bottom
+/// edges are not.
 pub(crate) fn contains(frame: CGRect, point: CGPoint) -> bool {
     let horizontal = frame.origin.x..frame.origin.x + frame.size.width;
     let vertical = frame.origin.y..frame.origin.y + frame.size.height;
