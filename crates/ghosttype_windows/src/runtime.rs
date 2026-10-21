@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::mem;
 use std::sync::mpsc;
 
-use ghosttype_core::app::{BadgeCommand, BadgeMenu, TrayCommand};
+use ghosttype_core::app::BadgeMenu;
 use ghosttype_core::controller::{BackendChoice, Controller, Delivery, Services, Shell, Timer};
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::Settings;
@@ -279,18 +279,10 @@ impl Runtime {
         self.controller.on_timer(timer, &mut self.shell);
     }
 
-    fn on_tray_command(&mut self, command: TrayCommand) {
-        self.controller.on_tray_command(command, &mut self.shell);
-    }
-
     /// The menu of the badge and where it starts, or `None` while no badge shows.
     fn badge_menu(&self) -> Option<(BadgeMenu, POINT)> {
         let anchor = self.shell.badge.menu_anchor()?;
         Some((self.controller.badge_menu()?, anchor))
-    }
-
-    fn on_badge_command(&mut self, command: BadgeCommand) {
-        self.controller.on_badge_command(command, &mut self.shell);
     }
 
     fn on_window_message(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
@@ -325,31 +317,31 @@ impl Runtime {
     }
 
     fn take_deliveries(&mut self) {
-        while let Ok(delivery) = self.deliveries.try_recv() {
+        for delivery in self.deliveries.try_iter() {
             self.controller.on_delivery(delivery, &mut self.shell);
         }
     }
 
     fn take_settings_inputs(&mut self) {
-        while let Ok(input) = self.settings_inputs.try_recv() {
+        for input in self.settings_inputs.try_iter() {
             self.controller.on_settings_input(&input, &mut self.shell);
         }
     }
 
     fn take_caret_reads(&mut self) {
-        while let Ok(read) = self.caret_reads.try_recv() {
+        for read in self.caret_reads.try_iter() {
             self.shell.show_at_caret(&read);
         }
     }
 
     fn take_field_reads(&mut self) {
-        while let Ok(read) = self.field_reads.try_recv() {
+        for read in self.field_reads.try_iter() {
             self.shell.kept_field_text.keep(read);
         }
     }
 
     fn take_screen_reads(&mut self) {
-        while let Ok(answer) = self.screen_reads.try_recv() {
+        for answer in self.screen_reads.try_iter() {
             tracing::debug!(read = ?answer.read.id, trip = ?answer.sent.elapsed(), "screen read reached the main thread");
             self.controller
                 .on_delivery(Delivery::Screen(answer.read), &mut self.shell);
@@ -381,7 +373,7 @@ fn show_tray_menu(window: HWND, request: MenuRequest) -> LRESULT {
     };
     match tray::pick_command(window, &view.items, request.anchor) {
         Ok(Some(command)) => {
-            with_runtime(|runtime| runtime.on_tray_command(command));
+            with_runtime(|runtime| runtime.controller.on_tray_command(command, &mut runtime.shell));
         }
         Ok(None) => {}
         Err(error) => tracing::warn!(%error, "failed to show tray menu"),
@@ -396,7 +388,7 @@ fn show_badge_menu(window: HWND) -> LRESULT {
     match menu::pick_badge_item(window, &view, anchor) {
         Ok(picked) => {
             if let Some(command) = picked.and_then(|index| view.command(index).cloned()) {
-                with_runtime(|runtime| runtime.on_badge_command(command));
+                with_runtime(|runtime| runtime.controller.on_badge_command(command, &mut runtime.shell));
             }
         }
         Err(error) => tracing::warn!(%error, "failed to show the badge menu"),
