@@ -4,8 +4,9 @@ use crate::engine::{AfterAccept, Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError};
 use crate::key::Key;
 use crate::settings::{Settings, TypoFix};
+use crate::test_support::completion;
 
-use super::support::{completion, engine_waiting_for, engine_with, press, request, type_text};
+use super::support::{engine_waiting_for, engine_with, press, request, type_text};
 
 #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
 fn correction(typed: &str, fixed: &str, text: &str) -> Result<Completion, InferenceError> {

@@ -1,11 +1,11 @@
 //! Tests of the menu of the badge at the caret.
 
-use super::harness::{Call, Harness, history_on, mail_entry, suggestion_settings};
+use super::harness::{Call, Harness, history_on, suggestion_settings};
 use crate::app::{BadgeCommand, Status};
 use crate::inference::InferenceRequest;
 use crate::key::Key;
 use crate::settings::{HistoryScope, Settings};
-use crate::test_support::{mail_app, mail_history_app};
+use crate::test_support::{mail_app, mail_entry, mail_history_app};
 
 #[test]
 fn badge_pause_command_pauses_suggestions() {

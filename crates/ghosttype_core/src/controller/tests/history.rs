@@ -1,13 +1,13 @@
 //! Tests of the earlier writing that the controller loads and saves.
 
-use super::harness::{Harness, history_on, mail_entry};
+use super::harness::{Harness, history_on};
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings};
 use crate::settings_window::general::CLIPBOARD;
 use crate::settings_window::personalization::{DELETE, HISTORY};
-use crate::test_support::{mail_app, mail_history_app, suggestion_request};
+use crate::test_support::{mail_app, mail_entry, mail_history_app, suggestion_request};
 
 #[test]
 fn key_in_a_new_app_saves_nothing_before_the_input_settles() {

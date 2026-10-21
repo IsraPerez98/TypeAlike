@@ -6,11 +6,9 @@ use crate::engine::{Engine, Reaction};
 use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, TokenCount, TypoCheck};
 use crate::key::Key;
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
+use crate::test_support::{ExpectedRequest, completion};
 
-use super::support::{
-    ExpectedRequest, FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press,
-    request, show,
-};
+use super::support::{FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, show};
 
 #[test]
 fn typo_fixes_off_asks_for_no_fixes() {

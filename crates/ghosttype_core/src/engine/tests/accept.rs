@@ -2,9 +2,10 @@
 
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::key::Key;
+use crate::test_support::completion;
 
 use super::support::{
-    FakeDesktop, accept, completion, engine_showing, engine_waiting_for, press, request, show, type_text,
+    FakeDesktop, accept, engine_showing, engine_waiting_for, press, request, show, type_text,
 };
 
 fn accept_last(text: &str, next: Reaction) -> Reaction {

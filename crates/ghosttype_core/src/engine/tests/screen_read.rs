@@ -8,8 +8,9 @@ use crate::excerpt::estimated_tokens;
 use crate::inference::{CONTEXT_TOKENS, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{OcrLevel, SuggestionLength};
+use crate::test_support::completion;
 
-use super::support::{FakeDesktop, completion, engine_waiting_for, press, request, request_with};
+use super::support::{FakeDesktop, engine_waiting_for, press, request, request_with};
 
 fn screen_with(line: &str) -> ScreenText {
     ScreenText {

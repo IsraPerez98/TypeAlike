@@ -4,10 +4,11 @@ use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
+use crate::test_support::{MAIL_APP, mail_entry, mail_history_app};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, Suggestion, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
-    finish_typing_text, history_settings, mail_app, mail_entry, mail_field, request_with, type_text,
+    FakeDesktop, GREETING, Suggestion, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
+    finish_typing_text, history_settings, mail_field, request_with, type_text,
 };
 
 #[test]
@@ -35,7 +36,7 @@ fn earlier_writing_of_the_app_comes_before_the_text() {
 fn earlier_writing_stays_out_when_the_history_or_the_app_is_off() {
     let settings = [
         history_settings(HistoryAccess::Off, Vec::new()),
-        history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
+        history_settings(HistoryAccess::On, vec![mail_history_app(HistoryScope::Off)]),
     ];
 
     let reactions = settings.map(|settings| {
@@ -91,7 +92,7 @@ fn finished_text_is_not_kept_where_the_rules_forbid_it() {
             mail_desktop(GREETING),
         ),
         (
-            history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
+            history_settings(HistoryAccess::On, vec![mail_history_app(HistoryScope::Off)]),
             mail_desktop(GREETING),
         ),
         (

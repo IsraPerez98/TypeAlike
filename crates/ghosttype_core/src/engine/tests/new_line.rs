@@ -7,10 +7,10 @@ use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
 use crate::key::Key;
 use crate::settings::{ClipboardAccess, Settings};
+use crate::test_support::{MAIL_APP, completion};
 
 use super::support::{
-    FakeDesktop, MAIL_APP, completion, engine_showing, engine_waiting_for, engine_with, press, request,
-    request_with,
+    FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, request_with,
 };
 
 /// A field with `before_caret` and a recent copy, which a new session puts into its preface.

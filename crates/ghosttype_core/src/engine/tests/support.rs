@@ -6,14 +6,9 @@ use std::time::Duration;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
-use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck,
-};
 use crate::key::Key;
-use crate::prompt;
-use crate::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, PersonalizationSettings, Settings, WordChoice,
-};
+use crate::settings::{HistoryAccess, HistoryApp, PersonalizationSettings, Settings, WordChoice};
+use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
 #[derive(Default)]
 pub(super) struct FakeDesktop {
@@ -97,41 +92,6 @@ pub(super) fn engine_with_history(settings: &Settings, entries: Vec<HistoryEntry
     engine
 }
 
-/// The request of a completion without word bias, which a test changes where its settings differ
-/// from the default settings.
-pub(super) struct ExpectedRequest {
-    pub(super) prompt: Prompt,
-    pub(super) max_tokens: TokenCount,
-    pub(super) min_log_probability: Option<LogProbability>,
-    pub(super) typo_check: TypoCheck,
-}
-
-impl ExpectedRequest {
-    /// The request that the default settings give for `text_before` after the frame and `lines`.
-    pub(super) fn framed(lines: &[&str], text_before: &str) -> Self {
-        let settings = Settings::default();
-        Self {
-            prompt: prompt::framed_prompt(lines, text_before),
-            max_tokens: settings.suggestion_length_in_use().max_tokens(),
-            min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
-            typo_check: settings.typo_check(),
-        }
-    }
-}
-
-impl From<ExpectedRequest> for InferenceRequest {
-    fn from(expected: ExpectedRequest) -> Self {
-        Self::Complete {
-            prompt: expected.prompt,
-            max_tokens: expected.max_tokens,
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
-            min_log_probability: expected.min_log_probability,
-            typo_check: expected.typo_check,
-        }
-    }
-}
-
 impl From<ExpectedRequest> for Reaction {
     fn from(expected: ExpectedRequest) -> Self {
         Self::Request(expected.into())
@@ -144,18 +104,6 @@ pub(super) fn request_with(lines: &[&str], text_before: &str) -> Reaction {
 
 pub(super) fn request(text_before: &str) -> Reaction {
     request_with(&[], text_before)
-}
-
-#[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
-pub(super) fn completion(text: &str) -> Result<Completion, InferenceError> {
-    Ok(Completion {
-        text: text.to_owned(),
-        tokens: TokenCount(1),
-        duration: Duration::ZERO,
-        word_log_probabilities: Vec::new(),
-        typed_log_probability: LogProbability::default(),
-        correction: None,
-    })
 }
 
 pub(super) fn show(text: &str) -> Reaction {
@@ -200,25 +148,6 @@ pub(super) fn history_settings(history: HistoryAccess, apps: Vec<HistoryApp>) ->
             ..PersonalizationSettings::default()
         },
         ..Settings::default()
-    }
-}
-
-pub(super) const MAIL_APP: &str = "com.apple.mail";
-
-pub(super) fn mail_entry(text: &str) -> HistoryEntry {
-    HistoryEntry {
-        text: text.to_owned(),
-        app_id: MAIL_APP.to_owned(),
-        domain: None,
-    }
-}
-
-pub(super) fn mail_app(scope: HistoryScope) -> HistoryApp {
-    HistoryApp {
-        app_id: MAIL_APP.to_owned(),
-        app_name: "Mail".to_owned(),
-        app_path: None,
-        scope,
     }
 }
 

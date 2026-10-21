@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use crate::app::{BadgeView, Status};
+use crate::history::HistoryEntry;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount, TypoCheck,
+    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck,
 };
 use crate::prompt::framed_prompt;
 use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings};
@@ -21,17 +22,45 @@ pub(crate) const PAUSED_BADGE: BadgeView = BadgeView {
     label: "GhostType (paused)",
 };
 
+/// The request of a completion without word bias, which a test changes where its settings differ
+/// from the default settings.
+pub(crate) struct ExpectedRequest {
+    pub(crate) prompt: Prompt,
+    pub(crate) max_tokens: TokenCount,
+    pub(crate) min_log_probability: Option<LogProbability>,
+    pub(crate) typo_check: TypoCheck,
+}
+
+impl ExpectedRequest {
+    /// The request that the default settings give for `text_before` after the frame and `lines`.
+    pub(crate) fn framed(lines: &[&str], text_before: &str) -> Self {
+        let settings = Settings::default();
+        Self {
+            prompt: framed_prompt(lines, text_before),
+            max_tokens: settings.suggestion_length_in_use().max_tokens(),
+            min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
+            typo_check: settings.typo_check(),
+        }
+    }
+}
+
+impl From<ExpectedRequest> for InferenceRequest {
+    fn from(expected: ExpectedRequest) -> Self {
+        Self::Complete {
+            prompt: expected.prompt,
+            max_tokens: expected.max_tokens,
+            word_bias: None,
+            next_word_bias: NextWordBias::default(),
+            min_log_probability: expected.min_log_probability,
+            typo_check: expected.typo_check,
+        }
+    }
+}
+
 /// The request for a suggestion with the default settings, after the `lines` of the preface and
 /// `text_before`.
 pub(crate) fn suggestion_request(lines: &[&str], text_before: &str) -> InferenceRequest {
-    InferenceRequest::Complete {
-        prompt: framed_prompt(lines, text_before),
-        max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        typo_check: Settings::default().typo_check(),
-    }
+    ExpectedRequest::framed(lines, text_before).into()
 }
 
 /// The request that only decodes the prompt with the `lines` of the preface and `text_before`.
@@ -58,12 +87,22 @@ pub(crate) fn completion(text: &str) -> Result<Completion, InferenceError> {
     })
 }
 
+pub(crate) const MAIL_APP: &str = "com.apple.mail";
+
+pub(crate) fn mail_entry(text: &str) -> HistoryEntry {
+    HistoryEntry {
+        text: text.to_owned(),
+        app_id: MAIL_APP.to_owned(),
+        domain: None,
+    }
+}
+
 pub(crate) fn mail_app(is_on: bool) -> ScreenTextApp {
-    screen_text_app("com.apple.mail", "Mail", is_on)
+    screen_text_app(MAIL_APP, "Mail", is_on)
 }
 
 pub(crate) fn mail_history_app(scope: HistoryScope) -> HistoryApp {
-    history_app("com.apple.mail", "Mail", scope)
+    history_app(MAIL_APP, "Mail", scope)
 }
 
 impl Page {

@@ -449,14 +449,6 @@ pub(super) fn field_around(before_caret: &str, after_caret: &str) -> Surrounding
     }
 }
 
-pub(super) fn mail_entry(text: &str) -> HistoryEntry {
-    HistoryEntry {
-        text: text.to_owned(),
-        app_id: "com.apple.mail".to_owned(),
-        domain: None,
-    }
-}
-
 pub(super) fn history_on() -> Settings {
     Settings {
         personalization: PersonalizationSettings {

@@ -9,10 +9,10 @@ use crate::engine::{Engine, Reaction};
 use crate::key::Key;
 use crate::prompt;
 use crate::settings::{ClipboardAccess, Settings, WriterName, WriterNotes};
+use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
 use super::support::{
-    ExpectedRequest, FakeDesktop, MAIL_APP, completion, engine_showing, engine_waiting_for, engine_with,
-    press, request, request_with,
+    FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, request_with,
 };
 
 #[test]

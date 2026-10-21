@@ -3,8 +3,9 @@
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
 use crate::key::Key;
+use crate::test_support::completion;
 
-use super::support::{FakeDesktop, accept, completion, engine_waiting_for, press, request, show};
+use super::support::{FakeDesktop, accept, engine_waiting_for, press, request, show};
 
 #[test]
 fn typing_requests_completion_of_context() {

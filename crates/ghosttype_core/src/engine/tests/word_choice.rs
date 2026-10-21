@@ -5,10 +5,11 @@ use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
+use crate::test_support::{MAIL_APP, completion, mail_entry, mail_history_app};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, Suggestion, completion, engine_with_history, finish_typing,
-    history_settings, mail_app, mail_entry, mail_field, show, type_text,
+    FakeDesktop, GREETING, Suggestion, engine_with_history, finish_typing, history_settings, mail_field,
+    show, type_text,
 };
 
 fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -46,7 +47,7 @@ fn request_prefers_the_words_of_the_history() {
 fn request_has_no_word_bias_when_the_history_or_the_app_is_off() {
     let settings = [
         word_choice_settings(HistoryAccess::Off, Vec::new()),
-        word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
+        word_choice_settings(HistoryAccess::On, vec![mail_history_app(HistoryScope::Off)]),
     ];
 
     let biases = settings.map(|settings| {
@@ -129,7 +130,7 @@ fn phrase_needs_the_word_choice_the_history_and_the_app() {
     let settings = [
         history_settings(HistoryAccess::On, Vec::new()),
         word_choice_settings(HistoryAccess::Off, Vec::new()),
-        word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
+        word_choice_settings(HistoryAccess::On, vec![mail_history_app(HistoryScope::Off)]),
     ];
 
     let requests = settings.map(|settings| {
@@ -169,7 +170,7 @@ fn request_has_no_next_word_bias_without_the_word_choice_the_history_or_the_app(
     let settings = [
         history_settings(HistoryAccess::On, Vec::new()),
         word_choice_settings(HistoryAccess::Off, Vec::new()),
-        word_choice_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
+        word_choice_settings(HistoryAccess::On, vec![mail_history_app(HistoryScope::Off)]),
     ];
 
     let next = settings.map(|settings| next_word_bias_after(&settings, "Please let me know"));
