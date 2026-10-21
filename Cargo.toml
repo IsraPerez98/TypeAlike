@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/IsraPerez98/GhostType"
 publish = false
 
-# Every dependency is declared here once and inherited with `foo.workspace = true`.
+# Each member inherits its dependencies from this table with `foo.workspace = true`.
 [workspace.dependencies]
 ghosttype_core = { path = "crates/ghosttype_core" }
 ghosttype_windows = { path = "crates/ghosttype_windows" }
@@ -235,11 +235,12 @@ dbg_macro = "warn"
 empty_structs_with_brackets = "warn"
 if_then_some_else_none = "warn"
 map_err_ignore = "warn"
+mod_module_files = "warn"
 print_stdout = "warn"
 undocumented_unsafe_blocks = "warn"
 unnecessary_safety_comment = "warn"
 unwrap_used = "warn"
-# The windows crate family pulls in duplicate versions we can't control.
+# The windows crate family brings duplicate versions that this workspace does not control.
 multiple_crate_versions = "allow"
 
 [profile.release]
