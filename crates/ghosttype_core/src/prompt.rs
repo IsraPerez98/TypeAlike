@@ -4,6 +4,8 @@
 //! text as the writing of one person and not as a task about a user. It goes from the part that
 //! changes least to the part that changes most.
 
+use std::fmt;
+
 use crate::desktop::{ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, one_line};
 use crate::inference::{Prompt, TokenCount};
@@ -31,8 +33,9 @@ const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 const HISTORY_TOKENS: TokenCount = TokenCount(200);
 
-/// What GhostType knows about the person who writes.
-#[derive(Debug, Clone, Default)]
+/// What GhostType knows about the person who writes. `Debug` shows only the length of each text
+/// and the number of examples, so logs never hold what the user wrote.
+#[derive(Clone, Default)]
 pub(crate) struct Writer<'text> {
     /// The notes that the writer gives about themself.
     pub(crate) notes: &'text str,
@@ -40,6 +43,17 @@ pub(crate) struct Writer<'text> {
     pub(crate) name: &'text str,
     /// Earlier texts of the writer, oldest first.
     pub(crate) examples: Vec<String>,
+}
+
+impl fmt::Debug for Writer<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Writer")
+            .field("notes", &self.notes.chars().count())
+            .field("name", &self.name.chars().count())
+            .field("examples", &self.examples.len())
+            .finish()
+    }
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
@@ -276,6 +290,19 @@ mod tests {
             }),
             ..Surroundings::default()
         }
+    }
+
+    #[test]
+    fn debug_of_the_writer_hides_the_text() {
+        let writer = Writer {
+            notes: "I am a nurse.",
+            name: "Sara Novak",
+            examples: vec!["Cheers,\nTom".to_owned()],
+        };
+
+        let debug = format!("{writer:?}");
+
+        assert_eq!(debug, "Writer { notes: 13, name: 10, examples: 1 }");
     }
 
     #[test]

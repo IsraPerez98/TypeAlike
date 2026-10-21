@@ -3,6 +3,7 @@
 //! below the caret.
 
 use std::collections::HashSet;
+use std::fmt;
 
 use crate::desktop::{Confidence, FieldText, ScreenRect, ScreenText};
 use crate::excerpt::{estimated_tokens, one_line};
@@ -35,13 +36,24 @@ struct Candidate {
     frame: ScreenRect,
 }
 
-/// The lines of the screen that the prompt shows, each side of the caret in reading order.
-#[derive(Debug, Default, PartialEq, Eq)]
+/// The lines of the screen that the prompt shows, each side of the caret in reading order. `Debug`
+/// shows only the number of lines, so logs never hold the text on the screen.
+#[derive(Default, PartialEq, Eq)]
 pub(crate) struct NearbyLines {
     /// The lines whose middle is above the middle of the caret, such as the messages of a chat.
     pub(crate) above: Vec<String>,
     /// The other lines, such as the quote of an email below a reply.
     pub(crate) below: Vec<String>,
+}
+
+impl fmt::Debug for NearbyLines {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NearbyLines")
+            .field("above", &self.above.len())
+            .field("below", &self.below.len())
+            .finish()
+    }
 }
 
 /// How far a line is from the caret. Lines beside the field, such as sidebars and contact lists,
@@ -285,6 +297,18 @@ mod tests {
     /// Returns the text that the prompt keeps of each line, one screen for each line.
     fn kept_texts<const COUNT: usize>(lines: [&str; COUNT]) -> [Vec<String>; COUNT] {
         lines.map(|text| nearby_lines(&screen(vec![above(text, 1)]), None, BUDGET).above)
+    }
+
+    #[test]
+    fn debug_of_the_nearby_lines_hides_the_text() {
+        let lines = NearbyLines {
+            above: texts(&["From: Sam Reyes", "See you at 7?"]),
+            below: texts(&["Sent from my phone"]),
+        };
+
+        let debug = format!("{lines:?}");
+
+        assert_eq!(debug, "NearbyLines { above: 2, below: 1 }");
     }
 
     #[test]
