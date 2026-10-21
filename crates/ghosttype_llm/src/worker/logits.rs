@@ -208,12 +208,7 @@ mod tests {
 
     #[test]
     fn healing_takes_the_most_likely_agreeing_token_and_the_lowest_id_of_a_tie() {
-        let pieces = TokenPieces::new(
-            [" be", " beauti", " beautiful", " cat"]
-                .iter()
-                .zip(0..)
-                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
-        );
+        let pieces = TokenPieces::from_texts(&[" be", " beauti", " beautiful", " cat"]);
 
         let token = best_token_agreeing_with(&[1.0, 3.0, 3.0, 9.0], &pieces, b" beauti");
 

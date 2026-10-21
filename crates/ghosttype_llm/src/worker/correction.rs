@@ -252,12 +252,7 @@ mod tests {
     }
 
     fn space_and_cost_pieces() -> TokenPieces {
-        TokenPieces::new(
-            [" ", " cost", " costume", "cost", " cat"]
-                .iter()
-                .zip(0..)
-                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
-        )
+        TokenPieces::from_texts(&[" ", " cost", " costume", "cost", " cat"])
     }
 
     #[test]
@@ -331,15 +326,6 @@ mod tests {
         pieces[index].as_bytes().to_vec()
     }
 
-    fn token_pieces(pieces: &[&str]) -> TokenPieces {
-        TokenPieces::new(
-            pieces
-                .iter()
-                .zip(0..)
-                .map(|(piece, id)| (LlamaToken(id), piece.as_bytes().to_vec())),
-        )
-    }
-
     #[test]
     fn typo_gets_the_fix_of_the_most_likely_token_one_edit_away() {
         let pieces = delivery_pieces();
@@ -347,7 +333,7 @@ mod tests {
 
         let fix = typo_fix(
             &logits,
-            &token_pieces(&pieces),
+            &TokenPieces::from_texts(&pieces),
             b" dlei",
             LogProbability(-11.0),
             |token| piece_of(&pieces, token),
@@ -363,7 +349,7 @@ mod tests {
 
         let fix = typo_fix(
             &logits,
-            &token_pieces(&pieces),
+            &TokenPieces::from_texts(&pieces),
             b" dlei",
             LogProbability(-11.0),
             |token| piece_of(&pieces, token),
@@ -379,7 +365,7 @@ mod tests {
 
         let fix = typo_fix(
             &logits,
-            &token_pieces(&pieces),
+            &TokenPieces::from_texts(&pieces),
             b" qzxw",
             LogProbability(-11.0),
             |token| piece_of(&pieces, token),

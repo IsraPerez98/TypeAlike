@@ -49,7 +49,7 @@ impl TokenPieces {
     }
 
     fn with_text<'pieces>(&'pieces self, text: &'pieces [u8]) -> impl Iterator<Item = LlamaToken> + 'pieces {
-        self.from(text)
+        self.at_or_after(text)
             .take_while(move |(piece, _)| piece == text)
             .map(|&(_, token)| token)
     }
@@ -58,16 +58,27 @@ impl TokenPieces {
         &'pieces self,
         text: &'pieces [u8],
     ) -> impl Iterator<Item = LlamaToken> + 'pieces {
-        self.from(text)
+        self.at_or_after(text)
             .take_while(move |(piece, _)| piece.starts_with(text))
             .map(|&(_, token)| token)
     }
 
     /// Returns the tokens in the order of their text, from the first one whose text is not before
     /// `text`.
-    fn from(&self, text: &[u8]) -> impl Iterator<Item = &(Vec<u8>, LlamaToken)> {
+    fn at_or_after(&self, text: &[u8]) -> impl Iterator<Item = &(Vec<u8>, LlamaToken)> {
         let first = self.sorted.partition_point(|(piece, _)| piece.as_slice() < text);
         self.sorted[first..].iter()
+    }
+
+    /// Keeps each of `texts` as the text of the token whose id is its index.
+    #[cfg(test)]
+    pub(super) fn from_texts(texts: &[&str]) -> Self {
+        Self::new(
+            texts
+                .iter()
+                .zip(0..)
+                .map(|(text, id)| (LlamaToken(id), text.as_bytes().to_vec())),
+        )
     }
 }
 
@@ -75,18 +86,9 @@ impl TokenPieces {
 mod tests {
     use super::*;
 
-    fn pieces(texts: &[&str]) -> TokenPieces {
-        TokenPieces::new(
-            texts
-                .iter()
-                .zip(0..)
-                .map(|(text, id)| (LlamaToken(id), text.as_bytes().to_vec())),
-        )
-    }
-
     #[test]
     fn tokens_that_write_a_start_of_the_text_or_all_of_it_agree() {
-        let pieces = pieces(&[
+        let pieces = TokenPieces::from_texts(&[
             " beaut",
             " beautiful",
             " beast",
@@ -105,7 +107,7 @@ mod tests {
 
     #[test]
     fn longest_token_inside_the_text_and_the_tokens_that_write_all_of_it_cover_it() {
-        let pieces = pieces(&[" ", " n", " net", " netw", " network", " networks", " nest"]);
+        let pieces = TokenPieces::from_texts(&[" ", " n", " net", " netw", " network", " networks", " nest"]);
 
         let mut covering = pieces.covering(b" netwo").collect::<Vec<_>>();
         covering.sort_unstable();
@@ -115,7 +117,7 @@ mod tests {
 
     #[test]
     fn token_with_all_of_the_text_leaves_the_shorter_tokens_out_of_the_cover() {
-        let pieces = pieces(&[" ", " co", " cost", " costume", " cot"]);
+        let pieces = TokenPieces::from_texts(&[" ", " co", " cost", " costume", " cot"]);
 
         let mut covering = pieces.covering(b" cost").collect::<Vec<_>>();
         covering.sort_unstable();
@@ -125,7 +127,7 @@ mod tests {
 
     #[test]
     fn tokens_with_the_same_text_all_agree() {
-        let pieces = pieces(&[" a", " a", " ab"]);
+        let pieces = TokenPieces::from_texts(&[" a", " a", " ab"]);
 
         let mut agreeing = pieces.agreeing_with(b" ab").collect::<Vec<_>>();
         agreeing.sort_unstable();
