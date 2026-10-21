@@ -75,11 +75,6 @@ const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
     (WordChoice::Strong, "Strong"),
 ];
 const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
-pub(crate) const APP_SCOPE_CHOICES: [(HistoryScope, &str); 3] = [
-    (HistoryScope::Off, "Off"),
-    (HistoryScope::ThisApp, "Only this app"),
-    (HistoryScope::AllApps, "All apps"),
-];
 const APPS_FOOTER: &str = "GhostType saves text only from the apps that are not off. The text of an app with “All \
      apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text of the same app \
      first. When you type in an app for the first time, GhostType adds the app to this list. When you turn off \
@@ -189,7 +184,7 @@ impl PersonalizationPane {
             }
             SettingsInput::Picked { id, index } => {
                 let app_id = id.as_str().strip_prefix(APP_PREFIX)?;
-                let &(scope, _) = APP_SCOPE_CHOICES.get(*index)?;
+                let &(scope, _) = HistoryScope::CHOICES.get(*index)?;
                 Some(PersonalizationAction::SelectAppScope {
                     app_id: app_id.to_owned(),
                     scope,
@@ -269,8 +264,8 @@ impl PersonalizationPane {
                     app_id: app.app_id.clone(),
                     app_path: app.app_path.clone(),
                     app_name: app.app_name.clone(),
-                    choices: choice_titles(&APP_SCOPE_CHOICES),
-                    selected: choice_index(&APP_SCOPE_CHOICES, app.scope),
+                    choices: choice_titles(&HistoryScope::CHOICES),
+                    selected: choice_index(&HistoryScope::CHOICES, app.scope),
                     is_enabled,
                 })
             })

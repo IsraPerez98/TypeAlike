@@ -52,6 +52,15 @@ pub enum HistoryScope {
     AllApps,
 }
 
+impl HistoryScope {
+    /// The entries of a menu that picks the scope of an app, top to bottom, each with its label.
+    pub(crate) const CHOICES: [(Self, &'static str); 3] = [
+        (Self::Off, "Off"),
+        (Self::ThisApp, "Only this app"),
+        (Self::AllApps, "All apps"),
+    ];
+}
+
 /// An app of the Personalization pane, and which earlier writing it gives and gets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryApp {

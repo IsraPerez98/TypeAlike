@@ -6,7 +6,6 @@ use super::Status;
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
 };
-use crate::settings_window::personalization::APP_SCOPE_CHOICES;
 
 /// The badge at the caret of the field where the user types: a button that opens the
 /// [`BadgeMenu`]. It shows above the caret, on the side opposite to the ghost text.
@@ -141,7 +140,7 @@ pub(super) fn app_entries(
         .find(|app| app.app_id == app_id)
         .map(|app| BadgeEntry::Submenu {
             label: format!("Earlier writing in {}", app.app_name),
-            items: APP_SCOPE_CHOICES
+            items: HistoryScope::CHOICES
                 .iter()
                 .map(|&(scope, title)| BadgeItem {
                     label: title.to_owned(),
