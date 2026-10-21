@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// The probabilities of the first word that the report tries as a minimum.
 const GATE_PROBABILITIES: [f64; 6] = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5];
 /// The probabilities of the suggestion up to the end of a word that the report tries as a cut.
-const CUT_PROBABILITIES: [f64; 7] = [0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005];
+const CUT_PROBABILITIES: [f64; 10] = [0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0002];
 /// The natural logs of the probabilities of the typed letters that the report tries as a typo cut.
 const TYPO_LOG_PROBABILITIES: [f64; 9] = [-6.0, -8.0, -10.0, -11.0, -12.0, -14.0, -16.0, -18.0, -20.0];
 

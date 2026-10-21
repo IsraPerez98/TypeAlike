@@ -5,7 +5,7 @@
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
-//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off]
+//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] //!     [--length very_short|short|medium|long|very_long]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -124,6 +124,10 @@
 //! rule on, the app also fixes typos. The report counts the fixes of the typo cases that write the
 //! word of `fixed` and `next` (`typo fixes`), and the fixes of the other cases (`other fixes`),
 //! which each change a word without a typo.
+//!
+//! `--length` sets the suggestion length: `very_short`, `short`, `medium` (the default), `long` or
+//! `very_long`. The length sets the token limit and the cut of the tail of each request. As in the
+//! app, the CPU backend allows at most `short`.
 
 mod likelihood;
 mod score;
@@ -151,7 +155,7 @@ use ghosttype_core::inference::{
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{
     ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, PersonalizationSettings, PromptPreparation,
-    Settings, TypoRule, WordChoice, WriterName, WriterNotes,
+    Settings, SuggestionLength, TypoRule, WordChoice, WriterName, WriterNotes,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 use serde::Deserialize;
@@ -166,7 +170,7 @@ use crate::score::{
 const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
-     [--typo-rule on|off]";
+     [--typo-rule on|off] [--length very_short|short|medium|long|very_long]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
@@ -183,6 +187,7 @@ struct Arguments {
     shared_history: SharedHistory,
     tail_cut: TailCut,
     typo_rule: TypoRule,
+    length: SuggestionLength,
 }
 
 /// Whether the apps of a case share their earlier writing.
@@ -226,6 +231,7 @@ impl Arguments {
             shared_history: SharedHistory::On,
             tail_cut: TailCut::On,
             typo_rule: TypoRule::default(),
+            length: SuggestionLength::default(),
         };
         for option in options.chunks(2) {
             match option {
@@ -242,6 +248,7 @@ impl Arguments {
                 }
                 [name, cut] if name == "--tail-cut" => parsed.tail_cut = tail_cut_named(cut)?,
                 [name, rule] if name == "--typo-rule" => parsed.typo_rule = typo_rule_named(rule)?,
+                [name, length] if name == "--length" => parsed.length = length_named(length)?,
                 _ => return None,
             }
         }
@@ -292,6 +299,18 @@ fn typo_rule_named(name: &str) -> Option<TypoRule> {
     match name {
         "on" => Some(TypoRule::HideSuggestions),
         "off" => Some(TypoRule::Suggest),
+        _ => None,
+    }
+}
+
+/// Returns the suggestion length with `name` in [`USAGE`], or `None` for another name.
+fn length_named(name: &str) -> Option<SuggestionLength> {
+    match name {
+        "very_short" => Some(SuggestionLength::VeryShort),
+        "short" => Some(SuggestionLength::Short),
+        "medium" => Some(SuggestionLength::Medium),
+        "long" => Some(SuggestionLength::Long),
+        "very_long" => Some(SuggestionLength::VeryLong),
         _ => None,
     }
 }
@@ -983,7 +1002,7 @@ fn write_word_report(output: &mut impl Write, summary: &Summary) -> io::Result<(
     for point in &summary.cut {
         writeln!(
             output,
-            "  {:>5.1}%       {:>5}   {:>5}   {:>5}",
+            "  {:>6.2}%      {:>5}   {:>5}   {:>5}",
             point.log_probability.exp() * 100.0,
             point.shown,
             point.right,
@@ -1036,6 +1055,7 @@ fn main() -> anyhow::Result<()> {
         writer_name: WriterName(arguments.name.clone()),
         prompt_preparation: PromptPreparation::OnFocus,
         typo_rule: arguments.typo_rule,
+        suggestion_length: arguments.length,
         personalization: PersonalizationSettings {
             history: HistoryAccess::On,
             word_choice: arguments.word_choice,
@@ -1219,6 +1239,7 @@ mod tests {
                 shared_history: SharedHistory::On,
                 tail_cut: TailCut::On,
                 typo_rule: TypoRule::HideSuggestions,
+                length: SuggestionLength::Medium,
             })
         );
     }
@@ -1335,6 +1356,27 @@ mod tests {
         });
 
         assert_eq!(cuts, [Some(TailCut::On), Some(TailCut::Off), None]);
+    }
+
+    #[test]
+    fn length_option_sets_the_suggestion_length() {
+        let names = ["very_short", "short", "medium", "long", "very_long", "huge"];
+
+        let lengths = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--length", name]).map(|arguments| arguments.length)
+        });
+
+        assert_eq!(
+            lengths,
+            [
+                Some(SuggestionLength::VeryShort),
+                Some(SuggestionLength::Short),
+                Some(SuggestionLength::Medium),
+                Some(SuggestionLength::Long),
+                Some(SuggestionLength::VeryLong),
+                None,
+            ]
+        );
     }
 
     #[test]
