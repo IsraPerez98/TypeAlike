@@ -12,7 +12,7 @@ use windows::core::{Result, w};
 
 use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
 use crate::focus::Caret;
-use crate::gdi::{FixColors, Font, FontHeight, TextBitmap, TextLayout};
+use crate::gdi::{Font, FontHeight, TextBitmap, TextRun};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
@@ -48,6 +48,17 @@ const DARK_WORD: Rgb = Rgb {
 /// The gray of ghost text in a field that gives no text color, whose background is unknown. It is
 /// the same in light and dark mode, and it shows on both: about 5:1 on #1E1E1E, 3.3:1 on white.
 const NEUTRAL_GRAY: Rgb = Rgb::gray(0x8E);
+
+/// The colors of the fix of a typo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FixColors {
+    /// The line through the typed letters.
+    strike: Rgb,
+    /// The fixed word.
+    word: Rgb,
+    /// The rest of the suggestion.
+    rest: Ink,
+}
 
 #[derive(Debug)]
 pub(crate) struct Overlay {
@@ -122,10 +133,20 @@ impl Overlay {
 /// in another font. Returns the bitmap and the width of that line.
 fn render(ghost: &Ghost, font: &Font, colors: FixColors) -> Result<(TextBitmap, i32)> {
     match ghost {
-        Ghost::Text(text) => Ok((TextBitmap::render(text, font, colors.rest, TextLayout::Fit)?, 0)),
+        Ghost::Text(text) => TextBitmap::render_line(&[], &[TextRun::new(text, font, colors.rest)]),
         Ghost::Fix(fix) => {
+            let typo = TextRun {
+                strike: Some(colors.strike),
+                ..TextRun::new(&fix.typo, font, Ink::CLEAR)
+            };
             let word = format!(" {}", fix.word);
-            TextBitmap::render_fix(&fix.typo, &word, &fix.rest, font, colors)
+            TextBitmap::render_line(
+                &[typo],
+                &[
+                    TextRun::new(&word, font, colors.word.into()),
+                    TextRun::new(&fix.rest, font, colors.rest),
+                ],
+            )
         }
     }
 }

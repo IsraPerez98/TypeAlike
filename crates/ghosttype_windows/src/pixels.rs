@@ -85,6 +85,19 @@ pub(crate) struct Ink {
     pub(crate) alpha: u8,
 }
 
+impl Ink {
+    /// The ink that draws nothing.
+    pub(crate) const CLEAR: Self = Self {
+        color: Rgb::BLACK,
+        alpha: 0,
+    };
+
+    /// Whether the ink draws nothing.
+    pub(crate) fn is_clear(self) -> bool {
+        self.alpha == 0
+    }
+}
+
 impl From<Rgb> for Ink {
     fn from(color: Rgb) -> Self {
         Self {

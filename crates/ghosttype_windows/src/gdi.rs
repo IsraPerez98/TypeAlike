@@ -2,7 +2,9 @@
 //! icons, and holds the memory bitmaps that the settings window draws into.
 
 use std::ffi::c_void;
+use std::iter;
 use std::marker::PhantomData;
+use std::ops::Range;
 
 use windows::Win32::Foundation::{COLORREF, E_FAIL, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
@@ -92,24 +94,38 @@ impl Font {
     }
 }
 
-/// Where text is drawn inside its bitmap.
+/// A part of a line of text in one font and one color, with an optional line through it.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum TextLayout {
-    /// The bitmap is as large as the text, which starts at its top-left corner.
-    Fit,
-    /// The bitmap is a square of this side, with the text centered.
-    CenteredSquare(i32),
+pub(crate) struct TextRun<'run> {
+    pub(crate) text: &'run str,
+    pub(crate) font: &'run Font,
+    /// The color of the letters. Letters in a clear ink are left out, so that only the line
+    /// through them shows, over the letters that the app draws.
+    pub(crate) ink: Ink,
+    /// The color of a line through the letters, if any.
+    pub(crate) strike: Option<Rgb>,
 }
 
-/// The colors of the fix of a typo.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FixColors {
-    /// The line through the typed letters.
-    pub(crate) strike: Rgb,
-    /// The fixed word.
-    pub(crate) word: Rgb,
-    /// The rest of the suggestion.
-    pub(crate) rest: Ink,
+impl<'run> TextRun<'run> {
+    /// A run of `text` in `font` and `ink`, without a line through it.
+    pub(crate) fn new(text: &'run str, font: &'run Font, ink: Ink) -> Self {
+        Self {
+            text,
+            font,
+            ink,
+            strike: None,
+        }
+    }
+
+    fn measure(&self, context: &MemoryContext) -> Result<SIZE> {
+        let _font = context.select(HGDIOBJ(self.font.0.0));
+        measure(context, &utf16(self.text))
+    }
+
+    fn draw(&self, context: &MemoryContext, left: i32) -> Result<()> {
+        let _font = context.select(HGDIOBJ(self.font.0.0));
+        draw_at(context, &mut utf16(self.text), left)
+    }
 }
 
 /// A 32-bit bitmap holding text in a single color over transparency, premultiplied.
@@ -120,18 +136,18 @@ pub(crate) struct TextBitmap {
 }
 
 impl TextBitmap {
-    /// Renders `text` in `ink` into a new bitmap sized by `layout`.
-    pub(crate) fn render(text: &str, font: &Font, ink: Ink, layout: TextLayout) -> Result<Self> {
+    /// Renders `text` in `ink` in the middle of a new square bitmap of `square_side` pixels.
+    pub(crate) fn render_centered(text: &str, font: &Font, ink: Ink, square_side: i32) -> Result<Self> {
         let context = MemoryContext::new()?;
         let _font = context.select(HGDIOBJ(font.0.0));
-        let mut units: Vec<u16> = text.encode_utf16().collect();
-        let size = match layout {
-            TextLayout::Fit => measure(&context, &units)?,
-            TextLayout::CenteredSquare(side) => SIZE { cx: side, cy: side },
+        let mut units = utf16(text);
+        let size = SIZE {
+            cx: square_side,
+            cy: square_side,
         };
         let mut section = PixelSection::new(size)?;
         let _bitmap = context.select(HGDIOBJ(section.bitmap.0));
-        draw(&context, &mut units, size, layout)?;
+        draw_centered(&context, &mut units, size)?;
         // SAFETY: plain call.
         unsafe { GdiFlush() }.ok()?;
         // SAFETY: the section is alive and GDI is done writing to it.
@@ -139,48 +155,39 @@ impl TextBitmap {
         Ok(Self { section, size })
     }
 
-    /// Renders the fix of a typo: a line as wide as `typo` in `font`, then `word` and `rest`, each in
-    /// its color of `colors`. Returns the bitmap and the width of the line, which ends at the caret.
-    pub(crate) fn render_fix(
-        typo: &str,
-        word: &str,
-        rest: &str,
-        font: &Font,
-        colors: FixColors,
+    /// Renders the runs before the caret and the runs after it one after the other on one line,
+    /// each in its font and its color. Returns the bitmap and the distance from its left edge to
+    /// the caret.
+    pub(crate) fn render_line(
+        before_caret: &[TextRun<'_>],
+        after_caret: &[TextRun<'_>],
     ) -> Result<(Self, i32)> {
         let context = MemoryContext::new()?;
-        let _font = context.select(HGDIOBJ(font.0.0));
-        let typo_size = measure(&context, &utf16(typo))?;
-        let mut word_units = utf16(word);
-        let word_size = measure(&context, &word_units)?;
-        let mut rest_units = utf16(rest);
-        let rest_size = measure(&context, &rest_units)?;
+        let runs = [before_caret, after_caret].concat();
+        let sizes = runs
+            .iter()
+            .map(|run| run.measure(&context))
+            .collect::<Result<Vec<_>>>()?;
+        let edges = run_edges(&sizes);
         let size = SIZE {
-            cx: typo_size.cx + word_size.cx + rest_size.cx,
-            cy: typo_size.cy.max(word_size.cy).max(rest_size.cy),
+            cx: edges.last().copied().unwrap_or_default(),
+            cy: sizes.iter().map(|size| size.cy).max().unwrap_or_default(),
         };
         let mut section = PixelSection::new(size)?;
         let _bitmap = context.select(HGDIOBJ(section.bitmap.0));
-        draw_at(&context, &mut word_units, typo_size.cx)?;
-        draw_at(&context, &mut rest_units, typo_size.cx + word_size.cx)?;
+        for (run, &left) in runs.iter().zip(&edges).filter(|(run, _)| !run.ink.is_clear()) {
+            run.draw(&context, left)?;
+        }
         // SAFETY: plain call.
         unsafe { GdiFlush() }.ok()?;
-        let [typo_end, word_end, width, height] =
-            [typo_size.cx, typo_size.cx + word_size.cx, size.cx, size.cy]
-                .map(|value| usize::try_from(value).unwrap_or(0));
+        let columns = edges
+            .windows(2)
+            .map(|edge| to_index(edge[0])..to_index(edge[1]))
+            .collect::<Vec<_>>();
         // SAFETY: the section is alive and GDI is done writing to it.
         let pixels = unsafe { section.pixels() };
-        tint_spans(
-            pixels,
-            width,
-            &[
-                (0..typo_end, colors.strike.into()),
-                (typo_end..word_end, colors.word.into()),
-                (word_end..width, colors.rest),
-            ],
-        );
-        fill_band(pixels, width, 0..typo_end, strike_rows(height), colors.strike);
-        Ok((Self { section, size }, typo_size.cx))
+        paint_runs(pixels, size, &runs, &columns);
+        Ok((Self { section, size }, edges[before_caret.len()]))
     }
 
     /// Returns the text inside a transparent frame, `padding.cx` pixels wide at the left and the
@@ -248,7 +255,7 @@ impl TextBitmap {
 /// a square of `side` pixels.
 pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
     let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side))?;
-    TextBitmap::render(glyph, &font, color.into(), TextLayout::CenteredSquare(side))
+    TextBitmap::render_centered(glyph, &font, color.into(), side)
 }
 
 /// Renders `glyph` of the system icon font as a square icon of `side` pixels in `color`.
@@ -294,6 +301,38 @@ fn utf16(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()
 }
 
+/// Returns the left edge of each run of `sizes` on one line, then the right edge of the last.
+fn run_edges(sizes: &[SIZE]) -> Vec<i32> {
+    iter::once(0)
+        .chain(sizes.iter().scan(0, |right, size| {
+            *right += size.cx;
+            Some(*right)
+        }))
+        .collect()
+}
+
+/// Turns a distance in pixels into an index of a pixel, 0 for a negative distance.
+fn to_index(pixels: i32) -> usize {
+    usize::try_from(pixels).unwrap_or(0)
+}
+
+/// Recolors the letters of each of `runs` at its `columns` of `pixels`, a bitmap of `size`, to
+/// the ink of the run, and draws the line through each run that has one.
+fn paint_runs(pixels: &mut [u32], size: SIZE, runs: &[TextRun<'_>], columns: &[Range<usize>]) {
+    let [width, height] = [size.cx, size.cy].map(to_index);
+    let spans = runs
+        .iter()
+        .zip(columns)
+        .map(|(run, run_columns)| (run_columns.clone(), run.ink))
+        .collect::<Vec<_>>();
+    tint_spans(pixels, width, &spans);
+    for (run, run_columns) in runs.iter().zip(columns) {
+        if let Some(strike) = run.strike {
+            fill_band(pixels, width, run_columns.clone(), strike_rows(height), strike);
+        }
+    }
+}
+
 /// Draws `units` in white on the transparent bitmap of `context`, `left` pixels from its left edge.
 /// Draws nothing for no units.
 fn draw_at(context: &MemoryContext, units: &mut [u16], left: i32) -> Result<()> {
@@ -313,32 +352,25 @@ fn draw_at(context: &MemoryContext, units: &mut [u16], left: i32) -> Result<()> 
     }
 }
 
-fn draw(context: &MemoryContext, units: &mut [u16], size: SIZE, layout: TextLayout) -> Result<()> {
-    // SAFETY: plain calls on a context this module owns.
-    unsafe {
+/// Draws `units` in white in the middle of the transparent bitmap of `context`, which is `size`.
+fn draw_centered(context: &MemoryContext, units: &mut [u16], size: SIZE) -> Result<()> {
+    let mut bounds = RECT {
+        left: 0,
+        top: 0,
+        right: size.cx,
+        bottom: size.cy,
+    };
+    let format = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
+    // SAFETY: plain calls on a context this module owns; the text and rectangle outlive the call.
+    let text_height = unsafe {
         SetTextColor(context.handle, COLORREF(Rgb::WHITE.to_colorref()));
         SetBkMode(context.handle, TRANSPARENT);
-    }
-    let is_drawn = match layout {
-        // SAFETY: the text outlives the call.
-        TextLayout::Fit => unsafe { TextOutW(context.handle, 0, 0, units) }.as_bool(),
-        TextLayout::CenteredSquare(_) => {
-            let mut bounds = RECT {
-                left: 0,
-                top: 0,
-                right: size.cx,
-                bottom: size.cy,
-            };
-            let format = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
-            // SAFETY: the text and rectangle outlive the call.
-            let text_height = unsafe { DrawTextW(context.handle, units, &raw mut bounds, format) };
-            text_height != 0
-        }
+        DrawTextW(context.handle, units, &raw mut bounds, format)
     };
-    if is_drawn {
-        Ok(())
-    } else {
+    if text_height == 0 {
         Err(Error::from_thread())
+    } else {
+        Ok(())
     }
 }
 
@@ -442,5 +474,23 @@ impl Drop for Selection<'_> {
     fn drop(&mut self) {
         // SAFETY: restores the object that was selected before; the context is still alive.
         unsafe { SelectObject(self.context, self.previous) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_edges_give_the_left_of_each_run_and_the_end_of_the_line() {
+        let sizes = [
+            SIZE { cx: 30, cy: 20 },
+            SIZE { cx: 0, cy: 20 },
+            SIZE { cx: 45, cy: 20 },
+        ];
+
+        let edges = run_edges(&sizes);
+
+        assert_eq!(edges, [0, 30, 30, 75]);
     }
 }
