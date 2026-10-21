@@ -13,7 +13,7 @@ use windows::Win32::UI::Accessibility::{IAccessible, ObjectFromLresult};
 use windows::Win32::UI::WindowsAndMessaging::{CHILDID_SELF, OBJID_CARET, WM_GETFONT, WM_GETOBJECT};
 use windows::core::Interface;
 
-use crate::focus::{ask, foreground_thread_info};
+use crate::focus::{ask, foreground_thread_state};
 use crate::utf16::until_nul;
 
 /// The state of an accessible object that does not show. It is in `Win32_UI_Controls`, a large
@@ -53,25 +53,25 @@ impl Caret {
 
 /// Locates the system caret of the focused control in the foreground window, when it has one.
 pub(crate) fn system_caret() -> Option<Caret> {
-    let info = foreground_thread_info()?;
-    if info.hwndCaret.is_invalid() {
+    let thread_state = foreground_thread_state()?;
+    if thread_state.hwndCaret.is_invalid() {
         return None;
     }
     let mut top_left = POINT {
-        x: info.rcCaret.left,
-        y: info.rcCaret.top,
+        x: thread_state.rcCaret.left,
+        y: thread_state.rcCaret.top,
     };
     let mut bottom_right = POINT {
-        x: info.rcCaret.right,
-        y: info.rcCaret.bottom,
+        x: thread_state.rcCaret.right,
+        y: thread_state.rcCaret.bottom,
     };
     // SAFETY: the caret window comes from the system and the points are locals.
     let is_mapped = unsafe {
-        ClientToScreen(info.hwndCaret, &raw mut top_left).as_bool()
-            && ClientToScreen(info.hwndCaret, &raw mut bottom_right).as_bool()
+        ClientToScreen(thread_state.hwndCaret, &raw mut top_left).as_bool()
+            && ClientToScreen(thread_state.hwndCaret, &raw mut bottom_right).as_bool()
     };
     is_mapped
-        .then(|| Caret::from_corners(top_left, bottom_right, font_face(info.hwndCaret)))
+        .then(|| Caret::from_corners(top_left, bottom_right, font_face(thread_state.hwndCaret)))
         .flatten()
 }
 
@@ -81,7 +81,7 @@ pub(crate) fn system_caret() -> Option<Caret> {
 /// object hides its caret, as Chromium does while the focused element takes no text. The thread
 /// must be in a COM apartment.
 pub(crate) fn accessible_caret() -> Option<Caret> {
-    let window = foreground_thread_info()?.hwndFocus;
+    let window = foreground_thread_state()?.hwndFocus;
     if window.is_invalid() {
         return None;
     }

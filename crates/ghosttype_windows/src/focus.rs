@@ -53,8 +53,7 @@ impl FocusTracker {
 
     /// Observes the foreground window; returns whether it changed since the last call.
     pub(crate) fn refresh(&mut self) -> FocusChange {
-        // SAFETY: plain call.
-        let foreground = unsafe { GetForegroundWindow() };
+        let foreground = foreground_hwnd();
         if foreground == self.foreground {
             return FocusChange::Unchanged;
         }
@@ -110,8 +109,20 @@ impl FocusTracker {
 
 /// The window in the foreground now.
 pub(crate) fn foreground_window() -> WindowId {
-    // SAFETY: plain call.
-    unsafe { GetForegroundWindow() }.into()
+    foreground_hwnd().into()
+}
+
+/// The window in the foreground now, or a null window when no window is in the foreground.
+pub(crate) fn foreground_hwnd() -> HWND {
+    // SAFETY: the call takes no argument and has no precondition.
+    unsafe { GetForegroundWindow() }
+}
+
+/// The thread of the window in the foreground now, or thread 0 when no window is in the
+/// foreground.
+pub(crate) fn foreground_thread() -> u32 {
+    // SAFETY: the call takes no output pointer, and a null window gives thread 0.
+    unsafe { GetWindowThreadProcessId(foreground_hwnd(), None) }
 }
 
 fn process_id(window: HWND) -> u32 {
@@ -186,16 +197,18 @@ pub(crate) fn ask(window: HWND, message: u32, lparam: LPARAM) -> Option<usize> {
     (replied.0 != 0).then_some(reply)
 }
 
-pub(crate) fn foreground_thread_info() -> Option<GUITHREADINFO> {
-    // SAFETY: plain calls; a null foreground window yields thread 0, which GetGUIThreadInfo rejects.
-    let thread = unsafe { GetWindowThreadProcessId(GetForegroundWindow(), None) };
-    let mut info = GUITHREADINFO {
+/// Reads the state of the GUI thread of the foreground window, such as its focused window and its
+/// caret.
+pub(crate) fn foreground_thread_state() -> Option<GUITHREADINFO> {
+    let thread = foreground_thread();
+    let mut thread_state = GUITHREADINFO {
         cbSize: struct_size::<GUITHREADINFO>(),
         ..GUITHREADINFO::default()
     };
-    // SAFETY: `info` is a local with its size set.
-    unsafe { GetGUIThreadInfo(thread, &raw mut info) }.ok()?;
-    Some(info)
+    // SAFETY: `thread_state` is a local with its size set. Thread 0, for no foreground window, makes
+    // the call fail.
+    unsafe { GetGUIThreadInfo(thread, &raw mut thread_state) }.ok()?;
+    Some(thread_state)
 }
 
 fn is_process_elevated(process_id: u32) -> Result<bool> {

@@ -5,12 +5,13 @@ use std::mem;
 use ghosttype_core::app::{BadgeEntry, BadgeItem, BadgeMenu};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, GetForegroundWindow, HMENU, MENU_ITEM_FLAGS, MF_CHECKED, MF_ENABLED,
-    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_NONOTIFY,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx, WM_NULL,
+    AppendMenuW, CreatePopupMenu, HMENU, MENU_ITEM_FLAGS, MF_CHECKED, MF_ENABLED, MF_GRAYED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx, WM_NULL,
 };
 use windows::core::{BOOL, HSTRING, Owned, PCWSTR, Result};
 
+use crate::focus::foreground_hwnd;
 use crate::window::post_message;
 
 const FIRST_ITEM_ID: usize = 1;
@@ -55,8 +56,7 @@ pub(crate) fn pick_badge_item(owner: HWND, view: &BadgeMenu, anchor: POINT) -> R
             }
         }
     }
-    // SAFETY: plain call.
-    let focused = unsafe { GetForegroundWindow() };
+    let focused = foreground_hwnd();
     let picked = track(owner, *menu, anchor, TPM_TOPALIGN);
     if !focused.is_invalid() {
         // Best effort: when Windows refuses, the user clicks the field again.

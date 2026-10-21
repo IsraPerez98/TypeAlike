@@ -11,7 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GWL_STYLE, GetClassNameW, GetWindowLongW, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETTEXT,
 };
 
-use super::{REPLY_TIMEOUT_MS, ask, foreground_thread_info};
+use super::{REPLY_TIMEOUT_MS, ask, foreground_thread_state};
 use crate::utf16::whole_chars;
 
 const EDIT_CLASS_NAME: &str = "Edit";
@@ -86,7 +86,7 @@ pub(super) fn is_password_focused() -> bool {
 
 /// The focused control of the foreground window, when it is a classic edit control.
 fn focused_edit_control() -> Option<HWND> {
-    let window = foreground_thread_info()?.hwndFocus;
+    let window = foreground_thread_state()?.hwndFocus;
     (!window.is_invalid() && is_edit_control(window)).then_some(window)
 }
 

@@ -6,7 +6,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_NUMLOCK, VK_RCONTROL,
     VK_RETURN, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SHIFT, VK_TAB,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+use crate::focus;
 
 const KEY_DOWN_BIT: u8 = 0x80;
 const KEY_TOGGLED_BIT: u8 = 0x01;
@@ -126,8 +127,8 @@ pub(crate) fn current_chord() -> Chord {
 pub(crate) fn typed(key: VIRTUAL_KEY, scan_code: u32) -> Typed {
     let keyboard_state = current_keyboard_state();
     let mut units = [0_u16; MAX_TRANSLATED_UNITS];
-    // SAFETY: plain calls; a null foreground window yields thread 0, which means the current layout.
-    let layout = unsafe { GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), None)) };
+    // SAFETY: plain call; thread 0, for no foreground window, means the current layout.
+    let layout = unsafe { GetKeyboardLayout(focus::foreground_thread()) };
     // SAFETY: buffers are valid for the call.
     let written = unsafe {
         ToUnicodeEx(

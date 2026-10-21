@@ -19,12 +19,12 @@ use windows::Media::Ocr::{OcrEngine, OcrLine};
 use windows::Storage::Streams::DataWriter;
 use windows::System::Power::{EnergySaverStatus, PowerManager};
 use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::h;
 
 use self::capture::{Band, Capturer};
 use self::geometry::PixelRect;
 use crate::display::round_to_pixel;
+use crate::focus::foreground_hwnd;
 use crate::uia::{FocusedField, Uia};
 use crate::window::WindowId;
 
@@ -126,8 +126,7 @@ impl Ocr {
     /// a password field, or when the capture or the OCR fails.
     pub(crate) fn read(&mut self, uia: &Uia) -> Option<ScreenText> {
         let field = uia.focused_field()?;
-        // SAFETY: plain call.
-        let window = unsafe { GetForegroundWindow() };
+        let window = foreground_hwnd();
         if self.tools.is_none() {
             self.tools = OcrTools::create()
                 .inspect_err(|error| tracing::warn!(%error, "failed to start the OCR"))

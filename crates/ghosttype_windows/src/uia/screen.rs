@@ -9,11 +9,11 @@ use windows::Win32::UI::Accessibility::{
     IUIAutomationCondition, IUIAutomationElement, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
     UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
 };
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 use super::{Uia, is_password};
 use crate::caret::{self, Caret};
 use crate::display::screen_rect;
+use crate::focus::foreground_hwnd;
 
 /// The most text elements that one read of the screen keeps.
 const MAX_TEXT_ELEMENTS: i32 = 2000;
@@ -23,8 +23,8 @@ impl Uia {
     /// control and its caret. `None` for a password field.
     pub(crate) fn screen_text(&self) -> Option<ScreenText> {
         let field = self.focused_field()?;
-        // SAFETY: plain calls. UIA reads the window of another process without messages to it.
-        let window = unsafe { self.automation.ElementFromHandle(GetForegroundWindow()) }.ok()?;
+        // SAFETY: plain call. UIA reads the window of another process without messages to it.
+        let window = unsafe { self.automation.ElementFromHandle(foreground_hwnd()) }.ok()?;
         Some(ScreenText {
             lines: self.visible_texts(&window)?,
             caret: field.caret,
