@@ -50,21 +50,29 @@ fn is_same_spot(
                 == HistoryPool::of(&right.app_id, personalization))
 }
 
+/// Whether an entry of `entries` in the same place and the same pool of `personalization` as
+/// `entry` holds its text.
+fn is_known(
+    entries: &[HistoryEntry],
+    entry: &HistoryEntry,
+    personalization: &PersonalizationSettings,
+) -> bool {
+    entries
+        .iter()
+        .any(|known| is_same_spot(known, entry, personalization) && known.text.contains(&entry.text))
+}
+
 /// Adds `entry` as the newest of `entries`. An older entry of the same place and the same pool of
 /// `personalization` whose text the new text holds goes, and the new entry does not come when such
 /// an older one holds its text. Such an older entry that starts or ends like the new text (a near
-/// copy) also goes. While
-/// there are more than [`MAX_ENTRIES`], the oldest entry of the place with the most entries goes,
-/// so that a busy place does not push out the texts of the rare places.
+/// copy) also goes. While there are more than [`MAX_ENTRIES`], the oldest entry of the place with
+/// the most entries goes, so that a busy place does not push out the texts of the rare places.
 pub(crate) fn add(
     entries: &mut Vec<HistoryEntry>,
     entry: HistoryEntry,
     personalization: &PersonalizationSettings,
 ) {
-    let is_known = entries
-        .iter()
-        .any(|known| is_same_spot(known, &entry, personalization) && known.text.contains(&entry.text));
-    if is_known {
+    if is_known(entries, &entry, personalization) {
         return;
     }
     entries.retain(|known| {
@@ -111,11 +119,8 @@ pub(crate) fn own_text<'text>(
         .nth(field_chars)
         .map_or(text.len(), |(index, _)| index);
     let (field, added) = text.split_at(added_start);
-    let is_draft = HistoryEntry::of(field, app_id, domain).is_some_and(|draft| {
-        entries
-            .iter()
-            .any(|known| is_same_spot(known, &draft, personalization) && known.text.contains(&draft.text))
-    });
+    let is_draft = HistoryEntry::of(field, app_id, domain)
+        .is_some_and(|draft| is_known(entries, &draft, personalization));
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
     if field.trim().is_empty() || is_draft || is_mostly_added {
         return text;
