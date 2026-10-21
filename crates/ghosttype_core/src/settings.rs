@@ -103,7 +103,8 @@ impl TypoRule {
     /// The least likely that the typed letters of the last word can be before GhostType takes them
     /// for a typo, or `None` when the rule finds no typos. In the prompt eval, this cut catches
     /// almost all typos and hides few other words, each a rare name or word.
-    pub(crate) fn typed_letters_cut(self) -> Option<LogProbability> {
+    #[must_use]
+    pub fn typed_letters_cut(self) -> Option<LogProbability> {
         match self {
             Self::HideSuggestions => Some(LogProbability(-11.0)),
             Self::Suggest => None,

@@ -14,7 +14,7 @@ use ghosttype_core::inference::{
     ModelRunner, NextWordBias, Prompt, TokenCount, TypoCheck,
 };
 use ghosttype_core::key::Key;
-use ghosttype_core::settings::{PromptPreparation, Settings};
+use ghosttype_core::settings::{PromptPreparation, Settings, TypoRule};
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
 struct Editor;
@@ -132,7 +132,11 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
     })
 }
 
-const TYPO_CUT: LogProbability = LogProbability(-11.0);
+fn typo_cut() -> LogProbability {
+    TypoRule::HideSuggestions
+        .typed_letters_cut()
+        .expect("the rule that hides suggestions finds typos")
+}
 
 fn complete_text(model: &mut ModelSession, prompt: &str) -> String {
     model
@@ -378,12 +382,12 @@ fn word_with_a_typo_adds_no_text_below_the_typo_cut() {
     let completion = model
         .complete(request_of(
             "Thank you for the quick rpel",
-            TypoCheck::Hide(TYPO_CUT),
+            TypoCheck::Hide(typo_cut()),
         ))
         .expect("the model answers the prompt");
 
     assert!(
-        completion.text.is_empty() && completion.typed_log_probability < TYPO_CUT,
+        completion.text.is_empty() && completion.typed_log_probability < typo_cut(),
         "unexpected {completion:?}"
     );
 }
@@ -396,7 +400,7 @@ fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
     let completion = model
         .complete(request_of(
             "Thank you for the quick rpel",
-            TypoCheck::Fix(TYPO_CUT),
+            TypoCheck::Fix(typo_cut()),
         ))
         .expect("the model answers the prompt");
 
@@ -418,12 +422,12 @@ fn word_without_a_typo_finishes_above_the_typo_cut() {
     let completion = model
         .complete(request_of(
             "Thank you for the quick rep",
-            TypoCheck::Hide(TYPO_CUT),
+            TypoCheck::Hide(typo_cut()),
         ))
         .expect("the model completes the prompt");
 
     assert!(
-        !completion.text.is_empty() && completion.typed_log_probability > TYPO_CUT,
+        !completion.text.is_empty() && completion.typed_log_probability > typo_cut(),
         "unexpected {completion:?}"
     );
 }
