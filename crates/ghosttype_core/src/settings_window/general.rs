@@ -4,12 +4,12 @@ use std::fmt;
 
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest};
-use crate::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings::{
     Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
     TypoRule, WriterName, WriterNotes,
 };
-use crate::settings_view::{
+use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
+use crate::settings_window::view::{
     ChoiceText, ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
     TextArea, TextLine,
 };
@@ -132,9 +132,9 @@ const BACKEND_CHOICES: [(Backend, &str); 3] = [
 /// State of the General pane: the settings that the user changes in it.
 ///
 /// ```
-/// use ghosttype_core::general_pane::{GeneralAction, GeneralPane};
+/// use ghosttype_core::settings_window::general::{GeneralAction, GeneralPane};
 /// use ghosttype_core::inference::Backend;
-/// use ghosttype_core::playground::PlaygroundPane;
+/// use ghosttype_core::settings_window::playground::PlaygroundPane;
 /// use ghosttype_core::settings::Settings;
 ///
 /// let mut pane = GeneralPane::new(Settings::default());

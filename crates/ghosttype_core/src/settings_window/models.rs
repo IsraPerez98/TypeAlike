@@ -1,13 +1,15 @@
 //! The Models pane of the settings window: suggested models, Hugging Face search and downloads.
 
+mod catalog;
+
 use std::collections::BTreeMap;
 use std::iter;
 
-use crate::catalog::SUGGESTED_MODELS;
 use crate::hub::{
     ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, rounded_quotient,
 };
-use crate::settings_view::{
+use crate::settings_window::models::catalog::SUGGESTED_MODELS;
+use crate::settings_window::view::{
     Accessory, Button, ControlId, Item, Message, Page, PageIcon, Permille, Row, SearchField, Section,
     SettingsInput,
 };
@@ -58,7 +60,7 @@ const PERMILLE_FULL: u16 = 1000;
 ///
 /// ```
 /// use ghosttype_core::hub::HubRequest;
-/// use ghosttype_core::models_pane::{ModelsAction, ModelsPane};
+/// use ghosttype_core::settings_window::models::{ModelsAction, ModelsPane};
 ///
 /// let mut pane = ModelsPane::new();
 ///

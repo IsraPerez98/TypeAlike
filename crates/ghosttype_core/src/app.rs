@@ -8,11 +8,11 @@ use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
-use crate::personalization_pane::APP_SCOPE_CHOICES;
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
     ScreenTextSettings, Settings, SuggestionDisplay,
 };
+use crate::settings_window::personalization::APP_SCOPE_CHOICES;
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
 /// stop on the way to another field must not start the model.

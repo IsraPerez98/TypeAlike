@@ -6,7 +6,7 @@
 
 mod page;
 
-use ghosttype_core::settings_view::{
+use ghosttype_core::settings_window::view::{
     self as view, ControlId, Note, NoteTone, PageIcon, SettingsInput, SettingsView,
 };
 use objc2::rc::Retained;

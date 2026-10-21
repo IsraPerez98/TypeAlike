@@ -19,7 +19,7 @@ use ghosttype_core::desktop::{
 use ghosttype_core::inference::Backend;
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
-use ghosttype_core::settings_view::{SettingsInput, SettingsView};
+use ghosttype_core::settings_window::view::{SettingsInput, SettingsView};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};

@@ -16,7 +16,7 @@ use ghosttype_core::desktop::{
 };
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
-use ghosttype_core::settings_view::{SettingsInput, SettingsView};
+use ghosttype_core::settings_window::view::{SettingsInput, SettingsView};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};

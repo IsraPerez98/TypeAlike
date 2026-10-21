@@ -4,17 +4,17 @@ use crate::hub::{ByteSize, ModelFile, SizedFile};
 
 /// A model the Models pane recommends, with the one file to download for it.
 #[derive(Debug)]
-pub(crate) struct SuggestedModel {
-    pub(crate) name: &'static str,
-    pub(crate) parameters: &'static str,
-    pub(crate) repo: &'static str,
-    pub(crate) file_name: &'static str,
-    pub(crate) size: ByteSize,
-    pub(crate) developer: &'static str,
+pub(super) struct SuggestedModel {
+    pub(super) name: &'static str,
+    parameters: &'static str,
+    repo: &'static str,
+    file_name: &'static str,
+    pub(super) size: ByteSize,
+    developer: &'static str,
 }
 
 impl SuggestedModel {
-    pub(crate) fn sized_file(&self) -> SizedFile {
+    pub(super) fn sized_file(&self) -> SizedFile {
         SizedFile {
             file: ModelFile {
                 repo: self.repo.to_owned(),
@@ -24,12 +24,12 @@ impl SuggestedModel {
         }
     }
 
-    pub(crate) fn description(&self) -> String {
+    pub(super) fn description(&self) -> String {
         format!("{} · {} parameters", self.developer, self.parameters)
     }
 }
 
-pub(crate) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
+pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
     SuggestedModel {
         name: "Qwen3.5 0.8B",
         parameters: "0.8B",

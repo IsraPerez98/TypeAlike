@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use ghosttype_core::settings_view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
+use ghosttype_core::settings_window::view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
 use windows::Win32::Foundation::E_UNEXPECTED;
 use windows::core::{Error, HRESULT, Result};
 use windows_reactor::{

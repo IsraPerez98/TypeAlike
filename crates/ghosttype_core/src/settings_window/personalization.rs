@@ -4,7 +4,7 @@
 use crate::settings::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };
-use crate::settings_view::{
+use crate::settings_window::view::{
     AppPicker, Button, ChoiceText, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
     SettingsInput, Switch,
 };
@@ -91,7 +91,7 @@ const CONFIRM_DELETE_LABEL: &str = "Press again to delete";
 /// second press.
 ///
 /// ```
-/// use ghosttype_core::personalization_pane::{
+/// use ghosttype_core::settings_window::personalization::{
 ///     PersonalizationAction, PersonalizationChange, PersonalizationPane,
 /// };
 /// use ghosttype_core::settings::PersonalizationSettings;

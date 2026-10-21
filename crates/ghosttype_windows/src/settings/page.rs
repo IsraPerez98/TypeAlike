@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ghosttype_core::settings_view::{
+use ghosttype_core::settings_window::view::{
     self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker,
     Row, SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };

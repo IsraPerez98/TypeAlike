@@ -8,7 +8,9 @@
 
 use std::ptr;
 
-use ghosttype_core::settings_view::{self as view, Accessory, ChoiceText, ControlId, Row, SettingsInput};
+use ghosttype_core::settings_window::view::{
+    self as view, Accessory, ChoiceText, ControlId, Row, SettingsInput,
+};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};

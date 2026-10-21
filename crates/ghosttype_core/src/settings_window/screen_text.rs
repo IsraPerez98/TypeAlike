@@ -3,7 +3,7 @@
 
 use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
-use crate::settings_view::{
+use crate::settings_window::view::{
     AppSwitch, Button, ChoiceText, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput,
     Switch,
 };
@@ -57,7 +57,7 @@ const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 /// State of the Screen text pane: the main switch and the switch of each app.
 ///
 /// ```
-/// use ghosttype_core::screen_text_pane::{ScreenTextAction, ScreenTextPane};
+/// use ghosttype_core::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
 /// use ghosttype_core::settings::{ScreenTextAccess, ScreenTextSettings};
 ///
 /// let mut pane = ScreenTextPane::new(ScreenTextSettings::default());

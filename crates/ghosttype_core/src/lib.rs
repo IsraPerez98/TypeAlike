@@ -4,22 +4,16 @@
 //! any OS API, so it builds and tests on every platform.
 
 pub mod app;
-mod catalog;
 pub mod controller;
 pub mod desktop;
 pub mod engine;
 mod excerpt;
-pub mod general_pane;
 pub mod history;
 pub mod hub;
 pub mod inference;
 pub mod key;
-pub mod models_pane;
-pub mod personalization_pane;
 mod place;
-pub mod playground;
 mod prompt;
 mod screen;
-pub mod screen_text_pane;
 pub mod settings;
-pub mod settings_view;
+pub mod settings_window;

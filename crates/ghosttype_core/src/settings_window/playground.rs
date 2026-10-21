@@ -7,10 +7,10 @@ use crate::hub::ModelFile;
 use crate::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, TokenCount,
 };
-use crate::models_pane::model_name;
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
-use crate::settings_view::{
+use crate::settings_window::models::model_name;
+use crate::settings_window::view::{
     ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
     TextField,
 };
@@ -29,7 +29,7 @@ pub enum PlaygroundAction {
 /// ```
 /// use ghosttype_core::hub::ModelFile;
 /// use ghosttype_core::inference::{Backend, InferenceRequest};
-/// use ghosttype_core::playground::{PlaygroundAction, PlaygroundPane};
+/// use ghosttype_core::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 ///
 /// let file = ModelFile { repo: "owner/repo".to_owned(), name: "model.gguf".to_owned() };
 /// let mut pane = PlaygroundPane::new();

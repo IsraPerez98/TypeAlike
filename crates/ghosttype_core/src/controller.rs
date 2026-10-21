@@ -14,17 +14,19 @@ use crate::desktop::{
     CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenRead, ScreenReadId, ScreenSource, Surroundings,
 };
 use crate::engine::{AfterAccept, Reaction, WordFix};
-use crate::general_pane::{GeneralAction, GeneralPane};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
-use crate::models_pane::{ModelsAction, ModelsPane};
-use crate::personalization_pane::{PersonalizationAction, PersonalizationChange, PersonalizationPane};
-use crate::playground::{PlaygroundAction, PlaygroundPane};
-use crate::screen_text_pane::{ScreenTextAction, ScreenTextPane};
 use crate::settings::{Autostart, ClipboardAccess, HistoryAccess, HistoryApp, Settings, SettingsStore};
-use crate::settings_view::{SettingsInput, SettingsView};
+use crate::settings_window::general::{GeneralAction, GeneralPane};
+use crate::settings_window::models::{ModelsAction, ModelsPane};
+use crate::settings_window::personalization::{
+    PersonalizationAction, PersonalizationChange, PersonalizationPane,
+};
+use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
+use crate::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
+use crate::settings_window::view::{SettingsInput, SettingsView};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -862,20 +864,20 @@ mod tests {
     use crate::app::Status;
     use crate::desktop::{FieldText, ScreenText};
     use crate::engine::TYPO_CUT;
-    use crate::general_pane::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::history::HistoryEntry;
     use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
     use crate::inference::{Completion, Correction, LogProbability, NextWordBias, TokenCount};
-    use crate::models_pane::SEARCH;
-    use crate::personalization_pane::{DELETE, HISTORY};
-    use crate::playground::MODEL;
     use crate::prompt::framed_prompt;
-    use crate::screen_text_pane::SCREEN_TEXT;
     use crate::settings::{
         HistoryScope, KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
         ScreenTextSettings, SuggestionDisplay, WordChoice,
     };
-    use crate::settings_view::{ControlId, Page};
+    use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
+    use crate::settings_window::models::SEARCH;
+    use crate::settings_window::personalization::{DELETE, HISTORY};
+    use crate::settings_window::playground::MODEL;
+    use crate::settings_window::screen_text::SCREEN_TEXT;
+    use crate::settings_window::view::{ControlId, Page};
 
     const ACTIVE_BADGE: BadgeView = BadgeView {
         status: Status::Active,
