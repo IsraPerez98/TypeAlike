@@ -140,9 +140,10 @@ impl Ocr {
             .inspect_err(|error| tracing::warn!(%error, "failed to capture the window"))
             .ok()?;
         let captured = Instant::now();
+        band.hide_field(field.frame);
         let input = RecognitionInput {
             window: WindowId::from(window),
-            pixels: band.hide_and_hash(field.frame),
+            pixels: band.hash(),
         };
         let hashed = Instant::now();
         let is_known = self.last.as_ref().is_some_and(|last| last.input == input);

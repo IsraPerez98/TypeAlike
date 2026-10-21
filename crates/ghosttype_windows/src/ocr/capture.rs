@@ -266,15 +266,18 @@ pub(super) struct Band {
 }
 
 impl Band {
-    /// Sets the pixels of `field`, a rectangle on the screen, to zero, and hashes the pixels. Thus
-    /// the typed text and the caret in the field do not change the hash, and the OCR does not read
-    /// them.
-    pub(super) fn hide_and_hash(&mut self, field: ScreenRect) -> u64 {
+    /// Sets the pixels of `field`, a rectangle on the screen, to zero. Thus the typed text and the
+    /// caret in the field do not change the hash, and the OCR does not read them.
+    pub(super) fn hide_field(&mut self, field: ScreenRect) {
         clear(
             &mut self.pixels,
             self.width,
             PixelRect::from_screen(field, self.origin),
         );
+    }
+
+    /// The hash of the pixels, which is the same for two bands with the same pixels.
+    pub(super) fn hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         hasher.write(&self.pixels);
         hasher.finish()
