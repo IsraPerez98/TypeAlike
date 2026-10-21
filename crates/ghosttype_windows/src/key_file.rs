@@ -32,7 +32,8 @@ impl KeyVault for ProtectedKeyFile {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
-        let key = <[u8; 32]>::try_from(unprotect(&sealed)?)
+        let key = unprotect(&sealed)?
+            .try_into()
             .map_err(|_bytes| io::Error::other("the key file has a key of a wrong length"))?;
         Ok(Some(HistoryKey(key)))
     }
