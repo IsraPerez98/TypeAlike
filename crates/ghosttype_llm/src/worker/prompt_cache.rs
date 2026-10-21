@@ -9,14 +9,12 @@ use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 
-use super::correction::{TypedLetters, typo_fix};
+use super::correction::typo_fix;
 use super::generation::{
-    AddedTokens, Decoder, Healing, Limits, Progress, added_after, added_text, after_prefix, is_markup,
-    writes_line_break,
+    AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
-use super::logits::{agreeing_log_probability, choose_token, with_bias};
+use super::logits::with_bias;
 use super::model_params::{BATCH_TOKENS, CpuThreads, context_params};
-use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence};
 
 /// The sequence that keeps the last prompt between completions.
 const PROMPT_SEQUENCE: i32 = 0;
@@ -230,108 +228,44 @@ impl<'model> PromptCache<'model> {
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
-    /// the end of a sentence and at the limits of the `decoder`. It leaves out the word that the
-    /// minimum probability cuts, and the last word at the token limit unless that word ends a
-    /// sentence, because the limit can cut it. It never leaves out the only word. It adds no tokens
-    /// when the healing text is less likely than the minimum for typed letters. Before each decode,
-    /// it stops when `progress` tells so, and else sends the text that it added so far.
+    /// the end of the text, at markup, and where each [`Generation`] step stops. Before each
+    /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
     pub(super) fn continue_prompt(
         &mut self,
         decoder: &Decoder<'_>,
         healing: Healing<'_>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
-        let Decoder {
-            vocab,
-            pieces,
-            token_bias,
-            limits,
-        } = *decoder;
         self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
+        let Decoder { vocab, limits, .. } = *decoder;
         let mut batch = LlamaBatch::new(1, 1);
         let mut logits = self.logits.as_slice();
         let mut biased = Vec::new();
-        let mut unwritten = healing.text;
-        let mut added = Vec::new();
-        let mut written = Vec::new();
-        let mut words = WordLogProbabilities::default();
-        let mut typed = TypedLetters::default();
-        while added.len() < limits.max_added {
-            if !unwritten.is_empty() {
-                typed.add(logits, pieces, unwritten);
-                if limits
-                    .min_typed_log_probability
-                    .is_some_and(|min| typed.log_probability() < min)
-                {
-                    return Ok(AddedTokens {
-                        tokens: Vec::new(),
-                        word_log_probabilities: Vec::new(),
-                        typed_log_probability: typed.log_probability(),
-                        correction: None,
-                    });
-                }
+        let mut generation = Generation::new(decoder.pieces, healing);
+        while generation.tokens().len() < limits.max_added {
+            if generation.add_healing_step(logits, limits.min_typed_log_probability) == Step::Stop {
+                return Ok(generation.into_typo_stop());
             }
-            let scores = with_bias(logits, token_bias.at(added.len()), &mut biased);
-            let (token, log_probability) = match healing.first_token.filter(|_| added.is_empty()) {
-                Some(token) => (
-                    token,
-                    agreeing_log_probability(logits, token, pieces.agreeing_with(unwritten)),
-                ),
-                None => choose_token(scores, logits, pieces, unwritten),
-            };
+            let bias = decoder.token_bias.at(generation.tokens().len());
+            let scores = with_bias(logits, bias, &mut biased);
+            let (token, log_probability) = generation.choose_next_token(scores, logits);
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
             let piece = vocab.token_to_piece(token, false, None);
-            let text = added_after(&piece, unwritten);
-            if starts_next_sentence(healing.text, &written, text) {
-                break;
-            }
-            let is_cut = limits
-                .min_log_probability
-                .is_some_and(|cut| !words.keeps(text, log_probability, cut));
-            if is_cut {
-                let dropped = words.end_before(text);
-                added.truncate(added.len().saturating_sub(dropped));
-                break;
-            }
-            let ends_line = writes_line_break(&piece, unwritten);
-            words.add(text, log_probability);
-            written.extend_from_slice(text);
-            unwritten = after_prefix(unwritten, &piece);
-            added.push(token);
-            if ends_line {
-                break;
-            }
-            if added.len() == limits.max_added {
-                if !ends_sentence(healing.text, &written) {
-                    let dropped = words.drop_last_word();
-                    added.truncate(added.len().saturating_sub(dropped));
-                }
+            if generation.add_token(token, &piece, log_probability, limits) == Step::Stop {
                 break;
             }
             if (progress.is_outdated)() {
                 return Err(GenerateError::Superseded);
             }
-            (progress.send_partial)(added_text(vocab, &self.tokens, &added, healing.text));
-            batch.clear();
-            batch.add(
-                token,
-                position(self.tokens.len() + added.len() - 1),
-                &[COMPLETION_SEQUENCE],
-                true,
-            )?;
-            self.context.decode(&mut batch)?;
-            logits = self.context.get_logits_ith(LAST_OUTPUT);
+            (progress.send_partial)(added_text(vocab, &self.tokens, generation.tokens(), healing.text));
+            let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
+            logits = decode_next(&mut self.context, &mut batch, token, token_position)?;
         }
-        Ok(AddedTokens {
-            tokens: added,
-            word_log_probabilities: words.into_vec(),
-            typed_log_probability: typed.log_probability(),
-            correction: None,
-        })
+        Ok(generation.into_added())
     }
 
     /// Continues the prompt again when `added` stopped for a typo in the `healing` text and a fix
@@ -406,6 +340,20 @@ fn common_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
         .zip(prompt)
         .take_while(|(cached, prompt)| cached == prompt)
         .count()
+}
+
+/// Decodes `token` at `token_position` of the completion sequence in `batch`, and returns the
+/// logits after it.
+fn decode_next<'context>(
+    context: &'context mut LlamaContext<'_>,
+    batch: &mut LlamaBatch<'_>,
+    token: LlamaToken,
+    token_position: i32,
+) -> Result<&'context [f32], GenerateError> {
+    batch.clear();
+    batch.add(token, token_position, &[COMPLETION_SEQUENCE], true)?;
+    context.decode(batch)?;
+    Ok(context.get_logits_ith(LAST_OUTPUT))
 }
 
 /// Returns the position of the token at `index` in a sequence.
