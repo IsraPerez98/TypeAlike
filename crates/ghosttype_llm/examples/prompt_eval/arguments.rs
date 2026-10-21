@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 
 use ghosttype_core::inference::{Backend, CpuCores};
-use ghosttype_core::settings::{SuggestionLength, TypoRule, WordChoice};
+use ghosttype_core::settings::{
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, SuggestionLength,
+    TypoRule, WordChoice, WriterName, WriterNotes,
+};
 use ghosttype_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
@@ -98,6 +101,27 @@ impl Arguments {
             }
         }
         Some(parsed)
+    }
+
+    /// Returns the settings of each case before its earlier writing: the default settings with the
+    /// options of the arguments, the clipboard and the earlier writing on, and the prompt prepared
+    /// on focus.
+    pub fn settings(&self) -> Settings {
+        Settings {
+            backend: self.backend,
+            clipboard_access: ClipboardAccess::Allowed,
+            writer_notes: WriterNotes(self.notes.clone()),
+            writer_name: WriterName(self.name.clone()),
+            prompt_preparation: PromptPreparation::OnFocus,
+            typo_rule: self.typo_rule,
+            suggestion_length: self.length,
+            personalization: PersonalizationSettings {
+                history: HistoryAccess::On,
+                word_choice: self.word_choice,
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        }
     }
 }
 

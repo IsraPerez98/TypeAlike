@@ -141,10 +141,6 @@ use std::io;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, WriterName,
-    WriterNotes,
-};
 use serde::de::DeserializeOwned;
 
 use crate::arguments::{Arguments, USAGE};
@@ -185,21 +181,7 @@ fn main() -> anyhow::Result<()> {
         .map(read_json_lines::<Outcome>)
         .transpose()?;
 
-    let settings = Settings {
-        backend: arguments.backend,
-        clipboard_access: ClipboardAccess::Allowed,
-        writer_notes: WriterNotes(arguments.notes.clone()),
-        writer_name: WriterName(arguments.name.clone()),
-        prompt_preparation: PromptPreparation::OnFocus,
-        typo_rule: arguments.typo_rule,
-        suggestion_length: arguments.length,
-        personalization: PersonalizationSettings {
-            history: HistoryAccess::On,
-            word_choice: arguments.word_choice,
-            ..PersonalizationSettings::default()
-        },
-        ..Settings::default()
-    };
+    let settings = arguments.settings();
     let mut model = ModelSession::load(&arguments.model, arguments.backend, arguments.cpu_cores)?;
     let runs = cases
         .iter()
