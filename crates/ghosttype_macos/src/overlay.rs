@@ -67,18 +67,7 @@ impl Overlay {
         );
         let text = NSMutableAttributedString::new();
         text.appendAttributedString(&typo);
-        text.appendAttributedString(&attributed(
-            &format!(" {}", fix.word),
-            &font,
-            &NSColor::systemGreenColor(),
-            None,
-        ));
-        text.appendAttributedString(&attributed(
-            &fix.rest,
-            &font,
-            &ghost_color(text_color, contrast),
-            None,
-        ));
+        append_fix_tail(&text, fix, &font, &ghost_color(text_color, contrast));
         self.label.setAttributedStringValue(&text);
         self.present(Caret {
             left: caret.left - typo.size().width,
@@ -200,6 +189,23 @@ pub(crate) fn attributed(
             Some(&attributes),
         )
     }
+}
+
+/// Appends the end of `fix` to `text`: the fixed word in green after a space, then the rest of the
+/// suggestion in `ghost_color`.
+pub(crate) fn append_fix_tail(
+    text: &NSMutableAttributedString,
+    fix: &WordFix,
+    font: &NSFont,
+    ghost_color: &NSColor,
+) {
+    text.appendAttributedString(&attributed(
+        &format!(" {}", fix.word),
+        font,
+        &NSColor::systemGreenColor(),
+        None,
+    ));
+    text.appendAttributedString(&attributed(&fix.rest, font, ghost_color, None));
 }
 
 fn line_height(font: &NSFont) -> CGFloat {

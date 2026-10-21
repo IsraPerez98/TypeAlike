@@ -130,15 +130,7 @@ impl MirrorText {
         let typed_width = text.size().width;
         match &view.ghost {
             Ghost::Text(ghost) => append(ghost, &font, &ghost_color, None),
-            Ghost::Fix(fix) => {
-                append(
-                    &format!(" {}", fix.word),
-                    &font,
-                    &NSColor::systemGreenColor(),
-                    None,
-                );
-                append(&fix.rest, &font, &ghost_color, None);
-            }
+            Ghost::Fix(fix) => overlay::append_fix_tail(&text, fix, &font, &ghost_color),
         }
         Self { text, typed_width }
     }
