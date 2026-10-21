@@ -298,7 +298,7 @@ impl PlaygroundPane {
     }
 
     /// The menu that picks the model, as control `id`, with `description` below its label.
-    pub(crate) fn model_picker(
+    pub(super) fn model_picker(
         &self,
         installed: &[ModelFile],
         id: ControlId,
@@ -324,7 +324,7 @@ impl PlaygroundPane {
 
     /// The model of the entry at `index` of [`Self::model_picker`], unless the entry is the
     /// placeholder.
-    pub(crate) fn model_at(&self, installed: &[ModelFile], index: usize) -> Option<ModelFile> {
+    pub(super) fn model_at(&self, installed: &[ModelFile], index: usize) -> Option<ModelFile> {
         self.model_menu(installed)
             .entries
             .get(index)

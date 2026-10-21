@@ -55,11 +55,13 @@ pub enum HistoryScope {
 /// An app of the Personalization pane, and which earlier writing it gives and gets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryApp {
-    /// The id of the app, as [`Surroundings::app_id`](crate::desktop::Surroundings::app_id) gives it.
+    /// The id of the app, as [`Surroundings::app_id`](crate::desktop::Surroundings::app_id)
+    /// gives it.
     pub app_id: String,
     /// The name of the app, as the user knows it.
     pub app_name: String,
-    /// The full path of the program of the app, as [`Surroundings::app_path`](crate::desktop::Surroundings::app_path) gives it.
+    /// The full path of the program of the app, as
+    /// [`Surroundings::app_path`](crate::desktop::Surroundings::app_path) gives it.
     pub app_path: Option<String>,
     /// Which earlier writing the app gives and gets.
     pub scope: HistoryScope,

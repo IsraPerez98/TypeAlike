@@ -336,7 +336,7 @@ fn button_id(action: &ModelsAction) -> ControlId {
     ControlId::from(name)
 }
 
-pub(crate) fn model_name(file: &ModelFile) -> String {
+pub(super) fn model_name(file: &ModelFile) -> String {
     file.name
         .strip_suffix(GGUF_EXTENSION)
         .unwrap_or(&file.name)
