@@ -121,30 +121,25 @@ impl Overlay {
                 };
                 bitmap.present(self.window.handle(), origin)?;
             }
-            GhostPlacement::BelowCaret => {
-                let typed_font = Font::first_installed(&faces, height, FontWeight::Semibold)?;
-                self.present_card(view, &font, &typed_font, theme, caret)?;
-            }
+            GhostPlacement::BelowCaret => self.present_card(view, &font, theme, caret)?,
         }
         self.window.show_on_top()
     }
 
-    /// Shows the typed word of `view` in `typed_font` and the ghost text in `font` on a card below
-    /// the line of `caret`, with the ghost text under the caret, or above the line when the card
-    /// does not fit below.
-    fn present_card(
-        &self,
-        view: &GhostView,
-        font: &Font,
-        typed_font: &Font,
-        theme: SystemTheme,
-        caret: &Caret,
-    ) -> Result<()> {
+    /// Shows the typed word of `view` in a semibold font of the ghost text faces and the ghost text
+    /// in `font` on a card below the line of `caret`, with the ghost text under the caret, or above
+    /// the line when the card does not fit below.
+    fn present_card(&self, view: &GhostView, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
+        let typed_font = Font::first_installed(
+            &ghost_text_faces(caret.font_face.as_deref()),
+            FontHeight::Cell(caret.height),
+            FontWeight::Semibold,
+        )?;
         let colors = TooltipColors::for_theme(theme);
         let text_colors = card_text(theme);
         let typed = TypedLetters {
             word: &view.typed_word,
-            font: typed_font,
+            font: &typed_font,
             ink: text_colors.typed.into(),
         };
         let (text, caret_left) = render(
