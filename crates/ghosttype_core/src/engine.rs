@@ -117,7 +117,8 @@ impl Engine {
         }
         match key {
             Key::Char(character) if !character.is_control() => {
-                self.start_session(desktop).text_before.push(character);
+                self.start_session(desktop)
+                    .append_text(character.encode_utf8(&mut [0; 4]));
                 self.on_typed(character)
             }
             Key::Backspace => {
@@ -171,7 +172,6 @@ impl Engine {
     }
 
     fn on_typed(&mut self, character: char) -> Reaction {
-        self.keep_recent_text();
         let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
             _ => return self.request(),
@@ -190,9 +190,8 @@ impl Engine {
             return self.reset();
         };
         let (part, rest) = split_next_part(&suggestion);
-        session.text_before.push_str(part);
+        session.append_text(part);
         session.has_accepted = true;
-        self.keep_recent_text();
         self.offer.take(part, rest);
         Reaction::Accept {
             text: part.to_owned(),
@@ -208,7 +207,6 @@ impl Engine {
         };
         session.replace_end(&fix.typo, &fix.word);
         session.has_accepted = true;
-        self.keep_recent_text();
         self.offer.take(&fix.word, &fix.rest);
         Reaction::Replace {
             deleted: fix.typo.chars().count(),
@@ -237,12 +235,6 @@ impl Engine {
         self.session
             .as_ref()
             .map_or("", |session| session.text_before.as_str())
-    }
-
-    fn keep_recent_text(&mut self) {
-        if let Some(session) = &mut self.session {
-            session.keep_recent_text();
-        }
     }
 }
 

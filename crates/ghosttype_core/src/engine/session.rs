@@ -107,6 +107,12 @@ impl Session {
         self.keep_recent_text();
     }
 
+    /// Adds `text` before the caret, and drops the oldest text before the caret that does not fit.
+    pub(super) fn append_text(&mut self, text: &str) {
+        self.text_before.push_str(text);
+        self.keep_recent_text();
+    }
+
     pub(super) fn keep_recent_text(&mut self) {
         let kept = recent_text(&self.text_before, self.max_tokens_before).len();
         let dropped = self.text_before.drain(..self.text_before.len() - kept);
@@ -118,13 +124,14 @@ impl Session {
         self.field_chars = self.field_chars.min(self.text_before.chars().count());
     }
 
-    /// Replaces `typo` at the end of the text before the caret with `word`.
+    /// Replaces `typo` at the end of the text before the caret with `word`, and drops the oldest
+    /// text before the caret that does not fit.
     pub(super) fn replace_end(&mut self, typo: &str, word: &str) {
         if let Some(kept) = self.text_before.strip_suffix(typo).map(str::len) {
             self.text_before.truncate(kept);
         }
         self.field_chars = self.field_chars.min(self.text_before.chars().count());
-        self.text_before.push_str(word);
+        self.append_text(word);
     }
 }
 
