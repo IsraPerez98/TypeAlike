@@ -25,6 +25,7 @@ impl SettingsFile {
 
     /// Reads the saved settings. Gives the default settings when there is no file, or when the
     /// file is damaged.
+    #[must_use]
     pub fn load(&self) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
