@@ -1,5 +1,6 @@
 //! Tests the earlier writing that a prompt shows and the texts that the history keeps.
 
+use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
@@ -184,13 +185,17 @@ fn draft_that_an_entry_holds_is_kept_with_the_new_text_in_one_entry() {
     );
 }
 
+fn press_repeatedly(engine: &mut Engine, key: Key, count: usize, desktop: &FakeDesktop) {
+    for _ in 0..count {
+        engine.on_key(key, desktop);
+    }
+}
+
 #[test]
 fn backspace_into_the_text_of_the_field_makes_it_count_less() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
     let desktop = mail_desktop(&long_field());
-    for _ in 0..190 {
-        engine.on_key(Key::Backspace, &desktop);
-    }
+    press_repeatedly(&mut engine, Key::Backspace, 190, &desktop);
 
     let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, Suggestion::Ignored);
 

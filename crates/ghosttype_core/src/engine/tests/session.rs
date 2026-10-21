@@ -239,6 +239,7 @@ fn old_copy_or_copy_from_before_the_start_stays_out() {
 #[test]
 fn denied_clipboard_is_never_read() {
     let mut engine = engine_with(&Settings {
+        clipboard_access: ClipboardAccess::Denied,
         ..Settings::default()
     });
     let desktop = FakeDesktop::default().with_copy("1Z999", Some(Duration::ZERO));
