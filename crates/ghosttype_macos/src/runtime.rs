@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dispatch2::DispatchQueue;
-use ghosttype_core::app::{BadgeMenu, BadgeView, Field, TrayView};
+use ghosttype_core::app::{BadgeMenu, BadgeView, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostPlacement, GhostView,
     Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
-    CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
 };
 use ghosttype_core::inference::Backend;
 use ghosttype_core::key::{Disposition, ReleaseFilter};

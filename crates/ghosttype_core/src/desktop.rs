@@ -7,7 +7,6 @@ pub use text_color::{GHOST_TEXT_ALPHA, TextColor};
 use std::fmt;
 use std::time::Duration;
 
-use crate::app::Field;
 use crate::settings::OcrLevel;
 
 /// The most characters before the caret that a platform reads. A suggestion uses fewer, because
@@ -245,6 +244,15 @@ impl fmt::Debug for Surroundings {
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .finish()
     }
+}
+
+/// Whether the focused field may see suggestions, as classified by the platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    /// An ordinary text field.
+    Open,
+    /// A field GhostType stays out of: passwords, its own windows, apps it cannot type into.
+    Excluded,
 }
 
 /// The desktop as GhostType sees it while the user types. The platform implements it, and core

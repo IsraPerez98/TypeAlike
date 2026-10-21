@@ -6,13 +6,13 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::app::{BadgeView, Field, Status, TrayCommand, TrayView};
+use crate::app::{BadgeView, Status, TrayCommand, TrayView};
 use crate::controller::{
     BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView, MAX_CARET_MOVE_CHECKS,
     Services, Shell, Timer,
 };
 use crate::desktop::{
-    CopiedText, Desktop, FieldText, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
 use crate::engine::TYPO_CUT;
 use crate::history::{HistoryEntry, WritingHistory};

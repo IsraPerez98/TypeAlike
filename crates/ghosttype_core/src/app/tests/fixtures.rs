@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use crate::app::{App, Field};
-use crate::desktop::{CopiedText, Desktop, FieldText, OcrAvailability, Surroundings};
+use crate::app::App;
+use crate::desktop::{CopiedText, Desktop, Field, FieldText, OcrAvailability, Surroundings};
 use crate::engine::{Reaction, TYPO_CUT};
 use crate::inference::{
     Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount,

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use badge::app_entries;
 
-use crate::desktop::{Desktop, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
@@ -32,15 +32,6 @@ pub enum Status {
     Active,
     /// The user paused suggestions from the tray or the badge.
     Paused,
-}
-
-/// Whether the focused field may see suggestions, as classified by the platform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Field {
-    /// An ordinary text field.
-    Open,
-    /// A field GhostType stays out of: passwords, its own windows, apps it cannot type into.
-    Excluded,
 }
 
 /// What GhostType does when the input settles in a field, a session starts or a read of the
@@ -68,8 +59,8 @@ pub enum SettledWork {
 /// ```
 /// use std::time::Duration;
 ///
-/// use ghosttype_core::app::{App, Field};
-/// use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
+/// use ghosttype_core::app::App;
+/// use ghosttype_core::desktop::{CopiedText, Desktop, Field, Surroundings};
 /// use ghosttype_core::engine::{AfterAccept, Reaction};
 /// use ghosttype_core::inference::{Completion, LogProbability, TokenCount};
 /// use ghosttype_core::key::Key;

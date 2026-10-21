@@ -1,9 +1,8 @@
 //! Tests of the badge at the caret and its menu.
 
 use super::fixtures::{FakeDesktop, MAIL, type_key};
-use crate::app::{
-    App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView, Field, Status, TrayCommand,
-};
+use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView, Status, TrayCommand};
+use crate::desktop::Field;
 use crate::key::Key;
 use crate::settings::{
     HistoryAccess, HistoryApp, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextApp,

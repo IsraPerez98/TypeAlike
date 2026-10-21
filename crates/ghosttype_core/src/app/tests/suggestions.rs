@@ -1,8 +1,8 @@
 //! Tests of the suggestions, the prompt preparation and the pause of the app.
 
 use super::fixtures::{FakeDesktop, app_preparing_on_focus, completion, preparation, request, type_key};
-use crate::app::{App, Field, SettledWork, TrayCommand};
-use crate::desktop::{CopiedText, Desktop, FieldText, Surroundings};
+use crate::app::{App, SettledWork, TrayCommand};
+use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::{Reaction, TYPO_CUT};
 use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;

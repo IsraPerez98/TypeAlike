@@ -1,9 +1,10 @@
 //! Tests of the screen reads that the app starts and the answers that it uses.
 
 use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_focus, completion, preparation};
-use crate::app::{App, Field, SettledWork};
+use crate::app::{App, SettledWork};
 use crate::desktop::{
-    Confidence, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText,
+    Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
+    ScreenText,
 };
 use crate::history::HistoryEntry;
 use crate::key::Key;

@@ -3,8 +3,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use crate::app::Field;
-use crate::desktop::{CopiedText, Desktop, FieldLabels, FieldText, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, FieldLabels, FieldText, Surroundings};
 use crate::engine::{AfterAccept, Engine, Reaction, TYPO_CUT};
 use crate::history::HistoryEntry;
 use crate::inference::{

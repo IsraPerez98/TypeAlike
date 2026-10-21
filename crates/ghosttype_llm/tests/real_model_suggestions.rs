@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
-use ghosttype_core::app::{App, Field, SettledWork};
-use ghosttype_core::desktop::{CopiedText, Desktop, Surroundings};
+use ghosttype_core::app::{App, SettledWork};
+use ghosttype_core::desktop::{CopiedText, Desktop, Field, Surroundings};
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{

@@ -7,12 +7,12 @@ use std::mem;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use ghosttype_core::app::{BadgeCommand, BadgeMenu, BadgeView, Field, TrayCommand, TrayView};
+use ghosttype_core::app::{BadgeCommand, BadgeMenu, BadgeView, TrayCommand, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, Controller, Delivery, FocusChange, GhostView, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
-    CopiedText, Desktop, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, Field, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
 use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};

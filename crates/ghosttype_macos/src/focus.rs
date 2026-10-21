@@ -4,10 +4,9 @@
 use std::iter;
 use std::ptr::{self, NonNull};
 
-use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{
-    FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
+    Field, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
 };
 use objc2_app_kit::{NSColor, NSColorSpace, NSRunningApplication, NSWorkspace};
 use objc2_application_services::{

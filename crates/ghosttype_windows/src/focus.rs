@@ -4,10 +4,9 @@
 use std::ops::Range;
 use std::ptr;
 
-use ghosttype_core::app::Field;
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{
-    FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
+    Field, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, Surroundings, TextColor,
 };
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};

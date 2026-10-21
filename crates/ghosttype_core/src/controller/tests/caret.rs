@@ -4,10 +4,10 @@ use super::harness::{
     ACTIVE_BADGE, Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge, loaded,
     suggestion_request,
 };
-use crate::app::Field;
 use crate::controller::{
     CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, Delivery, FocusChange, Ghost, GhostPlacement, Timer,
 };
+use crate::desktop::Field;
 use crate::engine::WordFix;
 use crate::inference::{Completion, Correction, InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key};

@@ -140,10 +140,10 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use ghosttype_core::app::{App, Field, SettledWork};
+use ghosttype_core::app::{App, SettledWork};
 use ghosttype_core::desktop::{
-    Confidence, CopiedText, Desktop, FieldLabels, FieldText, ScreenLine, ScreenRead, ScreenRect, ScreenText,
-    Surroundings,
+    Confidence, CopiedText, Desktop, Field, FieldLabels, FieldText, ScreenLine, ScreenRead, ScreenRect,
+    ScreenText, Surroundings,
 };
 use ghosttype_core::engine::Reaction;
 use ghosttype_core::history::{HistoryEntry, word_bias_of_counts};

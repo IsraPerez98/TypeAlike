@@ -16,9 +16,9 @@ use std::{fmt, mem};
 use services::delivering_sink;
 
 use crate::app::{
-    App, BadgeCommand, BadgeMenu, Field, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
+    App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
 };
-use crate::desktop::{CopiedText, Desktop, OcrAvailability, OcrLevels, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, Surroundings};
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::{HubEventSink, ModelHub};
