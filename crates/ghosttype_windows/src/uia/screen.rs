@@ -1,5 +1,7 @@
-//! The screen text that UIA reads: the visible text elements of the foreground window, and where
-//! the focused field and its caret are.
+//! The screen text that UIA reads.
+//!
+//! It is the visible text elements of the foreground window, and where the focused field and its
+//! caret are.
 
 use ghosttype_core::desktop::{Confidence, ScreenLine, ScreenRect, ScreenText};
 use windows::Win32::System::Variant::VARIANT;

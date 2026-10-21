@@ -1,5 +1,7 @@
-//! The capture of a band of a window with `Windows.Graphics.Capture`, on a Direct3D device of its
-//! own, as rows of BGRA pixels without padding.
+//! The capture of a band of a window.
+//!
+//! `Windows.Graphics.Capture` captures the window on a Direct3D device of its own. The band holds
+//! rows of BGRA pixels without padding.
 
 use std::hash::{DefaultHasher, Hasher};
 use std::ops::Range;

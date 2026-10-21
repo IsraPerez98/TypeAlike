@@ -1,5 +1,7 @@
-//! The focused field as UIA tells it: whether it hides its text, and else the text around its
-//! selection, its labels and the host of its web page.
+//! The focused field as UIA tells it.
+//!
+//! UIA tells whether the field hides its text, and else the text around its selection, its labels
+//! and the host of its web page.
 
 use std::fmt;
 

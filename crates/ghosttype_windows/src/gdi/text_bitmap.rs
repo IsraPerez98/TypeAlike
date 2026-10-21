@@ -1,5 +1,6 @@
-//! Text and glyphs rendered into premultiplied-alpha bitmaps, the layered window content that
-//! shows such a bitmap, and the glyph icons.
+//! Text and glyphs in premultiplied-alpha bitmaps, and the glyph icons.
+//!
+//! A bitmap can also be the whole content of a layered window.
 
 use std::iter;
 use std::ops::Range;

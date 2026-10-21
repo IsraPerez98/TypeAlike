@@ -1,5 +1,6 @@
-//! The shell of the controller on the main thread: it reads the desktop and does the effects that
-//! the controller asks for, through Win32.
+//! The Win32 shell of the controller on the main thread.
+//!
+//! It reads the desktop and does the effects that the controller asks for.
 
 use std::time::Duration;
 

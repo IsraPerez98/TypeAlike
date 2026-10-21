@@ -1,5 +1,6 @@
-//! The fonts that GhostType draws its text in: the first installed face of a list, at a height and
-//! a weight.
+//! The fonts that GhostType draws its text in.
+//!
+//! A font has the first installed face of a list, a height and a weight.
 
 use windows::Win32::Foundation::E_FAIL;
 use windows::Win32::Graphics::Gdi::{

@@ -1,5 +1,6 @@
-//! The layout of a settings page in the style of the Settings app: the page that scrolls, the cards
-//! on it, and the secondary text.
+//! The layout of a settings page in the style of the Settings app.
+//!
+//! It has the page that scrolls, the cards on it and the secondary text.
 
 use ghosttype_core::settings_window::view::{Note, NoteTone};
 use windows_reactor::{

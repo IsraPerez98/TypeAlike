@@ -1,6 +1,7 @@
-//! The caret that the focused control draws itself, for apps without a system caret, and the color
-//! of the text before the caret. In a terminal of xterm.js, the caret moves up to the row that
-//! holds it.
+//! The caret that the focused control draws itself.
+//!
+//! Apps without a system caret draw a caret of their own. The caret has the color of the text
+//! before it. In a terminal of xterm.js, the caret moves up to the row that holds it.
 
 use ghosttype_core::desktop::TextColor;
 use windows::Win32::Foundation::{POINT, RECT};

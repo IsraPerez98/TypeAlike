@@ -1,5 +1,6 @@
-//! The COM resources that the UIA connection holds: the membership of its thread in the COM
-//! apartment, and the arrays that UIA gives.
+//! The COM resources that the UIA connection holds.
+//!
+//! They are the membership of its thread in the COM apartment, and the arrays that UIA gives.
 
 use std::marker::PhantomData;
 use std::ptr;

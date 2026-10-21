@@ -1,5 +1,6 @@
-//! The geometry of the band that the OCR reads: rectangles of pixels in a window or an image, and
-//! the band around the focused field.
+//! The geometry of the band that the OCR reads.
+//!
+//! It has the rectangles of pixels in a window or an image, and the band around the focused field.
 
 use std::ops::Range;
 

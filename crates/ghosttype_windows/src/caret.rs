@@ -1,5 +1,7 @@
-//! The caret of the focused control in the foreground window: the system caret, else the caret
-//! that the caret object of the focused window shows, and the font face of the control.
+//! The caret of the focused control in the foreground window.
+//!
+//! It is the system caret, else the caret that the caret object of the focused window shows. It
+//! also has the font face of the control.
 
 use std::ptr;
 

@@ -1,5 +1,7 @@
-//! The text of a classic edit control: the text around its selection, and whether it hides its
-//! text as a password field does.
+//! The text of a classic edit control.
+//!
+//! It gives the text around the selection, and whether the control hides its text as a password
+//! field does.
 
 use std::ops::Range;
 
