@@ -355,6 +355,15 @@ mod tests {
     }
 
     #[test]
+    fn file_starts_with_the_format_name() {
+        let path = temporary_file("format.bin");
+
+        read_history(&path, Box::new(FakeVault::default())).save(&entries());
+
+        assert!(fs::read(&path).expect("the file exists").starts_with(FORMAT));
+    }
+
+    #[test]
     fn file_has_no_readable_text() {
         let path = temporary_file("sealed.bin");
 
@@ -362,7 +371,6 @@ mod tests {
 
         let bytes = fs::read(&path).expect("the file exists");
         let holds = |text: &[u8]| bytes.windows(text.len()).any(|window| window == text);
-        assert!(bytes.starts_with(FORMAT));
         assert!(
             ![&b"Tom"[..], b"LGTM", b"com.apple", b"github"]
                 .into_iter()
