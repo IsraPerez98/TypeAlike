@@ -29,6 +29,23 @@ fn screen_read(app: &mut App) -> ScreenReadId {
     }
 }
 
+/// Starts the read of the screen for the session of the last key, and returns its id.
+fn session_read(app: &mut App) -> ScreenReadId {
+    match app.start_session_screen_read() {
+        Some(SettledWork::ReadScreen { read, .. }) => read,
+        work => panic!("the first key reads the screen: {work:?}"),
+    }
+}
+
+/// Answers `read` without lines in a field where the OCR can run, and returns the id of the OCR
+/// read that the answer starts.
+fn ocr_read(app: &mut App, read: ScreenReadId) -> ScreenReadId {
+    match app.on_screen_read(answer(read), &MAIL_WITH_OCR) {
+        Some(SettledWork::ReadScreen { read: ocr, .. }) => ocr,
+        work => panic!("an answer without lines starts an OCR read: {work:?}"),
+    }
+}
+
 fn answer(read: ScreenReadId) -> ScreenRead {
     ScreenRead {
         id: read,
@@ -146,9 +163,7 @@ fn settled_input_during_a_session_without_screen_text_reads_the_screen() {
 fn settled_input_during_a_session_with_its_screen_text_reads_no_screen() {
     let mut app = App::new();
     app.on_key(Key::Char('H'), &MAIL);
-    let Some(SettledWork::ReadScreen { read, .. }) = app.start_session_screen_read() else {
-        panic!("the first key reads the screen");
-    };
+    let read = session_read(&mut app);
     app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
 
     let work = app.on_input_settled(&MAIL);
@@ -457,10 +472,7 @@ fn answer_without_lines_starts_no_ocr_read_when_the_ocr_cannot_run() {
 fn answer_of_the_ocr_without_lines_starts_no_other_read() {
     let mut app = App::new();
     let read = screen_read(&mut app);
-    let Some(SettledWork::ReadScreen { read: ocr, .. }) = app.on_screen_read(answer(read), &MAIL_WITH_OCR)
-    else {
-        panic!("an answer without lines starts an OCR read");
-    };
+    let ocr = ocr_read(&mut app, read);
 
     let work = app.on_screen_read(answer(ocr), &MAIL_WITH_OCR);
 
@@ -471,10 +483,7 @@ fn answer_of_the_ocr_without_lines_starts_no_other_read() {
 fn answer_of_the_ocr_goes_into_the_prompt() {
     let mut app = app_preparing_on_focus();
     let read = screen_read(&mut app);
-    let Some(SettledWork::ReadScreen { read: ocr, .. }) = app.on_screen_read(answer(read), &MAIL_WITH_OCR)
-    else {
-        panic!("an answer without lines starts an OCR read");
-    };
+    let ocr = ocr_read(&mut app, read);
 
     let work = app.on_screen_read(answer_with(ocr, "Dinner at 7?"), &MAIL_WITH_OCR);
 
