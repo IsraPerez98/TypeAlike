@@ -1,7 +1,7 @@
 //! The layout of the settings pages.
 //!
-//! It gives the stacks, the width of arranged views, the scroll views, the rounded groups with
-//! the separators between their rows, and the spacing between them.
+//! It gives the stacks, the width of arranged views, the scroll views, and the rounded groups
+//! with the separators between their rows. It also gives the spacing that the pages share.
 
 use objc2::rc::Retained;
 use objc2::runtime::NSObject;
