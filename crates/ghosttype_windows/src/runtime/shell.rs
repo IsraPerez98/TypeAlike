@@ -11,8 +11,7 @@ use ghosttype_core::desktop::{
 };
 use ghosttype_core::settings::ClipboardAccess;
 use ghosttype_core::settings_window::view::SettingsView;
-use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostMessageW, PostQuitMessage, SetTimer};
+use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTimer};
 use windows::core::Error;
 
 use super::{CARET_TIMER_ID, FIELD_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID};
@@ -28,7 +27,7 @@ use crate::screen_text::ScreenTextReader;
 use crate::settings::SettingsThread;
 use crate::tray::Tray;
 use crate::uia::ShownField;
-use crate::window::Window;
+use crate::window::{Window, post_message};
 
 /// The time that the focused app takes to handle a key, a click or a move of the focus. The caret
 /// reader reads the field text after it.
@@ -56,8 +55,7 @@ pub(super) struct Win32Shell {
 impl Win32Shell {
     /// Posts `message` to the main window, which handles it after the current event.
     pub(super) fn post(&self, message: u32) -> windows::core::Result<()> {
-        // SAFETY: plain call on our own window.
-        unsafe { PostMessageW(Some(self.window.handle()), message, WPARAM(0), LPARAM(0)) }
+        post_message(self.window.handle(), message)
     }
 
     /// Forgets the kept field text, because an input can change the field now, and reads it again

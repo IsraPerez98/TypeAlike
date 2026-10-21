@@ -1,14 +1,39 @@
 //! Windows owned by GhostType, each with a class of its own.
+//!
+//! It also gives the id of a window for another thread, and posts messages to a window.
 
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, HWND_TOPMOST, IDC_ARROW, IsWindowVisible, LoadCursorW,
-    RegisterClassExW, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPos,
-    ShowWindow, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    PostMessageW, RegisterClassExW, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    SetWindowPos, ShowWindow, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW, WNDPROC,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{Error, PCWSTR, Result};
+
+/// A window, as a value that can go to another thread, which an `HWND` cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WindowId(isize);
+
+impl WindowId {
+    /// The handle of the window, for a Win32 call.
+    pub(crate) fn to_hwnd(self) -> HWND {
+        HWND(std::ptr::with_exposed_provenance_mut(self.0.cast_unsigned()))
+    }
+}
+
+impl From<HWND> for WindowId {
+    fn from(window: HWND) -> Self {
+        Self(window.0.expose_provenance().cast_signed())
+    }
+}
+
+/// Posts `message`, without parameters, to `window`, which can be a window of another thread.
+pub(crate) fn post_message(window: HWND, message: u32) -> Result<()> {
+    // SAFETY: the message carries no pointer, and the call fails safely when the window is gone.
+    unsafe { PostMessageW(Some(window), message, WPARAM(0), LPARAM(0)) }
+}
 
 /// What a window looks like to the system.
 #[derive(Debug, Clone, Copy)]

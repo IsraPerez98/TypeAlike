@@ -15,9 +15,10 @@ use ghosttype_core::controller::GhostView;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
-use crate::focus::{self, WindowId};
+use crate::focus;
 use crate::mailbox::Mailbox;
 use crate::uia::{ShownField, Uia, UiaField};
+use crate::window::WindowId;
 
 const THREAD_NAME: &str = "caret reader";
 

@@ -3,14 +3,15 @@
 use std::mem;
 
 use ghosttype_core::app::{BadgeEntry, BadgeItem, BadgeMenu};
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, GetForegroundWindow, HMENU, MENU_ITEM_FLAGS, MF_CHECKED, MF_ENABLED,
-    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, PostMessageW, SetForegroundWindow, TPM_BOTTOMALIGN,
-    TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx,
-    WM_NULL,
+    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx, WM_NULL,
 };
 use windows::core::{BOOL, HSTRING, Owned, PCWSTR, Result};
+
+use crate::window::post_message;
 
 const FIRST_ITEM_ID: usize = 1;
 const NO_ITEM_ID: usize = 0;
@@ -113,8 +114,7 @@ fn track(
     // SAFETY: menu and owner are alive; with TPM_RETURNCMD the result is the picked id, 0 for none.
     let picked = unsafe { TrackPopupMenuEx(menu, flags.0, anchor.x, anchor.y, owner, None) };
     // Completes the KB135788 workaround so the next menu opens on the first click.
-    // SAFETY: plain call on our own window.
-    unsafe { PostMessageW(Some(owner), WM_NULL, WPARAM(0), LPARAM(0)) }?;
+    post_message(owner, WM_NULL)?;
     Ok(picked_index(picked))
 }
 

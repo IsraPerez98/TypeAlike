@@ -19,20 +19,11 @@ use windows::core::{Owned, PWSTR, Result};
 
 pub(crate) use self::edit_control::edit_field_text;
 use self::edit_control::is_password_focused;
+use crate::window::WindowId;
 
 const REPLY_TIMEOUT_MS: u32 = 50;
 const MAX_WINDOW_TITLE_UNITS: usize = 256;
 const MAX_PATH_UNITS: usize = 1024;
-
-/// A window, as a value that can go to another thread, which an `HWND` cannot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct WindowId(isize);
-
-impl From<HWND> for WindowId {
-    fn from(window: HWND) -> Self {
-        Self(window.0.expose_provenance().cast_signed())
-    }
-}
 
 /// Follows the foreground window and classifies whether GhostType may observe and type into it.
 #[derive(Debug)]

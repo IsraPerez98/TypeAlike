@@ -4,14 +4,15 @@
 use std::sync::{Arc, mpsc};
 
 use ghosttype_core::controller::{Delivery, DeliverySink};
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+use windows::Win32::Foundation::HWND;
+
+use crate::window::{WindowId, post_message};
 
 /// The sending end of the channel.
 #[derive(Debug)]
 pub(crate) struct Mailbox<Message> {
     sender: mpsc::Sender<Message>,
-    window: usize,
+    window: WindowId,
     wake_message: u32,
 }
 
@@ -22,7 +23,7 @@ impl<Message> Mailbox<Message> {
         let (sender, receiver) = mpsc::channel();
         let mailbox = Self {
             sender,
-            window: window.0.expose_provenance(),
+            window: WindowId::from(window),
             wake_message,
         };
         (mailbox, receiver)
@@ -33,9 +34,7 @@ impl<Message> Mailbox<Message> {
         if self.sender.send(message).is_err() {
             return;
         }
-        let window = HWND(std::ptr::with_exposed_provenance_mut(self.window));
-        // SAFETY: plain call; posting to a window of another thread is allowed and fails safely when it is gone.
-        if let Err(error) = unsafe { PostMessageW(Some(window), self.wake_message, WPARAM(0), LPARAM(0)) } {
+        if let Err(error) = post_message(self.window.to_hwnd(), self.wake_message) {
             tracing::warn!(%error, "failed to wake a message loop");
         }
     }

@@ -25,8 +25,8 @@ use windows::core::h;
 use self::capture::{Band, Capturer};
 use self::geometry::PixelRect;
 use crate::display::round_to_pixel;
-use crate::focus::WindowId;
 use crate::uia::{FocusedField, Uia};
+use crate::window::WindowId;
 
 /// Whether this computer can do an OCR at all, apart from what changes while GhostType runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
