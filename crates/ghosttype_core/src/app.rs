@@ -34,6 +34,24 @@ pub enum Status {
     Paused,
 }
 
+impl Status {
+    /// The label of the menu entry that pauses or resumes suggestions.
+    fn toggle_label(self) -> &'static str {
+        match self {
+            Self::Active => "Pause suggestions",
+            Self::Paused => "Resume suggestions",
+        }
+    }
+
+    /// The name of the app with this status.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Active => "GhostType",
+            Self::Paused => "GhostType (paused)",
+        }
+    }
+}
+
 /// What GhostType does when the input settles in a field, a session starts or a read of the
 /// screen answers.
 #[derive(Debug, Clone, PartialEq)]
@@ -284,24 +302,7 @@ impl App {
     /// Returns what the tray icon and menu must show now.
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
-        TrayView {
-            status: self.status,
-            tooltip: self.status_name(),
-            items: vec![
-                TrayItem {
-                    label: self.toggle_label(),
-                    command: TrayCommand::TogglePause,
-                },
-                TrayItem {
-                    label: "Settings…",
-                    command: TrayCommand::OpenSettings,
-                },
-                TrayItem {
-                    label: "Quit GhostType",
-                    command: TrayCommand::Quit,
-                },
-            ],
-        }
+        TrayView::of(self.status)
     }
 
     /// Returns the text before the caret in the session, empty without a session.
@@ -323,7 +324,7 @@ impl App {
     pub fn badge_view(&self) -> Option<BadgeView> {
         self.is_in_open_field.then(|| BadgeView {
             status: self.status,
-            label: self.status_name(),
+            label: self.status.name(),
         })
     }
 
@@ -341,7 +342,7 @@ impl App {
             return None;
         }
         let pause = BadgeEntry::Item(BadgeItem {
-            label: self.toggle_label().to_owned(),
+            label: self.status.toggle_label().to_owned(),
             command: BadgeCommand::TogglePause,
             is_checked: false,
             is_enabled: true,
@@ -378,20 +379,6 @@ impl App {
         };
         self.status = status;
         outcome
-    }
-
-    fn toggle_label(&self) -> &'static str {
-        match self.status {
-            Status::Active => "Pause suggestions",
-            Status::Paused => "Resume suggestions",
-        }
-    }
-
-    fn status_name(&self) -> &'static str {
-        match self.status {
-            Status::Active => "GhostType",
-            Status::Paused => "GhostType (paused)",
-        }
     }
 }
 

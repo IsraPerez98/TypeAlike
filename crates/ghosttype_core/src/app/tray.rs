@@ -33,6 +33,30 @@ pub struct TrayView {
     pub items: Vec<TrayItem>,
 }
 
+impl TrayView {
+    /// The tray icon and its menu while GhostType has `status`.
+    pub(super) fn of(status: Status) -> Self {
+        Self {
+            status,
+            tooltip: status.name(),
+            items: vec![
+                TrayItem {
+                    label: status.toggle_label(),
+                    command: TrayCommand::TogglePause,
+                },
+                TrayItem {
+                    label: "Settings…",
+                    command: TrayCommand::OpenSettings,
+                },
+                TrayItem {
+                    label: "Quit GhostType",
+                    command: TrayCommand::Quit,
+                },
+            ],
+        }
+    }
+}
+
 /// What the platform must do after a tray command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayOutcome {
