@@ -394,36 +394,41 @@ mod tests {
     }
 
     #[test]
-    fn read_tells_whether_the_field_hides_its_text() {
-        let reads = [
-            field_read(FieldReadId::default(), window(1)),
-            password_read(FieldReadId::default(), window(1)),
-        ];
+    fn read_of_a_shown_field_tells_that_it_shows_its_text() {
+        let mut kept = KeptFieldText::default();
 
-        let hides_text = reads.map(|read| {
-            let mut kept = KeptFieldText::default();
-            kept.keep(read);
-            kept.may_hide_text()
-        });
+        kept.keep(field_read(FieldReadId::default(), window(1)));
 
-        assert_eq!(hides_text, [false, true]);
+        assert!(!kept.may_hide_text());
     }
 
     #[test]
-    fn input_keeps_what_the_last_read_told_about_the_field() {
-        let reads = [
-            field_read(FieldReadId::default(), window(1)),
-            password_read(FieldReadId::default(), window(1)),
-        ];
+    fn read_of_a_password_field_tells_that_it_hides_its_text() {
+        let mut kept = KeptFieldText::default();
 
-        let hides_text = reads.map(|read| {
-            let mut kept = KeptFieldText::default();
-            kept.keep(read);
-            kept.forget_text();
-            kept.may_hide_text()
-        });
+        kept.keep(password_read(FieldReadId::default(), window(1)));
 
-        assert_eq!(hides_text, [false, true]);
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn input_keeps_that_the_last_read_found_a_shown_field() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(field_read(FieldReadId::default(), window(1)));
+
+        kept.forget_text();
+
+        assert!(!kept.may_hide_text());
+    }
+
+    #[test]
+    fn input_keeps_that_the_last_read_found_a_password_field() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(password_read(FieldReadId::default(), window(1)));
+
+        kept.forget_text();
+
+        assert!(kept.may_hide_text());
     }
 
     #[test]

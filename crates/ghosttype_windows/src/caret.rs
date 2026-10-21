@@ -241,7 +241,7 @@ mod tests {
 
         let hidden = cases.map(|(state, _)| is_hidden(state));
 
-        assert_eq!(hidden, cases.map(|(_, is_hidden)| is_hidden));
+        assert_eq!(hidden, cases.map(|(_, expected)| expected));
     }
 
     #[test]
