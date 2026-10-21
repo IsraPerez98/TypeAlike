@@ -30,7 +30,8 @@ use windows::Win32::UI::Accessibility::{
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{BOOL, BSTR, HSTRING, Interface, Result};
 
-use crate::focus::{self, Caret, whole_chars};
+use crate::caret::{self, Caret};
+use crate::focus::whole_chars;
 use crate::pixels::Rgb;
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
@@ -126,7 +127,7 @@ impl UiaCaret {
     /// draws itself. The caret has the color of the text before it, when the control tells it.
     pub(crate) fn read(&self) -> Option<Caret> {
         let element = self.focused_element();
-        let caret = focus::system_caret().or_else(|| self.drawn_caret(element.as_ref()?))?;
+        let caret = caret::system_caret().or_else(|| self.drawn_caret(element.as_ref()?))?;
         Some(Caret {
             text_color: element.as_ref().and_then(text_color),
             ..caret
@@ -137,7 +138,7 @@ impl UiaCaret {
     /// object of its window, else the right edge of the character before the caret. In a terminal
     /// of xterm.js, the caret moves up to the row that holds it.
     fn drawn_caret(&self, element: &IUIAutomationElement) -> Option<Caret> {
-        let caret = focus::accessible_caret().or_else(|| caret_of(element))?;
+        let caret = caret::accessible_caret().or_else(|| caret_of(element))?;
         Some(match self.terminal_input(element) {
             Some(input) => input.align(caret),
             None => caret,
@@ -264,7 +265,7 @@ impl UiaCaret {
         }
         // SAFETY: plain call on an interface of this thread.
         let frame = unsafe { focused.CurrentBoundingRectangle() }.ok()?;
-        let caret = focus::system_caret().or_else(|| self.drawn_caret(&focused));
+        let caret = caret::system_caret().or_else(|| self.drawn_caret(&focused));
         Some(FocusedField {
             frame: screen_rect(frame),
             caret: caret.as_ref().map(caret_frame),

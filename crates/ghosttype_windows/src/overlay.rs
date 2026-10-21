@@ -11,7 +11,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::core::{Result, w};
 
 use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
-use crate::focus::Caret;
+use crate::caret::Caret;
 use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};

@@ -14,7 +14,8 @@ use ghosttype_core::app::BadgeView;
 use ghosttype_core::controller::GhostView;
 use windows::core::Result;
 
-use crate::focus::{self, Caret, WindowId};
+use crate::caret::{self, Caret};
+use crate::focus::{self, WindowId};
 use crate::mailbox::Mailbox;
 use crate::uia::{ShownField, UiaCaret, UiaField};
 
@@ -104,7 +105,7 @@ fn answer_reads(
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         if let Some(id) = newest.caret {
-            let caret = uia.as_ref().map_or_else(focus::system_caret, UiaCaret::read);
+            let caret = uia.as_ref().map_or_else(caret::system_caret, UiaCaret::read);
             carets.send(CaretRead { id, caret });
         }
         if let Some(id) = newest.field_text {

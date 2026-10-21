@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::core::{Result, w};
 
-use crate::focus::Caret;
+use crate::caret::Caret;
 use crate::gdi::glyph_bitmap;
 use crate::pixels::{Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};

@@ -16,9 +16,10 @@ use windows::core::Error;
 
 use super::{CARET_TIMER_ID, FIELD_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID};
 use crate::badge::Badge;
+use crate::caret::Caret;
 use crate::caret_reader::{CaretRead, CaretReader, CaretView, KeptFieldText, PendingView};
 use crate::clipboard::ClipboardWatch;
-use crate::focus::{Caret, FocusTracker};
+use crate::focus::FocusTracker;
 use crate::injection::Replacement;
 use crate::ocr::OcrSupport;
 use crate::overlay::Overlay;
