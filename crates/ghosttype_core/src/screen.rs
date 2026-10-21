@@ -79,9 +79,12 @@ pub(crate) fn nearby_lines(
         .lines
         .iter()
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
-        .map(|line| Candidate {
-            text: without_header_time(one_line(&line.text)),
-            frame: line.frame,
+        .map(|line| {
+            let text = one_line(&line.text);
+            Candidate {
+                text: header_name(&text).unwrap_or(text),
+                frame: line.frame,
+            }
         })
         .filter(|candidate| {
             !candidate.text.is_empty() && !is_noise(&candidate.text) && !field.repeats(&candidate.text)
@@ -111,15 +114,13 @@ fn within_budget(candidates: Vec<Candidate>, budget: TokenCount) -> Vec<Candidat
     let mut left = budget.0;
     candidates
         .into_iter()
-        .filter(
-            |candidate| match left.checked_sub(estimated_tokens(&candidate.text).0) {
-                Some(rest) => {
-                    left = rest;
-                    true
-                }
-                None => false,
-            },
-        )
+        .filter(|candidate| {
+            let Some(rest) = left.checked_sub(estimated_tokens(&candidate.text).0) else {
+                return false;
+            };
+            left = rest;
+            true
+        })
         .collect()
 }
 
@@ -191,15 +192,10 @@ fn has_digit_inside_a_word(line: &str) -> bool {
         .any(|run| run[0].is_alphabetic() && run[1].is_numeric() && run[2].is_alphabetic())
 }
 
-/// Returns the name of `line` when it is a chat header, else `line`. A message keeps its times,
-/// because a time is often what it tells.
-fn without_header_time(line: String) -> String {
-    header_name(&line).unwrap_or(line)
-}
-
 /// Returns the name of a chat header: at most [`MAX_HEADER_NAME_WORDS`] words, then a time with
 /// maybe a day before it, as in "Laura Méndez 11:02" or "`chips_dev` — Today at 21:03". The name of
-/// a line with only a time is empty. `None` when `line` is not a chat header.
+/// a line with only a time is empty. `None` when `line` is not a chat header. A message keeps its
+/// times, because a time is often what it tells.
 fn header_name(line: &str) -> Option<String> {
     let mut words = line.split(' ').collect::<Vec<_>>();
     words.pop_if(|word| is_any_of(word, &HALVES_OF_DAY));
