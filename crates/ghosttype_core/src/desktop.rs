@@ -85,6 +85,17 @@ pub struct ScreenLine {
     pub confidence: Confidence,
 }
 
+impl fmt::Debug for ScreenLine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ScreenLine")
+            .field("chars", &self.text.chars().count())
+            .field("frame", &self.frame)
+            .field("confidence", &self.confidence)
+            .finish()
+    }
+}
+
 /// How sure the platform is of the text of a line, in percent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Confidence(pub(crate) u8);
@@ -134,17 +145,6 @@ pub enum OcrLevels {
     One,
     /// The user picks the level of the OCR: [`OcrLevel::Fast`] or [`OcrLevel::Accurate`].
     Selectable,
-}
-
-impl fmt::Debug for ScreenLine {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ScreenLine")
-            .field("chars", &self.text.chars().count())
-            .field("frame", &self.frame)
-            .field("confidence", &self.confidence)
-            .finish()
-    }
 }
 
 /// The text near the focused field on the screen, from one read of the focused window.
