@@ -569,8 +569,7 @@ fn completing_sends_the_prompt_with_a_token_limit() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         })
     );
 }
@@ -593,8 +592,7 @@ fn completing_puts_the_writer_name_after_the_notes() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         })
     );
 }
@@ -617,8 +615,7 @@ fn completing_puts_the_writer_notes_before_the_text() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         })
     );
 }

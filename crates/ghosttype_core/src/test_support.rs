@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::app::{BadgeView, Status};
 use crate::hub::ModelFile;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount,
+    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount, TypoCheck,
 };
 use crate::prompt::framed_prompt;
 use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings};
@@ -30,8 +30,7 @@ pub(crate) fn suggestion_request(lines: &[&str], text_before: &str) -> Inference
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-        fixes_typos: true,
+        typo_check: Settings::default().typo_check(),
     }
 }
 
@@ -43,8 +42,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
+        typo_check: TypoCheck::Off,
     }
 }
 

@@ -2,10 +2,9 @@
 
 use crate::desktop::Desktop;
 use crate::history::HistoryPool;
-use crate::inference::{InferenceRequest, NextWordBias, Prompt, TokenCount, WordBias};
+use crate::inference::{InferenceRequest, NextWordBias, Prompt, TokenCount, TypoCheck, WordBias};
 use crate::place::Place;
 use crate::prompt;
-use crate::settings::{TypoFix, TypoRule};
 
 use super::offer::Offer;
 use super::session::Session;
@@ -34,8 +33,7 @@ impl Engine {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         })
     }
 
@@ -59,8 +57,7 @@ impl Engine {
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
             min_log_probability: Some(self.suggestion_length.tail_cut()),
-            min_typed_log_probability: self.typo_rule.typed_letters_cut(),
-            fixes_typos: self.typo_rule == TypoRule::HideSuggestions && self.typo_fix == TypoFix::Offer,
+            typo_check: self.typo_check,
         })
     }
 

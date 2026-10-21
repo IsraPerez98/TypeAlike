@@ -11,7 +11,7 @@ use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability,
-    ModelRunner, NextWordBias, Prompt, TokenCount,
+    ModelRunner, NextWordBias, Prompt, TokenCount, TypoCheck,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{PromptPreparation, Settings};
@@ -118,26 +118,17 @@ const TWO_WORDS_REMOVED: &str = "Thank you for the quick reply. I read the new t
 const LAST_WORD_CHANGED: &str = "Thank you for the quick reply. I read the new terms for the";
 
 fn completion_request(prompt: &str) -> Reaction {
-    request_of(prompt, Typos::Ignore)
+    request_of(prompt, TypoCheck::Off)
 }
 
-/// What a request does with a typo in the last word of its prompt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Typos {
-    Ignore,
-    Hide,
-    Fix,
-}
-
-fn request_of(prompt: &str, typos: Typos) -> Reaction {
+fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
     Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
-        min_typed_log_probability: (typos != Typos::Ignore).then_some(TYPO_CUT),
-        fixes_typos: typos == Typos::Fix,
+        typo_check,
     })
 }
 
@@ -182,8 +173,7 @@ fn next_word_bias_picks_only_the_first_word() {
         word_bias: None,
         next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
         min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
+        typo_check: TypoCheck::Off,
     });
 
     let text = model
@@ -296,8 +286,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
+        typo_check: TypoCheck::Off,
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -387,7 +376,10 @@ fn word_with_a_typo_adds_no_text_below_the_typo_cut() {
     let mut model = ModelSession::load();
 
     let completion = model
-        .complete(request_of("Thank you for the quick rpel", Typos::Hide))
+        .complete(request_of(
+            "Thank you for the quick rpel",
+            TypoCheck::Hide(TYPO_CUT),
+        ))
         .expect("the model answers the prompt");
 
     assert!(
@@ -402,7 +394,10 @@ fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
     let mut model = ModelSession::load();
 
     let completion = model
-        .complete(request_of("Thank you for the quick rpel", Typos::Fix))
+        .complete(request_of(
+            "Thank you for the quick rpel",
+            TypoCheck::Fix(TYPO_CUT),
+        ))
         .expect("the model answers the prompt");
 
     let fixed = completion
@@ -421,7 +416,10 @@ fn word_without_a_typo_finishes_above_the_typo_cut() {
     let mut model = ModelSession::load();
 
     let completion = model
-        .complete(request_of("Thank you for the quick rep", Typos::Hide))
+        .complete(request_of(
+            "Thank you for the quick rep",
+            TypoCheck::Hide(TYPO_CUT),
+        ))
         .expect("the model completes the prompt");
 
     assert!(
@@ -441,8 +439,7 @@ fn completion_of_no_tokens_adds_no_text() {
         word_bias: None,
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
+        typo_check: TypoCheck::Off,
     }));
 
     assert!(

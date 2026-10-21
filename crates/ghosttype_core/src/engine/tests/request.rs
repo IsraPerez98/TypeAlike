@@ -3,7 +3,7 @@
 use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
-use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, TokenCount};
+use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, TokenCount, TypoCheck};
 use crate::key::Key;
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
 
@@ -25,7 +25,7 @@ fn typo_fixes_off_asks_for_no_fixes() {
         matches!(
             reaction,
             Reaction::Request(InferenceRequest::Complete {
-                fixes_typos: false,
+                typo_check: TypoCheck::Hide(_),
                 ..
             })
         ),
@@ -65,8 +65,7 @@ fn typo_rule_that_suggests_asks_for_no_typo_cut() {
     assert_eq!(
         reaction,
         Reaction::from(ExpectedRequest {
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
             ..ExpectedRequest::framed(&[], "h")
         })
     );
@@ -135,8 +134,7 @@ fn preparation(context: &str) -> Option<InferenceRequest> {
         ExpectedRequest {
             max_tokens: TokenCount(0),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
             ..ExpectedRequest::framed(&[], context)
         }
         .into(),

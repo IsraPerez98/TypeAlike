@@ -7,7 +7,7 @@ use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount,
+    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck,
 };
 use crate::key::Key;
 use crate::prompt;
@@ -103,8 +103,7 @@ pub(super) struct ExpectedRequest {
     pub(super) prompt: Prompt,
     pub(super) max_tokens: TokenCount,
     pub(super) min_log_probability: Option<LogProbability>,
-    pub(super) min_typed_log_probability: Option<LogProbability>,
-    pub(super) fixes_typos: bool,
+    pub(super) typo_check: TypoCheck,
 }
 
 impl ExpectedRequest {
@@ -115,8 +114,7 @@ impl ExpectedRequest {
             prompt: prompt::framed_prompt(lines, text_before),
             max_tokens: settings.suggestion_length_in_use().max_tokens(),
             min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: settings.typo_rule.typed_letters_cut(),
-            fixes_typos: true,
+            typo_check: settings.typo_check(),
         }
     }
 }
@@ -129,8 +127,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
-            min_typed_log_probability: expected.min_typed_log_probability,
-            fixes_typos: expected.fixes_typos,
+            typo_check: expected.typo_check,
         }
     }
 }

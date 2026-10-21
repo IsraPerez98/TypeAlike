@@ -3,7 +3,7 @@
 
 use std::str;
 
-use ghosttype_core::inference::{Correction, LogProbability};
+use ghosttype_core::inference::{Correction, LogProbability, TypoCheck};
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
@@ -22,10 +22,8 @@ pub(super) struct Limits {
     pub(super) max_added: usize,
     /// The least likely that the added text can get after its first word.
     pub(super) min_log_probability: Option<LogProbability>,
-    /// The least likely that the healed text can be before the completion adds no text.
-    pub(super) min_typed_log_probability: Option<LogProbability>,
-    /// Whether the completion fixes a typo that `min_typed_log_probability` finds.
-    pub(super) fixes_typos: bool,
+    /// What the completion does when the healed text looks like a typo.
+    pub(super) typo_check: TypoCheck,
 }
 
 /// What a running completion asks and tells its job.
@@ -369,8 +367,7 @@ mod tests {
         Limits {
             max_added,
             min_log_probability: min_log_probability.map(LogProbability),
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         }
     }
 

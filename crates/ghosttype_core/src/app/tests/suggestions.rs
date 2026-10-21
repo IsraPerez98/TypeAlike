@@ -136,8 +136,7 @@ fn settings_give_the_writer_notes() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-            fixes_typos: true,
+            typo_check: Settings::default().typo_check(),
         })
     );
 }

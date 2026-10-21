@@ -86,16 +86,46 @@ pub enum InferenceRequest {
         /// stops before a token that makes the text less likely, and leaves out the word of that
         /// token.
         min_log_probability: Option<LogProbability>,
-        /// The least likely that the typed letters of the last word of `prompt` can be, if any.
-        /// When the model finds them less likely, they often hold a typo, and the runner adds no
-        /// text.
-        min_typed_log_probability: Option<LogProbability>,
-        /// Whether the runner fixes the typo that `min_typed_log_probability` finds, when the model
-        /// expects a word one edit away. The completion then continues the fixed letters.
-        fixes_typos: bool,
+        /// What the runner does when the typed letters of the last word of `prompt` look like a
+        /// typo.
+        typo_check: TypoCheck,
     },
     /// Unloads the loaded model to free its memory.
     Unload,
+}
+
+/// What the runner does with the typed letters of the last word of a prompt. When the model finds
+/// them less likely than a minimum, they often hold a typo.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TypoCheck {
+    /// The runner does not check the typed letters.
+    Off,
+    /// The runner adds no text when the typed letters are less likely than this minimum.
+    Hide(LogProbability),
+    /// As [`TypoCheck::Hide`], but the runner fixes the typo when the model expects a word one edit
+    /// away. The completion then continues the fixed letters.
+    Fix(LogProbability),
+}
+
+impl TypoCheck {
+    /// The least likely that the typed letters can be, or `None` when the runner does not check
+    /// them.
+    ///
+    /// ```
+    /// use ghosttype_core::inference::{LogProbability, TypoCheck};
+    ///
+    /// let cut = LogProbability(-11.0);
+    ///
+    /// assert_eq!(TypoCheck::Fix(cut).min_log_probability(), Some(cut));
+    /// assert_eq!(TypoCheck::Off.min_log_probability(), None);
+    /// ```
+    #[must_use]
+    pub fn min_log_probability(self) -> Option<LogProbability> {
+        match self {
+            Self::Off => None,
+            Self::Hide(min) | Self::Fix(min) => Some(min),
+        }
+    }
 }
 
 /// A preference of the model for the words that the writer often writes: the logits to add to the

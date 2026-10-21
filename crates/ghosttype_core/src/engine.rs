@@ -13,10 +13,11 @@ use std::fmt;
 
 use crate::desktop::Desktop;
 use crate::history::{HistoryEntry, HistoryTables};
+use crate::inference::TypoCheck;
 use crate::key::Key;
 use crate::settings::{
-    ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TypoFix, TypoRule,
-    WriterName, WriterNotes,
+    ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TypoFix, WriterName,
+    WriterNotes,
 };
 
 use earlier_writing::needs_new_tables;
@@ -36,7 +37,7 @@ pub(crate) struct Engine {
     writer_name: WriterName,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
-    typo_rule: TypoRule,
+    typo_check: TypoCheck,
     typo_fix: TypoFix,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
     matching_examples: usize,
@@ -64,7 +65,7 @@ impl Default for Engine {
             writer_name: WriterName::default(),
             clipboard_access: ClipboardAccess::default(),
             suggestion_length: SuggestionLength::default(),
-            typo_rule: TypoRule::default(),
+            typo_check: TypoCheck::Off,
             typo_fix: TypoFix::default(),
             matching_examples: 0,
             screen_reads: ScreenReads::default(),
@@ -101,7 +102,7 @@ impl Engine {
         self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;
         self.suggestion_length = settings.suggestion_length_in_use();
-        self.typo_rule = settings.typo_rule;
+        self.typo_check = settings.typo_check();
         self.typo_fix = settings.typo_fix;
         self.matching_examples = settings.matching_examples();
         if needs_new_tables {

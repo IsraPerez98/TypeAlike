@@ -85,7 +85,9 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use ghosttype_core::inference::{InferenceError, InferenceEvent, NextWordBias, Prompt, TokenCount};
+    use ghosttype_core::inference::{
+        InferenceError, InferenceEvent, NextWordBias, Prompt, TokenCount, TypoCheck,
+    };
 
     use super::*;
 
@@ -210,8 +212,7 @@ mod tests {
                 word_bias: None,
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
-                min_typed_log_probability: None,
-                fixes_typos: false,
+                typo_check: TypoCheck::Off,
             },
         );
 

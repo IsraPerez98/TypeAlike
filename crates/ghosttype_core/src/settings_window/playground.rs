@@ -6,6 +6,7 @@ use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, TokenCount,
+    TypoCheck,
 };
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
@@ -287,8 +288,7 @@ impl PlaygroundPane {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         })
     }
 

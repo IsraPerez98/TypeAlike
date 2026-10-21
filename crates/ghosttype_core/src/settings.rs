@@ -7,7 +7,7 @@ mod screen_text;
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, LogProbability, TokenCount};
+use crate::inference::{Backend, LogProbability, TokenCount, TypoCheck};
 
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
@@ -223,6 +223,18 @@ impl Settings {
     /// backend allows.
     pub(crate) fn suggestion_length_in_use(&self) -> SuggestionLength {
         self.suggestion_length.min(self.longest_suggestion_length())
+    }
+
+    /// What a suggestion does when the typed letters of the last word look like a typo: nothing
+    /// when the typo rule finds no typos, else it hides the suggestion or offers a fix.
+    pub(crate) fn typo_check(&self) -> TypoCheck {
+        let Some(min) = self.typo_rule.typed_letters_cut() else {
+            return TypoCheck::Off;
+        };
+        match self.typo_fix {
+            TypoFix::Offer => TypoCheck::Fix(min),
+            TypoFix::Off => TypoCheck::Hide(min),
+        }
     }
 }
 

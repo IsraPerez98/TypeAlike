@@ -7,7 +7,7 @@ use std::sync::{Arc, mpsc};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias, Prompt,
-    TokenCount,
+    TokenCount, TypoCheck,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -39,8 +39,7 @@ fn real_model_continues_text() {
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
-            min_typed_log_probability: None,
-            fixes_typos: false,
+            typo_check: TypoCheck::Off,
         },
         &sink,
     );

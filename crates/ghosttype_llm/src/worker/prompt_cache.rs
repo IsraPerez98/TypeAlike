@@ -1,6 +1,6 @@
 //! The context that keeps the last prompt, and the decode loop that continues a copy of it.
 
-use ghosttype_core::inference::{Correction, InferenceError};
+use ghosttype_core::inference::{Correction, InferenceError, TypoCheck};
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -245,7 +245,7 @@ impl<'model> PromptCache<'model> {
         let mut biased = Vec::new();
         let mut generation = Generation::new(decoder.pieces, healing);
         while generation.tokens().len() < limits.max_added {
-            if generation.add_healing_step(logits, limits.min_typed_log_probability) == Step::Stop {
+            if generation.add_healing_step(logits, limits.typo_check.min_log_probability()) == Step::Stop {
                 return Ok(generation.into_typo_stop());
             }
             let bias = decoder.token_bias.at(generation.tokens().len());
@@ -281,11 +281,11 @@ impl<'model> PromptCache<'model> {
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
         let limits = decoder.limits;
-        let Some(min) = limits.min_typed_log_probability else {
+        let TypoCheck::Fix(min) = limits.typo_check else {
             return Ok(added);
         };
         let has_stopped_for_typo = added.tokens.is_empty() && added.typed_log_probability < min;
-        if !limits.fixes_typos || !has_stopped_for_typo {
+        if !has_stopped_for_typo {
             return Ok(added);
         }
         let Some((token, fixed)) = typo_fix(&self.logits, decoder.pieces, healing.text, min, |token| {
@@ -303,8 +303,7 @@ impl<'model> PromptCache<'model> {
         };
         let fixed_decoder = Decoder {
             limits: Limits {
-                min_typed_log_probability: None,
-                fixes_typos: false,
+                typo_check: TypoCheck::Off,
                 ..limits
             },
             ..*decoder
