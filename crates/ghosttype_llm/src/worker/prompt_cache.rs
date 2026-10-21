@@ -77,9 +77,9 @@ pub(super) struct PromptCache<'model> {
     snapshots: Option<Vec<Snapshot>>,
 }
 
-/// A saved state of the prompt sequence after its first `tokens` tokens.
+/// A saved state of the prompt sequence after its first `token_count` tokens.
 struct Snapshot {
-    tokens: usize,
+    token_count: usize,
     state: SeqState,
     logits: Vec<f32>,
 }
@@ -170,7 +170,7 @@ impl<'model> PromptCache<'model> {
             self.tokens.clear();
         }
         if let Some(snapshots) = &mut self.snapshots {
-            snapshots.retain(|snapshot| snapshot.tokens <= self.tokens.len());
+            snapshots.retain(|snapshot| snapshot.token_count <= self.tokens.len());
         }
     }
 
@@ -182,7 +182,7 @@ impl<'model> PromptCache<'model> {
         };
         if snapshots
             .last()
-            .is_some_and(|last| last.tokens == self.tokens.len())
+            .is_some_and(|last| last.token_count == self.tokens.len())
         {
             return Ok(());
         }
@@ -193,7 +193,7 @@ impl<'model> PromptCache<'model> {
             snapshots.remove(0);
         }
         snapshots.push(Snapshot {
-            tokens: self.tokens.len(),
+            token_count: self.tokens.len(),
             state,
             logits: self.logits.clone(),
         });
@@ -208,11 +208,11 @@ impl<'model> PromptCache<'model> {
             .iter()
             .flatten()
             .rev()
-            .find(|snapshot| snapshot.tokens <= common)
+            .find(|snapshot| snapshot.token_count <= common)
         else {
             return false;
         };
-        let start = u32::try_from(snapshot.tokens).expect("a prompt position fits in u32");
+        let start = u32::try_from(snapshot.token_count).expect("a prompt position fits in u32");
         let is_restored = self
             .context
             .state_seq_set(&snapshot.state, PROMPT_SEQUENCE)
@@ -222,7 +222,7 @@ impl<'model> PromptCache<'model> {
                 .kv_cache_seq_rm(PROMPT_SEQUENCE, Some(start), None)
                 .is_ok();
         if is_restored {
-            self.tokens.truncate(snapshot.tokens);
+            self.tokens.truncate(snapshot.token_count);
             self.logits.clone_from(&snapshot.logits);
         }
         is_restored

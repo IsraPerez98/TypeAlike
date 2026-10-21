@@ -24,9 +24,9 @@ impl WordLogProbabilities {
     /// Adds a token that writes `text` after the healed text. Whitespace after a word starts the
     /// next word. A token that only writes healed text belongs to the first word.
     pub(super) fn add(&mut self, text: &[u8], log_probability: f32) {
-        let starts_word = self.starts_word(text);
+        let is_new_word = self.starts_new_word(text);
         match self.words.last_mut() {
-            Some(word) if !starts_word => {
+            Some(word) if !is_new_word => {
                 word.0 += log_probability;
                 self.last_word_tokens += 1;
             }
@@ -43,7 +43,7 @@ impl WordLogProbabilities {
     /// Whether a token that writes `text` with `log_probability` keeps the added text at least as
     /// likely as `cut`. Each token of the first word does.
     pub(super) fn keeps(&self, text: &[u8], log_probability: f32, cut: LogProbability) -> bool {
-        let is_in_first_word = self.words.len() <= 1 && !self.starts_word(text);
+        let is_in_first_word = self.words.len() <= 1 && !self.starts_new_word(text);
         let total = self.words.iter().map(|word| word.0).sum::<f32>();
         is_in_first_word || total + log_probability >= cut.0
     }
@@ -51,7 +51,7 @@ impl WordLogProbabilities {
     /// Ends the words before a token that writes `text`: it drops the last word when the token
     /// would continue it. Returns how many tokens the dropped word had.
     pub(super) fn end_before(&mut self, text: &[u8]) -> usize {
-        if self.starts_word(text) {
+        if self.starts_new_word(text) {
             return 0;
         }
         self.drop_last_word()
@@ -67,8 +67,10 @@ impl WordLogProbabilities {
         mem::take(&mut self.last_word_tokens)
     }
 
-    fn starts_word(&self, text: &[u8]) -> bool {
-        self.ends_in_word && text.first().is_some_and(u8::is_ascii_whitespace)
+    /// Whether a token that writes `text` starts a new word: it starts a word after added text that
+    /// ends inside a word.
+    fn starts_new_word(&self, text: &[u8]) -> bool {
+        self.ends_in_word && starts_word(text)
     }
 
     pub(super) fn into_vec(self) -> Vec<LogProbability> {
@@ -76,6 +78,7 @@ impl WordLogProbabilities {
     }
 }
 
+/// Whether a token with `piece` as text starts a word: the piece starts with ASCII whitespace.
 pub(super) fn starts_word(piece: &[u8]) -> bool {
     piece.first().is_some_and(u8::is_ascii_whitespace)
 }
