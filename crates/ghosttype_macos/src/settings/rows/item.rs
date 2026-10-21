@@ -25,7 +25,7 @@ const UNAVAILABLE_DESCRIPTION: &str = "Unavailable";
 
 /// A row of a group with one thing of a list: texts, a trailing detail and the accessory controls.
 #[derive(Debug)]
-pub(crate) struct ItemRow {
+pub(in crate::settings) struct ItemRow {
     title: Retained<NSTextField>,
     subtitle: Retained<NSTextField>,
     detail: Retained<NSTextField>,
@@ -36,7 +36,7 @@ pub(crate) struct ItemRow {
 }
 
 impl ItemRow {
-    pub(crate) fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
+    pub(super) fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let title = truncating_label(&NSFont::systemFontOfSize(NSFont::systemFontSize()), main_thread);
         let subtitle = truncating_label(

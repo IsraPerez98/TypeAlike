@@ -6,13 +6,12 @@ mod app;
 mod item;
 mod text;
 
-pub(super) use crate::settings::rows::app::{AppPickerRow, AppSwitchRow};
-pub(super) use crate::settings::rows::item::ItemRow;
-pub(super) use crate::settings::rows::text::{TextAreaRow, TextFieldRow, TextLineRow};
-
-use ghosttype_core::settings_window::view::{self as view, ChoiceText, ControlId, Note, NoteTone, Row};
+use ghosttype_core::settings_window::view::{
+    self as view, ChoiceText, ControlId, Note, NoteTone, Row, SettingsInput,
+};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2_app_kit::{
     NSAccessibility as _, NSButton, NSColor, NSFont, NSLayoutConstraintOrientation,
     NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton, NSProgressIndicator, NSStackView,
@@ -27,6 +26,9 @@ use crate::settings::controls::{
     show_push_button, spinner, start_spinning, stop_spinning, truncating_label, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
+use crate::settings::rows::app::{AppPickerRow, AppSwitchRow};
+use crate::settings::rows::item::ItemRow;
+use crate::settings::rows::text::{TextAreaRow, TextFieldRow, TextLineRow};
 use crate::settings::{Binder, ControlAction};
 
 const MESSAGE_SPACING: CGFloat = 8.0;
@@ -115,6 +117,24 @@ impl RowView {
             (Self::Message(row_view), Row::Loading(text)) => row_view.render_loading(text),
             (Self::Message(row_view), Row::Message(message)) => row_view.render_message(message, binder),
             _ => {}
+        }
+    }
+
+    /// The input of a change of the text in `view`, when it is the text area or the line of text
+    /// of these views.
+    pub(super) fn edited(&self, view: &AnyObject) -> Option<SettingsInput> {
+        match self {
+            Self::TextArea(text_area) => text_area.edited(view),
+            Self::TextLine(text_line) => text_line.edited(view),
+            _ => None,
+        }
+    }
+
+    /// The text in the text field `id`, when it is the text field of these views.
+    pub(super) fn field_text(&self, id: &ControlId) -> Option<String> {
+        match self {
+            Self::TextField(text_field) => text_field.field_text(id),
+            _ => None,
         }
     }
 }

@@ -24,14 +24,14 @@ const TEXT_LINE_WIDTH: CGFloat = 200.0;
 
 /// A row of a group with a field that edits one line of text.
 #[derive(Debug)]
-pub(crate) struct TextLineRow {
+pub(in crate::settings) struct TextLineRow {
     setting: SettingRow,
     field: Retained<NSTextField>,
     pub(super) id: ControlId,
 }
 
 impl TextLineRow {
-    pub(crate) fn add(rows_stack: &NSStackView, id: &ControlId, main_thread: MainThreadMarker) -> Self {
+    pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, main_thread: MainThreadMarker) -> Self {
         let field = NSTextField::textFieldWithString(&NSString::new(), main_thread);
         field.setUsesSingleLineMode(true);
         field
@@ -56,7 +56,7 @@ impl TextLineRow {
     }
 
     /// The input of a change of the text in `field`, when it is the field of this row.
-    pub(crate) fn edited(&self, field: &AnyObject) -> Option<SettingsInput> {
+    pub(super) fn edited(&self, field: &AnyObject) -> Option<SettingsInput> {
         let own_field: &AnyObject = &self.field;
         ptr::eq(own_field, field).then(|| SettingsInput::Edited {
             id: self.id.clone(),
@@ -67,7 +67,7 @@ impl TextLineRow {
 
 /// A text area under its heading and description, with its button below it.
 #[derive(Debug)]
-pub(crate) struct TextAreaRow {
+pub(in crate::settings) struct TextAreaRow {
     heading: Retained<NSTextField>,
     description: Retained<NSTextField>,
     text_view: Retained<NSTextView>,
@@ -78,7 +78,7 @@ pub(crate) struct TextAreaRow {
 
 impl TextAreaRow {
     /// Adds the row at the bottom of `container`.
-    pub(crate) fn add(container: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+    pub(super) fn add(container: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let heading = heading(main_thread);
         let description = secondary_wrapping_label(main_thread);
@@ -130,7 +130,7 @@ impl TextAreaRow {
     }
 
     /// The input of a change of the text in `text_view`, when it is this text area.
-    pub(crate) fn edited(&self, text_view: &AnyObject) -> Option<SettingsInput> {
+    pub(super) fn edited(&self, text_view: &AnyObject) -> Option<SettingsInput> {
         let own_text_view: &AnyObject = &self.text_view;
         ptr::eq(own_text_view, text_view).then(|| SettingsInput::Edited {
             id: self.id.clone(),
@@ -142,16 +142,16 @@ impl TextAreaRow {
 /// A text field under its heading, with the button that submits its text below it. The return
 /// key in the field submits the text too.
 #[derive(Debug)]
-pub(crate) struct TextFieldRow {
+pub(in crate::settings) struct TextFieldRow {
     heading: Retained<NSTextField>,
-    pub(crate) field: Retained<NSTextField>,
+    field: Retained<NSTextField>,
     button: Retained<NSButton>,
-    pub(crate) id: ControlId,
+    pub(super) id: ControlId,
 }
 
 impl TextFieldRow {
     /// Adds the row at the bottom of `container`.
-    pub(crate) fn add(container: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+    pub(super) fn add(container: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let heading = heading(main_thread);
         let field = NSTextField::textFieldWithString(&NSString::new(), main_thread);
@@ -188,5 +188,10 @@ impl TextFieldRow {
         self.button.setEnabled(shown.is_submit_enabled);
         binder.bind(&self.field, &shown.id);
         binder.bind(&self.button, &shown.id);
+    }
+
+    /// The text in the field, when `id` is the id of this row.
+    pub(super) fn field_text(&self, id: &ControlId) -> Option<String> {
+        (self.id == *id).then(|| self.field.stringValue().to_string())
     }
 }

@@ -81,14 +81,14 @@ impl AppLabel {
 /// A row with the icon and the name of an app, and a switch that turns a setting on and off for
 /// the app.
 #[derive(Debug)]
-pub(crate) struct AppSwitchRow {
+pub(in crate::settings) struct AppSwitchRow {
     app: AppLabel,
     switch: Retained<NSSwitch>,
     pub(super) id: ControlId,
 }
 
 impl AppSwitchRow {
-    pub(crate) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+    pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let main_thread = binder.main_thread;
         let switch = NSSwitch::new(main_thread);
         binder.target.connect(&switch, ControlAction::Toggle);
@@ -114,7 +114,7 @@ impl AppSwitchRow {
 /// A row with the icon and the name of an app, and a pop-up menu that picks the value of a setting
 /// for the app. The menu rebuilds its entries only when they change, so an open menu stays open.
 #[derive(Debug)]
-pub(crate) struct AppPickerRow {
+pub(in crate::settings) struct AppPickerRow {
     app: AppLabel,
     menu: Retained<NSPopUpButton>,
     titles: Vec<String>,
@@ -122,7 +122,7 @@ pub(crate) struct AppPickerRow {
 }
 
 impl AppPickerRow {
-    pub(crate) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+    pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let menu = pop_up_button(binder.target, binder.main_thread);
         let app = AppLabel::new(binder.main_thread);
         app.add_row(rows_stack, &menu, binder.main_thread);

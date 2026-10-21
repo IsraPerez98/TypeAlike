@@ -116,11 +116,7 @@ impl PageView {
     /// The input of a change of the text in `view`, when it is a text area or a line of text of
     /// the page.
     pub(super) fn edited(&self, view: &AnyObject) -> Option<SettingsInput> {
-        self.rows().find_map(|row| match row {
-            RowView::TextArea(text_area) => text_area.edited(view),
-            RowView::TextLine(text_line) => text_line.edited(view),
-            _ => None,
-        })
+        self.rows().find_map(|row| row.edited(view))
     }
 
     /// The text in the text field or the search field `id`, when it is on the page.
@@ -130,14 +126,7 @@ impl PageView {
             .as_ref()
             .filter(|search| search.id.as_ref() == Some(id))
             .map(|search| search.field.stringValue().to_string());
-        search.or_else(|| {
-            self.rows().find_map(|row| match row {
-                RowView::TextField(text_field) if text_field.id == *id => {
-                    Some(text_field.field.stringValue().to_string())
-                }
-                _ => None,
-            })
-        })
+        search.or_else(|| self.rows().find_map(|row| row.field_text(id)))
     }
 
     fn rows(&self) -> impl Iterator<Item = &RowView> {
