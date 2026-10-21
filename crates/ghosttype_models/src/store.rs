@@ -46,12 +46,17 @@ pub(crate) fn installed_files(models_dir: &Path) -> io::Result<Vec<SizedFile>> {
     let mut installed = Vec::new();
     for owner_dir in subdirectories(models_dir)? {
         for repo_dir in subdirectories(&owner_dir)? {
-            for entry in fs::read_dir(&repo_dir)? {
-                installed.extend(installed_file(&entry?.path())?);
-            }
+            installed.extend(installed_in_repo(&repo_dir)?);
         }
     }
     Ok(installed)
+}
+
+fn installed_in_repo(repo_dir: &Path) -> io::Result<Vec<SizedFile>> {
+    fs::read_dir(repo_dir)?
+        .map(|entry| installed_file(&entry?.path()))
+        .filter_map(Result::transpose)
+        .collect()
 }
 
 fn subdirectories(dir: &Path) -> io::Result<Vec<PathBuf>> {
