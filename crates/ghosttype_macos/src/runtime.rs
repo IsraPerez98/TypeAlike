@@ -19,7 +19,7 @@ use ghosttype_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
 };
 use ghosttype_core::inference::Backend;
-use ghosttype_core::key::{Disposition, ReleaseFilter};
+use ghosttype_core::key::{Disposition, Key, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_window::view::{SettingsInput, SettingsView};
 use objc2::rc::Retained;
@@ -38,7 +38,7 @@ use crate::event_tap::EventTap;
 use crate::focus::FocusTracker;
 use crate::geometry::Caret;
 use crate::injection::{self, Replacement};
-use crate::keys::{self, Chord};
+use crate::keys;
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
@@ -161,8 +161,8 @@ impl Runtime {
 
     fn on_key_down(&mut self, event: &CGEvent) -> Disposition {
         let code = keys::key_code(event);
-        let chord = Chord::from_flags(CGEvent::flags(Some(event)));
-        let key = code.map(|code| keys::translate(code, chord, keys::typed(event)));
+        let chord = keys::chord_from_flags(CGEvent::flags(Some(event)));
+        let key = code.map(|code| Key::from_press(keys::kind_of(code), chord, keys::typed(event)));
         let disposition = self.controller.on_key_down(key, &mut self.shell);
         if let Some(code) = code {
             self.release_filter.on_press(code, disposition);

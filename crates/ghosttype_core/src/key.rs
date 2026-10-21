@@ -24,6 +24,79 @@ pub enum Key {
     Other,
 }
 
+impl Key {
+    /// Gives the key of a press of a key of `kind`, with the modifiers of `chord` held, that types
+    /// `typed`.
+    ///
+    /// Tab counts only without a modifier, and Enter and Backspace only alone or with Shift. A
+    /// shortcut gives [`Key::Other`]. Else the press gives what it types.
+    ///
+    /// ```
+    /// use ghosttype_core::key::{Chord, Key, KeyKind, Typed};
+    ///
+    /// let key = Key::from_press(KeyKind::Enter, Chord::Shortcut, Typed::Char('\r'));
+    ///
+    /// assert_eq!(key, Key::Other);
+    /// ```
+    #[must_use]
+    pub fn from_press(kind: KeyKind, chord: Chord, typed: Typed) -> Self {
+        let is_plain_or_shift = matches!(chord, Chord::Plain | Chord::Shift);
+        match kind {
+            KeyKind::Tab if chord == Chord::Plain => Self::Tab,
+            KeyKind::Escape => Self::Escape,
+            KeyKind::Enter if is_plain_or_shift => Self::Enter,
+            KeyKind::Backspace if is_plain_or_shift => Self::Backspace,
+            _ if chord == Chord::Shortcut => Self::Other,
+            _ => match typed {
+                Typed::Char(character) => Self::Char(character),
+                Typed::Dead => Self::Dead,
+                Typed::NoSingleChar => Self::Other,
+            },
+        }
+    }
+}
+
+/// A pressed key by the rule that it has, whatever the key code of the platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    /// The Tab key.
+    Tab,
+    /// The Escape key.
+    Escape,
+    /// Return or Enter, also on the keypad.
+    Enter,
+    /// The key that deletes the character before the caret.
+    Backspace,
+    /// Any other key. What it types gives the key.
+    Other,
+}
+
+/// The modifiers held during a key press, by what they mean for typing. Each platform maps its
+/// modifiers to one chord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Chord {
+    /// No modifier.
+    Plain,
+    /// Shift only: still typing.
+    Shift,
+    /// A modifier that changes the typed character, such as Option on macOS or `AltGr` on
+    /// Windows. What the press types gives the key.
+    CharacterModifier,
+    /// A modifier for shortcuts, such as Command on macOS or Alt on Windows.
+    Shortcut,
+}
+
+/// What a key press types in the active keyboard layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Typed {
+    /// Exactly one character.
+    Char(char),
+    /// No character yet: a dead key, whose accent comes with the next key.
+    Dead,
+    /// No character, several characters, or a character that does not type text.
+    NoSingleChar,
+}
+
 /// What happens to an input event after GhostType handles it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Disposition {
@@ -82,6 +155,132 @@ mod tests {
 
     const TAB: u16 = 48;
     const LETTER_A: u16 = 0;
+
+    #[test]
+    fn editing_key_without_a_modifier_keeps_its_role() {
+        let cases = [
+            (KeyKind::Tab, Chord::Plain, Typed::Char('\t'), Key::Tab),
+            (KeyKind::Escape, Chord::Plain, Typed::Char('\u{1b}'), Key::Escape),
+            (KeyKind::Enter, Chord::Plain, Typed::Char('\r'), Key::Enter),
+            (KeyKind::Enter, Chord::Plain, Typed::Char('\u{3}'), Key::Enter),
+            (
+                KeyKind::Backspace,
+                Chord::Plain,
+                Typed::Char('\u{8}'),
+                Key::Backspace,
+            ),
+            (
+                KeyKind::Backspace,
+                Chord::Plain,
+                Typed::Char('\u{7f}'),
+                Key::Backspace,
+            ),
+        ];
+
+        let keys = cases.map(|(kind, chord, typed, _)| Key::from_press(kind, chord, typed));
+
+        assert_eq!(keys, cases.map(|(.., key)| key));
+    }
+
+    #[test]
+    fn shift_keeps_enter_and_backspace_but_not_tab() {
+        let cases = [
+            (KeyKind::Enter, Chord::Shift, Typed::Char('\r'), Key::Enter),
+            (
+                KeyKind::Backspace,
+                Chord::Shift,
+                Typed::Char('\u{8}'),
+                Key::Backspace,
+            ),
+            (KeyKind::Tab, Chord::Shift, Typed::NoSingleChar, Key::Other),
+            (KeyKind::Tab, Chord::Shift, Typed::Char('\t'), Key::Char('\t')),
+        ];
+
+        let keys = cases.map(|(kind, chord, typed, _)| Key::from_press(kind, chord, typed));
+
+        assert_eq!(keys, cases.map(|(.., key)| key));
+    }
+
+    #[test]
+    fn character_modifier_gives_the_typed_text_of_an_editing_key() {
+        let cases = [
+            (
+                KeyKind::Enter,
+                Chord::CharacterModifier,
+                Typed::Char('\n'),
+                Key::Char('\n'),
+            ),
+            (
+                KeyKind::Enter,
+                Chord::CharacterModifier,
+                Typed::Char('\r'),
+                Key::Char('\r'),
+            ),
+            (
+                KeyKind::Backspace,
+                Chord::CharacterModifier,
+                Typed::NoSingleChar,
+                Key::Other,
+            ),
+            (
+                KeyKind::Backspace,
+                Chord::CharacterModifier,
+                Typed::Char('\u{7f}'),
+                Key::Char('\u{7f}'),
+            ),
+        ];
+
+        let keys = cases.map(|(kind, chord, typed, _)| Key::from_press(kind, chord, typed));
+
+        assert_eq!(keys, cases.map(|(.., key)| key));
+    }
+
+    #[test]
+    fn shortcut_gives_other_whatever_the_key_types() {
+        let cases = [
+            (KeyKind::Tab, Chord::Shortcut, Typed::NoSingleChar, Key::Other),
+            (KeyKind::Tab, Chord::Shortcut, Typed::Char('\t'), Key::Other),
+            (KeyKind::Enter, Chord::Shortcut, Typed::Char('\r'), Key::Other),
+            (
+                KeyKind::Backspace,
+                Chord::Shortcut,
+                Typed::Char('\u{7f}'),
+                Key::Other,
+            ),
+            (KeyKind::Other, Chord::Shortcut, Typed::Char('a'), Key::Other),
+            (KeyKind::Other, Chord::Shortcut, Typed::Dead, Key::Other),
+        ];
+
+        let keys = cases.map(|(kind, chord, typed, _)| Key::from_press(kind, chord, typed));
+
+        assert_eq!(keys, cases.map(|(.., key)| key));
+    }
+
+    #[test]
+    fn other_key_gives_what_it_types() {
+        let cases = [
+            (KeyKind::Other, Chord::Shift, Typed::Char('A'), Key::Char('A')),
+            (
+                KeyKind::Other,
+                Chord::CharacterModifier,
+                Typed::Char('@'),
+                Key::Char('@'),
+            ),
+            (
+                KeyKind::Other,
+                Chord::CharacterModifier,
+                Typed::Char('å'),
+                Key::Char('å'),
+            ),
+            (KeyKind::Other, Chord::Plain, Typed::Dead, Key::Dead),
+            (KeyKind::Other, Chord::CharacterModifier, Typed::Dead, Key::Dead),
+            (KeyKind::Other, Chord::Plain, Typed::NoSingleChar, Key::Other),
+        ];
+
+        let keys = cases.map(|(kind, chord, typed, _)| Key::from_press(kind, chord, typed));
+
+        assert_eq!(keys, cases.map(|(.., key)| key));
+    }
 
     #[test]
     fn swallowed_press_swallows_its_release() {
