@@ -408,10 +408,7 @@ fn frame_in_band(bounds: CGRect, size: CGSize) -> CGRect {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn rect(x: f64, y: f64, width: f64, height: f64) -> CGRect {
-        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
-    }
+    use crate::geometry::frame;
 
     /// An image of 4 × 3 pixels with 1 byte for each pixel and 2 bytes of padding in each row.
     const LAYOUT: PixelLayout = PixelLayout {
@@ -459,26 +456,26 @@ mod tests {
 
     #[test]
     fn band_reaches_above_and_below_the_field_within_the_window() {
-        let window = rect(100.0, 50.0, 1000.0, 2000.0);
+        let window = frame(100.0, 50.0, 1000.0, 2000.0);
 
         let bands = [
-            band_around(rect(200.0, 1000.0, 400.0, 30.0), window),
-            band_around(rect(200.0, 100.0, 400.0, 30.0), window),
+            band_around(frame(200.0, 1000.0, 400.0, 30.0), window),
+            band_around(frame(200.0, 100.0, 400.0, 30.0), window),
         ];
 
         assert_eq!(
             bands,
             [
-                rect(100.0, 400.0, 1000.0, 1230.0),
-                rect(100.0, 50.0, 1000.0, 680.0)
+                frame(100.0, 400.0, 1000.0, 1230.0),
+                frame(100.0, 50.0, 1000.0, 680.0)
             ]
         );
     }
 
     #[test]
     fn vision_bounds_become_points_from_the_top_left_corner() {
-        let frame = frame_in_band(rect(0.25, 0.5, 0.5, 0.25), CGSize::new(800.0, 400.0));
+        let in_band = frame_in_band(frame(0.25, 0.5, 0.5, 0.25), CGSize::new(800.0, 400.0));
 
-        assert_eq!(frame, rect(200.0, 100.0, 400.0, 100.0));
+        assert_eq!(in_band, frame(200.0, 100.0, 400.0, 100.0));
     }
 }

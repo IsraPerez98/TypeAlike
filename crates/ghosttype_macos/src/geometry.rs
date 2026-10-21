@@ -74,13 +74,15 @@ pub(crate) fn screen_rect(frame: CGRect) -> ScreenRect {
     }
 }
 
+/// The frame at `x` and `y` with the size `width` × `height`, for the tests of several modules.
+#[cfg(test)]
+pub(crate) fn frame(x: f64, y: f64, width: f64, height: f64) -> CGRect {
+    CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn frame(x: f64, y: f64, width: f64, height: f64) -> CGRect {
-        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
-    }
 
     #[test]
     fn caret_starts_at_right_edge_of_bounds() {

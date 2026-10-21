@@ -179,13 +179,8 @@ fn is_visible(frame: CGRect, visible: CGRect) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use objc2_core_foundation::{CGPoint, CGSize};
-
     use super::*;
-
-    fn frame(x: f64, y: f64, width: f64, height: f64) -> CGRect {
-        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
-    }
+    use crate::geometry::frame;
 
     #[test]
     fn element_that_overlaps_the_window_is_visible() {
