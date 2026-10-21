@@ -5,7 +5,8 @@ use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGKeyCode};
 
 const RETURN_KEY_CODE: CGKeyCode = 36;
 const TAB_KEY_CODE: CGKeyCode = 48;
-const DELETE_KEY_CODE: CGKeyCode = 51;
+/// The key that deletes the character before the caret (`kVK_Delete`).
+pub(crate) const DELETE_KEY_CODE: CGKeyCode = 51;
 const ESCAPE_KEY_CODE: CGKeyCode = 53;
 const KEYPAD_ENTER_KEY_CODE: CGKeyCode = 76;
 const FUNCTION_KEY_CHARS: std::ops::RangeInclusive<char> = '\u{F700}'..='\u{F8FF}';

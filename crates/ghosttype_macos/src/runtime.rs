@@ -26,7 +26,7 @@ use objc2::rc::Retained;
 use objc2::runtime::Sel;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu};
-use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
+use objc2_core_graphics::{CGEvent, CGEventTapProxy, CGEventType, CGKeyCode};
 use objc2_foundation::{NSPoint, NSTimeInterval, NSTimer};
 
 use crate::RunError;
@@ -37,7 +37,7 @@ use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::FocusTracker;
 use crate::geometry::Caret;
-use crate::injection::{INJECTION_TAG, Replacement};
+use crate::injection::{self, Replacement};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
@@ -132,7 +132,7 @@ struct Runtime {
 
 impl Runtime {
     fn on_event(&mut self, kind: CGEventType, event: &CGEvent) -> Disposition {
-        if CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG {
+        if injection::is_injected(event) {
             return Disposition::Pass;
         }
         self.shell.clipboard.on_input();

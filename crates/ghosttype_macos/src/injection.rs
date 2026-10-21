@@ -2,13 +2,13 @@
 
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGKeyCode};
 
+use crate::keys::DELETE_KEY_CODE;
+
 /// Marks events posted by GhostType, so its own event tap lets them through untouched.
-pub(crate) const INJECTION_TAG: i64 = 0x4754_5950;
+const INJECTION_TAG: i64 = 0x4754_5950;
 
 const MAX_UTF16_UNITS_APPS_READ_PER_EVENT: usize = 20;
 const UNUSED_KEY_CODE: CGKeyCode = 0;
-/// The key that deletes the character before the caret (`kVK_Delete`).
-const DELETE_KEY_CODE: CGKeyCode = 0x33;
 
 /// A keyboard event for accepted text could not be created.
 #[derive(Debug, thiserror::Error)]
@@ -31,6 +31,11 @@ pub(crate) fn replace_text(replacement: &Replacement) -> Result<(), InjectionErr
     utf16_chunks(&replacement.text)
         .iter()
         .try_for_each(|chunk| post_key(UNUSED_KEY_CODE, chunk))
+}
+
+/// Whether GhostType posted `event`.
+pub(crate) fn is_injected(event: &CGEvent) -> bool {
+    CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG
 }
 
 /// Posts a press and a release of `key_code`, which types `units` when they are not empty.
