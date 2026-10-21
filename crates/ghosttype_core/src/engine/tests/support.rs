@@ -91,6 +91,12 @@ pub(super) fn engine_with(settings: &Settings) -> Engine {
     engine
 }
 
+pub(super) fn engine_with_history(settings: &Settings, entries: Vec<HistoryEntry>) -> Engine {
+    let mut engine = engine_with(settings);
+    engine.use_history(entries);
+    engine
+}
+
 /// The request of a completion without word bias, which a test changes where its settings differ
 /// from the default settings.
 pub(super) struct ExpectedRequest {

@@ -1,24 +1,20 @@
 //! Tests the earlier writing that a prompt shows and the texts that the history keeps.
 
-use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, TYPED_TEXT, engine_with, finish_typing, finish_typing_text,
-    history_settings, mail_app, mail_entry, mail_field, request_with, type_text,
+    FakeDesktop, GREETING, MAIL_APP, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
+    finish_typing_text, history_settings, mail_app, mail_entry, mail_field, request_with, type_text,
 };
-
-fn engine_with_history(settings: &Settings) -> Engine {
-    let mut engine = engine_with(settings);
-    engine.use_history(vec![mail_entry("Cheers,\nTom")]);
-    engine
-}
 
 #[test]
 fn earlier_writing_of_the_app_comes_before_the_text() {
-    let mut engine = engine_with_history(&history_settings(HistoryAccess::On, Vec::new()));
+    let mut engine = engine_with_history(
+        &history_settings(HistoryAccess::On, Vec::new()),
+        vec![mail_entry("Cheers,\nTom")],
+    );
 
     let reaction = engine.on_key(Key::Char('h'), &mail_field());
 
@@ -41,8 +37,9 @@ fn earlier_writing_stays_out_when_the_history_or_the_app_is_off() {
         history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
     ];
 
-    let reactions =
-        settings.map(|settings| engine_with_history(&settings).on_key(Key::Char('h'), &mail_field()));
+    let reactions = settings.map(|settings| {
+        engine_with_history(&settings, vec![mail_entry("Cheers,\nTom")]).on_key(Key::Char('h'), &mail_field())
+    });
 
     assert_eq!(
         reactions,
@@ -147,8 +144,10 @@ fn a_few_words_that_the_user_adds_to_a_long_field_are_not_kept() {
 
 #[test]
 fn draft_that_an_entry_holds_is_kept_with_the_new_text_in_one_entry() {
-    let mut engine = engine_with(&kept_settings(KeptTexts::All));
-    engine.use_history(vec![mail_entry(long_field().trim())]);
+    let mut engine = engine_with_history(
+        &kept_settings(KeptTexts::All),
+        vec![mail_entry(long_field().trim())],
+    );
 
     let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), TYPED_TEXT, false);
 
@@ -226,14 +225,16 @@ fn history_to_save_comes_once_for_each_change() {
 
 #[test]
 fn forgetting_an_app_drops_its_texts() {
-    let mut engine = engine_with(&kept_settings(KeptTexts::All));
-    engine.use_history(vec![
-        mail_entry("Cheers,\nTom"),
-        HistoryEntry {
-            app_id: "com.apple.Notes".to_owned(),
-            ..mail_entry("Shopping list")
-        },
-    ]);
+    let mut engine = engine_with_history(
+        &kept_settings(KeptTexts::All),
+        vec![
+            mail_entry("Cheers,\nTom"),
+            HistoryEntry {
+                app_id: "com.apple.Notes".to_owned(),
+                ..mail_entry("Shopping list")
+            },
+        ],
+    );
 
     engine.forget_history_of(MAIL_APP);
 

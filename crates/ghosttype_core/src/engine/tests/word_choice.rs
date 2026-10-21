@@ -7,8 +7,8 @@ use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, completion, engine_with, finish_typing, history_settings, mail_app,
-    mail_entry, mail_field, show, type_text,
+    FakeDesktop, GREETING, MAIL_APP, completion, engine_with_history, finish_typing, history_settings,
+    mail_app, mail_entry, mail_field, show, type_text,
 };
 
 fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -27,9 +27,7 @@ fn word_bias_of_request(reaction: Reaction) -> Option<Vec<(String, f32)>> {
 }
 
 fn engine_with_words(settings: &Settings) -> Engine {
-    let mut engine = engine_with(settings);
-    engine.use_history(vec![mail_entry(&"reckon ".repeat(20))]);
-    engine
+    engine_with_history(settings, vec![mail_entry(&"reckon ".repeat(20))])
 }
 
 #[test]
@@ -95,9 +93,7 @@ fn new_history_gives_a_new_version() {
 }
 
 fn engine_with_phrases(settings: &Settings) -> Engine {
-    let mut engine = engine_with(settings);
-    engine.use_history(vec![mail_entry("Let me know if it works."); 3]);
-    engine
+    engine_with_history(settings, vec![mail_entry("Let me know if it works."); 3])
 }
 
 fn mail_field_around(before_caret: &str, after_caret: &str) -> FakeDesktop {
@@ -146,11 +142,13 @@ fn phrase_needs_the_word_choice_the_history_and_the_app() {
 }
 
 fn next_word_bias_after(settings: &Settings, before_caret: &str) -> Vec<(String, f32)> {
-    let mut engine = engine_with(settings);
-    engine.use_history(vec![
-        mail_entry("Let me know if it works."),
-        mail_entry("Let me know when you can."),
-    ]);
+    let mut engine = engine_with_history(
+        settings,
+        vec![
+            mail_entry("Let me know if it works."),
+            mail_entry("Let me know when you can."),
+        ],
+    );
     match engine.on_key(Key::Char(' '), &mail_field_around(before_caret, "")) {
         Reaction::Request(InferenceRequest::Complete { next_word_bias, .. }) => next_word_bias.0,
         _ => Vec::new(),
@@ -228,8 +226,10 @@ fn pool_settings((chat, other_chat): (HistoryScope, HistoryScope)) -> Settings {
 #[test]
 fn only_apps_with_all_apps_give_examples_to_each_other() {
     let shared = pool_cases().map(|scopes| {
-        let mut engine = engine_with(&pool_settings(scopes));
-        engine.use_history(vec![chat_entry("See you at the station at six")]);
+        let mut engine = engine_with_history(
+            &pool_settings(scopes),
+            vec![chat_entry("See you at the station at six")],
+        );
         let reaction = engine.on_key(
             Key::Char('h'),
             &FakeDesktop::with_field_text("").in_app(OTHER_CHAT_APP),
@@ -244,8 +244,10 @@ fn only_apps_with_all_apps_give_examples_to_each_other() {
 #[test]
 fn only_apps_with_all_apps_give_phrases_to_each_other() {
     let shown = pool_cases().map(|scopes| {
-        let mut engine = engine_with(&pool_settings(scopes));
-        engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+        let mut engine = engine_with_history(
+            &pool_settings(scopes),
+            vec![chat_entry("Let me know if it works."); 3],
+        );
         let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
         engine.on_key(Key::Char(' '), &desktop) == show("if")
     });
@@ -256,11 +258,13 @@ fn only_apps_with_all_apps_give_phrases_to_each_other() {
 /// The request that a key after "Please let me know" in the other chat app gets, with the earlier
 /// writing of the chat app and the pools of `scopes`.
 fn request_in_other_chat_app(scopes: (HistoryScope, HistoryScope)) -> Reaction {
-    let mut engine = engine_with(&pool_settings(scopes));
-    engine.use_history(vec![
-        chat_entry("Let me know if it works. Reckon reckon reckon."),
-        chat_entry("Let me know when you can."),
-    ]);
+    let mut engine = engine_with_history(
+        &pool_settings(scopes),
+        vec![
+            chat_entry("Let me know if it works. Reckon reckon reckon."),
+            chat_entry("Let me know when you can."),
+        ],
+    );
     let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
     engine.on_key(Key::Char(' '), &desktop)
 }
@@ -286,8 +290,10 @@ fn only_apps_with_all_apps_give_next_words_to_each_other() {
 
 #[test]
 fn app_with_only_this_app_uses_its_own_texts() {
-    let mut engine = engine_with(&pool_settings((HistoryScope::ThisApp, HistoryScope::AllApps)));
-    engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+    let mut engine = engine_with_history(
+        &pool_settings((HistoryScope::ThisApp, HistoryScope::AllApps)),
+        vec![chat_entry("Let me know if it works."); 3],
+    );
 
     let reaction = engine.on_key(
         Key::Char(' '),
@@ -299,8 +305,10 @@ fn app_with_only_this_app_uses_its_own_texts() {
 
 #[test]
 fn new_scope_of_an_app_builds_the_tables_again() {
-    let mut engine = engine_with(&pool_settings((HistoryScope::AllApps, HistoryScope::AllApps)));
-    engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
+    let mut engine = engine_with_history(
+        &pool_settings((HistoryScope::AllApps, HistoryScope::AllApps)),
+        vec![chat_entry("Let me know if it works."); 3],
+    );
     engine.use_settings(&pool_settings((HistoryScope::ThisApp, HistoryScope::AllApps)));
 
     let reaction = engine.on_key(
