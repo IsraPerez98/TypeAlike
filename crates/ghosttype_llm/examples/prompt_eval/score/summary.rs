@@ -254,20 +254,9 @@ impl Summary {
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
                 .count(),
-            median_millis: median(outcomes.iter().map(|outcome| outcome.millis).collect())
-                .unwrap_or_default(),
-            median_warm_millis: median(
-                outcomes
-                    .iter()
-                    .filter_map(|outcome| outcome.warm_millis)
-                    .collect(),
-            ),
-            median_prompt_tokens: median(
-                outcomes
-                    .iter()
-                    .filter_map(|outcome| outcome.prompt_tokens)
-                    .collect(),
-            ),
+            median_millis: median_of(outcomes, |outcome| Some(outcome.millis)).unwrap_or_default(),
+            median_warm_millis: median_of(outcomes, |outcome| outcome.warm_millis),
+            median_prompt_tokens: median_of(outcomes, |outcome| outcome.prompt_tokens),
             millis_per_token: millis_per_token(outcomes),
             mean_log_probability: mean(
                 &outcomes
@@ -309,7 +298,9 @@ pub fn mean(values: &[f64]) -> Option<f64> {
     Some(values.iter().sum::<f64>() / f64::from(count))
 }
 
-fn median(mut values: Vec<u64>) -> Option<u64> {
+/// Returns the median of `value` over the `outcomes` that have one.
+fn median_of(outcomes: &[Outcome], value: impl Fn(&Outcome) -> Option<u64>) -> Option<u64> {
+    let mut values = outcomes.iter().filter_map(value).collect::<Vec<_>>();
     values.sort_unstable();
     let middle = values.len() / 2;
     match values.len() {
