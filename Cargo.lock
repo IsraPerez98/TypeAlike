@@ -194,9 +194,8 @@ dependencies = [
  "ghosttype_llm",
  "ghosttype_macos",
  "ghosttype_models",
+ "ghosttype_settings",
  "ghosttype_windows",
- "serde",
- "serde_json",
  "tracing",
  "tracing-subscriber",
  "windows-reactor-setup",
@@ -262,6 +261,16 @@ dependencies = [
  "thiserror",
  "tracing",
  "ureq",
+]
+
+[[package]]
+name = "ghosttype_settings"
+version = "0.1.0"
+dependencies = [
+ "ghosttype_core",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

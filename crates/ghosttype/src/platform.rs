@@ -2,8 +2,6 @@
 
 #[cfg(target_os = "macos")]
 mod launch_agent;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-mod settings_file;
 
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
@@ -14,7 +12,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         .context("no local app data directory")?
         .join("GhostType");
     let models_dir = data_dir.join("Models");
-    let settings_file = settings_file::SettingsFile::new(data_dir.join("settings.json"));
+    let settings_file = ghosttype_settings::SettingsFile::new(data_dir.join("settings.json"));
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
@@ -47,7 +45,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let home_dir = std::env::home_dir().context("no home directory")?;
     let data_dir = home_dir.join(DATA_DIR);
     let models_dir = data_dir.join("Models");
-    let settings_file = settings_file::SettingsFile::new(data_dir.join("settings.json"));
+    let settings_file = ghosttype_settings::SettingsFile::new(data_dir.join("settings.json"));
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
     let launch_agent = launch_agent::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);

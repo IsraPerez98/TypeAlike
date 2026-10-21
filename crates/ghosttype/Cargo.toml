@@ -34,8 +34,7 @@ windows-reactor-setup = { workspace = true, optional = true }
 ghosttype_history.workspace = true
 ghosttype_llm.workspace = true
 ghosttype_models.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+ghosttype_settings.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ghosttype_windows.workspace = true

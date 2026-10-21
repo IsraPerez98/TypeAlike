@@ -15,18 +15,20 @@ use serde::{Deserialize, Serialize};
 
 /// The settings file: it gives the saved settings at start, and keeps each change.
 #[derive(Debug)]
-pub(crate) struct SettingsFile {
+pub struct SettingsFile {
     path: PathBuf,
 }
 
 impl SettingsFile {
-    pub(crate) fn new(path: PathBuf) -> Self {
+    /// Creates the settings file at `path`.
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
 
     /// Reads the saved settings. Gives the default settings when there is no file, or when the
     /// file is damaged.
-    pub(crate) fn load(&self) -> Settings {
+    pub fn load(&self) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Settings::default(),

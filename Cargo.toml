@@ -19,6 +19,7 @@ ghosttype_macos = { path = "crates/ghosttype_macos" }
 ghosttype_models = { path = "crates/ghosttype_models" }
 ghosttype_llm = { path = "crates/ghosttype_llm" }
 ghosttype_history = { path = "crates/ghosttype_history" }
+ghosttype_settings = { path = "crates/ghosttype_settings" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 llama-cpp-2 = { version = "0.1.159", default-features = false }
