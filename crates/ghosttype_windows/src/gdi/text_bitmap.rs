@@ -207,7 +207,7 @@ pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HIC
     }
     // SAFETY: CreateBitmap returned a valid bitmap that nothing else owns.
     let ignored_mask = unsafe { Owned::new(ignored_mask) };
-    let info = ICONINFO {
+    let icon_parts = ICONINFO {
         fIcon: true.into(),
         xHotspot: 0,
         yHotspot: 0,
@@ -215,7 +215,7 @@ pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HIC
         hbmColor: bitmap.handle(),
     };
     // SAFETY: both bitmaps are alive and unselected; the system copies them into the icon.
-    let icon = unsafe { CreateIconIndirect(&raw const info) }?;
+    let icon = unsafe { CreateIconIndirect(&raw const icon_parts) }?;
     // SAFETY: CreateIconIndirect returned a valid icon that nothing else owns.
     Ok(unsafe { Owned::new(icon) })
 }

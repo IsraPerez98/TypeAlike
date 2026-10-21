@@ -215,8 +215,8 @@ fn recognize(engine: &OcrEngine, band: &Band) -> Result<Vec<RecognizedLine>, Ocr
         i32::try_from(band.width)?,
         i32::try_from(band.height)?,
     )?;
-    let result = engine.RecognizeAsync(&bitmap)?.join()?;
-    Ok(result
+    let recognized = engine.RecognizeAsync(&bitmap)?.join()?;
+    Ok(recognized
         .Lines()?
         .into_iter()
         .filter_map(|line| recognized_line(&line))

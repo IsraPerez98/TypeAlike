@@ -80,7 +80,7 @@ impl Tray {
     }
 
     fn notify(&self, message: NOTIFY_ICON_MESSAGE) -> Result<()> {
-        let data = NOTIFYICONDATAW {
+        let notification = NOTIFYICONDATAW {
             cbSize: struct_size::<NOTIFYICONDATAW>(),
             hWnd: self.window,
             uID: ICON_ID,
@@ -93,8 +93,8 @@ impl Tray {
             },
             ..NOTIFYICONDATAW::default()
         };
-        // SAFETY: `data` is fully initialized and outlives the call.
-        unsafe { Shell_NotifyIconW(message, &raw const data) }.ok()
+        // SAFETY: `notification` is fully initialized and outlives the call.
+        unsafe { Shell_NotifyIconW(message, &raw const notification) }.ok()
     }
 }
 

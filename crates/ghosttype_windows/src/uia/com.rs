@@ -45,11 +45,11 @@ impl SafeArray {
         if count == 0 {
             return Some(Vec::new());
         }
-        let mut data = ptr::null_mut();
-        // SAFETY: the array is valid; `data` gets its elements until the access ends.
-        unsafe { SafeArrayAccessData(self.0, &raw mut data) }.ok()?;
-        // SAFETY: the array holds `count` doubles at `data` while the access lasts.
-        let values = unsafe { std::slice::from_raw_parts(data.cast::<f64>(), count) }.to_vec();
+        let mut elements = ptr::null_mut();
+        // SAFETY: the array is valid; `elements` gets its elements until the access ends.
+        unsafe { SafeArrayAccessData(self.0, &raw mut elements) }.ok()?;
+        // SAFETY: the array holds `count` doubles at `elements` while the access lasts.
+        let values = unsafe { std::slice::from_raw_parts(elements.cast::<f64>(), count) }.to_vec();
         // SAFETY: ends the access above; the array stays valid.
         unsafe { SafeArrayUnaccessData(self.0) }.ok()?;
         Some(values)

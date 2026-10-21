@@ -39,13 +39,13 @@ pub(crate) fn to_pixels(dips: i32, dpi: i32) -> i32 {
 pub(crate) fn work_area(point: POINT) -> Result<RECT> {
     // SAFETY: plain call.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO {
+    let mut areas = MONITORINFO {
         cbSize: struct_size::<MONITORINFO>(),
         ..MONITORINFO::default()
     };
-    // SAFETY: `info` is a local with its size set.
-    unsafe { GetMonitorInfoW(monitor, &raw mut info) }.ok()?;
-    Ok(info.rcWork)
+    // SAFETY: `areas` is a local with its size set.
+    unsafe { GetMonitorInfoW(monitor, &raw mut areas) }.ok()?;
+    Ok(areas.rcWork)
 }
 
 /// The rectangle of the screen that `rect`, in physical screen pixels, covers.

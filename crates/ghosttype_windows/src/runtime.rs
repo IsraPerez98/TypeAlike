@@ -148,10 +148,10 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     // The focused field counts as a password field until a read of it tells otherwise.
     with_runtime(|runtime| runtime.shell.read_field_text());
     tracing::info!("running in the tray");
-    let result = pump_messages();
+    let run_outcome = pump_messages();
     drop((keyboard_hook, mouse_hook, focus_hook));
     STATE.with(|state| state.runtime.take());
-    result
+    run_outcome
 }
 
 fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Result<Owned<HHOOK>> {

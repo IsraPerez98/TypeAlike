@@ -39,11 +39,11 @@ pub(super) fn app_icon_file(program_path: &str) -> Option<Vec<u8>> {
     }
     // SAFETY: ExtractIconExW returned an icon that the caller owns.
     let icon = unsafe { Owned::new(large) };
-    let mut info = ICONINFO::default();
+    let mut icon_parts = ICONINFO::default();
     // SAFETY: the icon is valid, and the output pointer refers to a local.
-    unsafe { GetIconInfo(*icon, &raw mut info) }.ok()?;
+    unsafe { GetIconInfo(*icon, &raw mut icon_parts) }.ok()?;
     // SAFETY: GetIconInfo made both bitmaps for the caller to delete.
-    let (color, mask) = unsafe { (Owned::new(info.hbmColor), Owned::new(info.hbmMask)) };
+    let (color, mask) = unsafe { (Owned::new(icon_parts.hbmColor), Owned::new(icon_parts.hbmMask)) };
     if color.is_invalid() {
         return None;
     }
