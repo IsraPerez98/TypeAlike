@@ -18,6 +18,8 @@ const SECRET_PREFIXES: [&str; 8] = [
     "AKIA",
 ];
 const MIN_SECRET_TAIL: usize = 8;
+/// The start of a Slack token, before its letter and its dash, as in "xoxb-".
+const SLACK_PREFIX: &str = "xox";
 /// The fewest characters of a token of letters and digits that GhostType takes for a secret.
 const MIN_MIXED_TOKEN_CHARS: usize = 20;
 /// The digits of a card number.
@@ -90,10 +92,11 @@ fn is_secret_token(token: &str) -> bool {
     let has_secret_prefix = SECRET_PREFIXES
         .iter()
         .any(|prefix| token.starts_with(prefix) && token.len() >= prefix.len() + MIN_SECRET_TAIL);
-    let is_slack_token = token.len() >= 5 + MIN_SECRET_TAIL
-        && token.starts_with("xox")
-        && token[3..].starts_with(|character: char| character.is_ascii_alphabetic())
-        && token[4..].starts_with('-');
+    let is_slack_token = token.len() >= "xoxb-".len() + MIN_SECRET_TAIL
+        && token
+            .strip_prefix(SLACK_PREFIX)
+            .and_then(|rest| rest.strip_prefix(|character: char| character.is_ascii_alphabetic()))
+            .is_some_and(|rest| rest.starts_with('-'));
     let is_mixed = token.len() >= MIN_MIXED_TOKEN_CHARS
         && token.contains(|character: char| character.is_ascii_alphabetic())
         && token.contains(|character: char| character.is_ascii_digit());
@@ -103,28 +106,46 @@ fn is_secret_token(token: &str) -> bool {
 /// The spans of the runs of 13 to 19 digits, in groups that one space or dash divides.
 fn card_number_spans(text: &str) -> Vec<Range<usize>> {
     let mut spans = Vec::new();
-    let mut run: Option<(usize, usize, usize)> = None;
+    let mut run: Option<DigitRun> = None;
     let mut characters = text.char_indices().peekable();
     while let Some((index, character)) = characters.next() {
         let next_is_digit = characters.peek().is_some_and(|&(_, next)| next.is_ascii_digit());
         run = match (character.is_ascii_digit(), run) {
-            (true, None) => Some((index, index + 1, 1)),
-            (true, Some((start, _, digits))) => Some((start, index + 1, digits + 1)),
+            (true, None) => Some(DigitRun {
+                start: index,
+                end: index + 1,
+                digits: 1,
+            }),
+            (true, Some(open)) => Some(DigitRun {
+                end: index + 1,
+                digits: open.digits + 1,
+                ..open
+            }),
             (false, Some(open)) if matches!(character, ' ' | '-') && next_is_digit => Some(open),
             (false, open) => {
-                spans.extend(
-                    open.filter(|&(_, _, digits)| CARD_DIGITS.contains(&digits))
-                        .map(|(start, end, _)| start..end),
-                );
+                spans.extend(open.and_then(DigitRun::card_span));
                 None
             }
         };
     }
-    spans.extend(
-        run.filter(|&(_, _, digits)| CARD_DIGITS.contains(&digits))
-            .map(|(start, end, _)| start..end),
-    );
+    spans.extend(run.and_then(DigitRun::card_span));
     spans
+}
+
+/// A run of digits, in groups that one space or dash divides, from the byte `start` to the byte
+/// `end` of its text.
+#[derive(Clone, Copy)]
+struct DigitRun {
+    start: usize,
+    end: usize,
+    digits: usize,
+}
+
+impl DigitRun {
+    /// The span of the run when it has the [`CARD_DIGITS`] of a card number.
+    fn card_span(self) -> Option<Range<usize>> {
+        CARD_DIGITS.contains(&self.digits).then_some(self.start..self.end)
+    }
 }
 
 #[cfg(test)]
