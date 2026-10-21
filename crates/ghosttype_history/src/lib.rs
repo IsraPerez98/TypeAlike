@@ -82,15 +82,9 @@ impl HistoryFile {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error.into()),
         };
-        let plain = open(self.key()?, &sealed)?;
-        let text = String::from_utf8(plain).map_err(|_unspecified| HistoryError::Locked)?;
-        text.lines()
-            .map(|line| {
-                serde_json::from_str::<StoredEntry>(line)
-                    .map(HistoryEntry::from)
-                    .map_err(|_unspecified| HistoryError::Locked)
-            })
-            .collect()
+        open(self.key()?, &sealed)
+            .and_then(decode)
+            .ok_or(HistoryError::Locked)
     }
 
     /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
@@ -173,18 +167,31 @@ fn seal(key: &LessSafeKey, nonce: [u8; NONCE_LEN], mut plain: Vec<u8>) -> Result
     Ok([FORMAT, &nonce, &plain].concat())
 }
 
-/// Returns the text of the `sealed` file, opened with `key`.
-fn open(key: &LessSafeKey, sealed: &[u8]) -> Result<Vec<u8>, HistoryError> {
-    let body = sealed.strip_prefix(FORMAT).ok_or(HistoryError::Locked)?;
-    let (nonce, cipher) = body.split_at_checked(NONCE_LEN).ok_or(HistoryError::Locked)?;
-    let nonce = Nonce::try_assume_unique_for_key(nonce).map_err(|_unspecified| HistoryError::Locked)?;
+/// Returns the text of the `sealed` file, opened with `key`, or `None` when the file is damaged or
+/// was locked with another key.
+fn open(key: &LessSafeKey, sealed: &[u8]) -> Option<Vec<u8>> {
+    let body = sealed.strip_prefix(FORMAT)?;
+    let (nonce, cipher) = body.split_at_checked(NONCE_LEN)?;
+    let nonce = Nonce::try_assume_unique_for_key(nonce).ok()?;
     let mut cipher = cipher.to_vec();
     let plain_len = key
         .open_in_place(nonce, Aad::from(FORMAT), &mut cipher)
-        .map_err(|_unspecified| HistoryError::Locked)?
+        .ok()?
         .len();
     cipher.truncate(plain_len);
-    Ok(cipher)
+    Some(cipher)
+}
+
+/// Returns the entries in the JSON lines of `plain`, or `None` when a line is not an entry.
+fn decode(plain: Vec<u8>) -> Option<Vec<HistoryEntry>> {
+    let text = String::from_utf8(plain).ok()?;
+    text.lines()
+        .map(|line| {
+            serde_json::from_str::<StoredEntry>(line)
+                .ok()
+                .map(HistoryEntry::from)
+        })
+        .collect()
 }
 
 impl From<StoredEntry> for HistoryEntry {
