@@ -1,6 +1,8 @@
 //! Filters the text of a completion and splits a suggestion into the parts that Tab types.
 
-use super::session::Session;
+use crate::inference::Correction;
+
+use super::WordFix;
 
 /// The last words before the caret that a suggestion copies when it holds them in a row. Fewer
 /// words are often the correct phrase again.
@@ -10,8 +12,7 @@ const PATTERN_REPEATS: usize = 3;
 const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
 /// The signs that can close a word: closing punctuation, quotes and brackets. The apostrophe is not
 /// one, because it also ends a possessive, as in "the students'".
-pub(super) const CLOSING_SIGNS: [char; 13] =
-    [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
+const CLOSING_SIGNS: [char; 13] = [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
 
 /// Returns the first line of `completion` up to a placeholder as ghost text after `context`, or
 /// `None` when it has no text. Spaces that would double the space at the end of `context`, or
@@ -37,12 +38,17 @@ fn before_placeholder(text: &str) -> &str {
 }
 
 /// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
-/// bad suggestion, or `None` when it adds nothing after `typed`. The text before the caret of
-/// `session` ends with `typed`, and the request continued the text before `typed`.
-pub(super) fn suggestion_after_typed(session: &Session, typed: &str, completion: &str) -> Option<String> {
-    let context = session.text_before.strip_suffix(typed)?;
+/// bad suggestion, or `None` when it adds nothing after `typed`. `text_before`, the text before
+/// the caret, ends with `typed`, and the request continued the text before `typed`.
+pub(super) fn suggestion_after_typed(
+    text_before: &str,
+    text_after: &str,
+    typed: &str,
+    completion: &str,
+) -> Option<String> {
+    let context = text_before.strip_suffix(typed)?;
     let suggestion = suggestion_after(context, completion)?;
-    if is_bad_suggestion(&suggestion, context, &session.text_after) {
+    if is_bad_suggestion(&suggestion, context, text_after) {
         return Some(String::new());
     }
     let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
@@ -100,6 +106,20 @@ fn repeats_a_pattern(suggested: &[String]) -> bool {
 /// Returns `text` up to its last whitespace, without the word after it, which can still grow.
 pub(super) fn complete_words(text: &str) -> &str {
     text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
+}
+
+/// Returns the fix of the typo that `correction` gives, with `suggestion`, the ghost text after the
+/// fixed letters. The fixed word ends at the first whitespace of `suggestion`, before the
+/// [`CLOSING_SIGNS`] at its end.
+pub(super) fn word_fix(correction: &Correction, suggestion: &str) -> WordFix {
+    let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
+    let unclosed_end = suggestion[..word_end].trim_end_matches(CLOSING_SIGNS).len();
+    let (word_rest, rest) = suggestion.split_at(unclosed_end);
+    WordFix {
+        typo: correction.typed.trim_start().to_owned(),
+        word: format!("{}{word_rest}", correction.fixed.trim_start()),
+        rest: rest.to_owned(),
+    }
 }
 
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with

@@ -6,7 +6,7 @@ use crate::inference::{Completion, Correction, InferenceError};
 use crate::settings::TypoFix;
 
 use super::suggestion::{
-    CLOSING_SIGNS, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
+    complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed, word_fix,
 };
 use super::{Engine, Reaction, WordFix};
 
@@ -121,14 +121,7 @@ impl Engine {
         if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
             return None;
         }
-        let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
-        let unclosed_end = suggestion[..word_end].trim_end_matches(CLOSING_SIGNS).len();
-        let (word_rest, rest) = suggestion.split_at(unclosed_end);
-        Some(WordFix {
-            typo: correction.typed.trim_start().to_owned(),
-            word: format!("{}{word_rest}", correction.fixed.trim_start()),
-            rest: rest.to_owned(),
-        })
+        Some(word_fix(correction, &suggestion))
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
@@ -148,7 +141,7 @@ impl Engine {
         let (Some(session), Offer::Growing { typed, shown }) = (&self.session, &mut self.offer) else {
             return false;
         };
-        match suggestion_after_typed(session, typed, completion) {
+        match suggestion_after_typed(&session.text_before, &session.text_after, typed, completion) {
             Some(grown) if grown != *shown => {
                 *shown = grown;
                 true
