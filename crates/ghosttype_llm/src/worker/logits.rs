@@ -61,8 +61,7 @@ pub(super) fn choose_token(
 /// Returns the natural log of the probability that `logits` give to `token`.
 fn log_probability_of(logits: &[f32], token: LlamaToken) -> f32 {
     let highest = highest_of(logits);
-    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
-    logit_of(logits, token) - highest - total.ln()
+    logit_of(logits, token) - highest - exp_total(logits, highest).ln()
 }
 
 /// Returns the natural log of the probability that `logits` give to `token`, among the `agreeing`
@@ -104,15 +103,20 @@ pub(super) fn most_likely_tokens(logits: &[f32], count: usize) -> Vec<LlamaToken
 /// together: how likely the model finds the next typed letters.
 pub(super) fn typed_log_probability(logits: &[f32], agreeing: impl Iterator<Item = LlamaToken>) -> f32 {
     let highest = highest_of(logits);
-    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
     let typed = agreeing
         .map(|token| (logit_of(logits, token) - highest).exp())
         .sum::<f32>();
-    typed.ln() - total.ln()
+    typed.ln() - exp_total(logits, highest).ln()
 }
 
 fn highest_of(logits: &[f32]) -> f32 {
     logits.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+}
+
+/// Returns the sum of `exp(logit - highest)` for each of `logits`: the softmax total, scaled so
+/// that it does not overflow.
+fn exp_total(logits: &[f32], highest: f32) -> f32 {
+    logits.iter().map(|logit| (logit - highest).exp()).sum()
 }
 
 fn logit_of(logits: &[f32], token: LlamaToken) -> f32 {
@@ -180,9 +184,7 @@ pub(super) fn with_bias<'logits>(
 
 /// Returns the probability of the most likely token in `logits`.
 fn top_probability(logits: &[f32]) -> f32 {
-    let highest = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let total = logits.iter().map(|logit| (logit - highest).exp()).sum::<f32>();
-    total.recip()
+    exp_total(logits, highest_of(logits)).recip()
 }
 
 /// Returns the most likely token in `logits`, the token with the highest id of equally likely
