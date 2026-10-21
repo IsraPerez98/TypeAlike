@@ -4,15 +4,14 @@
 use ghosttype_core::controller::{Ghost, GhostPlacement, GhostView};
 use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use windows::Win32::Foundation::{POINT, RECT, SIZE};
-use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT, GetSysColor};
+use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT};
 use windows::core::{Result, w};
 
-use crate::badge::TooltipColors;
 use crate::caret::Caret;
 use crate::display::{monitor_dpi, to_pixels, work_area};
 use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
-use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
+use crate::system_theme::{Contrast, SystemTheme, ThemeMode, TooltipColors, system_color};
 use crate::window::{Window, WindowSpec};
 
 const UI_FONT_FACES: [&str; 2] = ["Segoe UI Variable Text", "Segoe UI"];
@@ -298,8 +297,7 @@ fn inline_colors(theme: SystemTheme, text_color: Option<TextColor>) -> FixColors
 fn card_text(theme: SystemTheme) -> CardText {
     match (theme.contrast, theme.mode) {
         (Contrast::High, _) => CardText {
-            // SAFETY: plain call.
-            typed: Rgb::from_colorref(unsafe { GetSysColor(COLOR_WINDOWTEXT) }),
+            typed: system_color(COLOR_WINDOWTEXT),
             ghost: ghost_text_color(),
         },
         (Contrast::Standard, ThemeMode::Light) => LIGHT_CARD_TEXT,
@@ -311,15 +309,11 @@ fn card_text(theme: SystemTheme) -> CardText {
 /// green, or the colors of high contrast.
 fn fix_colors(theme: SystemTheme, rest: Ink) -> FixColors {
     match (theme.contrast, theme.mode) {
-        (Contrast::High, _) => {
-            // SAFETY: plain calls.
-            let (text, link) = unsafe { (GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_HOTLIGHT)) };
-            FixColors {
-                strike: Rgb::from_colorref(text),
-                word: Rgb::from_colorref(link),
-                rest,
-            }
-        }
+        (Contrast::High, _) => FixColors {
+            strike: system_color(COLOR_WINDOWTEXT),
+            word: system_color(COLOR_HOTLIGHT),
+            rest,
+        },
         (Contrast::Standard, ThemeMode::Light) => FixColors {
             strike: LIGHT_STRIKE,
             word: LIGHT_WORD,
@@ -339,8 +333,7 @@ fn ghost_text_faces(host_face: Option<&str>) -> Vec<&str> {
 }
 
 fn ghost_text_color() -> Rgb {
-    // SAFETY: plain call.
-    Rgb::from_colorref(unsafe { GetSysColor(COLOR_GRAYTEXT) })
+    system_color(COLOR_GRAYTEXT)
 }
 
 #[cfg(test)]

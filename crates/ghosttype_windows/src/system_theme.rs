@@ -1,7 +1,8 @@
 //! The user's appearance settings for the parts that GhostType draws with Win32: light or dark
-//! mode and high contrast, and the menu theme that follows them.
+//! mode and high contrast, and the colors and the menu theme that follow them.
 
 use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor, SYS_COLOR_INDEX};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW};
 use windows::Win32::System::Registry::RRF_RT_REG_DWORD;
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
@@ -10,6 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCSTR, PCWSTR, w};
 
+use crate::pixels::Rgb;
 use crate::registry::read_value;
 
 const PERSONALIZE_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
@@ -20,6 +22,18 @@ const APP_MODE_DEFAULT: i32 = 0;
 const APP_MODE_FORCE_DARK: i32 = 2;
 const APP_MODE_FORCE_LIGHT: i32 = 3;
 const COLOR_SET_CHANGE: &str = "ImmersiveColorSet";
+/// The light and dark colors follow the Fluent tooltip: its fill, then the surface stroke and the
+/// secondary text, each blended over the fill.
+const LIGHT_COLORS: TooltipColors = TooltipColors {
+    fill: Rgb::gray(0xF9),
+    border: Rgb::gray(0xC4),
+    text: Rgb::gray(0x5F),
+};
+const DARK_COLORS: TooltipColors = TooltipColors {
+    fill: Rgb::gray(0x2C),
+    border: Rgb::gray(0x49),
+    text: Rgb::gray(0xCF),
+};
 
 /// Light or dark mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +70,39 @@ impl SystemTheme {
         };
         Self { mode, contrast }
     }
+}
+
+/// The colors of the badge and of the mirror below the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TooltipColors {
+    pub(crate) fill: Rgb,
+    pub(crate) border: Rgb,
+    pub(crate) text: Rgb,
+}
+
+impl TooltipColors {
+    pub(crate) fn for_theme(theme: SystemTheme) -> Self {
+        match (theme.contrast, theme.mode) {
+            (Contrast::High, _) => Self::high_contrast(),
+            (Contrast::Standard, ThemeMode::Light) => LIGHT_COLORS,
+            (Contrast::Standard, ThemeMode::Dark) => DARK_COLORS,
+        }
+    }
+
+    fn high_contrast() -> Self {
+        let (window, text) = (system_color(COLOR_WINDOW), system_color(COLOR_WINDOWTEXT));
+        Self {
+            fill: window,
+            border: text,
+            text,
+        }
+    }
+}
+
+/// Reads the color that the system gives to `index`, which high contrast sets.
+pub(crate) fn system_color(index: SYS_COLOR_INDEX) -> Rgb {
+    // SAFETY: the call takes no pointer, and it gives a color for each index of its type.
+    Rgb::from_colorref(unsafe { GetSysColor(index) })
 }
 
 type SetPreferredAppMode = unsafe extern "system" fn(i32) -> i32;

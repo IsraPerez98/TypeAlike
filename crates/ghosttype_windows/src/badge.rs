@@ -3,14 +3,13 @@
 
 use ghosttype_core::app::BadgeView;
 use windows::Win32::Foundation::{POINT, RECT};
-use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, COLOR_WINDOWTEXT, GetSysColor};
 use windows::core::{Result, w};
 
 use crate::caret::Caret;
 use crate::display::{monitor_dpi, to_pixels};
 use crate::gdi::glyph_bitmap;
-use crate::pixels::{Rgb, RoundedRectangle};
-use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
+use crate::pixels::RoundedRectangle;
+use crate::system_theme::{SystemTheme, TooltipColors};
 use crate::tray::status_glyph;
 use crate::window::{Window, WindowSpec};
 
@@ -19,19 +18,6 @@ const GLYPH_SIDE_DIPS: i32 = 14;
 const CORNER_RADIUS_DIPS: i32 = 4;
 const BORDER_WIDTH_DIPS: i32 = 1;
 const GAP_ABOVE_CARET_DIPS: i32 = 4;
-
-/// The light and dark colors follow the Fluent tooltip: its fill, then the surface stroke and the
-/// secondary text, each blended over the fill.
-const LIGHT_COLORS: TooltipColors = TooltipColors {
-    fill: Rgb::gray(0xF9),
-    border: Rgb::gray(0xC4),
-    text: Rgb::gray(0x5F),
-};
-const DARK_COLORS: TooltipColors = TooltipColors {
-    fill: Rgb::gray(0x2C),
-    border: Rgb::gray(0x49),
-    text: Rgb::gray(0xCF),
-};
 
 #[derive(Debug)]
 pub(crate) struct Badge {
@@ -116,34 +102,6 @@ impl BadgeLayout {
             glyph_side: to_pixels(GLYPH_SIDE_DIPS, dpi),
             corner_radius: to_pixels(CORNER_RADIUS_DIPS, dpi),
             border_width: to_pixels(BORDER_WIDTH_DIPS, dpi),
-        }
-    }
-}
-
-/// The colors of the badge and of the mirror below the caret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TooltipColors {
-    pub(crate) fill: Rgb,
-    pub(crate) border: Rgb,
-    pub(crate) text: Rgb,
-}
-
-impl TooltipColors {
-    pub(crate) fn for_theme(theme: SystemTheme) -> Self {
-        match (theme.contrast, theme.mode) {
-            (Contrast::High, _) => Self::high_contrast(),
-            (Contrast::Standard, ThemeMode::Light) => LIGHT_COLORS,
-            (Contrast::Standard, ThemeMode::Dark) => DARK_COLORS,
-        }
-    }
-
-    fn high_contrast() -> Self {
-        // SAFETY: plain calls.
-        let (window, text) = unsafe { (GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOWTEXT)) };
-        Self {
-            fill: Rgb::from_colorref(window),
-            border: Rgb::from_colorref(text),
-            text: Rgb::from_colorref(text),
         }
     }
 }
