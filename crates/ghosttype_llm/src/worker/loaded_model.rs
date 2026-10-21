@@ -18,16 +18,39 @@ use super::prompt_cache::{GenerateError, PromptCache};
 
 /// A loaded model, with the cache of its last prompt.
 pub(super) struct LoadedModel<'model> {
-    pub(super) llama: &'model LlamaBackend,
-    pub(super) model: &'model LlamaModel,
-    pub(super) cpu_threads: Option<CpuThreads>,
-    pub(super) cache: Option<PromptCache<'model>>,
-    /// The version of the last word bias, and the logits that it adds to each token.
-    pub(super) word_tokens: Option<(u64, Vec<LogitBias>)>,
-    pub(super) pieces: TokenPieces,
+    llama: &'model LlamaBackend,
+    model: &'model LlamaModel,
+    cpu_threads: Option<CpuThreads>,
+    cache: Option<PromptCache<'model>>,
+    /// The logits of the last word bias.
+    word_tokens: Option<WordTokens>,
+    pieces: TokenPieces,
 }
 
-impl LoadedModel<'_> {
+/// The logits that one version of the word bias adds to the first token of each word.
+struct WordTokens {
+    version: u64,
+    biases: Vec<LogitBias>,
+}
+
+impl<'model> LoadedModel<'model> {
+    /// Keeps `model` with an empty cache. A context on the CPU runs on `cpu_threads`, or on the
+    /// threads of llama.cpp.
+    pub(super) fn new(
+        llama: &'model LlamaBackend,
+        model: &'model LlamaModel,
+        cpu_threads: Option<CpuThreads>,
+    ) -> Self {
+        Self {
+            llama,
+            model,
+            cpu_threads,
+            cache: None,
+            word_tokens: None,
+            pieces: TokenPieces::new(model.tokens(false)),
+        }
+    }
+
     /// Completes `prompt`, and sends the text to `progress` while it grows. It stops early when
     /// `progress` tells that a newer completion waits.
     pub(super) fn complete(
@@ -76,14 +99,16 @@ impl LoadedModel<'_> {
         let is_known = self
             .word_tokens
             .as_ref()
-            .is_some_and(|(version, _)| *version == word_bias.version);
+            .is_some_and(|known| known.version == word_bias.version);
         if !is_known {
-            let tokens = first_word_tokens(&self.model.vocab(), &word_bias.words);
-            self.word_tokens = Some((word_bias.version, tokens));
+            self.word_tokens = Some(WordTokens {
+                version: word_bias.version,
+                biases: first_word_tokens(&self.model.vocab(), &word_bias.words),
+            });
         }
         self.word_tokens
             .as_ref()
-            .map(|(_, tokens)| tokens.clone())
+            .map(|known| known.biases.clone())
             .unwrap_or_default()
     }
 

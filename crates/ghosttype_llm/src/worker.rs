@@ -26,7 +26,6 @@ use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_t
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 use crate::worker::model_params::{CpuThreads, model_params, threads_for};
-use crate::worker::pieces::TokenPieces;
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -140,14 +139,7 @@ fn serve(
             "running the model on CPU threads"
         );
     }
-    let mut loaded = LoadedModel {
-        llama,
-        model,
-        cpu_threads,
-        cache: None,
-        word_tokens: None,
-        pieces: TokenPieces::new(model.tokens(false)),
-    };
+    let mut loaded = LoadedModel::new(llama, model, cpu_threads);
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete {
             prompt,
