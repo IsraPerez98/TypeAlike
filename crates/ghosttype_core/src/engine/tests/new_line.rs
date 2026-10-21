@@ -2,26 +2,20 @@
 
 use std::time::Duration;
 
-use crate::desktop::{CopiedText, MAX_CHARS_BEFORE_CARET};
+use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
 use crate::key::Key;
 use crate::settings::{ClipboardAccess, Settings};
 
 use super::support::{
-    FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, field_of, press, request,
+    FakeDesktop, MAIL_APP, completion, engine_showing, engine_waiting_for, engine_with, press, request,
     request_with,
 };
 
 /// A field with `before_caret` and a recent copy, which a new session puts into its preface.
 fn field_with_copy(before_caret: &str) -> FakeDesktop {
-    FakeDesktop {
-        copied: Some(CopiedText {
-            text: "Sara Novak".to_owned(),
-            age: Some(Duration::from_secs(1)),
-        }),
-        ..FakeDesktop::with_field_text(before_caret)
-    }
+    FakeDesktop::with_field_text(before_caret).with_copy("Sara Novak", Some(Duration::from_secs(1)))
 }
 
 fn engine_after_enter(typed: &str) -> Engine {
@@ -224,7 +218,9 @@ fn enter_ends_a_session_whose_field_the_platform_cannot_read() {
 #[test]
 fn enter_ends_a_session_in_a_subject_field() {
     let mut engine = Engine::default();
-    let desktop = field_of(Some("com.apple.mail"), Some("Subject"), "Lunch");
+    let desktop = FakeDesktop::with_field_text("Lunch")
+        .in_app(MAIL_APP)
+        .with_field_name("Subject");
     engine.on_key(Key::Char('?'), &desktop);
 
     engine.on_key(Key::Enter, &desktop);

@@ -1,6 +1,5 @@
 //! Tests the word bias, the phrases, the next words and the scope of each app.
 
-use crate::desktop::FieldText;
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
@@ -8,7 +7,7 @@ use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 
 use super::support::{
-    FakeDesktop, GREETING, completion, engine_with, field_of, finish_typing, history_settings, mail_app,
+    FakeDesktop, GREETING, MAIL_APP, completion, engine_with, finish_typing, history_settings, mail_app,
     mail_entry, mail_field, show, type_text,
 };
 
@@ -87,7 +86,7 @@ fn new_history_gives_a_new_version() {
 
     finish_typing(
         &mut engine,
-        &field_of(Some("com.apple.mail"), None, GREETING),
+        &FakeDesktop::with_field_text(GREETING).in_app(MAIL_APP),
         true,
     );
 
@@ -102,12 +101,7 @@ fn engine_with_phrases(settings: &Settings) -> Engine {
 }
 
 fn mail_field_around(before_caret: &str, after_caret: &str) -> FakeDesktop {
-    let mut desktop = field_of(Some("com.apple.mail"), None, before_caret);
-    desktop.surroundings.field_text = Some(FieldText {
-        before_caret: before_caret.to_owned(),
-        after_caret: after_caret.to_owned(),
-    });
-    desktop
+    FakeDesktop::with_text_around(before_caret, after_caret).in_app(MAIL_APP)
 }
 
 #[test]
@@ -236,7 +230,10 @@ fn only_apps_with_all_apps_give_examples_to_each_other() {
     let shared = pool_cases().map(|scopes| {
         let mut engine = engine_with(&pool_settings(scopes));
         engine.use_history(vec![chat_entry("See you at the station at six")]);
-        let reaction = engine.on_key(Key::Char('h'), &field_of(Some(OTHER_CHAT_APP), None, ""));
+        let reaction = engine.on_key(
+            Key::Char('h'),
+            &FakeDesktop::with_field_text("").in_app(OTHER_CHAT_APP),
+        );
         matches!(reaction, Reaction::Request(InferenceRequest::Complete { prompt, .. })
             if prompt.0.contains("See you at the station"))
     });
@@ -249,7 +246,7 @@ fn only_apps_with_all_apps_give_phrases_to_each_other() {
     let shown = pool_cases().map(|scopes| {
         let mut engine = engine_with(&pool_settings(scopes));
         engine.use_history(vec![chat_entry("Let me know if it works."); 3]);
-        let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
+        let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
         engine.on_key(Key::Char(' '), &desktop) == show("if")
     });
 
@@ -264,7 +261,7 @@ fn request_in_other_chat_app(scopes: (HistoryScope, HistoryScope)) -> Reaction {
         chat_entry("Let me know if it works. Reckon reckon reckon."),
         chat_entry("Let me know when you can."),
     ]);
-    let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
+    let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
     engine.on_key(Key::Char(' '), &desktop)
 }
 
@@ -294,7 +291,7 @@ fn app_with_only_this_app_uses_its_own_texts() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
-        &field_of(Some(CHAT_APP), None, "Please let me know"),
+        &FakeDesktop::with_field_text("Please let me know").in_app(CHAT_APP),
     );
 
     assert_eq!(reaction, show("if"));
@@ -308,7 +305,7 @@ fn new_scope_of_an_app_builds_the_tables_again() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
-        &field_of(Some(OTHER_CHAT_APP), None, "Please let me know"),
+        &FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP),
     );
 
     assert!(matches!(reaction, Reaction::Request(_)), "{reaction:?}");

@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use crate::desktop::{CopiedText, Desktop, Field, FieldLabels, FieldText, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{
@@ -42,28 +42,22 @@ impl FakeDesktop {
         }
     }
 
-    pub(super) fn in_field(app_id: &str, field_name: &str) -> Self {
-        Self {
-            surroundings: Surroundings {
-                app_id: Some(app_id.to_owned()),
-                field_labels: FieldLabels {
-                    name: Some(field_name.to_owned()),
-                    ..FieldLabels::default()
-                },
-                ..Surroundings::default()
-            },
-            ..Self::default()
-        }
+    pub(super) fn in_app(mut self, app_id: &str) -> Self {
+        self.surroundings.app_id = Some(app_id.to_owned());
+        self
     }
 
-    pub(super) fn with_copy(text: &str, age: Option<Duration>) -> Self {
-        Self {
-            copied: Some(CopiedText {
-                text: text.to_owned(),
-                age,
-            }),
-            ..Self::default()
-        }
+    pub(super) fn with_field_name(mut self, field_name: &str) -> Self {
+        self.surroundings.field_labels.name = Some(field_name.to_owned());
+        self
+    }
+
+    pub(super) fn with_copy(mut self, text: &str, age: Option<Duration>) -> Self {
+        self.copied = Some(CopiedText {
+            text: text.to_owned(),
+            age,
+        });
+        self
     }
 }
 
@@ -206,53 +200,32 @@ pub(super) fn history_settings(history: HistoryAccess, apps: Vec<HistoryApp>) ->
     }
 }
 
+pub(super) const MAIL_APP: &str = "com.apple.mail";
+
 pub(super) fn mail_entry(text: &str) -> HistoryEntry {
     HistoryEntry {
         text: text.to_owned(),
-        app_id: "com.apple.mail".to_owned(),
+        app_id: MAIL_APP.to_owned(),
         domain: None,
     }
 }
 
 pub(super) fn mail_app(scope: HistoryScope) -> HistoryApp {
     HistoryApp {
-        app_id: "com.apple.mail".to_owned(),
+        app_id: MAIL_APP.to_owned(),
         app_name: "Mail".to_owned(),
         app_path: None,
         scope,
     }
 }
 
+/// A field of the mail app that the platform cannot read.
 pub(super) fn mail_field() -> FakeDesktop {
-    FakeDesktop {
-        surroundings: Surroundings {
-            app_id: Some("com.apple.mail".to_owned()),
-            ..Surroundings::default()
-        },
-        ..FakeDesktop::default()
-    }
+    FakeDesktop::default().in_app(MAIL_APP)
 }
 
 pub(super) const GREETING: &str = "Hi Ana,\n\n";
 pub(super) const TYPED_TEXT: &str = "The report is ready, and the numbers look goo";
-
-pub(super) fn field_of(app_id: Option<&str>, field_name: Option<&str>, before_caret: &str) -> FakeDesktop {
-    FakeDesktop {
-        surroundings: Surroundings {
-            app_id: app_id.map(str::to_owned),
-            field_labels: FieldLabels {
-                name: field_name.map(str::to_owned),
-                ..FieldLabels::default()
-            },
-            field_text: Some(FieldText {
-                before_caret: before_caret.to_owned(),
-                after_caret: String::new(),
-            }),
-            ..Surroundings::default()
-        },
-        ..FakeDesktop::default()
-    }
-}
 
 /// Types `typed` and the key `d` in `desktop`, accepts a suggestion when `accepts` and ends
 /// the session. Returns the history to save.

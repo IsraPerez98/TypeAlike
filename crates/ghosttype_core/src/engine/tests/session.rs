@@ -11,8 +11,8 @@ use crate::prompt;
 use crate::settings::{ClipboardAccess, Settings, WriterName, WriterNotes};
 
 use super::support::{
-    ExpectedRequest, FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press,
-    request, request_with,
+    ExpectedRequest, FakeDesktop, MAIL_APP, completion, engine_showing, engine_waiting_for, engine_with,
+    press, request, request_with,
 };
 
 #[test]
@@ -211,7 +211,7 @@ fn recent_copy_comes_before_the_text() {
         clipboard_access: ClipboardAccess::Allowed,
         ..Settings::default()
     });
-    let desktop = FakeDesktop::with_copy(
+    let desktop = FakeDesktop::default().with_copy(
         "1Z999",
         Some(MAX_CLIPBOARD_AGE.saturating_sub(Duration::from_secs(1))),
     );
@@ -229,8 +229,9 @@ fn old_copy_or_copy_from_before_the_start_stays_out() {
     };
     let ages = [Some(MAX_CLIPBOARD_AGE), None];
 
-    let reactions =
-        ages.map(|age| engine_with(&settings).on_key(Key::Char('h'), &FakeDesktop::with_copy("1Z999", age)));
+    let reactions = ages.map(|age| {
+        engine_with(&settings).on_key(Key::Char('h'), &FakeDesktop::default().with_copy("1Z999", age))
+    });
 
     assert_eq!(reactions, ages.map(|_| request("h")));
 }
@@ -240,7 +241,7 @@ fn denied_clipboard_is_never_read() {
     let mut engine = engine_with(&Settings {
         ..Settings::default()
     });
-    let desktop = FakeDesktop::with_copy("1Z999", Some(Duration::ZERO));
+    let desktop = FakeDesktop::default().with_copy("1Z999", Some(Duration::ZERO));
 
     let reaction = engine.on_key(Key::Char('h'), &desktop);
 
@@ -251,7 +252,10 @@ fn denied_clipboard_is_never_read() {
 fn address_field_of_an_email_gets_no_request() {
     let mut engine = Engine::default();
 
-    let reaction = engine.on_key(Key::Char('a'), &FakeDesktop::in_field("com.apple.mail", "To:"));
+    let reaction = engine.on_key(
+        Key::Char('a'),
+        &FakeDesktop::default().in_app(MAIL_APP).with_field_name("To:"),
+    );
 
     assert_eq!(reaction, Reaction::Hide);
 }
@@ -260,7 +264,7 @@ fn address_field_of_an_email_gets_no_request() {
 fn subject_field_of_an_email_is_not_prepared() {
     let mut engine = Engine::default();
 
-    let request = engine.prepare(&FakeDesktop::in_field("com.apple.mail", "Subject"));
+    let request = engine.prepare(&FakeDesktop::default().in_app(MAIL_APP).with_field_name("Subject"));
 
     assert_eq!(request, None);
 }
@@ -271,7 +275,7 @@ fn body_of_an_email_gets_a_request() {
 
     let reaction = engine.on_key(
         Key::Char('a'),
-        &FakeDesktop::in_field("com.apple.mail", "Message"),
+        &FakeDesktop::default().in_app(MAIL_APP).with_field_name("Message"),
     );
 
     assert!(matches!(reaction, Reaction::Request(_)), "{reaction:?}");
@@ -292,11 +296,11 @@ fn session_knows_its_app() {
 
     engine.on_key(
         Key::Char('S'),
-        &FakeDesktop::in_field("com.apple.mail", "Message"),
+        &FakeDesktop::default().in_app(MAIL_APP).with_field_name("Message"),
     );
 
     assert_eq!(
         engine.session_app().map(|app| app.app_id.as_str()),
-        Some("com.apple.mail")
+        Some(MAIL_APP)
     );
 }

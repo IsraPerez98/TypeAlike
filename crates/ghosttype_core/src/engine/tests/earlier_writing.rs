@@ -6,7 +6,7 @@ use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
 
 use super::support::{
-    FakeDesktop, GREETING, TYPED_TEXT, engine_with, field_of, finish_typing, finish_typing_text,
+    FakeDesktop, GREETING, MAIL_APP, TYPED_TEXT, engine_with, finish_typing, finish_typing_text,
     history_settings, mail_app, mail_entry, mail_field, request_with, type_text,
 };
 
@@ -65,11 +65,7 @@ fn kept_settings(kept_texts: KeptTexts) -> Settings {
 fn finished_text_with_an_accepted_suggestion_is_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::AcceptedOnly));
 
-    let saved = finish_typing(
-        &mut engine,
-        &field_of(Some("com.apple.mail"), None, GREETING),
-        true,
-    );
+    let saved = finish_typing(&mut engine, &mail_desktop(GREETING), true);
 
     assert_eq!(saved, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d."))]));
 }
@@ -78,13 +74,8 @@ fn finished_text_with_an_accepted_suggestion_is_kept() {
 fn finished_text_without_an_accepted_suggestion_is_kept_only_when_all_texts_are_kept() {
     let settings = [KeptTexts::AcceptedOnly, KeptTexts::All].map(kept_settings);
 
-    let saved = settings.map(|settings| {
-        finish_typing(
-            &mut engine_with(&settings),
-            &field_of(Some("com.apple.mail"), None, GREETING),
-            false,
-        )
-    });
+    let saved =
+        settings.map(|settings| finish_typing(&mut engine_with(&settings), &mail_desktop(GREETING), false));
 
     assert_eq!(saved, [None, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d"))])]);
 }
@@ -94,20 +85,23 @@ fn finished_text_is_not_kept_where_the_rules_forbid_it() {
     let cases = [
         (
             history_settings(HistoryAccess::Off, Vec::new()),
-            field_of(Some("com.apple.mail"), None, GREETING),
+            mail_desktop(GREETING),
         ),
         (
             history_settings(HistoryAccess::On, vec![mail_app(HistoryScope::Off)]),
-            field_of(Some("com.apple.mail"), None, GREETING),
+            mail_desktop(GREETING),
         ),
         (
             kept_settings(KeptTexts::All),
-            field_of(Some("com.apple.Terminal"), None, GREETING),
+            FakeDesktop::with_field_text(GREETING).in_app("com.apple.Terminal"),
         ),
-        (kept_settings(KeptTexts::All), field_of(None, None, GREETING)),
         (
             kept_settings(KeptTexts::All),
-            field_of(Some("com.apple.mail"), Some("Subject"), GREETING),
+            FakeDesktop::with_field_text(GREETING),
+        ),
+        (
+            kept_settings(KeptTexts::All),
+            mail_desktop(GREETING).with_field_name("Subject"),
         ),
     ];
 
@@ -121,7 +115,7 @@ fn long_field() -> String {
 }
 
 fn mail_desktop(before_caret: &str) -> FakeDesktop {
-    field_of(Some("com.apple.mail"), None, before_caret)
+    FakeDesktop::with_field_text(before_caret).in_app(MAIL_APP)
 }
 
 #[test]
@@ -223,11 +217,7 @@ fn session_with_two_lines_is_kept_in_one_entry() {
 #[test]
 fn history_to_save_comes_once_for_each_change() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
-    finish_typing(
-        &mut engine,
-        &field_of(Some("com.apple.mail"), None, GREETING),
-        false,
-    );
+    finish_typing(&mut engine, &mail_desktop(GREETING), false);
 
     let saved_again = engine.history_to_save().is_some();
 
@@ -245,7 +235,7 @@ fn forgetting_an_app_drops_its_texts() {
         },
     ]);
 
-    engine.forget_history_of("com.apple.mail");
+    engine.forget_history_of(MAIL_APP);
 
     assert_eq!(
         engine.history_to_save().map(<[HistoryEntry]>::to_vec),
