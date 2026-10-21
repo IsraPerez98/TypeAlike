@@ -3,7 +3,9 @@
 
 use std::ffi::c_void;
 
-use windows::Win32::Graphics::Gdi::{BITMAP, DIB_RGB_COLORS, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ};
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAP, DIB_RGB_COLORS, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ,
+};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::{GetIconInfo, HICON, ICONINFO};
 use windows::core::{HSTRING, Owned};
@@ -17,6 +19,12 @@ const ICON_DIRECTORY_BYTES: u32 = 6;
 const ICON_ENTRY_BYTES: u32 = 16;
 const BITMAP_HEADER_BYTES: u32 = 40;
 const ICON_TYPE: u16 = 1;
+/// An icon image has one color plane.
+const COLOR_PLANES: u16 = 1;
+/// Each row of the AND mask, one bit for each pixel, fills whole groups of 32 bits.
+const MASK_ROW_ALIGNMENT_BITS: u32 = 32;
+/// The resolution and the palette fields of the bitmap header, which an icon leaves at zero.
+const UNUSED_RESOLUTION_AND_PALETTE_BYTES: usize = 16;
 /// The width or the height of 256 pixels, which the one byte of an icon entry gives as zero.
 const LARGEST_SIDE: u32 = 256;
 
@@ -41,12 +49,12 @@ pub(super) fn app_icon_file(program_path: &str) -> Option<Vec<u8>> {
     }
     let (width, height) = bitmap_size(*color)?;
     let mut pixels = top_down_pixels(*color, width, height)?;
-    if pixels
+    let has_alpha = pixels
         .as_chunks::<BYTES_PER_PIXEL>()
         .0
         .iter()
-        .all(|pixel| pixel[ALPHA] == 0)
-    {
+        .any(|pixel| pixel[ALPHA] != 0);
+    if !has_alpha {
         let mask_pixels = top_down_pixels(*mask, width, height)?;
         take_alpha_from_mask(&mut pixels, &mask_pixels);
     }
@@ -116,7 +124,9 @@ fn take_alpha_from_mask(pixels: &mut [u8], mask: &[u8]) {
 /// icon file with one image. The alpha channel gives the shape, so the AND mask is empty.
 fn icon_file(width: u32, height: u32, top_down_bgra: &[u8]) -> Vec<u8> {
     let row_bytes = usize::try_from(width).unwrap_or(0) * BYTES_PER_PIXEL;
-    let mask_row_bytes = usize::try_from(width.div_ceil(32) * 4).unwrap_or(0);
+    let mask_row_bytes =
+        usize::try_from(width.div_ceil(MASK_ROW_ALIGNMENT_BITS) * (MASK_ROW_ALIGNMENT_BITS / u8::BITS))
+            .unwrap_or(0);
     let mask_bytes = mask_row_bytes * usize::try_from(height).unwrap_or(0);
     let header_bytes = usize::try_from(BITMAP_HEADER_BYTES).expect("40 fits in usize");
     let directory_bytes = usize::try_from(ICON_DIRECTORY_BYTES + ICON_ENTRY_BYTES).expect("22 fits in usize");
@@ -127,22 +137,22 @@ fn icon_file(width: u32, height: u32, top_down_bgra: &[u8]) -> Vec<u8> {
         file.extend_from_slice(&value.to_le_bytes());
     }
     file.extend_from_slice(&[entry_side(width), entry_side(height), 0, 0]);
-    file.extend_from_slice(&1_u16.to_le_bytes());
+    file.extend_from_slice(&COLOR_PLANES.to_le_bytes());
     file.extend_from_slice(&BITS_PER_PIXEL.to_le_bytes());
     file.extend_from_slice(&image_size.to_le_bytes());
     file.extend_from_slice(&(ICON_DIRECTORY_BYTES + ICON_ENTRY_BYTES).to_le_bytes());
     file.extend_from_slice(&BITMAP_HEADER_BYTES.to_le_bytes());
     file.extend_from_slice(&i32::try_from(width).unwrap_or(0).to_le_bytes());
     file.extend_from_slice(&i32::try_from(height.saturating_mul(2)).unwrap_or(0).to_le_bytes());
-    file.extend_from_slice(&1_u16.to_le_bytes());
+    file.extend_from_slice(&COLOR_PLANES.to_le_bytes());
     file.extend_from_slice(&BITS_PER_PIXEL.to_le_bytes());
-    file.extend_from_slice(&[0; 4]);
+    file.extend_from_slice(&BI_RGB.0.to_le_bytes());
     file.extend_from_slice(
         &u32::try_from(top_down_bgra.len() + mask_bytes)
             .unwrap_or(0)
             .to_le_bytes(),
     );
-    file.extend_from_slice(&[0; 16]);
+    file.extend_from_slice(&[0; UNUSED_RESOLUTION_AND_PALETTE_BYTES]);
     for row in top_down_bgra.chunks_exact(row_bytes.max(1)).rev() {
         file.extend_from_slice(row);
     }
