@@ -266,6 +266,13 @@ impl Harness {
         self.controller.on_key_down(Some(key), &mut self.shell)
     }
 
+    /// Presses the key of each character of `text`.
+    pub(super) fn type_text(&mut self, text: &str) {
+        for character in text.chars() {
+            self.press(Key::Char(character));
+        }
+    }
+
     pub(super) fn settle_caret(&mut self) {
         self.controller.on_timer(Timer::CaretSettle, &mut self.shell);
     }
@@ -336,6 +343,11 @@ impl Harness {
         self.controller.on_timer(Timer::InputSettle, &mut self.shell);
     }
 
+    pub(super) fn toggle_pause(&mut self) {
+        self.controller
+            .on_tray_command(TrayCommand::TogglePause, &mut self.shell);
+    }
+
     pub(super) fn press_button(&mut self, id: &'static str) {
         let input = SettingsInput::Pressed(ControlId::new(id));
         self.controller.on_settings_input(&input, &mut self.shell);
@@ -378,7 +390,7 @@ impl Harness {
 
     /// Settles the input, and returns the read of the screen that the controller started.
     pub(super) fn settle_input_to_read_screen(&mut self) -> ScreenReadId {
-        self.controller.on_timer(Timer::InputSettle, &mut self.shell);
+        self.settle_input();
         match self.take_calls().pop() {
             Some(Call::ReadScreen(read, ScreenSource::Accessibility)) => read,
             other => panic!("the controller did not read the screen: {other:?}"),

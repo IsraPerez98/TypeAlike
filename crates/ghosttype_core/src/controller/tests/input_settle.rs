@@ -29,9 +29,7 @@ fn settled_input_prepares_prompt_when_preparing_on_focus() {
     };
     let mut harness = Harness::new(settings);
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert!(matches!(
         harness.last_request(),
@@ -105,9 +103,7 @@ fn settled_input_after_focus_change_hides_ghost_and_badge() {
     let mut harness = Harness::new(Settings::default());
     harness.shell.focus_change = FocusChange::Changed;
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert_eq!(harness.take_calls(), hidden_ghost_and_badge());
 }

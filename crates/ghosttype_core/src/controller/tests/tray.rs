@@ -13,9 +13,7 @@ fn pause_hides_ghost() {
     let mut harness = Harness::new(Settings::default());
     harness.show("est");
 
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     assert!(harness.take_calls().contains(&Call::HideGhost));
 }
@@ -24,9 +22,7 @@ fn pause_hides_ghost() {
 fn pause_unloads_suggestion_model() {
     let mut harness = Harness::new(suggestion_settings());
 
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     assert_eq!(harness.last_request(), Some(InferenceRequest::Unload));
 }
@@ -35,9 +31,7 @@ fn pause_unloads_suggestion_model() {
 fn pause_renders_paused_tray() {
     let mut harness = Harness::new(Settings::default());
 
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     let paused_tray = harness.controller.tray_view();
     assert!(harness.take_calls().contains(&Call::RenderTray(paused_tray)));
@@ -48,9 +42,7 @@ fn pause_shows_paused_badge_at_caret() {
     let mut harness = Harness::new(Settings::default());
     harness.press(Key::Char('B'));
 
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     assert!(
         harness
@@ -62,13 +54,9 @@ fn pause_shows_paused_badge_at_caret() {
 #[test]
 fn resume_loads_suggestion_model() {
     let mut harness = Harness::new(suggestion_settings());
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     assert_eq!(
         harness.last_request(),

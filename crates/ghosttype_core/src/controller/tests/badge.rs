@@ -1,7 +1,7 @@
 //! Tests of the menu of the badge at the caret.
 
 use super::harness::{Call, Harness, history_on, mail_entry, suggestion_settings};
-use crate::app::{BadgeCommand, Status, TrayCommand};
+use crate::app::{BadgeCommand, Status};
 use crate::inference::InferenceRequest;
 use crate::key::Key;
 use crate::settings::{HistoryScope, Settings};
@@ -56,9 +56,7 @@ fn badge_menu_offers_the_switches_of_the_app_where_the_user_types() {
 fn badge_menu_while_paused_offers_the_switches_of_the_app_where_the_user_types() {
     let mut harness = Harness::new(history_on());
     harness.focus_text_field_of("com.apple.mail", "Mail");
-    harness
-        .controller
-        .on_tray_command(TrayCommand::TogglePause, &mut harness.shell);
+    harness.toggle_pause();
 
     harness.press(Key::Char('H'));
 

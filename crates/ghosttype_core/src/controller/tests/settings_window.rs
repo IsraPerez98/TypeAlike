@@ -1,7 +1,7 @@
 //! Tests of the settings window and its panes.
 
 use super::harness::{Call, Harness, loaded, model_file, suggestion_settings};
-use crate::controller::{Delivery, Timer};
+use crate::controller::Delivery;
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
@@ -46,9 +46,7 @@ fn general_change_applies_to_suggestions() {
     let mut harness = Harness::new(Settings::default());
     harness.toggle(PREPARATION, true);
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert!(matches!(
         harness.last_request(),
@@ -215,9 +213,7 @@ fn general_setting_keeps_the_screen_text_apps() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
     harness.press(Key::Char('H'));
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     harness.toggle(CLIPBOARD, true);
 

@@ -1,7 +1,7 @@
 //! Tests of the screen reads that the controller starts.
 
 use super::harness::{Call, Harness};
-use crate::controller::{Delivery, Timer};
+use crate::controller::Delivery;
 use crate::desktop::{OcrAvailability, ScreenRead, ScreenSource, ScreenText};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextSettings, Settings};
@@ -13,9 +13,7 @@ fn settled_input_in_a_text_field_reads_the_screen() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert!(matches!(harness.take_calls()[..], [Call::ReadScreen(..)]));
 }
@@ -97,9 +95,7 @@ fn app_switched_off_reads_no_screen() {
     harness.controller.on_settings_input(&input, &mut harness.shell);
     harness.take_calls();
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert_eq!(harness.take_calls(), Vec::new());
 }

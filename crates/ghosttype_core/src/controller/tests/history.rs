@@ -1,7 +1,6 @@
 //! Tests of the earlier writing that the controller loads and saves.
 
 use super::harness::{Harness, history_on, mail_entry};
-use crate::controller::Timer;
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
 use crate::key::Key;
@@ -27,9 +26,7 @@ fn typing_in_a_new_app_adds_the_app_to_both_app_lists_and_keeps_it() {
     harness.press(Key::Char('H'));
     harness.press(Key::Char('i'));
 
-    harness
-        .controller
-        .on_timer(Timer::InputSettle, &mut harness.shell);
+    harness.settle_input();
 
     assert_eq!(
         harness.saved(),
@@ -82,9 +79,7 @@ fn finished_typing_is_saved_when_the_input_settles() {
         before_caret: "Hi Ana, ".to_owned(),
         after_caret: String::new(),
     });
-    for character in "the report is ready and the numbers look good".chars() {
-        harness.press(Key::Char(character));
-    }
+    harness.type_text("the report is ready and the numbers look good");
     harness.press(Key::Other);
     let saves_before_settle = harness.history_saves().len();
 
