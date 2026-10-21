@@ -1,0 +1,88 @@
+//! The seam to the platform: what the controller reads from it and asks it to do.
+
+use std::time::Duration;
+
+use super::GhostView;
+use crate::app::{BadgeView, TrayView};
+use crate::desktop::{Desktop, ScreenReadId, ScreenSource};
+use crate::settings::ClipboardAccess;
+use crate::settings_window::view::SettingsView;
+
+/// A timer that the shell runs for the controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Timer {
+    /// Waits until the host app moved its caret, so that the ghost text and the badge show at it.
+    CaretSettle,
+    /// Waits for [`INPUT_SETTLE_DELAY`](crate::app::INPUT_SETTLE_DELAY) without keys and clicks.
+    InputSettle,
+}
+
+/// Whether another window or app has the focus since the shell looked last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusChange {
+    /// The same window or app has the focus.
+    Unchanged,
+    /// Another window or app has the focus.
+    Changed,
+}
+
+/// The platform as the controller drives it: the desktop that it reads, and what it shows and
+/// does.
+pub trait Shell: Desktop {
+    /// Looks at the focused window again, and tells whether another window or app has the focus
+    /// since the last look.
+    fn refresh_focus(&mut self) -> FocusChange;
+
+    /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
+    /// at the caret, from one look at the caret. Hides the ghost text for no `ghost` and the badge
+    /// for no `badge`. When the caret is not known, it can show the badge at the start of the
+    /// focused field and the mirror of `ghost` next to the field, else it hides them.
+    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
+
+    /// Hides the ghost text at once.
+    fn hide_ghost(&mut self);
+
+    /// Hides the badge at once.
+    fn hide_badge(&mut self);
+
+    /// Types `text` at the caret of the focused app, after the event that the controller handles
+    /// now.
+    fn type_text(&mut self, text: String);
+
+    /// Deletes the `deleted` characters before the caret of the focused app and types `text`
+    /// there, after the event that the controller handles now.
+    fn replace_before_caret(&mut self, deleted: usize, text: String);
+
+    /// Starts `timer`, or starts it again when it runs. After `delay`, the shell gives the timer
+    /// one time to [`Controller::on_timer`](super::Controller::on_timer).
+    fn start_timer(&mut self, timer: Timer, delay: Duration);
+
+    /// Stops `timer` when it runs.
+    fn stop_timer(&mut self, timer: Timer);
+
+    /// Shows `view` in the tray icon and its menu.
+    fn render_tray(&mut self, view: &TrayView);
+
+    /// Shows `view` in the settings window, when the window exists.
+    fn render_settings(&mut self, view: &SettingsView);
+
+    /// Shows the settings window with `view` and brings it to the front. Makes the window the
+    /// first time.
+    fn show_settings(&mut self, view: &SettingsView);
+
+    /// Keeps the text that the user copies while `access` allows it, and forgets it when not.
+    fn use_clipboard_access(&mut self, access: ClipboardAccess);
+
+    /// Reads the text near the focused field on the screen, off the thread of the keys, without
+    /// password fields. Gives the answer with the id `read` to
+    /// [`Controller::on_delivery`](super::Controller::on_delivery) as a
+    /// [`Delivery::Screen`](super::Delivery::Screen).
+    fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource);
+
+    /// Asks the user for the permission that the OCR needs: shows the prompt of the system, or the
+    /// place in the system settings where the user gives it.
+    fn ask_for_ocr_permission(&mut self);
+
+    /// Ends GhostType after the event that the controller handles now.
+    fn quit(&mut self);
+}

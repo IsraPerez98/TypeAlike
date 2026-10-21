@@ -2,23 +2,29 @@
 //! settings window and the answers of the services. The platform reports its events to the
 //! [`Controller`] and does what the controller asks through the [`Shell`].
 
-use std::sync::Arc;
+mod ghost_view;
+mod services;
+mod shell;
+
+pub use ghost_view::{Ghost, GhostPlacement, GhostView};
+pub use services::{BackendChoice, Delivery, DeliverySink, Services};
+pub use shell::{FocusChange, Shell, Timer};
+
 use std::time::Duration;
 use std::{fmt, mem};
 
+use services::delivering_sink;
+
 use crate::app::{
-    App, BadgeCommand, BadgeMenu, BadgeView, Field, INPUT_SETTLE_DELAY, SettledWork, TrayCommand,
-    TrayOutcome, TrayView,
+    App, BadgeCommand, BadgeMenu, Field, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
 };
-use crate::desktop::{
-    CopiedText, Desktop, OcrAvailability, OcrLevels, ScreenRead, ScreenReadId, ScreenSource, Surroundings,
-};
-use crate::engine::{AfterAccept, Reaction, WordFix};
+use crate::desktop::{CopiedText, Desktop, OcrAvailability, OcrLevels, Surroundings};
+use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
-use crate::hub::{HubEvent, HubEventSink, ModelHub};
-use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use crate::hub::{HubEventSink, ModelHub};
+use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
-use crate::settings::{Autostart, ClipboardAccess, HistoryAccess, HistoryApp, Settings, SettingsStore};
+use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore};
 use crate::settings_window::general::{GeneralAction, GeneralPane};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
 use crate::settings_window::personalization::{
@@ -36,35 +42,6 @@ const CARET_SETTLE_DELAY: Duration = Duration::from_millis(40);
 const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 /// The most looks at the caret after a key, before the ghost text shows at the caret where it is.
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
-/// The most characters of the word before the caret that the mirror shows.
-const MIRROR_WORD_CHARS: usize = 24;
-
-/// A timer that the shell runs for the controller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Timer {
-    /// Waits until the host app moved its caret, so that the ghost text and the badge show at it.
-    CaretSettle,
-    /// Waits for [`INPUT_SETTLE_DELAY`] without keys and clicks.
-    InputSettle,
-}
-
-/// Whether another window or app has the focus since the shell looked last.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FocusChange {
-    /// The same window or app has the focus.
-    Unchanged,
-    /// Another window or app has the focus.
-    Changed,
-}
-
-/// Who picks the backend that runs each model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendChoice {
-    /// The user, in the General pane.
-    User,
-    /// The platform, which runs each model on this backend.
-    Platform(Backend),
-}
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,185 +51,6 @@ enum PaneAction {
     Personalization(PersonalizationAction),
     Models(ModelsAction),
     Playground(PlaygroundAction),
-}
-
-/// The answer of a service. The platform gives it back to the controller on the thread that runs
-/// the controller.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Delivery {
-    /// For the Models pane.
-    Hub(HubEvent),
-    /// For the Playground pane, which also loads the suggestion model.
-    Playground(InferenceEvent),
-    /// For the ghost text at the caret.
-    Suggestion(InferenceEvent),
-    /// The answer to a read of the screen that [`Shell::read_screen`] started.
-    Screen(ScreenRead),
-}
-
-/// Takes a delivery from any thread to the thread that runs the controller, and gives it to
-/// [`Controller::on_delivery`] there.
-pub type DeliverySink = Arc<dyn Fn(Delivery) + Send + Sync>;
-
-/// The services that the controller uses.
-pub struct Services {
-    /// Finds, downloads and deletes models for the Models pane.
-    pub hub: Box<dyn ModelHub>,
-    /// Loads the suggestion model, and completes the text that the user types.
-    pub runner: Box<dyn ModelRunner>,
-    /// Keeps the settings that the user changes in the General pane.
-    pub settings_store: Box<dyn SettingsStore>,
-    /// Starts GhostType at login when the user turns it on in the General pane.
-    pub autostart: Box<dyn Autostart>,
-    /// Keeps the earlier writing of the user while the Personalization pane allows it.
-    pub history: Box<dyn WritingHistory>,
-}
-
-impl fmt::Debug for Services {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Services").finish_non_exhaustive()
-    }
-}
-
-/// What the ghost text shows at the caret.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Ghost {
-    /// A suggestion after the caret.
-    Text(String),
-    /// The fix of a typo before the caret, and the rest of the suggestion after it.
-    Fix(WordFix),
-}
-
-/// Where the platform shows the ghost text when it finds the caret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GhostPlacement {
-    /// Right after the caret, at the end of its line.
-    AfterCaret,
-    /// In the mirror below the caret, because at the caret the ghost text would cover the text
-    /// that follows the caret on its line.
-    BelowCaret,
-}
-
-/// What the platform shows for a suggestion: the ghost text at the caret or in the mirror below
-/// it, else, when it finds no caret, the mirror next to the focused field.
-#[derive(Clone, PartialEq, Eq)]
-pub struct GhostView {
-    /// The ghost text.
-    pub ghost: Ghost,
-    /// The end of the word before the caret, without the typo of a fix. The mirror shows it
-    /// before the ghost text, so that the user sees which part they typed.
-    pub typed_word: String,
-    /// Where the ghost text shows when the platform finds the caret.
-    pub placement: GhostPlacement,
-    /// Whether a key changed the text since the ghost text showed last. The platform then shows
-    /// the ghost text only at a caret that moved from where the ghost text showed last.
-    pub is_after_edit: bool,
-}
-
-impl GhostView {
-    /// Shows `ghost` after `text_before_caret`, the text of the session before the caret, at
-    /// `placement`.
-    #[must_use]
-    pub fn new(ghost: Ghost, text_before_caret: &str, placement: GhostPlacement) -> Self {
-        let text_before_typo = match &ghost {
-            Ghost::Fix(fix) => text_before_caret
-                .strip_suffix(fix.typo.as_str())
-                .unwrap_or(text_before_caret),
-            Ghost::Text(_) => text_before_caret,
-        };
-        Self {
-            typed_word: mirrored_word(text_before_typo),
-            ghost,
-            placement,
-            is_after_edit: false,
-        }
-    }
-}
-
-impl fmt::Debug for GhostView {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GhostView")
-            .field("ghost", &self.ghost)
-            .field(
-                "typed_word",
-                &format_args!("{} chars", self.typed_word.chars().count()),
-            )
-            .field("placement", &self.placement)
-            .field("is_after_edit", &self.is_after_edit)
-            .finish()
-    }
-}
-
-/// Returns the word at the end of `text`, after its last whitespace. A word of more than
-/// [`MIRROR_WORD_CHARS`] characters keeps only its end, after an ellipsis.
-fn mirrored_word(text: &str) -> String {
-    let word = text.rsplit(char::is_whitespace).next().unwrap_or_default();
-    let cut_chars = word.chars().count().saturating_sub(MIRROR_WORD_CHARS);
-    match word.char_indices().nth(cut_chars) {
-        Some((start, _)) if cut_chars > 0 => format!("…{}", &word[start..]),
-        _ => word.to_owned(),
-    }
-}
-
-/// The platform as the controller drives it: the desktop that it reads, and what it shows and
-/// does.
-pub trait Shell: Desktop {
-    /// Looks at the focused window again, and tells whether another window or app has the focus
-    /// since the last look.
-    fn refresh_focus(&mut self) -> FocusChange;
-
-    /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
-    /// at the caret, from one look at the caret. Hides the ghost text for no `ghost` and the badge
-    /// for no `badge`. When the caret is not known, it can show the badge at the start of the
-    /// focused field and the mirror of `ghost` next to the field, else it hides them.
-    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
-
-    /// Hides the ghost text at once.
-    fn hide_ghost(&mut self);
-
-    /// Hides the badge at once.
-    fn hide_badge(&mut self);
-
-    /// Types `text` at the caret of the focused app, after the event that the controller handles
-    /// now.
-    fn type_text(&mut self, text: String);
-
-    /// Deletes the `deleted` characters before the caret of the focused app and types `text`
-    /// there, after the event that the controller handles now.
-    fn replace_before_caret(&mut self, deleted: usize, text: String);
-
-    /// Starts `timer`, or starts it again when it runs. After `delay`, the shell gives the timer
-    /// one time to [`Controller::on_timer`].
-    fn start_timer(&mut self, timer: Timer, delay: Duration);
-
-    /// Stops `timer` when it runs.
-    fn stop_timer(&mut self, timer: Timer);
-
-    /// Shows `view` in the tray icon and its menu.
-    fn render_tray(&mut self, view: &TrayView);
-
-    /// Shows `view` in the settings window, when the window exists.
-    fn render_settings(&mut self, view: &SettingsView);
-
-    /// Shows the settings window with `view` and brings it to the front. Makes the window the
-    /// first time.
-    fn show_settings(&mut self, view: &SettingsView);
-
-    /// Keeps the text that the user copies while `access` allows it, and forgets it when not.
-    fn use_clipboard_access(&mut self, access: ClipboardAccess);
-
-    /// Reads the text near the focused field on the screen, off the thread of the keys, without
-    /// password fields. Gives the answer with the id `read` to [`Controller::on_delivery`] as a
-    /// [`Delivery::Screen`].
-    fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource);
-
-    /// Asks the user for the permission that the OCR needs: shows the prompt of the system, or the
-    /// place in the system settings where the user gives it.
-    fn ask_for_ocr_permission(&mut self);
-
-    /// Ends GhostType after the event that the controller handles now.
-    fn quit(&mut self);
 }
 
 /// GhostType while it runs: the suggestions at the caret, the panes of the settings window and
@@ -845,32 +643,23 @@ impl Desktop for DesktopWithPendingRest<'_> {
     }
 }
 
-/// Returns a sink that gives each event to `deliver`, wrapped by `wrap`.
-fn delivering_sink<Event: 'static>(
-    deliver: &DeliverySink,
-    wrap: fn(Event) -> Delivery,
-) -> Arc<dyn Fn(Event) + Send + Sync> {
-    let deliver = Arc::clone(deliver);
-    Arc::new(move |event| deliver(wrap(event)))
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::app::Status;
-    use crate::desktop::{FieldText, ScreenText};
-    use crate::engine::TYPO_CUT;
+    use crate::app::{BadgeView, Status};
+    use crate::desktop::{FieldText, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
+    use crate::engine::{TYPO_CUT, WordFix};
     use crate::history::HistoryEntry;
-    use crate::hub::{ByteSize, HubRequest, ModelFile, SizedFile};
-    use crate::inference::{Completion, Correction, LogProbability, NextWordBias, TokenCount};
+    use crate::hub::{ByteSize, HubEvent, HubRequest, ModelFile, SizedFile};
+    use crate::inference::{Backend, Completion, Correction, LogProbability, NextWordBias, TokenCount};
     use crate::prompt::framed_prompt;
     use crate::settings::{
-        HistoryScope, KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp,
-        ScreenTextSettings, SuggestionDisplay, WordChoice,
+        Autostart, ClipboardAccess, HistoryScope, KeptTexts, PersonalizationSettings, PromptPreparation,
+        ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionDisplay, WordChoice,
     };
     use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
     use crate::settings_window::models::SEARCH;
@@ -1710,41 +1499,6 @@ mod tests {
     }
 
     #[test]
-    fn mirror_gets_the_word_before_the_caret() {
-        let texts_before_caret = ["Dear Ana,\nThanks for the", "git sta", "Hello "];
-
-        let typed_words = texts_before_caret.map(|text| {
-            GhostView::new(Ghost::Text("rest".to_owned()), text, GhostPlacement::BelowCaret).typed_word
-        });
-
-        assert_eq!(typed_words, ["the", "sta", ""].map(str::to_owned));
-    }
-
-    #[test]
-    fn mirror_keeps_the_end_of_a_long_word() {
-        let view = GhostView::new(
-            Ghost::Text(".rs".to_owned()),
-            "cat crates/ghosttype_core/src/controller",
-            GhostPlacement::BelowCaret,
-        );
-
-        assert_eq!(view.typed_word, "…type_core/src/controller");
-    }
-
-    #[test]
-    fn mirror_leaves_out_the_typo_that_a_fix_replaces() {
-        let fix = WordFix {
-            typo: "teh".to_owned(),
-            word: "the".to_owned(),
-            rest: " end".to_owned(),
-        };
-
-        let view = GhostView::new(Ghost::Fix(fix), "Until (teh", GhostPlacement::BelowCaret);
-
-        assert_eq!(view.typed_word, "(");
-    }
-
-    #[test]
     fn ghost_view_gets_the_word_before_the_caret() {
         let mut harness = Harness::new(Settings::default());
         harness.press(Key::Char('H'));
@@ -1756,19 +1510,6 @@ mod tests {
             harness.shell.ghost_view.map(|view| view.typed_word).as_deref(),
             Some("H")
         );
-    }
-
-    #[test]
-    fn ghost_view_debug_hides_the_typed_word() {
-        let view = GhostView::new(
-            Ghost::Text(" soon".to_owned()),
-            "See you",
-            GhostPlacement::AfterCaret,
-        );
-
-        let debug = format!("{view:?}");
-
-        assert!(debug.contains("typed_word: 3 chars") && !debug.contains("you"));
     }
 
     fn harness_showing_a_fix() -> Harness {
