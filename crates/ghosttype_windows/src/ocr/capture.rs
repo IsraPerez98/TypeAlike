@@ -157,22 +157,26 @@ impl Capturer {
             self.context
                 .CopySubresourceRegion(&staging, 0, 0, 0, 0, texture, 0, Some(&raw const region));
         }
+        let row_bytes = usize::try_from(width)?
+            .checked_mul(BYTES_PER_PIXEL)
+            .ok_or(OcrError::PixelCount)?;
+        let rows = usize::try_from(height)?;
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         // SAFETY: plain call. `mapped` is a local that the call fills in.
         unsafe {
             self.context
                 .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&raw mut mapped))
         }?;
-        let row_bytes = usize::try_from(width)? * BYTES_PER_PIXEL;
         let pitch = usize::try_from(mapped.RowPitch)?;
-        let mapped_length = pitch * (usize::try_from(height)? - 1) + row_bytes;
-        // SAFETY: the map gives `height` rows `pitch` bytes apart, each with at least `row_bytes`
-        // bytes. They stay valid until the unmap below.
-        let mapped_bytes = unsafe { slice::from_raw_parts(mapped.pData.cast::<u8>(), mapped_length) };
-        let pixels = without_padding(mapped_bytes, pitch, row_bytes);
+        let pixels = mapped_length(pitch, rows, row_bytes).map(|length| {
+            // SAFETY: the map gives `rows` rows `pitch` bytes apart, each with at least `row_bytes`
+            // bytes. They stay valid until the unmap below.
+            let mapped_bytes = unsafe { slice::from_raw_parts(mapped.pData.cast::<u8>(), length) };
+            without_padding(mapped_bytes, pitch, row_bytes)
+        });
         // SAFETY: ends the map above.
         unsafe { self.context.Unmap(&staging, 0) };
-        Ok(pixels)
+        pixels.ok_or(OcrError::PixelCount)
     }
 }
 
@@ -284,6 +288,12 @@ impl Band {
     }
 }
 
+/// The length of `rows` rows that start `pitch` bytes apart, up to the end of the first
+/// `row_bytes` of the last row. `None` without rows, or when the length does not fit in `usize`.
+fn mapped_length(pitch: usize, rows: usize, row_bytes: usize) -> Option<usize> {
+    pitch.checked_mul(rows.checked_sub(1)?)?.checked_add(row_bytes)
+}
+
 /// Copies the first `row_bytes` of each row of `bytes`, whose rows start `pitch` bytes apart.
 fn without_padding(bytes: &[u8], pitch: usize, row_bytes: usize) -> Vec<u8> {
     let mut pixels = Vec::with_capacity(bytes.len());
@@ -317,6 +327,20 @@ fn clamped(range: Range<i32>, limit: usize) -> Range<usize> {
 mod tests {
     use super::*;
     use crate::ocr::tests::rect;
+
+    #[test]
+    fn mapped_length_spans_the_padded_rows_and_the_last_row() {
+        assert_eq!(mapped_length(16, 3, 12), Some(44));
+    }
+
+    #[test]
+    fn mapped_length_without_rows_or_past_the_address_space_is_none() {
+        let cases = [(16, 0, 12), (usize::MAX, 3, 12), (16, 2, usize::MAX)];
+
+        let lengths = cases.map(|(pitch, rows, row_bytes)| mapped_length(pitch, rows, row_bytes));
+
+        assert_eq!(lengths, [None; 3]);
+    }
 
     #[test]
     fn padding_at_the_end_of_each_row_is_dropped() {

@@ -78,6 +78,8 @@ enum OcrError {
     Windows(#[from] windows::core::Error),
     #[error("a size is out of range")]
     Size(#[from] TryFromIntError),
+    #[error("a byte count of the pixels does not fit in memory")]
+    PixelCount,
     #[error("Direct3D gave no device")]
     NoDevice,
     #[error("the capture gave no frame in time")]
