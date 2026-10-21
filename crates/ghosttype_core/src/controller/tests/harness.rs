@@ -23,7 +23,7 @@ use crate::settings::{
     SettingsStore, WordChoice,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
-use crate::test_support::{completion, mail_history_app};
+use crate::test_support::{self, completion, mail_history_app};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
@@ -403,10 +403,7 @@ impl Harness {
 }
 
 pub(super) fn model_file() -> ModelFile {
-    ModelFile {
-        repo: "owner/repo".to_owned(),
-        name: "model.gguf".to_owned(),
-    }
+    test_support::model_file("model.gguf")
 }
 
 pub(super) fn suggestion_settings() -> Settings {
