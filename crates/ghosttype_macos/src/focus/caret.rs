@@ -1,5 +1,7 @@
-//! What is at the caret of the focused control: the bounds of the caret, the input box of a
-//! terminal of xterm.js, and the color of the text before the caret.
+//! What is at the caret of the focused control.
+//!
+//! It reads the bounds of the caret, the input box of a terminal of xterm.js, and the color of
+//! the text before the caret.
 
 use std::iter;
 use std::ptr;

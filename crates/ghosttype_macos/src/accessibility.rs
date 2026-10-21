@@ -1,5 +1,7 @@
-//! The Accessibility (AX) layer: the attributes that GhostType reads, and safe reads of the
-//! attributes, the ranges and the frames of AX elements.
+//! The Accessibility (AX) layer of GhostType.
+//!
+//! It names the AX attributes that GhostType reads, and reads the attributes, the ranges and the
+//! frames of AX elements behind safe functions.
 
 use std::ptr::{self, NonNull};
 

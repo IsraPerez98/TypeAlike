@@ -1,5 +1,6 @@
-//! The floating panels of GhostType: borderless panels over every app that never take focus,
-//! and the height of the primary screen that places them.
+//! The floating panels of GhostType, which never take focus.
+//!
+//! It also gives the height of the primary screen, which places a panel in AppKit coordinates.
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};

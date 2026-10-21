@@ -1,5 +1,6 @@
-//! The Objective-C object that receives the actions, timers and notifications of AppKit, and
-//! passes each one to the runtime.
+//! The Objective-C object that passes the events of AppKit to the runtime.
+//!
+//! It receives the actions of the controls, the timers and the notifications of the workspace.
 
 use objc2::rc::Retained;
 use objc2::runtime::NSObject;

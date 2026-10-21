@@ -1,5 +1,7 @@
-//! The pure geometry of GhostType on macOS: the caret, the flip between the top-left global
-//! coordinates and the bottom-left ones of AppKit, and the conversion to core screen rectangles.
+//! The pure geometry of the caret and of the screen coordinates.
+//!
+//! It flips frames between the top-left global coordinates and the bottom-left ones of AppKit,
+//! and turns frames into core screen rectangles.
 
 use ghosttype_core::desktop::ScreenRect;
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};

@@ -1,5 +1,7 @@
-//! The text around the focused control: the title of its window, its labels, the host of its
-//! web page, and the text before and after its caret.
+//! The text around the focused control.
+//!
+//! It reads the title of the window, the labels of the control, the host of its web page, and
+//! the text before and after the caret.
 
 use ghosttype_core::desktop::{FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
 use objc2_application_services::AXUIElement;
