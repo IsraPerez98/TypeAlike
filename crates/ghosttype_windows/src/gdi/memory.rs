@@ -12,7 +12,24 @@ use windows::core::{Error, Owned, Result};
 
 use crate::struct_size;
 
-const BITS_PER_PIXEL: u16 = 32;
+/// The bits of one pixel of a 32-bit bitmap: blue, green, red and alpha.
+pub(crate) const BITS_PER_PIXEL: u16 = 32;
+
+/// The format of a 32-bit bitmap of `width` × `height` pixels, with the top row first.
+pub(crate) fn top_down_bitmap_format(width: i32, height: i32) -> BITMAPINFO {
+    BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: struct_size::<BITMAPINFOHEADER>(),
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: BITS_PER_PIXEL,
+            biCompression: BI_RGB.0,
+            ..BITMAPINFOHEADER::default()
+        },
+        ..BITMAPINFO::default()
+    }
+}
 
 /// A DIB section bitmap whose pixel memory this process can write.
 #[derive(Debug)]
@@ -25,22 +42,19 @@ pub(super) struct PixelSection {
 impl PixelSection {
     /// Creates a top-down 32-bit bitmap of `size`, every pixel transparent black.
     pub(super) fn new(size: SIZE) -> Result<Self> {
-        let info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: struct_size::<BITMAPINFOHEADER>(),
-                biWidth: size.cx,
-                biHeight: -size.cy,
-                biPlanes: 1,
-                biBitCount: BITS_PER_PIXEL,
-                biCompression: BI_RGB.0,
-                ..BITMAPINFOHEADER::default()
-            },
-            ..BITMAPINFO::default()
-        };
+        let bitmap_format = top_down_bitmap_format(size.cx, size.cy);
         let mut bits: *mut c_void = std::ptr::null_mut();
         // SAFETY: the header describes a top-down 32-bit bitmap; `bits` receives its pixel memory.
-        let bitmap =
-            unsafe { CreateDIBSection(None, &raw const info, DIB_RGB_COLORS, &raw mut bits, None, 0) }?;
+        let bitmap = unsafe {
+            CreateDIBSection(
+                None,
+                &raw const bitmap_format,
+                DIB_RGB_COLORS,
+                &raw mut bits,
+                None,
+                0,
+            )
+        }?;
         // SAFETY: CreateDIBSection returned a valid bitmap that nothing else owns.
         let bitmap = unsafe { Owned::new(bitmap) };
         let pixel_count = usize::try_from(size.cx).unwrap_or(0) * usize::try_from(size.cy).unwrap_or(0);

@@ -4,14 +4,12 @@
 use std::ffi::c_void;
 use std::iter;
 
-use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ,
-};
+use windows::Win32::Graphics::Gdi::{BITMAP, DIB_RGB_COLORS, GetDIBits, GetObjectW, HBITMAP, HGDIOBJ};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::{GetIconInfo, HICON, ICONINFO};
 use windows::core::{Owned, PCWSTR};
 
-use crate::gdi::MemoryContext;
+use crate::gdi::{BITS_PER_PIXEL, MemoryContext, top_down_bitmap_format};
 
 const BYTES_PER_PIXEL: usize = 4;
 const ALPHA: usize = 3;
@@ -19,7 +17,6 @@ const OPAQUE: u8 = u8::MAX;
 const ICON_DIRECTORY_BYTES: u32 = 6;
 const ICON_ENTRY_BYTES: u32 = 16;
 const BITMAP_HEADER_BYTES: u32 = 40;
-const BITS_PER_PIXEL: u16 = 32;
 const ICON_TYPE: u16 = 1;
 /// The width or the height of 256 pixels, which the one byte of an icon entry gives as zero.
 const LARGEST_SIDE: u32 = 256;
@@ -84,18 +81,7 @@ fn bitmap_size(bitmap: HBITMAP) -> Option<(u32, u32)> {
 /// Reads the pixels of `bitmap` as 32-bit BGRA, top row first.
 fn top_down_pixels(bitmap: HBITMAP, width: u32, height: u32) -> Option<Vec<u8>> {
     let context = MemoryContext::new().ok()?;
-    let mut info = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: BITMAP_HEADER_BYTES,
-            biWidth: i32::try_from(width).ok()?,
-            biHeight: -i32::try_from(height).ok()?,
-            biPlanes: 1,
-            biBitCount: BITS_PER_PIXEL,
-            biCompression: BI_RGB.0,
-            ..BITMAPINFOHEADER::default()
-        },
-        ..BITMAPINFO::default()
-    };
+    let mut bitmap_format = top_down_bitmap_format(i32::try_from(width).ok()?, i32::try_from(height).ok()?);
     let byte_count = usize::try_from(width)
         .ok()?
         .checked_mul(usize::try_from(height).ok()?)?
@@ -109,7 +95,7 @@ fn top_down_pixels(bitmap: HBITMAP, width: u32, height: u32) -> Option<Vec<u8>> 
             0,
             height,
             Some(pixels.as_mut_ptr().cast::<c_void>()),
-            &raw mut info,
+            &raw mut bitmap_format,
             DIB_RGB_COLORS,
         )
     };
