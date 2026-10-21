@@ -5,16 +5,14 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
     NSAccessibility as _, NSFont, NSImage, NSImageView, NSLayoutConstraint, NSLayoutConstraintOrientation,
-    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton, NSStackView, NSSwitch,
-    NSTextField, NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
+    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSStackView, NSSwitch, NSTextField,
+    NSUserInterfaceLayoutOrientation, NSView, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSString};
 
 use crate::labels::title_case;
-use crate::settings::controls::{
-    control_state, pop_up_button, rebuild_menu, set_text, symbol, truncating_label,
-};
+use crate::settings::controls::{MenuChoices, control_state, set_text, symbol, truncating_label};
 use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, add_grouped_row, stack};
 use crate::settings::{Binder, ControlAction};
 
@@ -112,41 +110,35 @@ impl AppSwitchRow {
 }
 
 /// A row with the icon and the name of an app, and a pop-up menu that picks the value of a setting
-/// for the app. The menu rebuilds its entries only when they change, so an open menu stays open.
+/// for the app.
 #[derive(Debug)]
 pub(in crate::settings) struct AppPickerRow {
     app: AppLabel,
-    menu: Retained<NSPopUpButton>,
-    titles: Vec<String>,
+    choices: MenuChoices,
     pub(super) id: ControlId,
 }
 
 impl AppPickerRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
-        let menu = pop_up_button(binder.target, binder.main_thread);
+        let choices = MenuChoices::new(binder.target, binder.main_thread);
         let app = AppLabel::new(binder.main_thread);
-        app.add_row(rows_stack, &menu, binder.main_thread);
+        app.add_row(rows_stack, &choices.menu, binder.main_thread);
         Self {
             app,
-            menu,
-            titles: Vec::new(),
+            choices,
             id: id.clone(),
         }
     }
 
     pub(super) fn render(&mut self, shown: &view::AppPicker, binder: &mut Binder<'_>) {
         self.app.render(&shown.app_id, &shown.app_name);
-        self.menu
+        self.choices
+            .menu
             .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
         let titles: Vec<String> = shown.choices.iter().map(|choice| title_case(choice)).collect();
-        if titles != self.titles {
-            rebuild_menu(&self.menu, &titles);
-            self.titles = titles;
-        }
-        let selected = isize::try_from(shown.selected).expect("a menu never holds isize::MAX entries");
-        self.menu.selectItemAtIndex(selected);
-        self.menu.setEnabled(shown.is_enabled);
-        binder.bind(&self.menu, &shown.id);
+        self.choices.render(titles, shown.selected);
+        self.choices.menu.setEnabled(shown.is_enabled);
+        binder.bind(&self.choices.menu, &shown.id);
     }
 }
 

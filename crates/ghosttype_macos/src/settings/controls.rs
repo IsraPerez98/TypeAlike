@@ -28,8 +28,36 @@ const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const ICON_BUTTON_SIDE: CGFloat = 24.0;
 const BACK_SYMBOL: &str = "chevron.left";
 
+/// The pop-up menu of a row, which picks one of its entries. The menu rebuilds its entries only
+/// when they change, so that an open menu stays open.
+#[derive(Debug)]
+pub(super) struct MenuChoices {
+    pub(super) menu: Retained<NSPopUpButton>,
+    titles: Vec<String>,
+}
+
+impl MenuChoices {
+    /// Makes a menu without entries, which sends the pick action to the target.
+    pub(super) fn new(target: &ActionTarget, main_thread: MainThreadMarker) -> Self {
+        Self {
+            menu: pop_up_button(target, main_thread),
+            titles: Vec::new(),
+        }
+    }
+
+    /// Shows an entry for each of `titles`, with the entry at `selected` picked.
+    pub(super) fn render(&mut self, titles: Vec<String>, selected: usize) {
+        if titles != self.titles {
+            rebuild_menu(&self.menu, &titles);
+            self.titles = titles;
+        }
+        let selected = isize::try_from(selected).expect("a menu never holds isize::MAX entries");
+        self.menu.selectItemAtIndex(selected);
+    }
+}
+
 /// Returns a pop-up button that sends the pick action to the target when the user picks an entry.
-pub(super) fn pop_up_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSPopUpButton> {
+fn pop_up_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSPopUpButton> {
     let button = NSPopUpButton::new(main_thread);
     button.setPullsDown(false);
     target.connect(&button, ControlAction::Pick);
@@ -37,7 +65,7 @@ pub(super) fn pop_up_button(target: &ActionTarget, main_thread: MainThreadMarker
 }
 
 /// Replaces the entries of `button` with one entry for each of `titles`.
-pub(super) fn rebuild_menu(button: &NSPopUpButton, titles: &[String]) {
+fn rebuild_menu(button: &NSPopUpButton, titles: &[String]) {
     button.removeAllItems();
     let Some(menu) = button.menu() else {
         return;

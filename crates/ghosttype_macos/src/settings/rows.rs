@@ -14,7 +14,7 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
     NSAccessibility as _, NSButton, NSColor, NSFont, NSLayoutConstraintOrientation,
-    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSPopUpButton, NSProgressIndicator, NSStackView,
+    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSProgressIndicator, NSStackView,
     NSStackViewGravity, NSSwitch, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
@@ -22,7 +22,7 @@ use objc2_foundation::{NSEdgeInsets, NSString};
 
 use crate::labels::title_case;
 use crate::settings::controls::{
-    control_state, detail_font, pop_up_button, push_button, rebuild_menu, secondary_wrapping_label, set_text,
+    MenuChoices, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
     show_push_button, spinner, start_spinning, stop_spinning, truncating_label, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
@@ -206,25 +206,22 @@ impl SwitchRow {
 }
 
 /// A row with a pop-up menu that picks the value of a setting, and a note below its description.
-/// The menu rebuilds its entries only when they change, so an open menu stays open.
 #[derive(Debug)]
 pub(super) struct PickerRow {
     setting: SettingRow,
-    menu: Retained<NSPopUpButton>,
-    titles: Vec<String>,
+    choices: MenuChoices,
     note: NoteView,
     id: ControlId,
 }
 
 impl PickerRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
-        let menu = pop_up_button(binder.target, binder.main_thread);
-        let setting = SettingRow::add(rows_stack, &menu, binder.main_thread);
+        let choices = MenuChoices::new(binder.target, binder.main_thread);
+        let setting = SettingRow::add(rows_stack, &choices.menu, binder.main_thread);
         let note = NoteView::add(&setting.texts, binder.main_thread);
         Self {
             setting,
-            menu,
-            titles: Vec::new(),
+            choices,
             note,
             id: id.clone(),
         }
@@ -232,7 +229,8 @@ impl PickerRow {
 
     fn render(&mut self, shown: &view::Picker, binder: &mut Binder<'_>) {
         self.setting.render(shown.label, shown.description);
-        self.menu
+        self.choices
+            .menu
             .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
         let titles: Vec<String> = shown
             .choices
@@ -242,15 +240,10 @@ impl PickerRow {
                 ChoiceText::Name => choice.clone(),
             })
             .collect();
-        if titles != self.titles {
-            rebuild_menu(&self.menu, &titles);
-            self.titles = titles;
-        }
-        let selected = isize::try_from(shown.selected).expect("a menu never holds isize::MAX entries");
-        self.menu.selectItemAtIndex(selected);
-        self.menu.setEnabled(shown.is_enabled);
+        self.choices.render(titles, shown.selected);
+        self.choices.menu.setEnabled(shown.is_enabled);
         self.note.render(shown.note.as_ref());
-        binder.bind(&self.menu, &shown.id);
+        binder.bind(&self.choices.menu, &shown.id);
     }
 }
 
