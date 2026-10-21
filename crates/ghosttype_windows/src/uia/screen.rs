@@ -51,9 +51,7 @@ impl Uia {
         let condition = self.visible_text_condition()?;
         // SAFETY: plain calls on interfaces of this thread.
         let elements = unsafe {
-            let cache = self.automation.CreateCacheRequest().ok()?;
-            cache.AddProperty(UIA_NamePropertyId).ok()?;
-            cache.AddProperty(UIA_BoundingRectanglePropertyId).ok()?;
+            let cache = self.cache_request(&[UIA_NamePropertyId, UIA_BoundingRectanglePropertyId])?;
             window
                 .FindAllBuildCache(TreeScope_Descendants, &condition, &cache)
                 .ok()?

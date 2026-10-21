@@ -85,9 +85,7 @@ impl Uia {
         let walker = self.web_document_walker()?;
         // SAFETY: plain calls on interfaces of this thread.
         let url = unsafe {
-            let cache = self.automation.CreateCacheRequest().ok()?;
-            cache.AddProperty(UIA_ControlTypePropertyId).ok()?;
-            cache.AddProperty(UIA_ValueValuePropertyId).ok()?;
+            let cache = self.cache_request(&[UIA_ControlTypePropertyId, UIA_ValueValuePropertyId])?;
             let document = walker.NormalizeElementBuildCache(element, &cache).ok()?;
             // UIA gives the root of the tree when no element above matches.
             if document.CachedControlType().ok()? != UIA_DocumentControlTypeId {

@@ -13,8 +13,8 @@ use ghosttype_core::desktop::ScreenRect;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationElement, IUIAutomationTextPattern,
-    IUIAutomationTextRange, UIA_TextPatternId,
+    CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
+    IUIAutomationTextPattern, IUIAutomationTextRange, UIA_PROPERTY_ID, UIA_TextPatternId,
 };
 use windows::core::{BOOL, Interface, Result};
 
@@ -66,6 +66,18 @@ impl Uia {
     fn focused_element(&self) -> Option<IUIAutomationElement> {
         // SAFETY: plain call on an interface of this thread.
         unsafe { self.automation.GetFocusedElement() }.ok()
+    }
+
+    /// A request that caches `properties` of each element that a call with it finds.
+    fn cache_request(&self, properties: &[UIA_PROPERTY_ID]) -> Option<IUIAutomationCacheRequest> {
+        // SAFETY: plain calls on interfaces of this thread.
+        unsafe {
+            let cache = self.automation.CreateCacheRequest().ok()?;
+            for &property in properties {
+                cache.AddProperty(property).ok()?;
+            }
+            Some(cache)
+        }
     }
 }
 

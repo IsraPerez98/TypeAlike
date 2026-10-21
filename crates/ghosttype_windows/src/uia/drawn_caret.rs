@@ -76,9 +76,7 @@ impl Uia {
                 .CreatePropertyCondition(UIA_ClassNamePropertyId, &VARIANT::from(XTERM_SCREEN_CLASS))
                 .ok()?;
             let walker = self.automation.CreateTreeWalker(&is_screen).ok()?;
-            let cache = self.automation.CreateCacheRequest().ok()?;
-            cache.AddProperty(UIA_ClassNamePropertyId).ok()?;
-            cache.AddProperty(UIA_BoundingRectanglePropertyId).ok()?;
+            let cache = self.cache_request(&[UIA_ClassNamePropertyId, UIA_BoundingRectanglePropertyId])?;
             let screen = walker.NormalizeElementBuildCache(element, &cache).ok()?;
             // UIA gives the root of the tree when no element above matches.
             (screen.CachedClassName().ok()? == XTERM_SCREEN_CLASS).then_some(screen)
