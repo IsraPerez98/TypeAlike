@@ -873,7 +873,9 @@ impl Engine {
         }
     }
 
-    fn text_before(&self) -> &str {
+    /// Returns the text before the caret in the session, empty without a session.
+    #[must_use]
+    pub fn text_before_caret(&self) -> &str {
         self.session
             .as_ref()
             .map_or("", |session| session.text_before.as_str())
@@ -1049,7 +1051,7 @@ impl fmt::Debug for Engine {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Engine")
-            .field("text_before_chars", &self.text_before().chars().count())
+            .field("text_before_chars", &self.text_before_caret().chars().count())
             .field("is_growing", &matches!(self.offer, Offer::Growing { .. }))
             .field("has_suggestion", &!self.shown().is_empty())
             .finish_non_exhaustive()

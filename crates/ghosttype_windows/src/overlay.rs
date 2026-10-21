@@ -12,7 +12,7 @@ use windows::core::{Result, w};
 
 use crate::badge::{TooltipColors, monitor_dpi, to_pixels};
 use crate::focus::Caret;
-use crate::gdi::{Font, FontHeight, TextBitmap, TextRun};
+use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode};
 use crate::window::{Window, WindowSpec};
@@ -48,6 +48,19 @@ const DARK_WORD: Rgb = Rgb {
 /// The gray of ghost text in a field that gives no text color, whose background is unknown. It is
 /// the same in light and dark mode, and it shows on both: about 5:1 on #1E1E1E, 3.3:1 on white.
 const NEUTRAL_GRAY: Rgb = Rgb::gray(0x8E);
+/// The text on the card in light mode: the Fluent primary text color (16.5:1 on the card) for the
+/// typed word, and the Fluent secondary one (6.1:1) for the ghost text.
+const LIGHT_CARD_TEXT: CardText = CardText {
+    typed: Rgb::gray(0x1A),
+    ghost: Rgb::gray(0x5F),
+};
+/// The text on the card in dark mode: the Fluent primary text color (14:1 on the card) for the
+/// typed word, and the Fluent tertiary one (5.1:1) for the ghost text. The secondary one is too
+/// near white to tell the ghost text from the typed word.
+const DARK_CARD_TEXT: CardText = CardText {
+    typed: Rgb::WHITE,
+    ghost: Rgb::gray(0x9C),
+};
 
 /// The colors of the fix of a typo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +71,24 @@ struct FixColors {
     word: Rgb,
     /// The rest of the suggestion.
     rest: Ink,
+}
+
+/// The colors of the text on the card below the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CardText {
+    /// The end of the word before the caret, and the typo of a fix.
+    typed: Rgb,
+    /// The ghost text.
+    ghost: Rgb,
+}
+
+/// How the overlay draws the typed letters before the caret: the end of the typed word, and the
+/// typo of a fix.
+#[derive(Debug, Clone, Copy)]
+struct TypedLetters<'text> {
+    word: &'text str,
+    font: &'text Font,
+    ink: Ink,
 }
 
 #[derive(Debug)]
@@ -75,29 +106,57 @@ impl Overlay {
     /// face of the control at the caret when it is installed, else in the system UI font.
     pub(crate) fn show(&self, view: &GhostView, caret: &Caret) -> Result<()> {
         let faces = ghost_text_faces(caret.font_face.as_deref());
-        let font = Font::first_installed(&faces, FontHeight::Cell(caret.height))?;
+        let height = FontHeight::Cell(caret.height);
+        let font = Font::first_installed(&faces, height, FontWeight::Regular)?;
         let theme = SystemTheme::read();
         match view.placement {
             GhostPlacement::AfterCaret => {
-                let (bitmap, typo_width) =
-                    render(&view.ghost, &font, inline_colors(theme, caret.text_color))?;
+                let typed = TypedLetters {
+                    word: "",
+                    font: &font,
+                    ink: Ink::CLEAR,
+                };
+                let (bitmap, caret_left) =
+                    render(typed, &view.ghost, &font, inline_colors(theme, caret.text_color))?;
                 let origin = POINT {
-                    x: caret.origin.x - typo_width,
+                    x: caret.origin.x - caret_left,
                     y: caret.origin.y,
                 };
                 bitmap.present(self.window.handle(), origin)?;
             }
-            GhostPlacement::BelowCaret => self.present_card(&view.ghost, &font, theme, caret)?,
+            GhostPlacement::BelowCaret => {
+                let typed_font = Font::first_installed(&faces, height, FontWeight::Semibold)?;
+                self.present_card(view, &font, &typed_font, theme, caret)?;
+            }
         }
         self.window.show_on_top()
     }
 
-    /// Shows `ghost` on a card below the line of `caret`, with the text under the caret, or above
-    /// the line when the card does not fit below.
-    fn present_card(&self, ghost: &Ghost, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
+    /// Shows the typed word of `view` in `typed_font` and the ghost text in `font` on a card below
+    /// the line of `caret`, with the ghost text under the caret, or above the line when the card
+    /// does not fit below.
+    fn present_card(
+        &self,
+        view: &GhostView,
+        font: &Font,
+        typed_font: &Font,
+        theme: SystemTheme,
+        caret: &Caret,
+    ) -> Result<()> {
         let colors = TooltipColors::for_theme(theme);
-        let (text, typo_width) = render(ghost, font, fix_colors(theme, colors.text.into()))?;
-        let text_left = caret.origin.x - typo_width;
+        let text_colors = card_text(theme);
+        let typed = TypedLetters {
+            word: &view.typed_word,
+            font: typed_font,
+            ink: text_colors.typed.into(),
+        };
+        let (text, caret_left) = render(
+            typed,
+            &view.ghost,
+            font,
+            fix_colors(theme, text_colors.ghost.into()),
+        )?;
+        let text_left = caret.origin.x - caret_left;
         let line = RECT {
             left: text_left,
             top: caret.origin.y,
@@ -128,20 +187,27 @@ impl Overlay {
     }
 }
 
-/// Renders `ghost` in `colors`. A fix starts with a line through the typed letters before the
-/// caret, as wide as the letters in `font`, so it can differ a little from the letters of a control
-/// in another font. Returns the bitmap and the width of that line.
-fn render(ghost: &Ghost, font: &Font, colors: FixColors) -> Result<(TextBitmap, i32)> {
+/// Renders the `typed` letters, then `ghost` in `font` and `colors`. A fix has a line through its
+/// typo, as wide as the letters of the typo in the font of `typed`, so it can differ a little from
+/// the letters of a control in another font. Returns the bitmap and the distance from its left
+/// edge to the caret.
+fn render(
+    typed: TypedLetters<'_>,
+    ghost: &Ghost,
+    font: &Font,
+    colors: FixColors,
+) -> Result<(TextBitmap, i32)> {
+    let typed_word = TextRun::new(typed.word, typed.font, typed.ink);
     match ghost {
-        Ghost::Text(text) => TextBitmap::render_line(&[], &[TextRun::new(text, font, colors.rest)]),
+        Ghost::Text(text) => TextBitmap::render_line(&[typed_word], &[TextRun::new(text, font, colors.rest)]),
         Ghost::Fix(fix) => {
             let typo = TextRun {
                 strike: Some(colors.strike),
-                ..TextRun::new(&fix.typo, font, Ink::CLEAR)
+                ..TextRun::new(&fix.typo, typed.font, typed.ink)
             };
             let word = format!(" {}", fix.word);
             TextBitmap::render_line(
-                &[typo],
+                &[typed_word, typo],
                 &[
                     TextRun::new(&word, font, colors.word.into()),
                     TextRun::new(&fix.rest, font, colors.rest),
@@ -240,6 +306,21 @@ fn inline_colors(theme: SystemTheme, text_color: Option<TextColor>) -> FixColors
             };
             fix_colors(SystemTheme { mode, ..theme }, ink)
         }
+    }
+}
+
+/// The colors of the text on the card below the caret in `theme`: the typed word in the primary
+/// text color, and the ghost text in a lighter color that keeps the contrast of text on the card.
+/// In high contrast, the text color and the gray text color of the system.
+fn card_text(theme: SystemTheme) -> CardText {
+    match (theme.contrast, theme.mode) {
+        (Contrast::High, _) => CardText {
+            // SAFETY: plain call.
+            typed: Rgb::from_colorref(unsafe { GetSysColor(COLOR_WINDOWTEXT) }),
+            ghost: ghost_text_color(),
+        },
+        (Contrast::Standard, ThemeMode::Light) => LIGHT_CARD_TEXT,
+        (Contrast::Standard, ThemeMode::Dark) => DARK_CARD_TEXT,
     }
 }
 
@@ -344,6 +425,22 @@ mod tests {
             (layout.padding, layout.corner_radius, layout.border_width),
             (SIZE { cx: 12, cy: 6 }, 6, 2)
         );
+    }
+
+    #[test]
+    fn card_text_keeps_the_contrast_of_text_on_the_card_in_both_modes() {
+        let themes = [ThemeMode::Light, ThemeMode::Dark].map(|mode| SystemTheme {
+            mode,
+            contrast: Contrast::Standard,
+        });
+
+        let ratios = themes.map(|theme| {
+            let fill = TextColor::from(TooltipColors::for_theme(theme).fill);
+            let text = card_text(theme);
+            [text.typed, text.ghost].map(|color| (TextColor::from(color).contrast_with(fill) * 10.0).round())
+        });
+
+        assert_eq!(ratios, [[165.0, 61.0], [140.0, 51.0]]);
     }
 
     #[test]

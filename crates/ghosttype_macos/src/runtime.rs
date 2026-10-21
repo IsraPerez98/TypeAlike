@@ -265,7 +265,7 @@ impl AppKitShell {
         self.ghost_caret = Some(caret);
         if view.placement == GhostPlacement::BelowCaret {
             self.overlay.hide();
-            self.mirror.show_below_caret(&view.ghost, caret);
+            self.mirror.show_below_caret(view, caret);
             return;
         }
         self.mirror.hide();
@@ -281,7 +281,7 @@ impl AppKitShell {
     fn show_mirror(&self, view: &GhostView) {
         self.overlay.hide();
         match self.focus.field_frame() {
-            Some(field) => self.mirror.show(&view.ghost, field),
+            Some(field) => self.mirror.show(view, field),
             None => self.mirror.hide(),
         }
     }

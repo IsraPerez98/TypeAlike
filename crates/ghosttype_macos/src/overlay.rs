@@ -118,13 +118,13 @@ impl Overlay {
 
 /// Whether the user asks macOS for more contrast with Increase Contrast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Contrast {
+pub(crate) enum Contrast {
     Standard,
     Increased,
 }
 
 impl Contrast {
-    fn read() -> Self {
+    pub(crate) fn read() -> Self {
         if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldIncreaseContrast() {
             Self::Increased
         } else {

@@ -68,7 +68,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Color: host text color at reduced emphasis (Fluent secondary/tertiary text). It must stay legible on the host background. High contrast: `COLOR_GRAYTEXT`.
 - Never takes focus or input: `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`. Excluded from taskbar and Alt+Tab.
 - No animation beyond a subtle fade, and none when animations are off. Hide instantly on caret move, focus change, or fullscreen exclusive app.
-- Exception: when text follows the caret on its line, inline ghost text would cover that text. The overlay then shows the ghost text on a card below the caret line: the colors of the Fluent tooltip (as the badge), radius 4, a 1 DIP border, 8 x 4 DIPs padding, 4 DIPs below the line. The card goes above the line when it does not fit in the work area.
+- Exception: when text follows the caret on its line, inline ghost text would cover that text. The overlay then shows the end of the typed word and the ghost text on a card below the caret line: the fill and the border of the Fluent tooltip (as the badge), radius 4, a 1 DIP border, 8 x 4 DIPs padding, 4 DIPs below the line. The card goes above the line when it does not fit in the work area. The typed word is in the Fluent primary text color and semibold. The ghost text is regular, in the lightest Fluent text color with 4.5:1 on the card: secondary in light mode, tertiary in dark mode. The ghost text starts under the caret.
 
 ## Caret badge
 - A small button above the caret, on its left, where the ghost text never goes. A click opens the badge menu (`BadgeMenu`) below the badge. The glyph is the tray glyph of the status.

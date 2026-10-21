@@ -1,15 +1,19 @@
-//! The mirror: a small panel with the ghost text next to a focused field whose caret Accessibility
-//! does not give, as in the editor of VS Code. When text can follow the caret on its line, as in a
-//! terminal of xterm.js, it shows the ghost text below the caret.
+//! The mirror: a small panel next to a focused field whose caret Accessibility does not give, as
+//! in the editor of VS Code. It shows the end of the typed word, then the ghost text. When text can
+//! follow the caret on its line, as in a terminal of xterm.js, it shows them below the caret.
 
-use ghosttype_core::controller::Ghost;
+use ghosttype_core::controller::{Ghost, GhostView};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSBox, NSBoxType, NSColor, NSFont, NSPanel, NSScreen, NSTextField, NSTitlePosition};
+use objc2_app_kit::{
+    NSAttributedStringNSStringDrawing, NSBox, NSBoxType, NSColor, NSFont, NSFontWeightSemibold, NSPanel,
+    NSScreen, NSTextField, NSTitlePosition,
+};
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
-use objc2_foundation::{NSMutableAttributedString, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSPoint, NSRect, NSSize, NSString};
 
 use crate::focus::Caret;
+use crate::overlay::Contrast;
 use crate::{badge, overlay};
 
 const MIRROR_PADDING: CGFloat = 6.0;
@@ -19,6 +23,9 @@ const MAX_TEXT_WIDTH: CGFloat = 480.0;
 const GAP_TO_FIELD: CGFloat = 4.0;
 /// The distance from an edge of the mirror to its text.
 const TEXT_INSET: CGFloat = MIRROR_PADDING + MIRROR_BORDER_WIDTH;
+/// The opacity of the label color for the ghost text. It keeps a contrast of 5.5:1 on the mirror
+/// in the light appearance, where the secondary label color has only 3.8:1.
+const GHOST_TEXT_OPACITY: CGFloat = 0.6;
 
 #[derive(Debug)]
 pub(crate) struct Mirror {
@@ -49,15 +56,22 @@ impl Mirror {
         }
     }
 
-    /// Shows `ghost` below the line of `caret` with its first letter under the caret, or above the
-    /// line when it does not fit below.
-    pub(crate) fn show_below_caret(&self, ghost: &Ghost, caret: Caret) {
-        self.show(ghost, caret_line(caret));
+    /// Shows `view` below the line of `caret` with the first letter of the ghost text under the
+    /// caret, or above the line when it does not fit below.
+    pub(crate) fn show_below_caret(&self, view: &GhostView, caret: Caret) {
+        let text = MirrorText::of(view, Contrast::read());
+        self.present(&text.text, caret_line(caret, text.typed_width));
     }
 
-    /// Shows `ghost` below `anchor`, a frame in global points with a top-left origin, or above it
+    /// Shows `view` below `field`, the frame of the focused field in global points with a top-left
+    /// origin, or above it when it does not fit below.
+    pub(crate) fn show(&self, view: &GhostView, field: CGRect) {
+        self.present(&MirrorText::of(view, Contrast::read()).text, field);
+    }
+
+    /// Shows `text` below `anchor`, a frame in global points with a top-left origin, or above it
     /// when it does not fit below.
-    pub(crate) fn show(&self, ghost: &Ghost, anchor: CGRect) {
+    fn present(&self, text: &NSAttributedString, anchor: CGRect) {
         let Some(primary_screen_height) = overlay::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
@@ -66,8 +80,7 @@ impl Mirror {
             self.hide();
             return;
         };
-        let font = NSFont::systemFontOfSize(NSFont::systemFontSize());
-        self.label.setAttributedStringValue(&mirror_text(ghost, &font));
+        self.label.setAttributedStringValue(text);
         let text_size = self.text_size();
         self.label.setFrameSize(text_size);
         let inset = 2.0 * TEXT_INSET;
@@ -95,32 +108,68 @@ impl Mirror {
     }
 }
 
-/// The ghost text as the overlay shows it, with the typo of a fix in the color of text.
-fn mirror_text(ghost: &Ghost, font: &NSFont) -> Retained<NSMutableAttributedString> {
-    let text = NSMutableAttributedString::new();
-    let append = |part: &str, color: &NSColor, strike_color: Option<&NSColor>| {
-        text.appendAttributedString(&overlay::attributed(part, font, color, strike_color));
-    };
-    match ghost {
-        Ghost::Text(ghost) => append(ghost, &NSColor::secondaryLabelColor(), None),
-        Ghost::Fix(fix) => {
+/// The text of the mirror: the typed letters before the caret, then the ghost text.
+struct MirrorText {
+    text: Retained<NSMutableAttributedString>,
+    /// The width of the typed letters, which end at the caret.
+    typed_width: CGFloat,
+}
+
+impl MirrorText {
+    /// The text of `view` with `contrast`: the end of the typed word and the typo of a fix in the
+    /// label color and the semibold system font, with a red line through the typo. Then the ghost
+    /// text as the overlay shows it, in a ghost color that keeps the contrast of text.
+    fn of(view: &GhostView, contrast: Contrast) -> Self {
+        let font_size = NSFont::systemFontSize();
+        let font = NSFont::systemFontOfSize(font_size);
+        // SAFETY: reads an AppKit constant that is initialized before any code runs.
+        let typed_font = NSFont::systemFontOfSize_weight(font_size, unsafe { NSFontWeightSemibold });
+        let label_color = NSColor::labelColor();
+        let ghost_color = ghost_color(contrast);
+        let text = NSMutableAttributedString::new();
+        let append = |part: &str, font: &NSFont, color: &NSColor, strike_color: Option<&NSColor>| {
+            text.appendAttributedString(&overlay::attributed(part, font, color, strike_color));
+        };
+        append(&view.typed_word, &typed_font, &label_color, None);
+        if let Ghost::Fix(fix) = &view.ghost {
             append(
                 &fix.typo,
-                &NSColor::labelColor(),
+                &typed_font,
+                &label_color,
                 Some(&NSColor::systemRedColor()),
             );
-            append(&format!(" {}", fix.word), &NSColor::systemGreenColor(), None);
-            append(&fix.rest, &NSColor::secondaryLabelColor(), None);
         }
+        let typed_width = text.size().width;
+        match &view.ghost {
+            Ghost::Text(ghost) => append(ghost, &font, &ghost_color, None),
+            Ghost::Fix(fix) => {
+                append(
+                    &format!(" {}", fix.word),
+                    &font,
+                    &NSColor::systemGreenColor(),
+                    None,
+                );
+                append(&fix.rest, &font, &ghost_color, None);
+            }
+        }
+        Self { text, typed_width }
     }
-    text
+}
+
+/// The color of the ghost text in the mirror: the label color at less opacity, or with Increase
+/// Contrast the secondary label color, which is stronger then.
+fn ghost_color(contrast: Contrast) -> Retained<NSColor> {
+    match contrast {
+        Contrast::Standard => NSColor::labelColor().colorWithAlphaComponent(GHOST_TEXT_OPACITY),
+        Contrast::Increased => NSColor::secondaryLabelColor(),
+    }
 }
 
 /// The line of `caret` as a frame without width, so that the text of a mirror below it starts
-/// under the caret.
-fn caret_line(caret: Caret) -> CGRect {
+/// `typed_width` before the caret, and the ghost text after it starts under the caret.
+fn caret_line(caret: Caret, typed_width: CGFloat) -> CGRect {
     CGRect::new(
-        CGPoint::new(caret.left - TEXT_INSET, caret.top),
+        CGPoint::new(caret.left - TEXT_INSET - typed_width, caret.top),
         CGSize::new(0.0, caret.height),
     )
 }
@@ -197,16 +246,16 @@ mod tests {
     }
 
     #[test]
-    fn mirror_below_the_caret_starts_its_text_under_the_caret() {
+    fn mirror_below_the_caret_starts_its_ghost_text_under_the_caret() {
         let caret = Caret {
             left: 600.0,
             top: 200.0,
             height: 18.0,
         };
 
-        let frame = mirror_frame(caret_line(caret), SIZE, SCREEN);
+        let frame = mirror_frame(caret_line(caret, 20.0), SIZE, SCREEN);
 
-        assert_eq!(frame.origin, CGPoint::new(593.0, 222.0));
+        assert_eq!(frame.origin, CGPoint::new(573.0, 222.0));
     }
 
     #[test]

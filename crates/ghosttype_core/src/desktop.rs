@@ -97,6 +97,14 @@ impl TextColor {
         contrast_ratio(luminance, 0.0) > contrast_ratio(1.0, luminance)
     }
 
+    /// The contrast ratio of WCAG 2 between this color and `other`, from 1 to 21. Text needs at
+    /// least 4.5 on its background.
+    #[must_use]
+    pub fn contrast_with(self, other: Self) -> f64 {
+        let [first, second] = [self, other].map(Self::relative_luminance);
+        contrast_ratio(first.max(second), first.min(second))
+    }
+
     fn relative_luminance(self) -> f64 {
         [self.red, self.green, self.blue]
             .map(linear_channel)
@@ -368,6 +376,22 @@ mod tests {
         let shades = colors.map(TextColor::is_light);
 
         assert_eq!(shades, [true; 4]);
+    }
+
+    #[test]
+    fn contrast_of_black_and_white_is_21_to_1_in_both_orders() {
+        let pairs = [(gray(0), gray(255)), (gray(255), gray(0))];
+
+        let ratios = pairs.map(|(first, second)| (first.contrast_with(second) * 100.0).round());
+
+        assert_eq!(ratios, [2100.0; 2]);
+    }
+
+    #[test]
+    fn contrast_of_mid_gray_on_white_is_below_the_text_minimum() {
+        let ratio = gray(0x80).contrast_with(gray(0xFF));
+
+        assert_eq!((ratio * 100.0).round(), 395.0);
     }
 
     #[test]

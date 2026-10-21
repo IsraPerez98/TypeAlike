@@ -456,6 +456,12 @@ impl App {
         }
     }
 
+    /// Returns the text before the caret in the session, empty without a session.
+    #[must_use]
+    pub fn text_before_caret(&self) -> &str {
+        self.engine.text_before_caret()
+    }
+
     /// Whether the line of the caret has no text after the caret, also without a session. `false`
     /// in a field that hides that line, because text can follow the caret there.
     #[must_use]

@@ -11,8 +11,8 @@ use windows::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, DEFAULT_CHARSET,
     DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC, DrawTextW,
-    FW_NORMAL, GdiFlush, GetTextExtentPoint32W, GetTextFaceW, HBITMAP, HDC, HFONT, HGDIOBJ, OUT_TT_PRECIS,
-    SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
+    FW_NORMAL, FW_SEMIBOLD, GdiFlush, GetTextExtentPoint32W, GetTextFaceW, HBITMAP, HDC, HFONT, HGDIOBJ,
+    OUT_TT_PRECIS, SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateIconIndirect, HICON, ICONINFO, ULW_ALPHA, UpdateLayeredWindow,
@@ -36,14 +36,21 @@ pub(crate) enum FontHeight {
     Em(i32),
 }
 
+/// How thick the letters of a font are.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FontWeight {
+    Regular,
+    Semibold,
+}
+
 #[derive(Debug)]
 pub(crate) struct Font(Owned<HFONT>);
 
 impl Font {
-    /// Creates a regular antialiased font in the first of `faces` that is installed.
-    pub(crate) fn first_installed(faces: &[&str], height: FontHeight) -> Result<Self> {
+    /// Creates an antialiased font of `weight` in the first of `faces` that is installed.
+    pub(crate) fn first_installed(faces: &[&str], height: FontHeight, weight: FontWeight) -> Result<Self> {
         for face in faces {
-            let font = Self::create(face, height)?;
+            let font = Self::create(face, height, weight)?;
             if font.face_name()? == *face {
                 return Ok(font);
             }
@@ -51,10 +58,14 @@ impl Font {
         Err(Error::new(E_FAIL, "none of the font faces is installed"))
     }
 
-    fn create(face: &str, height: FontHeight) -> Result<Self> {
+    fn create(face: &str, height: FontHeight, weight: FontWeight) -> Result<Self> {
         let height = match height {
             FontHeight::Cell(pixels) => pixels,
             FontHeight::Em(pixels) => -pixels,
+        };
+        let weight = match weight {
+            FontWeight::Regular => FW_NORMAL,
+            FontWeight::Semibold => FW_SEMIBOLD,
         };
         // SAFETY: plain call; the face name outlives it.
         let font = unsafe {
@@ -63,7 +74,7 @@ impl Font {
                 0,
                 0,
                 0,
-                FW_NORMAL.0.try_into().expect("font weight fits in i32"),
+                weight.0.try_into().expect("font weight fits in i32"),
                 0,
                 0,
                 0,
@@ -254,7 +265,7 @@ impl TextBitmap {
 /// Renders `glyph` of the system icon font in `color`, `glyph_side` pixels high, in the middle of
 /// a square of `side` pixels.
 pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
-    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side))?;
+    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side), FontWeight::Regular)?;
     TextBitmap::render_centered(glyph, &font, color.into(), side)
 }
 
