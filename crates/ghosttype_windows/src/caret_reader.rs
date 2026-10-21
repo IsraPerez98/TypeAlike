@@ -17,7 +17,7 @@ use windows::core::Result;
 use crate::caret::{self, Caret};
 use crate::focus::{self, WindowId};
 use crate::mailbox::Mailbox;
-use crate::uia::{ShownField, UiaCaret, UiaField};
+use crate::uia::{ShownField, Uia, UiaField};
 
 const THREAD_NAME: &str = "caret reader";
 
@@ -99,13 +99,13 @@ fn answer_reads(
     carets: &Mailbox<CaretRead>,
     field_texts: &Mailbox<FieldRead>,
 ) {
-    let uia = UiaCaret::connect()
+    let uia = Uia::connect()
         .inspect_err(|error| tracing::warn!(%error, "UI Automation is unavailable"))
         .ok();
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         if let Some(id) = newest.caret {
-            let caret = uia.as_ref().map_or_else(caret::system_caret, UiaCaret::read);
+            let caret = uia.as_ref().map_or_else(caret::system_caret, Uia::read);
             carets.send(CaretRead { id, caret });
         }
         if let Some(id) = newest.field_text {
@@ -118,8 +118,8 @@ fn answer_reads(
 
 /// Reads the focused field through `uia`, and its text from a classic edit control when UIA does
 /// not give it. `None` for a password field.
-fn read_field(uia: Option<&UiaCaret>) -> Option<ShownField> {
-    match uia.and_then(UiaCaret::field) {
+fn read_field(uia: Option<&Uia>) -> Option<ShownField> {
+    match uia.and_then(Uia::field) {
         Some(UiaField::Password) => None,
         Some(UiaField::Shown(field)) => Some(ShownField {
             text: field.text.or_else(focus::edit_field_text),

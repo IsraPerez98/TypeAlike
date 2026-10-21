@@ -42,7 +42,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows::core::{Interface, factory, h};
 
 use crate::focus::WindowId;
-use crate::uia::{self, FocusedField, UiaCaret};
+use crate::uia::{self, FocusedField, Uia};
 
 /// The height of the window above and below the field that the OCR reads, in pixels at a scale
 /// of 100 %. Core keeps only the lines nearest to the caret, so an OCR of the lines farther away
@@ -154,7 +154,7 @@ struct RecognizedLine {
 impl Ocr {
     /// Reads the text near the focused field from a capture of the foreground window. `None` for
     /// a password field, or when the capture or the OCR fails.
-    pub(crate) fn read(&mut self, uia: &UiaCaret) -> Option<ScreenText> {
+    pub(crate) fn read(&mut self, uia: &Uia) -> Option<ScreenText> {
         let field = uia.focused_field()?;
         // SAFETY: plain call.
         let window = unsafe { GetForegroundWindow() };

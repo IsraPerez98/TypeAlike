@@ -87,13 +87,13 @@ impl fmt::Debug for ShownField {
 
 /// A connection to UIA, usable only on the thread that made it.
 #[derive(Debug)]
-pub(crate) struct UiaCaret {
+pub(crate) struct Uia {
     automation: IUIAutomation,
     /// Declared after `automation`, so that COM ends on this thread after the last interface goes.
     _apartment: ComApartment,
 }
 
-impl UiaCaret {
+impl Uia {
     /// Joins the multithreaded COM apartment on this thread and connects to UIA.
     pub(crate) fn connect() -> Result<Self> {
         let apartment = ComApartment::join()?;
