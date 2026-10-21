@@ -3,7 +3,6 @@
 //! window takes long to read, so the reads run one at a time on a queue with a low priority, and
 //! each answer comes back to the main thread as a delivery.
 
-use std::fmt;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -26,14 +25,9 @@ const MAX_ELEMENTS: usize = 2000;
 
 /// Reads the screen text off the main thread, and gives each answer to the controller. Drop stops
 /// the reads after the current one and does not wait for it.
+#[derive(Debug)]
 pub(crate) struct ScreenTextReader {
     requests: mpsc::Sender<ScreenRequest>,
-}
-
-impl fmt::Debug for ScreenTextReader {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("ScreenTextReader").finish_non_exhaustive()
-    }
 }
 
 /// A read that core asked for.
@@ -119,10 +113,11 @@ fn nearby_static_texts(focused: &AXUIElement, visible: CGRect) -> Vec<ScreenLine
     };
     let mut child = focused.retain();
     while let Some(parent) = parent(&child) {
-        for sibling in children(&parent) {
-            if !is_same(&sibling, &child) {
-                walk.visit(sibling);
-            }
+        for sibling in children(&parent)
+            .into_iter()
+            .filter(|sibling| !is_same(sibling, &child))
+        {
+            walk.visit(sibling);
         }
         let is_window = accessibility::copy_string(&parent, ROLE_ATTRIBUTE).as_deref() == Some(WINDOW_ROLE);
         if is_window || walk.elements_left == 0 {
@@ -154,20 +149,21 @@ impl Walk {
                 continue;
             }
             if accessibility::copy_string(&element, ROLE_ATTRIBUTE).as_deref() == Some(STATIC_TEXT_ROLE) {
-                if let (Some(text), Some(frame)) =
-                    (accessibility::copy_string(&element, VALUE_ATTRIBUTE), frame)
-                {
-                    self.lines.push(ScreenLine {
-                        text,
-                        confidence: Confidence::CERTAIN,
-                        frame: screen_rect(frame),
-                    });
-                }
+                self.lines.extend(static_text_line(&element, frame));
                 continue;
             }
             pending.extend(children(&element).into_iter().rev());
         }
     }
+}
+
+/// The line of the static text `element` at `frame`, when it has a value and a frame.
+fn static_text_line(element: &AXUIElement, frame: Option<CGRect>) -> Option<ScreenLine> {
+    Some(ScreenLine {
+        text: accessibility::copy_string(element, VALUE_ATTRIBUTE)?,
+        confidence: Confidence::CERTAIN,
+        frame: screen_rect(frame?),
+    })
 }
 
 /// Whether an element at `frame` shows in `visible`. An element without area can hold visible
