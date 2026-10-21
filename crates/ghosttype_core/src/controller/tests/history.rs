@@ -54,7 +54,7 @@ fn history_loads_at_start_only_when_it_is_on() {
 }
 
 #[test]
-fn turning_on_the_history_loads_it_once_and_keeps_the_setting() {
+fn turning_on_the_history_loads_it_once() {
     let mut harness = Harness::new(Settings::default());
 
     harness.toggle(HISTORY, true);
@@ -62,6 +62,14 @@ fn turning_on_the_history_loads_it_once_and_keeps_the_setting() {
     harness.toggle(HISTORY, true);
 
     assert_eq!(harness.history_loads(), 1);
+}
+
+#[test]
+fn turning_on_the_history_keeps_the_setting() {
+    let mut harness = Harness::new(Settings::default());
+
+    harness.toggle(HISTORY, true);
+
     assert_eq!(
         harness
             .saved()

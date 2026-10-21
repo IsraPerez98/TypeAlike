@@ -188,13 +188,25 @@ fn tab_while_the_rest_waits_for_the_caret_types_its_next_part() {
     harness.shell.is_ghost_shown = false;
     harness.take_calls();
 
+    harness.press(Key::Tab);
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::TypeText(" regards".to_owned()))
+    );
+}
+
+#[test]
+fn tab_while_the_rest_waits_for_the_caret_swallows_the_key() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+    harness.press(Key::Tab);
+    harness.shell.is_ghost_shown = false;
+
     let disposition = harness.press(Key::Tab);
 
-    let calls = harness.take_calls();
-    assert!(
-        disposition == Disposition::Swallow && calls.contains(&Call::TypeText(" regards".to_owned())),
-        "unexpected {disposition:?} {calls:?}"
-    );
+    assert_eq!(disposition, Disposition::Swallow);
 }
 
 #[test]
@@ -347,18 +359,28 @@ fn fix_shows_when_caret_settles() {
 }
 
 #[test]
-fn tab_on_a_fix_replaces_the_typo_and_swallows_the_key() {
+fn tab_on_a_fix_replaces_the_typo() {
     let mut harness = harness_showing_a_fix();
     harness.settle_caret();
     harness.take_calls();
 
+    harness.press(Key::Tab);
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::ReplaceText(1, "Best".to_owned()))
+    );
+}
+
+#[test]
+fn tab_on_a_fix_swallows_the_key() {
+    let mut harness = harness_showing_a_fix();
+    harness.settle_caret();
+
     let disposition = harness.press(Key::Tab);
 
-    let calls = harness.take_calls();
-    assert!(
-        disposition == Disposition::Swallow && calls.contains(&Call::ReplaceText(1, "Best".to_owned())),
-        "unexpected {disposition:?} {calls:?}"
-    );
+    assert_eq!(disposition, Disposition::Swallow);
 }
 
 #[test]

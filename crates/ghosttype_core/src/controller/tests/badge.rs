@@ -8,7 +8,7 @@ use crate::settings::{HistoryScope, Settings};
 use crate::test_support::{mail_app, mail_history_app};
 
 #[test]
-fn badge_command_pauses_suggestions_and_unloads_the_model() {
+fn badge_pause_command_pauses_suggestions() {
     let mut harness = Harness::new(suggestion_settings());
     harness.press(Key::Char('B'));
 
@@ -16,10 +16,19 @@ fn badge_command_pauses_suggestions_and_unloads_the_model() {
         .controller
         .on_badge_command(BadgeCommand::TogglePause, &mut harness.shell);
 
-    assert_eq!(
-        (harness.controller.tray_view().status, harness.last_request()),
-        (Status::Paused, Some(InferenceRequest::Unload))
-    );
+    assert_eq!(harness.controller.tray_view().status, Status::Paused);
+}
+
+#[test]
+fn badge_pause_command_unloads_the_model() {
+    let mut harness = Harness::new(suggestion_settings());
+    harness.press(Key::Char('B'));
+
+    harness
+        .controller
+        .on_badge_command(BadgeCommand::TogglePause, &mut harness.shell);
+
+    assert_eq!(harness.last_request(), Some(InferenceRequest::Unload));
 }
 
 /// The labels of the entries of the badge menu that run a command, top to bottom.
@@ -90,30 +99,43 @@ fn badge_screen_text_command_turns_off_the_app_and_keeps_the_setting() {
     );
 }
 
+/// Picks `scope` for Mail in the menu of the badge.
+fn select_mail_scope(harness: &mut Harness, scope: HistoryScope) {
+    harness.controller.on_badge_command(
+        BadgeCommand::SelectHistoryScope {
+            app_id: "com.apple.mail".to_owned(),
+            scope,
+        },
+        &mut harness.shell,
+    );
+}
+
 #[test]
-fn badge_scope_command_turns_off_the_app_and_deletes_its_text() {
+fn badge_scope_command_turns_off_the_app() {
     let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
     harness.focus_text_field_of("com.apple.mail", "Mail");
     harness.press(Key::Char('H'));
 
-    harness.controller.on_badge_command(
-        BadgeCommand::SelectHistoryScope {
-            app_id: "com.apple.mail".to_owned(),
-            scope: HistoryScope::Off,
-        },
-        &mut harness.shell,
-    );
+    select_mail_scope(&mut harness, HistoryScope::Off);
 
     assert_eq!(
-        (
-            harness
-                .saved()
-                .last()
-                .map(|settings| settings.personalization.apps.clone()),
-            harness.history_saves().last().cloned(),
-        ),
-        (Some(vec![mail_history_app(HistoryScope::Off)]), Some(Vec::new()))
+        harness
+            .saved()
+            .last()
+            .map(|settings| settings.personalization.apps.clone()),
+        Some(vec![mail_history_app(HistoryScope::Off)])
     );
+}
+
+#[test]
+fn badge_scope_command_deletes_the_text_of_the_app() {
+    let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.press(Key::Char('H'));
+
+    select_mail_scope(&mut harness, HistoryScope::Off);
+
+    assert_eq!(harness.history_saves().last().cloned(), Some(Vec::new()));
 }
 
 #[test]
@@ -123,13 +145,7 @@ fn badge_scope_command_shows_the_new_scope_in_the_settings_window() {
     harness.press(Key::Char('H'));
     harness.take_calls();
 
-    harness.controller.on_badge_command(
-        BadgeCommand::SelectHistoryScope {
-            app_id: "com.apple.mail".to_owned(),
-            scope: HistoryScope::ThisApp,
-        },
-        &mut harness.shell,
-    );
+    select_mail_scope(&mut harness, HistoryScope::ThisApp);
 
     assert!(matches!(
         harness.take_calls().as_slice(),
