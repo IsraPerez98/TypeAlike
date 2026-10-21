@@ -226,8 +226,7 @@ impl Settings {
         self.suggestion_length.min(self.longest_suggestion_length())
     }
 
-    /// What a suggestion does when the typed letters of the last word look like a typo: nothing
-    /// when the typo rule finds no typos, else it hides the suggestion or offers a fix.
+    /// The typo check of each suggestion request, from the typo rule and the typo fix.
     pub(crate) fn typo_check(&self) -> TypoCheck {
         let Some(min) = self.typo_rule.typed_letters_cut() else {
             return TypoCheck::Off;
