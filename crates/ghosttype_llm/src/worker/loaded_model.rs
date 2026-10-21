@@ -9,7 +9,7 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
 
 use super::generation::{
-    AddedTokens, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
+    AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
 };
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
 use super::model_params::CpuThreads;
@@ -150,15 +150,20 @@ impl<'model> LoadedModel<'model> {
             )?);
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
-        let healing = Healing {
+        let decoder = Decoder {
+            vocab: &vocab,
             pieces: &self.pieces,
+            token_bias,
+            limits,
+        };
+        let healing = Healing {
             text: &healed_text,
             first_token: None,
         };
         let added = cache
             .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| cache.continue_prompt(&vocab, &healing, limits, token_bias, progress))
-            .and_then(|added| cache.continue_fixed(&vocab, &healing, added, limits, token_bias, progress));
+            .and_then(|()| cache.continue_prompt(&decoder, healing, progress))
+            .and_then(|added| cache.continue_fixed(&decoder, healing, added, progress));
         match added {
             Ok(added) => {
                 let healed = added

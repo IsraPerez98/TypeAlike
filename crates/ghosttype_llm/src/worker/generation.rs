@@ -8,6 +8,7 @@ use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 
+use super::logits::TokenBias;
 use super::pieces::TokenPieces;
 use super::words::starts_word;
 
@@ -34,10 +35,19 @@ pub(super) struct Progress<'job> {
     pub(super) send_partial: &'job mut dyn FnMut(String),
 }
 
-/// The text that the first added tokens write again, and the text of each token, which finds the
-/// tokens that agree with it.
+/// What each step of a completion reads: the vocabulary, the text of each token, which finds the
+/// tokens that agree with the healed text, the bias of the logits and the limits.
+#[derive(Clone, Copy)]
+pub(super) struct Decoder<'run> {
+    pub(super) vocab: &'run LlamaVocab<'run>,
+    pub(super) pieces: &'run TokenPieces,
+    pub(super) token_bias: &'run TokenBias,
+    pub(super) limits: Limits,
+}
+
+/// The text that the first added tokens write again.
+#[derive(Debug, Clone, Copy)]
 pub(super) struct Healing<'text> {
-    pub(super) pieces: &'text TokenPieces,
     pub(super) text: &'text [u8],
     /// The token that the first step takes, from the fix of a typo, if any.
     pub(super) first_token: Option<LlamaToken>,

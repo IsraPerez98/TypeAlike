@@ -7,15 +7,14 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
-use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 
 use super::correction::{TypedLetters, typo_fix};
 use super::generation::{
-    AddedTokens, Healing, Limits, Progress, added_after, added_text, after_prefix, is_markup,
+    AddedTokens, Decoder, Healing, Limits, Progress, added_after, added_text, after_prefix, is_markup,
     writes_line_break,
 };
-use super::logits::{TokenBias, agreeing_log_probability, choose_token, with_bias};
+use super::logits::{agreeing_log_probability, choose_token, with_bias};
 use super::model_params::{BATCH_TOKENS, CpuThreads, context_params};
 use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence};
 
@@ -231,19 +230,23 @@ impl<'model> PromptCache<'model> {
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
-    /// the end of a sentence and at the `limits`. It leaves out the word that the minimum
-    /// probability cuts, and the last word at the token limit unless that word ends a sentence,
-    /// because the limit can cut it. It never leaves out the only word. It adds no tokens when the
-    /// healing text is less likely than the minimum for typed letters. Before each decode, it
-    /// stops when `progress` tells so, and else sends the text that it added so far.
+    /// the end of a sentence and at the limits of the `decoder`. It leaves out the word that the
+    /// minimum probability cuts, and the last word at the token limit unless that word ends a
+    /// sentence, because the limit can cut it. It never leaves out the only word. It adds no tokens
+    /// when the healing text is less likely than the minimum for typed letters. Before each decode,
+    /// it stops when `progress` tells so, and else sends the text that it added so far.
     pub(super) fn continue_prompt(
         &mut self,
-        vocab: &LlamaVocab<'_>,
-        healing: &Healing<'_>,
-        limits: Limits,
-        token_bias: &TokenBias,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
+        let Decoder {
+            vocab,
+            pieces,
+            token_bias,
+            limits,
+        } = *decoder;
         self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
         self.context
             .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
@@ -257,7 +260,7 @@ impl<'model> PromptCache<'model> {
         let mut typed = TypedLetters::default();
         while added.len() < limits.max_added {
             if !unwritten.is_empty() {
-                typed.add(logits, healing.pieces, unwritten);
+                typed.add(logits, pieces, unwritten);
                 if limits
                     .min_typed_log_probability
                     .is_some_and(|min| typed.log_probability() < min)
@@ -274,9 +277,9 @@ impl<'model> PromptCache<'model> {
             let (token, log_probability) = match healing.first_token.filter(|_| added.is_empty()) {
                 Some(token) => (
                     token,
-                    agreeing_log_probability(logits, token, healing.pieces.agreeing_with(unwritten)),
+                    agreeing_log_probability(logits, token, pieces.agreeing_with(unwritten)),
                 ),
-                None => choose_token(scores, logits, healing.pieces, unwritten),
+                None => choose_token(scores, logits, pieces, unwritten),
             };
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
@@ -330,35 +333,33 @@ impl<'model> PromptCache<'model> {
             correction: None,
         })
     }
-}
 
-impl PromptCache<'_> {
     /// Continues the prompt again when `added` stopped for a typo in the `healing` text and a fix
     /// comes: the first step takes the token of the fix, and the added tokens continue the fixed
     /// letters. Their parts do not go to `progress`, because they do not continue the prompt.
-    /// Returns `added` when it did not stop for a typo, the `limits` ask for no fix, or no fix
-    /// comes.
+    /// Returns `added` when it did not stop for a typo, the limits of the `decoder` ask for no fix,
+    /// or no fix comes.
     pub(super) fn continue_fixed(
         &mut self,
-        vocab: &LlamaVocab<'_>,
-        healing: &Healing<'_>,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
         added: AddedTokens,
-        limits: Limits,
-        token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
-        let Some(min) = limits.min_typed_log_probability.filter(|&min| {
-            limits.fixes_typos && added.tokens.is_empty() && added.typed_log_probability < min
-        }) else {
+        let limits = decoder.limits;
+        let Some(min) = limits.min_typed_log_probability else {
             return Ok(added);
         };
-        let Some((token, fixed)) = typo_fix(&self.logits, healing.pieces, healing.text, min, |token| {
-            vocab.token_to_piece(token, false, None)
+        let has_stopped_for_typo = added.tokens.is_empty() && added.typed_log_probability < min;
+        if !limits.fixes_typos || !has_stopped_for_typo {
+            return Ok(added);
+        }
+        let Some((token, fixed)) = typo_fix(&self.logits, decoder.pieces, healing.text, min, |token| {
+            decoder.vocab.token_to_piece(token, false, None)
         }) else {
             return Ok(added);
         };
         let fixed_healing = Healing {
-            pieces: healing.pieces,
             text: fixed.as_bytes(),
             first_token: Some(token),
         };
@@ -366,12 +367,15 @@ impl PromptCache<'_> {
             is_outdated: &mut *progress.is_outdated,
             send_partial: &mut |_| {},
         };
-        let limits = Limits {
-            min_typed_log_probability: None,
-            fixes_typos: false,
-            ..limits
+        let fixed_decoder = Decoder {
+            limits: Limits {
+                min_typed_log_probability: None,
+                fixes_typos: false,
+                ..limits
+            },
+            ..*decoder
         };
-        let fixed_added = self.continue_prompt(vocab, &fixed_healing, limits, token_bias, &mut quiet)?;
+        let fixed_added = self.continue_prompt(&fixed_decoder, fixed_healing, &mut quiet)?;
         Ok(AddedTokens {
             typed_log_probability: added.typed_log_probability,
             correction: Some(Correction {
