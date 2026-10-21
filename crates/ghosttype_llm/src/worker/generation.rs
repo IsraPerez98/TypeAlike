@@ -357,4 +357,130 @@ mod tests {
 
         assert_eq!(markup, cases.map(|(_, expected)| expected));
     }
+
+    fn healing(text: &[u8]) -> Healing<'_> {
+        Healing {
+            text,
+            first_token: None,
+        }
+    }
+
+    fn limits(max_added: usize, min_log_probability: Option<f32>) -> Limits {
+        Limits {
+            max_added,
+            min_log_probability: min_log_probability.map(LogProbability),
+            min_typed_log_probability: None,
+            fixes_typos: false,
+        }
+    }
+
+    /// Adds a token for each of `tokens`, with the ids from 1, after an empty healed text, until a
+    /// step stops. Returns the last step and the tokens that stay.
+    fn add_tokens(tokens: &[(&str, f32)], limits: Limits) -> (Step, Vec<LlamaToken>) {
+        let pieces = TokenPieces::from_texts(&[]);
+        let mut generation = Generation::new(&pieces, healing(b""));
+        let step = tokens
+            .iter()
+            .zip(1..)
+            .map(|(&(text, log_probability), id)| {
+                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, limits)
+            })
+            .find(|&step| step == Step::Stop)
+            .unwrap_or(Step::Continue);
+        (step, generation.tokens().to_vec())
+    }
+
+    #[test]
+    fn only_unwritten_healed_text_below_the_typo_minimum_stops() {
+        let pieces = TokenPieces::from_texts(&[" cost", " cat"]);
+        let logits = [1.0_f32.ln(), 99.0_f32.ln()];
+        let cases = [
+            (&b" cost"[..], Some(LogProbability(-3.0)), Step::Stop),
+            (b" cost", Some(LogProbability(-5.0)), Step::Continue),
+            (b" cost", None, Step::Continue),
+            (b"", Some(LogProbability(0.0)), Step::Continue),
+        ];
+
+        let steps = cases
+            .map(|(text, min, _)| Generation::new(&pieces, healing(text)).add_healing_step(&logits, min));
+
+        assert_eq!(steps, cases.map(|(_, _, step)| step));
+    }
+
+    #[test]
+    fn typo_stop_drops_the_tokens_that_wrote_the_healed_text() {
+        let pieces = TokenPieces::from_texts(&[" beaut", "i"]);
+        let mut generation = Generation::new(&pieces, healing(b" beauti"));
+        generation.add_token(LlamaToken(0), b" beaut", -1.0, limits(16, None));
+
+        let added = generation.into_typo_stop();
+
+        assert_eq!(added.tokens, []);
+    }
+
+    #[test]
+    fn first_step_takes_the_first_token_of_the_healing() {
+        let pieces = TokenPieces::from_texts(&[" de", " deli"]);
+        let generation = Generation::new(
+            &pieces,
+            Healing {
+                text: b" deli",
+                first_token: Some(LlamaToken(1)),
+            },
+        );
+
+        let (token, _) = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0]);
+
+        assert_eq!(token, LlamaToken(1));
+    }
+
+    #[test]
+    fn tokens_inside_the_limits_continue() {
+        let added = add_tokens(&[("very", -1.0), (" soon", -1.0)], limits(16, None));
+
+        assert_eq!(added, (Step::Continue, vec![LlamaToken(1), LlamaToken(2)]));
+    }
+
+    #[test]
+    fn token_with_a_line_break_is_the_last_token() {
+        let added = add_tokens(
+            &[("very", -1.0), (" soon\n", -1.0), (" thanks", -1.0)],
+            limits(16, None),
+        );
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1), LlamaToken(2)]));
+    }
+
+    #[test]
+    fn new_word_after_the_end_of_a_sentence_is_left_out() {
+        let added = add_tokens(&[("Sure.", -1.0), (" Then", -1.0)], limits(16, None));
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn cut_inside_a_word_leaves_out_that_word() {
+        let added = add_tokens(
+            &[("very", -1.0), (" th", -0.5), ("anks", -5.0)],
+            limits(16, Some(-3.0)),
+        );
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn token_limit_leaves_out_a_last_word_that_does_not_end_a_sentence() {
+        let last_words = [" so", " soon."];
+
+        let added =
+            last_words.map(|last_word| add_tokens(&[("very", -1.0), (last_word, -1.0)], limits(2, None)));
+
+        assert_eq!(
+            added,
+            [
+                (Step::Stop, vec![LlamaToken(1)]),
+                (Step::Stop, vec![LlamaToken(1), LlamaToken(2)]),
+            ]
+        );
+    }
 }
