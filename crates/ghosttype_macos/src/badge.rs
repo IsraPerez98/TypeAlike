@@ -62,7 +62,7 @@ impl Badge {
 
     /// The bottom-left corner of the shown badge in AppKit's screen coordinates, where its menu
     /// starts.
-    pub(crate) fn menu_location(&self) -> Option<NSPoint> {
+    pub(crate) fn menu_anchor(&self) -> Option<NSPoint> {
         self.shown_frame.map(|_| self.panel.frame().origin)
     }
 

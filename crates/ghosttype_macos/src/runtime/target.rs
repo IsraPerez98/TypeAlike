@@ -39,10 +39,9 @@ define_class!(
         // SAFETY: matches the timer action signature.
         #[unsafe(method(showBadgeMenu:))]
         fn show_badge_menu(&self, _timer: &NSTimer) {
-            // The menu runs an event loop of its own, which must not run inside the borrow of the
-            // runtime.
-            if let Some((menu, location)) = with_runtime(Runtime::open_badge_menu).flatten() {
-                menu.popUpMenuPositioningItem_atLocation_inView(None, location, None);
+            // The menu runs an event loop of its own, so it must run outside the borrow of the runtime.
+            if let Some((menu, anchor)) = with_runtime(Runtime::build_badge_menu).flatten() {
+                menu.popUpMenuPositioningItem_atLocation_inView(None, anchor, None);
             }
         }
 

@@ -65,15 +65,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     }
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;
     let target = RuntimeTarget::new(main_thread);
-    let deliver: DeliverySink = Arc::new(|delivery| {
-        let sent = Instant::now();
-        DispatchQueue::main().exec_async(move || {
-            if let Delivery::Screen(read) = &delivery {
-                tracing::debug!(read = ?read.id, trip = ?sent.elapsed(), "screen read reached the main thread");
-            }
-            with_runtime(|runtime| runtime.on_delivery(delivery));
-        });
-    });
+    let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
     let controller = Controller::new(
         settings,
         services,
@@ -114,6 +106,17 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     application.run();
     RUNTIME.take();
     Ok(())
+}
+
+/// Gives `delivery` to the runtime on the main thread, from any thread.
+fn deliver_on_main_thread(delivery: Delivery) {
+    let sent = Instant::now();
+    DispatchQueue::main().exec_async(move || {
+        if let Delivery::Screen(read) = &delivery {
+            tracing::debug!(read = ?read.id, trip = ?sent.elapsed(), "screen read reached the main thread");
+        }
+        with_runtime(|runtime| runtime.on_delivery(delivery));
+    });
 }
 
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
@@ -194,13 +197,13 @@ impl Runtime {
 
     /// Builds the menu of the badge, and keeps its view for the pick. Returns the menu and where
     /// it starts, or `None` while no badge shows.
-    fn open_badge_menu(&mut self) -> Option<(Retained<NSMenu>, NSPoint)> {
-        let location = self.shell.badge.menu_location()?;
+    fn build_badge_menu(&mut self) -> Option<(Retained<NSMenu>, NSPoint)> {
+        let anchor = self.shell.badge.menu_anchor()?;
         let view = self.controller.badge_menu()?;
         let target = &self.shell.target;
         let menu = badge_menu::build(&view, target, sel!(pickBadgeMenuItem:), target.mtm());
         self.badge_menu = Some(view);
-        Some((menu, location))
+        Some((menu, anchor))
     }
 
     fn on_badge_menu_item(&mut self, tag: isize) {
