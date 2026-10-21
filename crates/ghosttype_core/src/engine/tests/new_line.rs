@@ -74,10 +74,26 @@ fn dead_key_hides_the_suggestion() {
 
     let reaction = press(&mut engine, Key::Dead);
 
-    assert_eq!(
-        (reaction, engine.shown(), engine.has_session()),
-        (Reaction::Hide, "", true)
-    );
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn tab_after_a_dead_key_passes_through() {
+    let mut engine = engine_showing("qu", "é tal");
+    press(&mut engine, Key::Dead);
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn dead_key_while_a_suggestion_shows_keeps_the_session() {
+    let mut engine = engine_showing("qu", "é tal");
+
+    press(&mut engine, Key::Dead);
+
+    assert!(engine.has_session());
 }
 
 #[test]
@@ -86,7 +102,17 @@ fn enter_hides_the_suggestion() {
 
     let reaction = press(&mut engine, Key::Enter);
 
-    assert_eq!((reaction, engine.shown()), (Reaction::Hide, ""));
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn tab_after_enter_passes_through() {
+    let mut engine = engine_showing("he", "llo");
+    press(&mut engine, Key::Enter);
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(reaction, Reaction::Hide);
 }
 
 #[test]

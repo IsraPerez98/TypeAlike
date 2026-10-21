@@ -2,14 +2,14 @@
 
 use crate::desktop::FieldText;
 use crate::engine::{Engine, Reaction};
-use crate::history::{HistoryEntry, HistoryPool};
+use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 
 use super::support::{
-    FakeDesktop, GREETING, engine_with, field_of, finish_typing, history_settings, mail_app, mail_entry,
-    mail_field, show, type_text,
+    FakeDesktop, GREETING, completion, engine_with, field_of, finish_typing, history_settings, mail_app,
+    mail_entry, mail_field, show, type_text,
 };
 
 fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -59,34 +59,40 @@ fn request_has_no_word_bias_when_the_history_or_the_app_is_off() {
     assert_eq!(biases, [None, None]);
 }
 
+fn word_bias_version_of_request(reaction: Reaction) -> Option<u64> {
+    match reaction {
+        Reaction::Request(InferenceRequest::Complete { word_bias, .. }) => word_bias.map(|bias| bias.version),
+        _ => None,
+    }
+}
+
 #[test]
-fn new_word_choice_or_new_history_gives_a_new_version() {
+fn new_word_choice_gives_a_new_version() {
     let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    let first = engine
-        .tables
-        .word_bias(&HistoryPool::Shared)
-        .map(|bias| bias.version);
-    engine.use_settings(&{
-        let mut settings = word_choice_settings(HistoryAccess::On, Vec::new());
-        settings.personalization.word_choice = WordChoice::Strong;
-        settings
-    });
-    let second = engine
-        .tables
-        .word_bias(&HistoryPool::Shared)
-        .map(|bias| bias.version);
+    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    let mut strong_settings = word_choice_settings(HistoryAccess::On, Vec::new());
+    strong_settings.personalization.word_choice = WordChoice::Strong;
+
+    engine.use_settings(&strong_settings);
+
+    let after = word_bias_version_of_request(engine.on_key(Key::Char('i'), &mail_field()));
+    assert!(before < after, "{before:?} {after:?}");
+}
+
+#[test]
+fn new_history_gives_a_new_version() {
+    let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
+    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    engine.on_completion(completion(""));
+
     finish_typing(
         &mut engine,
         &field_of(Some("com.apple.mail"), None, GREETING),
         true,
     );
 
-    let third = engine
-        .tables
-        .word_bias(&HistoryPool::Shared)
-        .map(|bias| bias.version);
-
-    assert!(first < second && second < third, "{first:?} {second:?} {third:?}");
+    let after = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    assert!(before < after, "{before:?} {after:?}");
 }
 
 fn engine_with_phrases(settings: &Settings) -> Engine {
@@ -250,26 +256,35 @@ fn only_apps_with_all_apps_give_phrases_to_each_other() {
     assert_eq!(shown, [true, false, false]);
 }
 
+/// The request that a key after "Please let me know" in the other chat app gets, with the earlier
+/// writing of the chat app and the pools of `scopes`.
+fn request_in_other_chat_app(scopes: (HistoryScope, HistoryScope)) -> Reaction {
+    let mut engine = engine_with(&pool_settings(scopes));
+    engine.use_history(vec![
+        chat_entry("Let me know if it works. Reckon reckon reckon."),
+        chat_entry("Let me know when you can."),
+    ]);
+    let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
+    engine.on_key(Key::Char(' '), &desktop)
+}
+
 #[test]
-fn only_apps_with_all_apps_give_next_words_and_word_bias_to_each_other() {
-    let biases = pool_cases().map(|scopes| {
-        let mut engine = engine_with(&pool_settings(scopes));
-        engine.use_history(vec![
-            chat_entry("Let me know if it works. Reckon reckon reckon."),
-            chat_entry("Let me know when you can."),
-        ]);
-        let desktop = field_of(Some(OTHER_CHAT_APP), None, "Please let me know");
-        match engine.on_key(Key::Char(' '), &desktop) {
-            Reaction::Request(InferenceRequest::Complete {
-                word_bias,
-                next_word_bias,
-                ..
-            }) => (word_bias.is_some(), !next_word_bias.0.is_empty()),
-            _ => (false, false),
-        }
+fn only_apps_with_all_apps_give_word_bias_to_each_other() {
+    let biases = pool_cases().map(|scopes| word_bias_of_request(request_in_other_chat_app(scopes)).is_some());
+
+    assert_eq!(biases, [true, false, false]);
+}
+
+#[test]
+fn only_apps_with_all_apps_give_next_words_to_each_other() {
+    let next_words = pool_cases().map(|scopes| {
+        matches!(
+            request_in_other_chat_app(scopes),
+            Reaction::Request(InferenceRequest::Complete { next_word_bias, .. }) if !next_word_bias.0.is_empty()
+        )
     });
 
-    assert_eq!(biases, [(true, true), (false, false), (false, false)]);
+    assert_eq!(next_words, [true, false, false]);
 }
 
 #[test]

@@ -48,13 +48,22 @@ fn caret_in_a_field_that_hides_its_line_is_not_at_the_line_end() {
 }
 
 #[test]
-fn reset_hides_and_clears_context() {
+fn reset_hides_the_suggestion() {
     let mut engine = engine_showing("he", "llo");
 
-    let reset_reaction = engine.reset();
-    let typed_reaction = press(&mut engine, Key::Char('l'));
+    let reaction = engine.reset();
 
-    assert_eq!((reset_reaction, typed_reaction), (Reaction::Hide, request("l")));
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn typing_after_reset_starts_an_empty_context() {
+    let mut engine = engine_showing("he", "llo");
+    engine.reset();
+
+    let reaction = press(&mut engine, Key::Char('l'));
+
+    assert_eq!(reaction, request("l"));
 }
 
 #[test]
