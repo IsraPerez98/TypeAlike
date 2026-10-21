@@ -30,9 +30,7 @@ const MAX_PATH_UNITS: usize = 1024;
 #[derive(Debug)]
 pub(crate) struct FocusTracker {
     foreground: HWND,
-    foreground_app_name: Option<String>,
-    foreground_app_id: Option<String>,
-    foreground_app_path: Option<String>,
+    foreground_app: AppIdentity,
     is_foreground_eligible: bool,
     is_self_elevated: bool,
 }
@@ -43,9 +41,7 @@ impl FocusTracker {
         let is_self_elevated = is_elevated(unsafe { GetCurrentProcess() }).unwrap_or(false);
         Self {
             foreground: HWND::default(),
-            foreground_app_name: None,
-            foreground_app_id: None,
-            foreground_app_path: None,
+            foreground_app: AppIdentity::default(),
             is_foreground_eligible: false,
             is_self_elevated,
         }
@@ -60,13 +56,7 @@ impl FocusTracker {
         self.foreground = foreground;
         let process_id = process_id(foreground);
         self.is_foreground_eligible = self.is_eligible_process(process_id);
-        let image_path = process_image_path(process_id).ok();
-        self.foreground_app_name = image_path.as_deref().and_then(app_name);
-        self.foreground_app_id = image_path
-            .as_deref()
-            .and_then(program_file_name)
-            .map(str::to_owned);
-        self.foreground_app_path = image_path;
+        self.foreground_app = AppIdentity::of_program(process_image_path(process_id).ok());
         FocusChange::Changed
     }
 
@@ -88,9 +78,9 @@ impl FocusTracker {
     /// to read.
     pub(crate) fn surroundings(&self) -> Surroundings {
         Surroundings {
-            app_name: self.foreground_app_name.clone(),
-            app_id: self.foreground_app_id.clone(),
-            app_path: self.foreground_app_path.clone(),
+            app_name: self.foreground_app.name.clone(),
+            app_id: self.foreground_app.id.clone(),
+            app_path: self.foreground_app.path.clone(),
             window_title: window_title(self.foreground),
             ..Surroundings::default()
         }
@@ -104,6 +94,28 @@ impl FocusTracker {
             return false;
         }
         self.is_self_elevated || !is_process_elevated(process_id).unwrap_or(true)
+    }
+}
+
+/// The name, the id and the program path of an app, or `None` for each that GhostType cannot read.
+#[derive(Debug, Default)]
+struct AppIdentity {
+    name: Option<String>,
+    id: Option<String>,
+    path: Option<String>,
+}
+
+impl AppIdentity {
+    /// The app whose program file is at `image_path`.
+    fn of_program(image_path: Option<String>) -> Self {
+        Self {
+            name: image_path.as_deref().and_then(app_name),
+            id: image_path
+                .as_deref()
+                .and_then(program_file_name)
+                .map(str::to_owned),
+            path: image_path,
+        }
     }
 }
 
