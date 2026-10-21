@@ -50,14 +50,13 @@ impl Engine {
             return;
         }
         let domain = session.field.domain.as_deref();
-        let written = history::own_text(
-            &self.history,
-            &session.text_before,
-            session.field_chars,
-            &app.app_id,
+        let finished = history::FinishedText {
+            text: &session.text_before,
+            field_chars: session.field_chars,
+            app_id: &app.app_id,
             domain,
-            &self.personalization,
-        );
+        };
+        let written = history::own_text(&self.history, &finished, &self.personalization);
         let Some(entry) = HistoryEntry::of(written, &app.app_id, domain) else {
             return;
         };

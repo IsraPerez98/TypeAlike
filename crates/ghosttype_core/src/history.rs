@@ -17,7 +17,7 @@ use std::io;
 
 pub use entry::HistoryEntry;
 pub(crate) use examples::examples;
-pub(crate) use store::{HistoryPool, add, own_text, session_texts};
+pub(crate) use store::{FinishedText, HistoryPool, add, own_text, session_texts};
 pub(crate) use tables::HistoryTables;
 pub use word_bias::word_bias_of_counts;
 pub(crate) use words::is_apostrophe;

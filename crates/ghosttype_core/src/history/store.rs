@@ -100,26 +100,35 @@ fn oldest_of_largest_place(entries: &[HistoryEntry]) -> usize {
         .unwrap_or_default()
 }
 
-/// Returns the part of `text`, the text before the caret at the end of a session in the place of
-/// `app_id` and `domain`, that the user wrote. The first `field_chars` characters came from the
-/// field. They count as written by the user when an entry of the same place and the same pool of
+/// The text before the caret at the end of a session, with its place.
+pub(crate) struct FinishedText<'text> {
+    /// The text before the caret.
+    pub(crate) text: &'text str,
+    /// The characters at the start of the text that came from the field.
+    pub(crate) field_chars: usize,
+    /// The app where the user wrote the text.
+    pub(crate) app_id: &'text str,
+    /// The host of the web page where the user wrote the text, if any.
+    pub(crate) domain: Option<&'text str>,
+}
+
+/// Returns the part of the `finished` text that the user wrote. The characters that came from the
+/// field count as written by the user when an entry of the same place and the same pool of
 /// `personalization` holds them, because the user continues a draft, or when the user added at
 /// least [`MIN_OWN_PERCENT`] of the text. Else only the added part counts, from its first whole
 /// word.
 pub(crate) fn own_text<'text>(
     entries: &[HistoryEntry],
-    text: &'text str,
-    field_chars: usize,
-    app_id: &str,
-    domain: Option<&str>,
+    finished: &FinishedText<'text>,
     personalization: &PersonalizationSettings,
 ) -> &'text str {
+    let text = finished.text;
     let added_start = text
         .char_indices()
-        .nth(field_chars)
+        .nth(finished.field_chars)
         .map_or(text.len(), |(index, _)| index);
     let (field, added) = text.split_at(added_start);
-    let is_draft = HistoryEntry::of(field, app_id, domain)
+    let is_draft = HistoryEntry::of(field, finished.app_id, finished.domain)
         .is_some_and(|draft| is_known(entries, &draft, personalization));
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
     if field.trim().is_empty() || is_draft || is_mostly_added {
@@ -172,7 +181,13 @@ mod tests {
     const DRAFT: &str = "Dear Ana, I send you the report of the third quarter with all the numbers.";
 
     fn own(entries: &[HistoryEntry], text: &str, field_chars: usize) -> String {
-        own_text(entries, text, field_chars, "com.apple.mail", None, &shared()).to_owned()
+        let finished = FinishedText {
+            text,
+            field_chars,
+            app_id: "com.apple.mail",
+            domain: None,
+        };
+        own_text(entries, &finished, &shared()).to_owned()
     }
 
     #[test]
@@ -242,15 +257,14 @@ mod tests {
     fn own_text_is_all_the_text_when_an_entry_of_the_same_page_in_another_browser_holds_the_field() {
         let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
         let text = format!("{DRAFT} PS: call me.");
+        let finished = FinishedText {
+            text: &text,
+            field_chars: DRAFT.chars().count(),
+            app_id: "com.google.Chrome",
+            domain: Some("mail.example.com"),
+        };
 
-        let own = own_text(
-            &entries,
-            &text,
-            DRAFT.chars().count(),
-            "com.google.Chrome",
-            Some("mail.example.com"),
-            &shared(),
-        );
+        let own = own_text(&entries, &finished, &shared());
 
         assert_eq!(own, text);
     }
@@ -383,15 +397,14 @@ mod tests {
     fn own_text_is_only_the_added_part_when_the_draft_is_in_another_pool() {
         let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
         let text = format!("{DRAFT} PS: call me.");
+        let finished = FinishedText {
+            text: &text,
+            field_chars: DRAFT.chars().count(),
+            app_id: "com.google.Chrome",
+            domain: Some("mail.example.com"),
+        };
 
-        let own = own_text(
-            &entries,
-            &text,
-            DRAFT.chars().count(),
-            "com.google.Chrome",
-            Some("mail.example.com"),
-            &safari_on_its_own(),
-        );
+        let own = own_text(&entries, &finished, &safari_on_its_own());
 
         assert_eq!(own, "PS: call me.");
     }
