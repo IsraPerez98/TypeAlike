@@ -12,7 +12,7 @@ use crate::screen;
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
 /// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
-pub(crate) const FRAME: &str = "I type the text below on my computer, for example an email, a chat \
+const FRAME: &str = "I type the text below on my computer, for example an email, a chat \
      message, a note or a document. My writing is clear, natural and correct. It keeps my \
      language, tone and style.";
 /// The line just before the text before the caret. Without it, the model reads one or two typed
@@ -20,7 +20,7 @@ pub(crate) const FRAME: &str = "I type the text below on my computer, for exampl
 const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
-pub(crate) const PREFACE_TOKENS: TokenCount = TokenCount(2000);
+const PREFACE_TOKENS: TokenCount = TokenCount(2000);
 const NOTES_TOKENS: TokenCount = TokenCount(300);
 const NAME_TOKENS: TokenCount = TokenCount(20);
 const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
@@ -35,11 +35,11 @@ const HISTORY_TOKENS: TokenCount = TokenCount(200);
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Writer<'text> {
     /// The notes that the writer gives about themself.
-    pub notes: &'text str,
+    pub(crate) notes: &'text str,
     /// The name of the writer.
-    pub name: &'text str,
+    pub(crate) name: &'text str,
     /// Earlier texts of the writer, oldest first.
-    pub examples: Vec<String>,
+    pub(crate) examples: Vec<String>,
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
@@ -68,7 +68,7 @@ pub(crate) fn preface(
         .field_text
         .as_ref()
         .map(|field_text| budget.take_start(field_text.after_caret.trim(), AFTER_CARET_TOKENS));
-    let place = place(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
+    let place = place_line(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
     let nearby = screen
         .map(|screen| {
             screen::nearby_lines(
@@ -158,7 +158,7 @@ pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
 
 /// Where the user types, as one line of labeled parts. A window title that names the app stands
 /// without the app. The first label of the field names it, and its other labels give a hint.
-fn place(surroundings: &Surroundings) -> Option<String> {
+fn place_line(surroundings: &Surroundings) -> Option<String> {
     let app = budgeted_line(surroundings.app_name.as_deref(), PREFACE_TOKENS);
     let title = budgeted_line(surroundings.window_title.as_deref(), WINDOW_TITLE_TOKENS);
     let names_app = matches!((&app, &title), (Some(app), Some(title))

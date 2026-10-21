@@ -39,9 +39,9 @@ struct Candidate {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct NearbyLines {
     /// The lines whose middle is above the middle of the caret, such as the messages of a chat.
-    pub above: Vec<String>,
+    pub(crate) above: Vec<String>,
     /// The other lines, such as the quote of an email below a reply.
-    pub below: Vec<String>,
+    pub(crate) below: Vec<String>,
 }
 
 /// How far a line is from the caret. Lines beside the field, such as sidebars and contact lists,
