@@ -278,6 +278,34 @@ mod tests {
         assert_eq!(own, "Thanks.");
     }
 
+    fn safari_on_its_own() -> PersonalizationSettings {
+        PersonalizationSettings {
+            apps: vec![HistoryApp {
+                app_id: "com.apple.Safari".to_owned(),
+                app_name: "Safari".to_owned(),
+                app_path: None,
+                scope: HistoryScope::ThisApp,
+            }],
+            ..shared()
+        }
+    }
+
+    #[test]
+    fn own_text_is_only_the_added_part_when_the_draft_is_in_another_pool() {
+        let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
+        let text = format!("{DRAFT} PS: call me.");
+        let finished = FinishedText {
+            text: &text,
+            field_chars: DRAFT.chars().count(),
+            app_id: "com.google.Chrome",
+            domain: Some("mail.example.com"),
+        };
+
+        let own = own_text(&entries, &finished, &safari_on_its_own());
+
+        assert_eq!(own, "PS: call me.");
+    }
+
     #[test]
     fn added_entry_is_the_newest() {
         let mut entries = vec![mail("Old text of the writer")];
@@ -366,18 +394,6 @@ mod tests {
         assert_eq!(entries, [continued]);
     }
 
-    fn safari_on_its_own() -> PersonalizationSettings {
-        PersonalizationSettings {
-            apps: vec![HistoryApp {
-                app_id: "com.apple.Safari".to_owned(),
-                app_name: "Safari".to_owned(),
-                app_path: None,
-                scope: HistoryScope::ThisApp,
-            }],
-            ..shared()
-        }
-    }
-
     #[test]
     fn draft_of_an_app_with_only_this_app_stays_when_another_browser_continues_it() {
         let draft = entry(DRAFT, "com.apple.Safari", Some("mail.example.com"));
@@ -394,22 +410,6 @@ mod tests {
     }
 
     #[test]
-    fn own_text_is_only_the_added_part_when_the_draft_is_in_another_pool() {
-        let entries = [entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
-        let text = format!("{DRAFT} PS: call me.");
-        let finished = FinishedText {
-            text: &text,
-            field_chars: DRAFT.chars().count(),
-            app_id: "com.google.Chrome",
-            domain: Some("mail.example.com"),
-        };
-
-        let own = own_text(&entries, &finished, &safari_on_its_own());
-
-        assert_eq!(own, "PS: call me.");
-    }
-
-    #[test]
     fn near_copy_in_another_place_stays() {
         let text = "Dear Ana, I send you the report of the third quarter with all the numbers. Best, Tom";
         let mut entries = vec![entry(text, "com.apple.Notes", None)];
@@ -420,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn oldest_entries_go_after_the_most_entries() {
+    fn full_store_of_one_place_drops_its_oldest_entry() {
         let mut entries = (0..MAX_ENTRIES)
             .map(|index| mail(&format!("text {index}.")))
             .collect::<Vec<_>>();
