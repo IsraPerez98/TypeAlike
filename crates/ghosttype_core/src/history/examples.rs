@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::entry::{HistoryEntry, MIN_KEPT_CHARS};
 use super::store::SessionTexts;
-use super::words::{is_topic_word, words};
+use super::words::{is_distinctive_word, small_count, words};
 use crate::desktop::{FieldText, ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, start_at_word};
 use crate::inference::TokenCount;
@@ -127,7 +127,7 @@ impl Topics {
         let mut query = HashMap::new();
         for text in texts {
             each_lowercase_word(text, |word| {
-                if is_topic_word(word) {
+                if is_distinctive_word(word) {
                     query.entry(word.to_owned()).or_insert(0);
                 }
             });
@@ -182,8 +182,8 @@ impl Topics {
                 return;
             }
             seen.push(word.to_owned());
-            let entries = f32::from(u16::try_from(self.entries).unwrap_or(u16::MAX));
-            total += (entries / f32::from(u16::try_from(holding).unwrap_or(u16::MAX).max(1))).ln_1p();
+            let entries = small_count(self.entries);
+            total += (entries / small_count(holding).max(1.0)).ln_1p();
         });
         (total, seen.len())
     }

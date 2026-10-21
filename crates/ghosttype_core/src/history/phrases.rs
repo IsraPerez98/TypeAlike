@@ -127,7 +127,7 @@ fn repeated_follower(counts: &[(String, u32)]) -> Option<&str> {
 /// Returns the words of `counts` after `typed` with their share of `strength`, most common first.
 /// A word needs a space before it and no line break.
 fn preferred_words(counts: &[(String, u32)], typed: &str, strength: f32) -> Vec<(String, f32)> {
-    let total = small_count(counts.iter().map(|(_, count)| count).sum());
+    let total = small_count(counts.iter().map(|(_, count)| count).sum::<u32>());
     let mut words = counts
         .iter()
         .filter(|(follower, _)| follower.starts_with(typed))

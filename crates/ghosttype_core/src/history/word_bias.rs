@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::entry::HistoryEntry;
 use super::redaction::REDACTED;
-use super::words::{COMMON_WORDS, MIN_WORD_CHARS, words};
+use super::words::{is_distinctive_word, small_count, words};
 use crate::inference::WordBias;
 use crate::settings::WordChoice;
 
@@ -14,14 +14,13 @@ const MIN_WORD_COUNT: u32 = 3;
 const FULL_WEIGHT_COUNT: u16 = 20;
 
 /// Returns the preference of `choice` for the words of `entries`, with `version`, or `None` when
-/// the choice is off. A word is a run of letters and apostrophes with at least
-/// [`MIN_WORD_CHARS`] letters, which the entries hold at least [`MIN_WORD_COUNT`] times in any
-/// case and which is not one of the [`COMMON_WORDS`]. The preference has the spelling that the
-/// entries use most.
+/// the choice is off. A word is a run of letters and apostrophes that [`is_distinctive_word`]
+/// accepts, which the entries hold at least [`MIN_WORD_COUNT`] times in any case. The preference
+/// has the spelling that the entries use most.
 pub(super) fn word_bias(entries: &[&HistoryEntry], choice: WordChoice, version: u64) -> Option<WordBias> {
     let mut counts = HashMap::<String, u32>::new();
     for entry in entries {
-        for word in words(&entry.text.replace(REDACTED, " ")) {
+        for word in entry.text.split(REDACTED).flat_map(words) {
             *counts.entry(word.to_owned()).or_default() += 1;
         }
     }
@@ -53,9 +52,7 @@ pub fn word_bias_of_counts(
         .into_iter()
         .filter_map(|(lowercase, spellings)| {
             let count = spellings.iter().map(|(_, count)| count).sum::<u32>();
-            let is_wanted = count >= MIN_WORD_COUNT
-                && lowercase.chars().count() >= MIN_WORD_CHARS
-                && !COMMON_WORDS.contains(&lowercase.as_str());
+            let is_wanted = count >= MIN_WORD_COUNT && is_distinctive_word(&lowercase);
             let (usual, _) = spellings.into_iter().max_by_key(|(spelling, count)| {
                 (
                     *count,
@@ -63,8 +60,8 @@ pub fn word_bias_of_counts(
                     std::cmp::Reverse(spelling.clone()),
                 )
             })?;
-            let capped = u16::try_from(count).unwrap_or(u16::MAX).min(FULL_WEIGHT_COUNT);
-            is_wanted.then(|| (usual, strength * f32::from(capped).ln() / full_weight))
+            let capped = small_count(count).min(f32::from(FULL_WEIGHT_COUNT));
+            is_wanted.then(|| (usual, strength * capped.ln() / full_weight))
         })
         .collect::<Vec<_>>();
     words.sort_by(|left, right| left.0.cmp(&right.0));

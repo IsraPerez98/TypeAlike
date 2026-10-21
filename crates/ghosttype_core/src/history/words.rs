@@ -1,10 +1,10 @@
-//! The words of a text, the runs of characters, the topic words and the common words.
+//! The words of a text, the runs of characters, the distinctive words and the common words.
 
 use std::ops::Range;
 
 /// The most common words of English and Spanish. Each writer writes them often, so a preference
 /// for them only moves a suggestion away from the rarer words of the writer.
-pub(super) const COMMON_WORDS: [&str; 119] = [
+const COMMON_WORDS: [&str; 119] = [
     "the", "and", "you", "for", "that", "this", "with", "have", "but", "are", "not", "will", "can", "just",
     "about", "what", "was", "were", "they", "them", "their", "there", "from", "your", "our", "has", "had",
     "would", "could", "should", "all", "any", "one", "out", "get", "got", "like", "some", "more", "also",
@@ -16,8 +16,8 @@ pub(super) const COMMON_WORDS: [&str; 119] = [
     "bien", "hoy", "ahora", "solo", "sólo", "tengo", "tiene", "hace", "eso", "ese", "esa", "qué", "cómo",
     "mucho",
 ];
-/// The fewest letters of a word that suggestions prefer.
-pub(super) const MIN_WORD_CHARS: usize = 3;
+/// The fewest letters of a distinctive word.
+const MIN_WORD_CHARS: usize = 3;
 
 /// Returns the words of `text` in their spelling: its runs of letters and apostrophes.
 pub(super) fn words(text: &str) -> impl Iterator<Item = &str> {
@@ -43,13 +43,13 @@ pub(super) fn runs_of(text: &str, is_part: fn(char) -> bool) -> Vec<Range<usize>
     spans
 }
 
-/// Whether `lowercase` tells the topic of a text: it has at least [`MIN_WORD_CHARS`] letters and
-/// is not one of the [`COMMON_WORDS`].
-pub(super) fn is_topic_word(lowercase: &str) -> bool {
+/// Whether `lowercase` sets a text or a writer apart: it has at least [`MIN_WORD_CHARS`] letters
+/// and is not one of the [`COMMON_WORDS`].
+pub(super) fn is_distinctive_word(lowercase: &str) -> bool {
     lowercase.chars().count() >= MIN_WORD_CHARS && !COMMON_WORDS.contains(&lowercase)
 }
 
 /// Returns `count` as a float, at most [`u16::MAX`].
-pub(super) fn small_count(count: u32) -> f32 {
-    f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+pub(super) fn small_count(count: impl TryInto<u16>) -> f32 {
+    f32::from(count.try_into().unwrap_or(u16::MAX))
 }
