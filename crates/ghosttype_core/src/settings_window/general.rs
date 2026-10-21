@@ -28,30 +28,20 @@ pub enum GeneralAction {
     EditWriterName(WriterName),
     /// Changed the notes about the user to this text.
     EditWriterNotes(WriterNotes),
-    /// Turned on the switch that lets suggestions use the text on the clipboard.
-    AllowClipboard,
-    /// Turned off the switch that lets suggestions use the text on the clipboard.
-    DenyClipboard,
-    /// Turned on the switch that gives the text around the caret to the model before the user
-    /// types.
-    PrepareOnFocus,
-    /// Turned off the switch that gives the text around the caret to the model before the user
-    /// types.
-    PrepareOnFirstKey,
-    /// Turned on the switch that shows each word of a suggestion as soon as the model writes it.
-    ShowWordByWord,
-    /// Turned off the switch that shows each word of a suggestion as soon as the model writes it.
-    ShowWhenComplete,
-    /// Turned on the switch that hides suggestions while the word before the caret looks like it
-    /// has a typo.
-    HideSuggestionsOnTypos,
-    /// Turned off the switch that hides suggestions while the word before the caret looks like it
-    /// has a typo.
-    SuggestOnTypos,
-    /// Turned on the switch that fixes the word before the caret when it looks like it has a typo.
-    FixTypos,
-    /// Turned off the switch that fixes the word before the caret when it looks like it has a typo.
-    LeaveTypos,
+    /// Turned the switch that lets suggestions use the text on the clipboard on or off.
+    SwitchClipboard(ClipboardAccess),
+    /// Turned the switch that gives the text around the caret to the model before the user types
+    /// on or off.
+    SwitchPreparation(PromptPreparation),
+    /// Turned the switch that shows each word of a suggestion as soon as the model writes it on or
+    /// off.
+    SwitchDisplay(SuggestionDisplay),
+    /// Turned the switch that hides suggestions while the word before the caret looks like it has
+    /// a typo on or off.
+    SwitchTypoRule(TypoRule),
+    /// Turned the switch that fixes the word before the caret when it looks like it has a typo on
+    /// or off.
+    SwitchTypoFix(TypoFix),
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),
     /// Picked this downloaded model to suggest text.
@@ -238,18 +228,19 @@ impl GeneralPane {
             GeneralAction::EditWriterNotes(notes) => {
                 self.change_setting(notes, |settings| &mut settings.writer_notes)
             }
-            GeneralAction::AllowClipboard => self.change_clipboard_access(ClipboardAccess::Allowed),
-            GeneralAction::DenyClipboard => self.change_clipboard_access(ClipboardAccess::Denied),
-            GeneralAction::PrepareOnFocus => self.change_prompt_preparation(PromptPreparation::OnFocus),
-            GeneralAction::PrepareOnFirstKey => self.change_prompt_preparation(PromptPreparation::OnFirstKey),
-            GeneralAction::ShowWordByWord => self.change_suggestion_display(SuggestionDisplay::WordByWord),
-            GeneralAction::ShowWhenComplete => {
-                self.change_suggestion_display(SuggestionDisplay::WhenComplete)
+            GeneralAction::SwitchClipboard(access) => {
+                self.change_setting(access, |settings| &mut settings.clipboard_access)
             }
-            GeneralAction::HideSuggestionsOnTypos => self.change_typo_rule(TypoRule::HideSuggestions),
-            GeneralAction::SuggestOnTypos => self.change_typo_rule(TypoRule::Suggest),
-            GeneralAction::FixTypos => self.change_setting(TypoFix::Offer, |settings| &mut settings.typo_fix),
-            GeneralAction::LeaveTypos => self.change_setting(TypoFix::Off, |settings| &mut settings.typo_fix),
+            GeneralAction::SwitchPreparation(preparation) => {
+                self.change_setting(preparation, |settings| &mut settings.prompt_preparation)
+            }
+            GeneralAction::SwitchDisplay(display) => {
+                self.change_setting(display, |settings| &mut settings.suggestion_display)
+            }
+            GeneralAction::SwitchTypoRule(rule) => {
+                self.change_setting(rule, |settings| &mut settings.typo_rule)
+            }
+            GeneralAction::SwitchTypoFix(fix) => self.change_setting(fix, |settings| &mut settings.typo_fix),
             GeneralAction::SelectSuggestionLength(length) => {
                 self.change_setting(length, |settings| &mut settings.suggestion_length)
             }
@@ -270,9 +261,9 @@ impl GeneralPane {
         installed: &[ModelFile],
     ) -> Option<GeneralAction> {
         match input {
-            SettingsInput::Toggled { id, is_on } => switch_action(id.as_str(), *is_on),
+            SettingsInput::Toggled { id, is_on } => action_for_switch(id.as_str(), *is_on),
             SettingsInput::Picked { id, index } => {
-                self.pick_action(id.as_str(), *index, playground, installed)
+                self.action_for_pick(id.as_str(), *index, playground, installed)
             }
             SettingsInput::Edited { id, text } => match id.as_str() {
                 WRITER_NAME => Some(GeneralAction::EditWriterName(WriterName(text.clone()))),
@@ -372,22 +363,6 @@ impl GeneralPane {
         }
     }
 
-    fn change_clipboard_access(&mut self, access: ClipboardAccess) -> GeneralOutcome {
-        self.change_setting(access, |settings| &mut settings.clipboard_access)
-    }
-
-    fn change_prompt_preparation(&mut self, preparation: PromptPreparation) -> GeneralOutcome {
-        self.change_setting(preparation, |settings| &mut settings.prompt_preparation)
-    }
-
-    fn change_suggestion_display(&mut self, display: SuggestionDisplay) -> GeneralOutcome {
-        self.change_setting(display, |settings| &mut settings.suggestion_display)
-    }
-
-    fn change_typo_rule(&mut self, rule: TypoRule) -> GeneralOutcome {
-        self.change_setting(rule, |settings| &mut settings.typo_rule)
-    }
-
     /// Keeps `value` in the setting that `field` picks, and returns the settings when they changed.
     fn change_setting<T: PartialEq>(
         &mut self,
@@ -417,7 +392,7 @@ impl GeneralPane {
         }
     }
 
-    fn pick_action(
+    fn action_for_pick(
         &self,
         id: &str,
         index: usize,
@@ -496,18 +471,29 @@ impl GeneralPane {
     }
 }
 
-/// The action of turning the switch `id` on or off.
-fn switch_action(id: &str, is_on: bool) -> Option<GeneralAction> {
+fn action_for_switch(id: &str, is_on: bool) -> Option<GeneralAction> {
     let (turn_on, turn_off) = match id {
         AUTOSTART => (GeneralAction::EnableAutostart, GeneralAction::DisableAutostart),
-        CLIPBOARD => (GeneralAction::AllowClipboard, GeneralAction::DenyClipboard),
-        PREPARATION => (GeneralAction::PrepareOnFocus, GeneralAction::PrepareOnFirstKey),
-        DISPLAY => (GeneralAction::ShowWordByWord, GeneralAction::ShowWhenComplete),
-        TYPO_RULE => (
-            GeneralAction::HideSuggestionsOnTypos,
-            GeneralAction::SuggestOnTypos,
+        CLIPBOARD => (
+            GeneralAction::SwitchClipboard(ClipboardAccess::Allowed),
+            GeneralAction::SwitchClipboard(ClipboardAccess::Denied),
         ),
-        TYPO_FIX => (GeneralAction::FixTypos, GeneralAction::LeaveTypos),
+        PREPARATION => (
+            GeneralAction::SwitchPreparation(PromptPreparation::OnFocus),
+            GeneralAction::SwitchPreparation(PromptPreparation::OnFirstKey),
+        ),
+        DISPLAY => (
+            GeneralAction::SwitchDisplay(SuggestionDisplay::WordByWord),
+            GeneralAction::SwitchDisplay(SuggestionDisplay::WhenComplete),
+        ),
+        TYPO_RULE => (
+            GeneralAction::SwitchTypoRule(TypoRule::HideSuggestions),
+            GeneralAction::SwitchTypoRule(TypoRule::Suggest),
+        ),
+        TYPO_FIX => (
+            GeneralAction::SwitchTypoFix(TypoFix::Offer),
+            GeneralAction::SwitchTypoFix(TypoFix::Off),
+        ),
         _ => return None,
     };
     Some(if is_on { turn_on } else { turn_off })

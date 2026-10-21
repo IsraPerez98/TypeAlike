@@ -367,16 +367,16 @@ fn turning_a_switch_turns_its_setting_on_or_off() {
         [
             GeneralAction::EnableAutostart,
             GeneralAction::DisableAutostart,
-            GeneralAction::AllowClipboard,
-            GeneralAction::DenyClipboard,
-            GeneralAction::PrepareOnFocus,
-            GeneralAction::PrepareOnFirstKey,
-            GeneralAction::ShowWordByWord,
-            GeneralAction::ShowWhenComplete,
-            GeneralAction::HideSuggestionsOnTypos,
-            GeneralAction::SuggestOnTypos,
-            GeneralAction::FixTypos,
-            GeneralAction::LeaveTypos,
+            GeneralAction::SwitchClipboard(ClipboardAccess::Allowed),
+            GeneralAction::SwitchClipboard(ClipboardAccess::Denied),
+            GeneralAction::SwitchPreparation(PromptPreparation::OnFocus),
+            GeneralAction::SwitchPreparation(PromptPreparation::OnFirstKey),
+            GeneralAction::SwitchDisplay(SuggestionDisplay::WordByWord),
+            GeneralAction::SwitchDisplay(SuggestionDisplay::WhenComplete),
+            GeneralAction::SwitchTypoRule(TypoRule::HideSuggestions),
+            GeneralAction::SwitchTypoRule(TypoRule::Suggest),
+            GeneralAction::SwitchTypoFix(TypoFix::Offer),
+            GeneralAction::SwitchTypoFix(TypoFix::Off),
         ]
         .map(Some)
     );
@@ -901,7 +901,10 @@ fn editing_the_writer_notes_to_the_same_text_does_nothing() {
 fn allowing_the_clipboard_keeps_it_and_turns_the_switch_on() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchClipboard(ClipboardAccess::Allowed),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), CLIPBOARD).is_on;
     assert_eq!(
@@ -917,7 +920,10 @@ fn allowing_the_clipboard_keeps_it_and_turns_the_switch_on() {
 fn denying_the_clipboard_keeps_it_and_turns_the_switch_off() {
     let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Allowed));
 
-    let outcome = pane.on_action(GeneralAction::DenyClipboard, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchClipboard(ClipboardAccess::Denied),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), CLIPBOARD).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
@@ -927,7 +933,10 @@ fn denying_the_clipboard_keeps_it_and_turns_the_switch_off() {
 fn choosing_the_current_clipboard_access_does_nothing() {
     let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Allowed));
 
-    let outcome = pane.on_action(GeneralAction::AllowClipboard, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchClipboard(ClipboardAccess::Allowed),
+        &mut PlaygroundPane::new(),
+    );
 
     assert_eq!(outcome, GeneralOutcome::default());
 }
@@ -936,7 +945,10 @@ fn choosing_the_current_clipboard_access_does_nothing() {
 fn preparing_on_focus_keeps_it_and_turns_the_switch_on() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchPreparation(PromptPreparation::OnFocus),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), PREPARATION).is_on;
     assert_eq!(
@@ -952,7 +964,10 @@ fn preparing_on_focus_keeps_it_and_turns_the_switch_on() {
 fn preparing_on_the_first_key_keeps_it_and_turns_the_switch_off() {
     let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
 
-    let outcome = pane.on_action(GeneralAction::PrepareOnFirstKey, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchPreparation(PromptPreparation::OnFirstKey),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), PREPARATION).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
@@ -962,7 +977,10 @@ fn preparing_on_the_first_key_keeps_it_and_turns_the_switch_off() {
 fn choosing_the_current_preparation_does_nothing() {
     let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFocus));
 
-    let outcome = pane.on_action(GeneralAction::PrepareOnFocus, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchPreparation(PromptPreparation::OnFocus),
+        &mut PlaygroundPane::new(),
+    );
 
     assert_eq!(outcome, GeneralOutcome::default());
 }
@@ -971,7 +989,10 @@ fn choosing_the_current_preparation_does_nothing() {
 fn showing_word_by_word_keeps_it_and_turns_the_switch_on() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchDisplay(SuggestionDisplay::WordByWord),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), DISPLAY).is_on;
     assert_eq!(
@@ -987,7 +1008,10 @@ fn showing_word_by_word_keeps_it_and_turns_the_switch_on() {
 fn showing_when_complete_keeps_it_and_turns_the_switch_off() {
     let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
 
-    let outcome = pane.on_action(GeneralAction::ShowWhenComplete, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchDisplay(SuggestionDisplay::WhenComplete),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), DISPLAY).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
@@ -997,7 +1021,10 @@ fn showing_when_complete_keeps_it_and_turns_the_switch_off() {
 fn choosing_the_current_suggestion_display_does_nothing() {
     let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WordByWord));
 
-    let outcome = pane.on_action(GeneralAction::ShowWordByWord, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchDisplay(SuggestionDisplay::WordByWord),
+        &mut PlaygroundPane::new(),
+    );
 
     assert_eq!(outcome, GeneralOutcome::default());
 }
@@ -1006,7 +1033,10 @@ fn choosing_the_current_suggestion_display_does_nothing() {
 fn suggesting_on_typos_keeps_it_and_turns_the_switch_off() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::SuggestOnTypos, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchTypoRule(TypoRule::Suggest),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
     assert_eq!(
@@ -1019,7 +1049,10 @@ fn suggesting_on_typos_keeps_it_and_turns_the_switch_off() {
 fn hiding_suggestions_on_typos_keeps_it_and_turns_the_switch_on() {
     let mut pane = GeneralPane::new(typo_settings(TypoRule::Suggest));
 
-    let outcome = pane.on_action(GeneralAction::HideSuggestionsOnTypos, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchTypoRule(TypoRule::HideSuggestions),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
@@ -1029,7 +1062,10 @@ fn hiding_suggestions_on_typos_keeps_it_and_turns_the_switch_on() {
 fn leaving_typos_keeps_it_and_turns_the_fix_switch_off() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::LeaveTypos, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchTypoFix(TypoFix::Off),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
     let saved = Settings {
@@ -1046,7 +1082,10 @@ fn fixing_typos_keeps_it_and_turns_the_fix_switch_on() {
         ..Settings::default()
     });
 
-    let outcome = pane.on_action(GeneralAction::FixTypos, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchTypoFix(TypoFix::Offer),
+        &mut PlaygroundPane::new(),
+    );
 
     let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
@@ -1065,7 +1104,10 @@ fn suggesting_on_typos_hides_the_fix_switch() {
 fn choosing_the_current_typo_rule_does_nothing() {
     let mut pane = GeneralPane::new(Settings::default());
 
-    let outcome = pane.on_action(GeneralAction::HideSuggestionsOnTypos, &mut PlaygroundPane::new());
+    let outcome = pane.on_action(
+        GeneralAction::SwitchTypoRule(TypoRule::HideSuggestions),
+        &mut PlaygroundPane::new(),
+    );
 
     assert_eq!(outcome, GeneralOutcome::default());
 }

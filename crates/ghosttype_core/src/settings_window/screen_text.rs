@@ -11,10 +11,8 @@ use crate::settings_window::view::{
 /// Something the user did in the Screen text pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScreenTextAction {
-    /// Turned on the main switch.
-    Allow,
-    /// Turned off the main switch.
-    Deny,
+    /// Turned the main switch on or off.
+    SwitchScreenText(ScreenTextAccess),
     /// Turned the switch of the app with this id on or off.
     SwitchApp {
         /// The id of the app.
@@ -60,7 +58,7 @@ const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 ///
 /// let mut pane = ScreenTextPane::new(ScreenTextSettings::default());
 ///
-/// let is_changed = pane.on_action(ScreenTextAction::Deny);
+/// let is_changed = pane.on_action(ScreenTextAction::SwitchScreenText(ScreenTextAccess::Denied));
 ///
 /// assert!(is_changed);
 /// assert_eq!(pane.settings().access, ScreenTextAccess::Denied);
@@ -92,8 +90,9 @@ impl ScreenTextPane {
     /// Handles a user action. Returns whether the settings changed.
     pub fn on_action(&mut self, action: ScreenTextAction) -> bool {
         match action {
-            ScreenTextAction::Allow => self.change_access(ScreenTextAccess::Allowed),
-            ScreenTextAction::Deny => self.change_access(ScreenTextAccess::Denied),
+            ScreenTextAction::SwitchScreenText(access) => {
+                replace_if_changed(&mut self.settings.access, access)
+            }
             ScreenTextAction::SwitchApp { app_id, is_on } => {
                 let Some(app) = self.settings.apps.iter_mut().find(|app| app.app_id == app_id) else {
                     return false;
@@ -123,11 +122,11 @@ impl ScreenTextPane {
             _ => return None,
         };
         if id.as_str() == SCREEN_TEXT {
-            return Some(if *is_on {
-                ScreenTextAction::Allow
+            return Some(ScreenTextAction::SwitchScreenText(if *is_on {
+                ScreenTextAccess::Allowed
             } else {
-                ScreenTextAction::Deny
-            });
+                ScreenTextAccess::Denied
+            }));
         }
         let app_id = id.as_str().strip_prefix(APP_SWITCH_PREFIX)?;
         Some(ScreenTextAction::SwitchApp {
@@ -200,10 +199,6 @@ impl ScreenTextPane {
                 })
             })
             .collect()
-    }
-
-    fn change_access(&mut self, access: ScreenTextAccess) -> bool {
-        replace_if_changed(&mut self.settings.access, access)
     }
 }
 
@@ -397,8 +392,8 @@ mod tests {
         assert_eq!(
             actions,
             [
-                Some(ScreenTextAction::Allow),
-                Some(ScreenTextAction::Deny),
+                Some(ScreenTextAction::SwitchScreenText(ScreenTextAccess::Allowed)),
+                Some(ScreenTextAction::SwitchScreenText(ScreenTextAccess::Denied)),
                 Some(ScreenTextAction::SwitchApp {
                     app_id: "com.apple.mail".to_owned(),
                     is_on: false,
@@ -442,7 +437,7 @@ mod tests {
             vec![app("com.apple.mail", "Mail", true)],
         );
         let actions = [
-            ScreenTextAction::Allow,
+            ScreenTextAction::SwitchScreenText(ScreenTextAccess::Allowed),
             ScreenTextAction::SwitchApp {
                 app_id: "com.apple.mail".to_owned(),
                 is_on: true,
