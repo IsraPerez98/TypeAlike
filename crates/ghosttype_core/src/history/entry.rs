@@ -20,7 +20,8 @@ const MIN_SHARED_CHARS: usize = 80;
 pub struct HistoryEntry {
     /// The text before the caret when the user finished the typing, without its secrets.
     pub text: String,
-    /// The app where the user wrote the text, as [`Surroundings::app_id`](crate::desktop::Surroundings::app_id) gives it.
+    /// The app where the user wrote the text, as
+    /// [`Surroundings::app_id`](crate::desktop::Surroundings::app_id) gives it.
     pub app_id: String,
     /// The host of the web page where the user wrote the text, if any.
     pub domain: Option<String>,
