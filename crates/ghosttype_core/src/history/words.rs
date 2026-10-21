@@ -43,8 +43,8 @@ pub(super) fn runs_of(text: &str, is_part: fn(char) -> bool) -> Vec<Range<usize>
     spans
 }
 
-/// Whether `lowercase` sets a text or a writer apart: it has at least [`MIN_WORD_CHARS`] letters
-/// and is not one of the [`COMMON_WORDS`].
+/// Whether `lowercase` is a distinctive word: it has at least [`MIN_WORD_CHARS`] letters and is
+/// not one of the [`COMMON_WORDS`].
 pub(super) fn is_distinctive_word(lowercase: &str) -> bool {
     lowercase.chars().count() >= MIN_WORD_CHARS && !COMMON_WORDS.contains(&lowercase)
 }
