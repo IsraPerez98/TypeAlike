@@ -744,7 +744,7 @@ impl Engine {
         self.take_from_ghost(part, rest);
         Reaction::Accept {
             text: part.to_owned(),
-            then: after_accept(rest),
+            then: self.after_accept(rest),
         }
     }
 
@@ -760,9 +760,23 @@ impl Engine {
         self.take_from_ghost(&fix.word, &fix.rest);
         Reaction::Replace {
             deleted: fix.typo.chars().count(),
-            then: after_accept(&fix.rest),
+            then: self.after_accept(&fix.rest),
             text: fix.word,
         }
+    }
+
+    /// Returns what follows a part that Tab typed: `rest`, the rest of the suggestion, else what a
+    /// typed key gets. A completion that still runs gets no new request, because it can add words.
+    fn after_accept(&mut self, rest: &str) -> AfterAccept {
+        if !rest.is_empty() {
+            return AfterAccept::Rest(rest.to_owned());
+        }
+        let next = if matches!(self.offer, Offer::Growing { .. }) {
+            Reaction::Hide
+        } else {
+            self.request()
+        };
+        AfterAccept::Next(Box::new(next))
     }
 
     /// Records that `taken`, the start of the ghost text, is now before the caret, and that
@@ -1050,16 +1064,6 @@ fn repeats_a_pattern(suggestion: &str) -> bool {
 /// Returns `text` up to its last whitespace, without the word after it, which can still grow.
 fn complete_words(text: &str) -> &str {
     text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
-}
-
-/// Returns what follows a part that Tab typed: `rest`, the rest of the suggestion, else no ghost
-/// text.
-fn after_accept(rest: &str) -> AfterAccept {
-    if rest.is_empty() {
-        AfterAccept::Next(Box::new(Reaction::Hide))
-    } else {
-        AfterAccept::Rest(rest.to_owned())
-    }
 }
 
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
@@ -1383,6 +1387,23 @@ mod tests {
                 deleted: 4,
                 text: "delivery".to_owned(),
                 then: AfterAccept::Rest(" soon".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn tab_on_a_fix_without_a_rest_requests_the_next_suggestion() {
+        let mut engine = engine_waiting_for("the dlei");
+        engine.on_completion(correction(" dlei", " deli", "very"));
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(
+            reaction,
+            Reaction::Replace {
+                deleted: 4,
+                text: "delivery".to_owned(),
+                then: AfterAccept::Next(Box::new(request("the delivery"))),
             }
         );
     }
@@ -1923,8 +1944,18 @@ mod tests {
     }
 
     #[test]
-    fn tab_accepts_last_word_and_hides() {
+    fn tab_on_the_last_part_requests_the_next_suggestion() {
         let mut engine = engine_showing("hel", "lo");
+
+        let reaction = press(&mut engine, Key::Tab);
+
+        assert_eq!(reaction, accept_last("lo", request("hello")));
+    }
+
+    #[test]
+    fn tab_on_the_last_shown_part_of_a_running_completion_waits_for_its_next_words() {
+        let mut engine = engine_waiting_for("hel");
+        engine.on_partial_completion("lo big");
 
         let reaction = press(&mut engine, Key::Tab);
 

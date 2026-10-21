@@ -1571,6 +1571,16 @@ mod tests {
     }
 
     #[test]
+    fn tab_on_the_last_part_submits_the_request_for_the_next_suggestion() {
+        let mut harness = Harness::new(Settings::default());
+        harness.show("est");
+
+        harness.press(Key::Tab);
+
+        assert_eq!(harness.last_request(), Some(suggestion_request("Best")));
+    }
+
+    #[test]
     fn tab_while_the_rest_waits_for_the_caret_types_its_next_part() {
         let mut harness = Harness::new(Settings::default());
         harness.show("est regards to you");

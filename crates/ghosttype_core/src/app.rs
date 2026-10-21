@@ -241,10 +241,11 @@ pub enum SettledWork {
 ///     app.on_key(Key::Tab, &Editor),
 ///     Reaction::Accept { text: "est".to_owned(), then: AfterAccept::Rest(" regards".to_owned()) }
 /// );
-/// assert_eq!(
+/// assert!(matches!(
 ///     app.on_key(Key::Tab, &Editor),
-///     Reaction::Accept { text: " regards".to_owned(), then: AfterAccept::Next(Box::new(Reaction::Hide)) }
-/// );
+///     Reaction::Accept { text, then: AfterAccept::Next(next) }
+///         if text == " regards" && matches!(*next, Reaction::Request(_))
+/// ));
 /// ```
 #[derive(Debug, Default)]
 pub struct App {
