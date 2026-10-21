@@ -83,17 +83,24 @@ impl Engine {
         if self.unanswered_requests > 0 {
             return self.offer.reaction();
         }
-        if let Ok(completion) = result {
-            match &completion.correction {
-                None => {
-                    self.grow(&completion.text);
-                }
-                Some(correction) => {
-                    if let Some(fix) = self.fix_of(correction, &completion.text) {
-                        self.offer = Offer::Fix(fix);
-                    }
+        match result {
+            Ok(Completion {
+                correction: None,
+                text,
+                ..
+            }) => {
+                self.grow(&text);
+            }
+            Ok(Completion {
+                correction: Some(correction),
+                text,
+                ..
+            }) => {
+                if let Some(fix) = self.fix_of(&correction, &text) {
+                    self.offer = Offer::Fix(fix);
                 }
             }
+            Err(_) => {}
         }
         self.offer = mem::take(&mut self.offer).settle();
         self.offer.reaction()
@@ -128,8 +135,10 @@ impl Engine {
     /// far. Only its complete words show, and only for the newest request. Returns the reaction
     /// when the ghost text changes, or `None`.
     pub(crate) fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
-        let is_newest = self.unanswered_requests == 1;
-        (is_newest && self.grow(complete_words(text))).then(|| self.offer.reaction())
+        if self.unanswered_requests != 1 {
+            return None;
+        }
+        self.grow(complete_words(text)).then(|| self.offer.reaction())
     }
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
