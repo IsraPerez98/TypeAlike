@@ -1,5 +1,7 @@
 //! Types accepted text into the focused app.
 
+use std::fmt;
+
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
     SendInput, VIRTUAL_KEY, VK_BACK,
@@ -9,13 +11,24 @@ use windows::core::{Error, Result};
 /// Marks input sent by GhostType, so its own hook can let it through untouched.
 pub(crate) const INJECTION_TAG: usize = 0x4754_5950;
 
-/// Text to type at the caret, after the deletion of characters before it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Text to type at the caret, after the deletion of characters before it. `Debug` shows only the
+/// length of the text, so logs never hold the text.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Replacement {
     /// The characters to delete before the caret.
     pub(crate) deleted: usize,
     /// The text to type after the deletion.
     pub(crate) text: String,
+}
+
+impl fmt::Debug for Replacement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Replacement")
+            .field("deleted", &self.deleted)
+            .field("text_chars", &self.text.chars().count())
+            .finish()
+    }
 }
 
 /// Sends a Backspace key press for each deleted character, then the text as Unicode key presses,
