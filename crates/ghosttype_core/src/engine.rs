@@ -123,7 +123,7 @@ impl Engine {
             }
             Key::Backspace => {
                 self.start_session(desktop).delete_last_character();
-                self.request()
+                self.suggest()
             }
             Key::Tab if desktop.is_ghost_shown() => self.accept(),
             Key::Escape | Key::Dead => self.dismiss(),
@@ -166,7 +166,7 @@ impl Engine {
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {
         let session = self.session.take().unwrap_or_else(|| {
             let surroundings = desktop.surroundings();
-            Session::new(self.preface(&surroundings, desktop), &surroundings)
+            Session::new(self.build_preface(&surroundings, desktop), &surroundings)
         });
         self.session.insert(session)
     }
@@ -174,7 +174,7 @@ impl Engine {
     fn on_typed(&mut self, character: char) -> Reaction {
         let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
-            _ => return self.request(),
+            _ => return self.suggest(),
         };
         self.offer.take(character.encode_utf8(&mut [0; 4]), &rest);
         Reaction::Show(rest)
@@ -224,7 +224,7 @@ impl Engine {
         let next = if matches!(self.offer, Offer::Growing { .. }) {
             Reaction::Hide
         } else {
-            self.request()
+            self.suggest()
         };
         AfterAccept::Next(Box::new(next))
     }

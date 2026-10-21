@@ -14,7 +14,7 @@ impl Engine {
     /// when the session continues there. `None` when the user pressed no Enter since the last read,
     /// or when the session ends.
     pub(crate) fn suggest_on_new_line(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
-        self.read_field_after_enter(desktop).then(|| self.request())
+        self.read_field_after_enter(desktop).then(|| self.suggest())
     }
 
     /// Hides the ghost text, keeps the text of the field in `desktop`, and lets the session wait

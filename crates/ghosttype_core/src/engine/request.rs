@@ -44,7 +44,7 @@ impl Engine {
     }
 
     /// Shows the rest of a phrase that the writer repeats, else requests a completion.
-    pub(super) fn request(&mut self) -> Reaction {
+    pub(super) fn suggest(&mut self) -> Reaction {
         if let Some(phrase) = self.repeated_phrase() {
             return self.show(phrase);
         }

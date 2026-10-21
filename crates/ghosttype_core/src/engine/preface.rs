@@ -134,7 +134,7 @@ impl Engine {
             .as_ref()
             .is_some_and(|session| !session.has_screen_read);
         let has_text = self.screen_reads.text().is_some();
-        let preface = (is_waiting && has_text).then(|| self.preface(&desktop.surroundings(), desktop));
+        let preface = (is_waiting && has_text).then(|| self.build_preface(&desktop.surroundings(), desktop));
         let Some(session) = &mut self.session else {
             return;
         };
@@ -150,7 +150,7 @@ impl Engine {
     }
 
     /// Returns what the model reads before the text of the field in `surroundings`.
-    pub(super) fn preface(&self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
+    pub(super) fn build_preface(&self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
         let recent_copy = match self.clipboard_access {
             ClipboardAccess::Allowed => desktop
                 .copied_text()
