@@ -33,10 +33,17 @@ const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
 #[derive(Debug)]
 pub(crate) struct FocusTracker {
     system_wide: CFRetained<AXUIElement>,
-    frontmost_process: Option<i32>,
-    frontmost_name: Option<String>,
-    frontmost_app_id: Option<String>,
-    is_frontmost_eligible: bool,
+    frontmost: Option<FrontmostApp>,
+}
+
+/// The frontmost app when [`FocusTracker::refresh`] looked last.
+#[derive(Debug)]
+struct FrontmostApp {
+    process: i32,
+    name: Option<String>,
+    app_id: Option<String>,
+    /// Whether GhostType may observe and type into the app, which is not GhostType itself.
+    is_eligible: bool,
 }
 
 impl FocusTracker {
@@ -46,33 +53,31 @@ impl FocusTracker {
         bound_queries(&system_wide);
         Self {
             system_wide,
-            frontmost_process: None,
-            frontmost_name: None,
-            frontmost_app_id: None,
-            is_frontmost_eligible: false,
+            frontmost: None,
         }
     }
 
     /// Observes the frontmost app; returns whether it changed since the last call.
     pub(crate) fn refresh(&mut self) -> FocusChange {
-        let frontmost = NSWorkspace::sharedWorkspace().frontmostApplication();
-        let frontmost_process = frontmost
+        let application = NSWorkspace::sharedWorkspace().frontmostApplication();
+        let process = application
             .as_ref()
             .map(|application| application.processIdentifier());
-        if frontmost_process == self.frontmost_process {
+        if process == self.frontmost_process() {
             return FocusChange::Unchanged;
         }
-        self.frontmost_process = frontmost_process;
-        self.frontmost_name = frontmost
+        self.frontmost = application
             .as_ref()
-            .and_then(|application| application.localizedName())
-            .map(|name| name.to_string());
-        self.frontmost_app_id = frontmost
-            .as_ref()
-            .and_then(|application| application.bundleIdentifier())
-            .map(|identifier| identifier.to_string());
-        self.is_frontmost_eligible = frontmost_process.is_some_and(|process| !is_own_process(process));
-        if let Some(application) = frontmost.filter(|_| self.is_frontmost_eligible) {
+            .zip(process)
+            .map(|(application, process)| FrontmostApp {
+                process,
+                name: application.localizedName().map(|name| name.to_string()),
+                app_id: application
+                    .bundleIdentifier()
+                    .map(|identifier| identifier.to_string()),
+                is_eligible: !is_own_process(process),
+            });
+        if let Some(application) = application.filter(|_| self.is_frontmost_eligible()) {
             wake_web_accessibility(&application);
         }
         FocusChange::Changed
@@ -80,7 +85,11 @@ impl FocusTracker {
 
     /// The process of the frontmost app when [`refresh`](Self::refresh) looked last.
     pub(crate) fn frontmost_process(&self) -> Option<i32> {
-        self.frontmost_process
+        self.frontmost.as_ref().map(|app| app.process)
+    }
+
+    fn is_frontmost_eligible(&self) -> bool {
+        self.frontmost.as_ref().is_some_and(|app| app.is_eligible)
     }
 
     /// Locates the caret of the focused control, when it exposes one through Accessibility.
@@ -112,7 +121,7 @@ impl FocusTracker {
 
     /// Classifies the focused control right now: excluded for secure text and ineligible apps.
     pub(crate) fn field(&self) -> Field {
-        if self.is_frontmost_eligible && !self.is_secure_text_focused() {
+        if self.is_frontmost_eligible() && !self.is_secure_text_focused() {
             Field::Open
         } else {
             Field::Excluded
@@ -122,8 +131,8 @@ impl FocusTracker {
     pub(crate) fn surroundings(&self) -> Surroundings {
         let element = self.focused_element();
         Surroundings {
-            app_name: self.frontmost_name.clone(),
-            app_id: self.frontmost_app_id.clone(),
+            app_name: self.frontmost.as_ref().and_then(|app| app.name.clone()),
+            app_id: self.frontmost.as_ref().and_then(|app| app.app_id.clone()),
             app_path: None,
             window_title: element.as_deref().and_then(window_title),
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
