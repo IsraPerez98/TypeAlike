@@ -1,7 +1,7 @@
 # GhostType
 
 Open-source, system-wide inline autocomplete for Windows and macOS, inspired by [Cotypist](https://cotypist.app/).
-Grey "ghost text" suggestions appear at the caret in any app; press **Tab** to accept.
+Gray "ghost text" suggestions appear at the caret in any app; press **Tab** to accept.
 
 > Status: early scaffold.
 
@@ -48,12 +48,14 @@ cargo clippy --workspace --all-targets # lints
 
 | Crate | Purpose |
 |---|---|
-| `crates/ghosttype` | The `GhostType` binary: wiring, configuration, logging |
-| `crates/ghosttype_core` | Platform-independent suggestion and acceptance logic |
+| `crates/ghosttype` | The `GhostType` binary: wiring, data folders, logging |
+| `crates/ghosttype_core` | Platform-independent logic: suggestions, acceptance, key rules, settings model and settings panes |
 | `crates/ghosttype_windows` | Win32 / UI Automation integration: hooks, caret reading, overlay, caret badge, input, tray, settings window |
-| `crates/ghosttype_macos` | AppKit / Accessibility integration: event tap, caret reading, overlay, input, menu bar |
+| `crates/ghosttype_macos` | AppKit / Accessibility integration: event tap, caret reading, overlay, input, menu bar, settings window, launch agent |
 | `crates/ghosttype_models` | Hugging Face search, model downloads and the local models directory |
 | `crates/ghosttype_llm` | Runs GGUF language models with llama.cpp |
+| `crates/ghosttype_history` | The earlier writing of the user in one encrypted file |
+| `crates/ghosttype_settings` | The settings file and its format |
 
 ## Contributing
 
