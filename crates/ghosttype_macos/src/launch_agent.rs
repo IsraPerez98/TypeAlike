@@ -10,14 +10,15 @@ const LABEL: &str = "io.github.israperez98.ghosttype";
 
 /// The launchd agent file that starts a program when the user logs in.
 #[derive(Debug)]
-pub(crate) struct LaunchAgent {
+pub struct LaunchAgent {
     file: PathBuf,
     program: PathBuf,
 }
 
 impl LaunchAgent {
     /// Creates the agent in `agents_folder` that starts `program`.
-    pub(crate) fn new(agents_folder: &Path, program: PathBuf) -> Self {
+    #[must_use]
+    pub fn new(agents_folder: &Path, program: PathBuf) -> Self {
         Self {
             file: agents_folder.join(format!("{LABEL}.plist")),
             program,

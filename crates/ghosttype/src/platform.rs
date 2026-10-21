@@ -1,8 +1,5 @@
 //! Selects the platform layer that runs GhostType on this OS.
 
-#[cfg(target_os = "macos")]
-mod launch_agent;
-
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
 pub(crate) fn run() -> anyhow::Result<()> {
@@ -48,7 +45,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let settings_file = ghosttype_settings::SettingsFile::new(data_dir.join("settings.json"));
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
-    let launch_agent = launch_agent::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);
+    let launch_agent = ghosttype_macos::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner =
         ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file), None);

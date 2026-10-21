@@ -15,6 +15,7 @@ mod injection;
 mod keychain;
 mod keys;
 mod labels;
+mod launch_agent;
 mod main_menu;
 mod menu_bar;
 mod mirror;
@@ -26,6 +27,7 @@ mod settings;
 mod single_instance;
 
 pub use keychain::Keychain;
+pub use launch_agent::LaunchAgent;
 
 use ghosttype_core::controller::Services;
 use ghosttype_core::settings::Settings;
