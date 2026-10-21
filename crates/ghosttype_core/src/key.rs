@@ -3,7 +3,7 @@
 
 use std::mem;
 
-/// A key press relevant to suggestions, already translated by the platform layer.
+/// A key press relevant to suggestions. [`Key::from_press`] gives it from what the platform reads.
 ///
 /// Modifier-only presses are not keys. Platforms drop them before they reach the engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,8 +81,8 @@ pub enum Chord {
     Plain,
     /// Shift only: still typing.
     Shift,
-    /// A modifier that changes the typed character, such as Option on macOS or `AltGr` on
-    /// Windows. What the press types gives the key.
+    /// A modifier that changes the typed character, such as Option on macOS, or Control and `AltGr`
+    /// on Windows. What the press types gives the key.
     CharacterModifier,
     /// A modifier for shortcuts, such as Command on macOS or Alt on Windows.
     Shortcut,
@@ -187,40 +187,6 @@ impl BadgeClickFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn press_on_the_badge_is_swallowed() {
-        let mut filter = BadgeClickFilter::default();
-
-        assert_eq!(filter.on_badge_press(), Disposition::Swallow);
-    }
-
-    #[test]
-    fn release_after_a_press_on_the_badge_is_swallowed() {
-        let mut filter = BadgeClickFilter::default();
-        filter.on_badge_press();
-
-        assert_eq!(filter.on_release(), Disposition::Swallow);
-    }
-
-    #[test]
-    fn release_without_a_press_on_the_badge_passes() {
-        let mut filter = BadgeClickFilter::default();
-
-        assert_eq!(filter.on_release(), Disposition::Pass);
-    }
-
-    #[test]
-    fn badge_release_is_swallowed_once() {
-        let mut filter = BadgeClickFilter::default();
-        filter.on_badge_press();
-        filter.on_release();
-
-        assert_eq!(filter.on_release(), Disposition::Pass);
-    }
-
-    const TAB: u16 = 48;
-    const LETTER_A: u16 = 0;
 
     #[test]
     fn editing_key_without_a_modifier_keeps_its_role() {
@@ -348,6 +314,9 @@ mod tests {
         assert_eq!(keys, cases.map(|(.., key)| key));
     }
 
+    const TAB: u16 = 48;
+    const LETTER_A: u16 = 0;
+
     #[test]
     fn swallowed_press_swallows_its_release() {
         let mut filter = ReleaseFilter::default();
@@ -388,5 +357,36 @@ mod tests {
         filter.on_press(TAB, Disposition::Pass);
 
         assert_eq!(filter.on_release(TAB), Disposition::Pass);
+    }
+
+    #[test]
+    fn press_on_the_badge_is_swallowed() {
+        let mut filter = BadgeClickFilter::default();
+
+        assert_eq!(filter.on_badge_press(), Disposition::Swallow);
+    }
+
+    #[test]
+    fn release_after_a_press_on_the_badge_is_swallowed() {
+        let mut filter = BadgeClickFilter::default();
+        filter.on_badge_press();
+
+        assert_eq!(filter.on_release(), Disposition::Swallow);
+    }
+
+    #[test]
+    fn release_without_a_press_on_the_badge_passes() {
+        let mut filter = BadgeClickFilter::default();
+
+        assert_eq!(filter.on_release(), Disposition::Pass);
+    }
+
+    #[test]
+    fn badge_release_is_swallowed_once() {
+        let mut filter = BadgeClickFilter::default();
+        filter.on_badge_press();
+        filter.on_release();
+
+        assert_eq!(filter.on_release(), Disposition::Pass);
     }
 }
