@@ -47,7 +47,7 @@ pub(super) struct Decoder<'run> {
 }
 
 /// The text that the first added tokens write again.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(super) struct Healing<'text> {
     pub(super) text: &'text [u8],
     /// The token that the first step takes, from the fix of a typo, if any.

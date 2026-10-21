@@ -85,16 +85,16 @@ impl Arguments {
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 [name, bias] if name == "--word-bias" => {
-                    parsed.word_bias = on_off(bias, WordBiasUse::On, WordBiasUse::Off)?;
+                    parsed.word_bias = switch_named(bias, WordBiasUse::On, WordBiasUse::Off)?;
                 }
                 [name, shared] if name == "--shared-history" => {
-                    parsed.shared_history = on_off(shared, SharedHistory::On, SharedHistory::Off)?;
+                    parsed.shared_history = switch_named(shared, SharedHistory::On, SharedHistory::Off)?;
                 }
                 [name, cut] if name == "--tail-cut" => {
-                    parsed.tail_cut = on_off(cut, TailCut::On, TailCut::Off)?;
+                    parsed.tail_cut = switch_named(cut, TailCut::On, TailCut::Off)?;
                 }
                 [name, rule] if name == "--typo-rule" => {
-                    parsed.typo_rule = on_off(rule, TypoRule::HideSuggestions, TypoRule::Suggest)?;
+                    parsed.typo_rule = switch_named(rule, TypoRule::HideSuggestions, TypoRule::Suggest)?;
                 }
                 [name, length] if name == "--length" => parsed.length = length_named(length)?,
                 _ => return None,
@@ -136,9 +136,9 @@ fn word_choice_named(name: &str) -> Option<WordChoice> {
     }
 }
 
-/// Returns `on` for the name `on` and `off` for the name `off` of a switch in [`USAGE`], or `None`
-/// for another name.
-fn on_off<T>(name: &str, on: T, off: T) -> Option<T> {
+/// Returns the value of a switch with `name` in [`USAGE`]: `on` for "on" and `off` for "off", or
+/// `None` for another name.
+fn switch_named<T>(name: &str, on: T, off: T) -> Option<T> {
     match name {
         "on" => Some(on),
         "off" => Some(off),
