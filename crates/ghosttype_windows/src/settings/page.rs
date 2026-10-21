@@ -4,34 +4,27 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ghosttype_core::settings_window::view::{
-    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, NoteTone, Output, Page, Picker,
-    Row, SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
+    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Output, Page, Picker, Row, SearchField,
+    Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
-    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, Component, ComponentContext,
-    EncodedImage, FontWeight, Grid, GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar,
-    ProgressRing, RoutedCallback, ScrollBarVisibility, ScrollViewer, StackPanel, Symbol, SymbolIcon,
-    TextBlock, TextBox, TextWrapping, ThemeBrush, Thickness, ToggleSwitch, VerticalAlignment, View,
-    ViewContext, VirtualKey, keyed,
+    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
+    GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
+    StackPanel, Symbol, SymbolIcon, TextBlock, TextBox, TextWrapping, Thickness, ToggleSwitch,
+    VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
+use super::layout::{
+    CONTROL_GAP, card, control_card, control_with_column, note_text, scrolling_page, secondary_text,
+};
+use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
 use super::{PageMessage, SettingsPage};
 
-const PAGE_MARGIN: Thickness = Thickness::new(56.0, 32.0, 56.0, 32.0);
-const PAGE_MAX_WIDTH: f64 = 1000.0;
 const TITLE_SIZE: f64 = 28.0;
-const CAPTION_SIZE: f64 = 12.0;
-const SECONDARY_OPACITY: f64 = 0.75;
 const SECTION_GAP: f64 = 28.0;
 const HEADING_GAP: f64 = 8.0;
 const CARD_GAP: f64 = 4.0;
-const CARD_PADDING: Thickness = Thickness::xy(16.0, 12.0);
-const CARD_MIN_HEIGHT: f64 = 68.0;
-const CARD_RADIUS: f64 = 4.0;
-const CARD_STROKE: f64 = 1.0;
-const CONTROL_GAP: f64 = 16.0;
 const PICKER_MIN_WIDTH: f64 = 200.0;
-const TEXT_AREA_MIN_HEIGHT: f64 = 160.0;
 const TEXT_LINE_MIN_WIDTH: f64 = 200.0;
 const PROGRESS_WIDTH: f64 = 120.0;
 const PERMILLE_MAX: f64 = 1000.0;
@@ -452,112 +445,6 @@ impl Renderer<'_, '_> {
     }
 }
 
-/// The multi-line text box of a text area. It gets its text one render after it exists, because
-/// reactor sets the text of a new `TextBox` before `AcceptsReturn`, and a single-line WinUI text
-/// box keeps only the first line of the text that it gets.
-struct TextAreaBox {
-    shows_text: bool,
-}
-
-#[derive(Clone, PartialEq)]
-struct TextAreaBoxInput {
-    text: String,
-    label: &'static str,
-    on_text_changed: Callback<Rc<str>>,
-}
-
-impl Component for TextAreaBox {
-    type Input = TextAreaBoxInput;
-    type Message = ();
-
-    fn create(_input: &TextAreaBoxInput, context: &ComponentContext<Self>) -> Self {
-        if !context.sender().send(()) {
-            tracing::warn!("the text area did not take a message");
-        }
-        Self { shows_text: false }
-    }
-
-    fn update(&mut self, (): (), _context: &ComponentContext<Self>) {
-        self.shows_text = true;
-    }
-
-    fn view(&self, input: &TextAreaBoxInput, _context: &mut ViewContext<'_, Self>) -> View {
-        let field = TextBox::new()
-            .accepts_return(true)
-            .text_wrapping(TextWrapping::Wrap)
-            .min_height(TEXT_AREA_MIN_HEIGHT)
-            .automation_name(input.label)
-            .on_text_changed(input.on_text_changed.clone());
-        if self.shows_text {
-            field.text(&input.text).into()
-        } else {
-            field.into()
-        }
-    }
-}
-
-/// Puts `column` at the leading edge of a page that scrolls up and down, as wide as the page up to
-/// [`PAGE_MAX_WIDTH`]. The width limit is on a grid column, because WinUI places the direct child
-/// of a `ScrollViewer` past its right edge when that child has a `MaxWidth` smaller than the page.
-fn scrolling_page(column: View) -> View {
-    let limited = Grid::new()
-        .columns([GridLength::STAR.max(PAGE_MAX_WIDTH)])
-        .children((column,));
-    ScrollViewer::new()
-        .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
-        .content(Border::new().padding(PAGE_MARGIN).content(limited))
-        .into()
-}
-
-fn card(content: View) -> View {
-    Border::new()
-        .background(ThemeBrush::CardBackground)
-        .border_brush(ThemeBrush::CardStroke)
-        .border_thickness(CARD_STROKE)
-        .corner_radius(CARD_RADIUS)
-        .padding(CARD_PADDING)
-        .min_height(CARD_MIN_HEIGHT)
-        .content(content)
-        .into()
-}
-
-/// A card with the label and the description at the leading edge and `control` at the trailing
-/// edge.
-fn control_card(label: &str, description: &str, note: Option<&Note>, control: View) -> View {
-    let texts = StackPanel::new()
-        .vertical_alignment(VerticalAlignment::Center)
-        .children(
-            [
-                Some(
-                    TextBlock::new()
-                        .text(label)
-                        .text_wrapping(TextWrapping::Wrap)
-                        .into(),
-                ),
-                (!description.is_empty()).then(|| secondary_text(description).into()),
-                note.map(|note| note_text(note).into()),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<View>>(),
-        );
-    card(
-        Grid::new()
-            .columns([GridLength::STAR, GridLength::Auto])
-            .column_spacing(CONTROL_GAP)
-            .children((texts.grid_column(0), control_with_column(control)))
-            .into(),
-    )
-}
-
-fn control_with_column(control: View) -> View {
-    Border::new()
-        .grid_column(1)
-        .vertical_alignment(VerticalAlignment::Center)
-        .content(control)
-        .into()
-}
-
 fn output_card(output: &Output) -> View {
     card(
         StackPanel::new()
@@ -589,20 +476,4 @@ fn loading_card(text: &str) -> View {
             ))
             .into(),
     )
-}
-
-fn secondary_text(text: &str) -> TextBlock {
-    TextBlock::new()
-        .text(text)
-        .font_size(CAPTION_SIZE)
-        .opacity(SECONDARY_OPACITY)
-        .text_wrapping(TextWrapping::Wrap)
-}
-
-fn note_text(note: &Note) -> TextBlock {
-    let text = secondary_text(note.text);
-    match note.tone {
-        NoteTone::Plain | NoteTone::Busy => text,
-        NoteTone::Error => text.foreground(ThemeBrush::SystemCritical).opacity(1.0),
-    }
 }

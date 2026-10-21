@@ -3,7 +3,9 @@
 //! one place reactor callbacks on that thread reach the window's state.
 
 mod app_icon;
+mod layout;
 mod page;
+mod text_area_box;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
