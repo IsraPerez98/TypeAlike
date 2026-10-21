@@ -138,11 +138,11 @@ pub(crate) fn fill_band(
     rows: Range<usize>,
     color: Rgb,
 ) {
-    for row in rows {
-        for column in columns.clone().filter(|&column| column < width) {
-            if let Some(pixel) = pixels.get_mut(row * width + column) {
-                *pixel = premultiplied(color, u8::MAX);
-            }
+    let columns = columns.start..columns.end.min(width);
+    let indexes = rows.flat_map(|row| columns.clone().map(move |column| row * width + column));
+    for index in indexes {
+        if let Some(pixel) = pixels.get_mut(index) {
+            *pixel = premultiplied(color, u8::MAX);
         }
     }
 }
