@@ -3,13 +3,13 @@
 use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
-use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount};
+use crate::inference::{Backend, InferenceError, InferenceRequest, LogProbability, TokenCount};
 use crate::key::Key;
-use crate::prompt;
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
 
 use super::support::{
-    FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press, request, show,
+    ExpectedRequest, FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press,
+    request, show,
 };
 
 #[test]
@@ -45,14 +45,10 @@ fn cpu_backend_asks_for_short_suggestions() {
 
     assert_eq!(
         reaction,
-        Reaction::Request(InferenceRequest::Complete {
-            prompt: prompt::framed_prompt(&[], "h"),
+        Reaction::from(ExpectedRequest {
             max_tokens: TokenCount(6),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
             min_log_probability: Some(SuggestionLength::Short.tail_cut()),
-            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-            fixes_typos: true,
+            ..ExpectedRequest::framed(&[], "h")
         })
     );
 }
@@ -68,14 +64,10 @@ fn typo_rule_that_suggests_asks_for_no_typo_cut() {
 
     assert_eq!(
         reaction,
-        Reaction::Request(InferenceRequest::Complete {
-            prompt: prompt::framed_prompt(&[], "h"),
-            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
-            min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
+        Reaction::from(ExpectedRequest {
             min_typed_log_probability: None,
             fixes_typos: false,
+            ..ExpectedRequest::framed(&[], "h")
         })
     );
 }
@@ -92,14 +84,10 @@ fn very_short_suggestion_length_asks_for_three_tokens() {
 
     assert_eq!(
         reaction,
-        Reaction::Request(InferenceRequest::Complete {
-            prompt: prompt::framed_prompt(&[], "h"),
+        Reaction::from(ExpectedRequest {
             max_tokens: TokenCount(3),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
             min_log_probability: Some(SuggestionLength::VeryShort.tail_cut()),
-            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-            fixes_typos: true,
+            ..ExpectedRequest::framed(&[], "h")
         })
     );
 }
@@ -120,14 +108,10 @@ fn longer_suggestion_lengths_ask_for_more_tokens_and_lower_tail_cuts() {
     assert_eq!(
         reactions,
         [(15, -5.9), (22, -8.6)].map(|(tokens, cut)| {
-            Reaction::Request(InferenceRequest::Complete {
-                prompt: prompt::framed_prompt(&[], "h"),
+            Reaction::from(ExpectedRequest {
                 max_tokens: TokenCount(tokens),
-                word_bias: None,
-                next_word_bias: NextWordBias::default(),
                 min_log_probability: Some(LogProbability(cut)),
-                min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-                fixes_typos: true,
+                ..ExpectedRequest::framed(&[], "h")
             })
         })
     );
@@ -147,15 +131,16 @@ fn new_settings_apply_from_the_next_session() {
 
 #[expect(clippy::unnecessary_wraps, reason = "prepare returns an Option")]
 fn preparation(context: &str) -> Option<InferenceRequest> {
-    Some(InferenceRequest::Complete {
-        prompt: prompt::framed_prompt(&[], context),
-        max_tokens: TokenCount(0),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: None,
-        min_typed_log_probability: None,
-        fixes_typos: false,
-    })
+    Some(
+        ExpectedRequest {
+            max_tokens: TokenCount(0),
+            min_log_probability: None,
+            min_typed_log_probability: None,
+            fixes_typos: false,
+            ..ExpectedRequest::framed(&[], context)
+        }
+        .into(),
+    )
 }
 
 #[test]

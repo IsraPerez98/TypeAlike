@@ -6,13 +6,13 @@ use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
-use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::Key;
 use crate::prompt;
 use crate::settings::{ClipboardAccess, Settings, WriterName, WriterNotes};
 
 use super::support::{
-    FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press, request, request_with,
+    ExpectedRequest, FakeDesktop, completion, engine_showing, engine_waiting_for, engine_with, press,
+    request, request_with,
 };
 
 #[test]
@@ -186,14 +186,9 @@ fn writer_notes_come_after_the_frame() {
 
     assert_eq!(
         reaction,
-        Reaction::Request(InferenceRequest::Complete {
+        Reaction::from(ExpectedRequest {
             prompt: prompt::prompt_with_notes("I am a nurse.", &[], "h"),
-            max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-            word_bias: None,
-            next_word_bias: NextWordBias::default(),
-            min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-            min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-            fixes_typos: true,
+            ..ExpectedRequest::framed(&[], "h")
         })
     );
 }

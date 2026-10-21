@@ -7,7 +7,7 @@ use crate::desktop::{CopiedText, Desktop, Field, FieldLabels, FieldText, Surroun
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, TokenCount,
+    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount,
 };
 use crate::key::Key;
 use crate::prompt;
@@ -97,16 +97,52 @@ pub(super) fn engine_with(settings: &Settings) -> Engine {
     engine
 }
 
+/// The request of a completion without word bias, which a test changes where its settings differ
+/// from the default settings.
+pub(super) struct ExpectedRequest {
+    pub(super) prompt: Prompt,
+    pub(super) max_tokens: TokenCount,
+    pub(super) min_log_probability: Option<LogProbability>,
+    pub(super) min_typed_log_probability: Option<LogProbability>,
+    pub(super) fixes_typos: bool,
+}
+
+impl ExpectedRequest {
+    /// The request that the default settings give for `text_before` after the frame and `lines`.
+    pub(super) fn framed(lines: &[&str], text_before: &str) -> Self {
+        let settings = Settings::default();
+        Self {
+            prompt: prompt::framed_prompt(lines, text_before),
+            max_tokens: settings.suggestion_length_in_use().max_tokens(),
+            min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
+            min_typed_log_probability: settings.typo_rule.typed_letters_cut(),
+            fixes_typos: true,
+        }
+    }
+}
+
+impl From<ExpectedRequest> for InferenceRequest {
+    fn from(expected: ExpectedRequest) -> Self {
+        Self::Complete {
+            prompt: expected.prompt,
+            max_tokens: expected.max_tokens,
+            word_bias: None,
+            next_word_bias: NextWordBias::default(),
+            min_log_probability: expected.min_log_probability,
+            min_typed_log_probability: expected.min_typed_log_probability,
+            fixes_typos: expected.fixes_typos,
+        }
+    }
+}
+
+impl From<ExpectedRequest> for Reaction {
+    fn from(expected: ExpectedRequest) -> Self {
+        Self::Request(expected.into())
+    }
+}
+
 pub(super) fn request_with(lines: &[&str], text_before: &str) -> Reaction {
-    Reaction::Request(InferenceRequest::Complete {
-        prompt: prompt::framed_prompt(lines, text_before),
-        max_tokens: Settings::default().suggestion_length_in_use().max_tokens(),
-        word_bias: None,
-        next_word_bias: NextWordBias::default(),
-        min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
-        min_typed_log_probability: Settings::default().typo_rule.typed_letters_cut(),
-        fixes_typos: true,
-    })
+    ExpectedRequest::framed(lines, text_before).into()
 }
 
 pub(super) fn request(text_before: &str) -> Reaction {
