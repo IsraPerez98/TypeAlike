@@ -42,9 +42,12 @@ pub fn write_report(
         writeln!(output, "log prob:      {mean:.3}")?;
     }
     write_word_report(output, summary)?;
-    let Some(comparison) = comparison else {
-        return Ok(());
-    };
+    comparison.map_or(Ok(()), |comparison| write_comparison(output, comparison))
+}
+
+/// Writes the cases that a change helped or harmed against the baseline, and the change of the log
+/// probability.
+fn write_comparison(output: &mut impl Write, comparison: &Comparison) -> io::Result<()> {
     writeln!(
         output,
         "helped:        {} {:?}",
