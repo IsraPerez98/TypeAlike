@@ -18,10 +18,10 @@ pub struct LaunchAgent {
 impl LaunchAgent {
     /// Creates the agent in `agents_folder` that starts `program`.
     #[must_use]
-    pub fn new(agents_folder: &Path, program: PathBuf) -> Self {
+    pub fn new(agents_folder: &Path, program: &Path) -> Self {
         Self {
             file: agents_folder.join(format!("{LABEL}.plist")),
-            program,
+            program: program.to_owned(),
         }
     }
 
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn enabling_writes_an_agent_that_starts_the_program_at_login() {
         let folder = agents_folder("enable");
-        let mut agent = LaunchAgent::new(&folder, PathBuf::from("/Applications/GhostType"));
+        let mut agent = LaunchAgent::new(&folder, Path::new("/Applications/GhostType"));
 
         agent.enable();
 
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn disabling_removes_the_agent() {
         let folder = agents_folder("disable");
-        let mut agent = LaunchAgent::new(&folder, PathBuf::from("/Applications/GhostType"));
+        let mut agent = LaunchAgent::new(&folder, Path::new("/Applications/GhostType"));
         agent.enable();
 
         agent.disable();
@@ -149,10 +149,7 @@ mod tests {
 
     #[test]
     fn disabling_a_missing_agent_keeps_it_disabled() {
-        let mut agent = LaunchAgent::new(
-            &agents_folder("missing"),
-            PathBuf::from("/Applications/GhostType"),
-        );
+        let mut agent = LaunchAgent::new(&agents_folder("missing"), Path::new("/Applications/GhostType"));
 
         agent.disable();
 
@@ -162,7 +159,7 @@ mod tests {
     #[test]
     fn program_path_is_escaped_for_xml() {
         let folder = agents_folder("escape");
-        let mut agent = LaunchAgent::new(&folder, PathBuf::from("/Users/a&b/<GhostType>"));
+        let mut agent = LaunchAgent::new(&folder, Path::new("/Users/a&b/<GhostType>"));
 
         agent.enable();
 

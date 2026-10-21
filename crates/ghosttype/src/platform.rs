@@ -45,7 +45,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     let settings_file = ghosttype_settings::SettingsFile::new(data_dir.join("settings.json"));
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
-    let launch_agent = ghosttype_macos::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), program);
+    let launch_agent = ghosttype_macos::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), &program);
     let hub = ghosttype_models::HuggingFace::new(models_dir.clone());
     let runner =
         ghosttype_llm::LlamaCpp::new(move |file| ghosttype_models::stored_path(&models_dir, file), None);
