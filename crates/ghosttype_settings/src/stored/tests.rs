@@ -13,6 +13,16 @@ fn model_file() -> ModelFile {
     }
 }
 
+fn history_apps_of(json: &str) -> Vec<(String, HistoryScope)> {
+    parse(json)
+        .unwrap()
+        .personalization
+        .apps
+        .into_iter()
+        .map(|app| (app.app_id, app.scope))
+        .collect()
+}
+
 #[test]
 fn backend_reads_from_its_name() {
     let files = [
@@ -209,16 +219,6 @@ fn personalization_reads_from_its_names() {
             word_choice: WordChoice::Light,
         })
     );
-}
-
-fn history_apps_of(json: &str) -> Vec<(String, HistoryScope)> {
-    parse(json)
-        .unwrap()
-        .personalization
-        .apps
-        .into_iter()
-        .map(|app| (app.app_id, app.scope))
-        .collect()
 }
 
 #[test]
