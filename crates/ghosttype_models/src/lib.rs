@@ -1,7 +1,9 @@
 //! Model files for GhostType: Hugging Face search, downloads and the local models directory.
 //!
-//! [`HuggingFace`] implements the core [`ModelHub`] seam. Every request runs on its own thread
-//! and reports through the caller's sink, so the caller's thread never blocks on the network.
+//! [`HuggingFace`] implements the core [`ModelHub`] seam. Network requests and the scan of the
+//! models directory run on their own threads and report through the caller's sink. Thus the
+//! network never blocks the caller's thread. A cancel and a delete finish at once on the caller's
+//! thread.
 
 mod api;
 mod store;
