@@ -1,5 +1,7 @@
 //! The AppKit run loop, and the one place macOS callbacks reach GhostType's state.
 
+mod target;
+
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::mem;
@@ -21,15 +23,11 @@ use ghosttype_core::key::{Disposition, ReleaseFilter};
 use ghosttype_core::settings::{ClipboardAccess, Settings};
 use ghosttype_core::settings_window::view::{SettingsInput, SettingsView};
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, Sel};
-use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSButton, NSControl, NSMenu, NSMenuItem, NSPopUpButton,
-    NSSwitch, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
-    NSWorkspaceDidActivateApplicationNotification,
-};
+use objc2::runtime::Sel;
+use objc2::{MainThreadMarker, MainThreadOnly, sel};
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, CGKeyCode};
-use objc2_foundation::{NSNotification, NSPoint, NSTimeInterval, NSTimer};
+use objc2_foundation::{NSPoint, NSTimeInterval, NSTimer};
 
 use crate::RunError;
 use crate::accessibility;
@@ -39,13 +37,14 @@ use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::FocusTracker;
 use crate::geometry::Caret;
-use crate::injection::{self, INJECTION_TAG, Replacement};
+use crate::injection::{INJECTION_TAG, Replacement};
 use crate::keys::{self, Chord};
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
 use crate::ocr;
 use crate::overlay::Overlay;
+use crate::runtime::target::{RuntimeTarget, observe_workspace};
 use crate::screen_text::ScreenTextReader;
 use crate::settings::{ActionTarget, SettingsWindow};
 
@@ -115,25 +114,6 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     application.run();
     RUNTIME.take();
     Ok(())
-}
-
-fn observe_workspace(target: &RuntimeTarget) {
-    let center = NSWorkspace::sharedWorkspace().notificationCenter();
-    // SAFETY: the target implements each selector, and the center drops deallocated observers itself.
-    unsafe {
-        center.addObserver_selector_name_object(
-            target,
-            sel!(activeSpaceDidChange:),
-            Some(NSWorkspaceActiveSpaceDidChangeNotification),
-            None,
-        );
-        center.addObserver_selector_name_object(
-            target,
-            sel!(applicationDidActivate:),
-            Some(NSWorkspaceDidActivateApplicationNotification),
-            None,
-        );
-    }
 }
 
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
@@ -435,121 +415,6 @@ impl Shell for AppKitShell {
     /// Ends the app from a timer, outside the borrow of the runtime that the end of the app drops.
     fn quit(&mut self) {
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(quitApplication:));
-    }
-}
-
-define_class!(
-    // SAFETY: NSObject has no subclassing requirements, and this class does not implement Drop.
-    #[unsafe(super = NSObject)]
-    #[thread_kind = MainThreadOnly]
-    #[name = "GhostTypeRuntimeTarget"]
-    struct RuntimeTarget;
-
-    impl RuntimeTarget {
-        // SAFETY: matches the action signature, called with the picked menu item.
-        #[unsafe(method(pickMenuItem:))]
-        fn pick_menu_item(&self, sender: &NSMenuItem) {
-            let tag = sender.tag();
-            with_runtime(|runtime| runtime.on_menu_item(tag));
-        }
-
-        // SAFETY: matches the action signature, called with the picked item of the badge menu.
-        #[unsafe(method(pickBadgeMenuItem:))]
-        fn pick_badge_menu_item(&self, sender: &NSMenuItem) {
-            let tag = sender.tag();
-            with_runtime(|runtime| runtime.on_badge_menu_item(tag));
-        }
-
-        // SAFETY: matches the timer action signature.
-        #[unsafe(method(showBadgeMenu:))]
-        fn show_badge_menu(&self, _timer: &NSTimer) {
-            // The menu runs an event loop of its own, which must not run inside the borrow of the
-            // runtime.
-            if let Some((menu, location)) = with_runtime(Runtime::open_badge_menu).flatten() {
-                menu.popUpMenuPositioningItem_atLocation_inView(None, location, None);
-            }
-        }
-
-        // SAFETY: matches the action signature, called with a switch of a settings page.
-        #[unsafe(method(toggleSetting:))]
-        fn toggle_setting(&self, sender: &NSSwitch) {
-            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.toggled(sender)));
-        }
-
-        // SAFETY: matches the action signature, called with a menu of a settings page.
-        #[unsafe(method(pickSetting:))]
-        fn pick_setting(&self, sender: &NSPopUpButton) {
-            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.picked(sender)));
-        }
-
-        // SAFETY: matches the action signature, called with a button of a settings page.
-        #[unsafe(method(pressSetting:))]
-        fn press_setting(&self, sender: &NSButton) {
-            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.pressed(sender)));
-        }
-
-        // SAFETY: matches the notification observer signature, called for each change of the text
-        // of a text view.
-        #[unsafe(method(editSetting:))]
-        fn edit_setting(&self, notification: &NSNotification) {
-            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.edited(notification)));
-        }
-
-        // SAFETY: matches the action signature, called with a text field of a settings page or its
-        // button.
-        #[unsafe(method(submitSetting:))]
-        fn submit_setting(&self, sender: &NSControl) {
-            with_runtime(|runtime| runtime.on_settings_control(|settings| settings.submitted(sender)));
-        }
-
-        // SAFETY: matches the timer action signature.
-        #[unsafe(method(caretDidSettle:))]
-        fn caret_did_settle(&self, _timer: &NSTimer) {
-            with_runtime(Runtime::on_caret_settled);
-        }
-
-        // SAFETY: matches the timer action signature.
-        #[unsafe(method(inputDidSettle:))]
-        fn input_did_settle(&self, _timer: &NSTimer) {
-            with_runtime(Runtime::on_input_settled);
-        }
-
-        // SAFETY: matches the timer action signature.
-        #[unsafe(method(injectPendingText:))]
-        fn inject_pending_text(&self, _timer: &NSTimer) {
-            let replacement = with_runtime(|runtime| runtime.shell.pending_injection.take()).flatten();
-            if let Some(replacement) = replacement
-                && let Err(error) = injection::replace_text(&replacement)
-            {
-                tracing::warn!(%error, "failed to type accepted text");
-            }
-        }
-
-        // SAFETY: matches the timer action signature.
-        #[unsafe(method(quitApplication:))]
-        fn quit_application(&self, _timer: &NSTimer) {
-            NSApplication::sharedApplication(self.mtm()).terminate(None);
-        }
-
-        // SAFETY: matches the notification observer signature.
-        #[unsafe(method(activeSpaceDidChange:))]
-        fn active_space_did_change(&self, _notification: &NSNotification) {
-            with_runtime(Runtime::on_space_change);
-        }
-
-        // SAFETY: matches the notification observer signature.
-        #[unsafe(method(applicationDidActivate:))]
-        fn application_did_activate(&self, _notification: &NSNotification) {
-            with_runtime(Runtime::on_app_activation);
-        }
-    }
-);
-
-impl RuntimeTarget {
-    fn new(main_thread: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(main_thread).set_ivars(());
-        // SAFETY: NSObject's init takes no arguments and returns an initialized object.
-        unsafe { msg_send![super(this), init] }
     }
 }
 
