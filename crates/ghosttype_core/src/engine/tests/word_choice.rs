@@ -7,8 +7,8 @@ use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, completion, engine_with_history, finish_typing, history_settings,
-    mail_app, mail_entry, mail_field, show, type_text,
+    FakeDesktop, GREETING, MAIL_APP, Suggestion, completion, engine_with_history, finish_typing,
+    history_settings, mail_app, mail_entry, mail_field, show, type_text,
 };
 
 fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -85,7 +85,7 @@ fn new_history_gives_a_new_version() {
     finish_typing(
         &mut engine,
         &FakeDesktop::with_field_text(GREETING).in_app(MAIL_APP),
-        true,
+        Suggestion::Accepted,
     );
 
     let after = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));

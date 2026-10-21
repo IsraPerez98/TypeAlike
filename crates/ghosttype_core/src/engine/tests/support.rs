@@ -233,13 +233,20 @@ pub(super) fn mail_field() -> FakeDesktop {
 pub(super) const GREETING: &str = "Hi Ana,\n\n";
 pub(super) const TYPED_TEXT: &str = "The report is ready, and the numbers look goo";
 
-/// Types `typed` and the key `d` in `desktop`, accepts a suggestion when `accepts` and ends
-/// the session. Returns the history to save.
+/// What the user does with the suggestion at the end of a typed text.
+#[derive(Clone, Copy)]
+pub(super) enum Suggestion {
+    Accepted,
+    Ignored,
+}
+
+/// Types `typed` and the key `d` in `desktop`, accepts the suggestion when `suggestion` is
+/// [`Suggestion::Accepted`] and ends the session. Returns the history to save.
 pub(super) fn finish_typing_text(
     engine: &mut Engine,
     desktop: &FakeDesktop,
     typed: &str,
-    accepts: bool,
+    suggestion: Suggestion,
 ) -> Option<Vec<HistoryEntry>> {
     for character in typed.chars() {
         if let Reaction::Request(_) = engine.on_key(Key::Char(character), desktop) {
@@ -248,7 +255,7 @@ pub(super) fn finish_typing_text(
     }
     engine.on_key(Key::Char('d'), desktop);
     engine.on_completion(completion(". Best, Tom"));
-    if accepts {
+    if matches!(suggestion, Suggestion::Accepted) {
         engine.on_key(Key::Tab, desktop);
     }
     engine.on_key(Key::Other, desktop);
@@ -258,7 +265,7 @@ pub(super) fn finish_typing_text(
 pub(super) fn finish_typing(
     engine: &mut Engine,
     desktop: &FakeDesktop,
-    accepts: bool,
+    suggestion: Suggestion,
 ) -> Option<Vec<HistoryEntry>> {
-    finish_typing_text(engine, desktop, TYPED_TEXT, accepts)
+    finish_typing_text(engine, desktop, TYPED_TEXT, suggestion)
 }

@@ -5,7 +5,7 @@ use crate::key::Key;
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
 
 use super::support::{
-    FakeDesktop, GREETING, MAIL_APP, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
+    FakeDesktop, GREETING, MAIL_APP, Suggestion, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
     finish_typing_text, history_settings, mail_app, mail_entry, mail_field, request_with, type_text,
 };
 
@@ -62,7 +62,7 @@ fn kept_settings(kept_texts: KeptTexts) -> Settings {
 fn finished_text_with_an_accepted_suggestion_is_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::AcceptedOnly));
 
-    let saved = finish_typing(&mut engine, &mail_desktop(GREETING), true);
+    let saved = finish_typing(&mut engine, &mail_desktop(GREETING), Suggestion::Accepted);
 
     assert_eq!(saved, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d."))]));
 }
@@ -71,8 +71,13 @@ fn finished_text_with_an_accepted_suggestion_is_kept() {
 fn finished_text_without_an_accepted_suggestion_is_kept_only_when_all_texts_are_kept() {
     let settings = [KeptTexts::AcceptedOnly, KeptTexts::All].map(kept_settings);
 
-    let saved =
-        settings.map(|settings| finish_typing(&mut engine_with(&settings), &mail_desktop(GREETING), false));
+    let saved = settings.map(|settings| {
+        finish_typing(
+            &mut engine_with(&settings),
+            &mail_desktop(GREETING),
+            Suggestion::Ignored,
+        )
+    });
 
     assert_eq!(saved, [None, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d"))])]);
 }
@@ -102,7 +107,9 @@ fn finished_text_is_not_kept_where_the_rules_forbid_it() {
         ),
     ];
 
-    let saved = cases.map(|(settings, desktop)| finish_typing(&mut engine_with(&settings), &desktop, true));
+    let saved = cases.map(|(settings, desktop)| {
+        finish_typing(&mut engine_with(&settings), &desktop, Suggestion::Accepted)
+    });
 
     assert_eq!(saved, [None, None, None, None, None]);
 }
@@ -119,7 +126,12 @@ fn mail_desktop(before_caret: &str) -> FakeDesktop {
 fn short_finished_text_is_not_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
 
-    let saved = finish_typing_text(&mut engine, &mail_desktop(GREETING), "Thanks", true);
+    let saved = finish_typing_text(
+        &mut engine,
+        &mail_desktop(GREETING),
+        "Thanks",
+        Suggestion::Accepted,
+    );
 
     assert_eq!(saved, None);
 }
@@ -128,7 +140,12 @@ fn short_finished_text_is_not_kept() {
 fn text_that_the_field_held_before_the_session_is_not_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
 
-    let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), TYPED_TEXT, false);
+    let saved = finish_typing_text(
+        &mut engine,
+        &mail_desktop(&long_field()),
+        TYPED_TEXT,
+        Suggestion::Ignored,
+    );
 
     assert_eq!(saved, Some(vec![mail_entry(&format!("{TYPED_TEXT}d"))]));
 }
@@ -137,7 +154,12 @@ fn text_that_the_field_held_before_the_session_is_not_kept() {
 fn a_few_words_that_the_user_adds_to_a_long_field_are_not_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
 
-    let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), "Thanks", false);
+    let saved = finish_typing_text(
+        &mut engine,
+        &mail_desktop(&long_field()),
+        "Thanks",
+        Suggestion::Ignored,
+    );
 
     assert_eq!(saved, None);
 }
@@ -149,7 +171,12 @@ fn draft_that_an_entry_holds_is_kept_with_the_new_text_in_one_entry() {
         vec![mail_entry(long_field().trim())],
     );
 
-    let saved = finish_typing_text(&mut engine, &mail_desktop(&long_field()), TYPED_TEXT, false);
+    let saved = finish_typing_text(
+        &mut engine,
+        &mail_desktop(&long_field()),
+        TYPED_TEXT,
+        Suggestion::Ignored,
+    );
 
     assert_eq!(
         saved,
@@ -165,7 +192,7 @@ fn backspace_into_the_text_of_the_field_makes_it_count_less() {
         engine.on_key(Key::Backspace, &desktop);
     }
 
-    let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, false);
+    let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, Suggestion::Ignored);
 
     assert_eq!(
         saved,
@@ -178,7 +205,7 @@ fn cut_of_the_start_for_the_token_limit_makes_the_text_of_the_field_count_less()
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
     let desktop = mail_desktop(&"word ".repeat(798));
 
-    let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, false);
+    let saved = finish_typing_text(&mut engine, &desktop, TYPED_TEXT, Suggestion::Ignored);
 
     assert_eq!(saved, Some(vec![mail_entry(&format!("{TYPED_TEXT}d"))]));
 }
@@ -186,11 +213,11 @@ fn cut_of_the_start_for_the_token_limit_makes_the_text_of_the_field_count_less()
 #[test]
 fn pasted_text_is_not_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
-    finish_typing(&mut engine, &mail_desktop(GREETING), false);
+    finish_typing(&mut engine, &mail_desktop(GREETING), Suggestion::Ignored);
     let pasted = "Pasted line from a web page that the user did not write. ".repeat(3);
     let desktop = mail_desktop(&format!("{EARLIER_TEXT}d{pasted}"));
 
-    let saved = finish_typing_text(&mut engine, &desktop, "", false);
+    let saved = finish_typing_text(&mut engine, &desktop, "", Suggestion::Ignored);
 
     assert_eq!(saved, None);
 }
@@ -205,7 +232,7 @@ fn session_with_two_lines_is_kept_in_one_entry() {
     let new_line = mail_desktop(&format!("{first_line}\n"));
     engine.suggest_on_new_line(&new_line);
 
-    let saved = finish_typing_text(&mut engine, &new_line, TYPED_TEXT, false);
+    let saved = finish_typing_text(&mut engine, &new_line, TYPED_TEXT, Suggestion::Ignored);
 
     assert_eq!(
         saved,
@@ -216,7 +243,7 @@ fn session_with_two_lines_is_kept_in_one_entry() {
 #[test]
 fn history_to_save_comes_once_for_each_change() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
-    finish_typing(&mut engine, &mail_desktop(GREETING), false);
+    finish_typing(&mut engine, &mail_desktop(GREETING), Suggestion::Ignored);
 
     let saved_again = engine.history_to_save().is_some();
 
