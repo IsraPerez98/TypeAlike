@@ -90,7 +90,7 @@ impl ScreenTextSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::tests::app;
+    use crate::test_support::screen_text_app;
 
     fn surroundings_of(app_id: Option<&str>, app_name: Option<&str>) -> Surroundings {
         Surroundings {
@@ -125,7 +125,7 @@ mod tests {
             entry,
             Some(ScreenTextApp {
                 app_path: Some("C:\\Program Files\\App\\app.exe".to_owned()),
-                ..app("notepad.exe", "notepad.exe", true)
+                ..screen_text_app("notepad.exe", "notepad.exe", true)
             })
         );
     }
@@ -142,8 +142,8 @@ mod tests {
         let settings = ScreenTextSettings {
             access: ScreenTextAccess::Allowed,
             apps: vec![
-                app("com.apple.mail", "Mail", false),
-                app("com.1password.1password", "1Password", true),
+                screen_text_app("com.apple.mail", "Mail", false),
+                screen_text_app("com.1password.1password", "1Password", true),
             ],
             ..ScreenTextSettings::default()
         };
@@ -158,7 +158,7 @@ mod tests {
     fn main_switch_off_allows_no_app() {
         let settings = ScreenTextSettings {
             access: ScreenTextAccess::Denied,
-            apps: vec![app("com.apple.mail", "Mail", true)],
+            apps: vec![screen_text_app("com.apple.mail", "Mail", true)],
             ..ScreenTextSettings::default()
         };
 
@@ -172,9 +172,9 @@ mod tests {
         let mut settings = ScreenTextSettings::default();
 
         let added = [
-            app("slack.exe", "Slack", true),
-            app("com.apple.mail", "mail", true),
-            app("b.exe", "Bear", true),
+            screen_text_app("slack.exe", "Slack", true),
+            screen_text_app("com.apple.mail", "mail", true),
+            screen_text_app("b.exe", "Bear", true),
         ]
         .map(|entry| settings.add(&entry));
 
@@ -193,13 +193,13 @@ mod tests {
     fn known_app_is_not_added_again() {
         let mut settings = ScreenTextSettings {
             access: ScreenTextAccess::Allowed,
-            apps: vec![app("com.apple.mail", "Mail", false)],
+            apps: vec![screen_text_app("com.apple.mail", "Mail", false)],
             ..ScreenTextSettings::default()
         };
 
-        let added = settings.add(&app("com.apple.mail", "Mail", true));
+        let added = settings.add(&screen_text_app("com.apple.mail", "Mail", true));
 
         assert!(!added);
-        assert_eq!(settings.apps, [app("com.apple.mail", "Mail", false)]);
+        assert_eq!(settings.apps, [screen_text_app("com.apple.mail", "Mail", false)]);
     }
 }

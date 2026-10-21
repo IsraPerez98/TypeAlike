@@ -293,15 +293,7 @@ fn change_to<Value: PartialEq>(setting: &mut Value, value: Value) -> Personaliza
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn app(app_id: &str, app_name: &str, scope: HistoryScope) -> HistoryApp {
-        HistoryApp {
-            app_id: app_id.to_owned(),
-            app_name: app_name.to_owned(),
-            app_path: None,
-            scope,
-        }
-    }
+    use crate::test_support::{history_app, picked, toggled};
 
     fn pane_with(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationPane {
         PersonalizationPane::new(PersonalizationSettings {
@@ -311,23 +303,9 @@ mod tests {
         })
     }
 
-    fn toggled(id: &str, is_on: bool) -> SettingsInput {
-        SettingsInput::Toggled {
-            id: ControlId::from(id.to_owned()),
-            is_on,
-        }
-    }
-
     fn app_picked(app_id: &str, index: usize) -> SettingsInput {
         SettingsInput::Picked {
             id: ControlId::from(format!("personalization-app:{app_id}")),
-            index,
-        }
-    }
-
-    fn picked(id: &'static str, index: usize) -> SettingsInput {
-        SettingsInput::Picked {
-            id: ControlId::new(id),
             index,
         }
     }
@@ -434,7 +412,7 @@ mod tests {
     fn app_menus_show_the_scope_of_each_app_and_dim_when_the_main_switch_is_off() {
         let pane = pane_with(
             HistoryAccess::Off,
-            vec![app("com.apple.mail", "Mail", HistoryScope::ThisApp)],
+            vec![history_app("com.apple.mail", "Mail", HistoryScope::ThisApp)],
         );
 
         let shown = pane.page();
@@ -558,7 +536,7 @@ mod tests {
     fn app_off_asks_to_delete_its_text_and_other_scopes_only_change_the_settings() {
         let mut pane = pane_with(
             HistoryAccess::On,
-            vec![app("com.apple.mail", "Mail", HistoryScope::AllApps)],
+            vec![history_app("com.apple.mail", "Mail", HistoryScope::AllApps)],
         );
         let select = |scope| PersonalizationAction::SelectAppScope {
             app_id: "com.apple.mail".to_owned(),

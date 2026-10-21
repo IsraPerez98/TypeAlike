@@ -439,17 +439,6 @@ impl fmt::Debug for SettingsInput {
 }
 
 #[cfg(test)]
-impl Page {
-    /// The row whose control is `id`.
-    pub(crate) fn row(&self, id: &str) -> Option<&Row> {
-        self.sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .find(|row| row.id().is_some_and(|row_id| row_id.as_str() == id))
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 

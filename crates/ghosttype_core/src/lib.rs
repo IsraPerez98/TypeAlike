@@ -17,3 +17,5 @@ mod prompt;
 mod screen;
 pub mod settings;
 pub mod settings_window;
+#[cfg(test)]
+mod test_support;

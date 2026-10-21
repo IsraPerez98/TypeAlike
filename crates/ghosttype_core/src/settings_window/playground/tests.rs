@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::inference::{LogProbability, Prompt};
+use crate::test_support::{model_file, picked};
 
 const LOADING: Note = Note {
     text: "Loading the model…",
@@ -14,13 +15,6 @@ const UNLOADED: Note = Note {
     text: "Suggestions are paused. GhostType loads the model again when you resume them.",
     tone: NoteTone::Plain,
 };
-
-fn model_file(name: &str) -> ModelFile {
-    ModelFile {
-        repo: "owner/repo".to_owned(),
-        name: name.to_owned(),
-    }
-}
 
 fn prompt(text: &str) -> Prompt {
     prompt::framed_prompt(&[], text)
@@ -101,13 +95,6 @@ fn submitted(text: &str) -> SettingsInput {
     }
 }
 
-fn picked(index: usize) -> SettingsInput {
-    SettingsInput::Picked {
-        id: ControlId::new(MODEL),
-        index,
-    }
-}
-
 #[test]
 fn pane_without_downloads_asks_for_one() {
     let pane = PlaygroundPane::new();
@@ -177,7 +164,7 @@ fn picking_a_model_selects_it() {
     let file = model_file("a.gguf");
     let pane = PlaygroundPane::new();
 
-    let action = pane.action_for(&picked(1), std::slice::from_ref(&file));
+    let action = pane.action_for(&picked(MODEL, 1), std::slice::from_ref(&file));
 
     assert_eq!(action, Some(PlaygroundAction::SelectModel(file)));
 }
@@ -186,7 +173,7 @@ fn picking_a_model_selects_it() {
 fn picking_the_placeholder_model_does_nothing() {
     let pane = PlaygroundPane::new();
 
-    let action = pane.action_for(&picked(0), &[model_file("a.gguf")]);
+    let action = pane.action_for(&picked(MODEL, 0), &[model_file("a.gguf")]);
 
     assert_eq!(action, None);
 }

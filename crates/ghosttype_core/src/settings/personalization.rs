@@ -147,22 +147,13 @@ fn default_scope(app_id: &str) -> HistoryScope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::tests::app;
+    use crate::test_support::{history_app, screen_text_app};
 
     #[test]
     fn word_choice_is_medium_by_default() {
         let settings = PersonalizationSettings::default();
 
         assert_eq!(settings.word_choice, WordChoice::Medium);
-    }
-
-    fn history_app(app_id: &str, app_name: &str, scope: HistoryScope) -> HistoryApp {
-        HistoryApp {
-            app_id: app_id.to_owned(),
-            app_name: app_name.to_owned(),
-            app_path: None,
-            scope,
-        }
     }
 
     fn personalization(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationSettings {
@@ -183,7 +174,7 @@ mod tests {
             ("pwsh.exe", HistoryScope::Off),
         ];
 
-        let scopes = cases.map(|(app_id, _)| HistoryApp::of(&app(app_id, "App", true)).scope);
+        let scopes = cases.map(|(app_id, _)| HistoryApp::of(&screen_text_app(app_id, "App", true)).scope);
 
         assert_eq!(scopes, cases.map(|(_, scope)| scope));
     }

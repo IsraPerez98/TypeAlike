@@ -205,15 +205,7 @@ impl ScreenTextPane {
 mod tests {
     use super::*;
     use crate::settings_window::view::ChoiceText;
-
-    fn app(app_id: &str, app_name: &str, is_on: bool) -> ScreenTextApp {
-        ScreenTextApp {
-            app_id: app_id.to_owned(),
-            app_name: app_name.to_owned(),
-            app_path: None,
-            is_on,
-        }
-    }
+    use crate::test_support::{screen_text_app, toggled};
 
     fn pane_with(access: ScreenTextAccess, apps: Vec<ScreenTextApp>) -> ScreenTextPane {
         ScreenTextPane::new(ScreenTextSettings {
@@ -227,13 +219,6 @@ mod tests {
         match page.row(OCR_LEVEL) {
             Some(Row::Picker(picker)) => Some(picker),
             _ => None,
-        }
-    }
-
-    fn toggled(id: &str, is_on: bool) -> SettingsInput {
-        SettingsInput::Toggled {
-            id: ControlId::from(id.to_owned()),
-            is_on,
         }
     }
 
@@ -252,7 +237,7 @@ mod tests {
     fn page_shows_the_main_switch_and_a_switch_for_each_app() {
         let pane = pane_with(
             ScreenTextAccess::Allowed,
-            vec![app("com.apple.mail", "Mail", false)],
+            vec![screen_text_app("com.apple.mail", "Mail", false)],
         );
 
         let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
@@ -282,7 +267,7 @@ mod tests {
     fn main_switch_off_dims_the_app_switches_and_keeps_their_values() {
         let pane = pane_with(
             ScreenTextAccess::Denied,
-            vec![app("com.apple.mail", "Mail", true)],
+            vec![screen_text_app("com.apple.mail", "Mail", true)],
         );
 
         let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
@@ -407,8 +392,8 @@ mod tests {
         let mut pane = pane_with(
             ScreenTextAccess::Allowed,
             vec![
-                app("com.apple.mail", "Mail", true),
-                app("slack.exe", "Slack", true),
+                screen_text_app("com.apple.mail", "Mail", true),
+                screen_text_app("slack.exe", "Slack", true),
             ],
         );
 
@@ -422,8 +407,8 @@ mod tests {
             (
                 true,
                 &vec![
-                    app("com.apple.mail", "Mail", true),
-                    app("slack.exe", "Slack", false)
+                    screen_text_app("com.apple.mail", "Mail", true),
+                    screen_text_app("slack.exe", "Slack", false)
                 ]
             )
         );
@@ -433,7 +418,7 @@ mod tests {
     fn action_that_changes_nothing_reports_no_change() {
         let mut pane = pane_with(
             ScreenTextAccess::Allowed,
-            vec![app("com.apple.mail", "Mail", true)],
+            vec![screen_text_app("com.apple.mail", "Mail", true)],
         );
         let actions = [
             ScreenTextAction::SwitchScreenText(ScreenTextAccess::Allowed),
@@ -528,8 +513,8 @@ mod tests {
         let mut pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
         let changes = [
-            pane.add_app(&app("slack.exe", "Slack", true)),
-            pane.add_app(&app("slack.exe", "Slack", true)),
+            pane.add_app(&screen_text_app("slack.exe", "Slack", true)),
+            pane.add_app(&screen_text_app("slack.exe", "Slack", true)),
         ];
 
         assert_eq!(changes, [true, false]);

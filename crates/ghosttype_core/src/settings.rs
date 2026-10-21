@@ -251,15 +251,6 @@ pub trait Autostart {
 mod tests {
     use super::*;
 
-    pub(super) fn app(app_id: &str, app_name: &str, is_on: bool) -> ScreenTextApp {
-        ScreenTextApp {
-            app_id: app_id.to_owned(),
-            app_name: app_name.to_owned(),
-            app_path: None,
-            is_on,
-        }
-    }
-
     #[test]
     fn each_suggestion_length_allows_its_own_number_of_tokens() {
         let lengths = [

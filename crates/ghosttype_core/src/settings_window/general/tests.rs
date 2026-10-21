@@ -3,6 +3,7 @@
 use super::*;
 use crate::inference::{InferenceError, InferenceEvent};
 use crate::settings_window::view::ChoiceText;
+use crate::test_support::{model_file, picked, toggled};
 
 #[derive(Debug)]
 struct FakeAutostart {
@@ -36,17 +37,6 @@ impl Autostart for RefusingAutostart {
     fn enable(&mut self) {}
 
     fn disable(&mut self) {}
-}
-
-fn model_file() -> ModelFile {
-    named_file("model.gguf")
-}
-
-fn named_file(name: &str) -> ModelFile {
-    ModelFile {
-        repo: "owner/repo".to_owned(),
-        name: name.to_owned(),
-    }
 }
 
 fn settings(backend: Backend) -> Settings {
@@ -118,14 +108,14 @@ fn autostart_pane(is_enabled: bool) -> GeneralPane {
 
 fn loading_playground(backend: Backend) -> PlaygroundPane {
     let mut playground = PlaygroundPane::with_backend(backend);
-    playground.on_action(PlaygroundAction::SelectModel(model_file()));
+    playground.on_action(PlaygroundAction::SelectModel(model_file("model.gguf")));
     playground
 }
 
 fn loaded_playground(backend: Backend, result: Result<(), InferenceError>) -> PlaygroundPane {
     let mut playground = loading_playground(backend);
     playground.on_event(InferenceEvent::Loaded {
-        file: model_file(),
+        file: model_file("model.gguf"),
         result,
     });
     playground
@@ -164,20 +154,6 @@ fn text_line(page: &Page, id: &str) -> TextLine {
     match row(page, id) {
         Row::TextLine(text_line) => text_line,
         other => panic!("the control is not a text line: {other:?}"),
-    }
-}
-
-fn toggled(id: &'static str, is_on: bool) -> SettingsInput {
-    SettingsInput::Toggled {
-        id: ControlId::new(id),
-        is_on,
-    }
-}
-
-fn picked(id: &'static str, index: usize) -> SettingsInput {
-    SettingsInput::Picked {
-        id: ControlId::new(id),
-        index,
     }
 }
 
@@ -474,11 +450,14 @@ fn picking_a_backend_without_backend_menu_does_nothing() {
 #[test]
 fn picking_a_suggestion_model_selects_it() {
     let pane = GeneralPane::new(Settings::default());
-    let installed = [named_file("other.gguf"), model_file()];
+    let installed = [model_file("other.gguf"), model_file("model.gguf")];
 
     let action = pane.action_for(&picked(SUGGESTION_MODEL, 2), &PlaygroundPane::new(), &installed);
 
-    assert_eq!(action, Some(GeneralAction::SelectSuggestionModel(model_file())));
+    assert_eq!(
+        action,
+        Some(GeneralAction::SelectSuggestionModel(model_file("model.gguf")))
+    );
 }
 
 #[test]
@@ -488,7 +467,7 @@ fn picking_the_placeholder_model_does_nothing() {
     let action = pane.action_for(
         &picked(SUGGESTION_MODEL, 0),
         &PlaygroundPane::new(),
-        &[model_file()],
+        &[model_file("model.gguf")],
     );
 
     assert_eq!(action, None);
@@ -563,7 +542,7 @@ fn selecting_a_suggestion_model_loads_it_in_the_playground() {
     let mut playground = PlaygroundPane::new();
 
     let outcome = pane.on_action(
-        GeneralAction::SelectSuggestionModel(model_file()),
+        GeneralAction::SelectSuggestionModel(model_file("model.gguf")),
         &mut playground,
     );
 
@@ -572,7 +551,7 @@ fn selecting_a_suggestion_model_loads_it_in_the_playground() {
         GeneralOutcome {
             settings: None,
             request: Some(InferenceRequest::Load {
-                file: model_file(),
+                file: model_file("model.gguf"),
                 backend: Backend::Cpu,
             }),
         }
@@ -608,7 +587,7 @@ fn selecting_a_backend_loads_the_selected_model_on_it() {
     assert_eq!(
         outcome.request,
         Some(InferenceRequest::Load {
-            file: model_file(),
+            file: model_file("model.gguf"),
             backend: Backend::Vulkan,
         })
     );
@@ -652,7 +631,7 @@ fn model_too_large_for_the_gpu_tells_what_to_do() {
 
     let shown = pane.page(
         &loaded_playground(Backend::Vulkan, Err(InferenceError::ModelTooLarge)),
-        &[model_file()],
+        &[model_file("model.gguf")],
     );
 
     assert_eq!(
@@ -727,10 +706,13 @@ fn switch_shows_the_kept_state_when_the_os_refuses_a_change() {
 
 #[test]
 fn suggestion_model_menu_shows_the_model_that_the_playground_selected() {
-    let other = named_file("other.gguf");
+    let other = model_file("other.gguf");
     let pane = GeneralPane::new(suggestion_settings(None));
 
-    let shown = pane.page(&loaded_playground(Backend::Cpu, Ok(())), &[other, model_file()]);
+    let shown = pane.page(
+        &loaded_playground(Backend::Cpu, Ok(())),
+        &[other, model_file("model.gguf")],
+    );
 
     let menu = picker(&shown, SUGGESTION_MODEL);
     assert_eq!(
@@ -743,7 +725,7 @@ fn suggestion_model_menu_shows_the_model_that_the_playground_selected() {
 fn suggestion_model_menu_locks_and_shows_status_while_the_model_loads() {
     let pane = GeneralPane::new(suggestion_settings(None));
 
-    let shown = pane.page(&loading_playground(Backend::Cpu), &[model_file()]);
+    let shown = pane.page(&loading_playground(Backend::Cpu), &[model_file("model.gguf")]);
 
     let menu = picker(&shown, SUGGESTION_MODEL);
     assert_eq!(
@@ -767,15 +749,15 @@ fn loaded_model_becomes_the_suggestion_model() {
     assert_eq!(
         (settings, pane.settings()),
         (
-            Some(suggestion_settings(Some(model_file()))),
-            &suggestion_settings(Some(model_file())),
+            Some(suggestion_settings(Some(model_file("model.gguf")))),
+            &suggestion_settings(Some(model_file("model.gguf"))),
         )
     );
 }
 
 #[test]
 fn loading_the_saved_suggestion_model_again_keeps_nothing() {
-    let mut pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+    let mut pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
 
     let settings = pane.keep_suggestion_model(&loaded_playground(Backend::Cpu, Ok(())));
 
@@ -797,7 +779,7 @@ fn model_that_did_not_load_is_not_kept() {
 
 #[test]
 fn suggestion_model_loads_in_the_playground() {
-    let pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+    let pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
     let mut playground = PlaygroundPane::new();
 
     let request = pane.load_suggestion_model(&mut playground);
@@ -806,7 +788,7 @@ fn suggestion_model_loads_in_the_playground() {
         (request, playground.is_busy()),
         (
             Some(InferenceRequest::Load {
-                file: model_file(),
+                file: model_file("model.gguf"),
                 backend: Backend::Cpu,
             }),
             true,
@@ -816,7 +798,7 @@ fn suggestion_model_loads_in_the_playground() {
 
 #[test]
 fn unloaded_model_stays_the_suggestion_model() {
-    let mut pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+    let mut pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
     let mut playground = loaded_playground(Backend::Cpu, Ok(()));
     playground.unload_model();
 
@@ -824,13 +806,13 @@ fn unloaded_model_stays_the_suggestion_model() {
 
     assert_eq!(
         (settings, pane.settings()),
-        (None, &suggestion_settings(Some(model_file())))
+        (None, &suggestion_settings(Some(model_file("model.gguf"))))
     );
 }
 
 #[test]
 fn unloaded_suggestion_model_loads_again() {
-    let pane = GeneralPane::new(suggestion_settings(Some(model_file())));
+    let pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
     let mut playground = loaded_playground(Backend::Cpu, Ok(()));
     playground.unload_model();
 
@@ -839,7 +821,7 @@ fn unloaded_suggestion_model_loads_again() {
     assert_eq!(
         request,
         Some(InferenceRequest::Load {
-            file: model_file(),
+            file: model_file("model.gguf"),
             backend: Backend::Cpu,
         })
     );
