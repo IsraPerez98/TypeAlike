@@ -12,7 +12,7 @@ use ghosttype_core::inference::{
 };
 use ghosttype_llm::LlamaCpp;
 
-fn load_and_complete_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
+fn completion_events_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
     let path = PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
     let file = ModelFile {
         repo: "test/model".to_owned(),
@@ -58,7 +58,7 @@ fn is_completed_text(event: &InferenceEvent) -> bool {
 #[test]
 #[ignore = "needs the vulkan feature, a Vulkan GPU and a GGUF model in GHOSTTYPE_TEST_MODEL"]
 fn real_model_continues_text_on_vulkan() {
-    let (loaded, completed) = load_and_complete_on(Backend::Vulkan);
+    let (loaded, completed) = completion_events_on(Backend::Vulkan);
 
     assert!(
         matches!(loaded, InferenceEvent::Loaded { result: Ok(()), .. }),
@@ -70,7 +70,7 @@ fn real_model_continues_text_on_vulkan() {
 #[test]
 #[ignore = "needs the cuda feature, an NVIDIA GPU and a GGUF model in GHOSTTYPE_TEST_MODEL"]
 fn real_model_continues_text_on_cuda() {
-    let (loaded, completed) = load_and_complete_on(Backend::Cuda);
+    let (loaded, completed) = completion_events_on(Backend::Cuda);
 
     assert!(
         matches!(loaded, InferenceEvent::Loaded { result: Ok(()), .. }),

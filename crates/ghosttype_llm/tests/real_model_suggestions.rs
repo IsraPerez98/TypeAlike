@@ -33,7 +33,7 @@ impl Desktop for Editor {
     }
 }
 
-struct LoadedModel {
+struct ModelSession {
     runner: LlamaCpp,
     sink: InferenceEventSink,
     events: mpsc::Receiver<InferenceEvent>,
@@ -46,7 +46,7 @@ fn model_file() -> ModelFile {
     }
 }
 
-impl LoadedModel {
+impl ModelSession {
     fn load() -> Self {
         let path =
             PathBuf::from(std::env::var_os("GHOSTTYPE_TEST_MODEL").expect("GHOSTTYPE_TEST_MODEL is set"));
@@ -86,11 +86,11 @@ impl LoadedModel {
     }
 
     fn next_completion(&self) -> Result<Completion, InferenceError> {
-        self.next_parts_and_completion().1
+        self.next_completion_with_parts().1
     }
 
     /// Returns the texts of the partial completions before the next completion, and the completion.
-    fn next_parts_and_completion(&self) -> (Vec<String>, Result<Completion, InferenceError>) {
+    fn next_completion_with_parts(&self) -> (Vec<String>, Result<Completion, InferenceError>) {
         let mut parts = Vec::new();
         loop {
             match self.events.recv().expect("the runner answers the completion") {
@@ -143,7 +143,7 @@ fn request_of(prompt: &str, typos: Typos) -> Reaction {
 
 const TYPO_CUT: LogProbability = LogProbability(-11.0);
 
-fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
+fn complete_text(model: &mut ModelSession, prompt: &str) -> String {
     model
         .complete(completion_request(prompt))
         .expect("the model completes the prompt")
@@ -152,7 +152,7 @@ fn complete_text(model: &mut LoadedModel, prompt: &str) -> String {
 
 /// Types `text` into `app` while `model` completes, and returns the reaction to the completion
 /// of all of it.
-fn suggest_after(model: &mut LoadedModel, app: &mut App, text: &str) -> Reaction {
+fn suggest_after(model: &mut ModelSession, app: &mut App, text: &str) -> Reaction {
     text.chars()
         .map(|character| app.on_key(Key::Char(character), &Editor))
         .for_each(|reaction| model.submit(reaction));
@@ -165,7 +165,7 @@ fn suggest_after(model: &mut LoadedModel, app: &mut App, text: &str) -> Reaction
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn real_model_suggests_text_after_typed_words() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let reaction = suggest_after(&mut model, &mut App::new(), "Thank you for your");
 
@@ -175,7 +175,7 @@ fn real_model_suggests_text_after_typed_words() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn next_word_bias_picks_only_the_first_word() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let request = Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(format!("{SHORT_PROMPT} ")),
         max_tokens: TokenCount(16),
@@ -200,7 +200,7 @@ fn next_word_bias_picks_only_the_first_word() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn real_model_finishes_a_word_cut_inside_a_token() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let reaction = suggest_after(&mut model, &mut App::new(), "The weather today is beauti");
 
@@ -213,7 +213,7 @@ fn real_model_finishes_a_word_cut_inside_a_token() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn prompt_that_ends_with_a_blank_line_continues_on_the_new_line() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let text = complete_text(&mut model, BLANK_LINE_PROMPT);
 
@@ -223,7 +223,7 @@ fn prompt_that_ends_with_a_blank_line_continues_on_the_new_line() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn prompt_that_extends_a_cached_prompt_completes_as_without_the_cache() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let without_cache = complete_text(&mut model, LONG_PROMPT);
     complete_text(&mut model, SHORT_PROMPT);
 
@@ -235,7 +235,7 @@ fn prompt_that_extends_a_cached_prompt_completes_as_without_the_cache() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn prompt_without_the_last_word_completes_as_without_the_cache() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let without_cache = complete_text(&mut model, ONE_WORD_REMOVED);
     complete_text(&mut model, SHORT_PROMPT);
 
@@ -247,7 +247,7 @@ fn prompt_without_the_last_word_completes_as_without_the_cache() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn prompt_without_the_last_two_words_completes_as_without_the_cache() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let without_cache = complete_text(&mut model, TWO_WORDS_REMOVED);
     complete_text(&mut model, ONE_WORD_REMOVED);
     complete_text(&mut model, SHORT_PROMPT);
@@ -261,7 +261,7 @@ fn prompt_without_the_last_two_words_completes_as_without_the_cache() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn prompt_with_another_last_word_completes_as_without_the_cache() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let without_cache = complete_text(&mut model, LAST_WORD_CHANGED);
     complete_text(&mut model, SHORT_PROMPT);
 
@@ -273,7 +273,7 @@ fn prompt_with_another_last_word_completes_as_without_the_cache() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn repeated_prompt_completes_as_the_first_time() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let first = complete_text(&mut model, LONG_PROMPT);
 
     let repeated = complete_text(&mut model, LONG_PROMPT);
@@ -284,7 +284,7 @@ fn repeated_prompt_completes_as_the_first_time() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn long_prompt_after_another_long_prompt_completes() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     complete_text(
         &mut model,
         &"The quick brown fox jumps over the lazy dog. ".repeat(120),
@@ -306,10 +306,10 @@ fn long_prompt_after_another_long_prompt_completes() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn partial_completions_grow_into_the_completion() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     model.submit(completion_request(LONG_PROMPT));
 
-    let (parts, completion) = model.next_parts_and_completion();
+    let (parts, completion) = model.next_completion_with_parts();
 
     let text = completion.expect("the model completes the prompt").text;
     assert!(
@@ -321,7 +321,7 @@ fn partial_completions_grow_into_the_completion() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn newer_completion_replaces_one_that_did_not_finish() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     model.runner.submit(
         InferenceRequest::Load {
             file: model_file(),
@@ -356,7 +356,7 @@ fn word_count(text: &str) -> usize {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn completion_gives_a_log_probability_for_each_word() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let prompts = [
         SHORT_PROMPT,
         LONG_PROMPT,
@@ -369,22 +369,21 @@ fn completion_gives_a_log_probability_for_each_word() {
             .complete(completion_request(prompt))
             .expect("the model completes the prompt")
     });
-
-    for completion in completions {
+    let checks = completions.each_ref().map(|completion| {
         let probabilities = &completion.word_log_probabilities;
-        assert!(
-            probabilities.len() == word_count(&completion.text)
-                && probabilities.iter().all(|probability| probability.0 <= 0.0),
-            "unexpected {probabilities:?} for {:?}",
-            completion.text
-        );
-    }
+        (
+            probabilities.len() == word_count(&completion.text),
+            probabilities.iter().all(|probability| probability.0 <= 0.0),
+        )
+    });
+
+    assert_eq!(checks, [(true, true); 4], "unexpected {completions:?}");
 }
 
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn word_with_a_typo_adds_no_text_below_the_typo_cut() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let completion = model
         .complete(request_of("Thank you for the quick rpel", Typos::Hide))
@@ -399,7 +398,7 @@ fn word_with_a_typo_adds_no_text_below_the_typo_cut() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let completion = model
         .complete(request_of("Thank you for the quick rpel", Typos::Fix))
@@ -418,7 +417,7 @@ fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn word_without_a_typo_finishes_above_the_typo_cut() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let completion = model
         .complete(request_of("Thank you for the quick rep", Typos::Hide))
@@ -433,7 +432,7 @@ fn word_without_a_typo_finishes_above_the_typo_cut() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn completion_of_no_tokens_adds_no_text() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
 
     let completion = model.complete(Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(SHORT_PROMPT.to_owned()),
@@ -454,7 +453,7 @@ fn completion_of_no_tokens_adds_no_text() {
 #[test]
 #[ignore = "needs the path of a GGUF model file in GHOSTTYPE_TEST_MODEL"]
 fn first_key_in_a_prepared_field_suggests_text() {
-    let mut model = LoadedModel::load();
+    let mut model = ModelSession::load();
     let mut app = App::new();
     app.use_settings(&Settings {
         prompt_preparation: PromptPreparation::OnFocus,
