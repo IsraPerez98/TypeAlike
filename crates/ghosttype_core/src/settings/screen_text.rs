@@ -1,7 +1,7 @@
 //! The settings of the Screen text pane: where GhostType reads the text near the text field.
 
 use crate::desktop::Surroundings;
-use crate::settings::known_apps::is_password_manager;
+use crate::settings::known_apps::{insert_in_name_order, is_password_manager};
 
 /// Whether suggestions may use the text near the text field on the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -83,15 +83,7 @@ impl ScreenTextSettings {
     /// Adds `app` to the list in its alphabetical place, unless the list has an app with its id.
     /// Returns whether the list changed.
     pub(crate) fn add(&mut self, app: &ScreenTextApp) -> bool {
-        if self.apps.iter().any(|known| known.app_id == app.app_id) {
-            return false;
-        }
-        let name = app.app_name.to_lowercase();
-        let place = self
-            .apps
-            .partition_point(|known| known.app_name.to_lowercase() <= name);
-        self.apps.insert(place, app.clone());
-        true
+        insert_in_name_order(&mut self.apps, app, |app| &app.app_id, |app| &app.app_name)
     }
 }
 

@@ -1,7 +1,7 @@
 //! The settings of the Personalization pane: what suggestions learn from the earlier writing.
 
 use crate::settings::ScreenTextApp;
-use crate::settings::known_apps::{is_password_manager, is_terminal};
+use crate::settings::known_apps::{insert_in_name_order, is_password_manager, is_terminal};
 
 /// Whether GhostType saves the text that the user writes, for the suggestions to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -132,15 +132,7 @@ impl PersonalizationSettings {
     /// Adds `app` to the list in its alphabetical place, unless the list has an app with its id.
     /// Returns whether the list changed.
     pub(crate) fn add(&mut self, app: &HistoryApp) -> bool {
-        if self.apps.iter().any(|known| known.app_id == app.app_id) {
-            return false;
-        }
-        let name = app.app_name.to_lowercase();
-        let place = self
-            .apps
-            .partition_point(|known| known.app_name.to_lowercase() <= name);
-        self.apps.insert(place, app.clone());
-        true
+        insert_in_name_order(&mut self.apps, app, |app| &app.app_id, |app| &app.app_name)
     }
 }
 
