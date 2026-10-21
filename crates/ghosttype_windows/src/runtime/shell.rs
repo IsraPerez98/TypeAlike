@@ -186,10 +186,6 @@ impl Shell for Win32Shell {
         self.pending_view.forget_badge();
     }
 
-    fn type_text(&mut self, text: String) {
-        self.replace_before_caret(0, text);
-    }
-
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
         self.pending_injection = Some(Replacement { deleted, text });
         if let Err(error) = self.post(INJECT_MESSAGE) {

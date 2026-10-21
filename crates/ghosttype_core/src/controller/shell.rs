@@ -45,10 +45,6 @@ pub trait Shell: Desktop {
     /// Hides the badge at once.
     fn hide_badge(&mut self);
 
-    /// Types `text` at the caret of the focused app, after the event that the controller handles
-    /// now.
-    fn type_text(&mut self, text: String);
-
     /// Deletes the `deleted` characters before the caret of the focused app and types `text`
     /// there, after the event that the controller handles now.
     fn replace_before_caret(&mut self, deleted: usize, text: String);

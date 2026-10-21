@@ -439,7 +439,7 @@ impl Controller {
             }
             Reaction::Accept { text, then } => {
                 self.hide_ghost(shell);
-                shell.type_text(text);
+                shell.replace_before_caret(0, text);
                 self.apply_after_accept(then, shell);
                 Disposition::Swallow
             }

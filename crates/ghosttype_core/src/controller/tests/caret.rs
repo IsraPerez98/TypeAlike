@@ -152,7 +152,11 @@ fn accept_types_text() {
 
     harness.press(Key::Tab);
 
-    assert!(harness.take_calls().contains(&Call::TypeText("est".to_owned())));
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::ReplaceText(0, "est".to_owned()))
+    );
 }
 
 #[test]
@@ -193,7 +197,7 @@ fn tab_while_the_rest_waits_for_the_caret_types_its_next_part() {
     assert!(
         harness
             .take_calls()
-            .contains(&Call::TypeText(" regards".to_owned()))
+            .contains(&Call::ReplaceText(0, " regards".to_owned()))
     );
 }
 

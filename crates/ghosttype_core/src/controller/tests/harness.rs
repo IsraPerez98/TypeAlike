@@ -33,7 +33,6 @@ pub(super) enum Call {
     },
     HideGhost,
     HideBadge,
-    TypeText(String),
     ReplaceText(usize, String),
     StartTimer(Timer, Duration),
     StopTimer(Timer),
@@ -97,10 +96,6 @@ impl Shell for FakeShell {
 
     fn hide_badge(&mut self) {
         self.calls.push(Call::HideBadge);
-    }
-
-    fn type_text(&mut self, text: String) {
-        self.calls.push(Call::TypeText(text));
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {

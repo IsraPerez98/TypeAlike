@@ -350,10 +350,6 @@ impl Shell for AppKitShell {
         self.badge.hide();
     }
 
-    fn type_text(&mut self, text: String) {
-        self.replace_before_caret(0, text);
-    }
-
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
         self.pending_injection = Some(Replacement { deleted, text });
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
