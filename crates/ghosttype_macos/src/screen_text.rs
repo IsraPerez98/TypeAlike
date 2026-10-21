@@ -9,19 +9,15 @@ use std::time::Instant;
 
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use ghosttype_core::controller::{Delivery, DeliverySink};
-use ghosttype_core::desktop::{
-    Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText,
-};
-use objc2_application_services::{AXError, AXUIElement};
-use objc2_core_foundation::{CFArray, CFRetained, CFType, CGRect, Type};
+use ghosttype_core::desktop::{Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
+use objc2_application_services::AXUIElement;
+use objc2_core_foundation::{CFRetained, CGRect, Type};
 
-use crate::focus::{
-    self, ACCESSIBILITY_QUERY_TIMEOUT_SECONDS, FOCUSED_ELEMENT_ATTRIBUTE, PARENT_ATTRIBUTE, ROLE_ATTRIBUTE,
-    WINDOW_ATTRIBUTE, WINDOW_ROLE,
-};
+use crate::accessibility::{self, ROLE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, children, is_same, parent};
+use crate::focus::focused_field;
+use crate::geometry::screen_rect;
 use crate::ocr::Ocr;
 
-const CHILDREN_ATTRIBUTE: &str = "AXChildren";
 const VALUE_ATTRIBUTE: &str = "AXValue";
 const STATIC_TEXT_ROLE: &str = "AXStaticText";
 /// The most elements that one read looks at, so that the read of a large window ends soon.
@@ -99,43 +95,14 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
     }
 }
 
-/// The focused field of an app, which does not hide its text.
-pub(crate) struct FocusedField {
-    pub(crate) element: CFRetained<AXUIElement>,
-    pub(crate) frame: CGRect,
-    pub(crate) caret: Option<CGRect>,
-}
-
-/// Returns the focused field of the app of `process`, or `None` for a password field.
-pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
-    // SAFETY: plain call.
-    let app = unsafe { AXUIElement::new_application(process) };
-    // SAFETY: plain call on a valid element.
-    let error = unsafe { app.set_messaging_timeout(ACCESSIBILITY_QUERY_TIMEOUT_SECONDS) };
-    if error != AXError::Success {
-        tracing::warn!(code = error.0, "failed to bound accessibility queries");
-    }
-    let element = focus::copy_attribute(&app, FOCUSED_ELEMENT_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()?;
-    if focus::is_secure_text(&element) {
-        return None;
-    }
-    Some(FocusedField {
-        frame: focus::frame(&element)?,
-        caret: focus::caret_bounds(&element),
-        element,
-    })
-}
-
 /// Reads the static text of the focused window of the app of `process`, without a password
 /// field.
 fn read_screen_text(process: i32) -> Option<ScreenText> {
     let field = focused_field(process)?;
-    let window = focus::copy_attribute(&field.element, WINDOW_ATTRIBUTE)?
+    let window = accessibility::copy_attribute(&field.element, WINDOW_ATTRIBUTE)?
         .downcast::<AXUIElement>()
         .ok()?;
-    let visible = focus::frame(&window)?;
+    let visible = accessibility::frame(&window)?;
     Some(ScreenText {
         lines: nearby_static_texts(&field.element, visible),
         caret: field.caret.map(screen_rect),
@@ -158,7 +125,7 @@ fn nearby_static_texts(focused: &AXUIElement, visible: CGRect) -> Vec<ScreenLine
                 walk.visit(sibling);
             }
         }
-        let is_window = focus::copy_string(&parent, ROLE_ATTRIBUTE).as_deref() == Some(WINDOW_ROLE);
+        let is_window = accessibility::copy_string(&parent, ROLE_ATTRIBUTE).as_deref() == Some(WINDOW_ROLE);
         if is_window || walk.elements_left == 0 {
             break;
         }
@@ -183,12 +150,14 @@ impl Walk {
                 return;
             };
             self.elements_left = left;
-            let frame = focus::frame(&element);
+            let frame = accessibility::frame(&element);
             if frame.is_some_and(|frame| !is_visible(frame, self.visible)) {
                 continue;
             }
-            if focus::copy_string(&element, ROLE_ATTRIBUTE).as_deref() == Some(STATIC_TEXT_ROLE) {
-                if let (Some(text), Some(frame)) = (focus::copy_string(&element, VALUE_ATTRIBUTE), frame) {
+            if accessibility::copy_string(&element, ROLE_ATTRIBUTE).as_deref() == Some(STATIC_TEXT_ROLE) {
+                if let (Some(text), Some(frame)) =
+                    (accessibility::copy_string(&element, VALUE_ATTRIBUTE), frame)
+                {
                     self.lines.push(ScreenLine {
                         text,
                         confidence: Confidence::CERTAIN,
@@ -202,32 +171,6 @@ impl Walk {
     }
 }
 
-fn parent(element: &AXUIElement) -> Option<CFRetained<AXUIElement>> {
-    focus::copy_attribute(element, PARENT_ATTRIBUTE)?
-        .downcast::<AXUIElement>()
-        .ok()
-}
-
-fn children(element: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {
-    let Some(children) =
-        focus::copy_attribute(element, CHILDREN_ATTRIBUTE).and_then(|value| value.downcast::<CFArray>().ok())
-    else {
-        return Vec::new();
-    };
-    // SAFETY: the array of an Accessibility attribute holds CF objects.
-    let children = unsafe { children.cast_unchecked::<CFType>() };
-    children
-        .iter()
-        .filter_map(|child| child.downcast::<AXUIElement>().ok())
-        .collect()
-}
-
-fn is_same(first: &AXUIElement, second: &AXUIElement) -> bool {
-    let first: &CFType = first;
-    let second: &CFType = second;
-    first == second
-}
-
 /// Whether an element at `frame` shows in `visible`. An element without area can hold visible
 /// elements, so it counts as visible.
 fn is_visible(frame: CGRect, visible: CGRect) -> bool {
@@ -237,19 +180,6 @@ fn is_visible(frame: CGRect, visible: CGRect) -> bool {
         && frame.origin.y < visible.origin.y + visible.size.height
         && visible.origin.y < frame.origin.y + frame.size.height;
     !has_area || overlaps
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "no conversion from f64 to i32 exists without `as`, and `as` saturates"
-)]
-pub(crate) fn screen_rect(frame: CGRect) -> ScreenRect {
-    ScreenRect {
-        left: frame.origin.x.round() as i32,
-        top: frame.origin.y.round() as i32,
-        right: (frame.origin.x + frame.size.width).round() as i32,
-        bottom: (frame.origin.y + frame.size.height).round() as i32,
-    }
 }
 
 #[cfg(test)]
@@ -275,20 +205,5 @@ mod tests {
         let visible = elements.map(|element| is_visible(element, window));
 
         assert_eq!(visible, [true, true, false, true]);
-    }
-
-    #[test]
-    fn frame_rounds_to_whole_points() {
-        let rect = screen_rect(frame(10.4, 20.6, 100.2, 18.0));
-
-        assert_eq!(
-            rect,
-            ScreenRect {
-                left: 10,
-                top: 21,
-                right: 111,
-                bottom: 39,
-            }
-        );
     }
 }

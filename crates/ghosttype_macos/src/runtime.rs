@@ -32,11 +32,13 @@ use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapProxy, CGEventType, C
 use objc2_foundation::{NSNotification, NSPoint, NSTimeInterval, NSTimer};
 
 use crate::RunError;
+use crate::accessibility;
 use crate::badge::Badge;
 use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
-use crate::focus::{self, Caret, FocusTracker};
+use crate::focus::FocusTracker;
+use crate::geometry::Caret;
 use crate::injection::{self, INJECTION_TAG, Replacement};
 use crate::keys::{self, Chord};
 use crate::main_menu;
@@ -59,7 +61,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-    if !focus::request_accessibility_access() {
+    if !accessibility::request_accessibility_access() {
         tracing::warn!("accessibility access is not granted yet");
     }
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;

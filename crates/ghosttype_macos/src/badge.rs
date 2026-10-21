@@ -8,7 +8,7 @@ use objc2_app_kit::{NSBox, NSBoxType, NSColor, NSImageView, NSPanel, NSTitlePosi
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-use crate::focus::Caret;
+use crate::geometry::{self, Caret, appkit_origin};
 use crate::{menu_bar, overlay};
 
 const BADGE_SIZE: CGFloat = 24.0;
@@ -79,7 +79,8 @@ impl Badge {
 
     /// Whether `point`, in global points with a top-left origin, is on the shown badge.
     pub(crate) fn contains(&self, point: CGPoint) -> bool {
-        self.shown_frame.is_some_and(|frame| frame_contains(frame, point))
+        self.shown_frame
+            .is_some_and(|frame| geometry::contains(frame, point))
     }
 }
 
@@ -90,20 +91,6 @@ fn badge_frame(caret: Caret) -> CGRect {
         CGPoint::new(caret.left - BADGE_SIZE, caret.top - GAP_ABOVE_CARET - BADGE_SIZE),
         CGSize::new(BADGE_SIZE, BADGE_SIZE),
     )
-}
-
-/// The origin of `frame` in AppKit's bottom-left screen coordinates.
-pub(crate) fn appkit_origin(frame: CGRect, primary_screen_height: CGFloat) -> NSPoint {
-    NSPoint::new(
-        frame.origin.x,
-        primary_screen_height - frame.origin.y - frame.size.height,
-    )
-}
-
-fn frame_contains(frame: CGRect, point: CGPoint) -> bool {
-    let horizontal = frame.origin.x..frame.origin.x + frame.size.width;
-    let vertical = frame.origin.y..frame.origin.y + frame.size.height;
-    horizontal.contains(&point.x) && vertical.contains(&point.y)
 }
 
 #[cfg(test)]
@@ -124,30 +111,5 @@ mod tests {
             frame,
             CGRect::new(CGPoint::new(276.0, 74.0), CGSize::new(24.0, 24.0))
         );
-    }
-
-    #[test]
-    fn badge_origin_is_flipped_to_bottom_left_coordinates() {
-        let frame = CGRect::new(CGPoint::new(280.0, 78.0), CGSize::new(20.0, 20.0));
-
-        let origin = appkit_origin(frame, 1000.0);
-
-        assert_eq!(origin, NSPoint::new(280.0, 902.0));
-    }
-
-    #[test]
-    fn only_points_inside_the_frame_are_on_it() {
-        let frame = CGRect::new(CGPoint::new(280.0, 78.0), CGSize::new(20.0, 20.0));
-        let points = [
-            CGPoint::new(290.0, 88.0),
-            CGPoint::new(280.0, 78.0),
-            CGPoint::new(279.5, 88.0),
-            CGPoint::new(300.0, 88.0),
-            CGPoint::new(290.0, 98.0),
-        ];
-
-        let hits = points.map(|point| frame_contains(frame, point));
-
-        assert_eq!(hits, [true, true, false, false, false]);
     }
 }

@@ -18,7 +18,7 @@ use objc2_foundation::{
     NSRect, NSString,
 };
 
-use crate::focus::Caret;
+use crate::geometry::Caret;
 
 #[derive(Debug)]
 pub(crate) struct Overlay {

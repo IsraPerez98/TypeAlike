@@ -12,9 +12,9 @@ use objc2_app_kit::{
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSAttributedString, NSMutableAttributedString, NSPoint, NSRect, NSSize, NSString};
 
-use crate::focus::Caret;
+use crate::geometry::{self, Caret, contains, top_left_frame};
+use crate::overlay;
 use crate::overlay::Contrast;
-use crate::{badge, overlay};
 
 const MIRROR_PADDING: CGFloat = 6.0;
 const MIRROR_CORNER_RADIUS: CGFloat = 6.0;
@@ -86,7 +86,7 @@ impl Mirror {
         let inset = 2.0 * TEXT_INSET;
         let size = CGSize::new(text_size.width + inset, text_size.height + inset);
         let frame = mirror_frame(anchor, size, screen);
-        let origin = badge::appkit_origin(frame, primary_screen_height);
+        let origin = geometry::appkit_origin(frame, primary_screen_height);
         self.panel.setFrame_display(NSRect::new(origin, size), true);
         self.panel.orderFrontRegardless();
     }
@@ -192,18 +192,6 @@ fn visible_frame_at(
         .map(|(_, visible_frame)| visible_frame)
 }
 
-/// Turns `frame`, in AppKit's bottom-left screen coordinates, into a frame with a top-left origin.
-fn top_left_frame(frame: CGRect, primary_screen_height: CGFloat) -> CGRect {
-    let top = primary_screen_height - frame.origin.y - frame.size.height;
-    CGRect::new(CGPoint::new(frame.origin.x, top), frame.size)
-}
-
-fn contains(frame: CGRect, point: CGPoint) -> bool {
-    let horizontal = frame.origin.x..frame.origin.x + frame.size.width;
-    let vertical = frame.origin.y..frame.origin.y + frame.size.height;
-    horizontal.contains(&point.x) && vertical.contains(&point.y)
-}
-
 /// The frame of a mirror of `size` below `field`, or above it when it does not fit below on
 /// `screen`, kept inside `screen`. All frames are in global points with a top-left origin.
 fn mirror_frame(field: CGRect, size: CGSize, screen: CGRect) -> CGRect {
@@ -265,17 +253,5 @@ mod tests {
         let frame = mirror_frame(field, SIZE, SCREEN);
 
         assert_eq!(frame.origin.x, 1140.0);
-    }
-
-    #[test]
-    fn screen_frame_is_flipped_to_a_top_left_origin() {
-        let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(1440.0, 875.0));
-
-        let flipped = top_left_frame(frame, 900.0);
-
-        assert_eq!(
-            flipped,
-            CGRect::new(CGPoint::new(0.0, 25.0), CGSize::new(1440.0, 875.0))
-        );
     }
 }

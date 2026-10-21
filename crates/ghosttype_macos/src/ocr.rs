@@ -23,7 +23,8 @@ use objc2_screen_capture_kit::{
 };
 use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel};
 
-use crate::screen_text::{self, FocusedField};
+use crate::focus::{self, FocusedField};
+use crate::geometry::{moved_by, screen_rect};
 
 /// The height of the window above and below the field that the OCR reads, in points. Core keeps
 /// only the lines nearest to the caret, so an OCR of the lines farther away is wasted work.
@@ -98,7 +99,7 @@ impl Ocr {
     /// Reads the text near the focused field of the app of `process` from a capture of its window,
     /// at `level`. `None` for a password field, or when the capture or the OCR fails.
     pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
-        let field = screen_text::focused_field(process)?;
+        let field = focus::focused_field(process)?;
         let started = Instant::now();
         let capture = capture_band(process, field.frame)?;
         let captured = Instant::now();
@@ -139,20 +140,13 @@ fn screen_text_of<'a>(
         lines: lines
             .map(|line| ScreenLine {
                 text: line.text.clone(),
-                frame: screen_text::screen_rect(moved_by(line.frame, band_origin)),
+                frame: screen_rect(moved_by(line.frame, band_origin)),
                 confidence: line.confidence,
             })
             .collect(),
-        caret: field.caret.map(screen_text::screen_rect),
-        field: screen_text::screen_rect(field.frame),
+        caret: field.caret.map(screen_rect),
+        field: screen_rect(field.frame),
     }
-}
-
-fn moved_by(frame: CGRect, origin: CGPoint) -> CGRect {
-    CGRect::new(
-        CGPoint::new(frame.origin.x + origin.x, frame.origin.y + origin.y),
-        frame.size,
-    )
 }
 
 /// Captures the band of the window of `process` around `field`. `ScreenCaptureKit` answers on
