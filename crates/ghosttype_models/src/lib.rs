@@ -59,22 +59,23 @@ impl HuggingFace {
 impl ModelHub for HuggingFace {
     fn submit(&mut self, request: HubRequest, sink: &HubEventSink) {
         let sink = Arc::clone(sink);
-        let agent = self.agent.clone();
-        let models_dir = self.models_dir.clone();
         match request {
             HubRequest::ListInstalled => {
+                let models_dir = self.models_dir.clone();
                 thread::spawn(move || match store::installed_files(&models_dir) {
                     Ok(files) => sink(HubEvent::Installed(files)),
                     Err(error) => tracing::warn!(%error, "failed to list downloaded models"),
                 });
             }
             HubRequest::Search { query } => {
+                let agent = self.agent.clone();
                 thread::spawn(move || {
                     let result = to_hub_result(api::search(&agent, &query), "search");
                     sink(HubEvent::SearchFinished { query, result });
                 });
             }
             HubRequest::ListFiles { repo } => {
+                let agent = self.agent.clone();
                 thread::spawn(move || {
                     let result = to_hub_result(api::list_files(&agent, &repo), "list files");
                     sink(HubEvent::FilesListed { repo, result });
@@ -87,7 +88,7 @@ impl ModelHub for HuggingFace {
                 }
             }
             HubRequest::Delete { file } => {
-                if let Err(error) = store::delete(&models_dir, &file) {
+                if let Err(error) = store::delete(&self.models_dir, &file) {
                     tracing::warn!(%error, "failed to delete a model file");
                 }
             }
