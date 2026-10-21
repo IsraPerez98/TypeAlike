@@ -78,7 +78,7 @@ impl PixelSection {
 
 /// A memory device context, deleted on drop.
 pub(crate) struct MemoryContext {
-    pub(super) handle: HDC,
+    handle: HDC,
 }
 
 impl MemoryContext {

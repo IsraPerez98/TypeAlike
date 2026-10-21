@@ -85,7 +85,7 @@ impl Font {
         let _font = context.select(HGDIOBJ(self.0.0));
         let mut units = [0_u16; MAX_FACE_NAME_UNITS];
         // SAFETY: the buffer is valid for the call and the font is selected into the context.
-        let written = unsafe { GetTextFaceW(context.handle, Some(&mut units)) };
+        let written = unsafe { GetTextFaceW(context.handle(), Some(&mut units)) };
         let written = usize::try_from(written).ok().ok_or_else(Error::from_thread)?;
         let name = until_nul(units.get(..written).unwrap_or_default());
         Ok(String::from_utf16_lossy(name))

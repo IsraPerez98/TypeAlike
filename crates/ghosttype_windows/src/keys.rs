@@ -34,7 +34,7 @@ pub(crate) enum Chord {
 
 impl Chord {
     /// Classifies the modifiers that `is_held` reports as down.
-    pub(crate) fn from_held(is_held: impl Fn(VIRTUAL_KEY) -> bool) -> Self {
+    fn from_held(is_held: impl Fn(VIRTUAL_KEY) -> bool) -> Self {
         let has_control = is_held(VK_CONTROL);
         let has_alt = is_held(VK_MENU);
         if is_held(VK_LWIN) || is_held(VK_RWIN) {
@@ -107,7 +107,7 @@ fn is_modifier(key: VIRTUAL_KEY) -> bool {
 
 /// Returns what a key press types from the answer of `ToUnicodeEx`: `written`, its count, which
 /// is negative for a dead key, and `units`, its UTF-16 text.
-pub(crate) fn typed_from(written: i32, units: &[u16]) -> Typed {
+fn typed_from(written: i32, units: &[u16]) -> Typed {
     let Ok(written) = usize::try_from(written) else {
         return Typed::Dead;
     };

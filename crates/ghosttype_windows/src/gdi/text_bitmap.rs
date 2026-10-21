@@ -171,7 +171,7 @@ impl TextBitmap {
                 None,
                 Some(&raw const origin),
                 Some(&raw const self.size),
-                Some(context.handle),
+                Some(context.handle()),
                 Some(&raw const source_origin),
                 COLORREF::default(),
                 Some(&raw const blend),
@@ -223,7 +223,7 @@ pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HIC
 fn measure(context: &MemoryContext, units: &[u16]) -> Result<SIZE> {
     let mut size = SIZE::default();
     // SAFETY: the text and the output size are valid for the call.
-    unsafe { GetTextExtentPoint32W(context.handle, units, &raw mut size) }.ok()?;
+    unsafe { GetTextExtentPoint32W(context.handle(), units, &raw mut size) }.ok()?;
     Ok(size)
 }
 
@@ -271,9 +271,9 @@ fn draw_at(context: &MemoryContext, units: &mut [u16], left: i32) -> Result<()> 
     }
     // SAFETY: plain calls on a context this module owns; the text outlives the call.
     let is_drawn = unsafe {
-        SetTextColor(context.handle, COLORREF(Rgb::WHITE.to_colorref()));
-        SetBkMode(context.handle, TRANSPARENT);
-        TextOutW(context.handle, left, 0, units)
+        SetTextColor(context.handle(), COLORREF(Rgb::WHITE.to_colorref()));
+        SetBkMode(context.handle(), TRANSPARENT);
+        TextOutW(context.handle(), left, 0, units)
     };
     if is_drawn.as_bool() {
         Ok(())
@@ -293,9 +293,9 @@ fn draw_centered(context: &MemoryContext, units: &mut [u16], size: SIZE) -> Resu
     let format = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
     // SAFETY: plain calls on a context this module owns; the text and rectangle outlive the call.
     let text_height = unsafe {
-        SetTextColor(context.handle, COLORREF(Rgb::WHITE.to_colorref()));
-        SetBkMode(context.handle, TRANSPARENT);
-        DrawTextW(context.handle, units, &raw mut bounds, format)
+        SetTextColor(context.handle(), COLORREF(Rgb::WHITE.to_colorref()));
+        SetBkMode(context.handle(), TRANSPARENT);
+        DrawTextW(context.handle(), units, &raw mut bounds, format)
     };
     if text_height == 0 {
         Err(Error::from_thread())
