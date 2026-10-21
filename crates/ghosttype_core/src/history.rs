@@ -7,9 +7,9 @@ use std::io;
 use std::ops::Range;
 
 use crate::desktop::{FieldText, ScreenText, Surroundings};
+use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens, start_at_word};
 use crate::inference::{NextWordBias, TokenCount, WordBias};
 use crate::place::{self, Format};
-use crate::prompt::{estimated_tokens, first_tokens, from_word, last_chars, last_tokens};
 use crate::settings::{HistoryScope, PersonalizationSettings, WordChoice};
 
 /// The most texts that GhostType keeps. The oldest text of the place with the most texts goes
@@ -547,16 +547,6 @@ fn example_of(text: &str) -> String {
         "{} … {end}",
         start_at_word(text, first_tokens(text, EXAMPLE_START_TOKENS))
     )
-}
-
-/// Returns `start`, the start of `text`, without the part of a word at its end.
-fn start_at_word<'text>(text: &str, start: &'text str) -> &'text str {
-    if text[start.len()..].starts_with(char::is_whitespace) {
-        return start.trim_end();
-    }
-    start
-        .rsplit_once(char::is_whitespace)
-        .map_or("", |(whole, _)| whole.trim_end())
 }
 
 /// Adds to `picked` the first `count` of `candidates` that do not overlap a picked entry.

@@ -8,6 +8,7 @@ mod catalog;
 pub mod controller;
 pub mod desktop;
 pub mod engine;
+mod excerpt;
 pub mod general_pane;
 pub mod history;
 pub mod hub;

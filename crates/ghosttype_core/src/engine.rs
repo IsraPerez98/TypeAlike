@@ -6,6 +6,7 @@ use std::{fmt, mem};
 use crate::desktop::{
     Desktop, MAX_CHARS_BEFORE_CARET, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
 };
+use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::history::{self, HistoryEntry, HistoryPool, HistoryTables, Place};
 use crate::inference::{
     CONTEXT_TOKENS, Completion, Correction, InferenceError, InferenceRequest, LogProbability, NextWordBias,
@@ -13,7 +14,7 @@ use crate::inference::{
 };
 use crate::key::Key;
 use crate::place;
-use crate::prompt::{self, Writer, estimated_tokens, last_chars, last_tokens};
+use crate::prompt::{self, Writer};
 use crate::settings::{
     ClipboardAccess, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextApp,
     ScreenTextSettings, Settings, SuggestionLength, TypoFix, TypoRule, WriterName, WriterNotes,

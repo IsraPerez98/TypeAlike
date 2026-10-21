@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 
 use crate::desktop::{Confidence, FieldText, ScreenRect, ScreenText};
+use crate::excerpt::estimated_tokens;
 use crate::inference::TokenCount;
-use crate::prompt::estimated_tokens;
 
 /// The lowest confidence of a recognized line that is not noise. Vision gives 30% to its guesses.
 const MIN_CONFIDENCE: Confidence = Confidence(40);
