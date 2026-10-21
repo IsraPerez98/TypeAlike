@@ -21,7 +21,9 @@ const LAST_OUTPUT: i32 = -1;
 /// A prompt and the text that the writer typed after it.
 #[derive(Debug)]
 pub struct Continuation {
+    /// The prompt that the app built.
     pub prompt: String,
+    /// The text that the writer typed after the prompt.
     pub text: String,
 }
 

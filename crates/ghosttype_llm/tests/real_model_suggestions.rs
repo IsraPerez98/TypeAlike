@@ -343,7 +343,8 @@ fn newer_completion_replaces_one_that_did_not_finish() {
 }
 
 /// Returns how many words `text` has: a word starts at each whitespace character after a
-/// character that is not whitespace.
+/// character that is not whitespace. The model runner splits only at ASCII whitespace, so the
+/// count agrees with it only on text without other whitespace.
 fn word_count(text: &str) -> usize {
     let starts = text
         .chars()

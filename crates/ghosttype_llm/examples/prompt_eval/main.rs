@@ -5,7 +5,8 @@
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
-//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] //!     [--length very_short|short|medium|long|very_long]
+//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
+//!     [--length very_short|short|medium|long|very_long]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -55,11 +56,10 @@
 //! The report gives the score of the cases with the caret between two words, the score of the
 //! cases with the caret inside a word, the score of the typo cases, the score of the cases without a
 //! new line, the median time from the key to the ghost text, and the median warm time. It also
-//! gives the median tokens of a prompt, and the
-//! time for each token of the prompt, which tells whether a change adds time through more tokens.
-//! It also gives the mean log probability of the first word of `next` after the
-//! prompt. This value moves a little for a small change of the prompt, while the score often stays
-//! the same.
+//! gives the median tokens of a prompt, and the time for each token of the prompt, which tells
+//! whether a change adds time through more tokens. It also gives the mean log probability of the
+//! first word of `next` after the prompt. This value moves a little for a small change of the
+//! prompt, while the score often stays the same.
 //!
 //! For the cases with the caret between two words or inside a word, the report counts the shown
 //! words before the first word that differs from `next` (right), and the shown words from that

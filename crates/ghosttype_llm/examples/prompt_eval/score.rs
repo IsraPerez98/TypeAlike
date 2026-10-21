@@ -67,8 +67,9 @@ pub fn next_word(next: &str) -> &str {
     without_trailing_signs(first_word(next))
 }
 
-/// Returns the words of `text`, as the model runner counts them: a word starts at each whitespace
-/// character after a character that is not whitespace.
+/// Returns the words of `text`: a word starts at each whitespace character after a character that
+/// is not whitespace. The model runner splits only at ASCII whitespace, so the two agree only on
+/// text without other whitespace, such as a no-break space.
 pub fn words(text: &str) -> Vec<&str> {
     let mut words = Vec::new();
     let mut start = 0;
