@@ -221,18 +221,20 @@ pub(super) struct Harness {
 
 impl Harness {
     pub(super) fn new(settings: Settings) -> Self {
-        Self::with_backends(settings, BackendChoice::User)
+        Self::with_backend_choice(settings, BackendChoice::User)
     }
 
-    pub(super) fn with_backends(settings: Settings, backends: BackendChoice) -> Self {
-        Self::with_history(settings, backends, Vec::new())
+    pub(super) fn with_backend_choice(settings: Settings, backend_choice: BackendChoice) -> Self {
+        Self::start(settings, backend_choice, Vec::new())
     }
 
     pub(super) fn with_kept_history(settings: Settings, kept_history: Vec<HistoryEntry>) -> Self {
-        Self::with_history(settings, BackendChoice::User, kept_history)
+        Self::start(settings, BackendChoice::User, kept_history)
     }
 
-    fn with_history(settings: Settings, backends: BackendChoice, kept_history: Vec<HistoryEntry>) -> Self {
+    /// Starts the controller with the saved `settings`, and a history store that holds
+    /// `kept_history`.
+    fn start(settings: Settings, backend_choice: BackendChoice, kept_history: Vec<HistoryEntry>) -> Self {
         let recorder = Rc::new(RefCell::new(Recorder {
             kept_history,
             ..Recorder::default()
@@ -253,7 +255,7 @@ impl Harness {
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
         };
         Self {
-            controller: Controller::new(settings, services, backends, &deliver),
+            controller: Controller::new(settings, services, backend_choice, &deliver),
             shell: FakeShell {
                 field: Field::Open,
                 surroundings: Surroundings::default(),

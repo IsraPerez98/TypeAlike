@@ -1,7 +1,7 @@
 //! Tests of the settings window and its panes.
 
 use super::harness::{Call, Harness, loaded, mail_app, model_file, suggestion_settings};
-use crate::controller::{BackendChoice, Delivery, Timer};
+use crate::controller::{Delivery, Timer};
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
@@ -78,7 +78,7 @@ fn general_change_renders_settings() {
 
 #[test]
 fn backend_change_loads_suggestion_model_again() {
-    let mut harness = Harness::with_backends(suggestion_settings(), BackendChoice::User);
+    let mut harness = Harness::new(suggestion_settings());
     harness.answer(loaded());
 
     harness.pick(BACKEND, 1);

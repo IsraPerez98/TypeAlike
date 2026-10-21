@@ -91,13 +91,13 @@ impl fmt::Debug for Controller {
 
 impl Controller {
     /// Starts GhostType with the saved `settings` and the `services`, and starts to load the
-    /// suggestion model of `settings`. The services answer through `deliver`. When `backends`
-    /// changes the saved backend, it saves the settings with the new backend.
+    /// suggestion model of `settings`. The services answer through `deliver`. When
+    /// `backend_choice` changes the saved backend, it saves the settings with the new backend.
     #[must_use]
     pub fn new(
         settings: Settings,
         services: Services,
-        backends: BackendChoice,
+        backend_choice: BackendChoice,
         deliver: &DeliverySink,
     ) -> Self {
         let Services {
@@ -112,7 +112,7 @@ impl Controller {
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
-        let general = match backends {
+        let general = match backend_choice {
             BackendChoice::User => GeneralPane::new(settings),
             BackendChoice::Platform(backend) => GeneralPane::new(settings).with_platform_backend(backend),
         };
