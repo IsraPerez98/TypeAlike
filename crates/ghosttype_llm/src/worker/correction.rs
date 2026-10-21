@@ -15,21 +15,20 @@ const MIN_FIXED_LETTERS: usize = 3;
 /// The most likely tokens at the start of a word with a typo that a fix looks at.
 const FIX_CANDIDATES: usize = 64;
 
-/// Returns the edits that turn `left` into `right`: a swap of two letters next to each other, a
+/// Returns how many edits turn `left` into `right`: a swap of two letters next to each other, a
 /// change, an extra or a missing letter count one edit each.
-fn edits(left: &[char], right: &[char]) -> usize {
+fn edit_distance(left: &[char], right: &[char]) -> usize {
     let mut rows = vec![(0..=right.len()).collect::<Vec<_>>()];
     for (row, &left_char) in left.iter().enumerate() {
         let mut current = vec![row + 1; right.len() + 1];
         for (column, &right_char) in right.iter().enumerate() {
             let above = &rows[row];
             let change = above[column] + usize::from(left_char != right_char);
-            current[column + 1] = change.min(above[column + 1] + 1).min(current[column] + 1);
             let is_swap =
                 row > 0 && column > 0 && left_char == right[column - 1] && left[row - 1] == right_char;
-            if is_swap {
-                current[column + 1] = current[column + 1].min(rows[row - 1][column - 1] + 1);
-            }
+            let cost = change.min(above[column + 1] + 1).min(current[column] + 1);
+            let swap = is_swap.then(|| rows[row - 1][column - 1] + 1);
+            current[column + 1] = swap.map_or(cost, |swap| swap.min(cost));
         }
         rows.push(current);
     }
@@ -51,14 +50,14 @@ fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
     }
     let fixed = if written.len() >= typed.len() {
         one_edit_away(typed.len(), written.len(), |length| {
-            edits(&typed, &written[..length])
+            edit_distance(&typed, &written[..length])
         })
-        .map(|length| text(&written[..length]))
+        .map(|length| collect_text(&written[..length]))
     } else {
         one_edit_away(written.len(), typed.len(), |length| {
-            edits(&typed[..length], &written)
+            edit_distance(&typed[..length], &written)
         })
-        .map(|length| text(&written) + &text(&typed[length..]))
+        .map(|length| collect_text(&written) + &collect_text(&typed[length..]))
     };
     fixed
         .filter(|word| word.chars().count() >= MIN_FIXED_LETTERS && keeps_start(&typed, word))
@@ -97,7 +96,7 @@ fn split_space(text: &str) -> (&str, Vec<char>) {
     (&text[..text.len() - word.len()], word.chars().collect())
 }
 
-fn text(characters: &[char]) -> String {
+fn collect_text(characters: &[char]) -> String {
     characters.iter().collect()
 }
 
@@ -154,7 +153,7 @@ mod tests {
     use crate::worker::test_support::assert_near;
 
     fn edits_between(left: &str, right: &str) -> usize {
-        edits(
+        edit_distance(
             &left.chars().collect::<Vec<_>>(),
             &right.chars().collect::<Vec<_>>(),
         )
