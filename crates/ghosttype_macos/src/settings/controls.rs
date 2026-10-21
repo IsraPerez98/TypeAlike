@@ -25,6 +25,7 @@ const DETAIL_FONT_SIZE: CGFloat = 12.0;
 const TEXT_AREA_HEIGHT: CGFloat = 120.0;
 const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const ICON_BUTTON_SIDE: CGFloat = 24.0;
+const MENU_MAX_WIDTH: CGFloat = 320.0;
 const BACK_SYMBOL: &str = "chevron.left";
 
 /// The pop-up menu of a row, which picks one of its entries. The menu rebuilds its entries only
@@ -59,6 +60,10 @@ impl MenuChoices {
 fn pop_up_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retained<NSPopUpButton> {
     let button = NSPopUpButton::new(main_thread);
     button.setPullsDown(false);
+    button
+        .widthAnchor()
+        .constraintLessThanOrEqualToConstant(MENU_MAX_WIDTH)
+        .setActive(true);
     target.connect(&button, ControlAction::Pick);
     button
 }
@@ -165,7 +170,8 @@ pub(super) fn set_text(label: &NSTextField, text: &str) {
     label.setHidden(text.is_empty());
 }
 
-/// A wrapping, non-editable label in the system font.
+/// A wrapping, non-editable label in the system font. It takes the width of its row and never
+/// makes the window wider.
 pub(super) fn wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextField> {
     let label = WrappingLabel::new(main_thread);
     label.setEditable(false);
@@ -175,6 +181,11 @@ pub(super) fn wrapping_label(main_thread: MainThreadMarker) -> Retained<NSTextFi
     label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
     label.setFont(Some(&body_font()));
     label.setTextColor(Some(&NSColor::labelColor()));
+    // Until its first layout, the label measures its text as one line, wider than the window.
+    label.setContentCompressionResistancePriority_forOrientation(
+        NSLayoutPriorityDefaultLow,
+        NSLayoutConstraintOrientation::Horizontal,
+    );
     Retained::into_super(label)
 }
 
@@ -276,12 +287,11 @@ pub(super) fn button(
     }
 }
 
-/// Returns a bold label that names what follows it.
+/// Returns a bold wrapping label that names what follows it.
 pub(super) fn heading(main_thread: MainThreadMarker) -> Retained<NSTextField> {
-    label(
-        &NSFont::boldSystemFontOfSize(NSFont::systemFontSize()),
-        main_thread,
-    )
+    let heading = wrapping_label(main_thread);
+    heading.setFont(Some(&NSFont::boldSystemFontOfSize(NSFont::systemFontSize())));
+    heading
 }
 
 /// The system font at the size of body text.

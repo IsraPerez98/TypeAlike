@@ -153,10 +153,6 @@ impl SettingRow {
     fn add(rows_stack: &NSStackView, control: &NSView, main_thread: MainThreadMarker) -> Self {
         let label = truncating_label(&body_font(), main_thread);
         let description = small_secondary_label(main_thread);
-        description.setContentCompressionResistancePriority_forOrientation(
-            NSLayoutPriorityDefaultLow,
-            NSLayoutConstraintOrientation::Horizontal,
-        );
         let texts = row_texts(&label, &description, main_thread);
         fill_width(&description, &texts);
         control.setContentHuggingPriority_forOrientation(

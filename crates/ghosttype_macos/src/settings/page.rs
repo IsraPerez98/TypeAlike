@@ -199,8 +199,7 @@ impl SectionView {
             NO_INSETS,
             main_thread,
         );
-        container.addArrangedSubview(&title_bar);
-        let parts: [&NSView; 2] = [&rows_container, &footer];
+        let parts: [&NSView; 3] = [&title_bar, &rows_container, &footer];
         for part in parts {
             container.addArrangedSubview(part);
             fill_width(part, &container);
