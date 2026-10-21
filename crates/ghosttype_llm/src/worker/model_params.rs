@@ -25,6 +25,23 @@ const SEQUENCES: u32 = 2;
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
 const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
+const BYTES_IN_MIB: usize = 1024 * 1024;
+
+/// Logs each device that llama.cpp found. A release build of llama.cpp loads its GPU backends
+/// without a log, so a GPU backend that is not in this list failed to load.
+pub(super) fn log_devices() {
+    for device in list_llama_ggml_backend_devices() {
+        tracing::info!(
+            backend = %device.backend,
+            name = %device.name,
+            description = %device.description,
+            device_type = ?device.device_type,
+            free_mib = device.memory_free / BYTES_IN_MIB,
+            total_mib = device.memory_total / BYTES_IN_MIB,
+            "found a llama.cpp device"
+        );
+    }
+}
 
 /// Returns the parameters that load the model at `path` on `backend`. For Vulkan and CUDA, it first
 /// makes sure that the whole model fits in the GPU, because llama.cpp otherwise loads a part of it
@@ -37,10 +54,18 @@ pub(super) fn model_params(path: &Path, backend: Backend) -> Result<LlamaModelPa
         gpu_backend @ (Backend::Vulkan | Backend::Cuda) => {
             let devices = list_llama_ggml_backend_devices();
             let device = gpu_device(&devices, gpu_backend).ok_or_else(|| {
-                tracing::warn!(backend = ?gpu_backend, "no GPU device for the backend");
+                tracing::warn!(
+                    backend = ?gpu_backend,
+                    "no GPU device for the backend: llama.cpp did not load it, or found no GPU for it"
+                );
                 InferenceError::BackendUnavailable
             })?;
-            tracing::info!(backend = ?gpu_backend, device = %device.description, "loading the model on a GPU");
+            tracing::info!(
+                backend = ?gpu_backend,
+                device = %device.description,
+                free_mib = device.memory_free / BYTES_IN_MIB,
+                "loading the model on a GPU"
+            );
             check_fit(path, device.index, GPU_MEMORY_MARGIN_BYTES)?;
             on_devices(&[device.index])
         }
@@ -92,7 +117,14 @@ fn check_fit(path: &Path, device: usize, margin_bytes: usize) -> Result<(), Infe
         CONTEXT_TOKENS.0,
         GGML_LOG_LEVEL_WARN,
     );
-    fit_verdict(fitted.map(|_| params.n_gpu_layers() == all_layers))
+    let gpu_layers = params.n_gpu_layers();
+    tracing::info!(
+        gpu_layers,
+        all_layers,
+        ?fitted,
+        "checked that the model fits in the GPU"
+    );
+    fit_verdict(fitted.map(|_| gpu_layers == all_layers))
 }
 
 /// Reads the outcome of llama.cpp's fit: whether it kept every layer on the GPU, or why it failed.

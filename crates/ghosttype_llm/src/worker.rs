@@ -14,6 +14,7 @@ mod words;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
@@ -25,7 +26,7 @@ use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_t
 
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
-use crate::worker::model_params::{CpuThreads, model_params, threads_for};
+use crate::worker::model_params::{CpuThreads, log_devices, model_params, threads_for};
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -79,8 +80,15 @@ pub(crate) fn run(
     while let Some(Job { request, sink }) = queue.next() {
         match request {
             InferenceRequest::Load { file, backend } => {
+                tracing::info!(repo = %file.repo, name = %file.name, ?backend, "loading a model");
+                let started = Instant::now();
                 let loaded = load(&mut llama, locate_model(&file), backend);
-                let result = loaded.as_ref().map(|_| ()).map_err(|error| *error);
+                let result = loaded
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|error| *error)
+                    .inspect(|()| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
+                    .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
                 sink(InferenceEvent::Loaded { file, result });
                 if let (Ok(model), Some(llama)) = (loaded, &llama) {
                     serve(llama, &model, threads_for(backend, cpu_cores), &mut queue);
@@ -119,6 +127,7 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Llam
     if llama.is_none() {
         send_logs_to_tracing(LogOptions::default());
         *llama = Some(LlamaBackend::init()?);
+        log_devices();
     }
     Ok(llama.as_ref().expect("the backend started above"))
 }
