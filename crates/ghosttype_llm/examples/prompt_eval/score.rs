@@ -200,6 +200,16 @@ impl WordCounts {
         }
     }
 
+    /// As [`WordCounts::of`], for a `gap` that text of the field follows on its line: each word of
+    /// `suggestion` after the end of `gap` is wrong.
+    pub fn in_gap(suggestion: &str, gap: &str) -> Self {
+        let right = Self::of(suggestion, gap).right;
+        Self {
+            right,
+            wrong: words(suggestion).len() - right,
+        }
+    }
+
     /// Returns the counts when only the first `shown` words of the suggestion show.
     fn of_first(self, shown: usize) -> Self {
         Self {
@@ -400,6 +410,23 @@ mod tests {
         ];
 
         let counts = cases.map(|(suggestion, next, _, _)| WordCounts::of(suggestion, next));
+
+        assert_eq!(
+            counts,
+            cases.map(|(_, _, right, wrong)| WordCounts { right, wrong })
+        );
+    }
+
+    #[test]
+    fn word_after_the_end_of_a_gap_counts_as_wrong() {
+        let cases = [
+            ("dimensions of the shade?", "height and the width", 0, 4),
+            ("jueves 21 de noviembre", "jueves 21", 2, 2),
+            ("jueves 21", "jueves 21", 2, 0),
+            ("jueves", "jueves 21", 1, 0),
+        ];
+
+        let counts = cases.map(|(suggestion, gap, _, _)| WordCounts::in_gap(suggestion, gap));
 
         assert_eq!(
             counts,

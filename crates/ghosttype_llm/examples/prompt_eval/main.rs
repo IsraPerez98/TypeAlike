@@ -63,7 +63,9 @@
 //!
 //! For the cases with the caret between two words or inside a word, the report counts the shown
 //! words before the first word that differs from `next` (right), and the shown words from that
-//! word on (wrong). A word after the end of `next` counts only after a wrong word. It gives the
+//! word on (wrong). A word after the end of `next` counts only after a wrong word. When `after`
+//! has text on the line of the caret, `next` is all the text up to it, and each word after the end
+//! of `next` is wrong, because the field already holds the text that follows. It gives the
 //! mean log probability of the first shown word, as the model runner found it. Then it gives two
 //! tables from the same run. The first table gives, for each minimum probability of the first word,
 //! the share of the suggestions that still show and the share of them that match. The second table
@@ -95,7 +97,8 @@
 //! the second and the third letter of the last word swapped. `cases/new_line.jsonl` has cases that
 //! end with Enter: closings before the name of the writer, greetings, lists and paragraphs, in
 //! several languages, and fields where Enter sends the text, submits a search or confirms an input
-//! method. Run it with `--name "Sara Novak"`.
+//! method. Run it with `--name "Sara Novak"`. `cases/mid_line.jsonl` has cases with the caret
+//! inside a line: the writer adds words before text that the field already holds.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.

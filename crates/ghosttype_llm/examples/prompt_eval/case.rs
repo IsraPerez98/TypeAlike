@@ -16,7 +16,7 @@ use serde::Deserialize;
 
 use crate::arguments::SharedHistory;
 use crate::read_json_lines;
-use crate::score::CaseKind;
+use crate::score::{CaseKind, WordCounts};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,6 +58,21 @@ impl Case {
             CaseKind::NoNewLine
         } else {
             CaseKind::of(&self.before, &self.next)
+        }
+    }
+
+    /// Returns the words of `suggestion` against `next`. When text follows the caret on its line,
+    /// `next` is all the text up to it, so a word after `next` is wrong.
+    pub fn word_counts(&self, suggestion: &str) -> WordCounts {
+        let is_caret_inside_line = self
+            .after
+            .lines()
+            .next()
+            .is_some_and(|line| !line.trim().is_empty());
+        if is_caret_inside_line {
+            WordCounts::in_gap(suggestion, &self.next)
+        } else {
+            WordCounts::of(suggestion, &self.next)
         }
     }
 
@@ -321,6 +336,21 @@ mod tests {
         let history = history_of(&case_of(None, &["only"]), &BTreeMap::new()).unwrap();
 
         assert_eq!(texts(&history), ["only"]);
+    }
+
+    #[test]
+    fn suggestion_word_after_next_is_wrong_only_with_text_after_the_caret_on_its_line() {
+        let cases = [(" of the shade?", 1), ("\nBest,\nNora", 0), ("", 0)];
+
+        let wrong = cases.map(|(after, _)| {
+            let case = Case {
+                after: after.to_owned(),
+                ..case_of(None, &[])
+            };
+            case.word_counts("b and").wrong
+        });
+
+        assert_eq!(wrong, cases.map(|(_, wrong)| wrong));
     }
 
     #[test]

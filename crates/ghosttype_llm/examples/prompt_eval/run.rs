@@ -22,8 +22,7 @@ use crate::arguments::{Arguments, TailCut, WordBiasUse};
 use crate::case::{Case, CaseField, CaseScreen};
 use crate::likelihood::{Continuation, Measured};
 use crate::score::{
-    CaseKind, Outcome, WordCounts, cumulative_log_probabilities, fixed_word, intended_word, is_match,
-    next_word, words,
+    CaseKind, Outcome, cumulative_log_probabilities, fixed_word, intended_word, is_match, next_word, words,
 };
 
 /// The runner of the eval with its loaded model, and the events of its requests.
@@ -98,7 +97,7 @@ impl CaseRun {
                     &log_probabilities,
                     words(shown).len(),
                 ),
-                words: WordCounts::of(shown, &case.next),
+                words: case.word_counts(shown),
                 typed_log_probability: cold
                     .answer
                     .typed_log_probability
