@@ -18,9 +18,9 @@ use ghosttype_core::settings_window::view::{ControlId, PageIcon, Row, SettingsIn
 use windows::Win32::Foundation::E_UNEXPECTED;
 use windows::core::{Error, HRESULT, Result};
 use windows_reactor::{
-    App, AppContext, AppProxy, Component, ComponentContext, EncodedImage, LocalSender, NavigationView,
-    NavigationViewBackButtonVisible, NavigationViewItem, NavigationViewPaneDisplayMode, StackPanel, Symbol,
-    View, ViewContext, WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
+    App, AppContext, AppProxy, Component, ComponentContext, EncodedImage, Grid, LocalSender, NavigationView,
+    NavigationViewBackButtonVisible, NavigationViewItem, NavigationViewPaneDisplayMode, Symbol, View,
+    ViewContext, WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
 };
 
 use crate::mailbox::Mailbox;
@@ -327,11 +327,12 @@ impl Component for SettingsPage {
                     .content(page.title),
             )
         });
+        // The key of the page makes a new scroll viewer for each page, so each page starts at its top.
         let body = self
             .view
             .pages
             .get(selected)
-            .map_or_else(|| StackPanel::new().into(), |page| renderer.page(selected, page));
+            .map(|page| keyed(selected, renderer.page(selected, page)));
         let navigation = NavigationView::new()
             .pane_display_mode(NavigationViewPaneDisplayMode::Left)
             .open_pane_length(NAVIGATION_WIDTH)
@@ -341,7 +342,7 @@ impl Component for SettingsPage {
             .always_show_header(false)
             .on_selected_tag_changed(context.callback(PageMessage::Select))
             .keyed_menu_items(items)
-            .content(body);
+            .content(Grid::new().keyed_children(body));
         context.window_frame(WINDOW_TITLE, navigation)
     }
 }

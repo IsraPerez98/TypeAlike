@@ -45,6 +45,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
   - Item: title and subtitle at the leading edge, the detail and the accessory at the trailing edge. Download progress is a `ProgressBar` with a cancel `Button`.
   - Loading: a small `ProgressRing` and the text. Message: the text and an optional retry `Button`.
   - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its symbol.
+  - Each page is a child with a key of its own, so that a page opens at its top and not at the scroll position of the last page.
 - Primary action: `ButtonStyle::Accent`, at most one for each card. A back button in a section heading is `ButtonStyle::Subtle`.
 - Secondary text: reactor has no `TextFillColorSecondaryBrush` yet. Use the caption size (12 px) with 75 % opacity, and check its contrast. Error notes use `ThemeBrush::SystemCritical` at full opacity.
 - Controlled fields: declare the text of each field from state and send each change back as a message. The page keeps the text that the user types in each field, and declares it in place of the text of the view. A view from the main thread can come after newer keys, and its older text then moves the caret.
