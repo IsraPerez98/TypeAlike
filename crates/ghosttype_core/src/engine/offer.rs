@@ -117,7 +117,7 @@ impl Engine {
         let session = self.session.as_ref()?;
         let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
         let fixed_before = format!("{before_typo}{}", correction.fixed);
-        let suggestion = suggestion_after(&fixed_before, text).unwrap_or_default();
+        let suggestion = suggestion_after(&fixed_before, text, &session.text_after).unwrap_or_default();
         if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
             return None;
         }

@@ -186,16 +186,105 @@ fn completion_that_repeats_the_text_after_the_caret_hides() {
 }
 
 #[test]
-fn completion_that_starts_like_the_text_after_the_caret_shows() {
+fn completion_that_shares_one_word_or_sign_with_the_text_after_the_caret_shows() {
+    let cases = [
+        ("Thanks for the", "update on the budget.", "update from Priya"),
+        (
+            "grow the team,",
+            ", and open an office.",
+            "increase revenue, improve onboarding",
+        ),
+    ];
+
+    let reactions = cases.map(|(before, after, text)| {
+        let mut engine = Engine::default();
+        engine.on_key(Key::Char(' '), &FakeDesktop::with_text_around(before, after));
+        engine.on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, text)| show(text)));
+}
+
+#[test]
+fn completion_stops_where_it_writes_the_text_after_the_caret_again() {
+    let cases = [
+        (
+            "I paid the",
+            " yesterday, so you can see it.",
+            "invoice yesterday, so you",
+            "invoice",
+        ),
+        (
+            "tell me the",
+            " of the shade? I want",
+            "dimensions of the shade?",
+            "dimensions",
+        ),
+        (
+            "people who",
+            " sleep better.",
+            "exercise “sleep better",
+            "exercise",
+        ),
+        (
+            "I will be there at",
+            ". Order me a coffee!",
+            "10:30. Order me",
+            "10:30",
+        ),
+        (
+            "grow the team,",
+            ", and open an office.",
+            "improve onboarding, and open",
+            "improve onboarding",
+        ),
+        (
+            "Ya subí los",
+            " a la rama de pruebas, ¿alguien",
+            "cambios a la rama principal.",
+            "cambios",
+        ),
+        (
+            "I will be there in",
+            ". Order me a coffee!",
+            "10 minutes. Order a tea",
+            "10 minutes",
+        ),
+    ];
+
+    let reactions = cases.map(|(before, after, text, _)| {
+        let mut engine = Engine::default();
+        engine.on_key(Key::Char(' '), &FakeDesktop::with_text_around(before, after));
+        engine.on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, _, shown)| show(shown)));
+}
+
+#[test]
+fn partial_completion_shows_up_to_the_text_after_the_caret() {
     let mut engine = Engine::default();
     engine.on_key(
         Key::Char(' '),
-        &FakeDesktop::with_text_around("Thanks for the", "update on the budget."),
+        &FakeDesktop::with_text_around("I paid the", " yesterday, so you can see it."),
     );
 
-    let reaction = engine.on_completion(completion("update from Priya"));
+    let reaction = engine.on_partial_completion("invoice yesterday, so ");
 
-    assert_eq!(reaction, show("update from Priya"));
+    assert_eq!(reaction, Some(show("invoice")));
+}
+
+#[test]
+fn completion_keeps_the_words_of_the_text_on_the_next_lines() {
+    let mut engine = Engine::default();
+    engine.on_key(
+        Key::Char(' '),
+        &FakeDesktop::with_text_around("I paid the", "\nyesterday was busy."),
+    );
+
+    let reaction = engine.on_completion(completion("invoice yesterday"));
+
+    assert_eq!(reaction, show("invoice yesterday"));
 }
 
 #[test]

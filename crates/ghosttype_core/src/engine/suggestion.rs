@@ -11,22 +11,75 @@ const COPIED_WORDS: usize = 4;
 const MAX_PATTERN_WORDS: usize = 3;
 const PATTERN_REPEATS: usize = 3;
 const CLOSING_PUNCTUATION: [char; 7] = [',', '.', ';', ':', '!', '?', '…'];
+/// The words and signs in a row that a suggestion shares with the text after the caret, from where
+/// it writes that text again. One shared word often only starts another sentence.
+const SHARED_UNITS: usize = 2;
 /// The signs that can close a word: closing punctuation, quotes and brackets. The apostrophe is not
 /// one, because it also ends a possessive, as in "the students'".
 const CLOSING_SIGNS: [char; 13] = [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
 
-/// Returns the first line of `completion` up to a placeholder as ghost text after `context`, or
-/// `None` when it has no text. Spaces that would double the space at the end of `context`, or
-/// trail, are dropped.
-pub(super) fn suggestion_after(context: &str, completion: &str) -> Option<String> {
+/// Returns the first line of `completion` up to a placeholder, and up to where it writes
+/// `text_after` again, as ghost text after `context`, or `None` when it has no text. Spaces that
+/// would double the space at the end of `context`, or trail, are dropped.
+pub(super) fn suggestion_after(context: &str, completion: &str, text_after: &str) -> Option<String> {
     let first_line = completion.lines().next().unwrap_or_default();
     let line = if context.ends_with(char::is_whitespace) {
         first_line.trim_start()
     } else {
         first_line
     };
-    let suggestion = before_placeholder(line).trim_end();
+    let suggestion = before_text_after(before_placeholder(line), text_after).trim_end();
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
+}
+
+/// Returns `text` up to where it writes the line of `text_after` again, which the model often does
+/// after the words that fill the gap before it. The text on the next lines does not continue the
+/// line of the caret, so it does not count.
+fn before_text_after<'text>(text: &'text str, text_after: &str) -> &'text str {
+    let line_after = text_after.lines().next().unwrap_or_default().trim_start();
+    start_of_line_after(text, line_after).map_or(text, |end| &text[..end])
+}
+
+/// Returns the index of the first word of `text`, or of the closing punctuation that starts
+/// `line_after`, from where `text` writes `line_after` again: their words agree up to the end of
+/// the shorter, or in at least [`SHARED_UNITS`] words and signs in a row.
+fn start_of_line_after(text: &str, line_after: &str) -> Option<usize> {
+    let words_after = words(line_after).collect::<Vec<_>>();
+    let first = line_after.chars().next()?;
+    let starts_with_sign = CLOSING_PUNCTUATION.contains(&first);
+    let writes_line_after_from = |start: usize| {
+        let rest = words(&text[start..]).collect::<Vec<_>>();
+        let shared_words = rest
+            .iter()
+            .zip(&words_after)
+            .take_while(|(word, word_after)| word == word_after)
+            .count();
+        let shared_units = shared_words + usize::from(starts_with_sign);
+        shared_units > 0
+            && (shared_words == rest.len().min(words_after.len()) || shared_units >= SHARED_UNITS)
+    };
+    if starts_with_sign {
+        return text
+            .match_indices(first)
+            .map(|(index, _)| index)
+            .filter(|&index| {
+                text[index + first.len_utf8()..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace)
+            })
+            .find(|&index| writes_line_after_from(index));
+    }
+    word_starts(text).find(|&start| writes_line_after_from(start))
+}
+
+/// Returns the byte index of each run of characters without whitespace in `text`.
+fn word_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+    text.char_indices()
+        .filter(|&(index, character)| {
+            !character.is_whitespace() && text[..index].chars().next_back().is_none_or(char::is_whitespace)
+        })
+        .map(|(index, _)| index)
 }
 
 /// Returns `text` up to the first word after an opening square bracket, such as "[Your Name]",
@@ -48,7 +101,7 @@ pub(super) fn suggestion_after_typed(
     completion: &str,
 ) -> Option<String> {
     let context = text_before.strip_suffix(typed)?;
-    let suggestion = suggestion_after(context, completion)?;
+    let suggestion = suggestion_after(context, completion, text_after)?;
     if is_bad_suggestion(&suggestion, context, text_after) {
         return Some(String::new());
     }

@@ -58,11 +58,12 @@ impl fmt::Debug for Writer<'_> {
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
 /// line, the place where the user types, the earlier texts of the `writer`, the `clipboard` text,
-/// the text below the field on the `screen`, the text after the caret and the text above the
-/// field. The text above the field comes last, so the messages of a chat come just before the
-/// reply. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in the order of
-/// their priority: the frame, the notes, the text after the caret, the place, the screen, the
-/// earlier texts and the clipboard.
+/// the text below the field on the `screen`, the text above the field and the text after the
+/// caret. The text above the field comes late, so the messages of a chat come just before the
+/// reply. The text after the caret comes last, next to the heading, so that the model writes text
+/// that leads into it. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in
+/// the order of their priority: the frame, the notes, the text after the caret, the place, the
+/// screen, the earlier texts and the clipboard.
 pub(crate) fn preface(
     writer: &Writer<'_>,
     surroundings: &Surroundings,
@@ -156,11 +157,11 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             .and_then(non_empty)
             .map(|text| format!("Text on my clipboard: “{text}”")),
         non_empty(&parts.below).map(|text| format!("Below the field on my screen: “{text}”")),
+        non_empty(&parts.above).map(|text| format!("Above the field on my screen: “{text}”")),
         parts
             .after_caret
             .and_then(non_empty)
-            .map(|text| format!("My text after the cursor: “{text}”")),
-        non_empty(&parts.above).map(|text| format!("Above the field on my screen: “{text}”")),
+            .map(|text| format!("The text that comes right after the part that I am typing now: “{text}”")),
     ];
     lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
 }

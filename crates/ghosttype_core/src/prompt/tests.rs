@@ -92,7 +92,7 @@ fn preface_goes_from_the_frame_to_text_after_the_caret() {
     assert_eq!(
         preface,
         framed(
-            "Notes about me: “I am a nurse.”\nWhere I am typing: Format: email; App: Mail; Title: Re: Budget; Field: Message\nText on my clipboard: “1Z999”\nMy text after the cursor: “> Priya wrote”"
+            "Notes about me: “I am a nurse.”\nWhere I am typing: Format: email; App: Mail; Title: Re: Budget; Field: Message\nText on my clipboard: “1Z999”\nThe text that comes right after the part that I am typing now: “> Priya wrote”"
         )
     );
 }
@@ -257,7 +257,7 @@ fn long_parts_keep_their_start() {
     assert_eq!(
         preface,
         framed(&format!(
-            "Where I am typing: Title: {}; Field: {}; Hint: {}\nText on my clipboard: “{}”\nMy text after the cursor: “{}”",
+            "Where I am typing: Title: {}; Field: {}; Hint: {}\nText on my clipboard: “{}”\nThe text that comes right after the part that I am typing now: “{}”",
             ascii_text('t', WINDOW_TITLE_TOKENS, 0),
             ascii_text('l', FIELD_LABEL_TOKENS, 0),
             ascii_text('h', FIELD_LABEL_TOKENS, 0),
@@ -291,7 +291,7 @@ fn screen(lines: &[(&str, i32)]) -> ScreenText {
 }
 
 #[test]
-fn screen_text_below_the_field_goes_before_the_text_after_the_caret_and_above_it_goes_last() {
+fn text_after_the_caret_goes_last_after_the_screen_text_below_and_above_the_field() {
     let screen = screen(&[
         ("See you at 7?", 400),
         ("Sent from my phone", 600),
@@ -308,7 +308,7 @@ fn screen_text_below_the_field_goes_before_the_text_after_the_caret_and_above_it
     assert_eq!(
         preface,
         framed(
-            "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nMy text after the cursor: “Best, Ana”\nAbove the field on my screen: “From: Sam\nSee you at 7?”"
+            "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nAbove the field on my screen: “From: Sam\nSee you at 7?”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
         )
     );
 }
@@ -369,7 +369,7 @@ fn earlier_writing_goes_between_the_place_and_the_clipboard() {
     assert_eq!(
         preface,
         framed(
-            "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom”\n“See you soon!”\nText on my clipboard: “1Z999”\nMy text after the cursor: “Best, Ana”"
+            "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom”\n“See you soon!”\nText on my clipboard: “1Z999”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
         )
     );
 }
