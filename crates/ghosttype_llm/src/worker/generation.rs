@@ -9,21 +9,26 @@ use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 
 use super::correction::TypedLetters;
-use super::logits::{TokenBias, agreeing_log_probability, choose_token};
+use super::logits::{TokenBias, agreeing_log_probability, choose_token, typed_log_probability};
 use super::pieces::TokenPieces;
 use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence, starts_word};
 
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
+/// The most text at the start of the line after the caret that a join step compares with the text
+/// of the tokens: more than a token holds.
+const MAX_JOINED_BYTES: usize = 64;
 
 /// Where a completion stops adding tokens.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Limits {
+pub(super) struct Limits<'text> {
     pub(super) max_added: usize,
     /// The least likely that the added text can get after its first word.
     pub(super) min_log_probability: Option<LogProbability>,
     /// What the completion does when the healed text looks like a typo.
     pub(super) typo_check: TypoCheck,
+    /// The text after the caret on its line, which the added text leads into, or empty.
+    pub(super) line_after: &'text [u8],
 }
 
 /// What a running completion asks and tells its job.
@@ -41,7 +46,7 @@ pub(super) struct Decoder<'run> {
     pub(super) vocab: &'run LlamaVocab<'run>,
     pub(super) pieces: &'run TokenPieces,
     pub(super) token_bias: &'run TokenBias,
-    pub(super) limits: Limits,
+    pub(super) limits: Limits<'run>,
 }
 
 /// The text that the first added tokens write again.
@@ -83,6 +88,18 @@ pub(super) struct Generation<'text> {
     written: Vec<u8>,
     words: WordLogProbabilities,
     typed: TypedLetters,
+    /// The end of the added text where the model finds the added text and then the line after the
+    /// caret most likely, if any.
+    best_end: Option<JoinEnd>,
+}
+
+/// A place where the added text can end before the line after the caret.
+#[derive(Debug, Clone, Copy)]
+struct JoinEnd {
+    tokens: usize,
+    words: usize,
+    /// The log probability of the added text up to here, and then of the start of the line after.
+    log_probability: f32,
 }
 
 impl<'text> Generation<'text> {
@@ -97,12 +114,42 @@ impl<'text> Generation<'text> {
             written: Vec::new(),
             words: WordLogProbabilities::default(),
             typed: TypedLetters::default(),
+            best_end: None,
         }
     }
 
     /// The tokens that the completion added so far.
     pub(super) fn tokens(&self) -> &[LlamaToken] {
         &self.tokens
+    }
+
+    /// The tokens that show: the tokens up to the best end before the line after the caret, else
+    /// all the tokens.
+    pub(super) fn shown_tokens(&self) -> &[LlamaToken] {
+        &self.tokens[..self.shown_counts().0]
+    }
+
+    /// Adds a join step with `logits`, which follow the added text: it keeps the end of the added
+    /// text where the model finds the added text and then the start of `line_after` most likely.
+    /// Only an end after written text counts, and only when a token can start `line_after`. A token
+    /// of only whitespace does not count, because it also comes before other text, such as digits.
+    pub(super) fn add_join_step(&mut self, logits: &[f32], line_after: &[u8]) {
+        if line_after.is_empty() || !self.has_written_text() {
+            return;
+        }
+        let start = &line_after[..line_after.len().min(MAX_JOINED_BYTES)];
+        let join = typed_log_probability(logits, self.pieces.agreeing_past_whitespace(start));
+        let end = JoinEnd {
+            tokens: self.tokens.len(),
+            words: self.words.count(),
+            log_probability: self.words.total() + join,
+        };
+        let is_better = self
+            .best_end
+            .is_none_or(|best| end.log_probability > best.log_probability);
+        if join.is_finite() && is_better {
+            self.best_end = Some(end);
+        }
     }
 
     /// Adds a healing step with `logits`, while healed text stays unwritten. Stops when the healed
@@ -131,19 +178,22 @@ impl<'text> Generation<'text> {
         }
     }
 
-    /// Adds `token`, with `piece` as text and `log_probability`, unless it starts the next sentence
-    /// or the minimum probability of the `limits` cuts it. A cut inside a word leaves out that
-    /// word. Stops after a line break, and at the token limit, where it leaves out the last word
-    /// unless that word ends a sentence. It never leaves out the only word.
+    /// Adds `token`, with `piece` as text and `log_probability`, unless it starts the line after
+    /// the caret or the next sentence, or the minimum probability of the `limits` cuts it. A cut
+    /// inside a word leaves out that word. Stops after a line break, and at the token limit, where
+    /// it leaves out the last word unless that word ends a sentence. It never leaves out the only
+    /// word.
     pub(super) fn add_token(
         &mut self,
         token: LlamaToken,
         piece: &[u8],
         log_probability: f32,
-        limits: Limits,
+        limits: Limits<'_>,
     ) -> Step {
         let text = added_after(piece, self.unwritten);
-        if starts_next_sentence(self.healing.text, &self.written, text) {
+        if self.starts_line_after(text, limits.line_after)
+            || starts_next_sentence(self.healing.text, &self.written, text)
+        {
             return Step::Stop;
         }
         let is_cut = limits
@@ -182,14 +232,40 @@ impl<'text> Generation<'text> {
         }
     }
 
-    /// Returns the tokens that the completion added.
+    /// Returns the tokens that show, as [`Generation::shown_tokens`] gives them.
     pub(super) fn into_added(self) -> AddedTokens {
+        let (tokens, words) = self.shown_counts();
+        let typed_log_probability = self.typed.log_probability();
+        let mut added = self.tokens;
+        added.truncate(tokens);
+        let mut word_log_probabilities = self.words.into_vec();
+        word_log_probabilities.truncate(words);
         AddedTokens {
-            tokens: self.tokens,
-            word_log_probabilities: self.words.into_vec(),
-            typed_log_probability: self.typed.log_probability(),
+            tokens: added,
+            word_log_probabilities,
+            typed_log_probability,
             correction: None,
         }
+    }
+
+    /// The tokens and the words that show.
+    fn shown_counts(&self) -> (usize, usize) {
+        let all = (self.tokens.len(), self.words.count());
+        self.best_end
+            .map_or(all, |end| (end.tokens.min(all.0), end.words.min(all.1)))
+    }
+
+    /// Whether the healed text is written and the added tokens wrote text after it.
+    fn has_written_text(&self) -> bool {
+        self.unwritten.is_empty() && !self.written.is_empty()
+    }
+
+    /// Whether `text`, the text of a token after the healed text, starts to write `line_after`
+    /// after the written text. Whitespace alone does not.
+    fn starts_line_after(&self, text: &[u8], line_after: &[u8]) -> bool {
+        let has_word = text.iter().any(|byte| !byte.is_ascii_whitespace());
+        let agrees = !line_after.is_empty() && (line_after.starts_with(text) || text.starts_with(line_after));
+        self.has_written_text() && has_word && agrees
     }
 }
 
@@ -363,17 +439,18 @@ mod tests {
         }
     }
 
-    fn limits(max_added: usize, min_log_probability: Option<f32>) -> Limits {
+    fn limits(max_added: usize, min_log_probability: Option<f32>) -> Limits<'static> {
         Limits {
             max_added,
             min_log_probability: min_log_probability.map(LogProbability),
             typo_check: TypoCheck::Off,
+            line_after: b"",
         }
     }
 
     /// Adds a token for each of `tokens`, with the ids from 1, after an empty healed text, until a
     /// step stops. Returns the last step and the tokens that stay.
-    fn add_tokens(tokens: &[(&str, f32)], limits: Limits) -> (Step, Vec<LlamaToken>) {
+    fn add_tokens(tokens: &[(&str, f32)], limits: Limits<'_>) -> (Step, Vec<LlamaToken>) {
         let pieces = TokenPieces::from_texts(&[]);
         let mut generation = Generation::new(&pieces, healing(b""));
         let step = tokens
@@ -479,5 +556,87 @@ mod tests {
                 (Step::Stop, vec![LlamaToken(1), LlamaToken(2)]),
             ]
         );
+    }
+
+    /// Log probabilities of the tokens " on" and " for", in that order.
+    const LIKELY_ON: [f32; 2] = [-0.105, -2.303];
+    const UNLIKELY_ON: [f32; 2] = [-4.605, -0.01];
+    const LINE_AFTER: &[u8] = b" on Monday.";
+
+    /// Adds a join step with the logits of each of `steps` and then its token, with the ids from 1,
+    /// after an empty healed text and before `line_after`, until a step stops. Returns the last
+    /// step and the tokens that show.
+    fn add_tokens_before(line_after: &[u8], steps: &[([f32; 2], &str, f32)]) -> (Step, Vec<LlamaToken>) {
+        let pieces = TokenPieces::from_texts(&[" on", " for"]);
+        let limits = Limits {
+            line_after,
+            ..limits(16, None)
+        };
+        let mut generation = Generation::new(&pieces, healing(b""));
+        let step = steps
+            .iter()
+            .zip(1..)
+            .map(|(&(logits, text, log_probability), id)| {
+                generation.add_join_step(&logits, line_after);
+                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, limits)
+            })
+            .find(|&step| step == Step::Stop)
+            .unwrap_or(Step::Continue);
+        (step, generation.into_added().tokens)
+    }
+
+    #[test]
+    fn added_text_ends_where_it_and_the_line_after_it_are_most_likely() {
+        let steps = [
+            (UNLIKELY_ON, "opportunity", -0.7),
+            (UNLIKELY_ON, " to", -0.1),
+            (UNLIKELY_ON, " interview", -0.1),
+            (LIKELY_ON, " for", -0.5),
+            (UNLIKELY_ON, " the", -0.2),
+        ];
+
+        let added = add_tokens_before(LINE_AFTER, &steps);
+
+        assert_eq!(added, (Step::Continue, [1, 2, 3].map(LlamaToken).to_vec()));
+    }
+
+    #[test]
+    fn token_that_starts_the_line_after_stops_the_added_text() {
+        let steps = [(UNLIKELY_ON, "invoice", -0.1), (LIKELY_ON, " on", -0.1)];
+
+        let added = add_tokens_before(LINE_AFTER, &steps);
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn whitespace_alone_does_not_start_the_line_after() {
+        let steps = [
+            (UNLIKELY_ON, "May", -0.1),
+            (UNLIKELY_ON, " ", -0.1),
+            (UNLIKELY_ON, "14", -0.1),
+        ];
+
+        let (step, _) = add_tokens_before(LINE_AFTER, &steps);
+
+        assert_eq!(step, Step::Continue);
+    }
+
+    #[test]
+    fn line_after_that_no_token_starts_keeps_all_added_tokens() {
+        let steps = [(LIKELY_ON, "very", -0.1), (LIKELY_ON, " soon", -3.0)];
+
+        let added = add_tokens_before(b" 14 at noon", &steps);
+
+        assert_eq!(added, (Step::Continue, [1, 2].map(LlamaToken).to_vec()));
+    }
+
+    #[test]
+    fn added_text_without_a_line_after_keeps_all_its_tokens() {
+        let steps = [(LIKELY_ON, "very", -0.1), (UNLIKELY_ON, " soon", -3.0)];
+
+        let added = add_tokens_before(b"", &steps);
+
+        assert_eq!(added, (Step::Continue, [1, 2].map(LlamaToken).to_vec()));
     }
 }

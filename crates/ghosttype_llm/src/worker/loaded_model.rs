@@ -56,7 +56,7 @@ impl<'model> LoadedModel<'model> {
     pub(super) fn complete(
         &mut self,
         prompt: &Prompt,
-        limits: Limits,
+        limits: Limits<'_>,
         token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<Completion, InferenceError> {
@@ -124,7 +124,7 @@ impl<'model> LoadedModel<'model> {
     fn generate(
         &mut self,
         prompt: &Prompt,
-        limits: Limits,
+        limits: Limits<'_>,
         token_bias: &TokenBias,
         progress: &mut Progress<'_>,
     ) -> Result<(String, AddedTokens), GenerateError> {

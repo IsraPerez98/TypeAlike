@@ -157,6 +157,7 @@ fn serve(
             next_word_bias,
             min_log_probability,
             typo_check,
+            line_after,
         } = &job.request
         else {
             queue.give_back(job);
@@ -170,6 +171,7 @@ fn serve(
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
             min_log_probability: *min_log_probability,
             typo_check: *typo_check,
+            line_after: line_after.as_bytes(),
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
@@ -197,6 +199,7 @@ mod tests {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            line_after: String::new(),
         }
     }
 

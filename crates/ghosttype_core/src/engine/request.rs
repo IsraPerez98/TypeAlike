@@ -26,6 +26,7 @@ impl Engine {
             return None;
         }
         let prompt = prompt::prompt(&session.preface, &session.text_before);
+        let line_after = session.line_after().to_owned();
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Some(InferenceRequest::Complete {
             prompt,
@@ -34,6 +35,7 @@ impl Engine {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            line_after,
         })
     }
 
@@ -58,6 +60,11 @@ impl Engine {
             next_word_bias: self.session_next_word_bias(),
             min_log_probability: Some(self.suggestion_length.tail_cut()),
             typo_check: self.typo_check,
+            line_after: self
+                .session
+                .as_ref()
+                .map(|session| session.line_after().to_owned())
+                .unwrap_or_default(),
         })
     }
 

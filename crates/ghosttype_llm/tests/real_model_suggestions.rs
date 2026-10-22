@@ -129,6 +129,7 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check,
+        line_after: String::new(),
     })
 }
 
@@ -178,6 +179,7 @@ fn next_word_bias_picks_only_the_first_word() {
         next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        line_after: String::new(),
     });
 
     let text = model
@@ -291,6 +293,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        line_after: String::new(),
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -444,6 +447,7 @@ fn completion_of_no_tokens_adds_no_text() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        line_after: String::new(),
     }));
 
     assert!(

@@ -27,7 +27,28 @@ impl TokenPieces {
         &'pieces self,
         text: &'pieces [u8],
     ) -> impl Iterator<Item = LlamaToken> + 'pieces {
-        let shorter = (1..text.len()).flat_map(|length| self.with_text(&text[..length]));
+        self.agreeing_from(text, 1)
+    }
+
+    /// Returns the tokens that agree with `text`, without the tokens that write only the
+    /// whitespace at its start. Such a token also comes before many other texts, for example
+    /// before the digits of a number.
+    pub(super) fn agreeing_past_whitespace<'pieces>(
+        &'pieces self,
+        text: &'pieces [u8],
+    ) -> impl Iterator<Item = LlamaToken> + 'pieces {
+        let whitespace = text.iter().take_while(|byte| byte.is_ascii_whitespace()).count();
+        self.agreeing_from(text, whitespace + 1)
+    }
+
+    /// Returns the tokens whose text is a start of `text` with at least `shortest` bytes, or starts
+    /// with all of `text`.
+    fn agreeing_from<'pieces>(
+        &'pieces self,
+        text: &'pieces [u8],
+        shortest: usize,
+    ) -> impl Iterator<Item = LlamaToken> + 'pieces {
+        let shorter = (shortest..text.len()).flat_map(|length| self.with_text(&text[..length]));
         shorter.chain(self.starting_with(text))
     }
 
@@ -123,6 +144,16 @@ mod tests {
         covering.sort_unstable();
 
         assert_eq!(covering, [2, 3].map(LlamaToken));
+    }
+
+    #[test]
+    fn tokens_that_write_only_the_whitespace_at_the_start_do_not_agree_past_it() {
+        let pieces = TokenPieces::from_texts(&[" ", "  ", " o", " on", " one", " on Monday."]);
+
+        let mut agreeing = pieces.agreeing_past_whitespace(b" on Monday").collect::<Vec<_>>();
+        agreeing.sort_unstable();
+
+        assert_eq!(agreeing, [2, 3, 5].map(LlamaToken));
     }
 
     #[test]

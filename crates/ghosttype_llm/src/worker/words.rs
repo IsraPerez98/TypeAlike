@@ -44,8 +44,17 @@ impl WordLogProbabilities {
     /// likely as `cut`. Each token of the first word does.
     pub(super) fn keeps(&self, text: &[u8], log_probability: f32, cut: LogProbability) -> bool {
         let is_in_first_word = self.words.len() <= 1 && !self.starts_new_word(text);
-        let total = self.words.iter().map(|word| word.0).sum::<f32>();
-        is_in_first_word || total + log_probability >= cut.0
+        is_in_first_word || self.total() + log_probability >= cut.0
+    }
+
+    /// The log probability of all the added text.
+    pub(super) fn total(&self) -> f32 {
+        self.words.iter().map(|word| word.0).sum()
+    }
+
+    /// The number of words.
+    pub(super) fn count(&self) -> usize {
+        self.words.len()
     }
 
     /// Ends the words before a token that writes `text`: it drops the last word when the token

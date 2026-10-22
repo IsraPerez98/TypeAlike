@@ -89,6 +89,11 @@ pub enum InferenceRequest {
         /// What the runner does when the typed letters of the last word of `prompt` look like a
         /// typo.
         typo_check: TypoCheck,
+        /// The text after the caret on its line, or empty when the caret is at the end of its
+        /// line. The added text fills the gap before it: the runner stops when the model starts to
+        /// write this text, and ends the added text where the model finds this text most likely
+        /// after it.
+        line_after: String,
     },
     /// Unloads the loaded model to free its memory.
     Unload,

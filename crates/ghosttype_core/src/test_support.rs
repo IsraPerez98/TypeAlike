@@ -53,6 +53,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
             typo_check: expected.typo_check,
+            line_after: String::new(),
         }
     }
 }
@@ -72,6 +73,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        line_after: String::new(),
     }
 }
 

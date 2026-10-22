@@ -41,6 +41,7 @@ fn unloaded_model_completes_no_text() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            line_after: String::new(),
         },
         &sink,
     );

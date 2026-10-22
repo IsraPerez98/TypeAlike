@@ -91,12 +91,14 @@ impl Session {
     }
 
     pub(super) fn is_caret_at_line_end(&self) -> bool {
-        !self.field.is_caret_line_hidden
-            && self
-                .text_after
-                .lines()
-                .next()
-                .is_none_or(|line| line.trim().is_empty())
+        !self.field.is_caret_line_hidden && self.line_after().is_empty()
+    }
+
+    /// The text after the caret on its line, or empty when that line has only whitespace after
+    /// the caret.
+    pub(super) fn line_after(&self) -> &str {
+        let line = self.text_after.lines().next().unwrap_or_default();
+        if line.trim().is_empty() { "" } else { line }
     }
 
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the

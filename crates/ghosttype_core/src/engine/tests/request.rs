@@ -226,3 +226,30 @@ fn completion_of_a_key_after_the_preparation_shows() {
 
     assert_eq!(reaction, show("d"));
 }
+
+#[test]
+fn request_carries_the_text_after_the_caret_on_its_line() {
+    let cases = [
+        (
+            " yesterday, so you can see it.\nBest,\nDana",
+            " yesterday, so you can see it.",
+        ),
+        ("\nBest,\nDana", ""),
+        ("   \nBest,\nDana", ""),
+        ("", ""),
+    ];
+
+    let lines_after = cases.map(|(after, _)| {
+        let mut engine = Engine::default();
+        let reaction = engine.on_key(
+            Key::Char(' '),
+            &FakeDesktop::with_text_around("I paid the", after),
+        );
+        let Reaction::Request(InferenceRequest::Complete { line_after, .. }) = reaction else {
+            panic!("unexpected {reaction:?}");
+        };
+        line_after
+    });
+
+    assert_eq!(lines_after, cases.map(|(_, line_after)| line_after.to_owned()));
+}

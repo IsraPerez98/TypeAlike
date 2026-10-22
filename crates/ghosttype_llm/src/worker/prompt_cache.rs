@@ -248,6 +248,7 @@ impl<'model> PromptCache<'model> {
             if generation.add_healing_step(logits, limits.typo_check.min_log_probability()) == Step::Stop {
                 return Ok(generation.into_typo_stop());
             }
+            generation.add_join_step(logits, limits.line_after);
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
             let (token, log_probability) = generation.choose_next_token(scores, logits);
@@ -261,7 +262,12 @@ impl<'model> PromptCache<'model> {
             if (progress.is_outdated)() {
                 return Err(GenerateError::Superseded);
             }
-            (progress.send_partial)(added_text(vocab, &self.tokens, generation.tokens(), healing.text));
+            (progress.send_partial)(added_text(
+                vocab,
+                &self.tokens,
+                generation.shown_tokens(),
+                healing.text,
+            ));
             let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
             logits = decode_next(&mut self.context, &mut batch, token, token_position)?;
         }
