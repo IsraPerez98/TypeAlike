@@ -12,7 +12,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Tray icon, tray menu, ghost text overlay and caret badge: Win32 on the main thread, next to the hooks. This crate draws them and follows the system by hand.
 
 ## Follow the system, never hardcode a look
-- Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal.
+- Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal. The color icons of the pages are the only colored pictures, and high contrast replaces them.
 - Win32 parts: follow the apps theme for menus and `SystemUsesLightTheme` for the tray icon. Re-read on `WM_SETTINGCHANGE` ("ImmersiveColorSet", `SPI_SETHIGHCONTRAST`) and update live. No restart.
 - Accent: the user accent color only, sparingly (focus, selected, primary action). No brand color for state.
 - Per-monitor DPI aware v2 for the whole process. Physical px in the Win32 parts, effective px (DIPs) in reactor views.
@@ -44,7 +44,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
   - Search field: `AutoSuggestBox` with the `Find` symbol. The return key submits.
   - Item: title and subtitle at the leading edge, the detail and the accessory at the trailing edge. Download progress is a `ProgressBar` with a cancel `Button`.
   - Loading: a small `ProgressRing` and the text. Message: the text and an optional retry `Button`.
-  - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its symbol.
+  - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its color icon, as in the Settings app: an SVG of the Fluent UI System Icons in the color style (`assets/fluent`, MIT license). Each SVG fills the 16 px icon box at scale 1. In high contrast, an item shows the symbol of its page, because a color icon does not follow the colors of the theme. The main thread sends each change of the contrast to the window.
   - Each page is a child with a key of its own, so that a page opens at its top and not at the scroll position of the last page.
 - Primary action: `ButtonStyle::Accent`, at most one for each card. A back button in a section heading is `ButtonStyle::Subtle`.
 - Secondary text: reactor has no `TextFillColorSecondaryBrush` yet. Use the caption size (12 px) with 75 % opacity, and check its contrast. Error notes use `ThemeBrush::SystemCritical` at full opacity.

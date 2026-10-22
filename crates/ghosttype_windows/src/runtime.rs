@@ -318,10 +318,12 @@ impl Runtime {
         Some(HANDLED)
     }
 
-    /// Makes the menus and the tray icon follow the new theme. The settings window follows it on
-    /// its own thread.
+    /// Makes the menus, the tray icon and the page icons of the settings window follow the new
+    /// theme. WinUI makes the rest of the settings window follow it.
     fn on_appearance_change(&mut self) {
-        system_theme::match_menus_to(SystemTheme::read());
+        let theme = SystemTheme::read();
+        system_theme::match_menus_to(theme);
+        self.shell.settings.set_contrast(theme.contrast);
         self.shell.render_tray(&self.controller.tray_view());
     }
 

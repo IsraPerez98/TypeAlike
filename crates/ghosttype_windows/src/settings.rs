@@ -3,6 +3,7 @@
 //! one place reactor callbacks on that thread reach the window's state.
 
 mod app_icon;
+mod icons;
 mod layout;
 mod page;
 mod text_area_box;
@@ -14,17 +15,19 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use ghosttype_core::settings_window::view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
+use ghosttype_core::settings_window::view::{ControlId, Row, SettingsInput, SettingsView};
 use windows::Win32::Foundation::E_UNEXPECTED;
 use windows::core::{Error, HRESULT, Result};
 use windows_reactor::{
     App, AppContext, AppProxy, Component, ComponentContext, EncodedImage, Grid, LocalSender, NavigationView,
-    NavigationViewBackButtonVisible, NavigationViewItem, NavigationViewPaneDisplayMode, Symbol, View,
-    ViewContext, WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
+    NavigationViewBackButtonVisible, NavigationViewItem, NavigationViewPaneDisplayMode, View, ViewContext,
+    WindowBackdrop, WindowPolicy, WindowVisuals, keyed,
 };
 
 use crate::mailbox::Mailbox;
+use crate::settings::icons::page_icon;
 use crate::settings::page::Renderer;
+use crate::system_theme::{Contrast, SystemTheme};
 
 const THREAD_NAME: &str = "settings window";
 const WINDOW_TITLE: &str = "GhostType";
@@ -105,6 +108,14 @@ impl SettingsThread {
         self.dispatch(move |context| open_or_show(view, context));
     }
 
+    /// Shows the page icons for `contrast`, when the window shows. WinUI makes the rest of the
+    /// window follow the contrast.
+    pub(crate) fn set_contrast(&self, contrast: Contrast) {
+        self.dispatch(move |_| {
+            with_host(|host| host.send_to_page(PageMessage::Contrast(contrast)));
+        });
+    }
+
     fn dispatch(&self, work: impl FnOnce(&AppContext) + Send + 'static) {
         let dispatched = self.proxy.dispatch(move |context| {
             work(context);
@@ -156,8 +167,13 @@ fn run(inputs: Mailbox<SettingsInput>, started: &mpsc::Sender<Result<AppProxy>>)
 impl Host {
     fn render(&mut self, view: SettingsView) {
         self.view = view.clone();
+        self.send_to_page(PageMessage::Show(view));
+    }
+
+    /// Sends `message` to the page of the window, when the window shows.
+    fn send_to_page(&self, message: PageMessage) {
         if let PageState::Open(page) = &self.page {
-            send(page, PageMessage::Show(view));
+            send(page, message);
         }
     }
 }
@@ -206,6 +222,8 @@ enum PageMessage {
     Show(SettingsView),
     /// The controller asks to bring the window to the front.
     Activate,
+    /// High contrast went on or off.
+    Contrast(Contrast),
     /// The user picked the page with this tag in the navigation.
     Select(Option<Rc<str>>),
     /// The user changed the text of a field that submits its text.
@@ -231,6 +249,8 @@ struct SettingsPage {
     /// The icon of each app of the view, by the path of its program, or `None` when the program
     /// has no icon.
     app_icons: HashMap<String, Option<EncodedImage>>,
+    /// Whether high contrast is on, which gives the pages icons in the text color.
+    contrast: Contrast,
 }
 
 impl SettingsPage {
@@ -271,6 +291,7 @@ impl Component for SettingsPage {
             selected: 0,
             typed: HashMap::new(),
             app_icons: HashMap::new(),
+            contrast: SystemTheme::read().contrast,
         };
         if let Some(view) = view {
             page.show(view);
@@ -286,6 +307,7 @@ impl Component for SettingsPage {
                     tracing::warn!("failed to bring the settings window to the front");
                 }
             }
+            PageMessage::Contrast(contrast) => self.contrast = contrast,
             PageMessage::Select(tag) => {
                 if let Some(index) = tag.and_then(|tag| tag.parse().ok()) {
                     self.selected = index;
@@ -323,7 +345,7 @@ impl Component for SettingsPage {
                     .tag(index.to_string())
                     .is_selected(index == selected)
                     .selects_on_invoked(true)
-                    .icon(page_symbol(page.icon))
+                    .icon(page_icon(page.icon, self.contrast))
                     .content(page.title),
             )
         });
@@ -355,14 +377,4 @@ impl Drop for SettingsPage {
 
 fn send_input(input: SettingsInput) {
     with_host(|host| host.inputs.send(input));
-}
-
-fn page_symbol(icon: PageIcon) -> Symbol {
-    match icon {
-        PageIcon::Gear => Symbol::Setting,
-        PageIcon::Cube => Symbol::Download,
-        PageIcon::TextCursor => Symbol::Edit,
-        PageIcon::TextViewfinder => Symbol::Scan,
-        PageIcon::PersonText => Symbol::ContactInfo,
-    }
 }
