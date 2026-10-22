@@ -11,8 +11,8 @@ use crate::inference::{
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
 use crate::settings_window::view::{
-    ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, Section, SettingsInput,
-    TextField,
+    ChoiceText, ControlId, Note, NoteTone, Output, Page, PageIcon, Picker, Row, RowIcon, Section,
+    SettingsInput, TextField,
 };
 
 /// Something the user did in the Playground pane.
@@ -226,6 +226,7 @@ impl PlaygroundPane {
         ))]);
         let prompt = Section::new(vec![Row::TextField(TextField {
             id: ControlId::new(PROMPT),
+            icon: RowIcon::Pencil,
             label: PROMPT_LABEL,
             placeholder: PROMPT_PLACEHOLDER,
             submit_label: COMPLETE_LABEL,
@@ -307,6 +308,7 @@ impl PlaygroundPane {
         let placeholder = placeholder_title(installed);
         Picker {
             id,
+            icon: RowIcon::Robot,
             label: MODEL_LABEL,
             description,
             choices: menu

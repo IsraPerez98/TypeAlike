@@ -11,8 +11,8 @@ use crate::settings::{
 use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::view::{
-    ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch, TextArea,
-    TextLine,
+    ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, RowIcon, Section, SettingsInput, Switch,
+    TextArea, TextLine,
 };
 
 /// Something the user did in the General pane.
@@ -304,6 +304,7 @@ impl GeneralPane {
         let autostart = self.autostart.as_ref().map(|autostart| {
             Row::Switch(Switch {
                 id: ControlId::new(AUTOSTART),
+                icon: RowIcon::Power,
                 label: AUTOSTART_LABEL,
                 description: AUTOSTART_DESCRIPTION,
                 is_on: autostart.is_enabled(),
@@ -312,24 +313,28 @@ impl GeneralPane {
         let switches = [
             Row::Switch(Switch {
                 id: ControlId::new(CLIPBOARD),
+                icon: RowIcon::Clipboard,
                 label: CLIPBOARD_LABEL,
                 description: self.clipboard_description(),
                 is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(PREPARATION),
+                icon: RowIcon::LightningBolt,
                 label: PREPARATION_LABEL,
                 description: PREPARATION_DESCRIPTION,
                 is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(DISPLAY),
+                icon: RowIcon::Stopwatch,
                 label: DISPLAY_LABEL,
                 description: DISPLAY_DESCRIPTION,
                 is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(TYPO_RULE),
+                icon: RowIcon::WarningSign,
                 label: TYPO_RULE_LABEL,
                 description: TYPO_RULE_DESCRIPTION,
                 is_on: self.settings.typo_rule == TypoRule::HideSuggestions,
@@ -338,6 +343,7 @@ impl GeneralPane {
         let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
             Row::Switch(Switch {
                 id: ControlId::new(TYPO_FIX),
+                icon: RowIcon::SpellCheck,
                 label: TYPO_FIX_LABEL,
                 description: TYPO_FIX_DESCRIPTION,
                 is_on: self.settings.typo_fix == TypoFix::Offer,
@@ -350,12 +356,14 @@ impl GeneralPane {
         Section::new(vec![
             Row::TextLine(TextLine {
                 id: ControlId::new(WRITER_NAME),
+                icon: RowIcon::Person,
                 label: WRITER_NAME_LABEL,
                 description: WRITER_NAME_DESCRIPTION,
                 text: self.settings.writer_name.0.clone(),
             }),
             Row::TextArea(TextArea {
                 id: ControlId::new(WRITER_NOTES),
+                icon: RowIcon::Note,
                 label: WRITER_NOTES_LABEL,
                 description: WRITER_NOTES_DESCRIPTION,
                 text: self.settings.writer_notes.0.clone(),
@@ -437,6 +445,7 @@ impl GeneralPane {
         let choices = self.length_choices();
         let text = MenuText {
             id: LENGTH,
+            icon: RowIcon::Ruler,
             label: LENGTH_LABEL,
             description: LENGTH_DESCRIPTION,
         };
@@ -452,6 +461,7 @@ impl GeneralPane {
     fn backend_picker(&self, playground: &PlaygroundPane) -> Picker {
         let text = MenuText {
             id: BACKEND,
+            icon: RowIcon::Chip,
             label: BACKEND_LABEL,
             description: BACKEND_DESCRIPTION,
         };

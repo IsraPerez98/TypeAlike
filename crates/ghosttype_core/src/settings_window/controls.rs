@@ -1,15 +1,16 @@
 //! The parts that several panes share to show their controls and to apply the changes of the user.
 //! They are the menus of a value table, the list of apps, and the change of a setting.
 
-use crate::settings_window::view::{ChoiceText, ControlId, Message, Picker, Row, Section};
+use crate::settings_window::view::{ChoiceText, ControlId, Message, Picker, Row, RowIcon, Section};
 
 const APPS_HEADING: &str = "Apps";
 const NO_APPS: &str = "This list has no apps.";
 
-/// The id of a menu, and the label and the description that the menu shows.
+/// The id of a menu, and the icon, the label and the description that the menu shows.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MenuText {
     pub(super) id: &'static str,
+    pub(super) icon: RowIcon,
     pub(super) label: &'static str,
     pub(super) description: &'static str,
 }
@@ -23,6 +24,7 @@ pub(super) fn picker<Value: PartialEq + Copy>(
 ) -> Picker {
     Picker {
         id: ControlId::new(text.id),
+        icon: text.icon,
         label: text.label,
         description: text.description,
         choices: choice_titles(choices),

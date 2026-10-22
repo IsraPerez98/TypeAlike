@@ -1,11 +1,12 @@
 //! The controls of one settings page, built from the sections and rows of the core view.
 
 use std::collections::HashMap;
+use std::iter;
 use std::rc::Rc;
 
 use ghosttype_core::settings_window::view::{
-    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Output, Page, Permille, Picker, Row,
-    SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
+    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, Output, Page, Permille, Picker,
+    Row, RowIcon, SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
@@ -14,9 +15,10 @@ use windows_reactor::{
     VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
+use super::icons::row_glyph;
 use super::layout::{
-    CONTROL_GAP, card, control_card, leading_and_text, note_text, scrolling_page, secondary_text,
-    two_column_card,
+    CONTROL_GAP, card, card_header, control_card, glyph_icon, leading_and_text, note_text, scrolling_page,
+    secondary_text, stacked_card, two_column_card,
 };
 use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
 use super::{PageMessage, SettingsPage};
@@ -136,7 +138,10 @@ impl Renderer<'_, '_> {
             .is_on(switch.is_on)
             .automation_name(switch.label)
             .on_toggled(self.toggled_callback(&switch.id));
-        control_card(switch.label, switch.description, None, toggle.into())
+        control_card(
+            setting_header(switch.icon, switch.label, switch.description, None),
+            toggle.into(),
+        )
     }
 
     /// A card with the icon and the name of an app at the leading edge and its switch at the
@@ -172,17 +177,7 @@ impl Renderer<'_, '_> {
                 .into(),
             None => SymbolIcon::new().symbol(Symbol::AllApps).into(),
         };
-        let icon = Border::new()
-            .vertical_alignment(VerticalAlignment::Center)
-            .content(icon)
-            .into();
-        let name = TextBlock::new()
-            .text(app_name)
-            .vertical_alignment(VerticalAlignment::Center)
-            .text_wrapping(TextWrapping::Wrap);
-        let label =
-            leading_and_text(Some(icon), name, CONTROL_GAP).vertical_alignment(VerticalAlignment::Center);
-        two_column_card(label.grid_column(0).into(), Some(control))
+        control_card(card_header(icon, app_name, "", None), control)
     }
 
     fn picker_card(&self, picker: &Picker) -> View {
@@ -191,9 +186,12 @@ impl Renderer<'_, '_> {
             .is_enabled(picker.is_enabled)
             .automation_name(picker.label);
         control_card(
-            picker.label,
-            picker.description,
-            picker.note.as_ref(),
+            setting_header(
+                picker.icon,
+                picker.label,
+                picker.description,
+                picker.note.as_ref(),
+            ),
             menu.into(),
         )
     }
@@ -208,16 +206,10 @@ impl Renderer<'_, '_> {
             .button
             .as_ref()
             .map(|button| self.button(button, ButtonStyle::Default));
-        let rows: Vec<View> = [
-            Some(TextBlock::new().text(area.label).into()),
-            (!area.description.is_empty()).then(|| secondary_text(area.description).into()),
-            Some(field),
-            button,
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        card(StackPanel::new().spacing(HEADING_GAP).children(rows).into())
+        stacked_card(
+            setting_header(area.icon, area.label, area.description, None),
+            iter::once(field).chain(button).collect(),
+        )
     }
 
     fn text_line_card(&self, line: &TextLine) -> View {
@@ -226,7 +218,10 @@ impl Renderer<'_, '_> {
             .min_width(TEXT_LINE_MIN_WIDTH)
             .automation_name(line.label)
             .on_text_changed(self.edited_callback(&line.id));
-        control_card(line.label, line.description, None, field.into())
+        control_card(
+            setting_header(line.icon, line.label, line.description, None),
+            field.into(),
+        )
     }
 
     fn text_field_card(&self, field: &TextField) -> View {
@@ -249,11 +244,9 @@ impl Renderer<'_, '_> {
             .columns([GridLength::STAR, GridLength::Auto])
             .column_spacing(HEADING_GAP)
             .children((Border::new().grid_column(0).content(input), submit.grid_column(1)));
-        card(
-            StackPanel::new()
-                .spacing(HEADING_GAP)
-                .children((TextBlock::new().text(field.label), line))
-                .into(),
+        stacked_card(
+            setting_header(field.icon, field.label, "", None),
+            vec![line.into()],
         )
     }
 
@@ -409,6 +402,12 @@ impl Renderer<'_, '_> {
             })
         })
     }
+}
+
+/// The header of the card of a setting: the glyph of `icon`, then the label, the description and
+/// the note.
+fn setting_header(icon: RowIcon, label: &str, description: &str, note: Option<&Note>) -> Grid {
+    card_header(glyph_icon(row_glyph(icon)), label, description, note)
 }
 
 fn output_card(output: &Output) -> View {

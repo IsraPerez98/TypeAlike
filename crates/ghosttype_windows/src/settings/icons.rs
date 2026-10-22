@@ -1,13 +1,38 @@
 //! The icons of the settings window. Each page has a color icon of the Fluent UI System Icons in
 //! the navigation, as in the Settings app. High contrast shows the symbol of the page in the text
-//! color instead, because a color icon does not follow the colors of the theme.
+//! color instead, because a color icon does not follow the colors of the theme. Each card of a
+//! setting starts with a glyph of the icon font in the text color.
 
-use ghosttype_core::settings_window::view::PageIcon;
+use ghosttype_core::settings_window::view::{PageIcon, RowIcon};
 use windows_reactor::{EncodedImage, Icon, Symbol};
 
 use crate::system_theme::Contrast;
 
 const ROBOT_GLYPH: &str = "\u{E99A}";
+
+/// The glyph that shows `icon` at the leading edge of a card. Each glyph is in Segoe Fluent Icons
+/// and also in Segoe MDL2 Assets, the icon font of Windows 10.
+pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
+    match icon {
+        RowIcon::Power => "\u{E7E8}",
+        RowIcon::Clipboard => "\u{E77F}",
+        RowIcon::LightningBolt => "\u{E945}",
+        RowIcon::Stopwatch => "\u{E916}",
+        RowIcon::WarningSign => "\u{E7BA}",
+        RowIcon::SpellCheck => "\u{F87B}",
+        RowIcon::Ruler => "\u{ECC6}",
+        RowIcon::Robot => ROBOT_GLYPH,
+        RowIcon::Chip => "\u{E950}",
+        RowIcon::Person => "\u{E77B}",
+        RowIcon::Note => "\u{E70B}",
+        RowIcon::Monitor => "\u{E7F4}",
+        RowIcon::Gauge => "\u{EC4A}",
+        RowIcon::ClockArrow => "\u{E81C}",
+        RowIcon::FloppyDisk => "\u{E74E}",
+        RowIcon::Letters => "\u{E8D2}",
+        RowIcon::Pencil => "\u{E70F}",
+    }
+}
 
 /// The icon of a page with `icon` in the navigation, while the contrast is `contrast`.
 pub(super) fn page_icon(icon: PageIcon, contrast: Contrast) -> Icon {

@@ -5,7 +5,8 @@ use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
 use crate::settings_window::controls::{MenuText, app_list_section, picker, replace_if_changed};
 use crate::settings_window::view::{
-    AppSwitch, Button, ControlId, Message, Page, PageIcon, Picker, Row, Section, SettingsInput, Switch,
+    AppSwitch, Button, ControlId, Message, Page, PageIcon, Picker, Row, RowIcon, Section, SettingsInput,
+    Switch,
 };
 
 /// Something the user did in the Screen text pane.
@@ -142,6 +143,7 @@ impl ScreenTextPane {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
         let main_switch = Row::Switch(Switch {
             id: ControlId::new(SCREEN_TEXT),
+            icon: RowIcon::Monitor,
             label: SCREEN_TEXT_LABEL,
             description: SCREEN_TEXT_DESCRIPTION,
             is_on: is_allowed,
@@ -176,6 +178,7 @@ impl ScreenTextPane {
     fn ocr_level_picker(&self) -> Picker {
         let text = MenuText {
             id: OCR_LEVEL,
+            icon: RowIcon::Gauge,
             label: OCR_LEVEL_LABEL,
             description: OCR_LEVEL_DESCRIPTION,
         };
@@ -247,6 +250,7 @@ mod tests {
             (
                 Some(&Row::Switch(Switch {
                     id: ControlId::new(SCREEN_TEXT),
+                    icon: RowIcon::Monitor,
                     label: "Use screen text",
                     description: "When this switch is off, GhostType does not read screen text in any app.",
                     is_on: true,
@@ -447,6 +451,7 @@ mod tests {
             shown.sections[0].rows.get(1),
             Some(&Row::Picker(Picker {
                 id: ControlId::new(OCR_LEVEL),
+                icon: RowIcon::Gauge,
                 label: "Text recognition",
                 description: "When GhostType cannot get the text of a window, it reads the text from an image \
                      of the window. “Fast” reads English, French, German, Italian, Portuguese and Spanish. \

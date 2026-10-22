@@ -379,23 +379,28 @@ impl NoteView {
 
 #[cfg(test)]
 mod tests {
-    use ghosttype_core::settings_window::view::{Message, Output, Switch, TextArea, TextField, TextLine};
+    use ghosttype_core::settings_window::view::{
+        Message, Output, RowIcon, Switch, TextArea, TextField, TextLine,
+    };
 
     use super::*;
 
     const ID: ControlId = ControlId::new("setting");
+    const ICON: RowIcon = RowIcon::Note;
 
     #[test]
     fn rows_of_settings_and_lists_share_a_rounded_group() {
         let rows = [
             Row::Switch(Switch {
                 id: ID,
+                icon: ICON,
                 label: "Label",
                 description: "",
                 is_on: true,
             }),
             Row::TextLine(TextLine {
                 id: ID,
+                icon: ICON,
                 label: "Label",
                 description: "",
                 text: String::new(),
@@ -421,6 +426,7 @@ mod tests {
         let rows = [
             Row::TextArea(TextArea {
                 id: ID,
+                icon: ICON,
                 label: "Label",
                 description: "",
                 text: String::new(),
@@ -428,6 +434,7 @@ mod tests {
             }),
             Row::TextField(TextField {
                 id: ID,
+                icon: ICON,
                 label: "Label",
                 placeholder: "",
                 submit_label: "Submit",

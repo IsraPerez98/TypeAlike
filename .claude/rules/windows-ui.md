@@ -21,6 +21,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 ## Layering and elevation
 - Two layers per window. Base layer = Mica, holds the title bar and the navigation. Content layer = the pages, as cards on top of the base layer.
 - Card: `Border` with `ThemeBrush::CardBackground`, `ThemeBrush::CardStroke` at 1 px, radius 4, padding 16 x 12 px, at least 68 px high, 4 px apart. Section headings semibold, 28 px above the cards and 8 px over them.
+- A card of a setting starts with its icon in a 24 px column, as a card of the Settings app. The texts start 16 px after that column, so the texts of all the cards line up. The icon is the 20 px glyph of the `RowIcon` (`settings/icons.rs`) in the text color, or the 24 px icon of an app.
 - Shadows only to separate surfaces, never as decoration. WinUI and DWM draw window and flyout shadows.
 
 ## Geometry
@@ -38,7 +39,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - One reactor control for each core row kind (`settings/page.rs`). A new row kind needs one renderer here, never a hand-drawn control.
   - Switch: `ToggleSwitch` at the trailing edge of a card.
   - Picker: `ComboBox` at the trailing edge, 200 to 320 px wide.
-  - Text area: multi-line `TextBox` under the label, at least 160 px high, with its button below.
+  - Text area: multi-line `TextBox` under the header of the card, in line with the label, at least 160 px high, with its button below.
   - Text line: `TextBox` at the trailing edge of a card, at least 200 px wide. Each change goes to the core.
   - Text field: `TextBox` and an accent `Button` that submits. The return key also submits.
   - Search field: `AutoSuggestBox` with the `Find` symbol. The return key submits.
@@ -54,7 +55,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Reactor sets the text of a new `TextBox` before `AcceptsReturn`, and a single-line WinUI text box keeps only the first line of its text. A text area gets its text one render after its `TextBox` exists (`TextAreaBox`).
 
 ## Typography
-- WinUI default fonts: Segoe UI Variable, and Segoe Fluent Icons for symbols. No bundled fonts.
+- WinUI default fonts: Segoe UI Variable, and Segoe Fluent Icons for symbols. No bundled fonts. Windows 10 has only Segoe MDL2 Assets, so use only glyphs that both icon fonts have.
 - Type ramp (size/line, epx): caption 12/16, body 14/20, body strong 14/20 semibold, subtitle 20/28 semibold, title 28/36 semibold. Page titles use title, section headings use body strong.
 - Regular for text, Semibold for titles and emphasis. No Bold, no italic.
 - Sentence case everywhere, titles and menu items included. Left aligned. Wrap long text, never cut it.

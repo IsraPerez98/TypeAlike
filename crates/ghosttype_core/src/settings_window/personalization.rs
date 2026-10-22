@@ -8,7 +8,7 @@ use crate::settings_window::controls::{
     MenuText, app_list_section, choice_index, choice_titles, picker, replace_if_changed,
 };
 use crate::settings_window::view::{
-    AppPicker, Button, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, Section,
+    AppPicker, Button, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, RowIcon, Section,
     SettingsInput, Switch,
 };
 
@@ -215,6 +215,7 @@ impl PersonalizationPane {
         Section::new(vec![
             Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
+                icon: RowIcon::ClockArrow,
                 label: HISTORY_LABEL,
                 description: HISTORY_DESCRIPTION,
                 is_on,
@@ -222,6 +223,7 @@ impl PersonalizationPane {
             Row::Picker(picker(
                 MenuText {
                     id: KEPT_TEXTS,
+                    icon: RowIcon::FloppyDisk,
                     label: KEPT_TEXTS_LABEL,
                     description: KEPT_TEXTS_DESCRIPTION,
                 },
@@ -237,6 +239,7 @@ impl PersonalizationPane {
                 ..picker(
                     MenuText {
                         id: WORD_CHOICE,
+                        icon: RowIcon::Letters,
                         label: WORD_CHOICE_LABEL,
                         description: WORD_CHOICE_DESCRIPTION,
                     },
@@ -351,11 +354,27 @@ mod tests {
             shown.row(HISTORY),
             Some(&Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
+                icon: RowIcon::ClockArrow,
                 label: "Use earlier writing",
                 description: "When this switch is on, GhostType saves the text that you write. Suggestions use \
                      this text as examples.",
                 is_on: false,
             }))
+        );
+    }
+
+    #[test]
+    fn menus_show_a_floppy_disk_and_letters() {
+        let pane = PersonalizationPane::new(PersonalizationSettings::default());
+
+        let shown = pane.page();
+
+        assert_eq!(
+            (
+                picker_of(&shown, KEPT_TEXTS).icon,
+                picker_of(&shown, WORD_CHOICE).icon,
+            ),
+            (RowIcon::FloppyDisk, RowIcon::Letters)
         );
     }
 

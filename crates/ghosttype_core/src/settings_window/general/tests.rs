@@ -164,6 +164,7 @@ fn action_for(pane: &GeneralPane, input: &SettingsInput) -> Option<GeneralAction
 fn typo_rule_switch() -> Row {
     Row::Switch(Switch {
         id: ControlId::new(TYPO_RULE),
+        icon: RowIcon::WarningSign,
         label: "Hide suggestions on typos",
         description: "While the word that you type looks like it has a typo, no suggestion finishes the word, so that Tab does not keep the typo. A rare name or term can also look like a typo.",
         is_on: true,
@@ -173,10 +174,31 @@ fn typo_rule_switch() -> Row {
 fn typo_fix_switch() -> Row {
     Row::Switch(Switch {
         id: ControlId::new(TYPO_FIX),
+        icon: RowIcon::SpellCheck,
         label: "Fix typos",
         description: "When the word that you type looks like it has a typo, the suggestion shows the word struck through and a fix after it. Tab replaces the word with the fix.",
         is_on: true,
     })
+}
+
+fn default_writer_section() -> Section {
+    Section::new(vec![
+        Row::TextLine(TextLine {
+            id: ControlId::new(WRITER_NAME),
+            icon: RowIcon::Person,
+            label: "Your name",
+            description: "Suggestions can use your name, for example to sign an email.",
+            text: String::new(),
+        }),
+        Row::TextArea(TextArea {
+            id: ControlId::new(WRITER_NOTES),
+            icon: RowIcon::Note,
+            label: "Notes about me",
+            description: "Suggestions use these notes. Write a few short facts about you and how you write, for example your job and your languages. Write in the first person, for example “I keep my emails short.”",
+            text: "I write clear and friendly messages. I keep the tone of the conversation.".to_owned(),
+            button: None,
+        }),
+    ])
 }
 
 #[test]
@@ -196,18 +218,21 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                 Section::new(vec![
                     Row::Switch(Switch {
                         id: ControlId::new(CLIPBOARD),
+                        icon: RowIcon::Clipboard,
                         label: "Use copied text",
                         description: "Suggestions can use the text that you copy. GhostType reads the clipboard when you start to type. Where it saved your earlier writing, it reads the clipboard when you go to the text field. It does not save the copied text.",
                         is_on: false,
                     }),
                     Row::Switch(Switch {
                         id: ControlId::new(PREPARATION),
+                        icon: RowIcon::LightningBolt,
                         label: "Prepare before you type",
                         description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power. When this switch is off, the model does this only in apps and on web pages where GhostType saved your earlier writing.",
                         is_on: false,
                     }),
                     Row::Switch(Switch {
                         id: ControlId::new(DISPLAY),
+                        icon: RowIcon::Stopwatch,
                         label: "Show words early",
                         description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                         is_on: false,
@@ -216,6 +241,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                     typo_fix_switch(),
                     Row::Picker(Picker {
                         id: ControlId::new(LENGTH),
+                        icon: RowIcon::Ruler,
                         label: "Suggestion length",
                         description: "A suggestion stops at this length or at the end of a sentence. A shorter suggestion shows sooner.",
                         choices: vec![
@@ -232,6 +258,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                     }),
                     Row::Picker(Picker {
                         id: ControlId::new(SUGGESTION_MODEL),
+                        icon: RowIcon::Robot,
                         label: "Suggestion model",
                         description: "The model that suggests text as you type. GhostType loads it again when it starts.",
                         choices: vec!["No downloaded models".to_owned()],
@@ -245,6 +272,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                     }),
                     Row::Picker(Picker {
                         id: ControlId::new(BACKEND),
+                        icon: RowIcon::Chip,
                         label: "Inference backend",
                         description: "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.",
                         choices: vec![
@@ -258,22 +286,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         note: None,
                     }),
                 ]),
-                Section::new(vec![
-                    Row::TextLine(TextLine {
-                        id: ControlId::new(WRITER_NAME),
-                        label: "Your name",
-                        description: "Suggestions can use your name, for example to sign an email.",
-                        text: String::new(),
-                    }),
-                    Row::TextArea(TextArea {
-                        id: ControlId::new(WRITER_NOTES),
-                        label: "Notes about me",
-                        description: "Suggestions use these notes. Write a few short facts about you and how you write, for example your job and your languages. Write in the first person, for example “I keep my emails short.”",
-                        text: "I write clear and friendly messages. I keep the tone of the conversation."
-                            .to_owned(),
-                        button: None,
-                    }),
-                ]),
+                default_writer_section(),
             ],
         }
     );
@@ -668,6 +681,7 @@ fn autostart_switch_shows_the_state_that_the_os_keeps() {
         switch(&shown, AUTOSTART),
         Switch {
             id: ControlId::new(AUTOSTART),
+            icon: RowIcon::Power,
             label: "Open at login",
             description: "Start GhostType when you log in to this computer.",
             is_on: true,

@@ -110,6 +110,7 @@ fn pane_without_downloads_asks_for_one() {
             sections: vec![
                 Section::new(vec![Row::Picker(Picker {
                     id: ControlId::new(MODEL),
+                    icon: RowIcon::Robot,
                     label: "Suggestion model",
                     description: "",
                     choices: titles(&["No downloaded models"]),
@@ -123,6 +124,7 @@ fn pane_without_downloads_asks_for_one() {
                 })]),
                 Section::new(vec![Row::TextField(TextField {
                     id: ControlId::new(PROMPT),
+                    icon: RowIcon::Pencil,
                     label: "Text",
                     placeholder: "Type the start of a sentence",
                     submit_label: "Complete text",

@@ -68,6 +68,46 @@ pub enum PageIcon {
     PersonText,
 }
 
+/// The picture before the label of a setting, such as the icon at the leading edge of a card of
+/// the Settings app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowIcon {
+    /// A power button, for what happens when the computer starts.
+    Power,
+    /// A clipboard, for the text that the user copies.
+    Clipboard,
+    /// A lightning bolt, for work that GhostType does early, so that it is faster later.
+    LightningBolt,
+    /// A stopwatch, for when the text of a suggestion shows.
+    Stopwatch,
+    /// A warning sign, for typos.
+    WarningSign,
+    /// A spelling check, for the fixes of typos.
+    SpellCheck,
+    /// A ruler, for a length.
+    Ruler,
+    /// A robot, for a model that writes text.
+    Robot,
+    /// A chip, for the hardware that runs a model.
+    Chip,
+    /// A person, for the name of the user.
+    Person,
+    /// A note, for the notes of the user.
+    Note,
+    /// A monitor, for the text on the screen.
+    Monitor,
+    /// A gauge, for a choice between speed and accuracy.
+    Gauge,
+    /// A clock with an arrow around it, for the earlier writing of the user.
+    ClockArrow,
+    /// A floppy disk, for what GhostType saves.
+    FloppyDisk,
+    /// Two letters, for the choice of words.
+    Letters,
+    /// A pencil, for the text that the user writes.
+    Pencil,
+}
+
 /// A field that searches for the text that the user submits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchField {
@@ -154,6 +194,8 @@ impl Row {
 pub struct Switch {
     /// The switch. Turning it gives [`SettingsInput::Toggled`].
     pub id: ControlId,
+    /// The picture before the label.
+    pub icon: RowIcon,
     /// Text before the switch, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the setting changes.
@@ -185,6 +227,8 @@ pub struct AppSwitch {
 pub struct Picker {
     /// The menu. Picking an entry gives [`SettingsInput::Picked`].
     pub id: ControlId,
+    /// The picture before the label.
+    pub icon: RowIcon,
     /// Text before the menu, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the setting changes. It is empty when there is none.
@@ -236,6 +280,8 @@ pub enum ChoiceText {
 pub struct TextArea {
     /// The field. Each change of its text gives [`SettingsInput::Edited`].
     pub id: ControlId,
+    /// The picture before the label.
+    pub icon: RowIcon,
     /// Text before the field, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the text changes.
@@ -253,6 +299,8 @@ pub struct TextArea {
 pub struct TextLine {
     /// The field. Each change of its text gives [`SettingsInput::Edited`].
     pub id: ControlId,
+    /// The picture before the label.
+    pub icon: RowIcon,
     /// Text before the field, in sentence case.
     pub label: &'static str,
     /// A sentence below the label about what the text changes.
@@ -269,6 +317,8 @@ pub struct TextField {
     /// The field. The return key in the field and a click of its button give
     /// [`SettingsInput::Submitted`].
     pub id: ControlId,
+    /// The picture before the label.
+    pub icon: RowIcon,
     /// Text above the field, in sentence case.
     pub label: &'static str,
     /// The hint that the field shows while it is empty.

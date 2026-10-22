@@ -1,13 +1,14 @@
 //! The layout of a settings page in the style of the Settings app.
 //!
-//! It has the page that scrolls, the cards on it and the secondary text.
+//! It has the page that scrolls, the cards on it, the icon and the texts at the leading edge of a
+//! card, and the secondary text.
 
 use std::iter;
 
 use ghosttype_core::settings_window::view::{Note, NoteTone};
 use windows_reactor::{
-    Border, Grid, GridLength, ScrollBarVisibility, ScrollViewer, StackPanel, TextBlock, TextWrapping,
-    ThemeBrush, Thickness, VerticalAlignment, View,
+    Border, FontIcon, Grid, GridLength, HorizontalAlignment, ScrollBarVisibility, ScrollViewer, StackPanel,
+    TextBlock, TextWrapping, ThemeBrush, Thickness, VerticalAlignment, View,
 };
 
 const PAGE_MARGIN: Thickness = Thickness::new(56.0, 32.0, 56.0, 32.0);
@@ -18,6 +19,10 @@ const CARD_PADDING: Thickness = Thickness::xy(16.0, 12.0);
 const CARD_MIN_HEIGHT: f64 = 68.0;
 const CARD_RADIUS: f64 = 4.0;
 const CARD_STROKE: f64 = 1.0;
+const ICON_COLUMN_WIDTH: f64 = 24.0;
+const GLYPH_SIZE: f64 = 20.0;
+const STACK_GAP: f64 = 8.0;
+const STACKED_CONTENT_MARGIN: Thickness = Thickness::new(ICON_COLUMN_WIDTH + CONTROL_GAP, 0.0, 0.0, 0.0);
 pub(super) const CONTROL_GAP: f64 = 16.0;
 
 /// Puts `column` at the leading edge of a page that scrolls up and down, as wide as the page up to
@@ -45,9 +50,18 @@ pub(super) fn card(content: View) -> View {
         .into()
 }
 
-/// A card with the label and the description at the leading edge and `control` at the trailing
-/// edge.
-pub(super) fn control_card(label: &str, description: &str, note: Option<&Note>, control: View) -> View {
+/// `glyph` of the icon font, as large as the icon of a card of the Settings app.
+pub(super) fn glyph_icon(glyph: &str) -> View {
+    FontIcon::new().glyph(glyph).font_size(GLYPH_SIZE).into()
+}
+
+/// The header of a card: `icon` in a column of its own, then the label, the description and the
+/// note of a setting. The texts of all the headers start at the same distance from the edge.
+pub(super) fn card_header(icon: View, label: &str, description: &str, note: Option<&Note>) -> Grid {
+    let icon = Border::new()
+        .horizontal_alignment(HorizontalAlignment::Center)
+        .vertical_alignment(VerticalAlignment::Center)
+        .content(icon);
     let texts = StackPanel::new()
         .vertical_alignment(VerticalAlignment::Center)
         .children(
@@ -65,7 +79,29 @@ pub(super) fn control_card(label: &str, description: &str, note: Option<&Note>, 
             .flatten()
             .collect::<Vec<View>>(),
         );
-    two_column_card(texts.grid_column(0).into(), Some(control))
+    Grid::new()
+        .columns([GridLength::Pixel(ICON_COLUMN_WIDTH), GridLength::STAR])
+        .column_spacing(CONTROL_GAP)
+        .children((icon, texts.grid_column(1)))
+}
+
+/// A card with `header` at the leading edge and `control` at the trailing edge.
+pub(super) fn control_card(header: Grid, control: View) -> View {
+    two_column_card(header.grid_column(0).into(), Some(control))
+}
+
+/// A card with `header` at the top and `content` below it, in line with the texts of the header.
+pub(super) fn stacked_card(header: Grid, content: Vec<View>) -> View {
+    let content = StackPanel::new()
+        .spacing(STACK_GAP)
+        .margin(STACKED_CONTENT_MARGIN)
+        .children(content);
+    card(
+        StackPanel::new()
+            .spacing(STACK_GAP)
+            .children((header, content))
+            .into(),
+    )
 }
 
 /// A card with `leading`, which the caller puts in column 0, at the leading edge, and `trailing`,
