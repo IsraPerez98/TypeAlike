@@ -33,6 +33,8 @@ const TEXT_LINE_MIN_WIDTH: f64 = 200.0;
 const PROGRESS_WIDTH: f64 = 120.0;
 const RING_SIZE: f64 = 16.0;
 const APP_ICON_SIZE: f64 = 24.0;
+// WinUI makes a switch 154 px wide, which leaves a gap after its "On" at the trailing edge of a card.
+const SWITCH_MIN_WIDTH: f64 = 0.0;
 
 /// Builds the controls of a page from its core sections and rows.
 pub(super) struct Renderer<'page, 'view> {
@@ -134,10 +136,7 @@ impl Renderer<'_, '_> {
     }
 
     fn switch_card(&self, switch: &Switch) -> View {
-        let toggle = ToggleSwitch::new()
-            .is_on(switch.is_on)
-            .automation_name(switch.label)
-            .on_toggled(self.toggled_callback(&switch.id));
+        let toggle = self.toggle_switch(&switch.id, switch.label).is_on(switch.is_on);
         control_card(
             setting_header(switch.icon, switch.label, switch.description, None),
             toggle.into(),
@@ -147,11 +146,10 @@ impl Renderer<'_, '_> {
     /// A card with the icon and the name of an app at the leading edge and its switch at the
     /// trailing edge.
     fn app_switch_card(&self, switch: &AppSwitch) -> View {
-        let toggle = ToggleSwitch::new()
+        let toggle = self
+            .toggle_switch(&switch.id, &switch.app_name)
             .is_on(switch.is_on)
-            .is_enabled(switch.is_enabled)
-            .automation_name(&switch.app_name)
-            .on_toggled(self.toggled_callback(&switch.id));
+            .is_enabled(switch.is_enabled);
         self.app_card(switch.app_path.as_deref(), &switch.app_name, toggle.into())
     }
 
@@ -391,6 +389,14 @@ impl Renderer<'_, '_> {
                 text: text.to_string(),
             })
         })
+    }
+
+    /// A switch at its own width for the control `id`, named `name` for assistive technology.
+    fn toggle_switch(&self, id: &ControlId, name: &str) -> ToggleSwitch {
+        ToggleSwitch::new()
+            .min_width(SWITCH_MIN_WIDTH)
+            .automation_name(name)
+            .on_toggled(self.toggled_callback(id))
     }
 
     fn toggled_callback(&self, id: &ControlId) -> Callback<bool> {

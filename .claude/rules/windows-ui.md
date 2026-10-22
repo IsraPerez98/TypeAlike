@@ -37,7 +37,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 
 ## Controls
 - One reactor control for each core row kind (`settings/page.rs`). A new row kind needs one renderer here, never a hand-drawn control.
-  - Switch: `ToggleSwitch` at the trailing edge of a card.
+  - Switch: `ToggleSwitch` at the trailing edge of a card, at its own width (`MinWidth` 0). WinUI makes it 154 px wide, which leaves a gap after its text, so it does not end where the menus end.
   - Picker: `ComboBox` at the trailing edge, 200 to 320 px wide.
   - Text area: multi-line `TextBox` under the header of the card, in line with the label, at least 160 px high, with its button below.
   - Text line: `TextBox` at the trailing edge of a card, at least 200 px wide. Each change goes to the core.
