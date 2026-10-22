@@ -179,7 +179,8 @@ impl<'text> Generation<'text> {
     }
 
     /// Adds `token`, with `piece` as text and `log_probability`, unless it starts the line after
-    /// the caret or the next sentence, or the minimum probability of the `limits` cuts it. A cut
+    /// the caret, a placeholder before that line, or the next sentence, or the minimum probability
+    /// of the `limits` cuts it. A cut
     /// inside a word leaves out that word. Stops after a line break, and at the token limit, where
     /// it leaves out the last word unless that word ends a sentence. It never leaves out the only
     /// word.
@@ -192,6 +193,7 @@ impl<'text> Generation<'text> {
     ) -> Step {
         let text = added_after(piece, self.unwritten);
         if self.starts_line_after(text, limits.line_after)
+            || (!limits.line_after.is_empty() && opens_placeholder(text))
             || starts_next_sentence(self.healing.text, &self.written, text)
         {
             return Step::Stop;
@@ -312,6 +314,16 @@ fn after_prefix<'bytes>(bytes: &'bytes [u8], prefix: &[u8]) -> &'bytes [u8] {
 /// Whether a token with `piece` as text adds a line break after it writes the `unwritten` text.
 fn writes_line_break(piece: &[u8], unwritten: &[u8]) -> bool {
     added_after(piece, unwritten).contains(&b'\n')
+}
+
+/// Whether `text` opens a placeholder, such as "[Job Title]", which a model writes in place of a
+/// fact that it does not know: an opening square bracket at its end or before a letter or a digit.
+/// The ghost text ends before a placeholder, so an end after it never fits the line after the caret.
+fn opens_placeholder(text: &[u8]) -> bool {
+    text.iter().position(|&byte| byte == b'[').is_some_and(|start| {
+        text.get(start + 1)
+            .is_none_or(|&byte| byte.is_ascii_alphanumeric() || !byte.is_ascii())
+    })
 }
 
 /// Returns the text that a token with `piece` as text adds after it writes the `unwritten` text.
@@ -620,6 +632,35 @@ mod tests {
         let (step, _) = add_tokens_before(LINE_AFTER, &steps);
 
         assert_eq!(step, Step::Continue);
+    }
+
+    #[test]
+    fn placeholder_stops_the_added_text_before_the_line_after() {
+        let tokens = [" [", " [Job", " [é"];
+
+        let steps = tokens.map(|token| {
+            add_tokens_before(
+                LINE_AFTER,
+                &[(UNLIKELY_ON, "opportunity", -0.1), (UNLIKELY_ON, token, -0.1)],
+            )
+        });
+
+        assert_eq!(steps, tokens.map(|_| (Step::Stop, vec![LlamaToken(1)])));
+    }
+
+    #[test]
+    fn bracket_that_opens_no_placeholder_or_ends_a_line_keeps_the_added_text() {
+        let cases = [(LINE_AFTER, " [-"), (&b""[..], " [Job")];
+
+        let steps = cases.map(|(line_after, token)| {
+            add_tokens_before(
+                line_after,
+                &[(UNLIKELY_ON, "opportunity", -0.1), (UNLIKELY_ON, token, -0.1)],
+            )
+            .0
+        });
+
+        assert_eq!(steps, cases.map(|_| Step::Continue));
     }
 
     #[test]

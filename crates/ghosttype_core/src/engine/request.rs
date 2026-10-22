@@ -2,7 +2,9 @@
 
 use crate::desktop::Desktop;
 use crate::history::HistoryPool;
-use crate::inference::{InferenceRequest, NextWordBias, Prompt, TokenCount, TypoCheck, WordBias};
+use crate::inference::{
+    InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck, WordBias,
+};
 use crate::place::Place;
 use crate::prompt;
 
@@ -11,6 +13,9 @@ use super::session::Session;
 use super::{Engine, Reaction};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
+/// How many times more tokens a suggestion inside a line can add. There the end that fits the text
+/// after the caret ends the suggestion, so a sentence that the writer inserts can finish.
+const INSIDE_LINE_TOKEN_FACTOR: u32 = 2;
 
 impl Engine {
     /// Starts the session for the focused field of `desktop` when none runs, and returns the
@@ -53,19 +58,36 @@ impl Engine {
             shown: String::new(),
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
+        let line_after = self
+            .session
+            .as_ref()
+            .map(|session| session.line_after().to_owned())
+            .unwrap_or_default();
+        let (max_tokens, min_log_probability) = self.limits_before(&line_after);
         Reaction::Request(InferenceRequest::Complete {
             prompt,
-            max_tokens: self.suggestion_length.max_tokens(),
+            max_tokens,
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
-            min_log_probability: Some(self.suggestion_length.tail_cut()),
+            min_log_probability,
             typo_check: self.typo_check,
-            line_after: self
-                .session
-                .as_ref()
-                .map(|session| session.line_after().to_owned())
-                .unwrap_or_default(),
+            line_after,
         })
+    }
+
+    /// The most tokens and the cut of the tail of a suggestion before `line_after`, the text after
+    /// the caret on its line. Inside a line, the end that fits that text ends the suggestion, so
+    /// the request has no cut and more tokens.
+    fn limits_before(&self, line_after: &str) -> (TokenCount, Option<LogProbability>) {
+        let max_tokens = self.suggestion_length.max_tokens();
+        if line_after.is_empty() {
+            (max_tokens, Some(self.suggestion_length.tail_cut()))
+        } else {
+            (
+                TokenCount(max_tokens.0.saturating_mul(INSIDE_LINE_TOKEN_FACTOR)),
+                None,
+            )
+        }
     }
 
     /// The pool of the earlier writing that the session uses, and the place of the session. `None`

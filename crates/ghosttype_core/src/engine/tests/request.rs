@@ -253,3 +253,27 @@ fn request_carries_the_text_after_the_caret_on_its_line() {
 
     assert_eq!(lines_after, cases.map(|(_, line_after)| line_after.to_owned()));
 }
+
+#[test]
+fn request_inside_a_line_has_no_tail_cut_and_twice_the_tokens() {
+    let mut engine = Engine::default();
+
+    let reaction = engine.on_key(
+        Key::Char(' '),
+        &FakeDesktop::with_text_around("I paid the", " yesterday, so you can see it."),
+    );
+
+    let Reaction::Request(InferenceRequest::Complete {
+        max_tokens,
+        min_log_probability,
+        ..
+    }) = reaction
+    else {
+        panic!("unexpected {reaction:?}");
+    };
+    let length = Settings::default().suggestion_length_in_use();
+    assert_eq!(
+        (max_tokens, min_log_probability),
+        (TokenCount(length.max_tokens().0 * 2), None)
+    );
+}
