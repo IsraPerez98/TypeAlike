@@ -19,6 +19,9 @@ use crate::utf16::until_nul;
 /// The state of an accessible object that does not show. It is in `Win32_UI_Controls`, a large
 /// feature of the windows crate that GhostType does not enable for one constant.
 const STATE_SYSTEM_INVISIBLE: i32 = 0x8000;
+/// The height of the shortest line of text that a caret marks, in physical pixels. Qt apps, such
+/// as Telegram, keep a transparent 2 x 2 px system caret at their caret for input methods.
+const MIN_LINE_HEIGHT: i32 = 6;
 
 /// Where ghost text starts, just right of the caret in physical screen pixels, and how it looks.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,14 +35,15 @@ pub(crate) struct Caret {
 }
 
 impl Caret {
-    /// Builds a caret from its screen-space corners; `None` when it has no height.
+    /// Builds a caret from its screen-space corners. `None` when it is too short to mark a line of
+    /// text.
     pub(crate) fn from_corners(
         top_left: POINT,
         bottom_right: POINT,
         font_face: Option<String>,
     ) -> Option<Self> {
         let height = bottom_right.y.checked_sub(top_left.y)?;
-        (height > 0).then_some(Self {
+        (height >= MIN_LINE_HEIGHT).then_some(Self {
             origin: POINT {
                 x: bottom_right.x,
                 y: top_left.y,
@@ -247,6 +251,13 @@ mod tests {
     #[test]
     fn caret_without_height_is_not_shown() {
         let caret = Caret::from_corners(POINT { x: 100, y: 40 }, POINT { x: 102, y: 40 }, None);
+
+        assert_eq!(caret, None);
+    }
+
+    #[test]
+    fn caret_too_short_for_a_line_of_text_is_not_shown() {
+        let caret = Caret::from_corners(POINT { x: 889, y: 1189 }, POINT { x: 891, y: 1191 }, None);
 
         assert_eq!(caret, None);
     }
