@@ -37,14 +37,14 @@ use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::FocusTracker;
-use crate::geometry::{Caret, screen_rect};
+use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
 use crate::keys;
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
 use crate::ocr;
-use crate::overlay::Overlay;
+use crate::overlay::{self, Overlay};
 use crate::runtime::target::{RuntimeTarget, observe_workspace};
 use crate::screen_text::ScreenTextReader;
 use crate::settings::{ActionTarget, SettingsWindow};
@@ -346,6 +346,12 @@ impl Shell for AppKitShell {
             caret: self.caret.map(Caret::to_screen_rect),
             field: self.field_frame.map(screen_rect),
         })
+    }
+
+    /// Measures `ghost` in the font of the overlay at the caret of the last look.
+    fn ghost_width(&self, ghost: &Ghost) -> i32 {
+        self.caret
+            .map_or(0, |caret| whole_points_up(overlay::inline_width(ghost, caret)))
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {

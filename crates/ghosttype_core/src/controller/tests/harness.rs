@@ -27,6 +27,9 @@ use crate::settings::{
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
 use crate::test_support::{self, completion, mail_history_app};
 
+/// The width of each character of a ghost text after the caret in the fake shell.
+const GHOST_CHAR_WIDTH: i32 = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
     ReadCaret,
@@ -92,6 +95,16 @@ impl Shell for FakeShell {
             self.calls.push(Call::ReadCaret);
         }
         self.caret_look
+    }
+
+    /// Measures the ghost text after the caret with the space that the platforms draw before the
+    /// word of a fix.
+    fn ghost_width(&self, ghost: &Ghost) -> i32 {
+        let characters = match ghost {
+            Ghost::Text(text) => text.chars().count(),
+            Ghost::Fix(fix) => 1 + fix.word.chars().count() + fix.rest.chars().count(),
+        };
+        i32::try_from(characters).expect("a test ghost text is short") * GHOST_CHAR_WIDTH
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {

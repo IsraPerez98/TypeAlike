@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::GhostView;
+use super::{Ghost, GhostView};
 use crate::app::{BadgeView, TrayView};
 use crate::desktop::{Desktop, ScreenReadId, ScreenRect, ScreenSource};
 use crate::settings::ClipboardAccess;
@@ -15,8 +15,8 @@ pub enum Timer {
     CaretSettle,
     /// Waits for [`INPUT_SETTLE_DELAY`](crate::app::INPUT_SETTLE_DELAY) without keys and clicks.
     InputSettle,
-    /// Ends the hold of a quick Tab after the last part of a suggestion. After it, a Tab reaches
-    /// the app again while no ghost text shows.
+    /// Ends the hold of a quick Tab after the last part of a suggestion that showed. After it, a
+    /// Tab reaches the app again while no ghost text shows.
     TabHold,
 }
 
@@ -60,6 +60,11 @@ pub trait Shell: Desktop {
     /// Starts a look at the caret before the controller shows the ghost text and the badge, and
     /// tells how the shell looks.
     fn read_caret(&mut self) -> CaretLook;
+
+    /// Returns the width of `ghost` after the caret, as the shell draws it right after the caret
+    /// of the read that it gave last to the controller, in the units of [`ScreenRect`]. Returns 0
+    /// when the shell cannot measure it, so that the ghost text stays whole.
+    fn ghost_width(&self, ghost: &Ghost) -> i32;
 
     /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
     /// at the caret. The caret is the caret of the read that the shell gave last to the

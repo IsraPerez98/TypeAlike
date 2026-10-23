@@ -1,5 +1,6 @@
 //! The ghost text: a click-through, never-focused panel drawn right after the caret.
 
+use ghosttype_core::controller::Ghost;
 use ghosttype_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use ghosttype_core::engine::WordFix;
 use objc2::rc::Retained;
@@ -102,6 +103,21 @@ impl Overlay {
 
     pub(crate) fn is_shown(&self) -> bool {
         self.panel.isVisible()
+    }
+}
+
+/// Returns the width of `ghost` after `caret`, as the overlay draws it right after the caret. The
+/// color does not change the width.
+pub(crate) fn inline_width(ghost: &Ghost, caret: Caret) -> CGFloat {
+    let font = font_at(caret);
+    let color = NSColor::labelColor();
+    match ghost {
+        Ghost::Text(text) => attributed(text, &font, &color, None).size().width,
+        Ghost::Fix(fix) => {
+            let tail = NSMutableAttributedString::new();
+            append_fix_tail(&tail, fix, &font, &color);
+            tail.size().width
+        }
     }
 }
 

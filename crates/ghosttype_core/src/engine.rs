@@ -25,9 +25,9 @@ use earlier_writing::needs_new_tables;
 use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
-use suggestion::split_next_part;
 
 pub use reaction::{AfterAccept, Reaction, WordFix};
+pub(crate) use suggestion::split_next_part;
 
 /// Tracks the text at the caret and the model's suggestion for it.
 pub(crate) struct Engine {

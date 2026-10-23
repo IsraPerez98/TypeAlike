@@ -22,7 +22,7 @@ use tab_hold::TabHold;
 use crate::app::{
     App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
 };
-use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenRect, Surroundings};
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::{HubEventSink, ModelHub};
@@ -46,6 +46,8 @@ const CARET_SETTLE_DELAY: Duration = Duration::from_millis(40);
 const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 /// The most looks at the caret after a key, before the ghost text shows at the caret where it is.
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
+/// The room that the ghost text after the caret keeps free before the right edge of its field.
+const FIELD_EDGE_GAP: i32 = 4;
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,7 +222,7 @@ impl Controller {
             return;
         };
         match outcome {
-            LookOutcome::GhostAndBadge => self.render_at_caret(shell),
+            LookOutcome::GhostAndBadge => self.render_at_caret(read, shell),
             LookOutcome::BadgeOnly => shell.render_at_caret(None, self.app.badge_view()),
             LookOutcome::Nothing => {
                 shell.hide_ghost();
@@ -508,7 +510,11 @@ impl Controller {
 
     fn apply_after_accept(&mut self, then: AfterAccept, shell: &mut dyn Shell) {
         match then {
-            AfterAccept::Rest(rest) => self.caret_wait.show_rest_after_settle(rest, shell),
+            AfterAccept::Rest(rest) => {
+                if !self.caret_wait.show_rest_after_settle(rest, shell) {
+                    self.tab_hold.start(shell);
+                }
+            }
             AfterAccept::Next(reaction) => {
                 self.apply(*reaction, shell);
                 if self.app.has_offer() {
@@ -601,7 +607,9 @@ impl Controller {
         }
     }
 
-    fn render_at_caret(&self, shell: &mut dyn Shell) {
+    /// Shows the waiting ghost text and the badge at the caret of `read`, with the ghost text cut
+    /// to the field of `read`.
+    fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
         let placement = if self.app.is_caret_at_line_end() {
             GhostPlacement::AfterCaret
         } else {
@@ -609,7 +617,9 @@ impl Controller {
         };
         let ghost = self
             .caret_wait
-            .ghost_view(self.app.text_before_caret(), placement);
+            .ghost_view(self.app.text_before_caret(), placement, |view| {
+                fit_to_field(view, read, &*shell)
+            });
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
     }
 
@@ -617,6 +627,19 @@ impl Controller {
         self.caret_wait.stop(shell);
         shell.hide_ghost();
     }
+}
+
+/// Cuts `view` to the room between the caret of `read` and the right edge of its field, less
+/// [`FIELD_EDGE_GAP`]. Without a caret or a field frame with area, the view stays whole.
+fn fit_to_field(view: GhostView, read: CaretRead, shell: &dyn Shell) -> GhostView {
+    let (Some(caret), Some(field)) = (read.caret, read.field.filter(ScreenRect::has_area)) else {
+        return view;
+    };
+    let room = field
+        .right
+        .saturating_sub(FIELD_EDGE_GAP)
+        .saturating_sub(caret.right);
+    view.fit_to(room, |ghost| shell.ghost_width(ghost))
 }
 
 /// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the

@@ -58,6 +58,12 @@ impl<'run> TextRun<'run> {
     }
 }
 
+/// Returns the width of `runs` one after the other on one line, each in its font.
+pub(crate) fn line_width(runs: &[TextRun<'_>]) -> Result<i32> {
+    let context = MemoryContext::new()?;
+    runs.iter().map(|run| Ok(run.measure(&context)?.cx)).sum()
+}
+
 /// A 32-bit bitmap holding text in a single color over transparency, premultiplied.
 #[derive(Debug)]
 pub(crate) struct TextBitmap {

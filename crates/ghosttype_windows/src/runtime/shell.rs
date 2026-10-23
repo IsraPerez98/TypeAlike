@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, TrayView};
-use ghosttype_core::controller::{CaretLook, FocusChange, GhostView, Shell, Timer};
+use ghosttype_core::controller::{CaretLook, FocusChange, Ghost, GhostView, Shell, Timer};
 use ghosttype_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
@@ -22,7 +22,7 @@ use crate::clipboard::ClipboardWatch;
 use crate::focus::FocusTracker;
 use crate::injection::{Replacement, ReplacementQueue};
 use crate::ocr::OcrSupport;
-use crate::overlay::Overlay;
+use crate::overlay::{self, Overlay};
 use crate::screen_text::ScreenTextReader;
 use crate::settings::SettingsThread;
 use crate::tray::Tray;
@@ -162,6 +162,18 @@ impl Shell for Win32Shell {
         let read = self.newest_caret.next_read();
         self.caret_reader.read(read);
         CaretLook::Later
+    }
+
+    /// Measures `ghost` in the font of the overlay at the caret of the newest answer of the caret
+    /// reader.
+    fn ghost_width(&self, ghost: &Ghost) -> i32 {
+        let Some(caret) = self.newest_caret.caret() else {
+            return 0;
+        };
+        overlay::inline_width(ghost, caret).unwrap_or_else(|error| {
+            tracing::warn!(%error, "failed to measure ghost text");
+            0
+        })
     }
 
     /// Shows `ghost` and `badge` at the caret of the newest answer of the caret reader, and hides

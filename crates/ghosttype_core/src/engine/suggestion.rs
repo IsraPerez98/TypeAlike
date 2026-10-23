@@ -180,7 +180,7 @@ pub(super) fn word_fix(correction: &Correction, suggestion: &str) -> WordFix {
 /// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
 /// A word of only signs goes into the part of the next word that has another character. When no
 /// such word follows, the word of only signs is one part.
-pub(super) fn split_next_part(suggestion: &str) -> (&str, &str) {
+pub(crate) fn split_next_part(suggestion: &str) -> (&str, &str) {
     let first_word = word_ends(suggestion)
         .next()
         .map_or(suggestion, |end| &suggestion[..end]);

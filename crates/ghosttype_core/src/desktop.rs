@@ -73,6 +73,14 @@ pub struct ScreenRect {
     pub bottom: i32,
 }
 
+impl ScreenRect {
+    /// Whether the rectangle has a width and a height above 0.
+    #[must_use]
+    pub fn has_area(&self) -> bool {
+        self.right > self.left && self.bottom > self.top
+    }
+}
+
 /// One line of text on the screen, outside of the focused field. `Debug` shows only its length
 /// and frame, so logs never hold what the screen shows.
 #[derive(Clone, PartialEq, Eq)]

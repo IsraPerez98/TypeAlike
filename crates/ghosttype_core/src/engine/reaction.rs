@@ -39,7 +39,8 @@ pub enum Reaction {
 /// caret gets after a typed key.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AfterAccept {
-    /// Show this rest of the suggestion after the typed text. The user saw it before Tab.
+    /// Show this rest of the suggestion after the typed text. The user saw it before Tab, unless
+    /// the field had no room for it.
     Rest(String),
     /// The suggestion has no more text. Do what this reaction asks, as after a typed key.
     Next(Box<Reaction>),

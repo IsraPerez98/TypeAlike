@@ -1,4 +1,5 @@
-//! The hold of a quick Tab after the last part of a suggestion, until the next suggestion shows.
+//! The hold of a quick Tab after the last part of a suggestion that showed, until the next ghost
+//! text shows.
 
 use std::mem;
 use std::time::Duration;
@@ -9,9 +10,9 @@ use crate::key::Key;
 /// The longest time that a Tab after the last part of a suggestion waits for the next suggestion.
 pub(super) const TAB_HOLD_DELAY: Duration = Duration::from_millis(800);
 
-/// Keeps a quick Tab after the last part of a suggestion from the app while the next suggestion
-/// can still come, so that the Tab does not type a tab character or move the focus. The session
-/// stays. A held Tab only waits and does not take the next suggestion when it shows, because Tab
+/// Keeps a quick Tab after the last part of a suggestion that showed from the app while the next
+/// ghost text can still come: the next suggestion, or the rest that did not fit in the field. Thus
+/// the Tab does not type a tab character or move the focus. The session stays. A held Tab only waits and does not take the next suggestion when it shows, because Tab
 /// types only text that the user saw on the screen.
 #[derive(Debug, Default)]
 pub(super) struct TabHold {
@@ -19,7 +20,7 @@ pub(super) struct TabHold {
 }
 
 impl TabHold {
-    /// Starts the hold after the last part of a suggestion, for [`TAB_HOLD_DELAY`].
+    /// Starts the hold after the last part of a suggestion that showed, for [`TAB_HOLD_DELAY`].
     pub(super) fn start(&mut self, shell: &mut dyn Shell) {
         shell.start_timer(Timer::TabHold, TAB_HOLD_DELAY);
         self.is_on = true;

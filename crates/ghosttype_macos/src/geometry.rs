@@ -88,6 +88,15 @@ pub(crate) fn moved_by(frame: CGRect, origin: CGPoint) -> CGRect {
     )
 }
 
+/// Returns `length` in whole points, rounded up, so that a text of that width fits in them.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "no conversion from f64 to i32 exists without `as`, and `as` saturates"
+)]
+pub(crate) fn whole_points_up(length: CGFloat) -> i32 {
+    length.ceil() as i32
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     reason = "no conversion from f64 to i32 exists without `as`, and `as` saturates"

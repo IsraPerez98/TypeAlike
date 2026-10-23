@@ -9,7 +9,7 @@ use windows::core::{Result, w};
 
 use crate::caret::Caret;
 use crate::display::{monitor_dpi, to_pixels, work_area};
-use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun};
+use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun, line_width};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode, TooltipColors, system_color};
 use crate::window::{Window, WindowSpec};
@@ -70,6 +70,13 @@ struct FixColors {
     rest: Ink,
 }
 
+/// The colors of a ghost text that the overlay only measures. The colors do not change its width.
+const MEASURED_COLORS: FixColors = FixColors {
+    strike: Rgb::BLACK,
+    word: Rgb::BLACK,
+    rest: Ink::CLEAR,
+};
+
 /// The colors of the text on the card below the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CardText {
@@ -102,19 +109,16 @@ impl Overlay {
     /// Shows the ghost text of `view` at its placement at `caret`, sized to the caret, in the font
     /// face of the control at the caret when it is installed, else in the system UI font.
     pub(crate) fn show(&self, view: &GhostView, caret: &Caret) -> Result<()> {
-        let faces = ghost_text_faces(caret.font_face.as_deref());
-        let height = FontHeight::Cell(caret.height);
-        let font = Font::first_installed(&faces, height, FontWeight::Regular)?;
+        let font = ghost_text_font(caret, FontWeight::Regular)?;
         let theme = SystemTheme::read();
         match view.placement {
             GhostPlacement::AfterCaret => {
-                let typed = TypedLetters {
-                    word: "",
-                    font: &font,
-                    ink: Ink::CLEAR,
-                };
-                let (bitmap, caret_left) =
-                    render(typed, &view.ghost, &font, inline_colors(theme, caret.text_color))?;
+                let (bitmap, caret_left) = render(
+                    no_typed_letters(&font),
+                    &view.ghost,
+                    &font,
+                    inline_colors(theme, caret.text_color),
+                )?;
                 let origin = POINT {
                     x: caret.origin.x - caret_left,
                     y: caret.origin.y,
@@ -130,11 +134,7 @@ impl Overlay {
     /// in `font` on a card below the line of `caret`, with the ghost text under the caret, or above
     /// the line when the card does not fit below.
     fn present_card(&self, view: &GhostView, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
-        let typed_font = Font::first_installed(
-            &ghost_text_faces(caret.font_face.as_deref()),
-            FontHeight::Cell(caret.height),
-            FontWeight::Semibold,
-        )?;
+        let typed_font = ghost_text_font(caret, FontWeight::Semibold)?;
         let colors = TooltipColors::for_theme(theme);
         let text_colors = card_text(theme);
         let typed = TypedLetters {
@@ -189,16 +189,40 @@ fn render(
     font: &Font,
     colors: FixColors,
 ) -> Result<(TextBitmap, i32)> {
+    with_line_runs(typed, ghost, font, colors, TextBitmap::render_line)
+}
+
+/// Returns the width of `ghost` after `caret`, as [`Overlay::show`] draws it right after the caret.
+pub(crate) fn inline_width(ghost: &Ghost, caret: &Caret) -> Result<i32> {
+    let font = ghost_text_font(caret, FontWeight::Regular)?;
+    with_line_runs(
+        no_typed_letters(&font),
+        ghost,
+        &font,
+        MEASURED_COLORS,
+        |_, after_caret| line_width(after_caret),
+    )
+}
+
+/// Gives `use_runs` the runs before the caret: the `typed` letters, and the typo of a fix. Then
+/// the runs after it: `ghost` in `font` and `colors`, with the word of a fix after a space.
+fn with_line_runs<Output>(
+    typed: TypedLetters<'_>,
+    ghost: &Ghost,
+    font: &Font,
+    colors: FixColors,
+    use_runs: impl FnOnce(&[TextRun<'_>], &[TextRun<'_>]) -> Result<Output>,
+) -> Result<Output> {
     let typed_word = TextRun::new(typed.word, typed.font, typed.ink);
     match ghost {
-        Ghost::Text(text) => TextBitmap::render_line(&[typed_word], &[TextRun::new(text, font, colors.rest)]),
+        Ghost::Text(text) => use_runs(&[typed_word], &[TextRun::new(text, font, colors.rest)]),
         Ghost::Fix(fix) => {
             let typo = TextRun {
                 strike: Some(colors.strike),
                 ..TextRun::new(&fix.typo, typed.font, typed.ink)
             };
             let word = format!(" {}", fix.word);
-            TextBitmap::render_line(
+            use_runs(
                 &[typed_word, typo],
                 &[
                     TextRun::new(&word, font, colors.word.into()),
@@ -207,6 +231,23 @@ fn render(
             )
         }
     }
+}
+
+/// The typed letters before a ghost text right after the caret: none, because the control draws
+/// them.
+fn no_typed_letters(font: &Font) -> TypedLetters<'_> {
+    TypedLetters {
+        word: "",
+        font,
+        ink: Ink::CLEAR,
+    }
+}
+
+/// Returns the font of `weight` for ghost text at `caret`: the face of the control at the caret
+/// when it is installed, else the system UI font, sized to the caret.
+fn ghost_text_font(caret: &Caret, weight: FontWeight) -> Result<Font> {
+    let faces = ghost_text_faces(caret.font_face.as_deref());
+    Font::first_installed(&faces, FontHeight::Cell(caret.height), weight)
 }
 
 /// Where the card below the caret shows and how large its parts are, in physical pixels.

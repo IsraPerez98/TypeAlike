@@ -1,8 +1,8 @@
 //! What the platform shows for a suggestion: the ghost text and the mirror of the typed word.
 
-use std::fmt;
+use std::{fmt, iter};
 
-use crate::engine::WordFix;
+use crate::engine::{WordFix, split_next_part};
 
 /// The most characters of the word before the caret that the mirror shows.
 const MIRROR_WORD_CHARS: usize = 24;
@@ -56,6 +56,79 @@ impl GhostView {
             placement,
         }
     }
+
+    /// Keeps the whole Tab parts of the ghost text that fit in `room` after the caret, as
+    /// `width_of` measures a ghost text after the caret. A fix keeps its word and cuts only its
+    /// rest. When not even the first part fits, the whole ghost text moves below the caret. A view
+    /// below the caret stays whole.
+    #[must_use]
+    pub fn fit_to(self, room: i32, width_of: impl Fn(&Ghost) -> i32) -> Self {
+        if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room {
+            return self;
+        }
+        let fitting = self
+            .ghost
+            .cuts()
+            .take_while(|ghost| width_of(ghost) <= room)
+            .last();
+        match fitting {
+            Some(ghost) => Self { ghost, ..self },
+            None => Self {
+                placement: GhostPlacement::BelowCaret,
+                ..self
+            },
+        }
+    }
+
+    /// Returns the characters at the end of `whole` that this view of it leaves out.
+    pub(super) fn left_out_chars(&self, whole: &Ghost) -> usize {
+        let shown_chars = self.ghost.cuttable_text().chars().count();
+        whole.cuttable_text().chars().count().saturating_sub(shown_chars)
+    }
+}
+
+impl Ghost {
+    /// The text that a cut can shorten: the whole ghost text, or the rest after the word of a fix.
+    fn cuttable_text(&self) -> &str {
+        match self {
+            Self::Text(text) => text,
+            Self::Fix(fix) => &fix.rest,
+        }
+    }
+
+    /// Returns each cut of this ghost text after a whole Tab part, shortest first. A ghost text
+    /// keeps at least its first part, and a fix keeps at least its word.
+    fn cuts(&self) -> impl Iterator<Item = Self> + '_ {
+        let word_only = matches!(self, Self::Fix(_)).then_some(0);
+        word_only
+            .into_iter()
+            .chain(part_ends(self.cuttable_text()))
+            .map(|end| self.cut_at(end))
+    }
+
+    /// Returns this ghost text with its cuttable text up to the byte index `end`.
+    fn cut_at(&self, end: usize) -> Self {
+        match self {
+            Self::Text(text) => Self::Text(text[..end].to_owned()),
+            Self::Fix(fix) => Self::Fix(WordFix {
+                rest: fix.rest[..end].to_owned(),
+                ..fix.clone()
+            }),
+        }
+    }
+}
+
+/// Returns the byte index after each Tab part of `text`, in order.
+fn part_ends(text: &str) -> impl Iterator<Item = usize> + '_ {
+    let mut end = 0;
+    iter::from_fn(move || {
+        let (part, _) = split_next_part(&text[end..]);
+        if part.is_empty() {
+            return None;
+        }
+        end += part.len();
+        Some(end)
+    })
 }
 
 impl fmt::Debug for GhostView {
@@ -120,6 +193,114 @@ mod tests {
         let view = GhostView::new(Ghost::Fix(fix), "Until (teh", GhostPlacement::BelowCaret);
 
         assert_eq!(view.typed_word, "(");
+    }
+
+    /// The width of `ghost` after the caret at 10 pixels for each character, with the space that
+    /// the platforms draw before the word of a fix.
+    fn width_of(ghost: &Ghost) -> i32 {
+        let characters = match ghost {
+            Ghost::Text(text) => text.chars().count(),
+            Ghost::Fix(fix) => 1 + fix.word.chars().count() + fix.rest.chars().count(),
+        };
+        i32::try_from(characters * 10).expect("a test ghost is short")
+    }
+
+    fn inline_text(text: &str) -> GhostView {
+        GhostView::new(Ghost::Text(text.to_owned()), "Best", GhostPlacement::AfterCaret)
+    }
+
+    fn inline_fix(rest: &str) -> GhostView {
+        let fix = WordFix {
+            typo: "teh".to_owned(),
+            word: "the".to_owned(),
+            rest: rest.to_owned(),
+        };
+        GhostView::new(Ghost::Fix(fix), "Until teh", GhostPlacement::AfterCaret)
+    }
+
+    #[test]
+    fn fit_keeps_a_ghost_text_that_fits_whole() {
+        let view = inline_text(" regards, Sam");
+
+        let fitted = view.clone().fit_to(130, width_of);
+
+        assert_eq!(fitted, view);
+    }
+
+    #[test]
+    fn fit_cuts_the_ghost_text_after_the_last_whole_part_that_fits() {
+        let rooms = [80, 129, 130, 169];
+
+        let ghosts = rooms.map(|room| inline_text(" regards, Sam and Ana").fit_to(room, width_of).ghost);
+
+        assert_eq!(
+            ghosts,
+            [" regards", " regards", " regards, Sam", " regards, Sam"]
+                .map(|text| Ghost::Text(text.to_owned()))
+        );
+    }
+
+    #[test]
+    fn fit_moves_the_whole_ghost_text_below_the_caret_when_its_first_part_does_not_fit() {
+        let rooms = [79, 0, -40];
+
+        let views = rooms.map(|room| inline_text(" regards, Sam").fit_to(room, width_of));
+
+        let below = GhostView {
+            placement: GhostPlacement::BelowCaret,
+            ..inline_text(" regards, Sam")
+        };
+        assert_eq!(views, [below.clone(), below.clone(), below]);
+    }
+
+    #[test]
+    fn fit_keeps_the_word_of_a_fix_and_cuts_only_its_rest() {
+        let rooms = [40, 79, 80];
+
+        let ghosts = rooms.map(|room| inline_fix(" end of it").fit_to(room, width_of).ghost);
+
+        assert_eq!(
+            ghosts,
+            [inline_fix(""), inline_fix(""), inline_fix(" end")].map(|view| view.ghost)
+        );
+    }
+
+    #[test]
+    fn fit_moves_a_fix_below_the_caret_when_its_word_does_not_fit() {
+        let fitted = inline_fix(" end").fit_to(39, width_of);
+
+        assert_eq!(
+            fitted,
+            GhostView {
+                placement: GhostPlacement::BelowCaret,
+                ..inline_fix(" end")
+            }
+        );
+    }
+
+    #[test]
+    fn fit_leaves_a_ghost_text_below_the_caret_whole() {
+        let view = GhostView {
+            placement: GhostPlacement::BelowCaret,
+            ..inline_text(" regards, Sam")
+        };
+
+        let fitted = view.clone().fit_to(10, width_of);
+
+        assert_eq!(fitted, view);
+    }
+
+    #[test]
+    fn fitted_view_tells_the_characters_that_it_leaves_out() {
+        let ghost = Ghost::Text(" regards, Sam and Ana".to_owned());
+
+        let left_out = [80, 130, 400].map(|room| {
+            inline_text(" regards, Sam and Ana")
+                .fit_to(room, width_of)
+                .left_out_chars(&ghost)
+        });
+
+        assert_eq!(left_out, [13, 8, 0]);
     }
 
     #[test]
