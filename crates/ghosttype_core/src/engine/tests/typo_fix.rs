@@ -105,14 +105,14 @@ fn tab_on_a_fix_leaves_the_closing_punctuation_for_the_next_tab() {
 }
 
 #[test]
-fn tab_after_a_fix_types_its_closing_punctuation_with_the_next_word() {
+fn tab_after_a_fix_types_only_its_closing_punctuation() {
     let mut engine = engine_waiting_for("the dlei");
     engine.on_completion(correction(" dlei", " deli", "very, soon then"));
     press(&mut engine, Key::Tab);
 
     let reaction = press(&mut engine, Key::Tab);
 
-    assert_eq!(reaction, accept(", soon", " then"));
+    assert_eq!(reaction, accept(",", " soon then"));
 }
 
 #[test]

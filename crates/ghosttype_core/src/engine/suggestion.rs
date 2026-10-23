@@ -178,25 +178,17 @@ pub(super) fn word_fix(correction: &Correction, suggestion: &str) -> WordFix {
 
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
 /// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
-/// A word of only signs goes into the part of the next word that has another character. When no
-/// such word follows, the word of only signs is one part.
+/// A word of only signs is one part.
 pub(crate) fn split_next_part(suggestion: &str) -> (&str, &str) {
-    let first_word = word_ends(suggestion)
-        .next()
-        .map_or(suggestion, |end| &suggestion[..end]);
-    let part = word_ends(suggestion)
-        .map(|end| suggestion[..end].trim_end_matches(CLOSING_SIGNS))
-        .find(|words| words.ends_with(|character: char| !character.is_whitespace()))
-        .unwrap_or(first_word);
+    let rest = suggestion
+        .trim_start()
+        .trim_start_matches(|character: char| !character.is_whitespace());
+    let word = &suggestion[..suggestion.len() - rest.len()];
+    let unclosed_word = word.trim_end_matches(CLOSING_SIGNS);
+    let part = if unclosed_word.trim().is_empty() {
+        word
+    } else {
+        unclosed_word
+    };
     suggestion.split_at(part.len())
-}
-
-/// Returns the byte index after each run of characters without whitespace in `text`.
-fn word_ends(text: &str) -> impl Iterator<Item = usize> + '_ {
-    text.char_indices()
-        .map(|(index, character)| (index + character.len_utf8(), character))
-        .filter(|&(end, character)| {
-            !character.is_whitespace() && text[end..].chars().next().is_none_or(char::is_whitespace)
-        })
-        .map(|(end, _)| end)
 }

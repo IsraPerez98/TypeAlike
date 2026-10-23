@@ -235,7 +235,7 @@ mod tests {
 
         assert_eq!(
             ghosts,
-            [" regards", " regards", " regards, Sam", " regards, Sam"]
+            [" regards", " regards,", " regards, Sam", " regards, Sam"]
                 .map(|text| Ghost::Text(text.to_owned()))
         );
     }
