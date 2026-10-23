@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use ghosttype_core::app::{BadgeView, TrayView};
-use ghosttype_core::controller::{FocusChange, GhostView, Shell, Timer};
+use ghosttype_core::controller::{CaretLook, FocusChange, GhostView, Shell, Timer};
 use ghosttype_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
@@ -17,7 +17,7 @@ use windows::core::Error;
 use super::{CARET_TIMER_ID, FIELD_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID};
 use crate::badge::Badge;
 use crate::caret::Caret;
-use crate::caret_reader::{CaretRead, CaretReader, CaretView, KeptFieldText, PendingView};
+use crate::caret_reader::{CaretReader, KeptFieldText, NewestCaret};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::FocusTracker;
 use crate::injection::{Replacement, ReplacementQueue};
@@ -42,8 +42,9 @@ pub(super) struct Win32Shell {
     pub(super) caret_reader: CaretReader,
     pub(super) screen_text: ScreenTextReader,
     pub(super) ocr: OcrSupport,
-    /// What shows at the caret when the caret reader answers.
-    pub(super) pending_view: PendingView,
+    /// The newest read of the caret, and the caret of its answer, where the ghost text and the
+    /// badge show.
+    pub(super) newest_caret: NewestCaret,
     /// The text around the caret that the hooks give to the controller.
     pub(super) kept_field_text: KeptFieldText,
     pub(super) tray: Tray,
@@ -93,16 +94,6 @@ impl Win32Shell {
         // Fails only when no timer is pending, which needs no handling.
         // SAFETY: plain call on our own window.
         let _ = unsafe { KillTimer(Some(self.window.handle()), id) };
-    }
-
-    /// Shows the view that waits for `read` at the caret of the answer. Does nothing for a stale
-    /// read.
-    pub(super) fn show_at_caret(&mut self, read: &CaretRead) {
-        let Some(view) = self.pending_view.take(read.id) else {
-            return;
-        };
-        self.show_ghost(view.ghost.as_ref(), read.caret.as_ref());
-        self.show_badge(view.badge, read.caret.as_ref());
     }
 
     fn show_ghost(&mut self, ghost: Option<&GhostView>, caret: Option<&Caret>) {
@@ -166,24 +157,27 @@ impl Shell for Win32Shell {
         self.focus.refresh()
     }
 
-    /// Asks the caret reader for the caret, then shows `ghost` and `badge` at it when the answer
-    /// comes.
-    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
-        let read = self.pending_view.wait(CaretView {
-            ghost: ghost.cloned(),
-            badge,
-        });
+    /// Asks the caret reader for the caret. The runtime gives the answer to the controller.
+    fn read_caret(&mut self) -> CaretLook {
+        let read = self.newest_caret.next_read();
         self.caret_reader.read(read);
+        CaretLook::Later
+    }
+
+    /// Shows `ghost` and `badge` at the caret of the newest answer of the caret reader, and hides
+    /// them when that answer found no caret.
+    fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
+        let caret = self.newest_caret.caret().cloned();
+        self.show_ghost(ghost, caret.as_ref());
+        self.show_badge(badge, caret.as_ref());
     }
 
     fn hide_ghost(&mut self) {
         self.overlay.hide();
-        self.pending_view.forget_ghost();
     }
 
     fn hide_badge(&mut self) {
         self.badge.hide();
-        self.pending_view.forget_badge();
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {

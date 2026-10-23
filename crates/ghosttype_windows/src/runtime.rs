@@ -29,7 +29,7 @@ use windows::core::{Error, Owned, w};
 use self::shell::Win32Shell;
 use crate::RunError;
 use crate::badge::Badge;
-use crate::caret_reader::{CaretRead, CaretReader, FieldRead, KeptFieldText, PendingView};
+use crate::caret_reader::{CaretAnswer, CaretReader, FieldRead, KeptFieldText, NewestCaret};
 use crate::clipboard::ClipboardWatch;
 use crate::focus::FocusTracker;
 use crate::injection::{self, INJECTION_TAG, ReplacementQueue};
@@ -132,7 +132,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 caret_reader,
                 screen_text,
                 ocr,
-                pending_view: PendingView::default(),
+                newest_caret: NewestCaret::default(),
                 kept_field_text: KeptFieldText::default(),
                 tray,
                 window,
@@ -221,7 +221,7 @@ struct Runtime {
     taskbar_created_message: Option<u32>,
     deliveries: mpsc::Receiver<Delivery>,
     settings_inputs: mpsc::Receiver<SettingsInput>,
-    caret_reads: mpsc::Receiver<CaretRead>,
+    caret_reads: mpsc::Receiver<CaretAnswer>,
     field_reads: mpsc::Receiver<FieldRead>,
     screen_reads: mpsc::Receiver<ScreenAnswer>,
 }
@@ -341,9 +341,13 @@ impl Runtime {
         }
     }
 
+    /// Gives the controller each answer to the newest read of the caret, after the shell keeps its
+    /// caret. Drops a stale answer.
     fn take_caret_reads(&mut self) {
-        for read in self.caret_reads.try_iter() {
-            self.shell.show_at_caret(&read);
+        for answer in self.caret_reads.try_iter() {
+            if let Some(read) = self.shell.newest_caret.keep(answer) {
+                self.controller.on_caret_read(read, &mut self.shell);
+            }
         }
     }
 

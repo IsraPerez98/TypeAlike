@@ -5,7 +5,7 @@
 
 use std::ptr;
 
-use ghosttype_core::desktop::TextColor;
+use ghosttype_core::desktop::{ScreenRect, TextColor};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetObjectW, HGDIOBJ, LOGFONTW};
 use windows::Win32::System::Variant::VARIANT;
@@ -52,6 +52,17 @@ impl Caret {
             font_face,
             text_color: None,
         })
+    }
+
+    /// The caret on the screen as core sees it: a line at the right edge of the caret box, from
+    /// its top to its bottom.
+    pub(crate) fn screen_rect(&self) -> ScreenRect {
+        ScreenRect {
+            left: self.origin.x,
+            top: self.origin.y,
+            right: self.origin.x,
+            bottom: self.origin.y.saturating_add(self.height),
+        }
     }
 }
 
@@ -208,6 +219,28 @@ mod tests {
                 font_face: None,
                 text_color: None,
             })
+        );
+    }
+
+    #[test]
+    fn caret_marks_the_screen_at_the_right_edge_of_its_box() {
+        let caret = Caret {
+            origin: POINT { x: 102, y: 40 },
+            height: 20,
+            font_face: None,
+            text_color: None,
+        };
+
+        let rect = caret.screen_rect();
+
+        assert_eq!(
+            rect,
+            ScreenRect {
+                left: 102,
+                top: 40,
+                right: 102,
+                bottom: 60,
+            }
         );
     }
 

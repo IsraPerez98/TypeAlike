@@ -1,10 +1,11 @@
 //! Reads the caret and the focused field on a thread of its own. The caret is the system caret
 //! when the focused app has one, else the caret of its caret object, else the caret that UI
-//! Automation (UIA) reports. The text comes from UIA, else from a classic edit control. UIA can
-//! wait long for a busy app, so the thread of the hooks never reads it. What shows at the caret
-//! waits for the newest read of the caret. The hooks use the newest read of the text while no input
-//! changed the field, and treat the focused field as a password field until a read after the last
-//! move of the focus tells otherwise.
+//! Automation (UIA) reports. Each read of the caret also gives the frame of the focused field. The
+//! text comes from UIA, else from a classic edit control. UIA can wait long for a busy app, so the
+//! thread of the hooks never reads it. The shell keeps the caret of the newest read, and core
+//! decides what shows there. The hooks use the newest read of the text while no input changed the
+//! field, and treat the focused field as a password field until a read after the last move of the
+//! focus tells otherwise.
 //!
 //! Each request of this thread to an app has a time limit, so that one app that does not answer
 //! cannot stop the reads in all apps. A read of the field that fails, also on a timeout, tells
@@ -15,16 +16,16 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ghosttype_core::app::BadgeView;
-use ghosttype_core::controller::GhostView;
+use ghosttype_core::controller::CaretRead;
 use ghosttype_core::desktop::FieldText;
+use windows::Win32::Foundation::RECT;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
-use crate::focus;
 use crate::mailbox::Mailbox;
-use crate::uia::{ShownField, Uia, UiaField};
+use crate::uia::{FocusedCaret, ShownField, Uia, UiaField};
 use crate::window::WindowId;
+use crate::{display, focus};
 
 const THREAD_NAME: &str = "caret reader";
 /// The longest wait for an app to give an element, such as the focused element.
@@ -39,11 +40,14 @@ pub(crate) struct ReadId(u64);
 
 /// The answer to one read of the caret.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CaretRead {
+pub(crate) struct CaretAnswer {
     pub(crate) id: ReadId,
     /// The caret of the focused control, or `None` when the control shows no caret that GhostType
     /// can find.
     pub(crate) caret: Option<Caret>,
+    /// The frame of the focused field in physical screen pixels, or `None` when GhostType cannot
+    /// read it.
+    pub(crate) field: Option<RECT>,
 }
 
 /// Identifies one read of the field text. A later read has a higher id.
@@ -122,7 +126,7 @@ pub(crate) struct CaretReader {
 impl CaretReader {
     /// Starts the thread, which sends the answer to each read of the caret to `carets`, and to
     /// each read of the field text to `field_texts`.
-    pub(crate) fn start(carets: Mailbox<CaretRead>, field_texts: Mailbox<FieldRead>) -> Result<Self> {
+    pub(crate) fn start(carets: Mailbox<CaretAnswer>, field_texts: Mailbox<FieldRead>) -> Result<Self> {
         let (requests, received) = mpsc::channel();
         thread::Builder::new()
             .name(THREAD_NAME.to_owned())
@@ -152,7 +156,7 @@ impl CaretReader {
 /// the newest gets an answer. The caret goes first, because the ghost text waits for it.
 fn answer_reads(
     requests: &mpsc::Receiver<Request>,
-    carets: &Mailbox<CaretRead>,
+    carets: &Mailbox<CaretAnswer>,
     field_texts: &Mailbox<FieldRead>,
 ) {
     let uia = Uia::connect()
@@ -162,14 +166,30 @@ fn answer_reads(
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         if let Some(id) = newest.caret {
-            let caret = uia.as_ref().map_or_else(caret::system_caret, Uia::caret);
-            carets.send(CaretRead { id, caret });
+            carets.send(read_caret(id, uia.as_ref()));
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
             let field = read_field(uia.as_ref());
             field_texts.send(FieldRead { id, window, field });
         }
+    }
+}
+
+/// Reads the caret through `uia`, else the system caret. The frame of the focused field is the
+/// frame that UIA gives, else the frame of the focused window.
+fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
+    let focused = uia.map_or_else(
+        || FocusedCaret {
+            caret: caret::system_caret(),
+            frame: None,
+        },
+        Uia::caret,
+    );
+    CaretAnswer {
+        id,
+        caret: focused.caret,
+        field: focused.frame.or_else(focus::focused_window_frame),
     }
 }
 
@@ -285,49 +305,38 @@ impl KeptFieldText {
     }
 }
 
-/// What shows at the caret after a read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CaretView {
-    pub(crate) ghost: Option<GhostView>,
-    pub(crate) badge: Option<BadgeView>,
-}
-
-/// The view that waits for the newest read of the caret. The answer to an older read is stale.
+/// The newest read of the caret, and the caret of its answer, where the ghost text and the badge
+/// show. The answer to an older read is stale.
 #[derive(Debug, Default)]
-pub(crate) struct PendingView {
+pub(crate) struct NewestCaret {
     newest: ReadId,
-    view: Option<CaretView>,
+    caret: Option<Caret>,
 }
 
-impl PendingView {
-    /// Makes `view` wait for a new read, and returns the id of that read.
-    pub(crate) fn wait(&mut self, view: CaretView) -> ReadId {
+impl NewestCaret {
+    /// Makes a new read the newest, and returns its id.
+    pub(crate) fn next_read(&mut self) -> ReadId {
         self.newest = ReadId(self.newest.0.wrapping_add(1));
-        self.view = Some(view);
         self.newest
     }
 
-    /// Removes the ghost text from the waiting view.
-    pub(crate) fn forget_ghost(&mut self) {
-        if let Some(view) = &mut self.view {
-            view.ghost = None;
+    /// Keeps the caret of `answer` when it answers the newest read, and returns the look at the
+    /// caret that core gets. `None` for a stale answer.
+    pub(crate) fn keep(&mut self, answer: CaretAnswer) -> Option<CaretRead> {
+        if answer.id != self.newest {
+            return None;
         }
+        let read = CaretRead {
+            caret: answer.caret.as_ref().map(Caret::screen_rect),
+            field: answer.field.map(display::screen_rect),
+        };
+        self.caret = answer.caret;
+        Some(read)
     }
 
-    /// Removes the badge from the waiting view.
-    pub(crate) fn forget_badge(&mut self) {
-        if let Some(view) = &mut self.view {
-            view.badge = None;
-        }
-    }
-
-    /// Returns the waiting view when `read` is the newest read, one time only.
-    pub(crate) fn take(&mut self, read: ReadId) -> Option<CaretView> {
-        if read == self.newest {
-            self.view.take()
-        } else {
-            None
-        }
+    /// The caret of the newest answer, or `None` when that answer found no caret.
+    pub(crate) fn caret(&self) -> Option<&Caret> {
+        self.caret.as_ref()
     }
 }
 
@@ -335,80 +344,102 @@ impl PendingView {
 mod tests {
     use std::ptr;
 
-    use ghosttype_core::app::Status;
-    use ghosttype_core::controller::{Ghost, GhostPlacement};
-    use ghosttype_core::desktop::FieldLabels;
-    use windows::Win32::Foundation::HWND;
+    use ghosttype_core::desktop::{FieldLabels, ScreenRect};
+    use windows::Win32::Foundation::{HWND, POINT};
 
     use super::*;
 
-    const BADGE: BadgeView = BadgeView {
-        status: Status::Active,
-        label: "GhostType",
-    };
-
-    fn world() -> GhostView {
-        GhostView::new(
-            Ghost::Text("world".to_owned()),
-            "Hello ",
-            GhostPlacement::AfterCaret,
-        )
+    fn caret_at(x: i32) -> Caret {
+        Caret {
+            origin: POINT { x, y: 40 },
+            height: 20,
+            font_face: None,
+            text_color: None,
+        }
     }
 
-    fn ghost_and_badge() -> CaretView {
-        CaretView {
-            ghost: Some(world()),
-            badge: Some(BADGE),
+    fn caret_answer(id: ReadId, caret: Option<Caret>) -> CaretAnswer {
+        CaretAnswer {
+            id,
+            caret,
+            field: Some(RECT {
+                left: 0,
+                top: 30,
+                right: 600,
+                bottom: 70,
+            }),
         }
     }
 
     #[test]
-    fn newest_read_gives_waiting_view() {
-        let mut pending = PendingView::default();
-        let read = pending.wait(ghost_and_badge());
+    fn answer_to_the_newest_read_gives_its_look_to_core() {
+        let mut newest = NewestCaret::default();
+        let read = newest.next_read();
 
-        let view = pending.take(read);
-
-        assert_eq!(view, Some(ghost_and_badge()));
-    }
-
-    #[test]
-    fn stale_read_gives_no_view() {
-        let mut pending = PendingView::default();
-        let stale = pending.wait(ghost_and_badge());
-        pending.wait(ghost_and_badge());
-
-        let view = pending.take(stale);
-
-        assert_eq!(view, None);
-    }
-
-    #[test]
-    fn view_is_given_one_time() {
-        let mut pending = PendingView::default();
-        let read = pending.wait(ghost_and_badge());
-        pending.take(read);
-
-        let view = pending.take(read);
-
-        assert_eq!(view, None);
-    }
-
-    #[test]
-    fn forgotten_ghost_does_not_show_after_read() {
-        let mut pending = PendingView::default();
-        let read = pending.wait(ghost_and_badge());
-        pending.forget_ghost();
-
-        let view = pending.take(read);
+        let look = newest.keep(caret_answer(read, Some(caret_at(102))));
 
         assert_eq!(
-            view,
-            Some(CaretView {
-                ghost: None,
-                badge: Some(BADGE),
+            look,
+            Some(CaretRead {
+                caret: Some(ScreenRect {
+                    left: 102,
+                    top: 40,
+                    right: 102,
+                    bottom: 60,
+                }),
+                field: Some(ScreenRect {
+                    left: 0,
+                    top: 30,
+                    right: 600,
+                    bottom: 70,
+                }),
             })
         );
+    }
+
+    #[test]
+    fn answer_to_the_newest_read_keeps_its_caret() {
+        let mut newest = NewestCaret::default();
+        let read = newest.next_read();
+
+        newest.keep(caret_answer(read, Some(caret_at(102))));
+
+        assert_eq!(newest.caret(), Some(&caret_at(102)));
+    }
+
+    #[test]
+    fn stale_answer_gives_no_look() {
+        let mut newest = NewestCaret::default();
+        let stale = newest.next_read();
+        newest.next_read();
+
+        let look = newest.keep(caret_answer(stale, Some(caret_at(102))));
+
+        assert_eq!(look, None);
+    }
+
+    #[test]
+    fn stale_answer_keeps_the_caret_of_the_newest_answer() {
+        let mut newest = NewestCaret::default();
+        let stale = newest.next_read();
+        let read = newest.next_read();
+        newest.keep(caret_answer(read, Some(caret_at(102))));
+
+        newest.keep(caret_answer(stale, Some(caret_at(300))));
+
+        assert_eq!(newest.caret(), Some(&caret_at(102)));
+    }
+
+    #[test]
+    fn answer_without_a_caret_forgets_the_kept_caret() {
+        let mut newest = NewestCaret::default();
+        let first = newest.next_read();
+        newest.keep(caret_answer(first, Some(caret_at(102))));
+        let read = newest.next_read();
+
+        newest.keep(caret_answer(read, None));
+
+        assert_eq!(newest.caret(), None);
     }
 
     fn window(number: usize) -> WindowId {
@@ -683,23 +714,6 @@ mod tests {
                 caret: Some(ReadId(2)),
                 field_text: Some(FieldReadId(1)),
             }
-        );
-    }
-
-    #[test]
-    fn forgotten_badge_does_not_show_after_read() {
-        let mut pending = PendingView::default();
-        let read = pending.wait(ghost_and_badge());
-        pending.forget_badge();
-
-        let view = pending.take(read);
-
-        assert_eq!(
-            view,
-            Some(CaretView {
-                ghost: Some(world()),
-                badge: None,
-            })
         );
     }
 }

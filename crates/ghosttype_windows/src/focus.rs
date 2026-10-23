@@ -5,15 +5,15 @@ mod edit_control;
 
 use ghosttype_core::controller::FocusChange;
 use ghosttype_core::desktop::{Field, Surroundings};
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GUITHREADINFO, GetForegroundWindow, GetGUIThreadInfo, GetWindowTextW, GetWindowThreadProcessId,
-    SMTO_ABORTIFHUNG, SendMessageTimeoutW,
+    GUITHREADINFO, GetForegroundWindow, GetGUIThreadInfo, GetWindowRect, GetWindowTextW,
+    GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
 };
 use windows::core::{Owned, PWSTR, Result};
 
@@ -220,6 +220,19 @@ pub(crate) fn foreground_thread_state() -> Option<GUITHREADINFO> {
     // SAFETY: `thread_state` is a local with its size set, and thread 0 only makes the call fail.
     unsafe { GetGUIThreadInfo(thread, &raw mut thread_state) }.ok()?;
     Some(thread_state)
+}
+
+/// Reads the frame of the focused window of the foreground thread, in physical screen pixels.
+/// `None` when no window has the focus.
+pub(crate) fn focused_window_frame() -> Option<RECT> {
+    let window = foreground_thread_state()?.hwndFocus;
+    if window.is_invalid() {
+        return None;
+    }
+    let mut frame = RECT::default();
+    // SAFETY: the output is a local, and a window that closed only makes the call fail.
+    unsafe { GetWindowRect(window, &raw mut frame) }.ok()?;
+    Some(frame)
 }
 
 fn is_process_elevated(process_id: u32) -> Result<bool> {

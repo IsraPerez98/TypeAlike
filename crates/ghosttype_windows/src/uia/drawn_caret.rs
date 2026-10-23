@@ -13,7 +13,7 @@ use windows::Win32::UI::Accessibility::{
 };
 
 use super::com::SafeArray;
-use super::{Uia, caret_range, is_password, is_terminal_input};
+use super::{Uia, caret_range, frame_with_area, is_password, is_terminal_input};
 use crate::caret::{self, Caret};
 use crate::display::round_to_pixel;
 use crate::pixels::Rgb;
@@ -24,14 +24,32 @@ const CHARACTERS_BEFORE_CARET: i32 = -1;
 /// The class of the screen of a terminal of xterm.js, which holds its rows.
 const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 
+/// The caret of the focused control, and the frame of that control.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FocusedCaret {
+    /// The caret, or `None` when the control shows no caret that GhostType can find.
+    pub(crate) caret: Option<Caret>,
+    /// The frame of the control in physical screen pixels, or `None` when UIA gives no frame with
+    /// an area.
+    pub(crate) frame: Option<RECT>,
+}
+
 impl Uia {
     /// Locates the caret of the focused control: the system caret, else the caret that the control
-    /// draws itself. The caret has the color of the text before it, when the control tells it.
-    pub(crate) fn caret(&self) -> Option<Caret> {
+    /// draws itself. The caret has the color of the text before it, when the control tells it. The
+    /// frame of the control comes with it.
+    pub(crate) fn caret(&self) -> FocusedCaret {
         let element = self.focused_element();
-        let caret = caret::system_caret().or_else(|| self.drawn_caret(element.as_ref()?))?;
+        FocusedCaret {
+            caret: self.colored_caret(element.as_ref()),
+            frame: element.as_ref().and_then(frame_with_area),
+        }
+    }
+
+    fn colored_caret(&self, element: Option<&IUIAutomationElement>) -> Option<Caret> {
+        let caret = caret::system_caret().or_else(|| self.drawn_caret(element?))?;
         Some(Caret {
-            text_color: element.as_ref().and_then(text_color),
+            text_color: element.and_then(text_color),
             ..caret
         })
     }

@@ -58,6 +58,11 @@ pub(crate) fn screen_rect(rect: RECT) -> ScreenRect {
     }
 }
 
+/// Whether `rect` has a width and a height.
+pub(crate) fn has_area(rect: RECT) -> bool {
+    rect.right > rect.left && rect.bottom > rect.top
+}
+
 /// Rounds `coordinate`, in physical pixels, to the nearest whole pixel.
 #[expect(
     clippy::cast_possible_truncation,
@@ -65,4 +70,55 @@ pub(crate) fn screen_rect(rect: RECT) -> ScreenRect {
 )]
 pub(crate) fn round_to_pixel(coordinate: f64) -> i32 {
     coordinate.round() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rect_with_a_width_and_a_height_has_an_area() {
+        let cases = [
+            (
+                RECT {
+                    left: 10,
+                    top: 20,
+                    right: 30,
+                    bottom: 40,
+                },
+                true,
+            ),
+            (
+                RECT {
+                    left: 10,
+                    top: 20,
+                    right: 10,
+                    bottom: 40,
+                },
+                false,
+            ),
+            (
+                RECT {
+                    left: 10,
+                    top: 20,
+                    right: 30,
+                    bottom: 20,
+                },
+                false,
+            ),
+            (
+                RECT {
+                    left: 30,
+                    top: 40,
+                    right: 10,
+                    bottom: 20,
+                },
+                false,
+            ),
+        ];
+
+        let areas = cases.map(|(rect, _)| has_area(rect));
+
+        assert_eq!(areas, cases.map(|(_, expected)| expected));
+    }
 }

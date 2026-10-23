@@ -9,6 +9,7 @@ mod screen;
 
 use std::time::Duration;
 
+use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
@@ -17,8 +18,10 @@ use windows::Win32::UI::Accessibility::{
 use windows::core::{BOOL, Interface, Result};
 
 use self::com::ComApartment;
+pub(crate) use self::drawn_caret::FocusedCaret;
 pub(crate) use self::field::{ShownField, UiaField};
 pub(crate) use self::screen::FocusedField;
+use crate::display;
 
 /// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
 const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
@@ -82,6 +85,13 @@ impl Uia {
 fn is_terminal_input(element: &IUIAutomationElement) -> bool {
     // SAFETY: plain call on an interface of this thread.
     unsafe { element.CurrentClassName() }.is_ok_and(|class| class == XTERM_INPUT_CLASS)
+}
+
+/// Reads the frame of `element` in physical screen pixels. `None` when it has no area.
+fn frame_with_area(element: &IUIAutomationElement) -> Option<RECT> {
+    // SAFETY: plain call on an interface of this thread.
+    let frame = unsafe { element.CurrentBoundingRectangle() }.ok()?;
+    display::has_area(frame).then_some(frame)
 }
 
 /// Whether `element` hides its text. An element that does not tell counts as a password field.
