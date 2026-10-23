@@ -241,8 +241,11 @@ impl Controller {
     /// shows.
     #[must_use]
     pub fn badge_menu(&self) -> Option<BadgeMenu> {
-        self.app
-            .badge_menu(self.screen_text.settings(), self.personalization.settings())
+        self.app.badge_menu(
+            self.suggestion_places.settings(),
+            self.screen_text.settings(),
+            self.personalization.settings(),
+        )
     }
 
     /// Runs a command that the user picked in the menu of the badge at the caret, then shows the
@@ -254,11 +257,27 @@ impl Controller {
                 self.on_screen_text_action(ScreenTextAction::SwitchApp { app_id, is_on });
                 self.render_settings(shell);
             }
+            BadgeCommand::SwitchAppSuggestions { app_id, is_on } => {
+                self.switch_suggestions_here(SuggestionPlacesAction::SwitchApp { app_id, is_on }, shell);
+            }
+            BadgeCommand::SwitchSiteSuggestions { host, is_on } => {
+                self.switch_suggestions_here(SuggestionPlacesAction::SwitchSite { host, is_on }, shell);
+            }
             BadgeCommand::SelectHistoryScope { app_id, scope } => {
                 self.on_personalization_action(PersonalizationAction::SelectAppScope { app_id, scope });
                 self.render_settings(shell);
             }
         }
+    }
+
+    /// Turns suggestions on or off in the place where the user types, then hides the ghost text
+    /// and shows the badge and the panes as they are now.
+    fn switch_suggestions_here(&mut self, action: SuggestionPlacesAction, shell: &mut dyn Shell) {
+        self.on_suggestion_places_action(action);
+        self.tab_hold.end(shell);
+        self.hide_ghost(shell);
+        self.render_waiting_ghost(shell);
+        self.render_settings(shell);
     }
 
     /// Runs a command that the user picked in the tray menu.

@@ -26,9 +26,10 @@ pub(crate) fn title_case(label: &str) -> String {
         .join(" ")
 }
 
-/// Capitalizes the first letter of `word`, unless the word has a capital, as the name of an app can.
+/// Capitalizes the first letter of `word`, unless the word has a capital or a dot, as the name of
+/// an app or the host of a website can.
 fn capitalize(word: &str) -> String {
-    if word.chars().any(char::is_uppercase) {
+    if word.chars().any(char::is_uppercase) || word.contains('.') {
         return word.to_owned();
     }
     let mut characters = word.chars();
@@ -64,5 +65,13 @@ mod tests {
     #[test]
     fn title_case_keeps_an_app_name_that_starts_in_lowercase() {
         assert_eq!(title_case("Use screen text in iTerm"), "Use Screen Text in iTerm");
+    }
+
+    #[test]
+    fn title_case_keeps_the_host_of_a_website() {
+        assert_eq!(
+            title_case("Show suggestions on mail.example.com"),
+            "Show Suggestions on mail.example.com"
+        );
     }
 }

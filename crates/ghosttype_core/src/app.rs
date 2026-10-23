@@ -2,6 +2,7 @@
 //! the caret that show and change them.
 
 mod badge;
+mod field_place;
 mod tray;
 
 pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView};
@@ -9,16 +10,17 @@ pub use tray::{TrayCommand, TrayItem, TrayOutcome, TrayView};
 
 use std::time::Duration;
 
-use badge::app_entries;
+use badge::{TypedPlace, place_entries};
+use field_place::{FieldPlace, ReadField};
 
-use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, Surroundings};
+use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{
     PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
-    SuggestionDisplay,
+    SuggestionDisplay, SuggestionPlaces,
 };
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
@@ -52,6 +54,9 @@ impl Status {
         }
     }
 }
+
+/// The name of the app in a field where the user turned suggestions off.
+const OFF_HERE_NAME: &str = "GhostType (off here)";
 
 /// What GhostType does when the input settles in a field, a session starts or a read of the
 /// screen answers.
@@ -121,27 +126,10 @@ pub struct App {
     prompt_preparation: PromptPreparation,
     suggestion_display: SuggestionDisplay,
     screen_text: ScreenTextSettings,
-    /// The place of the field where the user types while suggestions are paused, which then has no
-    /// session.
-    paused_field_place: Option<FieldPlace>,
-}
-
-/// The app and the website of a field where the user types.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FieldPlace {
-    /// The app, if it has an id.
-    app: Option<ScreenTextApp>,
-    /// The host of the website, if any.
-    host: Option<String>,
-}
-
-impl FieldPlace {
-    fn of(surroundings: &Surroundings) -> Self {
-        Self {
-            app: ScreenTextApp::of(surroundings),
-            host: surroundings.domain.clone(),
-        }
-    }
+    suggestion_places: SuggestionPlaces,
+    /// The place of the field where the user types while suggestions are paused or off there,
+    /// which then has no session.
+    idle_field_place: Option<FieldPlace>,
 }
 
 impl App {
@@ -153,8 +141,8 @@ impl App {
     }
 
     /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
-    /// place on, and its prompt preparation, suggestion display, suggestion length and screen
-    /// text from now on.
+    /// place on, and its prompt preparation, suggestion display, suggestion length, screen text
+    /// and suggestion places from now on. A session in a place that is off now ends.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
@@ -163,6 +151,24 @@ impl App {
             self.engine.forget_screen();
             self.screen_text = settings.screen_text.clone();
         }
+        if self.suggestion_places != settings.suggestion_places {
+            self.suggestion_places = settings.suggestion_places.clone();
+            let off_session_place = self
+                .session_place()
+                .filter(|place| !place.is_on_in(&self.suggestion_places));
+            if let Some(place) = off_session_place {
+                self.engine.reset();
+                self.idle_field_place = Some(place);
+            }
+        }
+    }
+
+    /// The place of the session, if a session runs.
+    fn session_place(&self) -> Option<FieldPlace> {
+        self.engine.has_session().then(|| FieldPlace {
+            app: self.engine.session_app().cloned(),
+            host: self.engine.session_domain().map(str::to_owned),
+        })
     }
 
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next key in a new
@@ -189,9 +195,11 @@ impl App {
     /// In a text field of an app where the screen text is on, it then starts a read of the screen,
     /// unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
-    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text.
+    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text. In a
+    /// place where suggestions are off, it does nothing.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
-        if self.status == Status::Paused || desktop.field() == Field::Excluded {
+        let is_excluded = desktop.field() == Field::Excluded;
+        if self.status == Status::Paused || is_excluded || !self.allows_suggestions_in(desktop) {
             return None;
         }
         if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
@@ -217,9 +225,11 @@ impl App {
     /// session when the session has no final screen text, and into the next session. With
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, it then
     /// returns the request that prepares the prompt of the focused field of `desktop` with the new
-    /// screen text.
+    /// screen text. In a place where suggestions are off, it only keeps the screen text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
-        let is_active = self.status == Status::Active && desktop.field() == Field::Open;
+        let is_active = self.status == Status::Active
+            && desktop.field() == Field::Open
+            && self.allows_suggestions_in(desktop);
         let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
         let is_ocr_due = is_active && !has_lines && desktop.ocr_availability() == OcrAvailability::Ready;
         let level = self.screen_text.ocr_level;
@@ -249,21 +259,34 @@ impl App {
     }
 
     /// The app where the user types now, when it has an id. The first key in a field starts the
-    /// typing there, also while suggestions are paused.
+    /// typing there, also while suggestions are paused or off there.
     #[must_use]
     pub fn typed_app(&self) -> Option<&ScreenTextApp> {
         self.engine
             .session_app()
-            .or_else(|| self.paused_field_place.as_ref()?.app.as_ref())
+            .or_else(|| self.idle_field_place.as_ref()?.app.as_ref())
     }
 
     /// The host of the website where the user types now, if any. The first key in a field starts
-    /// the typing there, also while suggestions are paused.
+    /// the typing there, also while suggestions are paused or off there.
     #[must_use]
     pub fn typed_host(&self) -> Option<&str> {
         self.engine
             .session_domain()
-            .or_else(|| self.paused_field_place.as_ref()?.host.as_deref())
+            .or_else(|| self.idle_field_place.as_ref()?.host.as_deref())
+    }
+
+    /// Whether suggestions show in the focused field of `desktop`. A session runs only in a place
+    /// where they show.
+    fn allows_suggestions_in(&self, desktop: &dyn Desktop) -> bool {
+        self.engine.has_session() || FieldPlace::of(&desktop.surroundings()).is_on_in(&self.suggestion_places)
+    }
+
+    /// Whether the user types in a place where suggestions are off.
+    fn is_in_off_place(&self) -> bool {
+        self.idle_field_place
+            .as_ref()
+            .is_some_and(|place| !place.is_on_in(&self.suggestion_places))
     }
 
     fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
@@ -288,21 +311,29 @@ impl App {
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
+    /// While suggestions are paused, or off in the app or on the website of the field, the key
+    /// gets no suggestion and starts no session.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
         let field = desktop.field();
         self.is_in_open_field = field == Field::Open;
-        match (self.status, field) {
-            (Status::Paused, Field::Open) => {
-                self.paused_field_place = Some(FieldPlace::of(&desktop.surroundings()));
-                Reaction::Hide
-            }
-            (Status::Paused, Field::Excluded) => {
-                self.paused_field_place = None;
-                Reaction::Hide
-            }
-            (Status::Active, Field::Excluded) => self.engine.reset(),
-            (Status::Active, Field::Open) => self.engine.on_key(key, desktop),
+        if field == Field::Excluded {
+            self.idle_field_place = None;
+            return self.engine.reset();
         }
+        if self.status == Status::Active && !self.engine.starts_session_with(key) {
+            return self.engine.on_key(key, desktop);
+        }
+        let read_field = ReadField {
+            desktop,
+            surroundings: desktop.surroundings(),
+        };
+        let place = FieldPlace::of(&read_field.surroundings);
+        if self.status == Status::Active && place.is_on_in(&self.suggestion_places) {
+            self.idle_field_place = None;
+            return self.engine.on_key(key, &read_field);
+        }
+        self.idle_field_place = Some(place);
+        Reaction::Hide
     }
 
     /// Handles the completion of the last [`Reaction::Request`].
@@ -328,7 +359,7 @@ impl App {
     /// of the last field is not used again.
     pub fn on_context_lost(&mut self) -> Reaction {
         self.is_in_open_field = false;
-        self.paused_field_place = None;
+        self.idle_field_place = None;
         self.engine.forget_screen();
         self.engine.reset()
     }
@@ -360,22 +391,33 @@ impl App {
     }
 
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
-    /// GhostType watches.
+    /// GhostType watches. In a place where suggestions are off, the badge shows as paused.
     #[must_use]
     pub fn badge_view(&self) -> Option<BadgeView> {
-        self.is_in_open_field.then(|| BadgeView {
-            status: self.status,
-            label: self.status.name(),
+        self.is_in_open_field.then(|| {
+            if self.status == Status::Active && self.is_in_off_place() {
+                BadgeView {
+                    status: Status::Paused,
+                    label: OFF_HERE_NAME,
+                }
+            } else {
+                BadgeView {
+                    status: self.status,
+                    label: self.status.name(),
+                }
+            }
         })
     }
 
     /// Returns the menu that a click on the badge at the caret shows, or `None` while no badge
-    /// shows. The menu pauses or resumes suggestions. When the lists of `screen_text` and
-    /// `personalization` have the app where the user types, it also switches the screen text of
-    /// the app and selects the scope of its earlier writing.
+    /// shows. The menu pauses or resumes suggestions. When the lists of `suggestion_places` have
+    /// the app or the website where the user types, it also turns their suggestions on or off.
+    /// When the lists of `screen_text` and `personalization` have the app, it also switches the
+    /// screen text of the app and selects the scope of its earlier writing.
     #[must_use]
     pub fn badge_menu(
         &self,
+        suggestion_places: &SuggestionPlaces,
         screen_text: &ScreenTextSettings,
         personalization: &PersonalizationSettings,
     ) -> Option<BadgeMenu> {
@@ -388,16 +430,17 @@ impl App {
             is_checked: false,
             is_enabled: true,
         });
-        let app_entries = self
-            .typed_app()
-            .map(|app| app_entries(&app.app_id, screen_text, personalization))
-            .unwrap_or_default();
-        let separator = (!app_entries.is_empty()).then_some(BadgeEntry::Separator);
+        let place = TypedPlace {
+            app: self.typed_app(),
+            host: self.typed_host(),
+        };
+        let place_entries = place_entries(&place, suggestion_places, screen_text, personalization);
+        let separator = (!place_entries.is_empty()).then_some(BadgeEntry::Separator);
         Some(BadgeMenu {
             entries: [Some(pause), separator]
                 .into_iter()
                 .flatten()
-                .chain(app_entries)
+                .chain(place_entries)
                 .collect(),
         })
     }
@@ -413,7 +456,7 @@ impl App {
 
     fn toggle_pause(&mut self) -> TrayOutcome {
         self.engine.reset();
-        self.paused_field_place = None;
+        self.idle_field_place = None;
         let (status, outcome) = match self.status {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
             Status::Paused => (Status::Active, TrayOutcome::Resumed),

@@ -160,6 +160,15 @@ impl Engine {
         self.session.is_some()
     }
 
+    /// Whether [`on_key`](Self::on_key) with `key` starts a session: a key that types or deletes a
+    /// character while no session runs.
+    #[must_use]
+    pub(crate) fn starts_session_with(&self, key: Key) -> bool {
+        let edits_text =
+            matches!(key, Key::Char(character) if !character.is_control()) || key == Key::Backspace;
+        edits_text && self.session.is_none()
+    }
+
     /// Whether the ghost text has a suggestion or a fix, or the completion of the newest request
     /// still runs and can give one.
     #[must_use]

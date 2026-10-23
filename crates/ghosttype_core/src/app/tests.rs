@@ -2,6 +2,7 @@
 
 mod badge;
 mod fixtures;
+mod off_places;
 mod screen_read;
 mod suggestions;
 mod tray;

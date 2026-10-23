@@ -6,6 +6,7 @@ use crate::desktop::Field;
 use crate::key::Key;
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
+    SuggestionPlaces,
 };
 use crate::test_support::{ACTIVE_BADGE, PAUSED_BADGE, mail_app, mail_history_app};
 
@@ -122,6 +123,7 @@ fn badge_menu_switches_the_screen_text_and_the_earlier_writing_of_the_typed_app(
     app.on_key(Key::Char('H'), &MAIL);
 
     let menu = app.badge_menu(
+        &SuggestionPlaces::default(),
         &mail_screen_text(ScreenTextAccess::Allowed, true),
         &mail_personalization(HistoryAccess::On, HistoryScope::ThisApp),
     );
@@ -162,6 +164,7 @@ fn badge_menu_dims_the_entries_of_the_app_while_their_main_switches_are_off() {
 
     let menu = app
         .badge_menu(
+            &SuggestionPlaces::default(),
             &mail_screen_text(ScreenTextAccess::Denied, true),
             &mail_personalization(HistoryAccess::Off, HistoryScope::AllApps),
         )
@@ -183,6 +186,7 @@ fn badge_menu_offers_only_the_pause_in_an_app_without_an_id() {
     type_key(&mut app, 'H');
 
     let menu = app.badge_menu(
+        &SuggestionPlaces::default(),
         &mail_screen_text(ScreenTextAccess::Allowed, true),
         &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
     );
@@ -201,6 +205,7 @@ fn badge_menu_leaves_out_the_entries_of_an_app_that_the_lists_do_not_have() {
     app.on_key(Key::Char('H'), &MAIL);
 
     let menu = app.badge_menu(
+        &SuggestionPlaces::default(),
         &ScreenTextSettings::default(),
         &PersonalizationSettings::default(),
     );
@@ -221,6 +226,7 @@ fn paused_badge_menu_offers_the_resume_and_the_entries_of_the_app_of_the_field()
 
     let menu = app
         .badge_menu(
+            &SuggestionPlaces::default(),
             &mail_screen_text(ScreenTextAccess::Allowed, true),
             &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
         )
@@ -241,6 +247,7 @@ fn no_badge_menu_shows_without_a_badge() {
     let app = App::new();
 
     let menu = app.badge_menu(
+        &SuggestionPlaces::default(),
         &mail_screen_text(ScreenTextAccess::Allowed, true),
         &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
     );

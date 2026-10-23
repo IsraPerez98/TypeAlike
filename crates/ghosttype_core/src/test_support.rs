@@ -23,6 +23,11 @@ pub(crate) const PAUSED_BADGE: BadgeView = BadgeView {
     label: "GhostType (paused)",
 };
 
+pub(crate) const OFF_BADGE: BadgeView = BadgeView {
+    status: Status::Paused,
+    label: "GhostType (off here)",
+};
+
 /// The request of a completion without word bias, which a test changes where its settings differ
 /// from the default settings.
 pub(crate) struct ExpectedRequest {

@@ -4,14 +4,15 @@ use std::slice;
 
 use super::Status;
 use crate::settings::{
-    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
+    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextApp,
+    ScreenTextSettings, SuggestionPlaces,
 };
 
 /// The badge at the caret of the field where the user types: a button that opens the
 /// [`BadgeMenu`]. It shows above the caret, on the side opposite to the ghost text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BadgeView {
-    /// Status the glyph must reflect.
+    /// Status the glyph must reflect: paused also in a place where suggestions are off.
     pub status: Status,
     /// The name of the app and its status, for assistive technology.
     pub label: &'static str,
@@ -27,6 +28,20 @@ pub enum BadgeCommand {
         /// The id of the app.
         app_id: String,
         /// Whether GhostType reads the screen text in the app after the command.
+        is_on: bool,
+    },
+    /// Turns suggestions in the app with this id on or off.
+    SwitchAppSuggestions {
+        /// The id of the app.
+        app_id: String,
+        /// Whether suggestions show in the app after the command.
+        is_on: bool,
+    },
+    /// Turns suggestions on the website with this host on or off.
+    SwitchSiteSuggestions {
+        /// The host of the website.
+        host: String,
+        /// Whether suggestions show on the website after the command.
         is_on: bool,
     },
     /// Selects which earlier writing the app with this id gives and gets.
@@ -111,9 +126,78 @@ impl BadgeMenu {
     }
 }
 
+/// The app and the website of the field where the user types.
+pub(super) struct TypedPlace<'place> {
+    /// The app, if it has an id.
+    pub(super) app: Option<&'place ScreenTextApp>,
+    /// The host of the website, if any.
+    pub(super) host: Option<&'place str>,
+}
+
+/// The entries of the badge menu for `place`: the suggestion switches of its app and of its
+/// website, then the screen text switch and the menu of the scope of its app, each when its list
+/// has the app or the website.
+pub(super) fn place_entries(
+    place: &TypedPlace<'_>,
+    suggestion_places: &SuggestionPlaces,
+    screen_text: &ScreenTextSettings,
+    personalization: &PersonalizationSettings,
+) -> Vec<BadgeEntry> {
+    let app_switch = place
+        .app
+        .and_then(|typed| {
+            suggestion_places
+                .apps
+                .iter()
+                .find(|app| app.app_id == typed.app_id)
+        })
+        .map(|app| {
+            suggestion_switch(
+                format!("Show suggestions in {}", app.app_name),
+                BadgeCommand::SwitchAppSuggestions {
+                    app_id: app.app_id.clone(),
+                    is_on: !app.is_on,
+                },
+                app.is_on,
+            )
+        });
+    let site_switch = place
+        .host
+        .and_then(|host| suggestion_places.sites.iter().find(|site| site.host == host))
+        .map(|site| {
+            suggestion_switch(
+                format!("Show suggestions on {}", site.host),
+                BadgeCommand::SwitchSiteSuggestions {
+                    host: site.host.clone(),
+                    is_on: !site.is_on,
+                },
+                site.is_on,
+            )
+        });
+    let app_entries = place
+        .app
+        .map(|app| app_entries(&app.app_id, screen_text, personalization))
+        .unwrap_or_default();
+    [app_switch, site_switch]
+        .into_iter()
+        .flatten()
+        .chain(app_entries)
+        .collect()
+}
+
+/// An entry that turns suggestions on or off with `command`, checked while they are on.
+fn suggestion_switch(label: String, command: BadgeCommand, is_on: bool) -> BadgeEntry {
+    BadgeEntry::Item(BadgeItem {
+        label,
+        command,
+        is_checked: is_on,
+        is_enabled: true,
+    })
+}
+
 /// The entries of the badge menu for the app with `app_id`: its screen text switch and the menu
 /// of its scope, each when its list has the app. An entry is dimmed while its main switch is off.
-pub(super) fn app_entries(
+fn app_entries(
     app_id: &str,
     screen_text: &ScreenTextSettings,
     personalization: &PersonalizationSettings,
