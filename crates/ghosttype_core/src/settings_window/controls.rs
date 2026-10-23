@@ -5,6 +5,9 @@ use crate::settings_window::view::{ChoiceText, ControlId, Message, Picker, Row, 
 
 const APPS_HEADING: &str = "Apps";
 const NO_APPS: &str = "This list has no apps.";
+/// The footer of a list of apps that GhostType fills as the user types.
+pub(super) const TYPED_APPS_FOOTER: &str =
+    "When you type in an app for the first time, GhostType adds the app to this list.";
 
 /// The id of a menu, and the icon, the label and the description that the menu shows.
 #[derive(Debug, Clone, Copy)]
@@ -49,16 +52,22 @@ pub(super) fn choice_index<Value: PartialEq + Copy>(choices: &[(Value, &str)], v
 /// The section of the apps where the user typed, with a message in the place of `rows` when the
 /// list has no apps.
 pub(super) fn app_list_section(rows: Vec<Row>, footer: &'static str) -> Section {
+    list_section(APPS_HEADING, NO_APPS, rows, footer)
+}
+
+/// A section with `heading` above `rows` and `footer` below them, with the message `empty` in the
+/// place of `rows` when the list is empty.
+pub(super) fn list_section(heading: &str, empty: &str, rows: Vec<Row>, footer: &'static str) -> Section {
     let rows = if rows.is_empty() {
         vec![Row::Message(Message {
-            text: NO_APPS.to_owned(),
+            text: empty.to_owned(),
             button: None,
         })]
     } else {
         rows
     };
     Section {
-        heading: Some(APPS_HEADING.to_owned()),
+        heading: Some(heading.to_owned()),
         back: None,
         rows,
         footer: Some(footer),

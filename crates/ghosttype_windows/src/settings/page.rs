@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use ghosttype_core::settings_window::view::{
     self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, Output, Page, Permille, Picker,
-    Row, RowIcon, SearchField, Section, SettingsInput, Switch, TextArea, TextField, TextLine,
+    Row, RowIcon, SearchField, Section, SettingsInput, SiteSwitch, Switch, TextArea, TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
@@ -122,6 +122,7 @@ impl Renderer<'_, '_> {
         match row {
             Row::Switch(switch) => self.switch_card(switch),
             Row::AppSwitch(switch) => self.app_switch_card(switch),
+            Row::SiteSwitch(switch) => self.site_switch_card(switch),
             Row::Picker(picker) => self.picker_card(picker),
             Row::AppPicker(picker) => self.app_picker_card(picker),
             Row::TextArea(area) => self.text_area_card(area),
@@ -151,6 +152,14 @@ impl Renderer<'_, '_> {
             .is_on(switch.is_on)
             .is_enabled(switch.is_enabled);
         self.app_card(switch.app_path.as_deref(), &switch.app_name, toggle.into())
+    }
+
+    /// A card with a globe and the host of a website at the leading edge and its switch at the
+    /// trailing edge.
+    fn site_switch_card(&self, switch: &SiteSwitch) -> View {
+        let toggle = self.toggle_switch(&switch.id, &switch.host).is_on(switch.is_on);
+        let icon = SymbolIcon::new().symbol(Symbol::Globe).into();
+        control_card(card_header(icon, &switch.host, "", None), toggle.into())
     }
 
     /// A card with the icon and the name of an app at the leading edge and its menu at the

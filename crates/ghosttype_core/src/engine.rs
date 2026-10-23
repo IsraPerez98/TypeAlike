@@ -173,6 +173,12 @@ impl Engine {
         self.session.as_ref()?.field.app.as_ref()
     }
 
+    /// The host of the website of the session, if a session runs on a website.
+    #[must_use]
+    pub(crate) fn session_domain(&self) -> Option<&str> {
+        self.session.as_ref()?.field.domain.as_deref()
+    }
+
     /// Returns the session, and starts it with what surrounds the caret in `desktop` when there
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {

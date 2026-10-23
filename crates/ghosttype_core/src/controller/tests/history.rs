@@ -4,10 +4,14 @@ use super::harness::{Harness, history_on};
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
 use crate::key::Key;
-use crate::settings::{HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings};
+use crate::settings::{
+    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings, SuggestionPlaces,
+};
 use crate::settings_window::general::CLIPBOARD;
 use crate::settings_window::personalization::{DELETE, HISTORY};
-use crate::test_support::{mail_app, mail_entry, mail_history_app, suggestion_request};
+use crate::test_support::{
+    MAIL_APP, mail_app, mail_entry, mail_history_app, suggestion_app, suggestion_request,
+};
 
 #[test]
 fn key_in_a_new_app_saves_nothing_before_the_input_settles() {
@@ -20,7 +24,7 @@ fn key_in_a_new_app_saves_nothing_before_the_input_settles() {
 }
 
 #[test]
-fn typing_in_a_new_app_adds_the_app_to_both_app_lists_and_keeps_it() {
+fn typing_in_a_new_app_adds_the_app_to_each_app_list_and_keeps_it() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
     harness.press(Key::Char('H'));
@@ -31,6 +35,10 @@ fn typing_in_a_new_app_adds_the_app_to_both_app_lists_and_keeps_it() {
     assert_eq!(
         harness.saved(),
         vec![Settings {
+            suggestion_places: SuggestionPlaces {
+                apps: vec![suggestion_app(MAIL_APP, "Mail", true)],
+                ..SuggestionPlaces::default()
+            },
             screen_text: ScreenTextSettings {
                 apps: vec![mail_app(true)],
                 ..ScreenTextSettings::default()

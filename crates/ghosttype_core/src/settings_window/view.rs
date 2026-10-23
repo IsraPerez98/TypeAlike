@@ -66,6 +66,8 @@ pub enum PageIcon {
     TextViewfinder,
     /// A person and text, for what suggestions learn from the earlier writing of the user.
     PersonText,
+    /// A grid of apps, for the apps and the websites where suggestions show.
+    AppGrid,
 }
 
 /// The picture before the label of a setting, such as the icon at the leading edge of a card of
@@ -152,6 +154,8 @@ pub enum Row {
     Switch(Switch),
     /// A setting that is on or off for one app.
     AppSwitch(AppSwitch),
+    /// A setting that is on or off for one website.
+    SiteSwitch(SiteSwitch),
     /// A setting that takes one value of a list.
     Picker(Picker),
     /// A setting that takes one value of a list for one app.
@@ -181,6 +185,7 @@ impl Row {
         match self {
             Self::Switch(switch) => Some(&switch.id),
             Self::AppSwitch(switch) => Some(&switch.id),
+            Self::SiteSwitch(switch) => Some(&switch.id),
             Self::Picker(picker) => Some(&picker.id),
             Self::AppPicker(picker) => Some(&picker.id),
             Self::TextArea(text_area) => Some(&text_area.id),
@@ -222,6 +227,19 @@ pub struct AppSwitch {
     pub is_on: bool,
     /// Whether the user can turn the switch. A switch that the user cannot turn shows dimmed.
     pub is_enabled: bool,
+}
+
+/// A switch that turns a setting on and off for one website, after a globe and the host of the
+/// website.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteSwitch {
+    /// The switch. Turning it gives [`SettingsInput::Toggled`].
+    pub id: ControlId,
+    /// The host of the website, for example "mail.example.com", which each platform shows as it
+    /// is.
+    pub host: String,
+    /// Whether the switch shows on.
+    pub is_on: bool,
 }
 
 /// A menu that picks the value of a setting.

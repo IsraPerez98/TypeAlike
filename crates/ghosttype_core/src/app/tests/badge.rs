@@ -1,6 +1,6 @@
 //! Tests of the badge at the caret and its menu.
 
-use super::fixtures::{FakeDesktop, MAIL, type_key};
+use super::fixtures::{FakeDesktop, MAIL, WEBMAIL, type_key};
 use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, TrayCommand};
 use crate::desktop::Field;
 use crate::key::Key;
@@ -259,6 +259,36 @@ fn typing_while_paused_names_the_app_of_the_field() {
         app.typed_app().map(|typed| typed.app_id.as_str()),
         Some("com.apple.mail")
     );
+}
+
+#[test]
+fn typing_names_the_website_of_the_session() {
+    let mut app = App::new();
+
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    assert_eq!(app.typed_host(), Some("mail.example"));
+}
+
+#[test]
+fn typing_while_paused_names_the_website_of_the_field() {
+    let mut app = App::new();
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    assert_eq!(app.typed_host(), Some("mail.example"));
+}
+
+#[test]
+fn lost_context_forgets_the_website_of_the_paused_field() {
+    let mut app = App::new();
+    app.on_tray_command(TrayCommand::TogglePause);
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    app.on_context_lost();
+
+    assert_eq!(app.typed_host(), None);
 }
 
 #[test]

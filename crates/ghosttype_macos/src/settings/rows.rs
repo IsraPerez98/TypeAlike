@@ -27,7 +27,7 @@ use crate::settings::controls::{
     wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
-use crate::settings::rows::app::{AppPickerRow, AppSwitchRow};
+use crate::settings::rows::app::{AppPickerRow, AppSwitchRow, SiteSwitchRow};
 use crate::settings::rows::item::ItemRow;
 use crate::settings::rows::text::{TextAreaRow, TextFieldRow, TextLineRow};
 use crate::settings::{Binder, ControlAction};
@@ -45,6 +45,7 @@ const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
 pub(super) enum RowView {
     Switch(SwitchRow),
     AppSwitch(AppSwitchRow),
+    SiteSwitch(SiteSwitchRow),
     Picker(PickerRow),
     AppPicker(AppPickerRow),
     TextArea(TextAreaRow),
@@ -68,6 +69,7 @@ impl RowView {
         match row {
             Row::Switch(switch) => Self::Switch(SwitchRow::add(container, &switch.id, binder)),
             Row::AppSwitch(switch) => Self::AppSwitch(AppSwitchRow::add(container, &switch.id, binder)),
+            Row::SiteSwitch(switch) => Self::SiteSwitch(SiteSwitchRow::add(container, &switch.id, binder)),
             Row::Picker(picker) => Self::Picker(PickerRow::add(container, &picker.id, binder)),
             Row::AppPicker(picker) => Self::AppPicker(AppPickerRow::add(container, &picker.id, binder)),
             Row::TextLine(text_line) => {
@@ -89,6 +91,7 @@ impl RowView {
         match (self, row) {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.id == switch.id,
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.id == switch.id,
+            (Self::SiteSwitch(row_view), Row::SiteSwitch(switch)) => row_view.id == switch.id,
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.id == picker.id,
             (Self::AppPicker(row_view), Row::AppPicker(picker)) => row_view.id == picker.id,
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.id == text_area.id,
@@ -107,6 +110,7 @@ impl RowView {
         match (self, row) {
             (Self::Switch(row_view), Row::Switch(switch)) => row_view.render(switch, binder),
             (Self::AppSwitch(row_view), Row::AppSwitch(switch)) => row_view.render(switch, binder),
+            (Self::SiteSwitch(row_view), Row::SiteSwitch(switch)) => row_view.render(switch, binder),
             (Self::Picker(row_view), Row::Picker(picker)) => row_view.render(picker, binder),
             (Self::AppPicker(row_view), Row::AppPicker(picker)) => row_view.render(picker, binder),
             (Self::TextArea(row_view), Row::TextArea(text_area)) => row_view.render(text_area, binder),

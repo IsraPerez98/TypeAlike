@@ -1,4 +1,5 @@
-//! The rows of the settings pages for one app: its icon and name, with a switch or a pop-up menu.
+//! The rows of the settings pages for one app or one website: its icon and name, with a switch
+//! or a pop-up menu.
 
 use ghosttype_core::settings_window::view::{self as view, ControlId};
 use objc2::MainThreadMarker;
@@ -19,8 +20,10 @@ use crate::settings::{Binder, ControlAction};
 const APP_ICON_SIDE: CGFloat = 20.0;
 const UNKNOWN_APP_SYMBOL: &str = "app.dashed";
 const UNKNOWN_APP_DESCRIPTION: &str = "App";
+const WEBSITE_SYMBOL: &str = "globe";
+const WEBSITE_DESCRIPTION: &str = "Website";
 
-/// The icon and the name of an app at the leading edge of a row.
+/// The icon and the name of an app or a website at the leading edge of a row.
 #[derive(Debug)]
 struct AppLabel {
     texts: Retained<NSStackView>,
@@ -105,6 +108,40 @@ impl AppSwitchRow {
             .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
         self.switch.setState(control_state(shown.is_on));
         self.switch.setEnabled(shown.is_enabled);
+        binder.bind(&self.switch, &shown.id);
+    }
+}
+
+/// A row with a globe and the host of a website, and a switch that turns a setting on and off for
+/// the website.
+#[derive(Debug)]
+pub(in crate::settings) struct SiteSwitchRow {
+    site: AppLabel,
+    switch: Retained<NSSwitch>,
+    pub(super) id: ControlId,
+}
+
+impl SiteSwitchRow {
+    pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let switch = NSSwitch::new(main_thread);
+        binder.target.connect(&switch, ControlAction::Toggle);
+        let site = AppLabel::new(main_thread);
+        site.icon
+            .setImage(symbol(WEBSITE_SYMBOL, WEBSITE_DESCRIPTION).as_deref());
+        site.add_row(rows_stack, &switch, main_thread);
+        Self {
+            site,
+            switch,
+            id: id.clone(),
+        }
+    }
+
+    pub(super) fn render(&mut self, shown: &view::SiteSwitch, binder: &mut Binder<'_>) {
+        set_text(&self.site.name, &shown.host);
+        self.switch
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.host)));
+        self.switch.setState(control_state(shown.is_on));
         binder.bind(&self.switch, &shown.id);
     }
 }

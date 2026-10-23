@@ -3,7 +3,9 @@
 
 use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
-use crate::settings_window::controls::{MenuText, app_list_section, picker, replace_if_changed};
+use crate::settings_window::controls::{
+    MenuText, TYPED_APPS_FOOTER, app_list_section, picker, replace_if_changed,
+};
 use crate::settings_window::view::{
     AppSwitch, Button, ControlId, Message, Page, PageIcon, Picker, Row, RowIcon, Section, SettingsInput,
     Switch,
@@ -45,7 +47,6 @@ const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
     (OcrLevel::Fast, "Fast (recommended)"),
     (OcrLevel::Accurate, "Accurate"),
 ];
-const APPS_FOOTER: &str = "When you type in an app for the first time, GhostType adds the app to this list.";
 const OCR_PERMISSION_NOTE: &str = "GhostType reads only part of the screen text. To let GhostType read all screen \
      text, go to System Settings > Privacy & Security > Screen & System Audio Recording. Then set the switch for \
      GhostType to on.";
@@ -162,7 +163,7 @@ impl ScreenTextPane {
                 }),
             })])
         });
-        let app_list = app_list_section(self.app_rows(is_allowed), APPS_FOOTER);
+        let app_list = app_list_section(self.app_rows(is_allowed), TYPED_APPS_FOOTER);
         Page {
             title: PANE_TITLE,
             icon: PageIcon::TextViewfinder,

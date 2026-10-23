@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use badge::app_entries;
 
-use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, Surroundings};
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
@@ -121,9 +121,27 @@ pub struct App {
     prompt_preparation: PromptPreparation,
     suggestion_display: SuggestionDisplay,
     screen_text: ScreenTextSettings,
-    /// The app of the field where the user types while suggestions are paused, which then has no
+    /// The place of the field where the user types while suggestions are paused, which then has no
     /// session.
-    paused_field_owner: Option<ScreenTextApp>,
+    paused_field_place: Option<FieldPlace>,
+}
+
+/// The app and the website of a field where the user types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FieldPlace {
+    /// The app, if it has an id.
+    app: Option<ScreenTextApp>,
+    /// The host of the website, if any.
+    host: Option<String>,
+}
+
+impl FieldPlace {
+    fn of(surroundings: &Surroundings) -> Self {
+        Self {
+            app: ScreenTextApp::of(surroundings),
+            host: surroundings.domain.clone(),
+        }
+    }
 }
 
 impl App {
@@ -234,7 +252,18 @@ impl App {
     /// typing there, also while suggestions are paused.
     #[must_use]
     pub fn typed_app(&self) -> Option<&ScreenTextApp> {
-        self.engine.session_app().or(self.paused_field_owner.as_ref())
+        self.engine
+            .session_app()
+            .or_else(|| self.paused_field_place.as_ref()?.app.as_ref())
+    }
+
+    /// The host of the website where the user types now, if any. The first key in a field starts
+    /// the typing there, also while suggestions are paused.
+    #[must_use]
+    pub fn typed_host(&self) -> Option<&str> {
+        self.engine
+            .session_domain()
+            .or_else(|| self.paused_field_place.as_ref()?.host.as_deref())
     }
 
     fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
@@ -264,11 +293,11 @@ impl App {
         self.is_in_open_field = field == Field::Open;
         match (self.status, field) {
             (Status::Paused, Field::Open) => {
-                self.paused_field_owner = ScreenTextApp::of(&desktop.surroundings());
+                self.paused_field_place = Some(FieldPlace::of(&desktop.surroundings()));
                 Reaction::Hide
             }
             (Status::Paused, Field::Excluded) => {
-                self.paused_field_owner = None;
+                self.paused_field_place = None;
                 Reaction::Hide
             }
             (Status::Active, Field::Excluded) => self.engine.reset(),
@@ -299,7 +328,7 @@ impl App {
     /// of the last field is not used again.
     pub fn on_context_lost(&mut self) -> Reaction {
         self.is_in_open_field = false;
-        self.paused_field_owner = None;
+        self.paused_field_place = None;
         self.engine.forget_screen();
         self.engine.reset()
     }
@@ -384,7 +413,7 @@ impl App {
 
     fn toggle_pause(&mut self) -> TrayOutcome {
         self.engine.reset();
-        self.paused_field_owner = None;
+        self.paused_field_place = None;
         let (status, outcome) = match self.status {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
             Status::Paused => (Status::Active, TrayOutcome::Resumed),

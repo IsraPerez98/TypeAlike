@@ -28,7 +28,7 @@ use crate::history::WritingHistory;
 use crate::hub::{HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
-use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore};
+use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, SuggestionApp};
 use crate::settings_window::general::{GeneralAction, GeneralPane};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
 use crate::settings_window::personalization::{
@@ -36,6 +36,7 @@ use crate::settings_window::personalization::{
 };
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
+use crate::settings_window::suggestion_places::{SuggestionPlacesAction, SuggestionPlacesPane};
 use crate::settings_window::view::{SettingsInput, SettingsView};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
@@ -53,6 +54,7 @@ const FIELD_EDGE_GAP: i32 = 4;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PaneAction {
     General(GeneralAction),
+    SuggestionPlaces(SuggestionPlacesAction),
     ScreenText(ScreenTextAction),
     Personalization(PersonalizationAction),
     Models(ModelsAction),
@@ -66,6 +68,7 @@ pub struct Controller {
     models: ModelsPane,
     playground: PlaygroundPane,
     general: GeneralPane,
+    suggestion_places: SuggestionPlacesPane,
     screen_text: ScreenTextPane,
     personalization: PersonalizationPane,
     hub: Box<dyn ModelHub>,
@@ -79,8 +82,8 @@ pub struct Controller {
     suggestion_sink: InferenceEventSink,
     caret_wait: CaretWait,
     tab_hold: TabHold,
-    /// Whether the Screen text or Personalization pane has an app that the settings store does not
-    /// have yet.
+    /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
+    /// that the settings store does not have yet.
     has_unsaved_app: bool,
 }
 
@@ -115,6 +118,7 @@ impl Controller {
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
+        let suggestion_places = SuggestionPlacesPane::new(settings.suggestion_places.clone());
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
@@ -137,6 +141,7 @@ impl Controller {
             models: ModelsPane::new(),
             playground,
             general,
+            suggestion_places,
             screen_text,
             personalization,
             hub,
@@ -188,7 +193,7 @@ impl Controller {
         };
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
-        self.add_typed_app();
+        self.add_typed_place();
         let read = self.app.start_session_screen_read();
         self.do_settled_work(read, shell);
         disposition
@@ -287,6 +292,7 @@ impl Controller {
         }
         match action {
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
+            Some(PaneAction::SuggestionPlaces(action)) => self.on_suggestion_places_action(action),
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
                 shell.ask_for_ocr_permission();
             }
@@ -313,6 +319,11 @@ impl Controller {
         self.general
             .action_for(input, &self.playground, &installed)
             .map(PaneAction::General)
+            .or_else(|| {
+                self.suggestion_places
+                    .action_for(input)
+                    .map(PaneAction::SuggestionPlaces)
+            })
             .or_else(|| self.screen_text.action_for(input).map(PaneAction::ScreenText))
             .or_else(|| {
                 self.personalization
@@ -396,33 +407,44 @@ impl Controller {
         }
     }
 
-    /// Adds the app where the user types to the Screen text and Personalization panes, when they
-    /// do not have it. The settings are saved when the input settles, because a key must not wait
-    /// for the disk.
-    fn add_typed_app(&mut self) {
+    /// Adds the app where the user types to the Apps and websites, Screen text and Personalization
+    /// panes, and its website to the Apps and websites pane, when they do not have them. The
+    /// settings are saved when the input settles, because a key must not wait for the disk.
+    fn add_typed_place(&mut self) {
         if let Some(app) = self.app.typed_app() {
+            self.has_unsaved_app |= self.suggestion_places.add_app(&SuggestionApp::of(app));
             self.has_unsaved_app |= self.screen_text.add_app(app);
             self.has_unsaved_app |= self.personalization.add_app(&HistoryApp::of(app));
         }
+        if let Some(host) = self.app.typed_host() {
+            self.has_unsaved_app |= self.suggestion_places.add_site(host);
+        }
     }
 
-    /// Keeps the settings of the Screen text and Personalization panes for the next run, and uses
-    /// them.
+    /// Keeps the settings of the Apps and websites, Screen text and Personalization panes for the
+    /// next run, and uses them.
     fn keep_pane_settings(&mut self) {
         let settings = self.save_settings(self.general.settings().clone());
         self.app.use_settings(&settings);
     }
 
-    /// Saves `general`, the settings of the General pane, with the settings of the Screen text
-    /// and Personalization panes, and returns them all.
+    /// Saves `general`, the settings of the General pane, with the settings of the Apps and
+    /// websites, Screen text and Personalization panes, and returns them all.
     fn save_settings(&mut self, general: Settings) -> Settings {
         let settings = Settings {
+            suggestion_places: self.suggestion_places.settings().clone(),
             screen_text: self.screen_text.settings().clone(),
             personalization: self.personalization.settings().clone(),
             ..general
         };
         self.settings_store.save(&settings);
         settings
+    }
+
+    fn on_suggestion_places_action(&mut self, action: SuggestionPlacesAction) {
+        if self.suggestion_places.on_action(action) {
+            self.keep_pane_settings();
+        }
     }
 
     fn on_screen_text_action(&mut self, action: ScreenTextAction) {
@@ -594,6 +616,7 @@ impl Controller {
         SettingsView {
             pages: vec![
                 self.general.page(&self.playground, &installed),
+                self.suggestion_places.page(),
                 self.screen_text
                     .page(desktop.ocr_availability(), desktop.ocr_levels()),
                 self.personalization.page(),

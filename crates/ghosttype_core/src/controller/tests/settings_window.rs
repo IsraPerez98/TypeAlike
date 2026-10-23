@@ -5,13 +5,13 @@ use crate::controller::Delivery;
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
-use crate::settings::{ClipboardAccess, ScreenTextAccess, ScreenTextSettings, Settings};
+use crate::settings::{ClipboardAccess, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces};
 use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
 use crate::settings_window::view::{ControlId, SettingsInput};
-use crate::test_support::mail_app;
+use crate::test_support::{mail_app, suggestion_app, suggestion_site};
 
 #[test]
 fn general_change_saves_settings() {
@@ -224,7 +224,65 @@ fn general_setting_keeps_the_screen_text_apps() {
 }
 
 #[test]
-fn screen_text_and_personalization_panes_follow_the_general_pane() {
+fn typing_adds_the_app_and_the_website_to_the_apps_and_websites_pane() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.shell.surroundings.domain = Some("mail.example".to_owned());
+    harness.press(Key::Char('H'));
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness.saved().pop().map(|settings| settings.suggestion_places),
+        Some(SuggestionPlaces {
+            apps: vec![suggestion_app("com.apple.mail", "Mail", true)],
+            sites: vec![suggestion_site("mail.example", true)],
+        })
+    );
+}
+
+#[test]
+fn typing_while_paused_adds_the_website_to_the_apps_and_websites_pane() {
+    let mut harness = Harness::new(Settings::default());
+    harness.toggle_pause();
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.shell.surroundings.domain = Some("mail.example".to_owned());
+    harness.press(Key::Char('H'));
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness
+            .saved()
+            .pop()
+            .map(|settings| settings.suggestion_places.sites),
+        Some(vec![suggestion_site("mail.example", true)])
+    );
+}
+
+#[test]
+fn website_switch_keeps_its_setting() {
+    let mut harness = Harness::new(Settings {
+        suggestion_places: SuggestionPlaces {
+            sites: vec![suggestion_site("bank.example", true)],
+            ..SuggestionPlaces::default()
+        },
+        ..Settings::default()
+    });
+
+    harness.toggle("suggestions-site:bank.example", false);
+
+    assert_eq!(
+        harness
+            .saved()
+            .pop()
+            .map(|settings| settings.suggestion_places.sites),
+        Some(vec![suggestion_site("bank.example", false)])
+    );
+}
+
+#[test]
+fn panes_show_in_the_order_of_the_navigation() {
     let mut harness = Harness::new(Settings::default());
 
     let view = harness.shown_settings();
@@ -233,6 +291,7 @@ fn screen_text_and_personalization_panes_follow_the_general_pane() {
         view.pages.iter().map(|page| page.title).collect::<Vec<_>>(),
         [
             "General",
+            "Apps and websites",
             "Screen text",
             "Personalization",
             "Models",

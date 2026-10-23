@@ -6,4 +6,5 @@ pub mod models;
 pub mod personalization;
 pub mod playground;
 pub mod screen_text;
+pub mod suggestion_places;
 pub mod view;

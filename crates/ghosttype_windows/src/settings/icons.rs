@@ -50,6 +50,7 @@ fn color_page_icon(icon: PageIcon) -> &'static [u8] {
         PageIcon::TextCursor => include_bytes!("../../assets/fluent/edit.svg"),
         PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.svg"),
         PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.svg"),
+        PageIcon::AppGrid => include_bytes!("../../assets/fluent/apps.svg"),
     }
 }
 
@@ -60,5 +61,6 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
         PageIcon::TextCursor => Symbol::Edit.into(),
         PageIcon::TextViewfinder => Symbol::Scan.into(),
         PageIcon::PersonText => Symbol::ContactInfo.into(),
+        PageIcon::AppGrid => Symbol::AllApps.into(),
     }
 }
