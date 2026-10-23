@@ -1,13 +1,9 @@
 //! Continues a session on the new line after Enter.
 
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, is_line_break};
 
 use super::session::recent_text;
 use super::{Engine, Reaction};
-
-/// The characters that end a line in the text of a field. Word ends a line inside a paragraph with
-/// a vertical tab.
-const LINE_BREAKS: [char; 5] = ['\n', '\r', '\u{b}', '\u{2028}', '\u{2029}'];
 
 impl Engine {
     /// Reads the field of `desktop` again after Enter, and returns the suggestion for the new line
@@ -79,12 +75,12 @@ fn text_after_enter(typed: &str, field_at_enter: &str, field_text: &str) -> Opti
 /// `field_text` is not `text` with such an addition.
 fn text_on_new_line<'field>(text: &str, field_text: &'field str) -> Option<&'field str> {
     let line_start = field_text
-        .trim_end_matches(|character| !LINE_BREAKS.contains(&character))
+        .trim_end_matches(|character| !is_line_break(character))
         .len();
     let breaks_start = field_text[..line_start].trim_end().len();
     let added_start = field_text[breaks_start..line_start]
         .char_indices()
-        .filter(|(_, character)| LINE_BREAKS.contains(character))
+        .filter(|&(_, character)| is_line_break(character))
         .map(|(offset, _)| breaks_start + offset)
         .find(|&end| field_text[..end].ends_with(text))?;
     let new_line = &field_text[line_start..];

@@ -16,6 +16,20 @@ pub const MAX_CHARS_BEFORE_CARET: usize = 4000;
 /// The most characters after the caret that a suggestion uses. A platform reads at most this many.
 pub const MAX_CHARS_AFTER_CARET: usize = 300;
 
+/// Whether `character` ends a line in the text of a field. Word ends a line inside a paragraph
+/// with a vertical tab.
+///
+/// ```
+/// use ghosttype_core::desktop::is_line_break;
+///
+/// assert!(is_line_break('\r'));
+/// assert!(!is_line_break(' '));
+/// ```
+#[must_use]
+pub fn is_line_break(character: char) -> bool {
+    matches!(character, '\n' | '\r' | '\u{b}' | '\u{2028}' | '\u{2029}')
+}
+
 /// The text of the focused field around the caret. With a selection, `before_caret` stops where
 /// the selection starts and `after_caret` starts where it stops, because a typed key replaces the
 /// selection. `Debug` shows only lengths, so logs never hold what the user wrote.
@@ -303,6 +317,20 @@ pub trait Desktop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_feed_return_vertical_tab_and_unicode_separators_break_a_line() {
+        let characters = ['\n', '\r', '\u{b}', '\u{2028}', '\u{2029}'];
+
+        assert_eq!(characters.map(is_line_break), [true; 5]);
+    }
+
+    #[test]
+    fn other_whitespace_and_letters_do_not_break_a_line() {
+        let characters = [' ', '\t', '\u{a0}', '\u{c}', 'a'];
+
+        assert_eq!(characters.map(is_line_break), [false; 5]);
+    }
 
     #[test]
     fn confidence_takes_a_fraction_in_percent() {
