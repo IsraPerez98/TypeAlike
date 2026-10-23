@@ -63,9 +63,10 @@ pub enum AfterAccept {
 /// ```
 #[derive(Clone, PartialEq, Eq)]
 pub struct WordFix {
-    /// The typed letters just before the caret, which the fix replaces.
+    /// The typed text just before the caret, which the fix replaces: the typed letters, and the
+    /// space or the sign that the user typed after them while the fix showed, if any.
     pub typo: String,
-    /// The word that replaces `typo`.
+    /// The text that replaces `typo`: the fixed word, with the same space or sign at its end.
     pub word: String,
     /// The rest of the suggestion after `word`, which can be empty.
     pub rest: String,

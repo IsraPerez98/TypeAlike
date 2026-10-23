@@ -130,7 +130,13 @@ pub(super) fn type_text(engine: &mut Engine, text: &str) -> Reaction {
 }
 
 pub(super) fn engine_waiting_for(context: &str) -> Engine {
-    let mut engine = Engine::default();
+    engine_waiting_with(&Settings::default(), context)
+}
+
+/// Returns an engine with `settings` that typed `context` and waits for the completion of its
+/// newest request, with no other request open.
+pub(super) fn engine_waiting_with(settings: &Settings, context: &str) -> Engine {
+    let mut engine = engine_with(settings);
     for character in context.chars() {
         engine.on_completion(completion(""));
         press(&mut engine, Key::Char(character));

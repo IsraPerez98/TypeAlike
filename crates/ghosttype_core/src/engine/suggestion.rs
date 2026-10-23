@@ -17,6 +17,8 @@ const SHARED_UNITS: usize = 2;
 /// The signs that can close a word: closing punctuation, quotes and brackets. The apostrophe is not
 /// one, because it also ends a possessive, as in "the students'".
 const CLOSING_SIGNS: [char; 13] = [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
+/// The signs that can follow a word with a typo, before at most one space, and keep its fix.
+const FIX_KEEPING_SIGNS: [char; 5] = [',', ';', ':', '!', '?'];
 
 /// Returns the first line of `completion` up to a placeholder, and up to where it writes
 /// `text_after` again, as ghost text after `context`, or `None` when it has no text. Spaces that
@@ -174,6 +176,21 @@ pub(super) fn word_fix(correction: &Correction, suggestion: &str) -> WordFix {
         word: format!("{}{word_rest}", correction.fixed.trim_start()),
         rest: rest.to_owned(),
     }
+}
+
+/// Returns `fix` after the user typed `character` after its typo, or `None` when `character` does
+/// not keep it. A space or one of [`FIX_KEEPING_SIGNS`] keeps it, but only one sign and then one
+/// space. The typo and the word then end with `character`, so that Tab deletes it and types it
+/// again. The rest keeps its text after `character`, and a rest that does not start with it goes.
+pub(super) fn fix_after_delimiter(fix: &WordFix, character: char) -> Option<WordFix> {
+    let is_sign = FIX_KEEPING_SIGNS.contains(&character);
+    let is_open = !fix.typo.ends_with(' ');
+    let is_kept = is_open && (character == ' ' || (is_sign && !fix.typo.ends_with(FIX_KEEPING_SIGNS)));
+    is_kept.then(|| WordFix {
+        typo: format!("{}{character}", fix.typo),
+        word: format!("{}{character}", fix.word),
+        rest: fix.rest.strip_prefix(character).unwrap_or_default().to_owned(),
+    })
 }
 
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with

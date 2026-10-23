@@ -4,9 +4,11 @@ use crate::engine::{AfterAccept, Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError};
 use crate::key::Key;
 use crate::settings::{Settings, TypoFix};
-use crate::test_support::completion;
+use crate::test_support::{ExpectedRequest, completion};
 
-use super::support::{accept, engine_waiting_for, engine_with, press, request, type_text};
+use super::support::{
+    accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, type_text,
+};
 
 #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
 fn correction(typed: &str, fixed: &str, text: &str) -> Result<Completion, InferenceError> {
@@ -28,8 +30,14 @@ fn word_fix(typo: &str, word: &str, rest: &str) -> WordFix {
 }
 
 fn engine_showing_a_fix() -> Engine {
+    engine_showing_a_fix_with("very soon")
+}
+
+/// Returns an engine that shows the fix of "dlei" in "the dlei", with `text` after the fixed
+/// letters "deli".
+fn engine_showing_a_fix_with(text: &str) -> Engine {
     let mut engine = engine_waiting_for("the dlei");
-    engine.on_completion(correction(" dlei", " deli", "very soon"));
+    engine.on_completion(correction(" dlei", " deli", text));
     engine
 }
 
@@ -183,4 +191,160 @@ fn fix_with_typo_fixes_off_hides() {
     let reaction = engine.on_completion(correction(" dlei", " deli", "very soon"));
 
     assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn space_after_a_fix_keeps_the_fix_with_the_space() {
+    let mut engine = engine_showing_a_fix_with("very");
+
+    let reaction = press(&mut engine, Key::Char(' '));
+
+    assert_eq!(reaction, Reaction::ShowFix(word_fix("dlei ", "delivery ", "")));
+}
+
+#[test]
+fn each_sign_after_a_fix_keeps_the_fix_with_the_sign() {
+    let signs = [',', ';', ':', '!', '?'];
+
+    let reactions = signs.map(|sign| press(&mut engine_showing_a_fix_with("very"), Key::Char(sign)));
+
+    assert_eq!(
+        reactions,
+        [
+            ("dlei,", "delivery,"),
+            ("dlei;", "delivery;"),
+            ("dlei:", "delivery:"),
+            ("dlei!", "delivery!"),
+            ("dlei?", "delivery?"),
+        ]
+        .map(|(typo, word)| Reaction::ShowFix(word_fix(typo, word, "")))
+    );
+}
+
+#[test]
+fn sign_and_then_a_space_after_a_fix_keep_the_fix() {
+    let mut engine = engine_showing_a_fix_with("very");
+
+    let reaction = type_text(&mut engine, ", ");
+
+    assert_eq!(reaction, Reaction::ShowFix(word_fix("dlei, ", "delivery, ", "")));
+}
+
+#[test]
+fn kept_fix_keeps_the_rest_after_the_typed_delimiter() {
+    let mut engine = engine_showing_a_fix_with("very, soon");
+
+    let reaction = type_text(&mut engine, ", ");
+
+    assert_eq!(
+        reaction,
+        Reaction::ShowFix(word_fix("dlei, ", "delivery, ", "soon"))
+    );
+}
+
+#[test]
+fn kept_fix_drops_a_rest_that_does_not_start_with_the_typed_delimiter() {
+    let mut engine = engine_showing_a_fix();
+
+    let reaction = press(&mut engine, Key::Char(','));
+
+    assert_eq!(reaction, Reaction::ShowFix(word_fix("dlei,", "delivery,", "")));
+}
+
+#[test]
+fn tab_after_a_kept_delimiter_replaces_the_typo_and_the_delimiter() {
+    let mut engine = engine_showing_a_fix();
+    press(&mut engine, Key::Char(' '));
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(
+        reaction,
+        Reaction::Replace {
+            deleted: 5,
+            text: "delivery ".to_owned(),
+            then: AfterAccept::Rest("soon".to_owned()),
+        }
+    );
+}
+
+#[test]
+fn tab_after_a_kept_delimiter_without_a_rest_requests_the_next_suggestion() {
+    let mut engine = engine_showing_a_fix_with("very");
+    type_text(&mut engine, ", ");
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(
+        reaction,
+        Reaction::Replace {
+            deleted: 6,
+            text: "delivery, ".to_owned(),
+            then: AfterAccept::Next(Box::new(request("the delivery, "))),
+        }
+    );
+}
+
+#[test]
+fn second_space_after_a_fix_asks_again() {
+    let mut engine = engine_showing_a_fix();
+
+    let reaction = type_text(&mut engine, "  ");
+
+    assert_eq!(reaction, request("the dlei  "));
+}
+
+#[test]
+fn second_sign_after_a_fix_asks_again() {
+    let mut engine = engine_showing_a_fix();
+
+    let reaction = type_text(&mut engine, ",,");
+
+    assert_eq!(reaction, request("the dlei,,"));
+}
+
+#[test]
+fn sign_after_a_kept_space_asks_again() {
+    let mut engine = engine_showing_a_fix();
+
+    let reaction = type_text(&mut engine, " ,");
+
+    assert_eq!(reaction, request("the dlei ,"));
+}
+
+#[test]
+fn letter_after_a_kept_delimiter_asks_again() {
+    let mut engine = engine_showing_a_fix();
+
+    let reaction = type_text(&mut engine, " d");
+
+    assert_eq!(reaction, request("the dlei d"));
+}
+
+#[test]
+fn backspace_after_a_kept_delimiter_asks_again() {
+    let mut engine = engine_showing_a_fix();
+    press(&mut engine, Key::Char(' '));
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, request("the dlei"));
+}
+
+#[test]
+fn space_after_a_typo_with_typo_fixes_off_asks_again() {
+    let settings = Settings {
+        typo_fix: TypoFix::Off,
+        ..Settings::default()
+    };
+    let mut engine = engine_waiting_with(&settings, "the dlei");
+    engine.on_completion(correction(" dlei", " deli", "very soon"));
+
+    let reaction = press(&mut engine, Key::Char(' '));
+
+    let expected = ExpectedRequest {
+        typo_check: settings.typo_check(),
+        ..ExpectedRequest::framed(&[], "the dlei ")
+    };
+    assert_eq!(reaction, Reaction::from(expected));
 }

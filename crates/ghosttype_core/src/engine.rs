@@ -25,6 +25,7 @@ use earlier_writing::needs_new_tables;
 use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
+use suggestion::fix_after_delimiter;
 
 pub use reaction::{AfterAccept, Reaction, WordFix};
 pub(crate) use suggestion::split_next_part;
@@ -183,6 +184,12 @@ impl Engine {
     }
 
     fn on_typed(&mut self, character: char) -> Reaction {
+        if let Offer::Fix(fix) = &self.offer
+            && let Some(kept) = fix_after_delimiter(fix, character)
+        {
+            self.offer = Offer::Fix(kept);
+            return self.offer.reaction();
+        }
         let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
             _ if self.keeps_completion_after(character) => String::new(),
