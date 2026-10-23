@@ -11,7 +11,8 @@ use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
 
 use crate::accessibility::{
-    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, copy_element, frame, is_secure_text, selected_range,
+    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, can_focused_element_hide_text, copy_element, frame,
+    is_secure_text, selected_range,
 };
 use crate::focus::caret::{caret_bounds, is_terminal_input, text_color};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
@@ -110,18 +111,14 @@ impl FocusTracker {
         frame(&element).filter(is_finite_frame)
     }
 
-    fn is_secure_text_focused(&self) -> bool {
-        self.focused_element()
-            .is_some_and(|element| is_secure_text(&element))
-    }
-
     fn focused_element(&self) -> Option<CFRetained<AXUIElement>> {
         copy_element(&self.system_wide, FOCUSED_ELEMENT_ATTRIBUTE)
     }
 
-    /// Classifies the focused control right now: excluded for secure text and ineligible apps.
+    /// Classifies the focused control right now: excluded for ineligible apps and for a control
+    /// that can hide its text.
     pub(crate) fn field(&self) -> Field {
-        if self.is_frontmost_eligible() && !self.is_secure_text_focused() {
+        if self.is_frontmost_eligible() && !can_focused_element_hide_text(&self.system_wide) {
             Field::Open
         } else {
             Field::Excluded

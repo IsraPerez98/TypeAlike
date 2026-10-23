@@ -51,6 +51,38 @@ pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
     copy_string(element, SUBROLE_ATTRIBUTE).is_some_and(|subrole| subrole == SECURE_TEXT_FIELD_SUBROLE)
 }
 
+/// Whether the focused element of `system_wide` can hide its text: a password field, or an
+/// element whose app did not answer in time.
+pub(crate) fn can_focused_element_hide_text(system_wide: &AXUIElement) -> bool {
+    let subrole = focused_subrole(system_wide);
+    if subrole == Err(AXError::CannotComplete) {
+        tracing::debug!("the focused app did not tell in time whether the field hides its text");
+    }
+    can_hide_text(subrole)
+}
+
+/// Reads the subrole of the focused element of `system_wide`, and keeps the error of a read that
+/// failed.
+fn focused_subrole(system_wide: &AXUIElement) -> Result<Option<String>, AXError> {
+    let Some(element) = read_attribute(system_wide, FOCUSED_ELEMENT_ATTRIBUTE)?
+        .and_then(|value| value.downcast::<AXUIElement>().ok())
+    else {
+        return Ok(None);
+    };
+    Ok(read_attribute(&element, SUBROLE_ATTRIBUTE)?
+        .and_then(|value| value.downcast::<CFString>().ok())
+        .map(|subrole| subrole.to_string()))
+}
+
+/// Whether a field whose read of the subrole gave `subrole` can hide its text. A read that did
+/// not finish in time tells nothing, so that field can.
+fn can_hide_text(subrole: Result<Option<String>, AXError>) -> bool {
+    match subrole {
+        Ok(subrole) => subrole.is_some_and(|subrole| subrole == SECURE_TEXT_FIELD_SUBROLE),
+        Err(error) => error == AXError::CannotComplete,
+    }
+}
+
 pub(crate) fn parent(element: &AXUIElement) -> Option<CFRetained<AXUIElement>> {
     copy_element(element, PARENT_ATTRIBUTE)
 }
@@ -134,10 +166,18 @@ pub(crate) fn copy_attribute_for_parameter(
         )
     };
     // SAFETY: on success the call stored a reference the caller owns.
-    unsafe { take_copied_value(error, value) }
+    unsafe { take_copied_value(error, value) }.ok().flatten()
 }
 
 pub(crate) fn copy_attribute(element: &AXUIElement, attribute: &'static str) -> Option<CFRetained<CFType>> {
+    read_attribute(element, attribute).ok().flatten()
+}
+
+/// Reads `attribute` of `element`, and keeps the error of a read that failed.
+fn read_attribute(
+    element: &AXUIElement,
+    attribute: &'static str,
+) -> Result<Option<CFRetained<CFType>>, AXError> {
     let mut value: *const CFType = ptr::null();
     // SAFETY: the output pointer refers to a local.
     let error = unsafe {
@@ -152,12 +192,15 @@ pub(crate) fn copy_attribute(element: &AXUIElement, attribute: &'static str) -> 
 /// # Safety
 ///
 /// When `error` is success, `value` must be null or a reference the caller owns.
-unsafe fn take_copied_value(error: AXError, value: *const CFType) -> Option<CFRetained<CFType>> {
+unsafe fn take_copied_value(
+    error: AXError,
+    value: *const CFType,
+) -> Result<Option<CFRetained<CFType>>, AXError> {
     if error != AXError::Success {
-        return None;
+        return Err(error);
     }
     // SAFETY: the caller guarantees `value` is an owned reference.
-    NonNull::new(value.cast_mut()).map(|value| unsafe { CFRetained::from_raw(value) })
+    Ok(NonNull::new(value.cast_mut()).map(|value| unsafe { CFRetained::from_raw(value) }))
 }
 
 fn read_range(value: &AXValue) -> Option<CFRange> {
@@ -193,4 +236,31 @@ pub(crate) fn read_rect(value: &AXValue) -> Option<CGRect> {
     // SAFETY: `rect` is a local CGRect, which is what the CGRect value type describes.
     let is_read = unsafe { value.value(AXValueType::CGRect, NonNull::from(&mut rect).cast()) };
     is_read.then_some(rect)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn password_field_and_read_that_did_not_finish_in_time_can_hide_text() {
+        let reads = [
+            Ok(Some(SECURE_TEXT_FIELD_SUBROLE.to_owned())),
+            Err(AXError::CannotComplete),
+        ];
+
+        assert_eq!(reads.map(can_hide_text), [true; 2]);
+    }
+
+    #[test]
+    fn field_with_another_subrole_or_without_one_shows_its_text() {
+        let reads = [
+            Ok(Some("AXSearchField".to_owned())),
+            Ok(None),
+            Err(AXError::NoValue),
+            Err(AXError::AttributeUnsupported),
+        ];
+
+        assert_eq!(reads.map(can_hide_text), [false; 4]);
+    }
 }
