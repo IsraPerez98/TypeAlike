@@ -15,6 +15,9 @@ pub enum Timer {
     CaretSettle,
     /// Waits for [`INPUT_SETTLE_DELAY`](crate::app::INPUT_SETTLE_DELAY) without keys and clicks.
     InputSettle,
+    /// Ends the hold of a quick Tab after the last part of a suggestion. After it, a Tab reaches
+    /// the app again while no ghost text shows.
+    TabHold,
 }
 
 /// Whether another window or app has the focus since the shell looked last.

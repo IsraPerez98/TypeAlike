@@ -47,6 +47,7 @@ use crate::window::{Window, WindowSpec};
 const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
 const FIELD_TIMER_ID: usize = 3;
+const TAB_HOLD_TIMER_ID: usize = 4;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -299,6 +300,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == CARET_TIMER_ID => self.on_timer(Timer::CaretSettle),
             WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_timer(Timer::InputSettle),
             WM_TIMER if wparam.0 == FIELD_TIMER_ID => self.shell.read_field_text(),
+            WM_TIMER if wparam.0 == TAB_HOLD_TIMER_ID => self.on_timer(Timer::TabHold),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }

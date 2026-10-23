@@ -8,4 +8,5 @@ mod input_settle;
 mod screen_read;
 mod settings_window;
 mod startup;
+mod tab_hold;
 mod tray;

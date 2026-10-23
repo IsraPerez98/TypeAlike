@@ -155,6 +155,13 @@ impl Engine {
         self.session.is_some()
     }
 
+    /// Whether the ghost text has a suggestion or a fix, or the completion of the newest request
+    /// still runs and can give one.
+    #[must_use]
+    pub(crate) fn has_offer(&self) -> bool {
+        !matches!(self.offer, Offer::Idle)
+    }
+
     /// The app of the session, if a session runs in an app with an id.
     #[must_use]
     pub(crate) fn session_app(&self) -> Option<&ScreenTextApp> {

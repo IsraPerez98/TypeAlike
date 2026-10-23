@@ -6,6 +6,7 @@ mod caret_wait;
 mod ghost_view;
 mod services;
 mod shell;
+mod tab_hold;
 
 pub use ghost_view::{Ghost, GhostPlacement, GhostView};
 pub use services::{BackendChoice, Delivery, DeliverySink, Services};
@@ -16,6 +17,7 @@ use std::{fmt, mem};
 
 use caret_wait::{CaretWait, GhostTiming};
 use services::delivering_sink;
+use tab_hold::TabHold;
 
 use crate::app::{
     App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
@@ -74,6 +76,7 @@ pub struct Controller {
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
     caret_wait: CaretWait,
+    tab_hold: TabHold,
     /// Whether the Screen text or Personalization pane has an app that the settings store does not
     /// have yet.
     has_unsaved_app: bool,
@@ -85,6 +88,7 @@ impl fmt::Debug for Controller {
             .debug_struct("Controller")
             .field("app", &self.app)
             .field("caret_wait", &self.caret_wait)
+            .field("tab_hold", &self.tab_hold)
             .finish_non_exhaustive()
     }
 }
@@ -142,6 +146,7 @@ impl Controller {
             playground_sink,
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             caret_wait: CaretWait::default(),
+            tab_hold: TabHold::default(),
             has_unsaved_app: false,
         };
         controller.load_history_when_on();
@@ -163,11 +168,16 @@ impl Controller {
     /// Handles a key that the user pressed, before the key reaches the focused app. `key` is
     /// `None` for a press that the platform does not translate, such as a modifier key alone. The
     /// first key of a session also reads the screen, so that the prompt gets the newest messages.
+    /// After the last part of a suggestion, a quick Tab does not reach the app while the next
+    /// suggestion can still come and does not show yet.
     pub fn on_key_down(&mut self, key: Option<Key>, shell: &mut dyn Shell) -> Disposition {
         self.refresh_focus(shell);
         let Some(key) = key else {
             return Disposition::Pass;
         };
+        if self.tab_hold.holds(key, shell) {
+            return Disposition::Swallow;
+        }
         self.caret_wait.on_key();
         let reaction = if self.caret_wait.is_rest() {
             self.app.on_key(key, &DesktopWithPendingRest(&*shell))
@@ -185,6 +195,7 @@ impl Controller {
     /// Handles a caret that moved somewhere unknown: another window has the focus, the user
     /// clicked, or the screen changed.
     pub fn on_context_lost(&mut self, shell: &mut dyn Shell) {
+        self.tab_hold.end(shell);
         let reaction = self.app.on_context_lost();
         self.apply(reaction, shell);
         shell.hide_badge();
@@ -195,6 +206,7 @@ impl Controller {
         match timer {
             Timer::CaretSettle => self.on_caret_settled(shell),
             Timer::InputSettle => self.on_input_settled(shell),
+            Timer::TabHold => self.tab_hold.on_timer(),
         }
     }
 
@@ -226,6 +238,7 @@ impl Controller {
     pub fn on_tray_command(&mut self, command: TrayCommand, shell: &mut dyn Shell) {
         match self.app.on_tray_command(command) {
             TrayOutcome::Paused => {
+                self.tab_hold.end(shell);
                 self.hide_ghost(shell);
                 let request = self.playground.unload_model();
                 self.on_status_change(request, shell);
@@ -474,6 +487,9 @@ impl Controller {
             AfterAccept::Rest(rest) => self.caret_wait.show_rest_after_settle(rest, shell),
             AfterAccept::Next(reaction) => {
                 self.apply(*reaction, shell);
+                if self.app.has_offer() {
+                    self.tab_hold.start(shell);
+                }
             }
         }
     }
@@ -496,6 +512,9 @@ impl Controller {
                 self.apply(reaction, shell);
             }
             None => {}
+        }
+        if !self.app.has_offer() {
+            self.tab_hold.end(shell);
         }
     }
 

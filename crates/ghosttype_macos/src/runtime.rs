@@ -94,6 +94,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             target,
             caret_timer: None,
             settle_timer: None,
+            tab_hold_timer: None,
             pending_injections: VecDeque::new(),
             settings: None,
         },
@@ -180,6 +181,11 @@ impl Runtime {
         self.controller.on_timer(Timer::InputSettle, &mut self.shell);
     }
 
+    fn on_tab_hold_ended(&mut self) {
+        self.shell.tab_hold_timer = None;
+        self.controller.on_timer(Timer::TabHold, &mut self.shell);
+    }
+
     fn on_space_change(&mut self) {
         self.controller.on_context_lost(&mut self.shell);
         self.controller.on_input(&mut self.shell);
@@ -241,6 +247,7 @@ struct AppKitShell {
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
+    tab_hold_timer: Option<Retained<NSTimer>>,
     /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
@@ -289,6 +296,7 @@ impl AppKitShell {
         match timer {
             Timer::CaretSettle => &mut self.caret_timer,
             Timer::InputSettle => &mut self.settle_timer,
+            Timer::TabHold => &mut self.tab_hold_timer,
         }
     }
 }
@@ -362,6 +370,7 @@ impl Shell for AppKitShell {
         let action = match timer {
             Timer::CaretSettle => sel!(caretDidSettle:),
             Timer::InputSettle => sel!(inputDidSettle:),
+            Timer::TabHold => sel!(tabHoldDidEnd:),
         };
         let scheduled = self.schedule(delay.as_secs_f64(), action);
         *self.timer_slot(timer) = Some(scheduled);

@@ -90,6 +90,12 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(tabHoldDidEnd:))]
+        fn tab_hold_did_end(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_tab_hold_ended);
+        }
+
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
             let replacement = with_runtime(|runtime| runtime.shell.pending_injections.pop_front()).flatten();

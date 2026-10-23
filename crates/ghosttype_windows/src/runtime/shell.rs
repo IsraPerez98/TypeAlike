@@ -14,7 +14,7 @@ use ghosttype_core::settings_window::view::SettingsView;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTimer};
 use windows::core::Error;
 
-use super::{CARET_TIMER_ID, FIELD_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID};
+use super::{CARET_TIMER_ID, FIELD_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID};
 use crate::badge::Badge;
 use crate::caret::Caret;
 use crate::caret_reader::{CaretRead, CaretReader, CaretView, KeptFieldText, PendingView};
@@ -239,6 +239,7 @@ fn timer_id(timer: Timer) -> usize {
     match timer {
         Timer::CaretSettle => CARET_TIMER_ID,
         Timer::InputSettle => SETTLE_TIMER_ID,
+        Timer::TabHold => TAB_HOLD_TIMER_ID,
     }
 }
 

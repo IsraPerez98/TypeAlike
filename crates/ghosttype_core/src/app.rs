@@ -319,6 +319,13 @@ impl App {
         self.engine.is_caret_at_line_end()
     }
 
+    /// Whether the ghost text has a suggestion or a fix, or the completion of the newest
+    /// [`Reaction::Request`] still runs and can give one.
+    #[must_use]
+    pub fn has_offer(&self) -> bool {
+        self.engine.has_offer()
+    }
+
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
     /// GhostType watches.
     #[must_use]
