@@ -3,24 +3,26 @@
 //! Apps without a system caret draw a caret of their own. The caret has the color of the text
 //! before it. In a terminal of xterm.js, the caret moves up to the row that holds it.
 
-use ghosttype_core::desktop::TextColor;
+use ghosttype_core::desktop::{TextColor, is_line_break};
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationElement, IUIAutomationTextRange, TextPatternRangeEndpoint_Start, TextUnit_Character,
-    UIA_BackgroundColorAttributeId, UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId,
-    UIA_ForegroundColorAttributeId,
+    IUIAutomationElement, IUIAutomationTextRange, TextPatternRangeEndpoint, TextPatternRangeEndpoint_End,
+    TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Line, UIA_BackgroundColorAttributeId,
+    UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId, UIA_ForegroundColorAttributeId,
 };
 
 use super::com::SafeArray;
-use super::{Uia, caret_range, frame_with_area, is_password, is_terminal_input};
+use super::{Uia, WHOLE_RANGE, caret_range, frame_with_area, is_password, is_terminal_input};
 use crate::caret::{self, Caret};
 use crate::display::round_to_pixel;
 use crate::pixels::Rgb;
+use crate::utf16::whole_chars;
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
 const VALUES_PER_RECTANGLE: usize = 4;
 const CHARACTERS_BEFORE_CARET: i32 = -1;
+const CHARACTERS_AFTER_CARET: i32 = 1;
 /// The class of the screen of a terminal of xterm.js, which holds its rows.
 const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 
@@ -55,8 +57,9 @@ impl Uia {
     }
 
     /// Locates the caret that `element`, the focused control, draws itself: the caret of the caret
-    /// object of its window, else the right edge of the character before the caret. In a terminal
-    /// of xterm.js, the caret moves up to the row that holds it.
+    /// object of its window, else the right edge of the character before the caret, or the start
+    /// of the line after a line break. In a terminal of xterm.js, the caret moves up to the row
+    /// that holds it.
     pub(super) fn drawn_caret(&self, element: &IUIAutomationElement) -> Option<Caret> {
         let caret = caret::accessible_caret().or_else(|| caret_of(element))?;
         Some(match self.terminal_input(element) {
@@ -103,13 +106,72 @@ impl Uia {
     }
 }
 
-/// Locates the caret in `element` from the bounds of the character before it.
+/// Locates the caret in `element` at the right edge of the character before it. At the start of
+/// the text or after a line break, the caret is at the start of its line.
 fn caret_of(element: &IUIAutomationElement) -> Option<Caret> {
     if is_password(element) {
         return None;
     }
-    // Many apps give no bounds for the empty range at the caret, so measure the character before it.
-    caret_from_rectangles(&bounding_rectangles(&character_before_caret(element)?)?)
+    let caret = caret_range(element)?;
+    // Many apps give no bounds for the empty range at the caret, so measure a character or a line.
+    match character_beside(&caret, TextPatternRangeEndpoint_Start, CHARACTERS_BEFORE_CARET) {
+        Some(before) if !ends_line(&before) => caret_from_rectangles(&bounding_rectangles(&before)?),
+        _ => line_start_caret(&caret),
+    }
+}
+
+/// Locates the caret at the start of its line: at the left edge of the character after `caret`,
+/// else at the left edge of the line of `caret`.
+fn line_start_caret(caret: &IUIAutomationTextRange) -> Option<Caret> {
+    character_beside(caret, TextPatternRangeEndpoint_End, CHARACTERS_AFTER_CARET)
+        .and_then(|after| caret_at_line_start(&bounding_rectangles(&after)?, MeasuredLine::OfCaret))
+        .or_else(|| line_box_caret(caret))
+}
+
+/// Locates the caret at the left edge of the line of `caret`. Some apps give the line above for a
+/// caret after a line break at the end of the text.
+fn line_box_caret(caret: &IUIAutomationTextRange) -> Option<Caret> {
+    // SAFETY: plain calls on interfaces of this thread.
+    let (line, start_order) = unsafe {
+        let line = caret.Clone().ok()?;
+        line.ExpandToEnclosingUnit(TextUnit_Line).ok()?;
+        let start_order = line
+            .CompareEndpoints(
+                TextPatternRangeEndpoint_Start,
+                caret,
+                TextPatternRangeEndpoint_Start,
+            )
+            .ok()?;
+        (line, start_order)
+    };
+    caret_at_line_start(
+        &bounding_rectangles(&line)?,
+        MeasuredLine::from_start_order(start_order),
+    )
+}
+
+/// The range of `caret` with its `endpoint` moved by `characters`, so that it also holds the
+/// character next to the caret on that side. `None` when no character is there, at the start or
+/// at the end of the text.
+fn character_beside(
+    caret: &IUIAutomationTextRange,
+    endpoint: TextPatternRangeEndpoint,
+    characters: i32,
+) -> Option<IUIAutomationTextRange> {
+    // SAFETY: plain calls on interfaces of this thread.
+    unsafe {
+        let range = caret.Clone().ok()?;
+        let moved = range
+            .MoveEndpointByUnit(endpoint, TextUnit_Character, characters)
+            .ok()?;
+        (moved != 0).then_some(range)
+    }
+}
+
+/// Whether the text of `range` ends with a line break.
+fn ends_line(range: &IUIAutomationTextRange) -> bool {
+    // SAFETY: plain call on an interface of this thread.
+    unsafe { range.GetText(WHOLE_RANGE) }.is_ok_and(|text| whole_chars(&text).ends_with(is_line_break))
 }
 
 fn character_before_caret(element: &IUIAutomationElement) -> Option<IUIAutomationTextRange> {
@@ -165,13 +227,53 @@ fn bounding_rectangles(range: &IUIAutomationTextRange) -> Option<Vec<f64>> {
 /// and height in physical screen pixels. `None` when a value or an edge of that rectangle is not a
 /// finite number.
 fn caret_from_rectangles(rectangles: &[f64]) -> Option<Caret> {
-    let [left, top, width, height] = *rectangles.as_chunks::<VALUES_PER_RECTANGLE>().0.last()?;
-    let edges = [left, top, left + width, top + height];
-    if !edges.into_iter().all(f64::is_finite) {
-        return None;
-    }
-    let [left, top, right, bottom] = edges.map(round_to_pixel);
+    let [left, top, right, bottom] = pixel_edges(*rectangles.as_chunks::<VALUES_PER_RECTANGLE>().0.last()?)?;
     Caret::from_corners(POINT { x: left, y: top }, POINT { x: right, y: bottom }, None)
+}
+
+/// The line of a box that marks the start of a line, as seen from the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MeasuredLine {
+    /// The line of the caret.
+    OfCaret,
+    /// The line above the caret, which ends with the line break before the caret.
+    Above,
+}
+
+impl MeasuredLine {
+    /// The line that starts at `start_order` from the caret: negative before it, 0 at it and
+    /// positive after it. A line that starts before a caret at the start of its line is the line
+    /// above.
+    fn from_start_order(start_order: i32) -> Self {
+        if start_order < 0 {
+            Self::Above
+        } else {
+            Self::OfCaret
+        }
+    }
+}
+
+/// Builds the caret at the left edge of the first of `rectangles`, which marks the start of
+/// `line`, each given as left, top, width and height in physical screen pixels. A caret below the
+/// line above is one line lower. `None` when a value or an edge of that rectangle is not a finite
+/// number.
+fn caret_at_line_start(rectangles: &[f64], line: MeasuredLine) -> Option<Caret> {
+    let [left, top, _, bottom] = pixel_edges(*rectangles.as_chunks::<VALUES_PER_RECTANGLE>().0.first()?)?;
+    let (top, bottom) = match line {
+        MeasuredLine::OfCaret => (top, bottom),
+        MeasuredLine::Above => (bottom, bottom.checked_add(bottom.checked_sub(top)?)?),
+    };
+    Caret::from_corners(POINT { x: left, y: top }, POINT { x: left, y: bottom }, None)
+}
+
+/// The left, top, right and bottom edges in whole pixels of the rectangle with `left`, `top`,
+/// `width` and `height`. `None` when a value or an edge is not a finite number.
+fn pixel_edges([left, top, width, height]: [f64; VALUES_PER_RECTANGLE]) -> Option<[i32; 4]> {
+    let edges = [left, top, left + width, top + height];
+    edges
+        .into_iter()
+        .all(f64::is_finite)
+        .then(|| edges.map(round_to_pixel))
 }
 
 /// The hidden input box of a terminal of xterm.js, which the terminal moves to the cell of its
@@ -240,6 +342,63 @@ mod tests {
                 font_face: None,
                 text_color: None,
             })
+        );
+    }
+
+    #[test]
+    fn caret_at_the_start_of_its_line_is_at_the_left_edge_of_the_first_rectangle() {
+        let rectangles = [40.0, 120.0, 8.0, 18.0, 200.0, 138.0, 8.0, 18.0];
+
+        let caret = caret_at_line_start(&rectangles, MeasuredLine::OfCaret);
+
+        assert_eq!(
+            caret,
+            Some(Caret {
+                origin: POINT { x: 40, y: 120 },
+                height: 18,
+                font_face: None,
+                text_color: None,
+            })
+        );
+    }
+
+    #[test]
+    fn caret_below_the_line_above_is_one_line_lower() {
+        let rectangles = [40.0, 102.0, 300.0, 18.0];
+
+        let caret = caret_at_line_start(&rectangles, MeasuredLine::Above);
+
+        assert_eq!(
+            caret,
+            Some(Caret {
+                origin: POINT { x: 40, y: 120 },
+                height: 18,
+                font_face: None,
+                text_color: None,
+            })
+        );
+    }
+
+    #[test]
+    fn line_start_without_a_finite_rectangle_gives_no_caret() {
+        let carets = [
+            caret_at_line_start(&[], MeasuredLine::OfCaret),
+            caret_at_line_start(&[f64::NAN, 120.0, 8.0, 18.0], MeasuredLine::OfCaret),
+            caret_at_line_start(&[40.0, f64::MAX, 8.0, f64::MAX], MeasuredLine::Above),
+        ];
+
+        assert_eq!(carets, [None, None, None]);
+    }
+
+    #[test]
+    fn line_that_starts_before_the_caret_is_the_line_above() {
+        let orders = [-1, 0, 1];
+
+        let lines = orders.map(MeasuredLine::from_start_order);
+
+        assert_eq!(
+            lines,
+            [MeasuredLine::Above, MeasuredLine::OfCaret, MeasuredLine::OfCaret]
         );
     }
 
