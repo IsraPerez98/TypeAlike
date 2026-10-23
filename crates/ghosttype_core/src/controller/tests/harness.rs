@@ -8,15 +8,17 @@ use std::time::Duration;
 
 use crate::app::{BadgeView, TrayCommand, TrayView};
 use crate::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView, MAX_CARET_MOVE_CHECKS,
-    Services, Shell, Timer,
+    BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView,
+    MAX_CARET_MOVE_CHECKS, Services, Shell, Timer,
 };
 use crate::desktop::{
     CopiedText, Desktop, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
-use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use crate::inference::{
+    Completion, Correction, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+};
 use crate::key::{Disposition, Key};
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, Settings,
@@ -27,6 +29,7 @@ use crate::test_support::{self, completion, mail_history_app};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
+    ReadCaret,
     RenderAtCaret {
         ghost: Option<Ghost>,
         badge: Option<BadgeView>,
@@ -53,6 +56,8 @@ pub(super) struct FakeShell {
     calls: Vec<Call>,
     pub(super) ghost_view: Option<GhostView>,
     pub(super) is_ghost_shown: bool,
+    /// How the shell looks at the caret. A shell that looks later records each look as a call.
+    pub(super) caret_look: CaretLook,
 }
 
 impl Desktop for FakeShell {
@@ -73,13 +78,20 @@ impl Desktop for FakeShell {
     }
 
     fn is_ghost_shown(&self) -> bool {
-        self.is_ghost_shown
+        self.is_ghost_shown && self.ghost_view.is_some()
     }
 }
 
 impl Shell for FakeShell {
     fn refresh_focus(&mut self) -> FocusChange {
         mem::replace(&mut self.focus_change, FocusChange::Unchanged)
+    }
+
+    fn read_caret(&mut self) -> CaretLook {
+        if self.caret_look == CaretLook::Later {
+            self.calls.push(Call::ReadCaret);
+        }
+        self.caret_look
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
@@ -91,6 +103,7 @@ impl Shell for FakeShell {
     }
 
     fn hide_ghost(&mut self) {
+        self.ghost_view = None;
         self.calls.push(Call::HideGhost);
     }
 
@@ -251,6 +264,7 @@ impl Harness {
                 calls: Vec::new(),
                 ghost_view: None,
                 is_ghost_shown: true,
+                caret_look: CaretLook::AtRender,
             },
             recorder,
             deliveries,
@@ -276,6 +290,20 @@ impl Harness {
     pub(super) fn run_out_caret_checks(&mut self) {
         for _ in 0..MAX_CARET_MOVE_CHECKS {
             self.settle_caret();
+        }
+    }
+
+    /// Gives `read` to the controller as the answer of the shell to its last look at the caret.
+    pub(super) fn answer_caret(&mut self, read: CaretRead) {
+        self.controller.on_caret_read(read, &mut self.shell);
+    }
+
+    /// Settles the caret and answers the look with `read`, once for each check that waits for the
+    /// caret to move.
+    pub(super) fn run_out_caret_checks_at(&mut self, read: CaretRead) {
+        for _ in 0..MAX_CARET_MOVE_CHECKS {
+            self.settle_caret();
+            self.answer_caret(read);
         }
     }
 
@@ -415,6 +443,17 @@ pub(super) fn suggestion_settings() -> Settings {
 
 pub(super) fn completed(text: &str) -> InferenceEvent {
     InferenceEvent::Completed(completion(text))
+}
+
+/// The completion `text` with the fix of the `typed` letters to `fixed`.
+pub(super) fn fixed(typed: &str, fixed: &str, text: &str) -> InferenceEvent {
+    InferenceEvent::Completed(completion(text).map(|completion| Completion {
+        correction: Some(Correction {
+            typed: typed.to_owned(),
+            fixed: fixed.to_owned(),
+        }),
+        ..completion
+    }))
 }
 
 pub(super) fn loaded() -> InferenceEvent {

@@ -37,8 +37,10 @@ pub struct GhostView {
     pub typed_word: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
-    /// Whether a key changed the text since the ghost text showed last. The platform then shows
-    /// the ghost text only at a caret that moved from where the ghost text showed last.
+    /// Whether a key changed the text since the ghost text showed last, while looks at the caret
+    /// are left. Only a shell that answers [`CaretLook::AtRender`](super::CaretLook::AtRender)
+    /// uses it: it then shows the ghost text only at a caret that moved from where the ghost text
+    /// showed last.
     pub is_after_edit: bool,
 }
 

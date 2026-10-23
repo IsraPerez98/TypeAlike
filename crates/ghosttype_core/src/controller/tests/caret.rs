@@ -1,17 +1,17 @@
 //! Tests of the ghost text, the badge and the fixes at the caret.
 
 use super::harness::{
-    Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge, loaded,
+    Call, Harness, completed, field_around, fixed, ghost_at_caret, hidden_ghost_and_badge, loaded,
 };
 use crate::controller::{
     CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, Delivery, FocusChange, Ghost, GhostPlacement, Timer,
 };
 use crate::desktop::Field;
 use crate::engine::WordFix;
-use crate::inference::{Completion, Correction, InferenceEvent, InferenceRequest};
+use crate::inference::{InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key};
 use crate::settings::{Settings, SuggestionDisplay};
-use crate::test_support::{ACTIVE_BADGE, completion, suggestion_request};
+use crate::test_support::{ACTIVE_BADGE, suggestion_request};
 
 #[test]
 fn key_in_open_field_requests_suggestion() {
@@ -317,14 +317,18 @@ fn ghost_shows_at_any_caret_after_the_last_check() {
     assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
 }
 
-fn fixed(typed: &str, fixed: &str, text: &str) -> InferenceEvent {
-    InferenceEvent::Completed(completion(text).map(|completion| Completion {
-        correction: Some(Correction {
-            typed: typed.to_owned(),
-            fixed: fixed.to_owned(),
-        }),
-        ..completion
-    }))
+#[test]
+fn rest_after_a_fix_of_the_same_length_is_not_after_an_edit() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_around("Until te", "");
+    harness.press(Key::Char('h'));
+    harness.answer(fixed("teh", "the", " end"));
+    harness.settle_caret();
+    harness.press(Key::Tab);
+
+    harness.settle_caret();
+
+    assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
 }
 
 #[test]

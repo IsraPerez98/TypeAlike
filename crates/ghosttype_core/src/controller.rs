@@ -10,12 +10,12 @@ mod tab_hold;
 
 pub use ghost_view::{Ghost, GhostPlacement, GhostView};
 pub use services::{BackendChoice, Delivery, DeliverySink, Services};
-pub use shell::{FocusChange, Shell, Timer};
+pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 
 use std::time::Duration;
 use std::{fmt, mem};
 
-use caret_wait::{CaretWait, GhostTiming};
+use caret_wait::{CaretWait, GhostTiming, LookOutcome};
 use services::delivering_sink;
 use tab_hold::TabHold;
 
@@ -210,6 +210,26 @@ impl Controller {
         }
     }
 
+    /// Handles `read`, the look at the caret that the shell gives after it answered
+    /// [`CaretLook::Later`]. Shows the waiting ghost text and the badge at the caret of `read`.
+    /// After a key, a caret that did not move yet gets only the badge, and the controller looks
+    /// again later. A caret far from the frame of its field counts as no caret. Drops `read` when
+    /// a key came after the look started, because the key can move the caret.
+    pub fn on_caret_read(&mut self, read: CaretRead, shell: &mut dyn Shell) {
+        let Some(outcome) = self.caret_wait.on_caret_read(read) else {
+            return;
+        };
+        match outcome {
+            LookOutcome::GhostAndBadge => self.render_at_caret(shell),
+            LookOutcome::BadgeOnly => shell.render_at_caret(None, self.app.badge_view()),
+            LookOutcome::Nothing => {
+                shell.hide_ghost();
+                shell.hide_badge();
+            }
+        }
+        self.caret_wait.after_render(shell);
+    }
+
     /// Returns the menu that a click on the badge at the caret shows, or `None` while no badge
     /// shows.
     #[must_use]
@@ -336,10 +356,16 @@ impl Controller {
         self.render_waiting_ghost(shell);
     }
 
-    /// Shows the ghost text that waits for the caret, and the badge, at the caret.
+    /// Shows the ghost text that waits for the caret, and the badge, at the caret: at once when the
+    /// shell reads the caret as it draws, else when the shell gives its look at the caret.
     fn render_waiting_ghost(&mut self, shell: &mut dyn Shell) {
-        self.render_at_caret(shell);
-        self.caret_wait.after_render(shell);
+        match shell.read_caret() {
+            CaretLook::AtRender => {
+                self.render_at_caret(shell);
+                self.caret_wait.after_render(shell);
+            }
+            CaretLook::Later => self.caret_wait.wait_for_look(),
+        }
     }
 
     /// Shows `ghost` at once when the caret settled after the last key, else when it settles.
@@ -470,6 +496,7 @@ impl Controller {
             }
             Reaction::Replace { deleted, text, then } => {
                 self.hide_ghost(shell);
+                self.caret_wait.on_replace(deleted, &text);
                 shell.replace_before_caret(deleted, text);
                 self.apply_after_accept(then, shell);
                 Disposition::Swallow
@@ -544,7 +571,7 @@ impl Controller {
             self.runner.submit(request, &self.playground_sink);
         }
         shell.render_tray(&self.app.tray_view());
-        self.render_at_caret(shell);
+        self.render_waiting_ghost(shell);
         self.render_settings(shell);
     }
 

@@ -2,6 +2,7 @@
 
 mod badge;
 mod caret;
+mod caret_look;
 mod harness;
 mod history;
 mod input_settle;
