@@ -5,10 +5,22 @@ use std::mem;
 use ghosttype_core::inference::LogProbability;
 
 /// The signs other than a period that end a sentence when a new word comes after them.
-const SENTENCE_ENDS: [char; 3] = ['!', '?', '\u{2026}'];
-/// The fewest letters of the word before a period that ends a sentence. A shorter word is often
-/// an abbreviation, such as "Dr." or "e.g.".
-const MIN_LETTERS_BEFORE_PERIOD: usize = 3;
+const SENTENCE_ENDS: [char; 6] = ['!', '?', '\u{2026}', '\u{3002}', '\u{ff01}', '\u{ff1f}'];
+/// The quotes and brackets that can come after the sign that ends a sentence, or between the last
+/// word and its period.
+const CLOSING_QUOTES_AND_BRACKETS: [char; 11] = [
+    '"', '\'', ')', ']', '}', '\u{201d}', '\u{2019}', '\u{bb}', '\u{300d}', '\u{300f}', '\u{ff09}',
+];
+/// The fewest letters of the word before a period that ends a sentence. A period after one letter
+/// often ends an initial or an abbreviation such as "e.g." or "a.m.".
+const MIN_LETTERS_BEFORE_PERIOD: usize = 2;
+/// The English and Spanish abbreviations of more than one letter, in lowercase and without their
+/// period, that seldom end a sentence. Abbreviations that often end a sentence, such as "etc.",
+/// are not here.
+const ABBREVIATIONS: [&str; 24] = [
+    "approx", "aprox", "av", "avda", "cf", "dr", "dra", "ej", "fig", "ing", "lic", "mr", "mrs", "ms", "nro",
+    "núm", "pág", "págs", "prof", "sr", "sra", "sres", "srta", "vs",
+];
 
 /// Sums the log probabilities of the added tokens for each word that they write.
 #[derive(Debug, Default)]
@@ -98,26 +110,30 @@ pub(super) fn starts_next_sentence(healed: &[u8], written: &[u8], text: &[u8]) -
     starts_word(text) && ends_sentence(healed, written)
 }
 
-/// Whether the `written` text after the `healed` text ends a sentence. It must have a letter, so
+/// Whether the `written` text after the `healed` text ends a sentence: it ends with a period or one
+/// of the [`SENTENCE_ENDS`], before any [`CLOSING_QUOTES_AND_BRACKETS`]. It must have a letter, so
 /// that a sign after a word of the prompt or a number such as "1." does not end it. A period
-/// counts only after a word of at least [`MIN_LETTERS_BEFORE_PERIOD`] letters, with the letters
-/// of the healed text.
+/// counts only after a word of at least [`MIN_LETTERS_BEFORE_PERIOD`] letters that is not one of
+/// the [`ABBREVIATIONS`]. The word gets the letters of the healed text.
 pub(super) fn ends_sentence(healed: &[u8], written: &[u8]) -> bool {
     let written = String::from_utf8_lossy(written);
     if !written.contains(char::is_alphabetic) {
         return false;
     }
-    let Some(before_period) = written.strip_suffix('.') else {
-        return written.ends_with(SENTENCE_ENDS);
+    let closed = written.trim_end_matches(CLOSING_QUOTES_AND_BRACKETS);
+    let Some(before_period) = closed.strip_suffix('.') else {
+        return closed.ends_with(SENTENCE_ENDS);
     };
-    let healed = String::from_utf8_lossy(healed);
-    let word_letters = before_period
-        .chars()
-        .rev()
-        .chain(healed.chars().rev())
-        .take_while(|character| character.is_alphabetic())
-        .count();
-    word_letters >= MIN_LETTERS_BEFORE_PERIOD
+    let text = format!("{}{before_period}", String::from_utf8_lossy(healed));
+    let word = last_letters(text.trim_end_matches(CLOSING_QUOTES_AND_BRACKETS));
+    let is_abbreviation = ABBREVIATIONS.contains(&word.to_lowercase().as_str());
+    word.chars().count() >= MIN_LETTERS_BEFORE_PERIOD && !is_abbreviation
+}
+
+/// The letters at the end of `text`.
+fn last_letters(text: &str) -> &str {
+    text.rsplit_once(|character: char| !character.is_alphabetic())
+        .map_or(text, |(_, letters)| letters)
 }
 
 #[cfg(test)]
@@ -221,6 +237,9 @@ mod tests {
             (b" Aish", b"a.", true),
             (b"", b"Really?!", true),
             (b"", "wait\u{2026}".as_bytes(), true),
+            (b"", "好的。".as_bytes(), true),
+            (b"", "本当！".as_bytes(), true),
+            (b"", "真的吗？".as_bytes(), true),
             (b" Thanks", b".", false),
             (b"", b" 1.", false),
             (b"", b"soon", false),
@@ -233,17 +252,81 @@ mod tests {
     }
 
     #[test]
-    fn period_after_a_word_of_fewer_than_three_letters_does_not_end_a_sentence() {
+    fn quote_or_bracket_after_the_end_of_a_sentence_keeps_that_end() {
         let cases = [
-            (&b""[..], &b" Dr."[..]),
-            (b" D", b"r."),
-            (b"", b" e.g."),
-            (b"", b"Ann J."),
+            (&b""[..], &b" \"yes.\""[..]),
+            (b"", b" (done!)"),
+            (b"", " \u{201c}soon?\u{201d}".as_bytes()),
+            (b"", "「はい。」".as_bytes()),
         ];
 
         let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
 
-        assert_eq!(ends, [false; 4]);
+        assert_eq!(ends, [true; 4]);
+    }
+
+    #[test]
+    fn period_after_a_quote_or_bracket_ends_a_sentence() {
+        let cases = [
+            (&b""[..], &b" (see below)."[..]),
+            (b"", " \u{ab}no\u{bb}.".as_bytes()),
+            (b"", b" \"hola\"."),
+        ];
+
+        let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
+
+        assert_eq!(ends, [true; 3]);
+    }
+
+    #[test]
+    fn period_after_an_abbreviation_an_initial_or_a_digit_does_not_end_a_sentence() {
+        let cases = [
+            (&b""[..], &b" Dr."[..]),
+            (b" D", b"r."),
+            (b"", b" e.g."),
+            (b"", b" (i.e."),
+            (b"", b" Mrs."),
+            (b"", b" PROF."),
+            (b"", b" vs."),
+            (b"", b" Sra."),
+            (b" Sr", b"a."),
+            (b"", b" Dra."),
+            (b"", " pág.".as_bytes()),
+            (b"", b" aprox."),
+            (b"", b" \"Dr.\""),
+            (b"", b"Ann J."),
+            (b"", b" at 9 a.m."),
+            (b"", b" at 5."),
+            (b"", b" (page 5)."),
+        ];
+
+        let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
+
+        assert_eq!(ends, [false; 17]);
+    }
+
+    #[test]
+    fn period_after_a_short_word_ends_a_sentence() {
+        let cases = [
+            (&b""[..], &b" No."[..]),
+            (b"", b" OK."),
+            (b" o", b"k."),
+            (b"", " Sí.".as_bytes()),
+            (b"", b" for me."),
+        ];
+
+        let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
+
+        assert_eq!(ends, [true; 5]);
+    }
+
+    #[test]
+    fn period_after_etc_ends_a_sentence() {
+        let cases = [(&b""[..], &b" etc."[..]), (b" et", b"c.")];
+
+        let ends = cases.map(|(healed, written)| ends_sentence(healed, written));
+
+        assert_eq!(ends, [true; 2]);
     }
 
     #[test]

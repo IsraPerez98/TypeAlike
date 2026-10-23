@@ -69,9 +69,9 @@ pub enum InferenceRequest {
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`], after zero or more
     /// [`InferenceEvent::Partial`]. The added text can also finish the last word of `prompt`. The
     /// runner stops at the first line break that it adds, and before a new word after the end of a
-    /// sentence. A period ends a sentence only after a word of at least 3 letters, because a shorter
-    /// word is often an abbreviation. With a `max_tokens` of zero, the runner only decodes `prompt`,
-    /// so that a later prompt that starts with it completes sooner.
+    /// sentence. A period after a digit, an initial or an abbreviation such as "Dr." or "e.g." does
+    /// not end a sentence. With a `max_tokens` of zero, the runner only decodes `prompt`, so that a
+    /// later prompt that starts with it completes sooner.
     Complete {
         /// The text to continue.
         prompt: Prompt,
