@@ -23,7 +23,7 @@ pub(super) enum GhostTiming {
     AfterSettle,
 }
 
-/// What the controller shows after a look at the caret that the shell gave later.
+/// What the controller shows after a look at the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LookOutcome {
     /// The waiting ghost text and the badge, at the caret of the look.
@@ -62,8 +62,8 @@ impl fmt::Debug for CaretWait {
     }
 }
 
-/// The looks at the caret after a key: the checks for a caret that moved, and the look that the
-/// shell gives later.
+/// The looks at the caret after a key: the checks for a caret that moved, and the look that
+/// waits.
 #[derive(Debug, Default)]
 struct CaretLooks {
     /// The looks at the caret that are left before the ghost text shows at a caret that did not
@@ -72,7 +72,7 @@ struct CaretLooks {
     /// Whether a key changed the text after the last look that found a caret that moved, and the
     /// ghost text did not show since.
     is_after_edit: bool,
-    /// Whether the shell gives a look at the caret later, and no key came after the look started.
+    /// Whether a look at the caret started and did not end, and no key came after it started.
     is_pending: bool,
     /// The caret of the last look that found a caret that moved.
     last_caret: Option<ScreenRect>,
@@ -192,7 +192,7 @@ impl CaretWait {
         self.has_caret_settled = true;
     }
 
-    /// Notes a look at the caret that the shell gives later.
+    /// Notes a look at the caret that starts now.
     pub(super) fn wait_for_look(&mut self) {
         self.looks.is_pending = true;
     }
@@ -222,10 +222,9 @@ impl CaretWait {
 
     /// Returns the view of the waiting ghost text after `text_before_caret`, at `placement`.
     pub(super) fn ghost_view(&self, text_before_caret: &str, placement: GhostPlacement) -> Option<GhostView> {
-        self.ghost.clone().map(|ghost| GhostView {
-            is_after_edit: self.looks.is_after_edit(),
-            ..GhostView::new(ghost, text_before_caret, placement)
-        })
+        self.ghost
+            .clone()
+            .map(|ghost| GhostView::new(ghost, text_before_caret, placement))
     }
 
     /// Stops the wait and forgets the waiting ghost text. A look that waits goes on, so that the

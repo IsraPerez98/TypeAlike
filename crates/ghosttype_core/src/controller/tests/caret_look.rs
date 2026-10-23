@@ -1,5 +1,5 @@
-//! Tests of the looks at the caret that the shell gives later: the ghost text and the badge show
-//! only when the look comes, and the ghost text stays off a caret that did not move after a key.
+//! Tests of the looks at the caret, at once and later: the ghost text and the badge show only when
+//! the look comes, and the ghost text stays off a caret that did not move after a key.
 
 use super::harness::{Call, Harness, completed, field_around, fixed, ghost_at_caret};
 use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, Timer};
@@ -39,6 +39,13 @@ fn look_at(left: i32) -> CaretRead {
 fn harness_with_later_looks() -> Harness {
     let mut harness = Harness::new(Settings::default());
     harness.shell.caret_look = CaretLook::Later;
+    harness
+}
+
+/// A harness whose shell reads the caret at once and finds it at `left` in [`FIELD`].
+fn harness_with_looks_at_once(left: i32) -> Harness {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.caret_look = CaretLook::Now(look_at(left));
     harness
 }
 
@@ -287,5 +294,58 @@ fn pause_shows_the_paused_badge_when_the_look_comes() {
     assert_eq!(
         harness.take_calls(),
         vec![ghost_at_caret(None, Some(PAUSED_BADGE))]
+    );
+}
+
+#[test]
+fn caret_read_at_once_that_did_not_move_after_a_key_gets_only_the_badge_and_a_new_look() {
+    let mut harness = harness_with_looks_at_once(OLD_CARET);
+    harness.show("est regards");
+    harness.press(Key::Tab);
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(ACTIVE_BADGE)),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn caret_read_at_once_that_moved_after_a_key_gets_the_ghost() {
+    let mut harness = harness_with_looks_at_once(OLD_CARET);
+    harness.show("est regards");
+    harness.press(Key::Tab);
+    harness.shell.caret_look = CaretLook::Now(look_at(NEXT_CARET));
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+    );
+}
+
+#[test]
+fn caret_read_at_once_far_from_its_field_hides_the_ghost_and_the_badge() {
+    let mut harness = harness_with_looks_at_once(FAR_CARET);
+    harness.press(Key::Char('B'));
+    harness.answer(completed("est"));
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            Call::HideGhost,
+            Call::HideBadge,
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
     );
 }

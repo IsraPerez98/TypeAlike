@@ -106,17 +106,6 @@ fn completion_after_caret_settled_shows_at_once() {
 }
 
 #[test]
-fn completion_after_caret_settled_shows_only_at_a_caret_that_moved() {
-    let mut harness = Harness::new(Settings::default());
-    harness.press(Key::Char('B'));
-    harness.settle_caret();
-
-    harness.answer(completed("est"));
-
-    assert!(harness.shell.ghost_view.expect("a ghost view").is_after_edit);
-}
-
-#[test]
 fn completion_that_does_not_show_after_caret_settled_checks_the_caret_again() {
     let mut harness = Harness::new(Settings::default());
     harness.press(Key::Char('B'));
@@ -270,17 +259,6 @@ fn tab_while_a_new_suggestion_waits_for_the_caret_passes_to_the_app() {
 }
 
 #[test]
-fn ghost_after_a_key_shows_only_at_a_caret_that_moved() {
-    let mut harness = Harness::new(Settings::default());
-    harness.show("est regards");
-    harness.press(Key::Tab);
-
-    harness.settle_caret();
-
-    assert!(harness.shell.ghost_view.expect("a ghost view").is_after_edit);
-}
-
-#[test]
 fn ghost_that_does_not_show_after_a_key_checks_the_caret_again() {
     let mut harness = Harness::new(Settings::default());
     harness.show("est regards");
@@ -314,21 +292,6 @@ fn ghost_shows_at_any_caret_after_the_last_check() {
         harness.take_calls(),
         vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
     );
-    assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
-}
-
-#[test]
-fn rest_after_a_fix_of_the_same_length_is_not_after_an_edit() {
-    let mut harness = Harness::new(Settings::default());
-    harness.shell.surroundings = field_around("Until te", "");
-    harness.press(Key::Char('h'));
-    harness.answer(fixed("teh", "the", " end"));
-    harness.settle_caret();
-    harness.press(Key::Tab);
-
-    harness.settle_caret();
-
-    assert!(!harness.shell.ghost_view.expect("a ghost view").is_after_edit);
 }
 
 #[test]

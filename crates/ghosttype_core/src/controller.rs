@@ -357,14 +357,11 @@ impl Controller {
     }
 
     /// Shows the ghost text that waits for the caret, and the badge, at the caret: at once when the
-    /// shell reads the caret as it draws, else when the shell gives its look at the caret.
+    /// shell reads the caret at once, else when the shell gives its look at the caret.
     fn render_waiting_ghost(&mut self, shell: &mut dyn Shell) {
-        match shell.read_caret() {
-            CaretLook::AtRender => {
-                self.render_at_caret(shell);
-                self.caret_wait.after_render(shell);
-            }
-            CaretLook::Later => self.caret_wait.wait_for_look(),
+        self.caret_wait.wait_for_look();
+        if let CaretLook::Now(read) = shell.read_caret() {
+            self.on_caret_read(read, shell);
         }
     }
 

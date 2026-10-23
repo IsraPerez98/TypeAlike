@@ -264,7 +264,7 @@ impl Harness {
                 calls: Vec::new(),
                 ghost_view: None,
                 is_ghost_shown: true,
-                caret_look: CaretLook::AtRender,
+                caret_look: CaretLook::Now(CaretRead::default()),
             },
             recorder,
             deliveries,

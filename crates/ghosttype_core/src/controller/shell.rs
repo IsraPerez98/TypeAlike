@@ -38,18 +38,16 @@ pub struct CaretRead {
     pub field: Option<ScreenRect>,
 }
 
-/// How a shell looks at the caret before the controller shows something at the caret.
+/// How a shell looks at the caret before the controller shows something at the caret. With each
+/// look, the controller keeps the ghost text off a caret that did not move after a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaretLook {
-    /// The shell reads the caret now and gives the read later to
+    /// The shell starts the read of the caret now and gives the read later to
     /// [`Controller::on_caret_read`](super::Controller::on_caret_read). The controller then shows
-    /// the ghost text and the badge, and keeps the ghost text off a caret that did not move after
-    /// a key.
+    /// the ghost text and the badge.
     Later,
-    /// The shell reads the caret only when it draws in [`Shell::render_at_caret`]. It keeps a
-    /// ghost text off a caret that did not move after a key by itself, with
-    /// [`GhostView::is_after_edit`].
-    AtRender,
+    /// The shell read the caret at once. The controller shows the ghost text and the badge now.
+    Now(CaretRead),
 }
 
 /// The platform as the controller drives it: the desktop that it reads, and what it shows and
@@ -60,18 +58,14 @@ pub trait Shell: Desktop {
     fn refresh_focus(&mut self) -> FocusChange;
 
     /// Starts a look at the caret before the controller shows the ghost text and the badge, and
-    /// tells how the shell looks. The default is [`CaretLook::AtRender`].
-    fn read_caret(&mut self) -> CaretLook {
-        CaretLook::AtRender
-    }
+    /// tells how the shell looks.
+    fn read_caret(&mut self) -> CaretLook;
 
     /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
-    /// at the caret. After a [`CaretLook::Later`] look, the caret is the caret of the read that the
-    /// shell gave last to [`Controller::on_caret_read`](super::Controller::on_caret_read). After a
-    /// [`CaretLook::AtRender`] look, the shell reads the caret now, one time. Hides the ghost text
-    /// for no `ghost` and the badge for no `badge`. When the caret is not known, it can show the
-    /// badge at the start of the focused field and the mirror of `ghost` next to the field, else
-    /// it hides them.
+    /// at the caret. The caret is the caret of the read that the shell gave last to the
+    /// controller. Hides the ghost text for no `ghost` and the badge for no `badge`. When the caret
+    /// is not known, it can show the badge at the start of the focused field and the mirror of
+    /// `ghost` next to the field, else it hides them.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
 
     /// Hides the ghost text at once.

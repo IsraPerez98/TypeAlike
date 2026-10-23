@@ -37,11 +37,6 @@ pub struct GhostView {
     pub typed_word: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
-    /// Whether a key changed the text since the ghost text showed last, while looks at the caret
-    /// are left. Only a shell that answers [`CaretLook::AtRender`](super::CaretLook::AtRender)
-    /// uses it: it then shows the ghost text only at a caret that moved from where the ghost text
-    /// showed last.
-    pub is_after_edit: bool,
 }
 
 impl GhostView {
@@ -59,7 +54,6 @@ impl GhostView {
             typed_word: mirrored_word(text_before_typo),
             ghost,
             placement,
-            is_after_edit: false,
         }
     }
 }
@@ -74,7 +68,6 @@ impl fmt::Debug for GhostView {
                 &format_args!("{} chars", self.typed_word.chars().count()),
             )
             .field("placement", &self.placement)
-            .field("is_after_edit", &self.is_after_edit)
             .finish()
     }
 }

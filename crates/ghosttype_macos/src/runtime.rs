@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeMenu, BadgeView, TrayView};
 use ghosttype_core::controller::{
-    BackendChoice, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostPlacement, GhostView,
-    Services, Shell, Timer,
+    BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost,
+    GhostPlacement, GhostView, Services, Shell, Timer,
 };
 use ghosttype_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
@@ -26,6 +26,7 @@ use objc2::rc::Retained;
 use objc2::runtime::Sel;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu};
+use objc2_core_foundation::CGRect;
 use objc2_core_graphics::{CGEvent, CGEventTapProxy, CGEventType, CGKeyCode};
 use objc2_foundation::{NSPoint, NSTimeInterval, NSTimer};
 
@@ -36,7 +37,7 @@ use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
 use crate::focus::FocusTracker;
-use crate::geometry::Caret;
+use crate::geometry::{Caret, screen_rect};
 use crate::injection::{self, Replacement};
 use crate::keys;
 use crate::main_menu;
@@ -90,7 +91,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             overlay: Overlay::new(main_thread),
             mirror: Mirror::new(main_thread),
             badge: Badge::new(main_thread),
-            ghost_caret: None,
+            caret: None,
+            field_frame: None,
             target,
             caret_timer: None,
             settle_timer: None,
@@ -242,8 +244,10 @@ struct AppKitShell {
     overlay: Overlay,
     mirror: Mirror,
     badge: Badge,
-    /// The caret where the ghost text showed last.
-    ghost_caret: Option<Caret>,
+    /// The caret at the last look, or `None` when the focused field gave no caret.
+    caret: Option<Caret>,
+    /// The frame of the focused field at the last look, when the field holds text.
+    field_frame: Option<CGRect>,
     target: Retained<RuntimeTarget>,
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
@@ -255,7 +259,6 @@ struct AppKitShell {
 
 impl AppKitShell {
     fn show_at_caret(&mut self, view: &GhostView, caret: Caret) {
-        self.ghost_caret = Some(caret);
         if view.placement == GhostPlacement::BelowCaret {
             self.overlay.hide();
             self.mirror.show_below_caret(view, caret);
@@ -273,7 +276,7 @@ impl AppKitShell {
     /// the focused control holds no text.
     fn show_mirror(&self, view: &GhostView) {
         self.overlay.hide();
-        match self.focus.field_frame() {
+        match self.field_frame {
             Some(field) => self.mirror.show(view, field),
             None => self.mirror.hide(),
         }
@@ -334,17 +337,25 @@ impl Shell for AppKitShell {
         self.focus.refresh()
     }
 
+    /// Reads the caret and the frame of the focused field through Accessibility, and keeps them
+    /// for the draw.
+    fn read_caret(&mut self) -> CaretLook {
+        self.caret = self.focus.caret();
+        self.field_frame = self.focus.field_frame();
+        CaretLook::Now(CaretRead {
+            caret: self.caret.map(Caret::to_screen_rect),
+            field: self.field_frame.map(screen_rect),
+        })
+    }
+
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
-        let caret = self.focus.caret();
-        let badge_caret = caret.or_else(|| self.focus.field_frame().and_then(Caret::at_start_of));
+        let caret = self.caret;
+        let badge_caret = caret.or_else(|| self.field_frame.and_then(Caret::at_start_of));
         match (badge, badge_caret) {
             (Some(badge), Some(badge_caret)) => self.badge.show(&badge, badge_caret),
             _ => self.badge.hide(),
         }
         match (ghost, caret) {
-            (Some(view), Some(caret)) if view.is_after_edit && self.ghost_caret == Some(caret) => {
-                self.hide_ghost();
-            }
             (Some(view), Some(caret)) => self.show_at_caret(view, caret),
             (Some(view), None) => self.show_mirror(view),
             (None, _) => self.hide_ghost(),

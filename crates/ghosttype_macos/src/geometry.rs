@@ -31,6 +31,14 @@ impl Caret {
     pub(crate) fn at_start_of(field: CGRect) -> Option<Self> {
         Self::from_bounds(CGRect::new(field.origin, CGSize::new(0.0, field.size.height)))
     }
+
+    /// The caret as a core screen rectangle without width, in whole points.
+    pub(crate) fn to_screen_rect(self) -> ScreenRect {
+        screen_rect(CGRect::new(
+            CGPoint::new(self.left, self.top),
+            CGSize::new(0.0, self.height),
+        ))
+    }
 }
 
 /// Whether `bounds` can hold a caret: a box with a height above 0 and edges that are finite.
@@ -206,6 +214,25 @@ mod tests {
         assert_eq!(
             flipped,
             CGRect::new(CGPoint::new(0.0, 25.0), CGSize::new(1440.0, 875.0))
+        );
+    }
+
+    #[test]
+    fn caret_turns_into_a_rectangle_without_width_in_whole_points() {
+        let caret = Caret {
+            left: 107.4,
+            top: 40.6,
+            height: 18.0,
+        };
+
+        assert_eq!(
+            caret.to_screen_rect(),
+            ScreenRect {
+                left: 107,
+                top: 41,
+                right: 107,
+                bottom: 59,
+            }
         );
     }
 
