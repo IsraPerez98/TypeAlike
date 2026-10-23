@@ -12,7 +12,7 @@ use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
 
 use crate::accessibility::{
     FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, can_focused_element_hide_text, copy_element, frame,
-    is_secure_text, selected_range,
+    is_search_field, is_secure_text, selected_range,
 };
 use crate::focus::caret::{caret_bounds, is_terminal_input, text_color};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
@@ -136,7 +136,7 @@ impl FocusTracker {
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
             is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
-            is_search_field: false,
+            is_search_field: element.as_deref().is_some_and(is_search_field),
         }
     }
 }

@@ -15,6 +15,7 @@ use objc2_core_foundation::{
 pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
 const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
 const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
+const SEARCH_FIELD_SUBROLE: &str = "AXSearchField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
 pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
 const POSITION_ATTRIBUTE: &str = "AXPosition";
@@ -49,6 +50,11 @@ pub(crate) fn bound_queries(element: &AXUIElement) {
 /// Whether `element` hides its text, as a password field does.
 pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
     copy_string(element, SUBROLE_ATTRIBUTE).is_some_and(|subrole| subrole == SECURE_TEXT_FIELD_SUBROLE)
+}
+
+/// Whether `element` is a search box, as a native search field or an HTML `<input type="search">` is.
+pub(crate) fn is_search_field(element: &AXUIElement) -> bool {
+    copy_string(element, SUBROLE_ATTRIBUTE).is_some_and(|subrole| subrole == SEARCH_FIELD_SUBROLE)
 }
 
 /// Whether the focused element of `system_wide` can hide its text: a password field, or an
@@ -255,7 +261,7 @@ mod tests {
     #[test]
     fn field_with_another_subrole_or_without_one_shows_its_text() {
         let reads = [
-            Ok(Some("AXSearchField".to_owned())),
+            Ok(Some(SEARCH_FIELD_SUBROLE.to_owned())),
             Ok(None),
             Err(AXError::NoValue),
             Err(AXError::AttributeUnsupported),
