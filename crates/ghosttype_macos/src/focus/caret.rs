@@ -13,10 +13,14 @@ use objc2_core_foundation::{CFAttributedString, CFRange, CFString, CGFloat, CGPo
 use objc2_core_graphics::CGColor;
 
 use crate::accessibility::{
-    copy_attribute_for_range, frame, has_dom_class, parent, read_rect, selected_range,
+    copy_attribute, copy_attribute_for_parameter, copy_attribute_for_range, frame, has_dom_class, parent,
+    read_rect, selected_range,
 };
+use crate::geometry::is_caret_box;
 
 const BOUNDS_FOR_RANGE_ATTRIBUTE: &str = "AXBoundsForRange";
+const SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXSelectedTextMarkerRange";
+const BOUNDS_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXBoundsForTextMarkerRange";
 const ATTRIBUTED_STRING_FOR_RANGE_ATTRIBUTE: &str = "AXAttributedStringForRange";
 const FOREGROUND_COLOR_TEXT_ATTRIBUTE: &str = "AXForegroundColor";
 /// The least opacity of text that shows. A web editor takes keys in a hidden input box whose text
@@ -30,13 +34,36 @@ const XTERM_SCREEN_CLASS: &str = "xterm-screen";
 /// screen, which holds the box two levels up.
 const MAX_TERMINAL_SCREEN_DISTANCE: usize = 4;
 
-/// The bounds of the text that ends at the caret of `element`.
+/// The bounds of the text that ends at the caret of `element`, else the bounds of its selection.
 pub(super) fn caret_bounds(element: &AXUIElement) -> Option<CGRect> {
     if is_terminal_input(element) {
         return terminal_input(element)?.caret_bounds();
     }
+    [unit_before_caret_bounds, selection_marker_bounds]
+        .into_iter()
+        .find_map(|read| read(element).filter(is_caret_box))
+}
+
+fn unit_before_caret_bounds(element: &AXUIElement) -> Option<CGRect> {
     // TextEdit reports the empty range at the caret one line too high, so measure the text before it.
     bounds_for_range(element, unit_before_caret(element)?)
+}
+
+/// The bounds of the selection of `element` as a text marker range. Chromium gives no bounds for
+/// a character range in a contenteditable field, but it gives them for its own selection.
+fn selection_marker_bounds(element: &AXUIElement) -> Option<CGRect> {
+    let selection = copy_attribute(element, SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE)?;
+    let bounds = copy_attribute_for_parameter(element, BOUNDS_FOR_TEXT_MARKER_RANGE_ATTRIBUTE, &selection)?
+        .downcast::<AXValue>()
+        .ok()?;
+    read_rect(&bounds).filter(|bounds| marks_caret(*bounds, frame(element)))
+}
+
+/// Whether `selection`, the box of the selection of a field with `field_frame`, marks a caret.
+/// For a field without laid-out text, such as the editor of VS Code, Chromium gives the frame of
+/// the field.
+fn marks_caret(selection: CGRect, field_frame: Option<CGRect>) -> bool {
+    field_frame != Some(selection)
 }
 
 fn unit_before_caret(element: &AXUIElement) -> Option<CFRange> {
@@ -168,6 +195,20 @@ mod tests {
     #[test]
     fn caret_at_start_has_no_previous_unit() {
         assert_eq!(previous_unit_range(0), None);
+    }
+
+    const EDITOR_LINE: CGRect = CGRect::new(CGPoint::new(504.0, 102.0), CGSize::new(860.0, 18.0));
+
+    #[test]
+    fn selection_box_inside_the_field_marks_a_caret() {
+        let selection = CGRect::new(CGPoint::new(612.0, 102.0), CGSize::new(0.0, 18.0));
+
+        assert!(marks_caret(selection, Some(EDITOR_LINE)));
+    }
+
+    #[test]
+    fn selection_box_that_is_the_frame_of_the_field_marks_no_caret() {
+        assert!(!marks_caret(EDITOR_LINE, Some(EDITOR_LINE)));
     }
 
     #[test]
