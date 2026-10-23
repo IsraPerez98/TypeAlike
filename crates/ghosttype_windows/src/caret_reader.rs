@@ -5,13 +5,19 @@
 //! waits for the newest read of the caret. The hooks use the newest read of the text while no input
 //! changed the field, and treat the focused field as a password field until a read after the last
 //! move of the focus tells otherwise.
+//!
+//! Each request of this thread to an app has a time limit, so that one app that does not answer
+//! cannot stop the reads in all apps. A read of the field that fails, also on a timeout, tells
+//! nothing about the field: the field keeps what the reads after the last move of the focus told.
 
 use std::iter;
 use std::sync::mpsc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use ghosttype_core::app::BadgeView;
 use ghosttype_core::controller::GhostView;
+use ghosttype_core::desktop::FieldText;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
@@ -21,6 +27,11 @@ use crate::uia::{ShownField, Uia, UiaField};
 use crate::window::WindowId;
 
 const THREAD_NAME: &str = "caret reader";
+/// The longest wait for an app to give an element, such as the focused element.
+const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
+/// The longest wait for an app to answer one request about an element, such as a property. The
+/// move of the text range by thousands of characters can take seconds in a WPF text box.
+const TRANSACTION_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Identifies one read of the caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -45,9 +56,53 @@ pub(crate) struct FieldRead {
     pub(crate) id: FieldReadId,
     /// The foreground window when the read started.
     pub(crate) window: WindowId,
-    /// What the focused field tells about itself, or `None` when it hides its text, as a password
-    /// field does.
-    pub(crate) shown: Option<ShownField>,
+    /// What the read tells about the focused field.
+    pub(crate) field: FieldAnswer,
+}
+
+/// What a read tells about the focused field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FieldAnswer {
+    /// The field shows its text, and tells this about itself.
+    Shown(ShownField),
+    /// The field hides its text, as a password field does.
+    Hidden,
+    /// The read cannot tell whether the field hides its text, because UIA gives no focused field,
+    /// for example after a request that failed or did not finish in time.
+    Unknown,
+}
+
+impl FieldAnswer {
+    /// The answer when GhostType has no connection to UIA: a shown field with `edit_text`, the
+    /// text of a classic edit control, so that GhostType also works without UIA.
+    fn without_uia(edit_text: Option<FieldText>) -> Self {
+        Self::Shown(ShownField {
+            text: edit_text,
+            ..ShownField::default()
+        })
+    }
+
+    /// The answer for `field`, what UIA tells about the focused field, or `None` when UIA gives
+    /// no focused field. A shown field without text from UIA gets the text that `edit_text` reads
+    /// from a classic edit control.
+    fn from_uia(field: Option<UiaField>, edit_text: impl FnOnce() -> Option<FieldText>) -> Self {
+        match field {
+            Some(UiaField::Shown(field)) => Self::Shown(ShownField {
+                text: field.text.or_else(edit_text),
+                ..field
+            }),
+            Some(UiaField::Password) => Self::Hidden,
+            None => Self::Unknown,
+        }
+    }
+
+    /// The field when the answer tells that it shows its text.
+    pub(crate) fn shown(&self) -> Option<&ShownField> {
+        match self {
+            Self::Shown(field) => Some(field),
+            Self::Hidden | Self::Unknown => None,
+        }
+    }
 }
 
 /// A read that the shell asks for.
@@ -101,6 +156,7 @@ fn answer_reads(
     field_texts: &Mailbox<FieldRead>,
 ) {
     let uia = Uia::connect()
+        .inspect(|uia| uia.limit_waits(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT))
         .inspect_err(|error| tracing::warn!(%error, "UI Automation is unavailable"))
         .ok();
     while let Ok(oldest) = requests.recv() {
@@ -111,26 +167,24 @@ fn answer_reads(
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
-            let shown = read_field(uia.as_ref());
-            field_texts.send(FieldRead { id, window, shown });
+            let field = read_field(uia.as_ref());
+            field_texts.send(FieldRead { id, window, field });
         }
     }
 }
 
 /// Reads the focused field through `uia`, and its text from a classic edit control when UIA does
-/// not give it. `None` for a password field.
-fn read_field(uia: Option<&Uia>) -> Option<ShownField> {
-    match uia.and_then(Uia::field) {
-        Some(UiaField::Password) => None,
-        Some(UiaField::Shown(field)) => Some(ShownField {
-            text: field.text.or_else(focus::edit_field_text),
-            ..field
-        }),
-        None => Some(ShownField {
-            text: focus::edit_field_text(),
-            ..ShownField::default()
-        }),
+/// not give it. Without a connection to UIA, the field counts as a field that shows its text.
+fn read_field(uia: Option<&Uia>) -> FieldAnswer {
+    let Some(uia) = uia else {
+        return FieldAnswer::without_uia(focus::edit_field_text());
+    };
+    let started = Instant::now();
+    let answer = FieldAnswer::from_uia(uia.field(), focus::edit_field_text);
+    if answer == FieldAnswer::Unknown {
+        tracing::debug!(duration = ?started.elapsed(), "UI Automation gave no focused field");
     }
+    answer
 }
 
 /// The newest read of each kind among the reads that wait together.
@@ -173,7 +227,7 @@ pub(crate) struct KeptFieldText {
 /// What the reads tell about the text of the focused field since the last move of the focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum TextVisibility {
-    /// No read asked for after the move answered yet.
+    /// No read asked for after the move told yet.
     #[default]
     Unknown,
     Shown,
@@ -204,12 +258,14 @@ impl KeptFieldText {
 
     /// Keeps `read`, unless an input or a focus change came after it was asked for. A read asked
     /// for after the last move of the focus tells whether the field hides its text, also when an
-    /// input came after it.
+    /// input came after it. An unknown answer does not change it: a field stays excluded until a
+    /// read tells that it shows its text, and an input cannot make a shown field a password field.
     pub(crate) fn keep(&mut self, read: FieldRead) {
         if read.id >= self.first_after_focus_move {
-            self.visibility = match read.shown {
-                Some(_) => TextVisibility::Shown,
-                None => TextVisibility::Hidden,
+            self.visibility = match read.field {
+                FieldAnswer::Shown(_) => TextVisibility::Shown,
+                FieldAnswer::Hidden => TextVisibility::Hidden,
+                FieldAnswer::Unknown => self.visibility,
             };
         }
         if read.id == self.newest {
@@ -281,7 +337,7 @@ mod tests {
 
     use ghosttype_core::app::Status;
     use ghosttype_core::controller::{Ghost, GhostPlacement};
-    use ghosttype_core::desktop::{FieldLabels, FieldText};
+    use ghosttype_core::desktop::FieldLabels;
     use windows::Win32::Foundation::HWND;
 
     use super::*;
@@ -359,22 +415,30 @@ mod tests {
         HWND(ptr::without_provenance_mut(number)).into()
     }
 
+    fn text(before_caret: &str) -> FieldText {
+        FieldText {
+            before_caret: before_caret.to_owned(),
+            after_caret: String::new(),
+        }
+    }
+
+    fn message_field() -> ShownField {
+        ShownField {
+            text: Some(text("Dear Ana,")),
+            labels: FieldLabels {
+                name: Some("Message".to_owned()),
+                ..FieldLabels::default()
+            },
+            domain: Some("mail.google.com".to_owned()),
+            is_caret_line_hidden: false,
+        }
+    }
+
     fn field_read(id: FieldReadId, window: WindowId) -> FieldRead {
         FieldRead {
             id,
             window,
-            shown: Some(ShownField {
-                text: Some(FieldText {
-                    before_caret: "Dear Ana,".to_owned(),
-                    after_caret: String::new(),
-                }),
-                labels: FieldLabels {
-                    name: Some("Message".to_owned()),
-                    ..FieldLabels::default()
-                },
-                domain: Some("mail.google.com".to_owned()),
-                is_caret_line_hidden: false,
-            }),
+            field: FieldAnswer::Shown(message_field()),
         }
     }
 
@@ -382,8 +446,105 @@ mod tests {
         FieldRead {
             id,
             window,
-            shown: None,
+            field: FieldAnswer::Hidden,
         }
+    }
+
+    fn unknown_read(id: FieldReadId, window: WindowId) -> FieldRead {
+        FieldRead {
+            id,
+            window,
+            field: FieldAnswer::Unknown,
+        }
+    }
+
+    #[test]
+    fn field_without_uia_shows_the_text_of_its_edit_control() {
+        let answer = FieldAnswer::without_uia(Some(text("Dear Ana,")));
+
+        assert_eq!(
+            answer,
+            FieldAnswer::Shown(ShownField {
+                text: Some(text("Dear Ana,")),
+                ..ShownField::default()
+            })
+        );
+    }
+
+    #[test]
+    fn uia_without_a_focused_field_gives_an_unknown_answer() {
+        let answer = FieldAnswer::from_uia(None, || Some(text("Dear Ana,")));
+
+        assert_eq!(answer, FieldAnswer::Unknown);
+    }
+
+    #[test]
+    fn uia_password_field_gives_a_hidden_answer() {
+        let answer = FieldAnswer::from_uia(Some(UiaField::Password), || Some(text("Dear Ana,")));
+
+        assert_eq!(answer, FieldAnswer::Hidden);
+    }
+
+    #[test]
+    fn shown_uia_field_without_text_takes_the_text_of_its_edit_control() {
+        let field = ShownField {
+            text: None,
+            ..message_field()
+        };
+
+        let answer = FieldAnswer::from_uia(Some(UiaField::Shown(field)), || Some(text("Dear Ana,")));
+
+        assert_eq!(answer, FieldAnswer::Shown(message_field()));
+    }
+
+    #[test]
+    fn shown_uia_field_keeps_its_own_text() {
+        let answer = FieldAnswer::from_uia(Some(UiaField::Shown(message_field())), || Some(text("Hello")));
+
+        assert_eq!(answer, FieldAnswer::Shown(message_field()));
+    }
+
+    #[test]
+    fn unknown_answer_after_a_focus_move_keeps_the_field_excluded() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(field_read(kept.newest(), window(1)));
+        kept.forget_focused_field();
+
+        kept.keep(unknown_read(kept.newest(), window(1)));
+
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn unknown_answer_after_a_shown_answer_keeps_the_field_open() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(field_read(kept.newest(), window(1)));
+        kept.forget_text();
+
+        kept.keep(unknown_read(kept.newest(), window(1)));
+
+        assert!(!kept.may_hide_text());
+    }
+
+    #[test]
+    fn unknown_answer_after_a_hidden_answer_keeps_the_field_excluded() {
+        let mut kept = KeptFieldText::default();
+        kept.keep(password_read(kept.newest(), window(1)));
+        kept.forget_text();
+
+        kept.keep(unknown_read(kept.newest(), window(1)));
+
+        assert!(kept.may_hide_text());
+    }
+
+    #[test]
+    fn unknown_answer_gives_no_shown_field() {
+        let mut kept = KeptFieldText::default();
+
+        kept.keep(unknown_read(kept.newest(), window(1)));
+
+        let field = kept.read_in(window(1)).and_then(|read| read.field.shown());
+        assert_eq!(field, None);
     }
 
     #[test]

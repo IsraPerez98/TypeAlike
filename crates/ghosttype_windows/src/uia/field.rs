@@ -63,8 +63,8 @@ impl fmt::Debug for ShownField {
 
 impl Uia {
     /// Reads the focused control: whether it hides its text, and else the text around its
-    /// selection, its labels and the host of its web page. `None` when UIA finds no focused
-    /// control.
+    /// selection, its labels and the host of its web page. `None` when UIA gives no focused
+    /// control, for example after a request that failed or did not finish in time.
     pub(crate) fn field(&self) -> Option<UiaField> {
         let element = self.focused_element()?;
         if is_password(&element) {

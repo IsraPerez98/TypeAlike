@@ -129,8 +129,8 @@ impl Win32Shell {
 
 impl Desktop for Win32Shell {
     /// Excludes a field that hides its text. The hooks cannot wait for UIA, so after a click or a
-    /// move of the focus, a field also counts as one that hides its text until the next read of it
-    /// answers.
+    /// move of the focus, a field also counts as one that hides its text until a read of it tells
+    /// that it shows its text. A read that fails or does not finish in time does not tell it.
     fn field(&self) -> Field {
         if self.kept_field_text.may_hide_text() {
             Field::Excluded
@@ -143,7 +143,7 @@ impl Desktop for Win32Shell {
         let field = self
             .kept_field_text
             .read_in(self.focus.foreground())
-            .and_then(|read| read.shown.as_ref());
+            .and_then(|read| read.field.shown());
         merged_surroundings(self.focus.surroundings(), field)
     }
 

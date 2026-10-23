@@ -258,7 +258,9 @@ pub enum Field {
 /// The desktop as GhostType sees it while the user types. The platform implements it, and core
 /// calls it before the key reaches the focused app.
 pub trait Desktop {
-    /// Whether the focused field may see suggestions.
+    /// Whether the focused field may see suggestions. When no read since the last move of the
+    /// focus tells whether the focused field hides its text, for example because the reads failed
+    /// or did not finish in time, the platform gives [`Field::Excluded`].
     fn field(&self) -> Field;
 
     /// Reads the app, the window and the text around the caret of the focused field.
