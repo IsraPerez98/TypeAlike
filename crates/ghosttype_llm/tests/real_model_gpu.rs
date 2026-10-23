@@ -8,7 +8,7 @@ use std::sync::{Arc, mpsc};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Backend, Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias,
-    Prompt, TokenCount, TypoCheck,
+    Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use ghosttype_llm::LlamaCpp;
 
@@ -32,6 +32,7 @@ fn completion_events_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         },
         &sink,

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use ghosttype_core::inference::{Backend, CpuCores};
+use ghosttype_core::inference::{Backend, CpuCores, SentenceEnd};
 use ghosttype_core::settings::{
     ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, SuggestionLength,
     TypoRule, WordChoice, WriterName, WriterNotes,
@@ -12,7 +12,7 @@ use ghosttype_llm::BUILT_IN_BACKEND;
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
-     [--typo-rule on|off] [--length very_short|short|medium|long|very_long]";
+     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -29,6 +29,7 @@ pub struct Arguments {
     pub shared_history: SharedHistory,
     pub tail_cut: TailCut,
     pub typo_rule: TypoRule,
+    pub sentence_end: SentenceEnd,
     pub length: SuggestionLength,
 }
 
@@ -73,6 +74,7 @@ impl Arguments {
             shared_history: SharedHistory::On,
             tail_cut: TailCut::On,
             typo_rule: TypoRule::default(),
+            sentence_end: SentenceEnd::default(),
             length: SuggestionLength::default(),
         };
         for option in options.chunks(2) {
@@ -96,6 +98,9 @@ impl Arguments {
                 [name, rule] if name == "--typo-rule" => {
                     parsed.typo_rule = switch_named(rule, TypoRule::HideSuggestions, TypoRule::Suggest)?;
                 }
+                [name, stop] if name == "--sentence-stop" => {
+                    parsed.sentence_end = switch_named(stop, SentenceEnd::Stop, SentenceEnd::Continue)?;
+                }
                 [name, length] if name == "--length" => parsed.length = length_named(length)?,
                 _ => return None,
             }
@@ -114,6 +119,7 @@ impl Arguments {
             writer_name: WriterName(self.name.clone()),
             prompt_preparation: PromptPreparation::OnFocus,
             typo_rule: self.typo_rule,
+            sentence_end: self.sentence_end,
             suggestion_length: self.length,
             personalization: PersonalizationSettings {
                 history: HistoryAccess::On,
@@ -209,6 +215,7 @@ mod tests {
                 shared_history: SharedHistory::On,
                 tail_cut: TailCut::On,
                 typo_rule: TypoRule::HideSuggestions,
+                sentence_end: SentenceEnd::Continue,
                 length: SuggestionLength::Medium,
             })
         );
@@ -226,6 +233,18 @@ mod tests {
             rules,
             [Some(TypoRule::HideSuggestions), Some(TypoRule::Suggest), None]
         );
+    }
+
+    #[test]
+    fn sentence_stop_option_stops_each_suggestion_at_the_end_of_a_sentence_or_not() {
+        let names = ["on", "off", "maybe"];
+
+        let ends = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--sentence-stop", name])
+                .map(|arguments| arguments.sentence_end)
+        });
+
+        assert_eq!(ends, [Some(SentenceEnd::Stop), Some(SentenceEnd::Continue), None]);
     }
 
     #[test]

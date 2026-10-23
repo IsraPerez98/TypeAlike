@@ -65,7 +65,7 @@ impl SettingsStore for SettingsFile {
 mod tests {
     use super::*;
     use ghosttype_core::hub::ModelFile;
-    use ghosttype_core::inference::Backend;
+    use ghosttype_core::inference::{Backend, SentenceEnd};
     use ghosttype_core::settings::{
         ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel,
         PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
@@ -122,6 +122,7 @@ mod tests {
             suggestion_length: SuggestionLength::Long,
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
+            sentence_end: SentenceEnd::Stop,
         };
 
         file.save(&settings);

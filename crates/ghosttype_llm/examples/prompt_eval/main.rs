@@ -6,7 +6,7 @@
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
-//!     [--length very_short|short|medium|long|very_long]
+//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -127,6 +127,10 @@
 //! rule on, the app also fixes typos. The report counts the fixes of the typo cases that write the
 //! word of `fixed` and `next` (`typo fixes`), and the fixes of the other cases (`other fixes`),
 //! which each change a word without a typo.
+//!
+//! `--sentence-stop on` stops each suggestion at the end of a sentence, as the app does with "Stop
+//! at the end of a sentence". `off` (the default, as in the app) lets a suggestion continue with
+//! the next sentence.
 //!
 //! `--length` sets the suggestion length: `very_short`, `short`, `medium` (the default), `long` or
 //! `very_long`. The length sets the token limit and the cut of the tail of each request. As in the

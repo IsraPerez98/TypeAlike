@@ -4,7 +4,7 @@ mod personalization;
 mod screen_text;
 
 use ghosttype_core::hub::ModelFile;
-use ghosttype_core::inference::Backend;
+use ghosttype_core::inference::{Backend, SentenceEnd};
 use ghosttype_core::settings::{
     ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix, TypoRule,
     WriterName, WriterNotes,
@@ -37,6 +37,7 @@ struct StoredSettings {
     suggestion_length: StoredSuggestionLength,
     typo_rule: StoredTypoRule,
     typo_fix: StoredTypoFix,
+    sentence_end: StoredSentenceEnd,
 }
 
 impl Default for StoredSettings {
@@ -87,6 +88,13 @@ enum StoredTypoRule {
 enum StoredTypoFix {
     Offer,
     Off,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredSentenceEnd {
+    Continue,
+    Stop,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,6 +152,10 @@ impl From<Settings> for StoredSettings {
             TypoFix::Offer => StoredTypoFix::Offer,
             TypoFix::Off => StoredTypoFix::Off,
         };
+        let sentence_end = match settings.sentence_end {
+            SentenceEnd::Continue => StoredSentenceEnd::Continue,
+            SentenceEnd::Stop => StoredSentenceEnd::Stop,
+        };
         Self {
             backend,
             suggestion_model,
@@ -158,6 +170,7 @@ impl From<Settings> for StoredSettings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            sentence_end,
         }
     }
 }
@@ -201,6 +214,10 @@ impl From<StoredSettings> for Settings {
             StoredTypoFix::Offer => TypoFix::Offer,
             StoredTypoFix::Off => TypoFix::Off,
         };
+        let sentence_end = match stored.sentence_end {
+            StoredSentenceEnd::Continue => SentenceEnd::Continue,
+            StoredSentenceEnd::Stop => SentenceEnd::Stop,
+        };
         let writer_notes = match (stored.writer_notes, stored.system_prompt) {
             (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
             (_, Some(system_prompt)) => WriterNotes(system_prompt),
@@ -220,6 +237,7 @@ impl From<StoredSettings> for Settings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            sentence_end,
         }
     }
 }

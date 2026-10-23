@@ -86,7 +86,7 @@ mod tests {
     use std::path::Path;
 
     use ghosttype_core::inference::{
-        InferenceError, InferenceEvent, NextWordBias, Prompt, TokenCount, TypoCheck,
+        InferenceError, InferenceEvent, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
     };
 
     use super::*;
@@ -213,6 +213,7 @@ mod tests {
                 next_word_bias: NextWordBias::default(),
                 min_log_probability: None,
                 typo_check: TypoCheck::Off,
+                sentence_end: SentenceEnd::Continue,
                 line_after: String::new(),
             },
         );

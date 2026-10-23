@@ -21,6 +21,7 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
         RowIcon::WarningSign => "\u{E7BA}",
         RowIcon::SpellCheck => "\u{F87B}",
         RowIcon::Ruler => "\u{ECC6}",
+        RowIcon::StopButton => "\u{E71A}",
         RowIcon::Robot => ROBOT_GLYPH,
         RowIcon::Chip => "\u{E950}",
         RowIcon::Person => "\u{E77B}",

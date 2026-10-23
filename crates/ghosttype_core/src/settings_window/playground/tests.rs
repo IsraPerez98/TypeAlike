@@ -572,6 +572,7 @@ fn completing_sends_the_prompt_with_a_token_limit() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
         })
     );
@@ -596,6 +597,7 @@ fn completing_puts_the_writer_name_after_the_notes() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
         })
     );
@@ -620,6 +622,7 @@ fn completing_puts_the_writer_notes_before_the_text() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
         })
     );

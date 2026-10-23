@@ -5,8 +5,8 @@ use std::iter;
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, TokenCount,
-    TypoCheck,
+    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, SentenceEnd,
+    TokenCount, TypoCheck,
 };
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
@@ -290,6 +290,7 @@ impl PlaygroundPane {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
         })
     }

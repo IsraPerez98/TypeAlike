@@ -7,7 +7,7 @@ use std::sync::{Arc, mpsc};
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias, Prompt,
-    TokenCount, TypoCheck,
+    SentenceEnd, TokenCount, TypoCheck,
 };
 use ghosttype_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -41,6 +41,7 @@ fn unloaded_model_completes_no_text() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         },
         &sink,

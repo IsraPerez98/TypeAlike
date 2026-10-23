@@ -68,10 +68,8 @@ pub enum InferenceRequest {
     },
     /// Continues `prompt` with the loaded model: [`InferenceEvent::Completed`], after zero or more
     /// [`InferenceEvent::Partial`]. The added text can also finish the last word of `prompt`. The
-    /// runner stops at the first line break that it adds, and before a new word after the end of a
-    /// sentence. A period after a digit, an initial or an abbreviation such as "Dr." or "e.g." does
-    /// not end a sentence. With a `max_tokens` of zero, the runner only decodes `prompt`, so that a
-    /// later prompt that starts with it completes sooner.
+    /// runner stops at the first line break that it adds. With a `max_tokens` of zero, the runner
+    /// only decodes `prompt`, so that a later prompt that starts with it completes sooner.
     Complete {
         /// The text to continue.
         prompt: Prompt,
@@ -89,6 +87,8 @@ pub enum InferenceRequest {
         /// What the runner does when the typed letters of the last word of `prompt` look like a
         /// typo.
         typo_check: TypoCheck,
+        /// Whether the runner stops at the end of a sentence that it adds.
+        sentence_end: SentenceEnd,
         /// The text after the caret on its line, or empty when the caret is at the end of its
         /// line. The added text fills the gap before it: the runner stops when the model starts to
         /// write this text, and ends the added text where the model finds this text most likely
@@ -131,6 +131,17 @@ impl TypoCheck {
             Self::Hide(min) | Self::Fix(min) => Some(min),
         }
     }
+}
+
+/// What the runner does at the end of a sentence that it adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SentenceEnd {
+    /// The runner can add the next sentence.
+    #[default]
+    Continue,
+    /// The runner stops before a new word after the end of a sentence. A period after a digit, an
+    /// initial or an abbreviation such as "Dr." or "e.g." does not end a sentence.
+    Stop,
 }
 
 /// A preference of the model for the words that the writer often writes: the logits to add to the

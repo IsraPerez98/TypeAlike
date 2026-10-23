@@ -351,6 +351,25 @@ fn file_without_a_typo_rule_hides_suggestions_on_typos() {
 }
 
 #[test]
+fn sentence_end_reads_from_its_name() {
+    let files = [
+        r#"{ "sentence_end": "continue" }"#,
+        r#"{ "sentence_end": "stop" }"#,
+    ];
+
+    let ends = files.map(|json| parse(json).map(|settings| settings.sentence_end).ok());
+
+    assert_eq!(ends, [Some(SentenceEnd::Continue), Some(SentenceEnd::Stop)]);
+}
+
+#[test]
+fn file_without_a_sentence_end_continues_after_a_sentence() {
+    let end = parse("{}").map(|settings| settings.sentence_end).ok();
+
+    assert_eq!(end, Some(SentenceEnd::Continue));
+}
+
+#[test]
 fn suggestion_length_reads_from_its_name() {
     let files = [
         r#"{ "suggestion_length": "very_short" }"#,

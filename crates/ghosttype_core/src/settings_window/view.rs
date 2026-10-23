@@ -86,6 +86,8 @@ pub enum RowIcon {
     SpellCheck,
     /// A ruler, for a length.
     Ruler,
+    /// A stop button, for where a suggestion stops.
+    StopButton,
     /// A robot, for a model that writes text.
     Robot,
     /// A chip, for the hardware that runs a model.

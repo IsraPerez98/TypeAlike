@@ -157,6 +157,7 @@ fn serve(
             next_word_bias,
             min_log_probability,
             typo_check,
+            sentence_end,
             line_after,
         } = &job.request
         else {
@@ -171,6 +172,7 @@ fn serve(
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
             min_log_probability: *min_log_probability,
             typo_check: *typo_check,
+            sentence_end: *sentence_end,
             line_after: line_after.as_bytes(),
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
@@ -183,7 +185,7 @@ fn serve(
 mod tests {
     use std::sync::mpsc;
 
-    use ghosttype_core::inference::{NextWordBias, Prompt, TokenCount, TypoCheck};
+    use ghosttype_core::inference::{NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck};
 
     use super::*;
 
@@ -199,6 +201,7 @@ mod tests {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         }
     }

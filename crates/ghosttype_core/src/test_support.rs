@@ -6,7 +6,8 @@ use crate::app::{BadgeView, Status};
 use crate::history::HistoryEntry;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck,
+    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd,
+    TokenCount, TypoCheck,
 };
 use crate::prompt::framed_prompt;
 use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings};
@@ -29,6 +30,7 @@ pub(crate) struct ExpectedRequest {
     pub(crate) max_tokens: TokenCount,
     pub(crate) min_log_probability: Option<LogProbability>,
     pub(crate) typo_check: TypoCheck,
+    pub(crate) sentence_end: SentenceEnd,
 }
 
 impl ExpectedRequest {
@@ -40,6 +42,7 @@ impl ExpectedRequest {
             max_tokens: settings.suggestion_length_in_use().max_tokens(),
             min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
             typo_check: settings.typo_check(),
+            sentence_end: settings.sentence_end,
         }
     }
 }
@@ -53,6 +56,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
             typo_check: expected.typo_check,
+            sentence_end: expected.sentence_end,
             line_after: String::new(),
         }
     }
@@ -73,6 +77,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }
 }

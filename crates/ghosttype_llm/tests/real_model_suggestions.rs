@@ -11,7 +11,7 @@ use ghosttype_core::engine::Reaction;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{
     Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability,
-    ModelRunner, NextWordBias, Prompt, TokenCount, TypoCheck,
+    ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use ghosttype_core::key::Key;
 use ghosttype_core::settings::{PromptPreparation, Settings, TypoRule};
@@ -129,6 +129,7 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check,
+        sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     })
 }
@@ -179,6 +180,7 @@ fn next_word_bias_picks_only_the_first_word() {
         next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     });
 
@@ -293,6 +295,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }));
 
@@ -447,6 +450,7 @@ fn completion_of_no_tokens_adds_no_text() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }));
 

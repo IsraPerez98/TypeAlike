@@ -3,7 +3,7 @@
 
 use std::str;
 
-use ghosttype_core::inference::{Correction, LogProbability, TypoCheck};
+use ghosttype_core::inference::{Correction, LogProbability, SentenceEnd, TypoCheck};
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
@@ -27,6 +27,8 @@ pub(super) struct Limits<'text> {
     pub(super) min_log_probability: Option<LogProbability>,
     /// What the completion does when the healed text looks like a typo.
     pub(super) typo_check: TypoCheck,
+    /// Whether the completion stops at the end of a sentence that it adds.
+    pub(super) sentence_end: SentenceEnd,
     /// The text after the caret on its line, which the added text leads into, or empty.
     pub(super) line_after: &'text [u8],
 }
@@ -179,11 +181,10 @@ impl<'text> Generation<'text> {
     }
 
     /// Adds `token`, with `piece` as text and `log_probability`, unless it starts the line after
-    /// the caret, a placeholder before that line, or the next sentence, or the minimum probability
-    /// of the `limits` cuts it. A cut
-    /// inside a word leaves out that word. Stops after a line break, and at the token limit, where
-    /// it leaves out the last word unless that word ends a sentence. It never leaves out the only
-    /// word.
+    /// the caret, a placeholder before that line, or the next sentence when the `limits` stop at
+    /// the end of a sentence, or the minimum probability of the `limits` cuts it. A cut inside a
+    /// word leaves out that word. Stops after a line break, and at the token limit, where it leaves
+    /// out the last word unless that word ends a sentence. It never leaves out the only word.
     pub(super) fn add_token(
         &mut self,
         token: LlamaToken,
@@ -194,7 +195,8 @@ impl<'text> Generation<'text> {
         let text = added_after(piece, self.unwritten);
         if self.starts_line_after(text, limits.line_after)
             || (!limits.line_after.is_empty() && opens_placeholder(text))
-            || starts_next_sentence(self.healing.text, &self.written, text)
+            || (limits.sentence_end == SentenceEnd::Stop
+                && starts_next_sentence(self.healing.text, &self.written, text))
         {
             return Step::Stop;
         }
@@ -456,6 +458,7 @@ mod tests {
             max_added,
             min_log_probability: min_log_probability.map(LogProbability),
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
             line_after: b"",
         }
     }
@@ -538,10 +541,22 @@ mod tests {
     }
 
     #[test]
-    fn new_word_after_the_end_of_a_sentence_is_left_out() {
-        let added = add_tokens(&[("Sure.", -1.0), (" Then", -1.0)], limits(16, None));
+    fn sentence_stop_leaves_out_a_new_word_after_the_end_of_a_sentence() {
+        let limits = Limits {
+            sentence_end: SentenceEnd::Stop,
+            ..limits(16, None)
+        };
+
+        let added = add_tokens(&[("Sure.", -1.0), (" Then", -1.0)], limits);
 
         assert_eq!(added, (Step::Stop, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn new_word_after_the_end_of_a_sentence_continues_without_the_sentence_stop() {
+        let added = add_tokens(&[("Sure.", -1.0), (" Then", -1.0)], limits(16, None));
+
+        assert_eq!(added, (Step::Continue, vec![LlamaToken(1), LlamaToken(2)]));
     }
 
     #[test]

@@ -7,7 +7,7 @@ mod screen_text;
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, LogProbability, TokenCount, TypoCheck};
+use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
 
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
@@ -201,6 +201,8 @@ pub struct Settings {
     pub typo_rule: TypoRule,
     /// Whether a suggestion fixes the word before the caret when it looks misspelled.
     pub typo_fix: TypoFix,
+    /// Whether a suggestion stops at the end of a sentence.
+    pub sentence_end: SentenceEnd,
 }
 
 impl Settings {

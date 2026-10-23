@@ -3,7 +3,7 @@
 use crate::desktop::Desktop;
 use crate::history::HistoryPool;
 use crate::inference::{
-    InferenceRequest, LogProbability, NextWordBias, Prompt, TokenCount, TypoCheck, WordBias,
+    InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck, WordBias,
 };
 use crate::place::Place;
 use crate::prompt;
@@ -40,6 +40,7 @@ impl Engine {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
             line_after,
         })
     }
@@ -73,6 +74,7 @@ impl Engine {
             next_word_bias: self.session_next_word_bias(),
             min_log_probability,
             typo_check: self.typo_check,
+            sentence_end: self.sentence_end,
             line_after,
         })
     }

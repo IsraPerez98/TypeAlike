@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, InferenceRequest};
+use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::settings::{
     Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
     TypoRule, WriterName, WriterNotes,
@@ -44,6 +44,8 @@ pub enum GeneralAction {
     SwitchTypoFix(TypoFix),
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),
+    /// Turned on or off the switch that stops each suggestion at the end of a sentence.
+    SwitchSentenceEnd(SentenceEnd),
     /// Picked this downloaded model to suggest text.
     SelectSuggestionModel(ModelFile),
 }
@@ -64,6 +66,7 @@ const DISPLAY: &str = "suggestion-display";
 const TYPO_RULE: &str = "typo-rule";
 const TYPO_FIX: &str = "typo-fix";
 const LENGTH: &str = "suggestion-length";
+const SENTENCE_END: &str = "sentence-end";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
 const WRITER_NAME: &str = "writer-name";
@@ -95,8 +98,10 @@ const TYPO_FIX_LABEL: &str = "Fix typos";
 const TYPO_FIX_DESCRIPTION: &str = "When the word that you type looks like it has a typo, the suggestion shows \
      the word struck through and a fix after it. Tab replaces the word with the fix.";
 const LENGTH_LABEL: &str = "Suggestion length";
-const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length or at the end of a sentence. A shorter \
-     suggestion shows sooner.";
+const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length. A shorter suggestion shows sooner.";
+const SENTENCE_END_LABEL: &str = "Stop at the end of a sentence";
+const SENTENCE_END_DESCRIPTION: &str = "A suggestion ends with the first sentence that it finishes. When this \
+     switch is off, a suggestion can continue with the next sentence, up to its length.";
 const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are short or very short, so that they show sooner.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
@@ -244,6 +249,9 @@ impl GeneralPane {
             GeneralAction::SelectSuggestionLength(length) => {
                 self.change_setting(length, |settings| &mut settings.suggestion_length)
             }
+            GeneralAction::SwitchSentenceEnd(end) => {
+                self.change_setting(end, |settings| &mut settings.sentence_end)
+            }
             GeneralAction::SelectSuggestionModel(file) => GeneralOutcome {
                 settings: None,
                 request: playground.on_action(PlaygroundAction::SelectModel(file)),
@@ -279,8 +287,9 @@ impl GeneralPane {
     #[must_use]
     pub fn page(&self, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
         let switches = self.switch_rows();
-        let pickers = [
+        let suggestion_rows = [
             Row::Picker(self.suggestion_length_picker()),
+            Row::Switch(self.sentence_end_switch()),
             Row::Picker(playground.model_picker(
                 installed,
                 ControlId::new(SUGGESTION_MODEL),
@@ -290,7 +299,7 @@ impl GeneralPane {
         let backend = self
             .has_backend_menu
             .then(|| Row::Picker(self.backend_picker(playground)));
-        let settings = switches.chain(pickers).chain(backend);
+        let settings = switches.chain(suggestion_rows).chain(backend);
         Page {
             title: PANE_TITLE,
             icon: PageIcon::Gear,
@@ -458,6 +467,16 @@ impl GeneralPane {
         }
     }
 
+    fn sentence_end_switch(&self) -> Switch {
+        Switch {
+            id: ControlId::new(SENTENCE_END),
+            icon: RowIcon::StopButton,
+            label: SENTENCE_END_LABEL,
+            description: SENTENCE_END_DESCRIPTION,
+            is_on: self.settings.sentence_end == SentenceEnd::Stop,
+        }
+    }
+
     fn backend_picker(&self, playground: &PlaygroundPane) -> Picker {
         let text = MenuText {
             id: BACKEND,
@@ -496,6 +515,10 @@ fn action_for_switch(id: &str, is_on: bool) -> Option<GeneralAction> {
         TYPO_FIX => (
             GeneralAction::SwitchTypoFix(TypoFix::Offer),
             GeneralAction::SwitchTypoFix(TypoFix::Off),
+        ),
+        SENTENCE_END => (
+            GeneralAction::SwitchSentenceEnd(SentenceEnd::Stop),
+            GeneralAction::SwitchSentenceEnd(SentenceEnd::Continue),
         ),
         _ => return None,
     };

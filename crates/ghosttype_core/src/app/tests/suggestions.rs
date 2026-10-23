@@ -148,6 +148,7 @@ fn settings_give_the_writer_notes() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
             typo_check: Settings::default().typo_check(),
+            sentence_end: Settings::default().sentence_end,
             line_after: String::new(),
         })
     );
