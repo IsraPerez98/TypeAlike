@@ -24,6 +24,8 @@ const WHOLE_RANGE: i32 = -1;
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
 /// Gecko (Firefox). The document of a web page gives the URL of the page as its value.
 const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
+/// The ARIA role of a search box, which a browser also gives an HTML `<input type="search">`.
+const SEARCH_BOX_ARIA_ROLE: &str = "searchbox";
 
 /// What UIA tells about the focused control.
 #[derive(Debug)]
@@ -47,6 +49,8 @@ pub(crate) struct ShownField {
     /// Whether the field hides the text on the line of its caret, as the input box of a terminal
     /// of xterm.js does.
     pub(crate) is_caret_line_hidden: bool,
+    /// Whether the ARIA role of the field marks it as a search box.
+    pub(crate) is_search_field: bool,
 }
 
 impl fmt::Debug for ShownField {
@@ -57,6 +61,7 @@ impl fmt::Debug for ShownField {
             .field("labels", &self.labels)
             .field("has_domain", &self.domain.is_some())
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
+            .field("is_search_field", &self.is_search_field)
             .finish()
     }
 }
@@ -75,6 +80,7 @@ impl Uia {
             labels: labels_of(&element),
             domain: self.web_domain(&element),
             is_caret_line_hidden: is_terminal_input(&element),
+            is_search_field: is_search_field(&element),
         }))
     }
 
@@ -191,6 +197,22 @@ fn labels_of(element: &IUIAutomationElement) -> FieldLabels {
     }
 }
 
+/// Whether the ARIA role of `element` marks it as a search box. Only web pages give ARIA roles, so
+/// this misses a native search box.
+fn is_search_field(element: &IUIAutomationElement) -> bool {
+    // SAFETY: plain call on an interface of this thread.
+    unsafe { element.CurrentAriaRole() }.is_ok_and(|role| is_search_role(&role.to_string()))
+}
+
+/// Whether `aria_role`, the value of an ARIA role, marks a search box. The first role of a list
+/// counts, as in a browser.
+fn is_search_role(aria_role: &str) -> bool {
+    aria_role
+        .split_whitespace()
+        .next()
+        .is_some_and(|role| role.eq_ignore_ascii_case(SEARCH_BOX_ARIA_ROLE))
+}
+
 /// Returns the text that `value` holds, or `None` when it holds no text.
 fn text_of(value: &VARIANT) -> Option<String> {
     (value.vt() == VT_BSTR).then(|| {
@@ -223,6 +245,20 @@ mod tests {
         let host = url_host("https://mail.google.com/mail/u/0/#inbox");
 
         assert_eq!(host.as_deref(), Some("mail.google.com"));
+    }
+
+    #[test]
+    fn searchbox_role_marks_a_search_field() {
+        let roles = ["searchbox", "SearchBox", "searchbox textbox", " searchbox"];
+
+        assert_eq!(roles.map(is_search_role), [true; 4]);
+    }
+
+    #[test]
+    fn other_role_or_no_role_marks_no_search_field() {
+        let roles = ["textbox", "search", "combobox", "textbox searchbox", ""];
+
+        assert_eq!(roles.map(is_search_role), [false; 5]);
     }
 
     #[test]

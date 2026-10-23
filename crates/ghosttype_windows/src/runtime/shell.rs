@@ -257,6 +257,7 @@ fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroun
         field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
         domain: field.and_then(|field| field.domain.clone()),
         is_caret_line_hidden: field.is_some_and(|field| field.is_caret_line_hidden),
+        is_search_field: field.is_some_and(|field| field.is_search_field),
         ..app
     }
 }
@@ -288,6 +289,7 @@ mod tests {
             },
             domain: Some("mail.example.com".to_owned()),
             is_caret_line_hidden: false,
+            is_search_field: false,
         };
 
         let surroundings = merged_surroundings(notepad(), Some(&field));
@@ -320,5 +322,17 @@ mod tests {
         let surroundings = merged_surroundings(notepad(), Some(&field));
 
         assert!(surroundings.is_caret_line_hidden);
+    }
+
+    #[test]
+    fn search_field_tells_it() {
+        let field = ShownField {
+            is_search_field: true,
+            ..ShownField::default()
+        };
+
+        let surroundings = merged_surroundings(notepad(), Some(&field));
+
+        assert!(surroundings.is_search_field);
     }
 }
