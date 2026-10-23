@@ -35,7 +35,7 @@ impl SessionField {
             app: ScreenTextApp::of(surroundings),
             domain: surroundings.domain.clone(),
             is_text_field: surroundings.field_text.is_some(),
-            is_excluded: place::is_address_or_subject_field(surroundings),
+            is_excluded: surroundings.is_search_field || place::is_address_or_subject_field(surroundings),
             is_caret_line_hidden: surroundings.is_caret_line_hidden,
         }
     }

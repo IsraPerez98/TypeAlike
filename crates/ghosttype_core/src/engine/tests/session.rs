@@ -271,6 +271,24 @@ fn subject_field_of_an_email_is_not_prepared() {
 }
 
 #[test]
+fn search_field_gets_no_request() {
+    let mut engine = Engine::default();
+
+    let reaction = engine.on_key(Key::Char('a'), &FakeDesktop::default().in_search_field());
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn search_field_is_not_prepared() {
+    let mut engine = Engine::default();
+
+    let request = engine.prepare(&FakeDesktop::default().in_search_field());
+
+    assert_eq!(request, None);
+}
+
+#[test]
 fn body_of_an_email_gets_a_request() {
     let mut engine = Engine::default();
 

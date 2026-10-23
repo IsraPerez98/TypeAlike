@@ -120,6 +120,7 @@ impl Case {
                     after_caret: self.after.clone(),
                 }),
                 is_caret_line_hidden: false,
+                is_search_field: false,
             },
             clipboard: self.clipboard.clone(),
         }

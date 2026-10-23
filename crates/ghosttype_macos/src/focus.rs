@@ -136,6 +136,7 @@ impl FocusTracker {
             domain: element.as_deref().and_then(web_domain),
             field_text: element.as_deref().and_then(field_text),
             is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
+            is_search_field: false,
         }
     }
 }

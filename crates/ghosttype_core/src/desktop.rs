@@ -236,6 +236,9 @@ pub struct Surroundings {
     /// Whether the focused field hides the text on the line of its caret, as the input box of a
     /// terminal of xterm.js does. Text can then follow the caret, also when `field_text` has none.
     pub is_caret_line_hidden: bool,
+    /// Whether the role of the focused field marks it as a search box, as the role of an HTML
+    /// `<input type="search">` does. The platform tells it from the role, never from the labels.
+    pub is_search_field: bool,
 }
 
 impl fmt::Debug for Surroundings {
@@ -250,6 +253,7 @@ impl fmt::Debug for Surroundings {
             .field("has_domain", &self.domain.is_some())
             .field("field_text", &self.field_text)
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
+            .field("is_search_field", &self.is_search_field)
             .finish()
     }
 }
@@ -328,6 +332,7 @@ mod tests {
                 after_caret: "secret after".to_owned(),
             }),
             is_caret_line_hidden: false,
+            is_search_field: false,
         };
 
         let debug = format!("{surroundings:?}");

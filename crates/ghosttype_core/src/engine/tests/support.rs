@@ -47,6 +47,11 @@ impl FakeDesktop {
         self
     }
 
+    pub(super) fn in_search_field(mut self) -> Self {
+        self.surroundings.is_search_field = true;
+        self
+    }
+
     pub(super) fn with_copy(mut self, text: &str, age: Option<Duration>) -> Self {
         self.copied = Some(CopiedText {
             text: text.to_owned(),
