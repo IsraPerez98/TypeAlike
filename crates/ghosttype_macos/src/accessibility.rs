@@ -9,7 +9,8 @@ use objc2_application_services::{
     AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
-    CFArray, CFBoolean, CFDictionary, CFRange, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize,
+    CFArray, CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CGPoint, CGRect,
+    CGSize,
 };
 
 pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
@@ -156,6 +157,14 @@ pub(crate) fn string_for_range(element: &AXUIElement, range: CFRange) -> Option<
         .map(|text| text.to_string())
 }
 
+pub(crate) fn copy_attribute_for_index(
+    element: &AXUIElement,
+    attribute: &'static str,
+    index: isize,
+) -> Option<CFRetained<CFType>> {
+    copy_attribute_for_parameter(element, attribute, &CFNumber::new_isize(index))
+}
+
 pub(crate) fn copy_attribute_for_range(
     element: &AXUIElement,
     attribute: &'static str,
@@ -218,7 +227,7 @@ unsafe fn take_copied_value(
     Ok(NonNull::new(value.cast_mut()).map(|value| unsafe { CFRetained::from_raw(value) }))
 }
 
-fn read_range(value: &AXValue) -> Option<CFRange> {
+pub(crate) fn read_range(value: &AXValue) -> Option<CFRange> {
     let mut range = CFRange {
         location: 0,
         length: 0,
