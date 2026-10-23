@@ -16,9 +16,10 @@ pub(crate) struct Caret {
 }
 
 impl Caret {
-    /// Builds a caret from the bounds of the text that ends at it; `None` when it has no height.
+    /// Builds a caret from the bounds of the text that ends at it; `None` unless
+    /// [`is_caret_box`] accepts the bounds.
     pub(crate) fn from_bounds(bounds: CGRect) -> Option<Self> {
-        (bounds.size.height > 0.0).then_some(Self {
+        is_caret_box(&bounds).then_some(Self {
             left: bounds.origin.x + bounds.size.width,
             top: bounds.origin.y,
             height: bounds.size.height,
@@ -30,6 +31,24 @@ impl Caret {
     pub(crate) fn at_start_of(field: CGRect) -> Option<Self> {
         Self::from_bounds(CGRect::new(field.origin, CGSize::new(0.0, field.size.height)))
     }
+}
+
+/// Whether `bounds` can hold a caret: a box with a height above 0 and edges that are finite.
+pub(crate) fn is_caret_box(bounds: &CGRect) -> bool {
+    bounds.size.height > 0.0 && is_finite_frame(bounds)
+}
+
+/// Whether each edge of `frame` is a finite number. AppKit raises an exception for a window frame
+/// with another value.
+pub(crate) fn is_finite_frame(frame: &CGRect) -> bool {
+    [
+        frame.origin.x,
+        frame.origin.y,
+        frame.origin.x + frame.size.width,
+        frame.origin.y + frame.size.height,
+    ]
+    .into_iter()
+    .all(CGFloat::is_finite)
 }
 
 /// The origin of `frame` in AppKit's bottom-left screen coordinates.
@@ -103,6 +122,40 @@ mod tests {
         let bounds = CGRect::new(CGPoint::new(100.0, 40.0), CGSize::new(0.0, 0.0));
 
         assert_eq!(Caret::from_bounds(bounds), None);
+    }
+
+    #[test]
+    fn bounds_with_an_edge_that_is_not_finite_have_no_caret() {
+        let carets = [
+            Caret::from_bounds(rect(CGFloat::NAN, 40.0, 7.0, 18.0)),
+            Caret::from_bounds(rect(100.0, CGFloat::NEG_INFINITY, 7.0, 18.0)),
+            Caret::from_bounds(rect(100.0, 40.0, 7.0, CGFloat::INFINITY)),
+            Caret::from_bounds(rect(CGFloat::MAX, 40.0, CGFloat::MAX, 18.0)),
+        ];
+
+        assert_eq!(carets, [None, None, None, None]);
+    }
+
+    #[test]
+    fn frame_with_an_edge_that_is_not_finite_is_refused() {
+        let checks = [
+            is_finite_frame(&rect(CGFloat::NAN, 40.0, 300.0, 18.0)),
+            is_finite_frame(&rect(100.0, 40.0, CGFloat::INFINITY, 18.0)),
+            is_finite_frame(&rect(100.0, CGFloat::MAX, 300.0, CGFloat::MAX)),
+        ];
+
+        assert_eq!(checks, [false, false, false]);
+    }
+
+    #[test]
+    fn frame_with_finite_edges_and_no_height_is_accepted() {
+        let frame = rect(100.0, 40.0, 300.0, 0.0);
+
+        assert!(is_finite_frame(&frame));
+    }
+
+    fn rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::accessibility::{
 };
 use crate::focus::caret::{caret_bounds, is_terminal_input, text_color};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
-use crate::geometry::Caret;
+use crate::geometry::{Caret, is_finite_frame};
 
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
 const ENHANCED_USER_INTERFACE_ATTRIBUTE: &str = "AXEnhancedUserInterface";
@@ -107,7 +107,7 @@ impl FocusTracker {
     pub(crate) fn field_frame(&self) -> Option<CGRect> {
         let element = self.focused_element()?;
         selected_range(&element)?;
-        frame(&element)
+        frame(&element).filter(is_finite_frame)
     }
 
     fn is_secure_text_focused(&self) -> bool {
