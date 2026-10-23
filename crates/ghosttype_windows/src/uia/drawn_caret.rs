@@ -144,18 +144,16 @@ fn bounding_rectangles(range: &IUIAutomationTextRange) -> Option<Vec<f64>> {
 }
 
 /// Builds the caret at the right edge of the last of `rectangles`, each given as left, top, width
-/// and height in physical screen pixels.
+/// and height in physical screen pixels. `None` when a value or an edge of that rectangle is not a
+/// finite number.
 fn caret_from_rectangles(rectangles: &[f64]) -> Option<Caret> {
     let [left, top, width, height] = *rectangles.as_chunks::<VALUES_PER_RECTANGLE>().0.last()?;
-    let top_left = POINT {
-        x: round_to_pixel(left),
-        y: round_to_pixel(top),
-    };
-    let bottom_right = POINT {
-        x: round_to_pixel(left + width),
-        y: round_to_pixel(top + height),
-    };
-    Caret::from_corners(top_left, bottom_right, None)
+    let edges = [left, top, left + width, top + height];
+    if !edges.into_iter().all(f64::is_finite) {
+        return None;
+    }
+    let [left, top, right, bottom] = edges.map(round_to_pixel);
+    Caret::from_corners(POINT { x: left, y: top }, POINT { x: right, y: bottom }, None)
 }
 
 /// The hidden input box of a terminal of xterm.js, which the terminal moves to the cell of its
@@ -280,6 +278,27 @@ mod tests {
         let caret = caret_from_rectangles(&[]);
 
         assert_eq!(caret, None);
+    }
+
+    #[test]
+    fn rectangle_with_a_value_that_is_not_finite_gives_no_caret() {
+        let carets = [
+            caret_from_rectangles(&[f64::NAN, 40.0, 7.0, 18.0]),
+            caret_from_rectangles(&[100.0, 40.0, 7.0, f64::INFINITY]),
+            caret_from_rectangles(&[100.0, f64::NEG_INFINITY, 7.0, 18.0]),
+        ];
+
+        assert_eq!(carets, [None, None, None]);
+    }
+
+    #[test]
+    fn rectangle_with_an_edge_past_the_largest_number_gives_no_caret() {
+        let carets = [
+            caret_from_rectangles(&[f64::MAX, 40.0, f64::MAX, 18.0]),
+            caret_from_rectangles(&[100.0, f64::MAX, 7.0, f64::MAX]),
+        ];
+
+        assert_eq!(carets, [None, None]);
     }
 
     #[test]
