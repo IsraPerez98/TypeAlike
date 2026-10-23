@@ -7,6 +7,7 @@ mod preface;
 mod reaction;
 mod request;
 mod session;
+mod shown_suggestions;
 mod suggestion;
 
 use std::fmt;

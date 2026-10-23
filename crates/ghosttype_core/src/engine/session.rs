@@ -7,6 +7,8 @@ use crate::place;
 use crate::prompt;
 use crate::settings::{ScreenTextApp, SuggestionLength};
 
+use super::shown_suggestions::ShownSuggestions;
+
 /// The characters before the caret that a session keeps when its text reaches
 /// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
 /// start of the prompt stays the same for many keys and the model runner can reuse its work.
@@ -60,6 +62,9 @@ pub(super) struct Session {
     /// the caret is not known until the next read of the field. It is the text of the session
     /// when the platform gave no field text.
     pub(super) field_at_enter: Option<String>,
+    /// The suggestions that the ghost text showed in the session, which a backspace or a retype
+    /// shows again. They all have the text after the caret of the session.
+    pub(super) shown_suggestions: ShownSuggestions,
 }
 
 impl Session {
@@ -87,6 +92,7 @@ impl Session {
             has_accepted: false,
             has_screen_read: false,
             field_at_enter: None,
+            shown_suggestions: ShownSuggestions::default(),
         }
     }
 

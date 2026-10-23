@@ -183,14 +183,16 @@ impl Engine {
     }
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
-    /// text, when it has text there. A bad suggestion empties the ghost text. Returns whether the
-    /// ghost text changed.
+    /// text, when it has text there, and keeps it in the shown suggestions of the session. A bad
+    /// suggestion empties the ghost text. Returns whether the ghost text changed.
     fn grow(&mut self, completion: &str) -> bool {
-        let (Some(session), Offer::Growing { typed, shown, .. }) = (&self.session, &mut self.offer) else {
+        let (Some(session), Offer::Growing { typed, shown, .. }) = (&mut self.session, &mut self.offer)
+        else {
             return false;
         };
         match suggestion_after_typed(&session.text_before, &session.text_after, typed, completion) {
             Some(grown) if grown != *shown => {
+                session.shown_suggestions.record(&session.text_before, &grown);
                 *shown = grown;
                 true
             }

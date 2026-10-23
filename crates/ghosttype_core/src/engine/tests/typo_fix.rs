@@ -116,6 +116,16 @@ fn text_before_the_caret_holds_the_fixed_word_after_tab() {
 }
 
 #[test]
+fn fix_does_not_show_again_after_a_backspace() {
+    let mut engine = engine_showing_a_fix();
+    press(&mut engine, Key::Char('x'));
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, request("the dlei"));
+}
+
+#[test]
 fn typing_while_a_fix_shows_asks_again() {
     let mut engine = engine_showing_a_fix();
 

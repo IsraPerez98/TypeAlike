@@ -44,10 +44,11 @@ impl Engine {
         })
     }
 
-    /// Shows the rest of a phrase that the writer repeats, else requests a completion.
+    /// Shows the rest of a suggestion that showed in the session, else the rest of a phrase that
+    /// the writer repeats, else requests a completion.
     pub(super) fn suggest(&mut self) -> Reaction {
-        if let Some(phrase) = self.repeated_phrase() {
-            return self.show(phrase);
+        if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
+            return self.show(rest);
         }
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
@@ -122,6 +123,16 @@ impl Engine {
     /// A new request uses them, but a running completion of an earlier text does not.
     pub(super) fn has_writer_words(&self) -> bool {
         self.repeated_phrase().is_some() || !self.session_next_word_bias().0.is_empty()
+    }
+
+    /// The rest of a suggestion that showed in the session, which the text before the caret
+    /// continues.
+    fn rest_of_shown_suggestion(&self) -> Option<String> {
+        let session = self.session.as_ref()?;
+        session
+            .shown_suggestions
+            .rest_after(&session.text_before)
+            .map(str::to_owned)
     }
 
     /// The rest of a phrase that the writer repeats after the text before the caret, in the pool

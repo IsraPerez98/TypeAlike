@@ -9,7 +9,7 @@ use crate::test_support::{MAIL_APP, completion, mail_entry, mail_history_app};
 
 use super::support::{
     FakeDesktop, GREETING, Suggestion, engine_with_history, finish_typing, history_settings, mail_field,
-    show, type_text,
+    press, show, type_text,
 };
 
 fn word_choice_settings(history: HistoryAccess, apps: Vec<HistoryApp>) -> Settings {
@@ -187,6 +187,18 @@ fn completion_of_an_older_request_keeps_the_phrase() {
     let reaction = engine.on_completion(Err(InferenceError::Superseded));
 
     assert_eq!(reaction, show(" if"));
+}
+
+#[test]
+fn earlier_suggestion_at_the_caret_comes_before_a_phrase() {
+    let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
+    engine.on_key(Key::Char(' '), &mail_field_around("Please let me", ""));
+    engine.on_completion(completion("know if it works"));
+    type_text(&mut engine, "know x");
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, show("if it works"));
 }
 
 const CHAT_APP: &str = "net.whatsapp.WhatsApp";

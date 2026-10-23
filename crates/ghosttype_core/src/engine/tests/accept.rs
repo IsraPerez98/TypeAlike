@@ -193,7 +193,7 @@ fn suggestion_is_offered_once_after_accept() {
 }
 
 #[test]
-fn backspace_requests_completion_of_shorter_context() {
+fn backspace_past_the_start_of_the_suggestion_requests_completion() {
     let mut engine = engine_showing("hel", "lo");
 
     let reaction = press(&mut engine, Key::Backspace);
