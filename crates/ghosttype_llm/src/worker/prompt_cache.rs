@@ -7,13 +7,14 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
+use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 
 use super::correction::typo_fix;
 use super::generation::{
     AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
-use super::logits::with_bias;
+use super::logits::{log_probability_of, most_likely_tokens, with_bias};
 use super::model_params::{BATCH_TOKENS, CpuThreads, context_params};
 
 /// The sequence that keeps the last prompt between completions.
@@ -25,6 +26,9 @@ const LAST_OUTPUT: i32 = -1;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
 /// backspace across each of these words goes back to a saved state.
 const MAX_SNAPSHOTS: usize = 4;
+/// The most likely tokens where a completion looks for a token that keeps its text on the line,
+/// after the end of a sentence that it goes on past.
+const SAME_LINE_CANDIDATES: usize = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum GenerateError {
@@ -228,7 +232,9 @@ impl<'model> PromptCache<'model> {
 
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
-    /// the end of the text, at markup, and where each [`Generation`] step stops. Before each
+    /// the end of the text, at markup, and where each [`Generation`] step stops. After the end of a
+    /// sentence that it goes on past, it takes the most likely token that keeps the text on its
+    /// line. Before each
     /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
     pub(super) fn continue_prompt(
         &mut self,
@@ -251,7 +257,13 @@ impl<'model> PromptCache<'model> {
             generation.add_join_step(logits, limits.line_after);
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
-            let (token, log_probability) = generation.choose_next_token(scores, logits);
+            let chosen = generation.choose_next_token(scores, logits);
+            let (token, log_probability) =
+                if generation.continues_past_sentence_end(limits) && ends_text_or_line(vocab, chosen.0) {
+                    same_line_token(vocab, scores, logits).unwrap_or(chosen)
+                } else {
+                    chosen
+                };
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
                 break;
             }
@@ -329,6 +341,22 @@ impl<'model> PromptCache<'model> {
 /// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
 /// one less when `prompt` ends inside the cached tokens, because the output after its last token
 /// must be computed again.
+/// Whether `token` ends the added text or its line: the end of the text, markup or a line break.
+fn ends_text_or_line(vocab: &LlamaVocab<'_>, token: LlamaToken) -> bool {
+    vocab.is_eog(token)
+        || is_markup(vocab.attr(token))
+        || vocab.token_to_piece(token, false, None).contains(&b'\n')
+}
+
+/// Returns the most likely token of `scores` that keeps the text on its line, among the
+/// [`SAME_LINE_CANDIDATES`], and the natural log of its probability in `logits`.
+fn same_line_token(vocab: &LlamaVocab<'_>, scores: &[f32], logits: &[f32]) -> Option<(LlamaToken, f32)> {
+    most_likely_tokens(scores, SAME_LINE_CANDIDATES)
+        .into_iter()
+        .find(|&token| !ends_text_or_line(vocab, token))
+        .map(|token| (token, log_probability_of(logits, token)))
+}
+
 fn kept_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
     let common = common_tokens(cached, prompt);
     if common == prompt.len() && common < cached.len() {

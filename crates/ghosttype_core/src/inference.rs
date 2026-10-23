@@ -136,7 +136,8 @@ impl TypoCheck {
 /// What the runner does at the end of a sentence that it adds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SentenceEnd {
-    /// The runner can add the next sentence.
+    /// The runner can add the next sentence on the same line. The least likely that the added
+    /// text can get applies to each sentence on its own.
     #[default]
     Continue,
     /// The runner stops before a new word after the end of a sentence. A period after a digit, an

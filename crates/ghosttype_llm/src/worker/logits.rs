@@ -62,7 +62,7 @@ pub(super) fn choose_token(
 }
 
 /// Returns the natural log of the probability that `logits` give to `token`.
-fn log_probability_of(logits: &[f32], token: LlamaToken) -> f32 {
+pub(super) fn log_probability_of(logits: &[f32], token: LlamaToken) -> f32 {
     let highest = highest_of(logits);
     logit_of(logits, token) - highest - exp_total(logits, highest).ln()
 }

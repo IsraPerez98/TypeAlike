@@ -89,6 +89,9 @@ pub(super) struct Generation<'text> {
     /// The text that the added tokens wrote after the healed text.
     written: Vec<u8>,
     words: WordLogProbabilities,
+    /// The log probability of the added text before the sentence that it writes now. The cut of
+    /// the tail applies to each sentence on its own.
+    log_probability_before_sentence: f32,
     typed: TypedLetters,
     /// The end of the added text where the model finds the added text and then the line after the
     /// caret most likely, if any.
@@ -115,6 +118,7 @@ impl<'text> Generation<'text> {
             tokens: Vec::new(),
             written: Vec::new(),
             words: WordLogProbabilities::default(),
+            log_probability_before_sentence: 0.0,
             typed: TypedLetters::default(),
             best_end: None,
         }
@@ -180,11 +184,20 @@ impl<'text> Generation<'text> {
         }
     }
 
+    /// Whether the completion goes on past the end of a sentence that it added, so that the next
+    /// token must not end the text or its line.
+    pub(super) fn continues_past_sentence_end(&self, limits: Limits<'_>) -> bool {
+        limits.sentence_end == SentenceEnd::Continue
+            && self.unwritten.is_empty()
+            && ends_sentence(self.healing.text, &self.written)
+    }
+
     /// Adds `token`, with `piece` as text and `log_probability`, unless it starts the line after
     /// the caret, a placeholder before that line, or the next sentence when the `limits` stop at
-    /// the end of a sentence, or the minimum probability of the `limits` cuts it. A cut inside a
-    /// word leaves out that word. Stops after a line break, and at the token limit, where it leaves
-    /// out the last word unless that word ends a sentence. It never leaves out the only word.
+    /// the end of a sentence, or the minimum probability of the `limits` cuts it. The minimum
+    /// applies to each sentence on its own. A cut inside a word leaves out that word. Stops after
+    /// a line break, and at the token limit, where it leaves out the last word unless that word
+    /// ends a sentence. It never leaves out the only word.
     pub(super) fn add_token(
         &mut self,
         token: LlamaToken,
@@ -193,16 +206,20 @@ impl<'text> Generation<'text> {
         limits: Limits<'_>,
     ) -> Step {
         let text = added_after(piece, self.unwritten);
+        let starts_sentence = starts_next_sentence(self.healing.text, &self.written, text);
         if self.starts_line_after(text, limits.line_after)
             || (!limits.line_after.is_empty() && opens_placeholder(text))
-            || (limits.sentence_end == SentenceEnd::Stop
-                && starts_next_sentence(self.healing.text, &self.written, text))
+            || (limits.sentence_end == SentenceEnd::Stop && starts_sentence)
         {
             return Step::Stop;
         }
-        let is_cut = limits
-            .min_log_probability
-            .is_some_and(|cut| !self.words.keeps(text, log_probability, cut));
+        if starts_sentence {
+            self.log_probability_before_sentence = self.words.total();
+        }
+        let is_cut = limits.min_log_probability.is_some_and(|cut| {
+            let sentence_cut = LogProbability(cut.0 + self.log_probability_before_sentence);
+            !self.words.keeps(text, log_probability, sentence_cut)
+        });
         if is_cut {
             let dropped = self.words.end_before(text);
             self.tokens.truncate(self.tokens.len().saturating_sub(dropped));
@@ -557,6 +574,52 @@ mod tests {
         let added = add_tokens(&[("Sure.", -1.0), (" Then", -1.0)], limits(16, None));
 
         assert_eq!(added, (Step::Continue, vec![LlamaToken(1), LlamaToken(2)]));
+    }
+
+    #[test]
+    fn next_sentence_gets_its_own_tail_cut_without_the_sentence_stop() {
+        let added = add_tokens(
+            &[("Sure.", -1.0), (" Then", -2.5), (" we", -0.5)],
+            limits(16, Some(-3.0)),
+        );
+
+        assert_eq!(
+            added,
+            (Step::Continue, vec![LlamaToken(1), LlamaToken(2), LlamaToken(3)])
+        );
+    }
+
+    #[test]
+    fn tail_cut_still_ends_the_next_sentence_without_the_sentence_stop() {
+        let added = add_tokens(
+            &[("Sure.", -1.0), (" Then", -2.5), (" we", -1.0)],
+            limits(16, Some(-3.0)),
+        );
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1), LlamaToken(2)]));
+    }
+
+    #[test]
+    fn only_an_added_sentence_end_without_the_sentence_stop_continues_past_it() {
+        let cases = [
+            ("Sure.", SentenceEnd::Continue, true),
+            ("Sure.", SentenceEnd::Stop, false),
+            ("Sure", SentenceEnd::Continue, false),
+            (".", SentenceEnd::Continue, false),
+        ];
+
+        let continues = cases.map(|(text, sentence_end, _)| {
+            let pieces = TokenPieces::from_texts(&[]);
+            let limits = Limits {
+                sentence_end,
+                ..limits(16, None)
+            };
+            let mut generation = Generation::new(&pieces, healing(b""));
+            generation.add_token(LlamaToken(1), text.as_bytes(), -1.0, limits);
+            generation.continues_past_sentence_end(limits)
+        });
+
+        assert_eq!(continues, cases.map(|(_, _, expected)| expected));
     }
 
     #[test]
