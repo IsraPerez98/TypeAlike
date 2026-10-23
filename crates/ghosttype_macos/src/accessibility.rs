@@ -116,12 +116,20 @@ pub(crate) fn copy_attribute_for_range(
 ) -> Option<CFRetained<CFType>> {
     // SAFETY: `range` is a local CFRange, which is what the CFRange value type describes.
     let range = unsafe { AXValue::new(AXValueType::CFRange, NonNull::from(&range).cast()) }?;
+    copy_attribute_for_parameter(element, attribute, &range)
+}
+
+pub(crate) fn copy_attribute_for_parameter(
+    element: &AXUIElement,
+    attribute: &'static str,
+    parameter: &CFType,
+) -> Option<CFRetained<CFType>> {
     let mut value: *const CFType = ptr::null();
     // SAFETY: the output pointer refers to a local.
     let error = unsafe {
         element.copy_parameterized_attribute_value(
             &CFString::from_static_str(attribute),
-            &range,
+            parameter,
             NonNull::from(&mut value),
         )
     };
