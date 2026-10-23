@@ -5,14 +5,13 @@
 
 use ghosttype_core::desktop::{FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
 use objc2_application_services::AXUIElement;
-use objc2_core_foundation::{CFNumber, CFRange, CFString, CFURL, Type};
+use objc2_core_foundation::{CFNumber, CFRange, CFURL, Type};
 
 use crate::accessibility::{
-    ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_attribute_for_range,
-    copy_element, copy_string, parent, selected_range,
+    ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_element,
+    copy_string, parent, selected_range, string_for_range,
 };
 
-const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
@@ -83,15 +82,9 @@ pub(super) fn field_text(element: &AXUIElement) -> Option<FieldText> {
 }
 
 fn field_text_by_range(element: &AXUIElement, ranges: &SurroundingRanges) -> Option<FieldText> {
-    let string_for_range = |range| {
-        copy_attribute_for_range(element, STRING_FOR_RANGE_ATTRIBUTE, range)?
-            .downcast::<CFString>()
-            .ok()
-            .map(|text| text.to_string())
-    };
     Some(FieldText {
-        before_caret: string_for_range(ranges.before)?,
-        after_caret: string_for_range(ranges.after)?,
+        before_caret: string_for_range(element, ranges.before)?,
+        after_caret: string_for_range(element, ranges.after)?,
     })
 }
 

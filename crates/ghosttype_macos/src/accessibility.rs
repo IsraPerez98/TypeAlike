@@ -17,6 +17,7 @@ const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
 const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
 const SEARCH_FIELD_SUBROLE: &str = "AXSearchField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
+const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
 pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
 const POSITION_ATTRIBUTE: &str = "AXPosition";
 const SIZE_ATTRIBUTE: &str = "AXSize";
@@ -145,6 +146,14 @@ fn copy_array(element: &AXUIElement, attribute: &'static str) -> Option<CFRetain
     let array = copy_attribute(element, attribute)?.downcast::<CFArray>().ok()?;
     // SAFETY: the array of an Accessibility attribute holds CF objects.
     Some(unsafe { CFRetained::cast_unchecked(array) })
+}
+
+/// Reads the text of `range` in `element`.
+pub(crate) fn string_for_range(element: &AXUIElement, range: CFRange) -> Option<String> {
+    copy_attribute_for_range(element, STRING_FOR_RANGE_ATTRIBUTE, range)?
+        .downcast::<CFString>()
+        .ok()
+        .map(|text| text.to_string())
 }
 
 pub(crate) fn copy_attribute_for_range(
