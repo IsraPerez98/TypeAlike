@@ -16,11 +16,9 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
-use super::{Uia, caret_range, is_password, is_terminal_input};
+use super::{Uia, WHOLE_RANGE, caret_range, is_password, is_terminal_input};
 use crate::utf16::whole_chars;
 
-/// The length that asks `GetText` for all the text of a range.
-const WHOLE_RANGE: i32 = -1;
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
 /// Gecko (Firefox). The document of a web page gives the URL of the page as its value.
 const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];

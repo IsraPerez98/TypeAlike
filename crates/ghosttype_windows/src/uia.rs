@@ -25,6 +25,8 @@ use crate::display;
 
 /// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
 const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
+/// The length that asks `GetText` for all the text of a range.
+const WHOLE_RANGE: i32 = -1;
 
 /// A connection to UIA, usable only on the thread that made it.
 #[derive(Debug)]
