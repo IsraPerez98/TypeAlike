@@ -284,11 +284,15 @@ impl App {
     /// Handles `text`, the text that the completion of the last [`Reaction::Request`] added so far.
     /// Returns the reaction when the ghost text changes, or `None`. Only
     /// [`SuggestionDisplay::WordByWord`] changes the ghost text before the completion finishes.
+    /// In each display, a typed key that continues `text` keeps the request.
     pub fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
-        if self.suggestion_display != SuggestionDisplay::WordByWord {
-            return None;
+        match self.suggestion_display {
+            SuggestionDisplay::WordByWord => self.engine.on_partial_completion(text),
+            SuggestionDisplay::WhenComplete => {
+                self.engine.record_partial_completion(text);
+                None
+            }
         }
-        self.engine.on_partial_completion(text)
     }
 
     /// Handles the caret moving somewhere unknown: focus change, mouse click. The screen text

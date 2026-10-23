@@ -100,6 +100,17 @@ fn completion_after_a_partial_completion_that_shows_nothing_shows_all_its_text()
 }
 
 #[test]
+fn key_that_a_partial_completion_added_keeps_the_request_when_suggestions_show_complete() {
+    let mut app = App::new();
+    type_key(&mut app, 'B');
+    app.on_partial_completion("est regards");
+
+    let reaction = type_key(&mut app, 'e');
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
 fn excluded_field_gets_no_suggestion() {
     let mut app = App::new();
 

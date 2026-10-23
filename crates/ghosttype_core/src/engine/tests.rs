@@ -3,6 +3,7 @@
 mod accept;
 mod completion;
 mod earlier_writing;
+mod kept_completion;
 mod new_line;
 mod request;
 mod screen_read;

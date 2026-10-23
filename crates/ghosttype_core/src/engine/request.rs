@@ -56,6 +56,7 @@ impl Engine {
         self.offer = Offer::Growing {
             typed: String::new(),
             shown: String::new(),
+            added: String::new(),
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self
@@ -115,6 +116,12 @@ impl Engine {
         self.session_pool()
             .map(|(session, pool, place)| self.tables.next_word_bias(&pool, place, &session.text_before))
             .unwrap_or_default()
+    }
+
+    /// Whether the earlier writing gives a phrase or next words after the text before the caret.
+    /// A new request uses them, but a running completion of an earlier text does not.
+    pub(super) fn has_writer_words(&self) -> bool {
+        self.repeated_phrase().is_some() || !self.session_next_word_bias().0.is_empty()
     }
 
     /// The rest of a phrase that the writer repeats after the text before the caret, in the pool

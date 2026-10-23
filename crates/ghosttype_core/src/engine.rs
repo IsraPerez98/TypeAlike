@@ -181,10 +181,11 @@ impl Engine {
     fn on_typed(&mut self, character: char) -> Reaction {
         let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
+            _ if self.keeps_completion_after(character) => String::new(),
             _ => return self.suggest(),
         };
         self.offer.take(character.encode_utf8(&mut [0; 4]), &rest);
-        Reaction::Show(rest)
+        self.offer.reaction()
     }
 
     fn accept(&mut self) -> Reaction {
