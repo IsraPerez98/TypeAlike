@@ -193,6 +193,26 @@ pub(super) fn fix_after_delimiter(fix: &WordFix, character: char) -> Option<Word
     })
 }
 
+/// Returns the space or the sign at the end of the typo of `fix` that the user typed after its
+/// letters, which is empty when the fix kept none.
+pub(super) fn kept_delimiter(fix: &WordFix) -> &str {
+    let letters = fix.typo.trim_end_matches(' ').trim_end_matches(FIX_KEEPING_SIGNS);
+    &fix.typo[letters.len()..]
+}
+
+/// Whether `before_caret`, a read of the field text before the caret, ends with the typo of `fix`.
+/// A read from before the kept space or sign ends with less of them, and still counts.
+pub(super) fn ends_with_typo(before_caret: &str, fix: &WordFix) -> bool {
+    // Chromium gives a no-break space for a space at the end of an editable element.
+    let read = before_caret.replace('\u{a0}', " ");
+    let letters_end = fix.typo.len() - kept_delimiter(fix).len();
+    fix.typo[letters_end..]
+        .char_indices()
+        .map(|(index, _)| letters_end + index)
+        .chain([fix.typo.len()])
+        .any(|end| read.ends_with(&fix.typo[..end]))
+}
+
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with
 /// the whitespace before it, without the [`CLOSING_SIGNS`] at its end, which the next Tab types.
 /// A word of only signs is one part.

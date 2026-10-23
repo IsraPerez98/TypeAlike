@@ -407,6 +407,41 @@ fn tab_on_a_fix_swallows_the_key() {
     assert_eq!(disposition, Disposition::Swallow);
 }
 
+/// Returns a harness that shows the fix of "B" kept through a typed space, in a field where the app
+/// changed the text before the caret to `before_caret`.
+fn harness_showing_a_kept_fix_in_a_field_with(before_caret: &str) -> Harness {
+    let mut harness = harness_showing_a_fix();
+    harness.settle_caret();
+    harness.press(Key::Char(' '));
+    harness.settle_caret();
+    harness.shell.surroundings = field_around(before_caret, "");
+    harness.take_calls();
+    harness
+}
+
+#[test]
+fn tab_on_a_kept_fix_that_the_app_changed_swallows_the_key() {
+    let mut harness = harness_showing_a_kept_fix_in_a_field_with("Be ");
+
+    let disposition = harness.press(Key::Tab);
+
+    assert_eq!(disposition, Disposition::Swallow);
+}
+
+#[test]
+fn tab_on_a_kept_fix_that_the_app_changed_types_nothing() {
+    let mut harness = harness_showing_a_kept_fix_in_a_field_with("Be ");
+
+    harness.press(Key::Tab);
+
+    assert!(
+        !harness
+            .take_calls()
+            .iter()
+            .any(|call| matches!(call, Call::ReplaceText(..)))
+    );
+}
+
 #[test]
 fn untranslated_key_passes() {
     let mut harness = Harness::new(Settings::default());

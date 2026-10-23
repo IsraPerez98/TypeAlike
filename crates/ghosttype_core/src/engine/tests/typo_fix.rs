@@ -7,7 +7,7 @@ use crate::settings::{Settings, TypoFix};
 use crate::test_support::{ExpectedRequest, completion};
 
 use super::support::{
-    accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, type_text,
+    FakeDesktop, accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, type_text,
 };
 
 #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
@@ -31,6 +31,26 @@ fn word_fix(typo: &str, word: &str, rest: &str) -> WordFix {
 
 fn engine_showing_a_fix() -> Engine {
     engine_showing_a_fix_with("very soon")
+}
+
+/// Returns an engine that shows the fix of "dlei" in "the dlei", kept through a typed space.
+fn engine_showing_a_fix_after_a_space() -> Engine {
+    let mut engine = engine_showing_a_fix();
+    press(&mut engine, Key::Char(' '));
+    engine
+}
+
+/// Presses Tab in a field whose text before the caret is `before_caret`.
+fn press_tab_in_field(engine: &mut Engine, before_caret: &str) -> Reaction {
+    engine.on_key(Key::Tab, &FakeDesktop::with_field_text(before_caret))
+}
+
+fn replace_after_the_space() -> Reaction {
+    Reaction::Replace {
+        deleted: 5,
+        text: "delivery ".to_owned(),
+        then: AfterAccept::Rest("soon".to_owned()),
+    }
 }
 
 /// Returns an engine that shows the fix of "dlei" in "the dlei", with `text` after the fixed
@@ -347,4 +367,78 @@ fn space_after_a_typo_with_typo_fixes_off_asks_again() {
         ..ExpectedRequest::framed(&[], "the dlei ")
     };
     assert_eq!(reaction, Reaction::from(expected));
+}
+
+#[test]
+fn tab_on_a_kept_fix_replaces_the_typo_while_the_field_shows_it() {
+    let mut engine = engine_showing_a_fix_after_a_space();
+
+    let reaction = press_tab_in_field(&mut engine, "the dlei ");
+
+    assert_eq!(reaction, replace_after_the_space());
+}
+
+#[test]
+fn tab_on_a_kept_fix_replaces_the_typo_when_the_field_read_is_older_than_its_delimiter() {
+    let reads = ["the dlei", "the dlei,"];
+
+    let reactions = reads.map(|read| {
+        let mut engine = engine_showing_a_fix_with("very");
+        type_text(&mut engine, ", ");
+        press_tab_in_field(&mut engine, read)
+    });
+
+    let replace = Reaction::Replace {
+        deleted: 6,
+        text: "delivery, ".to_owned(),
+        then: AfterAccept::Next(Box::new(request("the delivery, "))),
+    };
+    assert_eq!(reactions, [replace.clone(), replace]);
+}
+
+#[test]
+fn tab_on_a_kept_fix_takes_a_no_break_space_of_the_field_for_its_space() {
+    let mut engine = engine_showing_a_fix_after_a_space();
+
+    let reaction = press_tab_in_field(&mut engine, "the dlei\u{a0}");
+
+    assert_eq!(reaction, replace_after_the_space());
+}
+
+#[test]
+fn tab_on_a_kept_fix_replaces_the_typo_when_the_field_text_is_unknown() {
+    let mut engine = engine_showing_a_fix_after_a_space();
+
+    let reaction = engine.on_key(Key::Tab, &FakeDesktop::default());
+
+    assert_eq!(reaction, replace_after_the_space());
+}
+
+#[test]
+fn tab_on_a_kept_fix_that_the_app_changed_swallows_the_tab() {
+    let mut engine = engine_showing_a_fix_after_a_space();
+
+    let reaction = press_tab_in_field(&mut engine, "the deli ");
+
+    assert_eq!(reaction, Reaction::Swallow);
+}
+
+#[test]
+fn key_after_a_refused_fix_continues_the_text_of_the_field() {
+    let mut engine = engine_showing_a_fix_after_a_space();
+    press_tab_in_field(&mut engine, "the deli ");
+
+    let reaction = engine.on_key(Key::Char('s'), &FakeDesktop::with_field_text("the deli "));
+
+    assert_eq!(reaction, request("the deli s"));
+}
+
+#[test]
+fn tab_on_a_fix_without_a_kept_delimiter_does_not_read_the_field() {
+    let mut engine = engine_showing_a_fix();
+    let desktop = FakeDesktop::with_field_text("the deli");
+
+    engine.on_key(Key::Tab, &desktop);
+
+    assert_eq!(desktop.surroundings_reads.get(), 0);
 }

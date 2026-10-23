@@ -500,6 +500,10 @@ impl Controller {
                 self.apply_after_accept(then, shell);
                 Disposition::Swallow
             }
+            Reaction::Swallow => {
+                self.hide_ghost(shell);
+                Disposition::Swallow
+            }
             Reaction::Request(request) => {
                 self.hide_ghost(shell);
                 self.runner.submit(request, &self.suggestion_sink);

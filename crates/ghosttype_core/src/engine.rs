@@ -25,7 +25,7 @@ use earlier_writing::needs_new_tables;
 use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
-use suggestion::fix_after_delimiter;
+use suggestion::{ends_with_typo, fix_after_delimiter, kept_delimiter};
 
 pub use reaction::{AfterAccept, Reaction, WordFix};
 pub(crate) use suggestion::split_next_part;
@@ -130,7 +130,7 @@ impl Engine {
                 self.start_session(desktop).delete_last_character();
                 self.suggest()
             }
-            Key::Tab if desktop.is_ghost_shown() => self.accept(),
+            Key::Tab if desktop.is_ghost_shown() => self.accept(desktop),
             Key::Escape | Key::Dead => self.dismiss(),
             Key::Enter => self.wait_for_new_line(desktop),
             Key::Char(_) | Key::Tab | Key::Other => self.reset(),
@@ -199,10 +199,10 @@ impl Engine {
         self.offer.reaction()
     }
 
-    fn accept(&mut self) -> Reaction {
+    fn accept(&mut self, desktop: &dyn Desktop) -> Reaction {
         if let Offer::Fix(fix) = &self.offer {
             let fix = fix.clone();
-            return self.accept_fix(fix);
+            return self.accept_fix(fix, desktop);
         }
         let suggestion = self.offer.shown().to_owned();
         let Some(session) = self.session.as_mut().filter(|_| !suggestion.is_empty()) else {
@@ -219,8 +219,13 @@ impl Engine {
     }
 
     /// Replaces the typo of `fix` before the caret with its word, and keeps the rest as the ghost
-    /// text.
-    fn accept_fix(&mut self, fix: WordFix) -> Reaction {
+    /// text. When the field of `desktop` shows that the app changed the typo, it replaces nothing
+    /// and ends the session, so that the next key starts from the text of the field.
+    fn accept_fix(&mut self, fix: WordFix, desktop: &dyn Desktop) -> Reaction {
+        if is_typo_changed_in(desktop, &fix) {
+            self.reset();
+            return Reaction::Swallow;
+        }
         let Some(session) = self.session.as_mut() else {
             return self.reset();
         };
@@ -255,6 +260,17 @@ impl Engine {
             .as_ref()
             .map_or("", |session| session.text_before.as_str())
     }
+}
+
+/// Whether the field of `desktop` shows other text than the typo of `fix`, because the app changed
+/// the word at the space or the sign that the fix kept, as an autocorrect does. It reads the field
+/// only for a fix that kept a space or a sign. A field without text counts as unchanged.
+fn is_typo_changed_in(desktop: &dyn Desktop, fix: &WordFix) -> bool {
+    !kept_delimiter(fix).is_empty()
+        && desktop
+            .surroundings()
+            .field_text
+            .is_some_and(|field_text| !ends_with_typo(&field_text.before_caret, fix))
 }
 
 #[cfg(test)]

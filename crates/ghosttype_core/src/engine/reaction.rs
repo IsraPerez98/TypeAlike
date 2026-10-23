@@ -29,6 +29,8 @@ pub enum Reaction {
         /// What follows the typed text.
         then: AfterAccept,
     },
+    /// Swallow the key and hide any ghost text, so that the focused app does not get the key.
+    Swallow,
     /// Let the key through, hide any ghost text and submit this request to the model runner.
     /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion). It replaces
     /// the requests that the runner did not answer yet.
