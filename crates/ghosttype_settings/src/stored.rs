@@ -2,6 +2,7 @@
 
 mod personalization;
 mod screen_text;
+mod suggestion_places;
 
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, SentenceEnd};
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use personalization::StoredPersonalization;
 use screen_text::StoredScreenText;
+use suggestion_places::StoredSuggestionPlaces;
 
 /// The settings as the file stores them. Missing fields take their default values, so a file
 /// from an older version still loads.
@@ -21,6 +23,7 @@ use screen_text::StoredScreenText;
 struct StoredSettings {
     backend: StoredBackend,
     suggestion_model: Option<StoredModelFile>,
+    suggestion_places: StoredSuggestionPlaces,
     writer_name: String,
     /// `None` when the file has no notes, so that the user gets the default notes.
     #[serde(default)]
@@ -159,6 +162,7 @@ impl From<Settings> for StoredSettings {
         Self {
             backend,
             suggestion_model,
+            suggestion_places: settings.suggestion_places.into(),
             writer_name: settings.writer_name.0,
             writer_notes: Some(settings.writer_notes.0),
             system_prompt: None,
@@ -227,6 +231,7 @@ impl From<StoredSettings> for Settings {
         Self {
             backend,
             suggestion_model,
+            suggestion_places: stored.suggestion_places.into(),
             writer_name: WriterName(stored.writer_name),
             writer_notes,
             clipboard_access,

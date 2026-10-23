@@ -3,6 +3,7 @@
 mod known_apps;
 mod personalization;
 mod screen_text;
+mod suggestion_places;
 
 use std::fmt;
 
@@ -13,6 +14,7 @@ pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };
 pub use screen_text::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
+pub use suggestion_places::{SuggestionApp, SuggestionPlaces, SuggestionSite};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
 /// only its length, so logs never hold what the user wrote. The default notes are true for every
@@ -181,6 +183,8 @@ pub struct Settings {
     pub backend: Backend,
     /// The model that suggests text as the user types, and that GhostType loads when it starts.
     pub suggestion_model: Option<ModelFile>,
+    /// The apps and the websites where suggestions show.
+    pub suggestion_places: SuggestionPlaces,
     /// The name of the user.
     pub writer_name: WriterName,
     /// What the user writes about themself and how they write.

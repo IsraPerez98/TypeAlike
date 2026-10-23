@@ -69,7 +69,8 @@ mod tests {
     use ghosttype_core::settings::{
         ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel,
         PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
-        SuggestionDisplay, SuggestionLength, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
+        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice,
+        WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -93,6 +94,13 @@ mod tests {
         let settings = Settings {
             backend: Backend::Cuda,
             suggestion_model: Some(model_file()),
+            suggestion_places: SuggestionPlaces {
+                apps: Vec::new(),
+                sites: vec![SuggestionSite {
+                    host: "bank.example".to_owned(),
+                    is_on: false,
+                }],
+            },
             writer_name: WriterName("Sara Novak".to_owned()),
             writer_notes: WriterNotes("I am a nurse.".to_owned()),
             clipboard_access: ClipboardAccess::Allowed,

@@ -10,7 +10,7 @@ use crate::inference::{
     TokenCount, TypoCheck,
 };
 use crate::prompt::framed_prompt;
-use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings};
+use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings, SuggestionApp, SuggestionSite};
 use crate::settings_window::view::{ControlId, Page, Row, SettingsInput};
 
 pub(crate) const ACTIVE_BADGE: BadgeView = BadgeView {
@@ -158,5 +158,21 @@ pub(crate) fn history_app(app_id: &str, app_name: &str, scope: HistoryScope) -> 
         app_name: app_name.to_owned(),
         app_path: None,
         scope,
+    }
+}
+
+pub(crate) fn suggestion_app(app_id: &str, app_name: &str, is_on: bool) -> SuggestionApp {
+    SuggestionApp {
+        app_id: app_id.to_owned(),
+        app_name: app_name.to_owned(),
+        app_path: None,
+        is_on,
+    }
+}
+
+pub(crate) fn suggestion_site(host: &str, is_on: bool) -> SuggestionSite {
+    SuggestionSite {
+        host: host.to_owned(),
+        is_on,
     }
 }

@@ -3,7 +3,7 @@
 use super::*;
 use ghosttype_core::settings::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextAccess,
-    ScreenTextApp, ScreenTextSettings, WordChoice,
+    ScreenTextApp, ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -193,6 +193,87 @@ fn ocr_level_survives_a_save_and_a_load() {
         .ok();
 
     assert_eq!(loaded, Some(OcrLevel::Accurate));
+}
+
+#[test]
+fn suggestion_places_read_their_apps_and_websites() {
+    let json = r#"{ "suggestion_places": {
+            "apps": [
+                { "app_id": "slack.exe", "app_name": "Slack", "app_path": "C:\\Slack\\slack.exe", "is_on": false },
+                { "app_id": "com.apple.mail", "app_name": "Mail", "is_on": true }
+            ],
+            "sites": [{ "host": "bank.example", "is_on": false }]
+        } }"#;
+
+    let places = parse(json).map(|settings| settings.suggestion_places).ok();
+
+    assert_eq!(
+        places,
+        Some(SuggestionPlaces {
+            apps: vec![
+                SuggestionApp {
+                    app_id: "slack.exe".to_owned(),
+                    app_name: "Slack".to_owned(),
+                    app_path: Some("C:\\Slack\\slack.exe".to_owned()),
+                    is_on: false,
+                },
+                SuggestionApp {
+                    app_id: "com.apple.mail".to_owned(),
+                    app_name: "Mail".to_owned(),
+                    app_path: None,
+                    is_on: true,
+                },
+            ],
+            sites: vec![SuggestionSite {
+                host: "bank.example".to_owned(),
+                is_on: false,
+            }],
+        })
+    );
+}
+
+#[test]
+fn settings_file_without_suggestion_places_shows_suggestions_everywhere() {
+    let files = [
+        r#"{ "screen_text": { "access": "allowed", "apps": [] } }"#,
+        r#"{ "suggestion_places": { "apps": [] } }"#,
+    ];
+
+    let places = files.map(|json| parse(json).map(|settings| settings.suggestion_places).ok());
+
+    assert_eq!(
+        places,
+        [
+            Some(SuggestionPlaces::default()),
+            Some(SuggestionPlaces::default())
+        ]
+    );
+}
+
+#[test]
+fn suggestion_places_survive_a_save_and_a_load() {
+    let places = SuggestionPlaces {
+        apps: vec![SuggestionApp {
+            app_id: "com.apple.mail".to_owned(),
+            app_name: "Mail".to_owned(),
+            app_path: None,
+            is_on: false,
+        }],
+        sites: vec![SuggestionSite {
+            host: "bank.example".to_owned(),
+            is_on: false,
+        }],
+    };
+    let settings = Settings {
+        suggestion_places: places.clone(),
+        ..Settings::default()
+    };
+
+    let loaded = parse(&to_json(&settings))
+        .map(|loaded| loaded.suggestion_places)
+        .ok();
+
+    assert_eq!(loaded, Some(places));
 }
 
 #[test]
