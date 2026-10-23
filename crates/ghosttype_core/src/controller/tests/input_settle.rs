@@ -2,7 +2,7 @@
 
 use super::harness::{Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge};
 use crate::app::INPUT_SETTLE_DELAY;
-use crate::controller::{FocusChange, Timer};
+use crate::controller::{CARET_SETTLE_DELAY, FocusChange, Timer};
 use crate::desktop::Surroundings;
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
@@ -70,6 +70,42 @@ fn suggestion_shows_after_enter_and_a_pause() {
             Some(suggestion_request(&[], "Best regards,\n")),
             vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
         )
+    );
+}
+
+#[test]
+fn suggestion_after_enter_and_a_pause_shows_at_once_when_the_caret_settled() {
+    let mut harness = harness_after_enter();
+    harness.settle_caret();
+    harness.shell.surroundings = field_with_text("Best regards,\n");
+    harness.settle_input();
+    harness.take_calls();
+
+    harness.answer(completed("Sara Novak"));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
+    );
+}
+
+#[test]
+fn suggestion_after_enter_and_a_pause_waits_for_the_caret_to_settle_after_enter() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_with_text("Best regards");
+    harness.press(Key::Char(','));
+    harness.answer(completed(""));
+    harness.settle_caret();
+    harness.press(Key::Enter);
+    harness.shell.surroundings = field_with_text("Best regards,\n");
+    harness.settle_input();
+    harness.take_calls();
+
+    harness.answer(completed("Sara Novak"));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_SETTLE_DELAY)]
     );
 }
 

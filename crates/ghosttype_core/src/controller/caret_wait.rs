@@ -7,12 +7,25 @@ use super::{
     Shell, Timer,
 };
 
+/// When the controller shows a ghost text that waits for the caret.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GhostTiming {
+    /// At once, because the caret settled after the last key.
+    Now,
+    /// When the caret timer runs out.
+    AfterSettle,
+}
+
 /// The ghost text that waits for the caret to settle, and the timer that the wait runs.
 /// `Debug` shows whether a ghost text waits, but not its text, so logs never hold a suggestion.
 #[derive(Default)]
 pub(super) struct CaretWait {
     ghost: Option<Ghost>,
     is_timer_pending: bool,
+    /// Whether the caret timer ran out after the last key. A stop of the wait keeps it, because
+    /// the request when the input settles stops the wait but does not move the caret.
+    has_caret_settled: bool,
     /// Whether `ghost` is the rest of a suggestion that Tab took a part of. The rest counts as
     /// shown, so that a quick Tab types its next part and does not reach the app.
     is_rest: bool,
@@ -27,6 +40,7 @@ impl fmt::Debug for CaretWait {
             .debug_struct("CaretWait")
             .field("has_ghost", &self.ghost.is_some())
             .field("is_timer_pending", &self.is_timer_pending)
+            .field("has_caret_settled", &self.has_caret_settled)
             .field("is_rest", &self.is_rest)
             .field("move_checks_left", &self.move_checks_left)
             .finish()
@@ -34,9 +48,11 @@ impl fmt::Debug for CaretWait {
 }
 
 impl CaretWait {
-    /// Gives a key all the looks at the caret, because the key can move the caret.
+    /// Gives a key all the looks at the caret, and waits for the caret to settle again, because
+    /// the key can move the caret.
     pub(super) fn on_key(&mut self) {
         self.move_checks_left = MAX_CARET_MOVE_CHECKS;
+        self.has_caret_settled = false;
     }
 
     /// Whether the waiting ghost text is the rest of a suggestion that Tab took a part of.
@@ -49,15 +65,22 @@ impl CaretWait {
         self.is_timer_pending
     }
 
-    /// Shows `ghost` when the caret settles.
-    pub(super) fn show_after_settle(&mut self, ghost: Ghost, shell: &mut dyn Shell) {
+    /// Shows `ghost` at the settled caret. When the caret settled after the last key, the
+    /// controller shows `ghost` at once. Else the caret timer starts again.
+    pub(super) fn show_at_settled_caret(&mut self, ghost: Ghost, shell: &mut dyn Shell) -> GhostTiming {
         self.ghost = Some(ghost);
+        if self.has_caret_settled {
+            return GhostTiming::Now;
+        }
         self.restart_timer(shell);
+        GhostTiming::AfterSettle
     }
 
-    /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles.
+    /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles
+    /// after the part that Tab typed.
     pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) {
-        self.show_after_settle(Ghost::Text(rest), shell);
+        self.ghost = Some(Ghost::Text(rest));
+        self.restart_timer(shell);
         self.is_rest = true;
     }
 
@@ -72,9 +95,11 @@ impl CaretWait {
         self.is_timer_pending = true;
     }
 
-    /// Handles the caret timer that ran out, before the controller shows the ghost text.
+    /// Handles the caret timer that ran out, before the controller shows the ghost text. The caret
+    /// settled, so a ghost text that comes later shows at once.
     pub(super) fn on_timer(&mut self) {
         self.is_timer_pending = false;
+        self.has_caret_settled = true;
     }
 
     /// After the controller showed the waiting ghost text, looks at the caret again later when the

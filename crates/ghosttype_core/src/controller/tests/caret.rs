@@ -91,7 +91,7 @@ fn completion_shows_when_caret_settles() {
 }
 
 #[test]
-fn completion_after_caret_settled_waits_for_caret_again() {
+fn completion_after_caret_settled_shows_at_once() {
     let mut harness = Harness::new(Settings::default());
     harness.press(Key::Char('B'));
     harness.settle_caret();
@@ -101,12 +101,42 @@ fn completion_after_caret_settled_waits_for_caret_again() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![Call::StartTimer(Timer::CaretSettle, CARET_SETTLE_DELAY)]
+        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
     );
 }
 
 #[test]
-fn partial_completion_waits_for_caret_when_words_show_early() {
+fn completion_after_caret_settled_shows_only_at_a_caret_that_moved() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.settle_caret();
+
+    harness.answer(completed("est"));
+
+    assert!(harness.shell.ghost_view.expect("a ghost view").is_after_edit);
+}
+
+#[test]
+fn completion_that_does_not_show_after_caret_settled_checks_the_caret_again() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.settle_caret();
+    harness.shell.is_ghost_shown = false;
+    harness.take_calls();
+
+    harness.answer(completed("est"));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(Some("est"), Some(ACTIVE_BADGE)),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn partial_completion_after_caret_settled_shows_at_once_when_words_show_early() {
     let settings = Settings {
         suggestion_display: SuggestionDisplay::WordByWord,
         ..Settings::default()
@@ -120,7 +150,7 @@ fn partial_completion_waits_for_caret_when_words_show_early() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![Call::StartTimer(Timer::CaretSettle, CARET_SETTLE_DELAY)]
+        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
     );
 }
 
@@ -347,6 +377,29 @@ fn fix_shows_when_caret_settles() {
     harness.take_calls();
 
     harness.settle_caret();
+
+    let fix = WordFix {
+        typo: "B".to_owned(),
+        word: "Best".to_owned(),
+        rest: " regards".to_owned(),
+    };
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::RenderAtCaret {
+            ghost: Some(Ghost::Fix(fix)),
+            badge: Some(ACTIVE_BADGE),
+        }]
+    );
+}
+
+#[test]
+fn fix_after_caret_settled_shows_at_once() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer(fixed("B", "Be", "st regards"));
 
     let fix = WordFix {
         typo: "B".to_owned(),

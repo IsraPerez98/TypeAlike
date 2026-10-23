@@ -14,7 +14,7 @@ pub use shell::{FocusChange, Shell, Timer};
 use std::time::Duration;
 use std::{fmt, mem};
 
-use caret_wait::CaretWait;
+use caret_wait::{CaretWait, GhostTiming};
 use services::delivering_sink;
 
 use crate::app::{
@@ -320,8 +320,20 @@ impl Controller {
 
     fn on_caret_settled(&mut self, shell: &mut dyn Shell) {
         self.caret_wait.on_timer();
+        self.render_waiting_ghost(shell);
+    }
+
+    /// Shows the ghost text that waits for the caret, and the badge, at the caret.
+    fn render_waiting_ghost(&mut self, shell: &mut dyn Shell) {
         self.render_at_caret(shell);
         self.caret_wait.after_render(shell);
+    }
+
+    /// Shows `ghost` at once when the caret settled after the last key, else when it settles.
+    fn show_at_settled_caret(&mut self, ghost: Ghost, shell: &mut dyn Shell) {
+        if self.caret_wait.show_at_settled_caret(ghost, shell) == GhostTiming::Now {
+            self.render_waiting_ghost(shell);
+        }
     }
 
     fn on_input_settled(&mut self, shell: &mut dyn Shell) {
@@ -426,11 +438,11 @@ impl Controller {
     fn apply(&mut self, reaction: Reaction, shell: &mut dyn Shell) -> Disposition {
         match reaction {
             Reaction::Show(text) => {
-                self.caret_wait.show_after_settle(Ghost::Text(text), shell);
+                self.show_at_settled_caret(Ghost::Text(text), shell);
                 Disposition::Pass
             }
             Reaction::ShowFix(fix) => {
-                self.caret_wait.show_after_settle(Ghost::Fix(fix), shell);
+                self.show_at_settled_caret(Ghost::Fix(fix), shell);
                 Disposition::Pass
             }
             Reaction::Hide => {
