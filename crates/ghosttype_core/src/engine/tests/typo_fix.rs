@@ -6,7 +6,7 @@ use crate::key::Key;
 use crate::settings::{Settings, TypoFix};
 use crate::test_support::completion;
 
-use super::support::{engine_waiting_for, engine_with, press, request, type_text};
+use super::support::{accept, engine_waiting_for, engine_with, press, request, type_text};
 
 #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
 fn correction(typed: &str, fixed: &str, text: &str) -> Result<Completion, InferenceError> {
@@ -102,6 +102,17 @@ fn tab_on_a_fix_leaves_the_closing_punctuation_for_the_next_tab() {
             then: AfterAccept::Rest(", soon".to_owned()),
         }
     );
+}
+
+#[test]
+fn tab_after_a_fix_types_its_closing_punctuation_with_the_next_word() {
+    let mut engine = engine_waiting_for("the dlei");
+    engine.on_completion(correction(" dlei", " deli", "very, soon then"));
+    press(&mut engine, Key::Tab);
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(reaction, accept(", soon", " then"));
 }
 
 #[test]

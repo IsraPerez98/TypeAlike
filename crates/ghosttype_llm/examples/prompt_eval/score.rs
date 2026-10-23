@@ -45,8 +45,8 @@ impl CaseKind {
 
 /// Returns whether a case of `kind` with the ghost text `suggestion` matches. A typo case matches
 /// when no suggestion finishes the word with the typo, and a case without a new line when no
-/// suggestion shows. Another case matches when `accepted`, the word that the first Tab types, is
-/// the first word of `next`.
+/// suggestion shows. Another case matches when the first word of `accepted`, the text that the
+/// first Tab types, is the first word of `next`.
 pub fn is_match(kind: CaseKind, suggestion: Option<&str>, accepted: &str, next: &str) -> bool {
     match kind {
         CaseKind::Typo => !suggestion.is_some_and(|text| text.starts_with(char::is_alphanumeric)),
@@ -55,10 +55,10 @@ pub fn is_match(kind: CaseKind, suggestion: Option<&str>, accepted: &str, next: 
     }
 }
 
-/// Returns whether `accepted` is the first word of `next`. Signs after the word, such as a period
-/// or a comma, do not count.
+/// Returns whether the first word of `accepted` is the first word of `next`. Signs after the word,
+/// such as a period or a comma, do not count.
 fn is_next_word(accepted: &str, next: &str) -> bool {
-    let word = without_trailing_signs(accepted);
+    let word = next_word(accepted);
     !word.trim().is_empty() && word == next_word(next)
 }
 
@@ -274,6 +274,15 @@ mod tests {
             (" meeting", " meeting at noon"),
             ("?", "? Let me know"),
         ];
+
+        let matches = cases.map(|(accepted, next)| is_next_word(accepted, next));
+
+        assert_eq!(matches, cases.map(|_| true));
+    }
+
+    #[test]
+    fn accepted_signs_with_the_word_after_them_match_on_the_signs() {
+        let cases = [(", I", ","), ("? Let", "? Let me know")];
 
         let matches = cases.map(|(accepted, next)| is_next_word(accepted, next));
 

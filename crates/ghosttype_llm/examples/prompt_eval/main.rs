@@ -49,10 +49,10 @@
 //! When `before` ends with a line break or the case has `before_enter`, the last key is Enter. The
 //! field holds `before_enter`, or else `before` without its last line break. After Enter, the field
 //! holds `before`, and the input settles again before the ghost text.
-//! A case matches when the word that the first Tab types is the first word of `next`. Signs after
-//! the word do not count. A typo case matches when no suggestion finishes the word with the typo. A
-//! case where `before` does not add a line break to `before_enter` matches when no suggestion
-//! shows.
+//! A case matches when the first word that the first Tab types is the first word of `next`. Signs
+//! after the word do not count. A typo case matches when no suggestion finishes the word with the
+//! typo. A case where `before` does not add a line break to `before_enter` matches when no
+//! suggestion shows.
 //! The report gives the score of the cases with the caret between two words, the score of the
 //! cases with the caret inside a word, the score of the typo cases, the score of the cases without a
 //! new line, the median time from the key to the ghost text, and the median warm time. It also

@@ -66,7 +66,7 @@ fn finished_text_with_an_accepted_suggestion_is_kept() {
 
     let saved = finish_typing(&mut engine, &mail_desktop(GREETING), Suggestion::Accepted);
 
-    assert_eq!(saved, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d."))]));
+    assert_eq!(saved, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d. Best"))]));
 }
 
 #[test]

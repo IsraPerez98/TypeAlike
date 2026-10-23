@@ -67,13 +67,23 @@ fn tab_types_the_word_before_its_closing_punctuation() {
 }
 
 #[test]
-fn tab_after_a_word_types_its_closing_punctuation() {
+fn tab_after_a_word_types_its_closing_punctuation_with_the_next_word() {
     let mut engine = engine_showing("Best", " regards, Sam");
     press(&mut engine, Key::Tab);
 
     let reaction = press(&mut engine, Key::Tab);
 
-    assert_eq!(reaction, accept(",", " Sam"));
+    assert_eq!(reaction, accept_last(", Sam", request("Best regards, Sam")));
+}
+
+#[test]
+fn tab_types_the_closing_punctuation_at_the_end_of_a_suggestion_alone() {
+    let mut engine = engine_showing("Best", " regards,");
+    press(&mut engine, Key::Tab);
+
+    let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(reaction, accept_last(",", request("Best regards,")));
 }
 
 #[test]
@@ -94,8 +104,13 @@ fn tab_types_a_word_with_signs_inside_it_whole() {
 }
 
 #[test]
-fn tab_types_a_part_of_only_punctuation_whole() {
-    let cases = [(" ... maybe", " ...", " maybe"), (", see you", ",", " see you")];
+fn tab_types_a_part_of_only_punctuation_with_the_next_word() {
+    let cases = [
+        (" ... maybe later", " ... maybe", " later"),
+        (", see you", ", see", " you"),
+        (". \"Yes,\" she said", ". \"Yes", ",\" she said"),
+        (", … and so on", ", … and", " so on"),
+    ];
 
     let reactions = cases.map(|(suggestion, _, _)| press(&mut engine_showing("I see", suggestion), Key::Tab));
 
