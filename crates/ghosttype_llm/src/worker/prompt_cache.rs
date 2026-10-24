@@ -338,9 +338,6 @@ impl<'model> PromptCache<'model> {
     }
 }
 
-/// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
-/// one less when `prompt` ends inside the cached tokens, because the output after its last token
-/// must be computed again.
 /// Whether `token` ends the added text or its line: the end of the text, markup or a line break.
 fn ends_text_or_line(vocab: &LlamaVocab<'_>, token: LlamaToken) -> bool {
     vocab.is_eog(token)
@@ -357,6 +354,9 @@ fn same_line_token(vocab: &LlamaVocab<'_>, scores: &[f32], logits: &[f32]) -> Op
         .map(|token| (token, log_probability_of(logits, token)))
 }
 
+/// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps
+/// one less when `prompt` ends inside the cached tokens, because the output after its last token
+/// must be computed again.
 fn kept_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
     let common = common_tokens(cached, prompt);
     if common == prompt.len() && common < cached.len() {
