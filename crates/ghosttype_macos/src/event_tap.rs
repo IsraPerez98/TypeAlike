@@ -1,4 +1,4 @@
-//! The session event tap that sees key presses and clicks before any app, removed on drop.
+//! The session event tap that sees key presses, clicks and scrolls before any app, removed on drop.
 
 use std::ptr;
 
@@ -8,13 +8,14 @@ use objc2_core_graphics::{
     CGEventType,
 };
 
-const WATCHED_EVENTS: [CGEventType; 6] = [
+const WATCHED_EVENTS: [CGEventType; 7] = [
     CGEventType::KeyDown,
     CGEventType::KeyUp,
     CGEventType::LeftMouseDown,
     CGEventType::LeftMouseUp,
     CGEventType::RightMouseDown,
     CGEventType::OtherMouseDown,
+    CGEventType::ScrollWheel,
 ];
 const SOURCE_ORDER: isize = 0;
 

@@ -141,6 +141,10 @@ impl Runtime {
         if injection::is_injected(event) {
             return Disposition::Pass;
         }
+        if kind == CGEventType::ScrollWheel {
+            self.controller.on_scroll(&mut self.shell);
+            return Disposition::Pass;
+        }
         self.shell.clipboard.on_input();
         self.controller.on_input(&mut self.shell);
         match kind {
