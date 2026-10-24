@@ -1,6 +1,6 @@
 //! Tests of the settings window and its panes.
 
-use super::harness::{Call, Harness, loaded, model_file, suggestion_settings};
+use super::harness::{Call, Harness, completed, loaded, model_file, suggestion_settings};
 use crate::controller::Delivery;
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest};
@@ -212,7 +212,7 @@ fn screen_text_switch_keeps_the_general_settings() {
 fn general_setting_keeps_the_screen_text_apps() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
     harness.settle_input();
 
     harness.toggle(CLIPBOARD, true);
@@ -224,11 +224,11 @@ fn general_setting_keeps_the_screen_text_apps() {
 }
 
 #[test]
-fn typing_adds_the_app_and_the_website_to_the_apps_and_websites_pane() {
+fn shown_suggestion_adds_the_app_and_the_website_to_the_apps_and_websites_pane() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
     harness.shell.surroundings.domain = Some("mail.example".to_owned());
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     harness.settle_input();
 
@@ -242,7 +242,34 @@ fn typing_adds_the_app_and_the_website_to_the_apps_and_websites_pane() {
 }
 
 #[test]
-fn typing_while_paused_adds_the_website_to_the_apps_and_websites_pane() {
+fn key_without_a_suggestion_adds_no_app_and_no_website() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.shell.surroundings.domain = Some("mail.example".to_owned());
+    harness.press(Key::Char('H'));
+
+    harness.settle_input();
+
+    assert_eq!(harness.saved(), Vec::new());
+}
+
+#[test]
+fn suggestion_without_a_caret_to_show_it_at_adds_no_app_and_no_website() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("game.exe", "Game");
+    harness.shell.surroundings.domain = Some("game.example".to_owned());
+    harness.shell.is_ghost_shown = false;
+    harness.press(Key::Char('w'));
+    harness.answer(completed("ith"));
+    harness.run_out_caret_checks();
+
+    harness.settle_input();
+
+    assert_eq!(harness.saved(), Vec::new());
+}
+
+#[test]
+fn typing_while_paused_adds_no_app_and_no_website() {
     let mut harness = Harness::new(Settings::default());
     harness.toggle_pause();
     harness.focus_text_field_of("com.apple.mail", "Mail");
@@ -251,13 +278,7 @@ fn typing_while_paused_adds_the_website_to_the_apps_and_websites_pane() {
 
     harness.settle_input();
 
-    assert_eq!(
-        harness
-            .saved()
-            .pop()
-            .map(|settings| settings.suggestion_places.sites),
-        Some(vec![suggestion_site("mail.example", true)])
-    );
+    assert_eq!(harness.saved(), Vec::new());
 }
 
 #[test]
@@ -295,7 +316,7 @@ fn is_row_enabled(view: &SettingsView, title: &str, id: &str) -> Option<bool> {
 fn app_with_suggestions_off_is_dimmed_in_the_screen_text_and_personalization_panes() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
     harness.toggle("suggestions-app:com.apple.mail", false);
 
     let view = harness.shown_settings();

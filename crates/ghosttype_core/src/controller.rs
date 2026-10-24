@@ -193,7 +193,6 @@ impl Controller {
         };
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);
-        self.add_typed_place();
         let read = self.app.start_session_screen_read();
         self.do_settled_work(read, shell);
         disposition
@@ -426,10 +425,12 @@ impl Controller {
         }
     }
 
-    /// Adds the app where the user types to the Apps and websites, Screen text and Personalization
-    /// panes, and its website to the Apps and websites pane, when they do not have them. The
-    /// settings are saved when the input settles, because a key must not wait for the disk.
-    fn add_typed_place(&mut self) {
+    /// Adds the app where a suggestion shows to the Apps and websites, Screen text and
+    /// Personalization panes, and its website to the Apps and websites pane, when they do not have
+    /// them. A window without a text field, such as a game, shows no suggestion, so the lists get
+    /// no such app. The settings are saved when the input settles, because a key must not wait for
+    /// the disk.
+    fn add_suggested_place(&mut self) {
         if let Some(app) = self.app.typed_app() {
             self.has_unsaved_app |= self.suggestion_places.add_app(&SuggestionApp::of(app));
             self.has_unsaved_app |= self.screen_text.add_app(app);
@@ -657,7 +658,8 @@ impl Controller {
     }
 
     /// Shows the waiting ghost text and the badge at the caret of `read`, with the ghost text cut
-    /// to the field of `read`.
+    /// to the field of `read`. When the ghost text shows, its app and its website go into the
+    /// lists of the panes.
     fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
         let placement = if self.app.is_caret_at_line_end() {
             GhostPlacement::AfterCaret
@@ -670,6 +672,10 @@ impl Controller {
                 fit_to_field(view, read, &*shell)
             });
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
+        let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
+        if is_suggestion_shown {
+            self.add_suggested_place();
+        }
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {

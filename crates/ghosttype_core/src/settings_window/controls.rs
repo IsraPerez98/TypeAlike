@@ -5,9 +5,9 @@ use crate::settings_window::view::{ChoiceText, ControlId, Message, Picker, Row, 
 
 const APPS_HEADING: &str = "Apps";
 const NO_APPS: &str = "This list has no apps.";
-/// The footer of a list of apps that GhostType fills as the user types.
-pub(super) const TYPED_APPS_FOOTER: &str =
-    "When you type in an app for the first time, GhostType adds the app to this list.";
+/// The footer of a list of apps that GhostType fills as suggestions show.
+pub(super) const SUGGESTED_APPS_FOOTER: &str =
+    "When a suggestion shows in an app for the first time, GhostType adds the app to this list.";
 
 /// The id of a menu, and the icon, the label and the description that the menu shows.
 #[derive(Debug, Clone, Copy)]

@@ -15,21 +15,20 @@ use crate::test_support::{
 };
 
 #[test]
-fn key_in_a_new_app_saves_nothing_before_the_input_settles() {
+fn shown_suggestion_in_a_new_app_saves_nothing_before_the_input_settles() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
 
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     assert_eq!(harness.saved(), Vec::new());
 }
 
 #[test]
-fn typing_in_a_new_app_adds_the_app_to_each_app_list_and_keeps_it() {
+fn shown_suggestion_in_a_new_app_adds_the_app_to_each_app_list_and_keeps_it() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
-    harness.press(Key::Char('H'));
-    harness.press(Key::Char('i'));
+    harness.show("est regards");
 
     harness.settle_input();
 
@@ -140,7 +139,13 @@ fn text_typed_in_an_off_app_is_not_saved() {
 
 #[test]
 fn text_of_a_session_whose_app_turns_off_is_not_saved() {
-    let mut harness = Harness::new(history_on());
+    let mut harness = Harness::new(Settings {
+        suggestion_places: SuggestionPlaces {
+            apps: vec![suggestion_app(MAIL_APP, "Mail", true)],
+            ..SuggestionPlaces::default()
+        },
+        ..history_on()
+    });
     type_in_mail(&mut harness);
     harness.controller.on_badge_command(
         BadgeCommand::SwitchAppSuggestions {

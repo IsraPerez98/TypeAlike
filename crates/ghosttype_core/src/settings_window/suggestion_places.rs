@@ -3,7 +3,7 @@
 
 use crate::settings::{SuggestionApp, SuggestionPlaces};
 use crate::settings_window::controls::{
-    TYPED_APPS_FOOTER, app_list_section, list_section, replace_if_changed,
+    SUGGESTED_APPS_FOOTER, app_list_section, list_section, replace_if_changed,
 };
 use crate::settings_window::view::{AppSwitch, ControlId, Page, PageIcon, Row, SettingsInput, SiteSwitch};
 
@@ -34,7 +34,7 @@ const PANE_SUMMARY: &str = "Suggestions show in each app and on each website whe
 const SITES_HEADING: &str = "Websites";
 const NO_SITES: &str = "This list has no websites.";
 const SITES_FOOTER: &str =
-    "When you type on a website for the first time, GhostType adds the website to this list.";
+    "When a suggestion shows on a website for the first time, GhostType adds the website to this list.";
 
 /// State of the Apps and websites pane: the switch of each app and of each website.
 ///
@@ -134,7 +134,7 @@ impl SuggestionPlacesPane {
             summary: PANE_SUMMARY,
             search: None,
             sections: vec![
-                app_list_section(self.app_rows(), TYPED_APPS_FOOTER),
+                app_list_section(self.app_rows(), SUGGESTED_APPS_FOOTER),
                 list_section(SITES_HEADING, NO_SITES, self.site_rows(), SITES_FOOTER),
             ],
         }

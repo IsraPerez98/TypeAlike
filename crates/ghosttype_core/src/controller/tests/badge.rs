@@ -50,7 +50,7 @@ fn badge_menu_offers_the_switches_of_the_app_where_the_user_types() {
     let mut harness = Harness::new(history_on());
     harness.focus_text_field_of("com.apple.mail", "Mail");
 
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     assert_eq!(
         badge_item_labels(&harness),
@@ -69,6 +69,7 @@ fn badge_menu_offers_the_switches_of_the_app_where_the_user_types() {
 fn badge_menu_while_paused_offers_the_switches_of_the_app_where_the_user_types() {
     let mut harness = Harness::new(history_on());
     harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.show("est regards");
     harness.toggle_pause();
 
     harness.press(Key::Char('H'));
@@ -84,7 +85,7 @@ fn badge_menu_while_paused_offers_the_switches_of_the_app_where_the_user_types()
 fn badge_screen_text_command_turns_off_the_app_and_keeps_the_setting() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     harness.controller.on_badge_command(
         BadgeCommand::SwitchScreenText {
@@ -182,7 +183,7 @@ fn mail_off() -> Settings {
 fn badge_suggestions_command_turns_off_the_app_and_keeps_the_setting() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of(MAIL_APP, "Mail");
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     switch_mail_suggestions(&mut harness, false);
 
@@ -200,7 +201,7 @@ fn badge_suggestions_command_turns_off_the_website_and_keeps_the_setting() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.Safari", "Safari");
     harness.shell.surroundings.domain = Some("mail.example".to_owned());
-    harness.press(Key::Char('H'));
+    harness.show("est regards");
 
     harness.controller.on_badge_command(
         BadgeCommand::SwitchSiteSuggestions {

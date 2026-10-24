@@ -4,7 +4,7 @@
 use crate::desktop::{OcrAvailability, OcrLevels};
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionPlaces};
 use crate::settings_window::controls::{
-    MenuText, TYPED_APPS_FOOTER, app_list_section, picker, replace_if_changed,
+    MenuText, SUGGESTED_APPS_FOOTER, app_list_section, picker, replace_if_changed,
 };
 use crate::settings_window::view::{
     AppSwitch, Button, ControlId, Message, Page, PageIcon, Picker, Row, RowIcon, Section, SettingsInput,
@@ -169,7 +169,10 @@ impl ScreenTextPane {
                 }),
             })])
         });
-        let app_list = app_list_section(self.app_rows(is_allowed, suggestion_places), TYPED_APPS_FOOTER);
+        let app_list = app_list_section(
+            self.app_rows(is_allowed, suggestion_places),
+            SUGGESTED_APPS_FOOTER,
+        );
         Page {
             title: PANE_TITLE,
             icon: PageIcon::TextViewfinder,

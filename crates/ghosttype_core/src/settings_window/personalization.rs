@@ -77,8 +77,8 @@ const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
 const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
 const APPS_FOOTER: &str = "GhostType saves text only from the apps that are not off. The text of an app with “All \
      apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text of the same app \
-     first. When you type in an app for the first time, GhostType adds the app to this list. When you turn off \
-     an app, GhostType deletes the text that it saved from the app.";
+     first. When a suggestion shows in an app for the first time, GhostType adds the app to this list. When you \
+     turn off an app, GhostType deletes the text that it saved from the app.";
 const DELETE_DESCRIPTION: &str = "This deletes all the text that GhostType saved. You cannot undo this.";
 const DELETE_LABEL: &str = "Delete all earlier writing";
 const CONFIRM_DELETE_LABEL: &str = "Press again to delete";
@@ -507,9 +507,9 @@ mod tests {
             Some(
                 "GhostType saves text only from the apps that are not off. The text of an app with “All \
                  apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text \
-                 of the same app first. When you type in an app for the first time, GhostType adds the app \
-                 to this list. When you turn off an app, GhostType deletes the text that it saved from the \
-                 app."
+                 of the same app first. When a suggestion shows in an app for the first time, GhostType adds \
+                 the app to this list. When you turn off an app, GhostType deletes the text that it saved \
+                 from the app."
             )
         );
     }
