@@ -266,7 +266,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         is_enabled: true,
                         note: None,
                     }),
-                    sentence_end_switch(false),
+                    sentence_end_switch(true),
                     Row::Picker(Picker {
                         id: ControlId::new(SUGGESTION_MODEL),
                         icon: RowIcon::Robot,
@@ -1134,7 +1134,10 @@ fn choosing_the_current_typo_rule_does_nothing() {
 
 #[test]
 fn stopping_at_the_end_of_a_sentence_keeps_it_and_turns_the_switch_on() {
-    let mut pane = GeneralPane::new(Settings::default());
+    let mut pane = GeneralPane::new(Settings {
+        sentence_end: SentenceEnd::Continue,
+        ..Settings::default()
+    });
 
     let outcome = pane.on_action(
         GeneralAction::SwitchSentenceEnd(SentenceEnd::Stop),
@@ -1142,22 +1145,15 @@ fn stopping_at_the_end_of_a_sentence_keeps_it_and_turns_the_switch_on() {
     );
 
     let shown = row(&default_page(&pane), SENTENCE_END);
-    let saved = Settings {
-        sentence_end: SentenceEnd::Stop,
-        ..Settings::default()
-    };
     assert_eq!(
         (outcome, shown),
-        (settings_outcome(saved), sentence_end_switch(true))
+        (settings_outcome(Settings::default()), sentence_end_switch(true))
     );
 }
 
 #[test]
 fn continuing_after_a_sentence_keeps_it_and_turns_the_switch_off() {
-    let mut pane = GeneralPane::new(Settings {
-        sentence_end: SentenceEnd::Stop,
-        ..Settings::default()
-    });
+    let mut pane = GeneralPane::new(Settings::default());
 
     let outcome = pane.on_action(
         GeneralAction::SwitchSentenceEnd(SentenceEnd::Continue),
@@ -1165,7 +1161,11 @@ fn continuing_after_a_sentence_keeps_it_and_turns_the_switch_off() {
     );
 
     let is_on = switch(&default_page(&pane), SENTENCE_END).is_on;
-    assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    let saved = Settings {
+        sentence_end: SentenceEnd::Continue,
+        ..Settings::default()
+    };
+    assert_eq!((outcome, is_on), (settings_outcome(saved), false));
 }
 
 #[test]

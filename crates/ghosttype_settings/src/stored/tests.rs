@@ -444,10 +444,10 @@ fn sentence_end_reads_from_its_name() {
 }
 
 #[test]
-fn file_without_a_sentence_end_continues_after_a_sentence() {
+fn file_without_a_sentence_end_stops_at_the_end_of_a_sentence() {
     let end = parse("{}").map(|settings| settings.sentence_end).ok();
 
-    assert_eq!(end, Some(SentenceEnd::Continue));
+    assert_eq!(end, Some(SentenceEnd::Stop));
 }
 
 #[test]

@@ -8,7 +8,7 @@ use crate::inference::{
 };
 use crate::key::Key;
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
-use crate::test_support::{ExpectedRequest, completion};
+use crate::test_support::{ExpectedRequest, completion, preparation_request};
 
 use super::support::{FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, show};
 
@@ -34,7 +34,7 @@ fn typo_fixes_off_asks_for_no_fixes() {
 }
 
 #[test]
-fn default_settings_let_a_suggestion_continue_after_the_end_of_a_sentence() {
+fn default_settings_stop_a_suggestion_at_the_end_of_a_sentence() {
     let mut engine = engine_with(&Settings::default());
 
     let reaction = press(&mut engine, Key::Char('h'));
@@ -43,7 +43,7 @@ fn default_settings_let_a_suggestion_continue_after_the_end_of_a_sentence() {
         matches!(
             reaction,
             Reaction::Request(InferenceRequest::Complete {
-                sentence_end: SentenceEnd::Continue,
+                sentence_end: SentenceEnd::Stop,
                 ..
             })
         ),
@@ -52,9 +52,9 @@ fn default_settings_let_a_suggestion_continue_after_the_end_of_a_sentence() {
 }
 
 #[test]
-fn sentence_stop_asks_to_stop_at_the_end_of_a_sentence() {
+fn sentence_continue_asks_to_continue_after_the_end_of_a_sentence() {
     let mut engine = engine_with(&Settings {
-        sentence_end: SentenceEnd::Stop,
+        sentence_end: SentenceEnd::Continue,
         ..Settings::default()
     });
 
@@ -63,7 +63,7 @@ fn sentence_stop_asks_to_stop_at_the_end_of_a_sentence() {
     assert_eq!(
         reaction,
         Reaction::from(ExpectedRequest {
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: SentenceEnd::Continue,
             ..ExpectedRequest::framed(&[], "h")
         })
     );
@@ -166,15 +166,7 @@ fn new_settings_apply_from_the_next_session() {
 
 #[expect(clippy::unnecessary_wraps, reason = "prepare returns an Option")]
 fn preparation(context: &str) -> Option<InferenceRequest> {
-    Some(
-        ExpectedRequest {
-            max_tokens: TokenCount(0),
-            min_log_probability: None,
-            typo_check: TypoCheck::Off,
-            ..ExpectedRequest::framed(&[], context)
-        }
-        .into(),
-    )
+    Some(preparation_request(&[], context))
 }
 
 #[test]

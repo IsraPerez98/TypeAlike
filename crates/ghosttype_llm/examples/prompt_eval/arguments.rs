@@ -245,7 +245,7 @@ mod tests {
                 shared_history: SharedHistory::On,
                 tail_cut: TailCut::On,
                 typo_rule: TypoRule::HideSuggestions,
-                sentence_end: SentenceEnd::Continue,
+                sentence_end: SentenceEnd::Stop,
                 length: SuggestionLength::Medium,
                 replay: Replay::Off,
             })
