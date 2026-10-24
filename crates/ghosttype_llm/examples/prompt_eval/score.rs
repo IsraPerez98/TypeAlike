@@ -8,7 +8,7 @@ mod test_outcomes;
 use serde::{Deserialize, Serialize};
 
 pub use comparison::Comparison;
-pub use summary::Summary;
+pub use summary::{SizeTime, Summary};
 
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

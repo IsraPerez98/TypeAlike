@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use crate::score::{Comparison, Summary};
+use crate::score::{Comparison, SizeTime, Summary};
 
 pub fn write_report(
     output: &mut impl Write,
@@ -38,11 +38,32 @@ pub fn write_report(
     if let Some(millis) = summary.millis_per_token {
         writeln!(output, "ms per token:  {millis:.2}")?;
     }
+    write_size_report(output, &summary.time_by_prompt_size)?;
     if let Some(mean) = summary.mean_log_probability {
         writeln!(output, "log prob:      {mean:.3}")?;
     }
     write_word_report(output, summary)?;
     comparison.map_or(Ok(()), |comparison| write_comparison(output, comparison))
+}
+
+/// Writes the median time of the cases in each size group of their prompts.
+fn write_size_report(output: &mut impl Write, groups: &[SizeTime]) -> io::Result<()> {
+    if groups.is_empty() {
+        return Ok(());
+    }
+    writeln!(output, "prompt tokens   cases   median time")?;
+    for group in groups {
+        let size = match group.max_tokens {
+            Some(max_tokens) => format!("{} to {max_tokens}", group.min_tokens),
+            None => format!("{} or more", group.min_tokens),
+        };
+        writeln!(
+            output,
+            "  {size:<12}  {:>5}   {} ms",
+            group.cases, group.median_millis
+        )?;
+    }
+    Ok(())
 }
 
 /// Writes the cases that a change helped or harmed against the baseline, and the change of the log

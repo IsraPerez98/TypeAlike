@@ -31,6 +31,23 @@ impl Fixes {
     }
 }
 
+/// The most tokens of a prompt in each size group of the report, except the last group, which has
+/// no limit. A prompt of a group fits in one batch of its limit.
+const PROMPT_SIZE_LIMITS: [u64; 3] = [128, 256, 512];
+
+/// The cases whose prompts have one range of sizes, and their median time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SizeTime {
+    /// The fewest tokens of a prompt in the group.
+    pub min_tokens: u64,
+    /// The most tokens of a prompt in the group, or `None` for no limit.
+    pub max_tokens: Option<u64>,
+    /// The cases in the group.
+    pub cases: usize,
+    /// The median milliseconds from the key to the ghost text of the cases in the group.
+    pub median_millis: u64,
+}
+
 /// What a minimum for the probability of the first word does: a suggestion whose first word is
 /// less likely does not show.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -218,6 +235,8 @@ pub struct Summary {
     /// The milliseconds from the key to the ghost text for each token of the prompt, of all the
     /// cases that have a prompt together.
     pub millis_per_token: Option<f64>,
+    /// The median time of the cases in each size group of their prompts that has cases.
+    pub time_by_prompt_size: Vec<SizeTime>,
     /// The mean log probability of the next word, of the cases that have one.
     pub mean_log_probability: Option<f64>,
     /// The shown words of the cases with a next word.
@@ -258,6 +277,7 @@ impl Summary {
             median_warm_millis: median_of(outcomes, |outcome| outcome.warm_millis),
             median_prompt_tokens: median_of(outcomes, |outcome| outcome.prompt_tokens),
             millis_per_token: millis_per_token(outcomes),
+            time_by_prompt_size: time_by_prompt_size(outcomes),
             mean_log_probability: mean(
                 &outcomes
                     .iter()
@@ -320,6 +340,28 @@ fn millis_per_token(outcomes: &[Outcome]) -> Option<f64> {
         });
     let tokens = u32::try_from(tokens).ok().filter(|&tokens| tokens > 0)?;
     Some(f64::from(u32::try_from(millis).ok()?) / f64::from(tokens))
+}
+
+/// Returns the median time of the `outcomes` in each size group of their prompts that has cases.
+fn time_by_prompt_size(outcomes: &[Outcome]) -> Vec<SizeTime> {
+    let mins = [1].into_iter().chain(PROMPT_SIZE_LIMITS.map(|limit| limit + 1));
+    let maxes = PROMPT_SIZE_LIMITS.map(Some).into_iter().chain([None]);
+    mins.zip(maxes)
+        .filter_map(|(min_tokens, max_tokens)| {
+            let in_group = |outcome: &Outcome| {
+                outcome
+                    .prompt_tokens
+                    .filter(|&tokens| tokens >= min_tokens && max_tokens.is_none_or(|max| tokens <= max))
+                    .map(|_| outcome.millis)
+            };
+            Some(SizeTime {
+                min_tokens,
+                max_tokens,
+                cases: outcomes.iter().filter_map(in_group).count(),
+                median_millis: median_of(outcomes, in_group)?,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -475,6 +517,43 @@ mod tests {
         assert_eq!(
             (summary.median_prompt_tokens, summary.millis_per_token),
             (Some(400), Some(1.8))
+        );
+    }
+
+    #[test]
+    fn summary_gives_the_median_time_of_each_prompt_size_with_cases() {
+        let outcomes = [
+            timed("a", 40, 20, 100),
+            timed("b", 60, 20, 200),
+            timed("c", 50, 20, 150),
+            timed("d", 90, 20, 600),
+            without_suggestion("e", 5),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            summary.time_by_prompt_size,
+            [
+                SizeTime {
+                    min_tokens: 1,
+                    max_tokens: Some(128),
+                    cases: 1,
+                    median_millis: 40
+                },
+                SizeTime {
+                    min_tokens: 129,
+                    max_tokens: Some(256),
+                    cases: 2,
+                    median_millis: 55
+                },
+                SizeTime {
+                    min_tokens: 513,
+                    max_tokens: None,
+                    cases: 1,
+                    median_millis: 90
+                },
+            ]
         );
     }
 

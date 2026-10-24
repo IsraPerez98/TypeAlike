@@ -58,9 +58,10 @@
 //! cases with the caret inside a word, the score of the typo cases, the score of the cases without a
 //! new line, the median time from the key to the ghost text, and the median warm time. It also
 //! gives the median tokens of a prompt, and the time for each token of the prompt, which tells
-//! whether a change adds time through more tokens. It also gives the mean log probability of the
-//! first word of `next` after the prompt. This value moves a little for a small change of the
-//! prompt, while the score often stays the same.
+//! whether a change adds time through more tokens. Then it gives the median time of the cases by
+//! the tokens of their prompts: 1 to 128, 129 to 256, 257 to 512, and 513 or more. It also gives
+//! the mean log probability of the first word of `next` after the prompt. This value moves a little
+//! for a small change of the prompt, while the score often stays the same.
 //!
 //! For the cases with the caret between two words or inside a word, the report counts the shown
 //! words before the first word that differs from `next` (right), and the shown words from that
@@ -114,9 +115,9 @@
 //!
 //! `--batch` sets the most tokens that one decode of a prompt takes, on any backend. Without it,
 //! the eval uses the batch of the backend, as the app does. Use it to measure another batch: run
-//! the same cases with each batch, and compare the median time and the cases that each batch
-//! helped or harmed against the run without `--batch`. Only a prompt with more tokens than the
-//! batch decodes in more than one batch.
+//! the same cases with each batch, and compare the median time of each prompt size and the cases
+//! that each batch helped or harmed against the run without `--batch`. Only a prompt with more
+//! tokens than the batch decodes in more than one batch, so the smaller sizes do not change.
 //!
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
