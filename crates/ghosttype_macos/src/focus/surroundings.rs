@@ -3,7 +3,9 @@
 //! It reads the title of the window, the labels of the control, the host of its web page, and
 //! the text around the caret.
 
-use ghosttype_core::desktop::{FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
+use ghosttype_core::desktop::{
+    FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, is_line_break,
+};
 use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFNumber, CFRange, CFURL, Type};
 
@@ -74,11 +76,10 @@ fn url_host(element: &AXUIElement) -> Option<String> {
 /// Reads the text around the selection of `element`, by range, or from its whole value when it
 /// cannot read a range.
 pub(super) fn field_text(element: &AXUIElement) -> Option<FieldText> {
-    let ranges = SurroundingRanges::new(selected_range(element)?, character_count(element))?;
-    field_text_by_range(element, &ranges).or_else(|| {
-        let value = copy_string(element, VALUE_ATTRIBUTE)?;
-        ranges.cut(&value)
-    })
+    let selection = selected_range(element)?;
+    let text_length = character_count(element);
+    let ranges = SurroundingRanges::new(selection, text_length)?;
+    field_text_by_range(element, &ranges).or_else(|| field_text_by_value(element, selection, text_length))
 }
 
 fn field_text_by_range(element: &AXUIElement, ranges: &SurroundingRanges) -> Option<FieldText> {
@@ -86,6 +87,25 @@ fn field_text_by_range(element: &AXUIElement, ranges: &SurroundingRanges) -> Opt
         before_caret: string_for_range(element, ranges.before)?,
         after_caret: string_for_range(element, ranges.after)?,
     })
+}
+
+/// Cuts the text around the selection from the whole value of `element`. The selection first
+/// moves past the line breaks of the value that the range text leaves out. When the two texts
+/// differ in more than these line breaks, the selection keeps the offsets of the range text.
+fn field_text_by_value(
+    element: &AXUIElement,
+    selection: CFRange,
+    text_length: Option<isize>,
+) -> Option<FieldText> {
+    let value = copy_string(element, VALUE_ATTRIBUTE)?;
+    let up_to_selection_end = CFRange {
+        location: 0,
+        length: selection.location.checked_add(selection.length)?,
+    };
+    let value_selection = string_for_range(element, up_to_selection_end)
+        .and_then(|range_text| value_selection(&range_text, selection, &value))
+        .unwrap_or(selection);
+    SurroundingRanges::new(value_selection, text_length)?.cut(&value)
 }
 
 fn character_count(element: &AXUIElement) -> Option<isize> {
@@ -138,6 +158,49 @@ impl SurroundingRanges {
     }
 }
 
+/// Moves `selection` from the UTF-16 offsets of the range text to the UTF-16 offsets of `value`.
+/// `range_text` is the range text from the start of the field to the end of the selection. Gives
+/// `None` when that text is not the start of `value` without some of its line breaks.
+fn value_selection(range_text: &str, selection: CFRange, value: &str) -> Option<CFRange> {
+    let range_units: Vec<u16> = range_text.encode_utf16().collect();
+    let value_units: Vec<u16> = value.encode_utf16().collect();
+    let value_offset = |range_offset: isize| {
+        let range_prefix = range_units.get(..usize::try_from(range_offset).ok()?)?;
+        isize::try_from(value_offset_after(range_prefix, &value_units)?).ok()
+    };
+    let start = value_offset(selection.location)?;
+    let end = value_offset(selection.location.checked_add(selection.length)?)?;
+    Some(CFRange {
+        location: start,
+        length: end - start,
+    })
+}
+
+/// The UTF-16 offset in `value` just after `range_prefix`, when `range_prefix` is the start of
+/// `value` without some of its line breaks. A Chromium contenteditable puts a line break between
+/// blocks in its value, but its range text joins the blocks. The walk skips a line break of
+/// `value` only when the next unit of `range_prefix` is a different unit. Thus the offset is before
+/// the line breaks after the prefix. Any other difference gives `None`.
+fn value_offset_after(range_prefix: &[u16], value: &[u16]) -> Option<usize> {
+    let is_left_out_break = |value_unit: &u16, range_unit: &u16| {
+        value_unit != range_unit && char::from_u32(u32::from(*value_unit)).is_some_and(is_line_break)
+    };
+    let mut offset = 0;
+    for range_unit in range_prefix {
+        while value
+            .get(offset)
+            .is_some_and(|value_unit| is_left_out_break(value_unit, range_unit))
+        {
+            offset += 1;
+        }
+        if value.get(offset) != Some(range_unit) {
+            return None;
+        }
+        offset += 1;
+    }
+    Some(offset)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +244,100 @@ mod tests {
         let ranges = SurroundingRanges::new(range(5, 2), None);
 
         assert_eq!(ranges.map(|ranges| ranges.after), Some(range(7, 300)));
+    }
+
+    fn value_offset(range_prefix: &str, value: &str) -> Option<usize> {
+        let range_prefix: Vec<u16> = range_prefix.encode_utf16().collect();
+        let value: Vec<u16> = value.encode_utf16().collect();
+        value_offset_after(&range_prefix, &value)
+    }
+
+    #[test]
+    fn value_offset_skips_the_line_breaks_that_the_range_text_leaves_out() {
+        let cases = [
+            ("abc\ndefghi", "abc\ndef\nghi", Some(11)),
+            (
+                "First paragraph ends here.Se",
+                "First paragraph ends here.\nSecond",
+                Some(29),
+            ),
+            (
+                "Things:• SPACE HANDLING• Fo",
+                "Things:\n• SPACE HANDLING\n• Font size",
+                Some(29),
+            ),
+            ("abc\nde", "abc\ndef\nghi", Some(6)),
+            ("abc\n", "abc\ndef", Some(4)),
+            ("Hi 👋there", "Hi 👋\nthere", Some(11)),
+            ("ab", "a\u{2029}b", Some(3)),
+            ("abc", "abc", Some(3)),
+        ];
+
+        let offsets = cases.map(|(range_prefix, value, _)| value_offset(range_prefix, value));
+
+        assert_eq!(offsets, cases.map(|(_, _, offset)| offset));
+    }
+
+    #[test]
+    fn value_offset_stays_before_the_line_breaks_after_the_range_text() {
+        let cases = [
+            (
+                "First paragraph ends here.",
+                "First paragraph ends here.\nSecond line",
+                Some(26),
+            ),
+            (
+                "First paragraph ends here.",
+                "First paragraph ends here.\n",
+                Some(26),
+            ),
+            ("abc", "abc\ndef", Some(3)),
+            ("", "\nabc", Some(0)),
+            ("", "", Some(0)),
+        ];
+
+        let offsets = cases.map(|(range_prefix, value, _)| value_offset(range_prefix, value));
+
+        assert_eq!(offsets, cases.map(|(_, _, offset)| offset));
+    }
+
+    #[test]
+    fn texts_that_differ_in_more_than_line_breaks_give_no_value_offset() {
+        let cases = [("abd", "abc"), ("abcd", "abc"), ("abc", "ab\u{fffc}c")];
+
+        let offsets = cases.map(|(range_prefix, value)| value_offset(range_prefix, value));
+
+        assert_eq!(offsets, [None, None, None]);
+    }
+
+    #[test]
+    fn selection_moves_past_the_line_breaks_that_the_range_text_leaves_out() {
+        let selection = value_selection("abc\ndefg", range(6, 2), "abc\ndef\nghi");
+
+        assert_eq!(selection, Some(range(6, 3)));
+    }
+
+    #[test]
+    fn texts_that_differ_in_more_than_line_breaks_give_no_value_selection() {
+        let selection = value_selection("abc\ndefg", range(6, 2), "abc\ndef\nxyz");
+
+        assert_eq!(selection, None);
+    }
+
+    #[test]
+    fn whole_value_is_cut_at_the_caret_of_the_range_text() {
+        let selection = value_selection("abc\ndefg", range(8, 0), "abc\ndef\nghi").expect("the texts align");
+        let ranges = SurroundingRanges::new(selection, Some(11)).expect("the selection is valid");
+
+        let field_text = ranges.cut("abc\ndef\nghi");
+
+        assert_eq!(
+            field_text,
+            Some(FieldText {
+                before_caret: "abc\ndef\ng".to_owned(),
+                after_caret: "hi".to_owned(),
+            })
+        );
     }
 
     #[test]
