@@ -5,7 +5,7 @@ mod caret;
 mod surroundings;
 
 use ghosttype_core::controller::FocusChange;
-use ghosttype_core::desktop::{Field, Surroundings, TextColor};
+use ghosttype_core::desktop::{Field, Surroundings};
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
@@ -14,7 +14,8 @@ use crate::accessibility::{
     FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, can_focused_element_hide_text, copy_element, frame,
     is_search_field, is_secure_text, selected_range,
 };
-use crate::focus::caret::{caret_bounds, is_terminal_input, text_color};
+pub(crate) use crate::focus::caret::{FontFace, TextStyle};
+use crate::focus::caret::{caret_bounds, is_terminal_input, text_style};
 use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
 use crate::geometry::{Caret, is_finite_frame};
 
@@ -98,9 +99,12 @@ impl FocusTracker {
         caret_bounds(&*self.focused_element()?).and_then(Caret::from_bounds)
     }
 
-    /// The color of the text before the caret of the focused control, when the control tells it.
-    pub(crate) fn text_color(&self) -> Option<TextColor> {
-        text_color(&*self.focused_element()?)
+    /// The color and the font face of the text before the caret of the focused control, as far as
+    /// the control tells them.
+    pub(crate) fn text_style(&self) -> TextStyle {
+        self.focused_element()
+            .map(|element| text_style(&element))
+            .unwrap_or_default()
     }
 
     /// The frame of the focused control when it holds text, as a field does, even when it gives

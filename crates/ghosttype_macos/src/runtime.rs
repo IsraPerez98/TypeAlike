@@ -2,7 +2,7 @@
 
 mod target;
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
@@ -36,7 +36,7 @@ use crate::badge::Badge;
 use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
 use crate::event_tap::EventTap;
-use crate::focus::FocusTracker;
+use crate::focus::{FocusTracker, TextStyle};
 use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
 use crate::keys;
@@ -92,6 +92,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             mirror: Mirror::new(main_thread),
             badge: Badge::new(main_thread),
             caret: None,
+            caret_text_style: OnceCell::new(),
             field_frame: None,
             target,
             caret_timer: None,
@@ -250,6 +251,10 @@ struct AppKitShell {
     badge: Badge,
     /// The caret at the last look, or `None` when the focused field gave no caret.
     caret: Option<Caret>,
+    /// The color and the font face of the text before the caret of the last look. The shell reads
+    /// them at their first use after the look, so that a look that shows no ghost text after the
+    /// caret adds no Accessibility read.
+    caret_text_style: OnceCell<TextStyle>,
     /// The frame of the focused field at the last look, when the field holds text.
     field_frame: Option<CGRect>,
     target: Retained<RuntimeTarget>,
@@ -269,11 +274,17 @@ impl AppKitShell {
             return;
         }
         self.mirror.hide();
-        let text_color = self.focus.text_color();
+        let style = self.caret_text_style();
         match &view.ghost {
-            Ghost::Text(text) => self.overlay.show(text, caret, text_color),
-            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret, text_color),
+            Ghost::Text(text) => self.overlay.show(text, caret, style),
+            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret, style),
         }
+    }
+
+    /// The color and the font face of the text before the caret of the last look, so that the
+    /// overlay measures and draws in the same font.
+    fn caret_text_style(&self) -> &TextStyle {
+        self.caret_text_style.get_or_init(|| self.focus.text_style())
     }
 
     /// Shows `view` in the mirror next to the focused field, which gives no caret. Hides it when
@@ -342,9 +353,10 @@ impl Shell for AppKitShell {
     }
 
     /// Reads the caret and the frame of the focused field through Accessibility, and keeps them
-    /// for the draw.
+    /// for the draw. The style of the text before the caret waits for its first use.
     fn read_caret(&mut self) -> CaretLook {
         self.caret = self.focus.caret();
+        self.caret_text_style = OnceCell::new();
         self.field_frame = self.focus.field_frame();
         CaretLook::Now(CaretRead {
             caret: self.caret.map(Caret::to_screen_rect),
@@ -354,8 +366,10 @@ impl Shell for AppKitShell {
 
     /// Measures `ghost` in the font of the overlay at the caret of the last look.
     fn ghost_width(&self, ghost: &Ghost) -> i32 {
-        self.caret
-            .map_or(0, |caret| whole_points_up(overlay::inline_width(ghost, caret)))
+        self.caret.map_or(0, |caret| {
+            let face = self.caret_text_style().face.as_ref();
+            whole_points_up(overlay::inline_width(ghost, caret, face))
+        })
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {

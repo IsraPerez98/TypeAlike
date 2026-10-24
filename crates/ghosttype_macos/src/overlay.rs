@@ -9,7 +9,7 @@ use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceName, NSAppearanceNameAqua,
     NSAppearanceNameDarkAqua, NSAttributedStringNSStringDrawing, NSColor, NSFont, NSFontAttributeName,
-    NSForegroundColorAttributeName, NSPanel, NSStrikethroughColorAttributeName,
+    NSFontDescriptor, NSForegroundColorAttributeName, NSPanel, NSStrikethroughColorAttributeName,
     NSStrikethroughStyleAttributeName, NSTextField, NSUnderlineStyle, NSWorkspace,
 };
 use objc2_core_foundation::CGFloat;
@@ -18,6 +18,7 @@ use objc2_foundation::{
     NSRect, NSString,
 };
 
+use crate::focus::{FontFace, TextStyle};
 use crate::geometry::Caret;
 use crate::panel;
 
@@ -41,25 +42,27 @@ impl Overlay {
         }
     }
 
-    /// Shows `text` starting at `caret`, in the system font sized to the caret, in the colors for a
-    /// field with text in `text_color`.
-    pub(crate) fn show(&self, text: &str, caret: Caret, text_color: Option<TextColor>) {
-        self.match_field(text_color);
+    /// Shows `text` starting at `caret`, in the face of `style` at the size that fits the caret, and
+    /// in the colors for a field whose text has `style`.
+    pub(crate) fn show(&self, text: &str, caret: Caret, style: &TextStyle) {
+        self.match_field(style.color);
         let contrast = Contrast::read();
-        let font = font_at(caret);
+        let font = font_at(caret, style.face.as_ref());
         self.label.setFont(Some(&font));
-        self.label.setTextColor(Some(&ghost_color(text_color, contrast)));
+        self.label.setTextColor(Some(&ghost_color(style.color, contrast)));
         self.label.setStringValue(&NSString::from_str(text));
         self.present(caret);
     }
 
-    /// Shows `fix` at `caret`: a red line through the typed letters before the caret, then the
-    /// fixed word in green and the rest of the suggestion as ghost text. The line spans the width of
-    /// the letters in the system font, so it can differ a little from the letters of the app.
-    pub(crate) fn show_fix(&self, fix: &WordFix, caret: Caret, text_color: Option<TextColor>) {
-        self.match_field(text_color);
+    /// Shows `fix` at `caret` in the face of `style`, for a field whose text has `style`: a red line
+    /// through the typed letters before the caret, then the fixed word in green and the rest of the
+    /// suggestion as ghost text. The line spans the width of the letters in the font of the
+    /// overlay. When the face of the app is not installed, the line can differ a little from the
+    /// letters of the app.
+    pub(crate) fn show_fix(&self, fix: &WordFix, caret: Caret, style: &TextStyle) {
+        self.match_field(style.color);
         let contrast = Contrast::read();
-        let font = font_at(caret);
+        let font = font_at(caret, style.face.as_ref());
         let typo = attributed(
             &fix.typo,
             &font,
@@ -68,7 +71,7 @@ impl Overlay {
         );
         let text = NSMutableAttributedString::new();
         text.appendAttributedString(&typo);
-        append_fix_tail(&text, fix, &font, &ghost_color(text_color, contrast));
+        append_fix_tail(&text, fix, &font, &ghost_color(style.color, contrast));
         self.label.setAttributedStringValue(&text);
         self.present(Caret {
             left: caret.left - typo.size().width,
@@ -106,10 +109,10 @@ impl Overlay {
     }
 }
 
-/// Returns the width of `ghost` after `caret`, as the overlay draws it right after the caret. The
-/// color does not change the width.
-pub(crate) fn inline_width(ghost: &Ghost, caret: Caret) -> CGFloat {
-    let font = font_at(caret);
+/// Returns the width of `ghost` after `caret` in `face`, as the overlay draws it right after the
+/// caret. The color does not change the width.
+pub(crate) fn inline_width(ghost: &Ghost, caret: Caret, face: Option<&FontFace>) -> CGFloat {
+    let font = font_at(caret, face);
     let color = NSColor::labelColor();
     match ghost {
         Ghost::Text(text) => attributed(text, &font, &color, None).size().width,
@@ -167,10 +170,31 @@ fn field_appearance_name(text_color: TextColor) -> &'static NSAppearanceName {
     }
 }
 
-/// Returns the system font whose line fits the caret.
-fn font_at(caret: Caret) -> Retained<NSFont> {
-    let font_at_caret_height = NSFont::systemFontOfSize(caret.height);
-    NSFont::systemFontOfSize(fitted_font_size(caret.height, line_height(&font_at_caret_height)))
+/// Returns the font of `face` when it is installed, else the system font, at the size whose line
+/// fits the caret. The size never comes from the field, because a field gives the size of its text
+/// in document units, without its zoom.
+fn font_at(caret: Caret, face: Option<&FontFace>) -> Retained<NSFont> {
+    let font_of_size = |size| {
+        face.and_then(|face| installed_font(face, size))
+            .unwrap_or_else(|| NSFont::systemFontOfSize(size))
+    };
+    let font_at_caret_height = font_of_size(caret.height);
+    font_of_size(fitted_font_size(caret.height, line_height(&font_at_caret_height)))
+}
+
+/// Returns the installed font of `face` at `size`, or `None` when `face` is not installed. A
+/// family gives its regular face.
+fn installed_font(face: &FontFace, size: CGFloat) -> Option<Retained<NSFont>> {
+    match face {
+        FontFace::Named(name) => NSFont::fontWithName_size(&NSString::from_str(name), size),
+        FontFace::Family(family) => {
+            // SAFETY: a descriptor without attributes holds no value of a wrong type.
+            let any_font = unsafe { NSFontDescriptor::fontDescriptorWithFontAttributes(None) };
+            let descriptor = any_font.fontDescriptorWithFamily(&NSString::from_str(family));
+            NSFont::fontWithDescriptor_size(&descriptor, size)
+                .filter(|font| font.familyName().is_some_and(|name| name.to_string() == *family))
+        }
+    }
 }
 
 /// Returns `text` in `font` and `color`, struck through in `strike_color` when it has one.
