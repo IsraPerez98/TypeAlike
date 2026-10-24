@@ -21,8 +21,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     HOOKPROC, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, RegisterWindowMessageW, SetWindowsHookExW,
     TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID, WINEVENT_OUTOFCONTEXT,
     WINEVENT_SKIPOWNPROCESS, WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, w};
 
@@ -255,7 +255,8 @@ impl Runtime {
     }
 
     /// Takes the clicks on the badge, so that the app under it never gets them. The badge menu
-    /// shows after the hook returns, outside the borrow of the runtime.
+    /// shows after the hook returns, outside the borrow of the runtime. A turn of the wheel gives a
+    /// scroll to the controller.
     fn on_mouse(&mut self, message: u32, point: POINT) -> Disposition {
         match message {
             WM_LBUTTONDOWN if self.shell.badge.contains(point) => {
@@ -277,6 +278,10 @@ impl Runtime {
             WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
                 self.controller.on_input(&mut self.shell);
                 self.shell.forget_focused_field();
+                Disposition::Pass
+            }
+            WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+                self.controller.on_scroll(&mut self.shell);
                 Disposition::Pass
             }
             _ => Disposition::Pass,
