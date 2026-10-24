@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+use windows::Win32::System::Variant::{VARIANT, VT_BSTR};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
     IUIAutomationTextPattern, IUIAutomationTextRange, UIA_PROPERTY_ID, UIA_TextPatternId,
@@ -100,6 +101,14 @@ fn frame_with_area(element: &IUIAutomationElement) -> Option<RECT> {
 fn is_password(element: &IUIAutomationElement) -> bool {
     // SAFETY: plain call on an interface of this thread.
     unsafe { element.CurrentIsPassword() }.map_or(true, BOOL::as_bool)
+}
+
+/// Returns the text that `value` holds, or `None` when it holds no text.
+fn text_of(value: &VARIANT) -> Option<String> {
+    (value.vt() == VT_BSTR).then(|| {
+        // SAFETY: the type of `value` tells that its union holds a BSTR.
+        unsafe { value.Anonymous.Anonymous.Anonymous.bstrVal.to_string() }
+    })
 }
 
 /// The selection of `element`, which is the empty range at the caret when nothing is selected.

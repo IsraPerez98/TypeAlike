@@ -7,7 +7,7 @@ use std::fmt;
 
 use ghosttype_core::desktop::{FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
 use windows::Foundation::Uri;
-use windows::Win32::System::Variant::{VARIANT, VT_BSTR};
+use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     IUIAutomationElement, IUIAutomationElement6, IUIAutomationTextRange, IUIAutomationTreeWalker,
     TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character,
@@ -16,7 +16,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
-use super::{Uia, WHOLE_RANGE, caret_range, is_password, is_terminal_input};
+use super::{Uia, WHOLE_RANGE, caret_range, is_password, is_terminal_input, text_of};
 use crate::utf16::whole_chars;
 
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
@@ -209,14 +209,6 @@ fn is_search_role(aria_role: &str) -> bool {
         .split_whitespace()
         .next()
         .is_some_and(|role| role.eq_ignore_ascii_case(SEARCH_BOX_ARIA_ROLE))
-}
-
-/// Returns the text that `value` holds, or `None` when it holds no text.
-fn text_of(value: &VARIANT) -> Option<String> {
-    (value.vt() == VT_BSTR).then(|| {
-        // SAFETY: the type of `value` tells that its union holds a BSTR.
-        unsafe { value.Anonymous.Anonymous.Anonymous.bstrVal.to_string() }
-    })
 }
 
 /// Returns the host of `url`, or `None` for a URL without a host, such as the URL of a file.

@@ -28,7 +28,7 @@ const MIN_LINE_HEIGHT: i32 = 6;
 pub(crate) struct Caret {
     pub(crate) origin: POINT,
     pub(crate) height: i32,
-    /// The font face of the control that owns the caret, when the control reports one.
+    /// The font face of the text at the caret, when the control reports one.
     pub(crate) font_face: Option<String>,
     /// The color of the text before the caret, when the control tells it.
     pub(crate) text_color: Option<TextColor>,
