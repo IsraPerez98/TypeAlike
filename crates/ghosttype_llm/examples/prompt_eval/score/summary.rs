@@ -212,6 +212,42 @@ impl fmt::Display for Score {
     }
 }
 
+/// The spread of the milliseconds from the key to the ghost text over the cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MillisSpread {
+    /// The median milliseconds.
+    pub median: u64,
+    /// The 95th percentile of the milliseconds, by the nearest rank.
+    pub p95: u64,
+    /// The most milliseconds.
+    pub max: u64,
+}
+
+impl MillisSpread {
+    /// Returns the spread of `millis` over the `outcomes` that have one, or `None` when no outcome
+    /// has one.
+    fn of(outcomes: &[Outcome], millis: impl Fn(&Outcome) -> Option<u64>) -> Option<Self> {
+        let mut sorted = outcomes.iter().filter_map(&millis).collect::<Vec<_>>();
+        sorted.sort_unstable();
+        let p95_rank = (sorted.len() * 95).div_ceil(100);
+        Some(Self {
+            median: median_of(outcomes, millis)?,
+            p95: *sorted.get(p95_rank.checked_sub(1)?)?,
+            max: *sorted.last()?,
+        })
+    }
+}
+
+impl fmt::Display for MillisSpread {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} ms, p95 {} ms, max {} ms",
+            self.median, self.p95, self.max
+        )
+    }
+}
+
 /// The scores of the checkpoints of one text that a replay types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceScore {
@@ -236,11 +272,11 @@ pub struct Summary {
     pub no_new_line: Score,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
-    /// The median milliseconds from the key to the ghost text.
-    pub median_millis: u64,
-    /// The median milliseconds from the key to the ghost text after the app prepared the prompt,
-    /// of the cases that have one.
-    pub median_warm_millis: Option<u64>,
+    /// The milliseconds from the key to the ghost text.
+    pub time: MillisSpread,
+    /// The milliseconds from the key to the ghost text after the app prepared the prompt, of the
+    /// cases that have one.
+    pub warm_time: Option<MillisSpread>,
     /// The median tokens of a prompt, of the cases that have a prompt.
     pub median_prompt_tokens: Option<u64>,
     /// The milliseconds from the key to the ghost text for each token of the prompt, of all the
@@ -286,8 +322,8 @@ impl Summary {
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
                 .count(),
-            median_millis: median_of(outcomes, |outcome| Some(outcome.millis)).unwrap_or_default(),
-            median_warm_millis: median_of(outcomes, |outcome| outcome.warm_millis),
+            time: MillisSpread::of(outcomes, |outcome| Some(outcome.millis)).unwrap_or_default(),
+            warm_time: MillisSpread::of(outcomes, |outcome| outcome.warm_millis),
             median_prompt_tokens: median_of(outcomes, |outcome| outcome.prompt_tokens),
             millis_per_token: millis_per_token(outcomes),
             time_by_prompt_size: time_by_prompt_size(outcomes),
@@ -537,7 +573,7 @@ mod tests {
 
         let summary = Summary::of(&outcomes);
 
-        assert_eq!(summary.median_millis, 200);
+        assert_eq!(summary.time.median, 200);
     }
 
     #[test]
@@ -551,7 +587,7 @@ mod tests {
 
         let summary = Summary::of(&outcomes);
 
-        assert_eq!(summary.median_millis, 250);
+        assert_eq!(summary.time.median, 250);
     }
 
     #[test]
@@ -565,7 +601,43 @@ mod tests {
 
         let summary = Summary::of(&outcomes);
 
-        assert_eq!(summary.median_warm_millis, Some(40));
+        assert_eq!(summary.warm_time.map(|time| time.median), Some(40));
+    }
+
+    #[test]
+    fn summary_gives_the_95th_percentile_and_the_most_of_the_time_and_of_the_warm_time() {
+        let outcomes = (1..=20)
+            .map(|step| timed("a", step * 10, step, 100))
+            .collect::<Vec<_>>();
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.time, summary.warm_time),
+            (
+                MillisSpread {
+                    median: 105,
+                    p95: 190,
+                    max: 200
+                },
+                Some(MillisSpread {
+                    median: 10,
+                    p95: 19,
+                    max: 20
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn millis_spread_shows_the_median_the_95th_percentile_and_the_most() {
+        let time = MillisSpread {
+            median: 105,
+            p95: 190,
+            max: 200,
+        };
+
+        assert_eq!(time.to_string(), "105 ms, p95 190 ms, max 200 ms");
     }
 
     #[test]
@@ -628,7 +700,7 @@ mod tests {
 
         assert_eq!(
             (
-                summary.median_warm_millis,
+                summary.warm_time,
                 summary.median_prompt_tokens,
                 summary.millis_per_token
             ),

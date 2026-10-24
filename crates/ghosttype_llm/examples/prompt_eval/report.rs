@@ -28,9 +28,9 @@ pub fn write_report(
         writeln!(output, "no new line:   {}", summary.no_new_line)?;
     }
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
-    writeln!(output, "median time:   {} ms", summary.median_millis)?;
-    if let Some(millis) = summary.median_warm_millis {
-        writeln!(output, "warm time:     {millis} ms")?;
+    writeln!(output, "median time:   {}", summary.time)?;
+    if let Some(time) = summary.warm_time {
+        writeln!(output, "warm time:     {time}")?;
     }
     if let Some(tokens) = summary.median_prompt_tokens {
         writeln!(output, "prompt tokens: {tokens}")?;
