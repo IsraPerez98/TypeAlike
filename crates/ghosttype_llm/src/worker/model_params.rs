@@ -59,6 +59,29 @@ pub(super) struct ContextSetup {
     pub(super) cpu_threads: Option<CpuThreads>,
     /// The most prompt tokens that one decode takes.
     pub(super) batch_tokens: u32,
+    /// Whether a load warms up the backend before it answers.
+    pub(super) warm_up: WarmUp,
+}
+
+/// Whether a load makes the context and runs the first decodes before it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WarmUp {
+    /// The load warms up the backend. A GPU backend prepares its kernels and its memory at the
+    /// first decodes, which makes the first completion after a load slow.
+    AtLoad,
+    /// The first completion makes the context. On the CPU, a warm-up costs more CPU time at each
+    /// load than it saves at the first completion.
+    Off,
+}
+
+impl WarmUp {
+    /// Returns the warm-up of a load on `backend`.
+    pub(super) fn on(backend: Backend) -> Self {
+        match backend {
+            Backend::Vulkan | Backend::Cuda | Backend::Metal => Self::AtLoad,
+            Backend::Cpu => Self::Off,
+        }
+    }
 }
 
 /// Logs each device that llama.cpp found. A release build of llama.cpp loads its GPU backends
@@ -156,6 +179,7 @@ fn check_fit(
     let setup = ContextSetup {
         cpu_threads: None,
         batch_tokens,
+        warm_up: WarmUp::Off,
     };
     let mut context = context_params(CONTEXT_TOKENS.0, setup);
     let mut margins = vec![margin_bytes; max_devices()];
@@ -370,6 +394,7 @@ mod tests {
         ContextSetup {
             cpu_threads,
             batch_tokens,
+            warm_up: WarmUp::Off,
         }
     }
 
@@ -421,6 +446,18 @@ mod tests {
         let tokens = backends.map(|backend| PromptBatch::OfBackend.tokens_on(backend));
 
         assert_eq!(tokens, [128, 256, 256, 256]);
+    }
+
+    #[test]
+    fn only_a_load_on_a_gpu_backend_warms_up() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let warm_ups = backends.map(WarmUp::on);
+
+        assert_eq!(
+            warm_ups,
+            [WarmUp::Off, WarmUp::AtLoad, WarmUp::AtLoad, WarmUp::AtLoad]
+        );
     }
 
     #[test]

@@ -122,6 +122,48 @@ impl<'model> PromptCache<'model> {
         self.decode_rest_of(prompt, is_outdated)
     }
 
+    /// Decodes `prompt` and one added token as a completion does, and then forgets them. Thus the
+    /// backend prepares the kernels and the memory of these decodes before the first completion.
+    /// Before each decode, it stops when `is_outdated` tells so.
+    pub(super) fn warm_up(
+        &mut self,
+        prompt: &[LlamaToken],
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<(), GenerateError> {
+        let decoded = self.decode_as_completion(prompt, is_outdated);
+        self.forget();
+        decoded
+    }
+
+    fn decode_as_completion(
+        &mut self,
+        prompt: &[LlamaToken],
+        is_outdated: &mut dyn FnMut() -> bool,
+    ) -> Result<(), GenerateError> {
+        let Some(&added_token) = prompt.first() else {
+            return Ok(());
+        };
+        self.decode_prompt(prompt, prompt.len() - 1, is_outdated)?;
+        if is_outdated() {
+            return Err(GenerateError::Superseded);
+        }
+        self.context
+            .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
+        let mut batch = LlamaBatch::new(1, 1);
+        decode_next(&mut self.context, &mut batch, added_token, position(prompt.len()))?;
+        Ok(())
+    }
+
+    /// Removes all the tokens and the saved states.
+    fn forget(&mut self) {
+        self.context.clear_kv_cache();
+        self.tokens.clear();
+        self.logits.clear();
+        if let Some(snapshots) = &mut self.snapshots {
+            snapshots.clear();
+        }
+    }
+
     /// Decodes the tokens of `prompt` after the cached tokens in batches of the context.
     fn decode_rest_of(
         &mut self,

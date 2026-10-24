@@ -5,6 +5,7 @@ use std::time::Instant;
 use ghosttype_core::inference::{
     CONTEXT_TOKENS, Completion, InferenceError, NextWordBias, Prompt, TokenCount, WordBias,
 };
+use llama_cpp_2::LlamaContextLoadError;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
 
@@ -12,9 +13,12 @@ use super::generation::{
     AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
 };
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
-use super::model_params::ContextSetup;
+use super::model_params::{ContextSetup, WarmUp};
 use super::pieces::TokenPieces;
 use super::prompt_cache::{GenerateError, PromptCache};
+
+/// The text that the warm-up repeats to fill its prompt. The kernels do not depend on the text.
+const WARM_UP_TEXT: &str = "The quick brown fox jumps over the lazy dog. ";
 
 /// A loaded model, with the cache of its last prompt.
 pub(super) struct LoadedModel<'model> {
@@ -36,6 +40,13 @@ struct WordTokens {
 impl<'model> LoadedModel<'model> {
     /// Keeps `model` with an empty cache. Its context runs as `setup` tells.
     pub(super) fn new(llama: &'model LlamaBackend, model: &'model LlamaModel, setup: ContextSetup) -> Self {
+        if let Some(threads) = setup.cpu_threads {
+            tracing::info!(
+                prompt = threads.prompt,
+                generation = threads.generation,
+                "running the model on CPU threads"
+            );
+        }
         Self {
             llama,
             model,
@@ -44,6 +55,61 @@ impl<'model> LoadedModel<'model> {
             word_tokens: None,
             pieces: TokenPieces::new(model.tokens(false)),
         }
+    }
+
+    /// Makes the context and runs the decodes of a first completion on a prompt of one batch, when
+    /// the setup asks for a warm-up. Thus the backend prepares its kernels and its memory before
+    /// the first completion. Then the cache forgets that prompt. Before each step, it stops when
+    /// `is_outdated` tells so: a waiting completion does the same work, and a waiting load or
+    /// unload needs no warm-up.
+    pub(super) fn warm_up(&mut self, is_outdated: &mut dyn FnMut() -> bool) {
+        if self.setup.warm_up == WarmUp::Off {
+            return;
+        }
+        let started = Instant::now();
+        match self.decode_warm_up(is_outdated) {
+            Ok(()) => tracing::info!(duration = ?started.elapsed(), "warmed up the model"),
+            Err(GenerateError::Superseded) => tracing::info!("stopped the warm-up for a waiting request"),
+            Err(error) => {
+                self.cache = None;
+                tracing::warn!(%error, "failed to warm up the model");
+            }
+        }
+    }
+
+    fn decode_warm_up(&mut self, is_outdated: &mut dyn FnMut() -> bool) -> Result<(), GenerateError> {
+        if is_outdated() {
+            return Err(GenerateError::Superseded);
+        }
+        self.make_cache()?;
+        let text_tokens = self.model.vocab().tokenize(WARM_UP_TEXT.as_bytes(), false, false);
+        let batch_tokens = usize::try_from(self.setup.batch_tokens).expect("a u32 fits in usize");
+        let prompt = text_tokens
+            .iter()
+            .copied()
+            .cycle()
+            .take(batch_tokens)
+            .collect::<Vec<_>>();
+        let cache = self.cache.as_mut().expect("the cache exists above");
+        cache.warm_up(&prompt, is_outdated)
+    }
+
+    /// Makes the cache of the prompts, when it does not exist.
+    fn make_cache(&mut self) -> Result<(), LlamaContextLoadError> {
+        if self.cache.is_none() {
+            self.cache = Some(PromptCache::new(
+                self.llama,
+                self.model,
+                self.context_tokens(),
+                self.setup,
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Returns the tokens of the context: those of the app, or fewer when the model learned fewer.
+    fn context_tokens(&self) -> u32 {
+        CONTEXT_TOKENS.0.min(self.model.n_ctx_train())
     }
 
     /// Completes `prompt`, and sends the text to `progress` while it grows. It stops early when
@@ -128,17 +194,14 @@ impl<'model> LoadedModel<'model> {
         let mut prompt_tokens = vocab.tokenize(prompt.0.as_bytes(), true, false);
         let healed_text = take_back_last_word(&vocab, &mut prompt_tokens);
         let last_word_start = last_word_start(&vocab, &prompt_tokens);
-        let context_tokens = CONTEXT_TOKENS.0.min(model.n_ctx_train());
-        let capacity = usize::try_from(context_tokens).expect("a u32 fits in usize");
+        let capacity = usize::try_from(self.context_tokens()).expect("a u32 fits in usize");
         if prompt_tokens.is_empty() {
             return Err(GenerateError::EmptyPrompt);
         }
         if prompt_tokens.len().saturating_add(limits.max_added) > capacity {
             return Err(GenerateError::PromptTooLong);
         }
-        if self.cache.is_none() {
-            self.cache = Some(PromptCache::new(self.llama, model, context_tokens, self.setup)?);
-        }
+        self.make_cache()?;
         let cache = self.cache.as_mut().expect("the cache exists above");
         let decoder = Decoder {
             vocab: &vocab,

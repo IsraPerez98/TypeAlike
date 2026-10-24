@@ -27,7 +27,7 @@ use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_t
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 pub(crate) use crate::worker::model_params::PromptBatch;
-use crate::worker::model_params::{ContextSetup, log_devices, model_params, threads_for};
+use crate::worker::model_params::{ContextSetup, WarmUp, log_devices, model_params, threads_for};
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -57,15 +57,21 @@ impl<'jobs> JobQueue<'jobs> {
         self.next_job = Some(job);
     }
 
-    /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
-    /// completion for `sink` that runs now. It keeps the job that it receives as the next job.
-    fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
+    /// Whether a job waits. It keeps the job that it receives as the next job.
+    fn has_waiting_job(&mut self) -> bool {
         if self.next_job.is_none() {
             self.next_job = self.jobs.try_recv().ok();
         }
-        self.next_job.as_ref().is_some_and(|job| {
-            matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.sink, sink)
-        })
+        self.next_job.is_some()
+    }
+
+    /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
+    /// completion for `sink` that runs now. It keeps the job that it receives as the next job.
+    fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
+        self.has_waiting_job()
+            && self.next_job.as_ref().is_some_and(|job| {
+                matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.sink, sink)
+            })
     }
 }
 
@@ -92,20 +98,25 @@ pub(crate) fn run(
                     "loading a model"
                 );
                 let started = Instant::now();
-                let loaded = load(&mut llama, locate_model(&file), backend, batch_tokens);
-                let result = loaded
-                    .as_ref()
-                    .map(|_| ())
-                    .map_err(|error| *error)
-                    .inspect(|()| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
+                let loaded = load(&mut llama, locate_model(&file), backend, batch_tokens)
+                    .inspect(|_| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
                     .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
-                sink(InferenceEvent::Loaded { file, result });
-                if let (Ok(model), Some(llama)) = (loaded, &llama) {
-                    let setup = ContextSetup {
-                        cpu_threads: threads_for(backend, cpu_cores),
-                        batch_tokens,
-                    };
-                    serve(llama, &model, setup, &mut queue);
+                match (loaded, &llama) {
+                    (Ok(model), Some(llama)) => {
+                        let setup = ContextSetup {
+                            cpu_threads: threads_for(backend, cpu_cores),
+                            batch_tokens,
+                            warm_up: WarmUp::on(backend),
+                        };
+                        let mut loaded_model = LoadedModel::new(llama, &model, setup);
+                        loaded_model.warm_up(&mut || queue.has_waiting_job());
+                        sink(InferenceEvent::Loaded { file, result: Ok(()) });
+                        serve(&mut loaded_model, &mut queue);
+                    }
+                    (loaded, _) => sink(InferenceEvent::Loaded {
+                        file,
+                        result: loaded.map(drop),
+                    }),
                 }
             }
             InferenceRequest::Complete { .. } => {
@@ -147,18 +158,9 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Llam
     Ok(llama.as_ref().expect("the backend started above"))
 }
 
-/// Runs the completions for the loaded `model` until a job loads or unloads a model. Its context
-/// runs as `setup` tells. It gives the job that loads or unloads back to `queue`, so the model is
-/// gone before the next model loads.
-fn serve(llama: &LlamaBackend, model: &LlamaModel, setup: ContextSetup, queue: &mut JobQueue<'_>) {
-    if let Some(threads) = setup.cpu_threads {
-        tracing::info!(
-            prompt = threads.prompt,
-            generation = threads.generation,
-            "running the model on CPU threads"
-        );
-    }
-    let mut loaded = LoadedModel::new(llama, model, setup);
+/// Runs the completions for the `loaded` model until a job loads or unloads a model. It gives the
+/// job that loads or unloads back to `queue`, so the model is gone before the next model loads.
+fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>) {
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete {
             prompt,
@@ -268,6 +270,47 @@ mod tests {
             .expect("the queue receives jobs");
         let mut queue = JobQueue::new(&jobs);
         queue.has_newer_completion(&sink());
+
+        let next = queue.next().map(|job| job.request);
+
+        assert_eq!(next, Some(complete_request()));
+    }
+
+    #[test]
+    fn any_job_in_the_queue_waits() {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: InferenceRequest::Unload,
+                sink: sink(),
+            })
+            .expect("the queue receives jobs");
+
+        let waits = JobQueue::new(&jobs).has_waiting_job();
+
+        assert!(waits);
+    }
+
+    #[test]
+    fn empty_queue_has_no_waiting_job() {
+        let (_sender, jobs) = mpsc::channel();
+
+        let waits = JobQueue::new(&jobs).has_waiting_job();
+
+        assert!(!waits);
+    }
+
+    #[test]
+    fn waiting_job_comes_next() {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: complete_request(),
+                sink: sink(),
+            })
+            .expect("the queue receives jobs");
+        let mut queue = JobQueue::new(&jobs);
+        queue.has_waiting_job();
 
         let next = queue.next().map(|job| job.request);
 
