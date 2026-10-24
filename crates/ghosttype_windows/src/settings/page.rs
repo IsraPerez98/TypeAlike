@@ -17,7 +17,7 @@ use windows_reactor::{
 
 use super::icons::row_glyph;
 use super::layout::{
-    CONTROL_GAP, card, card_header, control_card, glyph_icon, leading_and_text, note_text, scrolling_page,
+    CONTROL_GAP, card, card_header, control_card, glyph_icon, leading_and_text, note_view, scrolling_page,
     secondary_text, stacked_card, two_column_card,
 };
 use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
@@ -128,7 +128,7 @@ impl Renderer<'_, '_> {
             Row::TextArea(area) => self.text_area_card(area),
             Row::TextLine(line) => self.text_line_card(line),
             Row::TextField(field) => self.text_field_card(field),
-            Row::Note(note) => card(note_text(note).into()),
+            Row::Note(note) => card(note_view(note)),
             Row::Output(output) => output_card(output),
             Row::Item(item) => self.item_card(item),
             Row::Loading(text) => loading_card(text),
@@ -139,7 +139,12 @@ impl Renderer<'_, '_> {
     fn switch_card(&self, switch: &Switch) -> View {
         let toggle = self.toggle_switch(&switch.id, switch.label).is_on(switch.is_on);
         control_card(
-            setting_header(switch.icon, switch.label, switch.description, None),
+            setting_header(
+                switch.icon,
+                switch.label,
+                switch.description,
+                switch.note.as_ref(),
+            ),
             toggle.into(),
         )
     }

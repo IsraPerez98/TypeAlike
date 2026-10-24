@@ -220,6 +220,7 @@ impl PersonalizationPane {
                 label: HISTORY_LABEL,
                 description: HISTORY_DESCRIPTION,
                 is_on,
+                note: None,
             }),
             Row::Picker(picker(
                 MenuText {
@@ -362,6 +363,7 @@ mod tests {
                 description: "When this switch is on, GhostType saves the text that you write. Suggestions use \
                      this text as examples.",
                 is_on: false,
+                note: None,
             }))
         );
     }

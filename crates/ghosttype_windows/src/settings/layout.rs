@@ -5,11 +5,13 @@
 
 use std::iter;
 
-use ghosttype_core::settings_window::view::{Note, NoteTone};
+use ghosttype_core::settings_window::view::{Note, NoteTone, RowIcon};
 use windows_reactor::{
     Border, FontIcon, Grid, GridLength, HorizontalAlignment, ScrollBarVisibility, ScrollViewer, StackPanel,
     TextBlock, TextWrapping, ThemeBrush, Thickness, VerticalAlignment, View,
 };
+
+use super::icons::row_glyph;
 
 const PAGE_MARGIN: Thickness = Thickness::new(56.0, 32.0, 56.0, 32.0);
 const PAGE_MAX_WIDTH: f64 = 1000.0;
@@ -73,7 +75,7 @@ pub(super) fn card_header(icon: View, label: &str, description: &str, note: Opti
                         .into(),
                 ),
                 (!description.is_empty()).then(|| secondary_text(description).into()),
-                note.map(|note| note_text(note).into()),
+                note.map(note_view),
             ]
             .into_iter()
             .flatten()
@@ -143,10 +145,19 @@ pub(super) fn secondary_text(text: &str) -> TextBlock {
         .text_wrapping(TextWrapping::Wrap)
 }
 
-pub(super) fn note_text(note: &Note) -> TextBlock {
+/// The text of `note`, after a warning sign when it warns. Reactor has no caution brush, so a
+/// warning stands out by its sign and its text at full opacity.
+pub(super) fn note_view(note: &Note) -> View {
     let text = secondary_text(note.text);
     match note.tone {
-        NoteTone::Plain | NoteTone::Busy => text,
-        NoteTone::Error => text.foreground(ThemeBrush::SystemCritical).opacity(1.0),
+        NoteTone::Plain | NoteTone::Busy => text.into(),
+        NoteTone::Warning => {
+            let sign = FontIcon::new()
+                .glyph(row_glyph(RowIcon::WarningSign))
+                .font_size(CAPTION_SIZE)
+                .into();
+            leading_and_text(Some(sign), text.opacity(1.0), STACK_GAP).into()
+        }
+        NoteTone::Error => text.foreground(ThemeBrush::SystemCritical).opacity(1.0).into(),
     }
 }

@@ -168,6 +168,7 @@ fn typo_rule_switch() -> Row {
         label: "Hide suggestions on typos",
         description: "While the word that you type looks like it has a typo, no suggestion finishes the word, so that Tab does not keep the typo. A rare name or term can also look like a typo.",
         is_on: true,
+        note: None,
     })
 }
 
@@ -178,16 +179,18 @@ fn typo_fix_switch() -> Row {
         label: "Fix typos",
         description: "When the word that you type looks like it has a typo, the suggestion shows the word struck through and a fix after it. Tab replaces the word with the fix.",
         is_on: true,
+        note: None,
     })
 }
 
-fn sentence_end_switch(is_on: bool) -> Row {
+fn sentence_end_switch(is_on: bool, note: Option<Note>) -> Row {
     Row::Switch(Switch {
         id: ControlId::new(SENTENCE_END),
         icon: RowIcon::StopButton,
         label: "Stop at the end of a sentence",
         description: "A suggestion ends with the first sentence that it finishes. When this switch is off, a suggestion can continue with the next sentence, up to its length.",
         is_on,
+        note,
     })
 }
 
@@ -232,6 +235,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         label: "Use copied text",
                         description: "Suggestions can use the text that you copy. GhostType reads the clipboard when you start to type. Where it saved your earlier writing, it reads the clipboard when you go to the text field. It does not save the copied text.",
                         is_on: false,
+                        note: None,
                     }),
                     Row::Switch(Switch {
                         id: ControlId::new(PREPARATION),
@@ -239,6 +243,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         label: "Prepare before you type",
                         description: "When you go to a text field, the model reads the text around the caret before you type. The first suggestion then shows sooner, but this uses more power. When this switch is off, the model does this only in apps and on web pages where GhostType saved your earlier writing.",
                         is_on: false,
+                        note: None,
                     }),
                     Row::Switch(Switch {
                         id: ControlId::new(DISPLAY),
@@ -246,6 +251,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         label: "Show words early",
                         description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.",
                         is_on: false,
+                        note: None,
                     }),
                     typo_rule_switch(),
                     typo_fix_switch(),
@@ -266,7 +272,7 @@ fn page_shows_the_settings_and_then_the_writer_notes() {
                         is_enabled: true,
                         note: None,
                     }),
-                    sentence_end_switch(true),
+                    sentence_end_switch(true, None),
                     Row::Picker(Picker {
                         id: ControlId::new(SUGGESTION_MODEL),
                         icon: RowIcon::Robot,
@@ -700,6 +706,7 @@ fn autostart_switch_shows_the_state_that_the_os_keeps() {
             label: "Open at login",
             description: "Start GhostType when you log in to this computer.",
             is_on: true,
+            note: None,
         }
     );
 }
@@ -1147,7 +1154,10 @@ fn stopping_at_the_end_of_a_sentence_keeps_it_and_turns_the_switch_on() {
     let shown = row(&default_page(&pane), SENTENCE_END);
     assert_eq!(
         (outcome, shown),
-        (settings_outcome(Settings::default()), sentence_end_switch(true))
+        (
+            settings_outcome(Settings::default()),
+            sentence_end_switch(true, None)
+        )
     );
 }
 
@@ -1166,6 +1176,22 @@ fn continuing_after_a_sentence_keeps_it_and_turns_the_switch_off() {
         ..Settings::default()
     };
     assert_eq!((outcome, is_on), (settings_outcome(saved), false));
+}
+
+#[test]
+fn sentence_end_switch_that_is_off_tells_that_suggestions_get_worse() {
+    let pane = GeneralPane::new(Settings {
+        sentence_end: SentenceEnd::Continue,
+        ..Settings::default()
+    });
+
+    let shown = row(&default_page(&pane), SENTENCE_END);
+
+    let note = Note {
+        text: "Suggestions are often wrong after the first sentence. Turn on this switch to get better suggestions.",
+        tone: NoteTone::Warning,
+    };
+    assert_eq!(shown, sentence_end_switch(false, Some(note)));
 }
 
 #[test]

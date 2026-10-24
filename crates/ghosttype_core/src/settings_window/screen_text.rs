@@ -154,6 +154,7 @@ impl ScreenTextPane {
             label: SCREEN_TEXT_LABEL,
             description: SCREEN_TEXT_DESCRIPTION,
             is_on: is_allowed,
+            note: None,
         });
         let has_level_menu = ocr != OcrAvailability::Unsupported && levels == OcrLevels::Selectable;
         let ocr_level = has_level_menu.then(|| Row::Picker(self.ocr_level_picker()));
@@ -270,6 +271,7 @@ mod tests {
                     label: "Use screen text",
                     description: "When this switch is off, GhostType does not read screen text in any app.",
                     is_on: true,
+                    note: None,
                 })),
                 vec![&AppSwitch {
                     id: ControlId::from("screen-text-app:com.apple.mail".to_owned()),

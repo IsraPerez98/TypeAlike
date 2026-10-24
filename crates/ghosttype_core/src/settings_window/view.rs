@@ -209,6 +209,8 @@ pub struct Switch {
     pub description: &'static str,
     /// Whether the switch shows on.
     pub is_on: bool,
+    /// The status of the setting, or a hint, below the description.
+    pub note: Option<Note>,
 }
 
 /// A switch that turns a setting on and off for one app, after the icon and the name of the app.
@@ -437,6 +439,8 @@ pub enum NoteTone {
     Plain,
     /// Work is in progress.
     Busy,
+    /// A setting makes something worse.
+    Warning,
     /// Something failed.
     Error,
 }

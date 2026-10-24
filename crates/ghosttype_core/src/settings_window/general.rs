@@ -102,6 +102,8 @@ const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length. A shorter s
 const SENTENCE_END_LABEL: &str = "Stop at the end of a sentence";
 const SENTENCE_END_DESCRIPTION: &str = "A suggestion ends with the first sentence that it finishes. When this \
      switch is off, a suggestion can continue with the next sentence, up to its length.";
+const SENTENCE_END_OFF_NOTE: &str =
+    "Suggestions are often wrong after the first sentence. Turn on this switch to get better suggestions.";
 const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are short or very short, so that they show sooner.";
 const BACKEND_LABEL: &str = "Inference backend";
 const BACKEND_DESCRIPTION: &str =
@@ -317,6 +319,7 @@ impl GeneralPane {
                 label: AUTOSTART_LABEL,
                 description: AUTOSTART_DESCRIPTION,
                 is_on: autostart.is_enabled(),
+                note: None,
             })
         });
         let switches = [
@@ -326,6 +329,7 @@ impl GeneralPane {
                 label: CLIPBOARD_LABEL,
                 description: self.clipboard_description(),
                 is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
+                note: None,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(PREPARATION),
@@ -333,6 +337,7 @@ impl GeneralPane {
                 label: PREPARATION_LABEL,
                 description: PREPARATION_DESCRIPTION,
                 is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
+                note: None,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(DISPLAY),
@@ -340,6 +345,7 @@ impl GeneralPane {
                 label: DISPLAY_LABEL,
                 description: DISPLAY_DESCRIPTION,
                 is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
+                note: None,
             }),
             Row::Switch(Switch {
                 id: ControlId::new(TYPO_RULE),
@@ -347,6 +353,7 @@ impl GeneralPane {
                 label: TYPO_RULE_LABEL,
                 description: TYPO_RULE_DESCRIPTION,
                 is_on: self.settings.typo_rule == TypoRule::HideSuggestions,
+                note: None,
             }),
         ];
         let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
@@ -356,6 +363,7 @@ impl GeneralPane {
                 label: TYPO_FIX_LABEL,
                 description: TYPO_FIX_DESCRIPTION,
                 is_on: self.settings.typo_fix == TypoFix::Offer,
+                note: None,
             })
         });
         autostart.into_iter().chain(switches).chain(typo_fix)
@@ -468,12 +476,17 @@ impl GeneralPane {
     }
 
     fn sentence_end_switch(&self) -> Switch {
+        let is_on = self.settings.sentence_end == SentenceEnd::Stop;
         Switch {
             id: ControlId::new(SENTENCE_END),
             icon: RowIcon::StopButton,
             label: SENTENCE_END_LABEL,
             description: SENTENCE_END_DESCRIPTION,
-            is_on: self.settings.sentence_end == SentenceEnd::Stop,
+            is_on,
+            note: (!is_on).then_some(Note {
+                text: SENTENCE_END_OFF_NOTE,
+                tone: NoteTone::Warning,
+            }),
         }
     }
 

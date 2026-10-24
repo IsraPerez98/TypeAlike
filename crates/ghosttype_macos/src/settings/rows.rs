@@ -13,9 +13,9 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSAccessibility as _, NSButton, NSColor, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
-    NSLayoutPriorityDefaultLow, NSProgressIndicator, NSStackView, NSStackViewGravity, NSSwitch, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSButton, NSColor, NSImageView, NSLayoutAttribute, NSLayoutConstraintOrientation,
+    NSLayoutPriorityDefaultHigh, NSLayoutPriorityDefaultLow, NSProgressIndicator, NSStackView,
+    NSStackViewGravity, NSSwitch, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
@@ -23,8 +23,8 @@ use objc2_foundation::{NSEdgeInsets, NSString};
 use crate::labels::title_case;
 use crate::settings::controls::{
     MenuChoices, body_font, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
-    show_push_button, small_secondary_label, spinner, start_spinning, stop_spinning, truncating_label,
-    wrapping_label,
+    show_push_button, show_status, small_secondary_label, small_symbol_view, spinner, start_spinning,
+    stop_spinning, truncating_label, warning_color, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
 use crate::settings::rows::app::{AppPickerRow, AppSwitchRow, SiteSwitchRow};
@@ -33,6 +33,8 @@ use crate::settings::rows::text::{TextAreaRow, TextFieldRow, TextLineRow};
 use crate::settings::{Binder, ControlAction};
 
 const MESSAGE_SPACING: CGFloat = 8.0;
+const WARNING_SYMBOL: &str = "exclamationmark.triangle.fill";
+const WARNING_DESCRIPTION: &str = "Warning";
 const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 28.0,
     left: 16.0,
@@ -177,11 +179,12 @@ impl SettingRow {
     }
 }
 
-/// A row with a switch that turns a setting on and off.
+/// A row with a switch that turns a setting on and off, and a note below its description.
 #[derive(Debug)]
 pub(super) struct SwitchRow {
     setting: SettingRow,
     switch: Retained<NSSwitch>,
+    note: NoteView,
     id: ControlId,
 }
 
@@ -189,9 +192,12 @@ impl SwitchRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let switch = NSSwitch::new(binder.main_thread);
         binder.target.connect(&switch, ControlAction::Toggle);
+        let setting = SettingRow::add(rows_stack, &switch, binder.main_thread);
+        let note = NoteView::add(&setting.texts, binder.main_thread);
         Self {
-            setting: SettingRow::add(rows_stack, &switch, binder.main_thread),
+            setting,
             switch,
+            note,
             id: id.clone(),
         }
     }
@@ -201,6 +207,7 @@ impl SwitchRow {
         self.switch
             .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
         self.switch.setState(control_state(shown.is_on));
+        self.note.render(shown.note.as_ref());
         binder.bind(&self.switch, &shown.id);
     }
 }
@@ -333,11 +340,12 @@ impl MessageRow {
     }
 }
 
-/// A spinner and a line of status text.
+/// A spinner or a warning sign, and a line of status text.
 #[derive(Debug)]
 pub(super) struct NoteView {
     container: Retained<NSStackView>,
     spinner: Retained<NSProgressIndicator>,
+    warning_sign: Retained<NSImageView>,
     text: Retained<NSTextField>,
 }
 
@@ -345,6 +353,7 @@ impl NoteView {
     /// Adds the note at the bottom of the vertical stack `parent`.
     fn add(parent: &NSStackView, main_thread: MainThreadMarker) -> Self {
         let spinner = spinner(main_thread);
+        let warning_sign = small_symbol_view(main_thread);
         let text = small_secondary_label(main_thread);
         let container = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
@@ -352,19 +361,26 @@ impl NoteView {
             NO_INSETS,
             main_thread,
         );
+        container.setAlignment(NSLayoutAttribute::Top);
         container.addArrangedSubview(&spinner);
+        container.addArrangedSubview(&warning_sign);
         container.addArrangedSubview(&text);
+        text.trailingAnchor()
+            .constraintEqualToAnchor(&container.trailingAnchor())
+            .setActive(true);
         parent.addArrangedSubview(&container);
         fill_width(&container, parent);
         Self {
             container,
             spinner,
+            warning_sign,
             text,
         }
     }
 
     fn render(&self, note: Option<&Note>) {
         stop_spinning(&self.spinner);
+        self.warning_sign.setHidden(true);
         self.container.setHidden(note.is_none());
         let Some(note) = note else {
             return;
@@ -372,11 +388,14 @@ impl NoteView {
         set_text(&self.text, note.text);
         let color = match note.tone {
             NoteTone::Plain | NoteTone::Busy => NSColor::secondaryLabelColor(),
+            NoteTone::Warning => warning_color(),
             NoteTone::Error => NSColor::systemRedColor(),
         };
         self.text.setTextColor(Some(&color));
-        if note.tone == NoteTone::Busy {
-            start_spinning(&self.spinner);
+        match note.tone {
+            NoteTone::Busy => start_spinning(&self.spinner),
+            NoteTone::Warning => show_status(&self.warning_sign, WARNING_SYMBOL, WARNING_DESCRIPTION, &color),
+            NoteTone::Plain | NoteTone::Error => {}
         }
     }
 }
@@ -401,6 +420,7 @@ mod tests {
                 label: "Label",
                 description: "",
                 is_on: true,
+                note: None,
             }),
             Row::TextLine(TextLine {
                 id: ID,

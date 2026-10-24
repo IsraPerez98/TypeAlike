@@ -3,16 +3,21 @@
 //! It gives the labels, buttons, spinners, symbols, pop-up buttons and text areas, and the fonts
 //! of their text.
 
+use std::ptr::NonNull;
+
+use block2::RcBlock;
 use ghosttype_core::settings_window::view;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSAccessibility as _, NSBorderType, NSButton, NSColor, NSControl, NSControlSize, NSControlStateValue,
-    NSControlStateValueOff, NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage, NSImageView,
-    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultLow, NSLineBreakMode,
-    NSMenuItem, NSPopUpButton, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView,
-    NSTextField, NSTextView, NSView,
+    NSAccessibility as _, NSAppearance, NSAppearanceNameAccessibilityHighContrastAqua,
+    NSAppearanceNameAccessibilityHighContrastDarkAqua, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+    NSBorderType, NSButton, NSColor, NSControl, NSControlSize, NSControlStateValue, NSControlStateValueOff,
+    NSControlStateValueOn, NSFont, NSFontWeightRegular, NSImage, NSImageSymbolConfiguration, NSImageView,
+    NSLayoutConstraint, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
+    NSLayoutPriorityDefaultLow, NSLineBreakMode, NSMenuItem, NSPopUpButton, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSTextField, NSTextView, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSRect, NSSize, NSString};
@@ -27,6 +32,10 @@ const TEXT_AREA_INSETS: NSSize = NSSize::new(4.0, 6.0);
 const ICON_BUTTON_SIDE: CGFloat = 24.0;
 const MENU_MAX_WIDTH: CGFloat = 320.0;
 const BACK_SYMBOL: &str = "chevron.left";
+/// The dark amber of warning text in a light appearance: 5.2:1 on white.
+const LIGHT_WARNING_SRGB: [CGFloat; 3] = [0.616, 0.365, 0.0];
+/// The darker amber of warning text in a light appearance with Increase Contrast: 7.9:1 on white.
+const HIGH_CONTRAST_LIGHT_WARNING_SRGB: [CGFloat; 3] = [0.478, 0.271, 0.0];
 
 /// The pop-up menu of a row, which picks one of its entries. The menu rebuilds its entries only
 /// when they change, so that an open menu stays open.
@@ -124,6 +133,56 @@ pub(super) fn show_status(view: &NSImageView, symbol_name: &str, description: &s
     view.setImage(symbol(symbol_name, description).as_deref());
     view.setContentTintColor(Some(tint));
     view.setHidden(false);
+}
+
+/// A hidden view for a symbol at the size of the small system font.
+pub(super) fn small_symbol_view(main_thread: MainThreadMarker) -> Retained<NSImageView> {
+    let view = NSImageView::new(main_thread);
+    view.setSymbolConfiguration(Some(
+        &NSImageSymbolConfiguration::configurationWithPointSize_weight(
+            NSFont::smallSystemFontSize(),
+            // SAFETY: the weight is a constant of AppKit.
+            unsafe { NSFontWeightRegular },
+        ),
+    ));
+    view.setContentHuggingPriority_forOrientation(
+        NSLayoutPriorityDefaultHigh,
+        NSLayoutConstraintOrientation::Horizontal,
+    );
+    view.setHidden(true);
+    view
+}
+
+/// The color of a warning: the system yellow in a dark appearance. On a light row the system
+/// yellow is too light for text, so a light appearance gets a dark amber.
+pub(super) fn warning_color() -> Retained<NSColor> {
+    let provider = RcBlock::new(|appearance: NonNull<NSAppearance>| {
+        // SAFETY: AppKit gives a valid appearance for the length of the call.
+        let color = warning_color_in(unsafe { appearance.as_ref() });
+        NonNull::new(Retained::autorelease_ptr(color)).expect("a retained color is never null")
+    });
+    // SAFETY: the provider returns an autoreleased color, which lives until AppKit uses it.
+    unsafe { NSColor::colorWithName_dynamicProvider(None, &provider) }
+}
+
+fn warning_color_in(appearance: &NSAppearance) -> Retained<NSColor> {
+    // SAFETY: the names are constants of AppKit.
+    let (light, dark, high_contrast_light, high_contrast_dark) = unsafe {
+        (
+            NSAppearanceNameAqua,
+            NSAppearanceNameDarkAqua,
+            NSAppearanceNameAccessibilityHighContrastAqua,
+            NSAppearanceNameAccessibilityHighContrastDarkAqua,
+        )
+    };
+    let names = NSArray::from_slice(&[light, dark, high_contrast_light, high_contrast_dark]);
+    let channels = match appearance.bestMatchFromAppearancesWithNames(&names) {
+        Some(name) if *name == *light => LIGHT_WARNING_SRGB,
+        Some(name) if *name == *high_contrast_light => HIGH_CONTRAST_LIGHT_WARNING_SRGB,
+        _ => return NSColor::systemYellowColor(),
+    };
+    let [red, green, blue] = channels;
+    NSColor::colorWithSRGBRed_green_blue_alpha(red, green, blue, 1.0)
 }
 
 pub(super) fn symbol(name: &str, description: &str) -> Option<Retained<NSImage>> {
