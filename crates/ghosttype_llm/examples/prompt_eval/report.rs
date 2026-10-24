@@ -85,8 +85,8 @@ fn write_reference_report(output: &mut impl Write, references: &[ReferenceScore]
     Ok(())
 }
 
-/// Writes the cases that a change helped or harmed against the baseline, and the change of the log
-/// probability.
+/// Writes the cases that a change helped or harmed against the baseline with the p value of their
+/// sign test, and the change of the log probability with its 95% interval.
 fn write_comparison(output: &mut impl Write, comparison: &Comparison) -> io::Result<()> {
     writeln!(
         output,
@@ -101,12 +101,18 @@ fn write_comparison(output: &mut impl Write, comparison: &Comparison) -> io::Res
         comparison.harmed
     )?;
     writeln!(output, "unchanged:     {}", comparison.unchanged)?;
+    if let Some(p_value) = comparison.sign_test_p_value() {
+        writeln!(output, "sign test:     p = {p_value:.3}")?;
+    }
     let Some(change) = comparison.log_probability else {
         return Ok(());
     };
+    let interval = change.margin.map_or_else(String::new, |margin| {
+        format!(" [{:+.3}, {:+.3}]", change.mean - margin, change.mean + margin)
+    });
     writeln!(
         output,
-        "log prob diff: {:+.3} (higher {}, lower {})",
+        "log prob diff: {:+.3}{interval} (higher {}, lower {})",
         change.mean, change.higher, change.lower
     )
 }
@@ -168,4 +174,28 @@ fn percent(part: usize, whole: usize) -> f64 {
         return 0.0;
     }
     f64::from(part) * 100.0 / f64::from(whole)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::score::test_outcomes::scored;
+
+    #[test]
+    fn comparison_shows_the_sign_test_and_the_interval_of_the_log_probability_change() {
+        let baseline = [scored("small", false, -4.0), scored("large", false, -4.0)];
+        let outcomes = [scored("small", true, -3.0), scored("large", true, -1.0)];
+        let mut output = Vec::new();
+
+        write_comparison(&mut output, &Comparison::of(&baseline, &outcomes)).unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "helped:        2 [\"small\", \"large\"]\n\
+             harmed:        0 []\n\
+             unchanged:     0\n\
+             sign test:     p = 0.500\n\
+             log prob diff: +2.000 [+0.040, +3.960] (higher 2, lower 0)\n"
+        );
+    }
 }

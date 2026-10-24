@@ -1,6 +1,7 @@
 //! The cases that changed against an earlier run of the same cases.
 
 use std::collections::HashMap;
+use std::f64::consts::LN_2;
 
 use super::Outcome;
 use super::summary::mean;
@@ -44,13 +45,37 @@ impl Comparison {
         comparison.log_probability = LogProbabilityChange::of(&changes);
         comparison
     }
+
+    /// Returns the p value of an exact two-sided sign test of the helped cases against the harmed
+    /// cases, or `None` when no case changed. The unchanged cases do not count.
+    pub fn sign_test_p_value(&self) -> Option<f64> {
+        let changed = u32::try_from(self.helped.len() + self.harmed.len())
+            .ok()
+            .filter(|&changed| changed > 0)?;
+        let fewer = u32::try_from(self.helped.len().min(self.harmed.len())).ok()?;
+        let changed = f64::from(changed);
+        let (tail, _) = (0..=fewer).fold((0.0, 0.0), |(tail, log_combinations), chosen| {
+            let chosen = f64::from(chosen);
+            (
+                tail + (log_combinations - changed * LN_2).exp(),
+                log_combinations + (changed - chosen).ln() - (chosen + 1.0).ln(),
+            )
+        });
+        Some((2.0 * tail).min(1.0))
+    }
 }
+
+/// The standard errors on each side of a mean in its 95% interval, from the normal distribution.
+const STANDARD_ERRORS_95: f64 = 1.96;
 
 /// How the log probability of the next word changed against an earlier run.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LogProbabilityChange {
     /// The mean change. A positive change makes the next word more likely.
     pub mean: f64,
+    /// The half width of the paired 95% interval of the mean change, or `None` with fewer than two
+    /// cases.
+    pub margin: Option<f64>,
     /// The cases that make the next word more likely now.
     pub higher: usize,
     /// The cases that make the next word less likely now.
@@ -59,12 +84,22 @@ pub struct LogProbabilityChange {
 
 impl LogProbabilityChange {
     fn of(changes: &[f64]) -> Option<Self> {
+        let mean = mean(changes)?;
         Some(Self {
-            mean: mean(changes)?,
+            mean,
+            margin: margin_95(changes, mean),
             higher: changes.iter().filter(|&&change| change > 0.0).count(),
             lower: changes.iter().filter(|&&change| change < 0.0).count(),
         })
     }
+}
+
+/// Returns the half width of the 95% interval of the `mean` of `changes`, or `None` with fewer
+/// than two changes.
+fn margin_95(changes: &[f64], mean: f64) -> Option<f64> {
+    let count = f64::from(u32::try_from(changes.len()).ok().filter(|&count| count > 1)?);
+    let variance = changes.iter().map(|change| (change - mean).powi(2)).sum::<f64>() / (count - 1.0);
+    Some(STANDARD_ERRORS_95 * (variance / count).sqrt())
 }
 
 #[cfg(test)]
@@ -117,13 +152,65 @@ mod tests {
         let comparison = Comparison::of(&baseline, &outcomes);
 
         assert_eq!(
-            comparison.log_probability,
-            Some(LogProbabilityChange {
-                mean: -1.0 / 3.0,
-                higher: 1,
-                lower: 1,
-            })
+            comparison
+                .log_probability
+                .map(|change| (change.mean, change.higher, change.lower)),
+            Some((-1.0 / 3.0, 1, 1))
         );
+    }
+
+    #[test]
+    fn comparison_gives_the_paired_95_percent_margin_of_the_mean_change() {
+        let baseline = [scored("small", true, -4.0), scored("large", true, -4.0)];
+        let outcomes = [scored("small", true, -3.0), scored("large", true, -1.0)];
+
+        let comparison = Comparison::of(&baseline, &outcomes);
+
+        assert_eq!(
+            comparison
+                .log_probability
+                .map(|change| (change.mean, change.margin)),
+            Some((2.0, Some(1.96)))
+        );
+    }
+
+    #[test]
+    fn comparison_of_one_change_of_the_log_probability_has_no_margin() {
+        let baseline = [scored("up", true, -2.0)];
+        let outcomes = [scored("up", true, -1.0)];
+
+        let comparison = Comparison::of(&baseline, &outcomes);
+
+        assert_eq!(comparison.log_probability.map(|change| change.margin), Some(None));
+    }
+
+    fn changed(helped: usize, harmed: usize) -> Comparison {
+        Comparison {
+            helped: vec!["helped".to_owned(); helped],
+            harmed: vec!["harmed".to_owned(); harmed],
+            unchanged: 40,
+            log_probability: None,
+        }
+    }
+
+    #[test]
+    fn sign_test_gives_the_two_sided_p_value_of_the_helped_against_the_harmed_cases() {
+        let cases = [
+            (1, 7, Some(703.0)),
+            (7, 1, Some(703.0)),
+            (0, 5, Some(625.0)),
+            (0, 12, Some(5.0)),
+            (3, 3, Some(10_000.0)),
+            (0, 0, None),
+        ];
+
+        let p_values = cases.map(|(helped, harmed, _)| {
+            changed(helped, harmed)
+                .sign_test_p_value()
+                .map(|p_value| (p_value * 10_000.0).round())
+        });
+
+        assert_eq!(p_values, cases.map(|(_, _, p_value)| p_value));
     }
 
     #[test]

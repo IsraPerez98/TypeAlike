@@ -3,7 +3,7 @@
 mod comparison;
 mod summary;
 #[cfg(test)]
-mod test_outcomes;
+pub mod test_outcomes;
 
 use serde::{Deserialize, Serialize};
 
