@@ -7,7 +7,8 @@
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
-//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] //!     [--replay off|word|character]
+//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
+//!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -39,14 +40,14 @@
 //! - `typo`: `true` when the last word of `before` has a typo. It can be left out.
 //! - `fixed`: for a typo case, `before` without the typo. It can be left out.
 //!
-//! The eval uses the default settings with the backend of `--backend`, the clipboard and the
-//! earlier writing on, and `clipboard` is a copy that came just before. `--notes` gives the notes
-//! about the writer, and `--name` the name of the writer. Both are empty by default. It opens a
-//! field that holds `before` without its last character, lets the input settle so that the screen
-//! text is read, types that character and waits for the ghost text. The model does not decode the
-//! prompt before the key, as on the first key in a field. Then the eval opens the field again, lets
-//! the model decode the prompt when the input settles, as the app does when it prepares the prompt
-//! on focus, and types the character again for the warm time.
+//! The eval uses the default settings with the backend of `--backend`, the screen text, the
+//! clipboard and the earlier writing on, and `clipboard` is a copy that came just before.
+//! `--notes` gives the notes about the writer, and `--name` the name of the writer. Both are empty
+//! by default. It opens a field that holds `before` without its last character, lets the input
+//! settle so that the screen text is read, types that character and waits for the ghost text. The
+//! model does not decode the prompt before the key, as on the first key in a field. Then the eval
+//! opens the field again, lets the model decode the prompt when the input settles, as the app does
+//! when it prepares the prompt on focus, and types the character again for the warm time.
 //! When `before` ends with a line break or the case has `before_enter`, the last key is Enter. The
 //! field holds `before_enter`, or else `before` without its last line break. After Enter, the field
 //! holds `before`, and the input settles again before the ghost text.
@@ -154,6 +155,12 @@
 //! each replayed text. Use `character` to measure a change of the token healing, because each
 //! case gives only one caret inside a word. The model keeps the prompt of the checkpoint before in
 //! its cache, so the median time of a replay is not the time of a first key.
+//!
+//! `--screen off`, `--clipboard off` and `--history off` turn off the screen text, the clipboard
+//! and the earlier writing in the settings, as the switches of the app do. Then the prompt has no
+//! such section, and `words` and `history` give no word bias. Each is `on` by default. Compare a
+//! run with one of them off against the run with all on (`--baseline`) to measure the gain of
+//! that section.
 
 mod arguments;
 mod case;

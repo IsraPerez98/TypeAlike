@@ -5,15 +5,16 @@ use std::path::PathBuf;
 
 use ghosttype_core::inference::{Backend, CpuCores, SentenceEnd};
 use ghosttype_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, Settings, SuggestionLength,
-    TypoRule, WordChoice, WriterName, WriterNotes,
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
+    ScreenTextSettings, Settings, SuggestionLength, TypoRule, WordChoice, WriterName, WriterNotes,
 };
 use ghosttype_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
-     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]      [--replay off|word|character]";
+     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
+     [--screen on|off] [--clipboard on|off] [--history on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -35,6 +36,9 @@ pub struct Arguments {
     pub sentence_end: SentenceEnd,
     pub length: SuggestionLength,
     pub replay: Replay,
+    pub screen: ScreenTextAccess,
+    pub clipboard: ClipboardAccess,
+    pub history: HistoryAccess,
 }
 
 /// Whether the apps of a case share their earlier writing.
@@ -93,6 +97,9 @@ impl Arguments {
             sentence_end: SentenceEnd::default(),
             length: SuggestionLength::default(),
             replay: Replay::Off,
+            screen: ScreenTextAccess::Allowed,
+            clipboard: ClipboardAccess::Allowed,
+            history: HistoryAccess::On,
         };
         for option in options.chunks(2) {
             match option {
@@ -121,6 +128,17 @@ impl Arguments {
                 }
                 [name, length] if name == "--length" => parsed.length = length_named(length)?,
                 [name, replay] if name == "--replay" => parsed.replay = replay_named(replay)?,
+                [name, screen] if name == "--screen" => {
+                    parsed.screen =
+                        switch_named(screen, ScreenTextAccess::Allowed, ScreenTextAccess::Denied)?;
+                }
+                [name, clipboard] if name == "--clipboard" => {
+                    parsed.clipboard =
+                        switch_named(clipboard, ClipboardAccess::Allowed, ClipboardAccess::Denied)?;
+                }
+                [name, history] if name == "--history" => {
+                    parsed.history = switch_named(history, HistoryAccess::On, HistoryAccess::Off)?;
+                }
                 _ => return None,
             }
         }
@@ -128,12 +146,15 @@ impl Arguments {
     }
 
     /// Returns the settings of each case before its earlier writing: the default settings with the
-    /// options of the arguments, the clipboard and the earlier writing on, and the prompt prepared
-    /// on focus.
+    /// options of the arguments, and the prompt prepared on focus.
     pub fn settings(&self) -> Settings {
         Settings {
             backend: self.backend,
-            clipboard_access: ClipboardAccess::Allowed,
+            clipboard_access: self.clipboard,
+            screen_text: ScreenTextSettings {
+                access: self.screen,
+                ..ScreenTextSettings::default()
+            },
             writer_notes: WriterNotes(self.notes.clone()),
             writer_name: WriterName(self.name.clone()),
             prompt_preparation: PromptPreparation::OnFocus,
@@ -141,7 +162,7 @@ impl Arguments {
             sentence_end: self.sentence_end,
             suggestion_length: self.length,
             personalization: PersonalizationSettings {
-                history: HistoryAccess::On,
+                history: self.history,
                 word_choice: self.word_choice,
                 ..PersonalizationSettings::default()
             },
@@ -248,8 +269,96 @@ mod tests {
                 sentence_end: SentenceEnd::Stop,
                 length: SuggestionLength::Medium,
                 replay: Replay::Off,
+                screen: ScreenTextAccess::Allowed,
+                clipboard: ClipboardAccess::Allowed,
+                history: HistoryAccess::On,
             })
         );
+    }
+
+    #[test]
+    fn screen_option_allows_or_denies_the_screen_text() {
+        let names = ["on", "off", "maybe"];
+
+        let accesses = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--screen", name]).map(|arguments| arguments.screen)
+        });
+
+        assert_eq!(
+            accesses,
+            [
+                Some(ScreenTextAccess::Allowed),
+                Some(ScreenTextAccess::Denied),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn clipboard_option_allows_or_denies_the_clipboard() {
+        let names = ["on", "off", "maybe"];
+
+        let accesses = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--clipboard", name]).map(|arguments| arguments.clipboard)
+        });
+
+        assert_eq!(
+            accesses,
+            [
+                Some(ClipboardAccess::Allowed),
+                Some(ClipboardAccess::Denied),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn history_option_turns_the_earlier_writing_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let accesses = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--history", name]).map(|arguments| arguments.history)
+        });
+
+        assert_eq!(
+            accesses,
+            [Some(HistoryAccess::On), Some(HistoryAccess::Off), None]
+        );
+    }
+
+    #[test]
+    fn settings_use_the_screen_text_the_clipboard_and_the_earlier_writing_of_the_options() {
+        let cases: [(&[&str], _); 2] = [
+            (
+                &[],
+                (
+                    ScreenTextAccess::Allowed,
+                    ClipboardAccess::Allowed,
+                    HistoryAccess::On,
+                ),
+            ),
+            (
+                &["--screen", "off", "--clipboard", "off", "--history", "off"],
+                (
+                    ScreenTextAccess::Denied,
+                    ClipboardAccess::Denied,
+                    HistoryAccess::Off,
+                ),
+            ),
+        ];
+
+        let accesses = cases.map(|(options, _)| {
+            let settings = parse(&[["model.gguf", "cases.jsonl"].as_slice(), options].concat())
+                .unwrap()
+                .settings();
+            (
+                settings.screen_text.access,
+                settings.clipboard_access,
+                settings.personalization.history,
+            )
+        });
+
+        assert_eq!(accesses, cases.map(|(_, accesses)| accesses));
     }
 
     #[test]

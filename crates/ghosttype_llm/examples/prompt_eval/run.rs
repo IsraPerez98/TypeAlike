@@ -16,7 +16,7 @@ use ghosttype_core::inference::{
     LogProbability, ModelRunner, WordBias,
 };
 use ghosttype_core::key::Key;
-use ghosttype_core::settings::Settings;
+use ghosttype_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
 use ghosttype_llm::LlamaCpp;
 
 use crate::arguments::{Arguments, TailCut, WordBiasUse};
@@ -237,7 +237,8 @@ impl Typing<'_> {
         app.use_settings(self.settings);
         app.use_history(self.history.to_vec());
         let opened = self.settle(model, &mut app, &self.field, preparation)?;
-        if self.case.screen.is_some() && !opened.has_read_screen {
+        let is_screen_allowed = self.settings.screen_text.access == ScreenTextAccess::Allowed;
+        if self.case.screen.is_some() && is_screen_allowed && !opened.has_read_screen {
             bail!("case {} reads no screen text", self.case.id);
         }
         let start = Instant::now();
@@ -332,11 +333,12 @@ impl Typing<'_> {
     }
 
     /// Returns `request` with the word bias of the `words` of the case, or else with the bias that
-    /// the app built from the history of the case, or without a word bias when the word bias is
-    /// off. The bias gets the version of the case.
+    /// the app built from the history of the case, or without a word bias when the word bias or the
+    /// earlier writing is off. The bias gets the version of the case.
     fn with_case_bias(&self, mut request: InferenceRequest) -> InferenceRequest {
         if let InferenceRequest::Complete { word_bias, .. } = &mut request {
-            *word_bias = if self.word_bias == WordBiasUse::Off {
+            let is_history_off = self.settings.personalization.history == HistoryAccess::Off;
+            *word_bias = if self.word_bias == WordBiasUse::Off || is_history_off {
                 None
             } else if self.case.words.is_empty() {
                 word_bias.take().map(|bias| WordBias {
