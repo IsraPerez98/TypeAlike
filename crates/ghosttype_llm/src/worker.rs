@@ -26,7 +26,8 @@ use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_t
 
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
-use crate::worker::model_params::{CpuThreads, log_devices, model_params, threads_for};
+pub(crate) use crate::worker::model_params::PromptBatch;
+use crate::worker::model_params::{ContextSetup, log_devices, model_params, threads_for};
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -69,10 +70,12 @@ impl<'jobs> JobQueue<'jobs> {
 }
 
 /// Runs each job in order until every sender is gone. A model on the CPU runs on threads for
-/// `cpu_cores`, or on the threads of llama.cpp when the cores are unknown.
+/// `cpu_cores`, or on the threads of llama.cpp when the cores are unknown. Each prompt decode takes
+/// at most the tokens of `prompt_batch`.
 pub(crate) fn run(
     locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>,
     cpu_cores: Option<CpuCores>,
+    prompt_batch: PromptBatch,
     jobs: &Receiver<Job>,
 ) {
     let mut queue = JobQueue::new(jobs);
@@ -80,9 +83,16 @@ pub(crate) fn run(
     while let Some(Job { request, sink }) = queue.next() {
         match request {
             InferenceRequest::Load { file, backend } => {
-                tracing::info!(repo = %file.repo, name = %file.name, ?backend, "loading a model");
+                let batch_tokens = prompt_batch.tokens_on(backend);
+                tracing::info!(
+                    repo = %file.repo,
+                    name = %file.name,
+                    ?backend,
+                    batch_tokens,
+                    "loading a model"
+                );
                 let started = Instant::now();
-                let loaded = load(&mut llama, locate_model(&file), backend);
+                let loaded = load(&mut llama, locate_model(&file), backend, batch_tokens);
                 let result = loaded
                     .as_ref()
                     .map(|_| ())
@@ -91,7 +101,11 @@ pub(crate) fn run(
                     .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
                 sink(InferenceEvent::Loaded { file, result });
                 if let (Ok(model), Some(llama)) = (loaded, &llama) {
-                    serve(llama, &model, threads_for(backend, cpu_cores), &mut queue);
+                    let setup = ContextSetup {
+                        cpu_threads: threads_for(backend, cpu_cores),
+                        batch_tokens,
+                    };
+                    serve(llama, &model, setup, &mut queue);
                 }
             }
             InferenceRequest::Complete { .. } => {
@@ -102,12 +116,13 @@ pub(crate) fn run(
     }
 }
 
-/// Loads the model at `path` on `backend`. It starts llama.cpp in `llama` first, when it did not
-/// start before.
+/// Loads the model at `path` on `backend`, for a context that decodes `batch_tokens` at a time. It
+/// starts llama.cpp in `llama` first, when it did not start before.
 fn load(
     llama: &mut Option<LlamaBackend>,
     path: Option<PathBuf>,
     backend: Backend,
+    batch_tokens: u32,
 ) -> Result<LlamaModel, InferenceError> {
     let path = path
         .filter(|path| path.is_file())
@@ -116,7 +131,7 @@ fn load(
         tracing::error!(%error, "failed to start llama.cpp");
         InferenceError::Failed
     })?;
-    let params = model_params(&path, backend)?;
+    let params = model_params(&path, backend, batch_tokens)?;
     LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
         tracing::warn!(%error, "failed to load a model");
         InferenceError::ModelInvalid
@@ -132,23 +147,18 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Llam
     Ok(llama.as_ref().expect("the backend started above"))
 }
 
-/// Runs the completions for the loaded `model` until a job loads or unloads a model. A model on the
-/// CPU runs on `cpu_threads`, or on the threads of llama.cpp. It gives the job that loads or
-/// unloads back to `queue`, so the model is gone before the next model loads.
-fn serve(
-    llama: &LlamaBackend,
-    model: &LlamaModel,
-    cpu_threads: Option<CpuThreads>,
-    queue: &mut JobQueue<'_>,
-) {
-    if let Some(threads) = cpu_threads {
+/// Runs the completions for the loaded `model` until a job loads or unloads a model. Its context
+/// runs as `setup` tells. It gives the job that loads or unloads back to `queue`, so the model is
+/// gone before the next model loads.
+fn serve(llama: &LlamaBackend, model: &LlamaModel, setup: ContextSetup, queue: &mut JobQueue<'_>) {
+    if let Some(threads) = setup.cpu_threads {
         tracing::info!(
             prompt = threads.prompt,
             generation = threads.generation,
             "running the model on CPU threads"
         );
     }
-    let mut loaded = LoadedModel::new(llama, model, cpu_threads);
+    let mut loaded = LoadedModel::new(llama, model, setup);
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete {
             prompt,

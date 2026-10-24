@@ -12,7 +12,7 @@ use super::generation::{
     AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
 };
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
-use super::model_params::CpuThreads;
+use super::model_params::ContextSetup;
 use super::pieces::TokenPieces;
 use super::prompt_cache::{GenerateError, PromptCache};
 
@@ -20,7 +20,7 @@ use super::prompt_cache::{GenerateError, PromptCache};
 pub(super) struct LoadedModel<'model> {
     llama: &'model LlamaBackend,
     model: &'model LlamaModel,
-    cpu_threads: Option<CpuThreads>,
+    setup: ContextSetup,
     cache: Option<PromptCache<'model>>,
     /// The logits of the last word bias.
     word_tokens: Option<WordTokens>,
@@ -34,17 +34,12 @@ struct WordTokens {
 }
 
 impl<'model> LoadedModel<'model> {
-    /// Keeps `model` with an empty cache. A context on the CPU runs on `cpu_threads`, or on the
-    /// threads of llama.cpp.
-    pub(super) fn new(
-        llama: &'model LlamaBackend,
-        model: &'model LlamaModel,
-        cpu_threads: Option<CpuThreads>,
-    ) -> Self {
+    /// Keeps `model` with an empty cache. Its context runs as `setup` tells.
+    pub(super) fn new(llama: &'model LlamaBackend, model: &'model LlamaModel, setup: ContextSetup) -> Self {
         Self {
             llama,
             model,
-            cpu_threads,
+            setup,
             cache: None,
             word_tokens: None,
             pieces: TokenPieces::new(model.tokens(false)),
@@ -142,12 +137,7 @@ impl<'model> LoadedModel<'model> {
             return Err(GenerateError::PromptTooLong);
         }
         if self.cache.is_none() {
-            self.cache = Some(PromptCache::new(
-                self.llama,
-                model,
-                context_tokens,
-                self.cpu_threads,
-            )?);
+            self.cache = Some(PromptCache::new(self.llama, model, context_tokens, self.setup)?);
         }
         let cache = self.cache.as_mut().expect("the cache exists above");
         let decoder = Decoder {

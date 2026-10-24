@@ -6,6 +6,7 @@
 mod worker;
 
 use std::mem;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -13,7 +14,7 @@ use std::thread;
 use ghosttype_core::hub::ModelFile;
 use ghosttype_core::inference::{Backend, CpuCores, InferenceEventSink, InferenceRequest, ModelRunner};
 
-use crate::worker::Job;
+use crate::worker::{Job, PromptBatch};
 
 /// The backend that runs models in each build, also without the GPU features: Metal on macOS, else
 /// the CPU.
@@ -41,14 +42,37 @@ impl LlamaCpp {
     ///
     /// A model on the CPU decodes a prompt with one thread on each performance core of
     /// `cpu_cores`, and at least 4 threads when the CPU has that many cores. It adds each token
-    /// with at most 4 threads. With `None`, the CPU runs the threads of llama.cpp.
+    /// with at most 4 threads. With `None`, the CPU runs the threads of llama.cpp. Each decode of a
+    /// prompt takes at most the batch of the backend that the load names.
     #[must_use]
     pub fn new(
         locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static,
         cpu_cores: Option<CpuCores>,
     ) -> Self {
+        Self::start(locate_model, cpu_cores, PromptBatch::OfBackend)
+    }
+
+    /// Starts the worker thread as [`LlamaCpp::new`] does, but each decode of a prompt takes at
+    /// most `batch_tokens` on each backend. Use it to measure another batch. A newer request can
+    /// stop a prompt decode only between two batches, and the GPU keeps memory for the outputs of
+    /// a whole batch while the model stays loaded.
+    #[must_use]
+    pub fn with_prompt_batch(
+        locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static,
+        cpu_cores: Option<CpuCores>,
+        batch_tokens: NonZeroU32,
+    ) -> Self {
+        Self::start(locate_model, cpu_cores, PromptBatch::Fixed(batch_tokens))
+    }
+
+    fn start(
+        locate_model: impl Fn(&ModelFile) -> Option<PathBuf> + Send + 'static,
+        cpu_cores: Option<CpuCores>,
+        prompt_batch: PromptBatch,
+    ) -> Self {
         let (jobs, received_jobs) = mpsc::channel();
-        let worker = thread::spawn(move || worker::run(&locate_model, cpu_cores, &received_jobs));
+        let worker =
+            thread::spawn(move || worker::run(&locate_model, cpu_cores, prompt_batch, &received_jobs));
         Self {
             jobs,
             worker: Some(worker),

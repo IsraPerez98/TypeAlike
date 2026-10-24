@@ -15,7 +15,7 @@ use super::generation::{
     AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
 use super::logits::{log_probability_of, most_likely_tokens, with_bias};
-use super::model_params::{BATCH_TOKENS, CpuThreads, context_params};
+use super::model_params::{ContextSetup, context_params};
 
 /// The sequence that keeps the last prompt between completions.
 const PROMPT_SEQUENCE: i32 = 0;
@@ -91,10 +91,10 @@ impl<'model> PromptCache<'model> {
         llama: &LlamaBackend,
         model: &'model LlamaModel,
         context_tokens: u32,
-        cpu_threads: Option<CpuThreads>,
+        setup: ContextSetup,
     ) -> Result<Self, LlamaContextLoadError> {
         Ok(Self {
-            context: model.new_context(llama, context_params(context_tokens, cpu_threads))?,
+            context: model.new_context(llama, context_params(context_tokens, setup))?,
             tokens: Vec::new(),
             logits: Vec::new(),
             snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
@@ -122,13 +122,13 @@ impl<'model> PromptCache<'model> {
         self.decode_rest_of(prompt, is_outdated)
     }
 
-    /// Decodes the tokens of `prompt` after the cached tokens in batches.
+    /// Decodes the tokens of `prompt` after the cached tokens in batches of the context.
     fn decode_rest_of(
         &mut self,
         prompt: &[LlamaToken],
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
-        let batch_size = usize::try_from(BATCH_TOKENS).expect("a u32 fits in usize");
+        let batch_size = usize::try_from(self.context.n_batch()).expect("a u32 fits in usize");
         for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
             if is_outdated() {
                 return Err(GenerateError::Superseded);

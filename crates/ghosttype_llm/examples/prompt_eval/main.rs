@@ -4,7 +4,8 @@
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--word-choice CHOICE] \
+//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
+//!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]
 //! ```
@@ -111,6 +112,12 @@
 //! `4,6`, so that the CPU backend uses the threads of the app on Windows. Without it, llama.cpp
 //! keeps its threads, as the app on macOS does.
 //!
+//! `--batch` sets the most tokens that one decode of a prompt takes, on any backend. Without it,
+//! the eval uses the batch of the backend, as the app does. Use it to measure another batch: run
+//! the same cases with each batch, and compare the median time and the cases that each batch
+//! helped or harmed against the run without `--batch`. Only a prompt with more tokens than the
+//! batch decodes in more than one batch.
+//!
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
@@ -189,7 +196,12 @@ fn main() -> anyhow::Result<()> {
         .transpose()?;
 
     let settings = arguments.settings();
-    let mut model = ModelSession::load(&arguments.model, arguments.backend, arguments.cpu_cores)?;
+    let mut model = ModelSession::load(
+        &arguments.model,
+        arguments.backend,
+        arguments.cpu_cores,
+        arguments.batch,
+    )?;
     let runs = cases
         .iter()
         .zip(1..)

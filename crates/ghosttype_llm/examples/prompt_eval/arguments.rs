@@ -1,5 +1,6 @@
 //! The command line arguments of the eval.
 
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 
 use ghosttype_core::inference::{Backend, CpuCores, SentenceEnd};
@@ -11,7 +12,7 @@ use ghosttype_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
+     [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,6 +25,8 @@ pub struct Arguments {
     pub name: String,
     pub backend: Backend,
     pub cpu_cores: Option<CpuCores>,
+    /// The most tokens of each prompt decode, or `None` for the batch of the backend.
+    pub batch: Option<NonZeroU32>,
     pub word_choice: WordChoice,
     pub word_bias: WordBiasUse,
     pub shared_history: SharedHistory,
@@ -69,6 +72,7 @@ impl Arguments {
             name: String::new(),
             backend: BUILT_IN_BACKEND,
             cpu_cores: None,
+            batch: None,
             word_choice: WordChoice::Off,
             word_bias: WordBiasUse::On,
             shared_history: SharedHistory::On,
@@ -85,6 +89,7 @@ impl Arguments {
                 [name, text] if name == "--name" => parsed.name.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
+                [name, tokens] if name == "--batch" => parsed.batch = Some(tokens.parse().ok()?),
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 [name, bias] if name == "--word-bias" => {
                     parsed.word_bias = switch_named(bias, WordBiasUse::On, WordBiasUse::Off)?;
@@ -210,6 +215,7 @@ mod tests {
                 name: String::new(),
                 backend: BUILT_IN_BACKEND,
                 cpu_cores: None,
+                batch: None,
                 word_choice: WordChoice::Off,
                 word_bias: WordBiasUse::On,
                 shared_history: SharedHistory::On,
@@ -257,6 +263,16 @@ mod tests {
                 performance: NonZeroUsize::new(4).unwrap(),
                 efficiency: 6,
             }))
+        );
+    }
+
+    #[test]
+    fn batch_option_sets_the_most_tokens_of_each_prompt_decode() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--batch", "512"]);
+
+        assert_eq!(
+            arguments.map(|arguments| arguments.batch),
+            Some(Some(NonZeroU32::new(512).unwrap()))
         );
     }
 
@@ -397,13 +413,15 @@ mod tests {
 
     #[test]
     fn arguments_that_do_not_follow_the_usage_are_rejected() {
-        let cases: [&[&str]; 8] = [
+        let cases: [&[&str]; 10] = [
             &["model.gguf"],
             &["model.gguf", "cases.jsonl", "--save"],
             &["model.gguf", "cases.jsonl", "--backend", "opencl"],
             &["model.gguf", "cases.jsonl", "--cpu-cores", "4"],
             &["model.gguf", "cases.jsonl", "--cpu-cores", "0,6"],
             &["model.gguf", "cases.jsonl", "--cpu-cores", "four,six"],
+            &["model.gguf", "cases.jsonl", "--batch", "0"],
+            &["model.gguf", "cases.jsonl", "--batch", "many"],
             &["model.gguf", "cases.jsonl", "--verbose", "yes"],
             &["model.gguf", "cases.jsonl", "extra.jsonl"],
         ];

@@ -1,5 +1,6 @@
 //! The model session of the eval, and the run of one case through a new app.
 
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
@@ -33,9 +34,20 @@ pub struct ModelSession {
 }
 
 impl ModelSession {
-    pub fn load(path: &Path, backend: Backend, cpu_cores: Option<CpuCores>) -> anyhow::Result<Self> {
+    /// Loads the model at `path` on `backend`. Each prompt decode takes at most `batch` tokens, or
+    /// the batch of the backend.
+    pub fn load(
+        path: &Path,
+        backend: Backend,
+        cpu_cores: Option<CpuCores>,
+        batch: Option<NonZeroU32>,
+    ) -> anyhow::Result<Self> {
         let path = path.to_owned();
-        let runner = LlamaCpp::new(move |_| Some(path.clone()), cpu_cores);
+        let locate_model = move |_: &ModelFile| Some(path.clone());
+        let runner = match batch {
+            Some(tokens) => LlamaCpp::with_prompt_batch(locate_model, cpu_cores, tokens),
+            None => LlamaCpp::new(locate_model, cpu_cores),
+        };
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();
