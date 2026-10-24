@@ -8,6 +8,12 @@ pub(crate) fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Returns `text` with a plain space for each no-break space. The count of characters stays the
+/// same, so the Backspace keys of a replacement still delete the right characters.
+pub(crate) fn plain_spaces(text: &str) -> String {
+    text.replace(['\u{a0}', '\u{202f}', '\u{2007}'], " ")
+}
+
 /// Returns the last `count` characters of `text`.
 pub(crate) fn last_chars(text: &str, count: usize) -> &str {
     let excess = text.chars().count().saturating_sub(count);

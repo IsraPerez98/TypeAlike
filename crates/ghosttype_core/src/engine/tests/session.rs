@@ -130,6 +130,21 @@ fn first_key_continues_the_field_text_before_the_caret() {
 }
 
 #[test]
+fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
+    let spaces = ['\u{a0}', '\u{202f}', '\u{2007}'];
+
+    let reactions = spaces.map(|space| {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char('l'),
+            &FakeDesktop::with_field_text(&format!("Hello{space}wor")),
+        )
+    });
+
+    assert_eq!(reactions, spaces.map(|_| request("Hello worl")));
+}
+
+#[test]
 fn field_text_is_read_once_per_session() {
     let mut engine = Engine::default();
     let desktop = FakeDesktop::with_field_text("Hello ");

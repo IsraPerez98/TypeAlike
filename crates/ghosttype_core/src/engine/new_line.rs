@@ -3,7 +3,7 @@
 use crate::desktop::{Desktop, is_line_break};
 
 use super::session::recent_text;
-use super::{Engine, Reaction};
+use super::{Engine, Reaction, read_surroundings};
 
 impl Engine {
     /// Reads the field of `desktop` again after Enter, and returns the suggestion for the new line
@@ -25,7 +25,7 @@ impl Engine {
             return self.reset();
         };
         if session.field_at_enter.is_none() {
-            let field_text = desktop.surroundings().field_text;
+            let field_text = read_surroundings(desktop).field_text;
             let text = field_text
                 .as_ref()
                 .map_or(session.text_before.as_str(), |field_text| {
@@ -47,7 +47,7 @@ impl Engine {
         let Some(field_at_enter) = session.field_at_enter.take() else {
             return false;
         };
-        let field_text = desktop.surroundings().field_text.unwrap_or_default();
+        let field_text = read_surroundings(desktop).field_text.unwrap_or_default();
         let Some(text_before) =
             text_after_enter(&session.text_before, &field_at_enter, &field_text.before_caret)
         else {

@@ -52,6 +52,15 @@ fn new_line_continues_the_typed_text_when_the_field_read_at_enter_is_old() {
 }
 
 #[test]
+fn new_line_continues_when_the_field_shows_a_typed_space_as_a_no_break_space() {
+    let mut engine = engine_after_enter_in("Thanks ", "Thanks\u{a0}");
+
+    let reaction = engine.suggest_on_new_line(&field_with_copy("Thanks\u{a0}\n"));
+
+    assert_eq!(reaction, Some(request("Thanks \n")));
+}
+
+#[test]
 fn dead_key_keeps_the_session_for_the_accented_letter() {
     let mut engine = Engine::default();
     engine.on_key(Key::Char('u'), &FakeDesktop::with_field_text("¿Q"));

@@ -203,14 +203,12 @@ pub(super) fn kept_delimiter(fix: &WordFix) -> &str {
 /// Whether `before_caret`, a read of the field text before the caret, ends with the typo of `fix`.
 /// A read from before the kept space or sign ends with less of them, and still counts.
 pub(super) fn ends_with_typo(before_caret: &str, fix: &WordFix) -> bool {
-    // Chromium gives a no-break space for a space at the end of an editable element.
-    let read = before_caret.replace('\u{a0}', " ");
     let letters_end = fix.typo.len() - kept_delimiter(fix).len();
     fix.typo[letters_end..]
         .char_indices()
         .map(|(index, _)| letters_end + index)
         .chain([fix.typo.len()])
-        .any(|end| read.ends_with(&fix.typo[..end]))
+        .any(|end| before_caret.ends_with(&fix.typo[..end]))
 }
 
 /// Splits `suggestion` into the part that Tab types and the rest. The part is the first word with

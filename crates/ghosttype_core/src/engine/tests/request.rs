@@ -285,6 +285,21 @@ fn request_carries_the_text_after_the_caret_on_its_line() {
 }
 
 #[test]
+fn request_reads_a_no_break_space_after_the_caret_as_a_space() {
+    let mut engine = Engine::default();
+
+    let reaction = engine.on_key(
+        Key::Char(' '),
+        &FakeDesktop::with_text_around("I paid the", " bill\u{a0}today"),
+    );
+
+    let Reaction::Request(InferenceRequest::Complete { line_after, .. }) = reaction else {
+        panic!("unexpected {reaction:?}");
+    };
+    assert_eq!(line_after, " bill today");
+}
+
+#[test]
 fn request_inside_a_line_has_no_tail_cut_and_twice_the_tokens() {
     let mut engine = Engine::default();
 

@@ -12,7 +12,8 @@ mod suggestion;
 
 use std::fmt;
 
-use crate::desktop::Desktop;
+use crate::desktop::{Desktop, Surroundings};
+use crate::excerpt::plain_spaces;
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TypoCheck};
 use crate::key::Key;
@@ -199,7 +200,7 @@ impl Engine {
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {
         let session = self.session.take().unwrap_or_else(|| {
-            let surroundings = desktop.surroundings();
+            let surroundings = read_surroundings(desktop);
             Session::new(self.build_preface(&surroundings, desktop), &surroundings)
         });
         self.session.insert(session)
@@ -289,10 +290,20 @@ impl Engine {
 /// only for a fix that kept a space or a sign. A field without text counts as unchanged.
 fn is_typo_changed_in(desktop: &dyn Desktop, fix: &WordFix) -> bool {
     !kept_delimiter(fix).is_empty()
-        && desktop
-            .surroundings()
+        && read_surroundings(desktop)
             .field_text
             .is_some_and(|field_text| !ends_with_typo(&field_text.before_caret, fix))
+}
+
+/// Reads what surrounds the caret in `desktop`, with plain spaces in the field text. A web editor
+/// shows a space that the user typed at the end of a text as a no-break space.
+fn read_surroundings(desktop: &dyn Desktop) -> Surroundings {
+    let mut surroundings = desktop.surroundings();
+    if let Some(field_text) = &mut surroundings.field_text {
+        field_text.before_caret = plain_spaces(&field_text.before_caret);
+        field_text.after_caret = plain_spaces(&field_text.after_caret);
+    }
+    surroundings
 }
 
 #[cfg(test)]
