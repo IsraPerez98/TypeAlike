@@ -11,10 +11,14 @@ use llama_cpp_2::model::params::{FitError, LlamaModelParams};
 use llama_cpp_2::{LlamaBackendDevice, LlamaBackendDeviceType, list_llama_ggml_backend_devices, max_devices};
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 
-/// The most prompt tokens that one decode takes on each backend. The context keeps GPU memory for
-/// the outputs of a whole batch while the model stays loaded, so a small batch keeps that memory
-/// small.
+/// The most prompt tokens that one decode takes on the CPU and on Metal. On the CPU, no larger
+/// batch was faster.
 const BATCH_TOKENS: u32 = 128;
+/// The most prompt tokens that one decode takes on Vulkan and CUDA. Most prompts have 129 to 256
+/// tokens, and one decode of them is faster than two. The context keeps GPU memory for the outputs
+/// of a whole batch while the model stays loaded. A batch of 512 tokens was a little faster only
+/// for longer prompts, for about 250 MiB more.
+const LARGE_BATCH_TOKENS: u32 = 256;
 /// The fewest threads for the tokens of a prompt on the CPU, when the CPU has that many cores: the
 /// default of llama.cpp. On a CPU with few performance cores, efficiency cores then also help.
 const MIN_PROMPT_THREADS: usize = 4;
@@ -43,9 +47,8 @@ impl PromptBatch {
     pub(super) fn tokens_on(self, backend: Backend) -> u32 {
         match (self, backend) {
             (Self::Fixed(tokens), _) => tokens.get(),
-            (Self::OfBackend, Backend::Cpu | Backend::Vulkan | Backend::Cuda | Backend::Metal) => {
-                BATCH_TOKENS
-            }
+            (Self::OfBackend, Backend::Vulkan | Backend::Cuda) => LARGE_BATCH_TOKENS,
+            (Self::OfBackend, Backend::Cpu | Backend::Metal) => BATCH_TOKENS,
         }
     }
 }
@@ -413,12 +416,12 @@ mod tests {
     }
 
     #[test]
-    fn each_backend_decodes_a_prompt_in_batches_of_128_tokens() {
+    fn vulkan_and_cuda_decode_a_prompt_in_larger_batches() {
         let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
 
         let tokens = backends.map(|backend| PromptBatch::OfBackend.tokens_on(backend));
 
-        assert_eq!(tokens, [128; 4]);
+        assert_eq!(tokens, [128, 256, 256, 128]);
     }
 
     #[test]
