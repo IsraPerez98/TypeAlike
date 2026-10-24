@@ -9,9 +9,9 @@ use crate::settings::Settings;
 use crate::test_support::{ACTIVE_BADGE, PAUSED_BADGE};
 
 const CARET_HEIGHT: i32 = 20;
-const OLD_CARET: i32 = 100;
+pub(super) const OLD_CARET: i32 = 100;
 const NEXT_CARET: i32 = 108;
-const FAR_CARET: i32 = 900;
+pub(super) const FAR_CARET: i32 = 900;
 const FIELD: ScreenRect = ScreenRect {
     left: 50,
     top: 80,
@@ -29,7 +29,7 @@ fn caret_at(left: i32) -> ScreenRect {
 }
 
 /// A look that finds the caret at `left` in [`FIELD`].
-fn look_at(left: i32) -> CaretRead {
+pub(super) fn look_at(left: i32) -> CaretRead {
     CaretRead {
         caret: Some(caret_at(left)),
         field: Some(FIELD),
@@ -50,7 +50,7 @@ fn harness_with_looks_at_once(left: i32) -> Harness {
 }
 
 /// A harness that waits for the look at the caret to show `suggestion` after "B".
-fn harness_waiting_for_the_look(suggestion: &str) -> Harness {
+pub(super) fn harness_waiting_for_the_look(suggestion: &str) -> Harness {
     let mut harness = harness_with_later_looks();
     harness.press(Key::Char('B'));
     harness.answer(completed(suggestion));
@@ -60,7 +60,7 @@ fn harness_waiting_for_the_look(suggestion: &str) -> Harness {
 }
 
 /// A harness that shows `suggestion` after "B" at the caret at [`OLD_CARET`].
-fn harness_showing_at_the_old_caret(suggestion: &str) -> Harness {
+pub(super) fn harness_showing_at_the_old_caret(suggestion: &str) -> Harness {
     let mut harness = harness_waiting_for_the_look(suggestion);
     harness.answer_caret(look_at(OLD_CARET));
     harness.take_calls();

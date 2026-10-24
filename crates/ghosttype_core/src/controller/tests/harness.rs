@@ -299,6 +299,10 @@ impl Harness {
         self.controller.on_timer(Timer::CaretSettle, &mut self.shell);
     }
 
+    pub(super) fn scroll(&mut self) {
+        self.controller.on_scroll(&mut self.shell);
+    }
+
     /// Settles the caret once for each check that waits for the caret to move.
     pub(super) fn run_out_caret_checks(&mut self) {
         for _ in 0..MAX_CARET_MOVE_CHECKS {

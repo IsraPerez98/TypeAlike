@@ -141,6 +141,14 @@ impl CaretWait {
         self.looks.on_key();
     }
 
+    /// Waits for the caret to settle again after a scroll. The look that waits ends, because its
+    /// caret can be stale. A scroll does not change the text, so the ghost text can show again at
+    /// a caret that did not move.
+    pub(super) fn on_scroll(&mut self, shell: &mut dyn Shell) {
+        self.looks.is_pending = false;
+        self.restart_timer(shell);
+    }
+
     /// Handles a replacement of `deleted` characters before the caret with `text`. A replacement
     /// that types as many characters as it deletes, as the fix of a typo of the same length, does
     /// not move the caret. Thus the ghost text after it does not wait for a caret that moved.

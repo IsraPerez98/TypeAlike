@@ -207,6 +207,19 @@ impl Controller {
         shell.hide_badge();
     }
 
+    /// Handles a scroll of the mouse wheel or the touchpad, which moves the caret on the screen but
+    /// does not change the text. While the badge shows or waits for the caret, the ghost text and
+    /// the badge hide, and show again with the same suggestion at the caret when the scroll stops.
+    /// A scroll does not end the session and does not count as input, so it reads no screen.
+    pub fn on_scroll(&mut self, shell: &mut dyn Shell) {
+        if self.app.badge_view().is_none() {
+            return;
+        }
+        shell.hide_ghost();
+        shell.hide_badge();
+        self.caret_wait.on_scroll(shell);
+    }
+
     /// Handles a `timer` that ran out.
     pub fn on_timer(&mut self, timer: Timer, shell: &mut dyn Shell) {
         match timer {
