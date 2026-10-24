@@ -10,7 +10,7 @@ use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTIO
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
-use crate::settings_window::view::{ControlId, SettingsInput};
+use crate::settings_window::view::{ControlId, Row, SettingsInput, SettingsView};
 use crate::test_support::{mail_app, suggestion_app, suggestion_site};
 
 #[test]
@@ -278,6 +278,34 @@ fn website_switch_keeps_its_setting() {
             .pop()
             .map(|settings| settings.suggestion_places.sites),
         Some(vec![suggestion_site("bank.example", false)])
+    );
+}
+
+/// Whether the user can change the setting of the row `id` on the page `title` of `view`.
+fn is_row_enabled(view: &SettingsView, title: &str, id: &str) -> Option<bool> {
+    let page = view.pages.iter().find(|page| page.title == title)?;
+    match page.row(id)? {
+        Row::AppSwitch(switch) => Some(switch.is_enabled),
+        Row::AppPicker(picker) => Some(picker.is_enabled),
+        _ => None,
+    }
+}
+
+#[test]
+fn app_with_suggestions_off_is_dimmed_in_the_screen_text_and_personalization_panes() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    harness.press(Key::Char('H'));
+    harness.toggle("suggestions-app:com.apple.mail", false);
+
+    let view = harness.shown_settings();
+
+    assert_eq!(
+        [
+            is_row_enabled(&view, "Screen text", "screen-text-app:com.apple.mail"),
+            is_row_enabled(&view, "Personalization", "personalization-app:com.apple.mail"),
+        ],
+        [Some(false), Some(false)]
     );
 }
 

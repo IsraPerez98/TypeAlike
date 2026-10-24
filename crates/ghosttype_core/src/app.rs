@@ -142,7 +142,8 @@ impl App {
 
     /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
     /// place on, and its prompt preparation, suggestion display, suggestion length, screen text
-    /// and suggestion places from now on. A session in a place that is off now ends.
+    /// and suggestion places from now on. A session in a place that is off now ends, and the
+    /// earlier writing keeps none of its text.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
@@ -157,7 +158,7 @@ impl App {
                 .session_place()
                 .filter(|place| !place.is_on_in(&self.suggestion_places));
             if let Some(place) = off_session_place {
-                self.engine.reset();
+                self.engine.discard_session();
                 self.idle_field_place = Some(place);
             }
         }

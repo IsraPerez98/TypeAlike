@@ -2,7 +2,7 @@
 //! field on the screen.
 
 use crate::desktop::{OcrAvailability, OcrLevels};
-use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
+use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionPlaces};
 use crate::settings_window::controls::{
     MenuText, TYPED_APPS_FOOTER, app_list_section, picker, replace_if_changed,
 };
@@ -138,9 +138,15 @@ impl ScreenTextPane {
 
     /// Returns the page that the pane shows now, with the menu of the OCR level when the platform
     /// has an OCR whose `levels` the user picks, and a note that tells how to give the permission
-    /// when `ocr` needs it.
+    /// when `ocr` needs it. The switch of an app is dimmed while `suggestion_places` turns its
+    /// suggestions off.
     #[must_use]
-    pub fn page(&self, ocr: OcrAvailability, levels: OcrLevels) -> Page {
+    pub fn page(
+        &self,
+        ocr: OcrAvailability,
+        levels: OcrLevels,
+        suggestion_places: &SuggestionPlaces,
+    ) -> Page {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
         let main_switch = Row::Switch(Switch {
             id: ControlId::new(SCREEN_TEXT),
@@ -163,7 +169,7 @@ impl ScreenTextPane {
                 }),
             })])
         });
-        let app_list = app_list_section(self.app_rows(is_allowed), TYPED_APPS_FOOTER);
+        let app_list = app_list_section(self.app_rows(is_allowed, suggestion_places), TYPED_APPS_FOOTER);
         Page {
             title: PANE_TITLE,
             icon: PageIcon::TextViewfinder,
@@ -187,7 +193,9 @@ impl ScreenTextPane {
         picker(text, &OCR_LEVEL_CHOICES, self.settings.ocr_level, is_allowed)
     }
 
-    fn app_rows(&self, is_enabled: bool) -> Vec<Row> {
+    /// The switch of each app, dimmed while the main switch is off or `suggestion_places` turns
+    /// the suggestions of the app off.
+    fn app_rows(&self, is_allowed: bool, suggestion_places: &SuggestionPlaces) -> Vec<Row> {
         self.settings
             .apps
             .iter()
@@ -198,7 +206,7 @@ impl ScreenTextPane {
                     app_path: app.app_path.clone(),
                     app_name: app.app_name.clone(),
                     is_on: app.is_on,
-                    is_enabled,
+                    is_enabled: is_allowed && suggestion_places.allows(Some(&app.app_id), None),
                 })
             })
             .collect()
@@ -209,7 +217,7 @@ impl ScreenTextPane {
 mod tests {
     use super::*;
     use crate::settings_window::view::ChoiceText;
-    use crate::test_support::{screen_text_app, toggled};
+    use crate::test_support::{screen_text_app, suggestion_app, toggled};
 
     fn pane_with(access: ScreenTextAccess, apps: Vec<ScreenTextApp>) -> ScreenTextPane {
         ScreenTextPane::new(ScreenTextSettings {
@@ -244,7 +252,11 @@ mod tests {
             vec![screen_text_app("com.apple.mail", "Mail", false)],
         );
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             (shown.row(SCREEN_TEXT), app_switches(&shown)),
@@ -275,7 +287,11 @@ mod tests {
             vec![screen_text_app("com.apple.mail", "Mail", true)],
         );
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             app_switches(&shown)
@@ -287,10 +303,39 @@ mod tests {
     }
 
     #[test]
+    fn switch_of_an_app_with_suggestions_off_is_dimmed() {
+        let pane = pane_with(
+            ScreenTextAccess::Allowed,
+            vec![
+                screen_text_app("com.apple.mail", "Mail", true),
+                screen_text_app("slack.exe", "Slack", true),
+            ],
+        );
+        let places = SuggestionPlaces {
+            apps: vec![suggestion_app("com.apple.mail", "Mail", false)],
+            ..SuggestionPlaces::default()
+        };
+
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable, &places);
+
+        assert_eq!(
+            app_switches(&shown)
+                .iter()
+                .map(|switch| (switch.app_id.as_str(), switch.is_on, switch.is_enabled))
+                .collect::<Vec<_>>(),
+            [("com.apple.mail", true, false), ("slack.exe", true, true)]
+        );
+    }
+
+    #[test]
     fn empty_list_says_that_it_has_no_apps() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             shown.sections[1].rows,
@@ -316,7 +361,11 @@ mod tests {
     fn page_tells_how_to_give_the_ocr_permission() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::NotPermitted, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::NotPermitted,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             permission_notes(&shown),
@@ -340,9 +389,21 @@ mod tests {
         let off = pane_with(ScreenTextAccess::Denied, Vec::new());
 
         let pages = [
-            ready.page(OcrAvailability::Ready, OcrLevels::Selectable),
-            ready.page(OcrAvailability::Unsupported, OcrLevels::Selectable),
-            off.page(OcrAvailability::NotPermitted, OcrLevels::Selectable),
+            ready.page(
+                OcrAvailability::Ready,
+                OcrLevels::Selectable,
+                &SuggestionPlaces::default(),
+            ),
+            ready.page(
+                OcrAvailability::Unsupported,
+                OcrLevels::Selectable,
+                &SuggestionPlaces::default(),
+            ),
+            off.page(
+                OcrAvailability::NotPermitted,
+                OcrLevels::Selectable,
+                &SuggestionPlaces::default(),
+            ),
         ];
 
         assert!(pages.iter().all(|page| permission_notes(page).is_empty()));
@@ -446,7 +507,11 @@ mod tests {
     fn ocr_level_menu_shows_fast_as_the_recommended_default() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             shown.sections[0].rows.get(1),
@@ -488,7 +553,11 @@ mod tests {
     fn ocr_level_menu_is_dimmed_when_screen_text_is_off() {
         let pane = pane_with(ScreenTextAccess::Denied, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(
             ocr_level_picker(&shown).map(|picker| picker.is_enabled),
@@ -500,7 +569,11 @@ mod tests {
     fn page_without_ocr_has_no_ocr_level_menu() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Unsupported, OcrLevels::Selectable);
+        let shown = pane.page(
+            OcrAvailability::Unsupported,
+            OcrLevels::Selectable,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(ocr_level_picker(&shown), None);
     }
@@ -509,7 +582,11 @@ mod tests {
     fn ocr_with_one_level_has_no_ocr_level_menu() {
         let pane = pane_with(ScreenTextAccess::Allowed, Vec::new());
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::One);
+        let shown = pane.page(
+            OcrAvailability::Ready,
+            OcrLevels::One,
+            &SuggestionPlaces::default(),
+        );
 
         assert_eq!(ocr_level_picker(&shown), None);
     }

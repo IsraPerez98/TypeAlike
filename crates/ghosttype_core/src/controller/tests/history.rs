@@ -1,6 +1,7 @@
 //! Tests of the earlier writing that the controller loads and saves.
 
 use super::harness::{Harness, history_on};
+use crate::app::BadgeCommand;
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
 use crate::key::Key;
@@ -102,6 +103,67 @@ fn finished_typing_is_saved_when_the_input_settles() {
     harness.settle_input();
 
     assert_eq!(saves_before_settle, 0);
+    assert_eq!(
+        harness.history_saves(),
+        vec![vec![mail_entry(
+            "Hi Ana, the report is ready and the numbers look good"
+        )]]
+    );
+}
+
+/// Puts the focus in the mail field after "Hi Ana, ", and types a sentence there.
+fn type_in_mail(harness: &mut Harness) {
+    harness.focus_text_field_of(MAIL_APP, "Mail");
+    harness.shell.surroundings.field_text = Some(FieldText {
+        before_caret: "Hi Ana, ".to_owned(),
+        after_caret: String::new(),
+    });
+    harness.type_text("the report is ready and the numbers look good");
+}
+
+#[test]
+fn text_typed_in_an_off_app_is_not_saved() {
+    let mut harness = Harness::new(Settings {
+        suggestion_places: SuggestionPlaces {
+            apps: vec![suggestion_app(MAIL_APP, "Mail", false)],
+            ..SuggestionPlaces::default()
+        },
+        ..history_on()
+    });
+    type_in_mail(&mut harness);
+    harness.press(Key::Other);
+
+    harness.settle_input();
+
+    assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
+}
+
+#[test]
+fn text_of_a_session_whose_app_turns_off_is_not_saved() {
+    let mut harness = Harness::new(history_on());
+    type_in_mail(&mut harness);
+    harness.controller.on_badge_command(
+        BadgeCommand::SwitchAppSuggestions {
+            app_id: MAIL_APP.to_owned(),
+            is_on: false,
+        },
+        &mut harness.shell,
+    );
+    harness.press(Key::Other);
+
+    harness.settle_input();
+
+    assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
+}
+
+#[test]
+fn text_of_a_session_that_the_pause_ends_is_saved() {
+    let mut harness = Harness::new(history_on());
+    type_in_mail(&mut harness);
+    harness.toggle_pause();
+
+    harness.settle_input();
+
     assert_eq!(
         harness.history_saves(),
         vec![vec![mail_entry(

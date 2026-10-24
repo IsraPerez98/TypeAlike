@@ -636,9 +636,12 @@ impl Controller {
             pages: vec![
                 self.general.page(&self.playground, &installed),
                 self.suggestion_places.page(),
-                self.screen_text
-                    .page(desktop.ocr_availability(), desktop.ocr_levels()),
-                self.personalization.page(),
+                self.screen_text.page(
+                    desktop.ocr_availability(),
+                    desktop.ocr_levels(),
+                    self.suggestion_places.settings(),
+                ),
+                self.personalization.page(self.suggestion_places.settings()),
                 self.models.page(),
                 self.playground.page(&installed),
             ],

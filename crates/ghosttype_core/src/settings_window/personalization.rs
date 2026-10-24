@@ -2,7 +2,7 @@
 //! user wrote before, in which apps, and how much they prefer the words of the user.
 
 use crate::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
+    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, SuggestionPlaces, WordChoice,
 };
 use crate::settings_window::controls::{
     MenuText, app_list_section, choice_index, choice_titles, picker, replace_if_changed,
@@ -194,9 +194,10 @@ impl PersonalizationPane {
         }
     }
 
-    /// Returns the page that the pane shows now.
+    /// Returns the page that the pane shows now. The menu of an app is dimmed while
+    /// `suggestion_places` turns its suggestions off.
     #[must_use]
-    pub fn page(&self) -> Page {
+    pub fn page(&self, suggestion_places: &SuggestionPlaces) -> Page {
         let is_on = self.settings.history == HistoryAccess::On;
         Page {
             title: PANE_TITLE,
@@ -205,7 +206,7 @@ impl PersonalizationPane {
             search: None,
             sections: vec![
                 self.main_section(is_on),
-                app_list_section(self.app_rows(is_on), APPS_FOOTER),
+                app_list_section(self.app_rows(is_on, suggestion_places), APPS_FOOTER),
                 self.delete_section(),
             ],
         }
@@ -266,7 +267,9 @@ impl PersonalizationPane {
         })])
     }
 
-    fn app_rows(&self, is_enabled: bool) -> Vec<Row> {
+    /// The menu of each app, dimmed while the main switch is off or `suggestion_places` turns the
+    /// suggestions of the app off.
+    fn app_rows(&self, is_on: bool, suggestion_places: &SuggestionPlaces) -> Vec<Row> {
         self.settings
             .apps
             .iter()
@@ -278,7 +281,7 @@ impl PersonalizationPane {
                     app_name: app.app_name.clone(),
                     choices: choice_titles(&HistoryScope::CHOICES),
                     selected: choice_index(&HistoryScope::CHOICES, app.scope),
-                    is_enabled,
+                    is_enabled: is_on && suggestion_places.allows(Some(&app.app_id), None),
                 })
             })
             .collect()
@@ -296,7 +299,7 @@ fn change_to<Value: PartialEq>(setting: &mut Value, value: Value) -> Personaliza
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{history_app, picked, toggled};
+    use crate::test_support::{history_app, picked, suggestion_app, toggled};
 
     fn pane_with(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationPane {
         PersonalizationPane::new(PersonalizationSettings {
@@ -348,7 +351,7 @@ mod tests {
     fn page_shows_the_main_switch_off_by_default() {
         let pane = PersonalizationPane::new(PersonalizationSettings::default());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             shown.row(HISTORY),
@@ -367,7 +370,7 @@ mod tests {
     fn menus_show_a_floppy_disk_and_letters() {
         let pane = PersonalizationPane::new(PersonalizationSettings::default());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             (
@@ -382,7 +385,7 @@ mod tests {
     fn main_switch_off_dims_the_menus_and_tells_how_to_use_the_word_choice() {
         let pane = pane_with(HistoryAccess::Off, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             (
@@ -402,7 +405,7 @@ mod tests {
     fn main_switch_on_enables_the_menus() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             (
@@ -418,7 +421,7 @@ mod tests {
     fn menus_show_their_entries_and_the_defaults() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             [KEPT_TEXTS, WORD_CHOICE].map(|id| {
@@ -448,7 +451,7 @@ mod tests {
             vec![history_app("com.apple.mail", "Mail", HistoryScope::ThisApp)],
         );
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             shown.sections[1].rows,
@@ -465,10 +468,39 @@ mod tests {
     }
 
     #[test]
+    fn menu_of_an_app_with_suggestions_off_is_dimmed() {
+        let pane = pane_with(
+            HistoryAccess::On,
+            vec![
+                history_app("com.apple.mail", "Mail", HistoryScope::AllApps),
+                history_app("slack.exe", "Slack", HistoryScope::AllApps),
+            ],
+        );
+        let places = SuggestionPlaces {
+            apps: vec![suggestion_app("com.apple.mail", "Mail", false)],
+            ..SuggestionPlaces::default()
+        };
+
+        let shown = pane.page(&places);
+
+        assert_eq!(
+            shown.sections[1]
+                .rows
+                .iter()
+                .map(|row| match row {
+                    Row::AppPicker(picker) => Some((picker.app_id.as_str(), picker.is_enabled)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            [Some(("com.apple.mail", false)), Some(("slack.exe", true))]
+        );
+    }
+
+    #[test]
     fn app_list_tells_what_each_scope_does() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             shown.sections[1].footer,
@@ -486,7 +518,7 @@ mod tests {
     fn empty_list_says_that_it_has_no_apps() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             shown.sections[1].rows,
@@ -619,7 +651,7 @@ mod tests {
 
         assert_eq!(change, PersonalizationChange::None);
         assert_eq!(
-            delete_button(&pane.page()),
+            delete_button(&pane.page(&SuggestionPlaces::default())),
             Some(&Button {
                 id: ControlId::new(DELETE),
                 label: "Press again to delete",
@@ -632,7 +664,7 @@ mod tests {
     fn delete_button_tells_what_it_deletes() {
         let pane = pane_with(HistoryAccess::Off, Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&SuggestionPlaces::default());
 
         assert_eq!(
             shown.sections[2].rows,

@@ -154,6 +154,13 @@ impl Engine {
         Reaction::Hide
     }
 
+    /// Ends the session, for when suggestions turn off in its place. The history keeps none of its
+    /// text.
+    pub(crate) fn discard_session(&mut self) {
+        self.session = None;
+        self.offer = Offer::Idle;
+    }
+
     /// Whether a session runs.
     #[must_use]
     pub(crate) fn has_session(&self) -> bool {

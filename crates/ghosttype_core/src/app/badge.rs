@@ -136,7 +136,8 @@ pub(super) struct TypedPlace<'place> {
 
 /// The entries of the badge menu for `place`: the suggestion switches of its app and of its
 /// website, then the screen text switch and the menu of the scope of its app, each when its list
-/// has the app or the website.
+/// has the app or the website. The entries of the app are dimmed while suggestions are off in
+/// `place`.
 pub(super) fn place_entries(
     place: &TypedPlace<'_>,
     suggestion_places: &SuggestionPlaces,
@@ -174,9 +175,10 @@ pub(super) fn place_entries(
                 site.is_on,
             )
         });
-    let app_entries = place
-        .app
-        .map(|app| app_entries(&app.app_id, screen_text, personalization))
+    let app_id = place.app.map(|app| app.app_id.as_str());
+    let is_place_on = suggestion_places.allows(app_id, place.host);
+    let app_entries = app_id
+        .map(|app_id| app_entries(app_id, screen_text, personalization, is_place_on))
         .unwrap_or_default();
     [app_switch, site_switch]
         .into_iter()
@@ -196,11 +198,13 @@ fn suggestion_switch(label: String, command: BadgeCommand, is_on: bool) -> Badge
 }
 
 /// The entries of the badge menu for the app with `app_id`: its screen text switch and the menu
-/// of its scope, each when its list has the app. An entry is dimmed while its main switch is off.
+/// of its scope, each when its list has the app. An entry is dimmed while its main switch is off
+/// or `is_place_on` is false.
 fn app_entries(
     app_id: &str,
     screen_text: &ScreenTextSettings,
     personalization: &PersonalizationSettings,
+    is_place_on: bool,
 ) -> Vec<BadgeEntry> {
     let screen_switch = screen_text
         .apps
@@ -214,10 +218,10 @@ fn app_entries(
                     is_on: !app.is_on,
                 },
                 is_checked: app.is_on,
-                is_enabled: screen_text.access == ScreenTextAccess::Allowed,
+                is_enabled: is_place_on && screen_text.access == ScreenTextAccess::Allowed,
             })
         });
-    let is_history_on = personalization.history == HistoryAccess::On;
+    let is_history_on = is_place_on && personalization.history == HistoryAccess::On;
     let scope_menu = personalization
         .apps
         .iter()

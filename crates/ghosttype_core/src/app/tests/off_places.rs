@@ -8,9 +8,12 @@ use crate::desktop::{CopiedText, Desktop, Field, FieldText, ScreenRead, ScreenTe
 use crate::engine::Reaction;
 use crate::key::Key;
 use crate::settings::{
-    PersonalizationSettings, PromptPreparation, ScreenTextSettings, Settings, SuggestionPlaces,
+    HistoryAccess, HistoryScope, PersonalizationSettings, PromptPreparation, ScreenTextSettings, Settings,
+    SuggestionPlaces,
 };
-use crate::test_support::{ACTIVE_BADGE, OFF_BADGE, PAUSED_BADGE, suggestion_app, suggestion_site};
+use crate::test_support::{
+    ACTIVE_BADGE, OFF_BADGE, PAUSED_BADGE, history_app, screen_text_app, suggestion_app, suggestion_site,
+};
 
 fn mail_places(is_on: bool) -> SuggestionPlaces {
     SuggestionPlaces {
@@ -390,4 +393,111 @@ fn key_that_starts_no_session_reads_no_surroundings() {
     app.on_key(Key::Other, &field);
 
     assert_eq!(field.reads.get(), 0);
+}
+
+fn mail_screen_text() -> ScreenTextSettings {
+    ScreenTextSettings {
+        apps: vec![
+            screen_text_app("com.apple.mail", "Mail", true),
+            screen_text_app("com.apple.Safari", "Safari", true),
+        ],
+        ..ScreenTextSettings::default()
+    }
+}
+
+fn mail_personalization() -> PersonalizationSettings {
+    PersonalizationSettings {
+        history: HistoryAccess::On,
+        apps: vec![
+            history_app("com.apple.mail", "Mail", HistoryScope::AllApps),
+            history_app("com.apple.Safari", "Safari", HistoryScope::AllApps),
+        ],
+        ..PersonalizationSettings::default()
+    }
+}
+
+/// The label of each entry that runs a command, and whether the user can pick it.
+fn item_states(menu: &BadgeMenu) -> Vec<(&str, bool)> {
+    menu.items()
+        .map(|item| (item.label.as_str(), item.is_enabled))
+        .collect()
+}
+
+fn is_scope_menu_enabled(menu: &BadgeMenu) -> Option<bool> {
+    menu.entries.iter().find_map(|entry| match entry {
+        BadgeEntry::Submenu { is_enabled, .. } => Some(*is_enabled),
+        _ => None,
+    })
+}
+
+#[test]
+fn badge_menu_in_an_off_app_dims_the_screen_text_and_the_earlier_writing_of_the_app() {
+    let places = mail_places(false);
+    let mut app = app_with(places.clone());
+    app.on_key(Key::Char('H'), &MAIL);
+
+    let menu = app
+        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .expect("a key in an open field shows the badge");
+
+    assert_eq!(
+        (item_states(&menu), is_scope_menu_enabled(&menu)),
+        (
+            vec![
+                ("Pause suggestions", true),
+                ("Show suggestions in Mail", true),
+                ("Use screen text in Mail", false),
+                ("Off", false),
+                ("Only this app", false),
+                ("All apps", false),
+            ],
+            Some(false)
+        )
+    );
+}
+
+#[test]
+fn badge_menu_on_an_off_website_dims_the_screen_text_and_the_earlier_writing_of_the_app() {
+    let places = webmail_places(true, false);
+    let mut app = app_with(places.clone());
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    let menu = app
+        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .expect("a key in an open field shows the badge");
+
+    assert_eq!(
+        (item_states(&menu), is_scope_menu_enabled(&menu)),
+        (
+            vec![
+                ("Pause suggestions", true),
+                ("Show suggestions in Safari", true),
+                ("Show suggestions on mail.example", true),
+                ("Use screen text in Safari", false),
+                ("Off", false),
+                ("Only this app", false),
+                ("All apps", false),
+            ],
+            Some(false)
+        )
+    );
+}
+
+#[test]
+fn badge_menu_in_an_on_place_keeps_the_screen_text_and_the_earlier_writing_of_the_app() {
+    let places = webmail_places(true, true);
+    let mut app = app_with(places.clone());
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    let menu = app
+        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .expect("a key in an open field shows the badge");
+
+    assert_eq!(
+        (
+            item_states(&menu).iter().all(|&(_, is_enabled)| is_enabled),
+            is_scope_menu_enabled(&menu)
+        ),
+        (true, Some(true))
+    );
 }
