@@ -212,6 +212,17 @@ impl fmt::Display for Score {
     }
 }
 
+/// The scores of the checkpoints of one text that a replay types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceScore {
+    /// The id of the case whose `next` the replay types.
+    pub id: String,
+    /// The checkpoints with the caret between two words.
+    pub next_word: Score,
+    /// The checkpoints with the caret inside a word.
+    pub partial_word: Score,
+}
+
 /// The scores of one run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Summary {
@@ -254,6 +265,8 @@ pub struct Summary {
     pub typo_fixes: Fixes,
     /// The fixes of the other cases, which had no typo.
     pub other_fixes: Fixes,
+    /// The scores of each text that a replay types, in the order of the texts.
+    pub references: Vec<ReferenceScore>,
 }
 
 impl Summary {
@@ -309,6 +322,7 @@ impl Summary {
                 .to_vec(),
             typo_fixes: Fixes::of(outcomes.iter().filter(|outcome| outcome.kind == CaseKind::Typo)),
             other_fixes: Fixes::of(outcomes.iter().filter(|outcome| outcome.kind != CaseKind::Typo)),
+            references: reference_scores(outcomes),
         }
     }
 }
@@ -328,6 +342,21 @@ fn median_of(outcomes: &[Outcome], value: impl Fn(&Outcome) -> Option<u64>) -> O
         count if count % 2 == 1 => Some(values[middle]),
         _ => Some(values[middle - 1].midpoint(values[middle])),
     }
+}
+
+/// Returns the scores of each text that a replay types, from the `outcomes` of its checkpoints. The
+/// checkpoints of a text follow each other.
+fn reference_scores(outcomes: &[Outcome]) -> Vec<ReferenceScore> {
+    outcomes
+        .chunk_by(|left, right| left.reference == right.reference)
+        .filter_map(|checkpoints| {
+            Some(ReferenceScore {
+                id: checkpoints.first()?.reference.clone()?,
+                next_word: Score::of(checkpoints, CaseKind::NextWord),
+                partial_word: Score::of(checkpoints, CaseKind::PartialWord),
+            })
+        })
+        .collect()
 }
 
 /// Returns the milliseconds of the `outcomes` that have a prompt for each token of their prompts.
@@ -418,6 +447,42 @@ mod tests {
         assert_eq!(
             (summary.next_word, summary.typo),
             (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
+        );
+    }
+
+    fn checkpoint(reference: Option<&str>, kind: CaseKind, is_match: bool) -> Outcome {
+        Outcome {
+            reference: reference.map(str::to_owned),
+            ..outcome("checkpoint", kind, is_match, 10)
+        }
+    }
+
+    #[test]
+    fn summary_scores_the_checkpoints_of_each_replayed_text_in_the_order_of_the_texts() {
+        let outcomes = [
+            checkpoint(Some("b"), CaseKind::NextWord, true),
+            checkpoint(Some("b"), CaseKind::PartialWord, false),
+            checkpoint(Some("b"), CaseKind::NextWord, false),
+            checkpoint(None, CaseKind::NextWord, true),
+            checkpoint(Some("a"), CaseKind::PartialWord, true),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            summary.references,
+            [
+                ReferenceScore {
+                    id: "b".to_owned(),
+                    next_word: Score { matches: 1, cases: 2 },
+                    partial_word: Score { matches: 0, cases: 1 },
+                },
+                ReferenceScore {
+                    id: "a".to_owned(),
+                    next_word: Score { matches: 0, cases: 0 },
+                    partial_word: Score { matches: 1, cases: 1 },
+                },
+            ]
         );
     }
 

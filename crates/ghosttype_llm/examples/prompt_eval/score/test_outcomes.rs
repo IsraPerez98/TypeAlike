@@ -17,6 +17,7 @@ pub fn outcome(id: &str, kind: CaseKind, is_match: bool, millis: u64) -> Outcome
         typed_log_probability: None,
         fixed_word: None,
         is_fix_right: None,
+        reference: None,
     }
 }
 

@@ -8,7 +8,7 @@ mod test_outcomes;
 use serde::{Deserialize, Serialize};
 
 pub use comparison::Comparison;
-pub use summary::{SizeTime, Summary};
+pub use summary::{ReferenceScore, SizeTime, Summary};
 
 /// Where the caret is when the suggestion shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +144,10 @@ pub struct Outcome {
     /// Whether `fixed_word` is the word that the writer meant, as [`intended_word`] gives it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_fix_right: Option<bool>,
+    /// The id of the case whose `next` a replay types up to this checkpoint, or `None` when the
+    /// eval does not replay the case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }
 
 /// Returns the word that the fix of a typo writes, from the `word` that the ghost text shows: its

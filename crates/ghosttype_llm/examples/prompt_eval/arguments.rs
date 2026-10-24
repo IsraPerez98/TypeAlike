@@ -13,7 +13,7 @@ use ghosttype_llm::BUILT_IN_BACKEND;
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
-     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]";
+     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]      [--replay off|word|character]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -34,6 +34,7 @@ pub struct Arguments {
     pub typo_rule: TypoRule,
     pub sentence_end: SentenceEnd,
     pub length: SuggestionLength,
+    pub replay: Replay,
 }
 
 /// Whether the apps of a case share their earlier writing.
@@ -48,6 +49,17 @@ pub enum SharedHistory {
 pub enum WordBiasUse {
     On,
     Off,
+}
+
+/// Where the eval asks for a suggestion in the text that the writer typed next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Replay {
+    /// Only at the caret of each case.
+    Off,
+    /// Also at the start of each word of `next`.
+    Word,
+    /// Also after each character of `next`.
+    Character,
 }
 
 /// Whether the suggestions stop when the text after the first word gets unlikely, as in the app.
@@ -80,6 +92,7 @@ impl Arguments {
             typo_rule: TypoRule::default(),
             sentence_end: SentenceEnd::default(),
             length: SuggestionLength::default(),
+            replay: Replay::Off,
         };
         for option in options.chunks(2) {
             match option {
@@ -107,6 +120,7 @@ impl Arguments {
                     parsed.sentence_end = switch_named(stop, SentenceEnd::Stop, SentenceEnd::Continue)?;
                 }
                 [name, length] if name == "--length" => parsed.length = length_named(length)?,
+                [name, replay] if name == "--replay" => parsed.replay = replay_named(replay)?,
                 _ => return None,
             }
         }
@@ -169,6 +183,16 @@ fn length_named(name: &str) -> Option<SuggestionLength> {
     }
 }
 
+/// Returns the replay with `name` in [`USAGE`], or `None` for another name.
+fn replay_named(name: &str) -> Option<Replay> {
+    match name {
+        "off" => Some(Replay::Off),
+        "word" => Some(Replay::Word),
+        "character" => Some(Replay::Character),
+        _ => None,
+    }
+}
+
 /// Returns the cores of `text`, the performance cores and the efficiency cores with a comma
 /// between them, or `None` when it has another form or no performance core.
 fn cpu_cores_of(text: &str) -> Option<CpuCores> {
@@ -223,7 +247,27 @@ mod tests {
                 typo_rule: TypoRule::HideSuggestions,
                 sentence_end: SentenceEnd::Continue,
                 length: SuggestionLength::Medium,
+                replay: Replay::Off,
             })
+        );
+    }
+
+    #[test]
+    fn replay_option_asks_at_each_word_or_at_each_character_of_the_next_text() {
+        let names = ["off", "word", "character", "letter"];
+
+        let replays = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--replay", name]).map(|arguments| arguments.replay)
+        });
+
+        assert_eq!(
+            replays,
+            [
+                Some(Replay::Off),
+                Some(Replay::Word),
+                Some(Replay::Character),
+                None
+            ]
         );
     }
 

@@ -1,6 +1,7 @@
 //! The format of a case file and of the stores of the writers, and the field of a case.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
 use std::path::Path;
 use std::time::Duration;
 
@@ -14,11 +15,11 @@ use ghosttype_core::key::Key;
 use ghosttype_core::settings::{HistoryApp, HistoryScope, PersonalizationSettings, Settings};
 use serde::Deserialize;
 
-use crate::arguments::SharedHistory;
+use crate::arguments::{Replay, SharedHistory};
 use crate::read_json_lines;
 use crate::score::{CaseKind, WordCounts};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Case {
     pub id: String,
@@ -48,6 +49,10 @@ pub struct Case {
     typo: bool,
     #[serde(default)]
     pub fixed: Option<String>,
+    /// The id of the case whose `next` a replay types up to this checkpoint, or `None` when the
+    /// eval does not replay the case.
+    #[serde(skip)]
+    pub reference: Option<String>,
 }
 
 impl Case {
@@ -74,6 +79,36 @@ impl Case {
         } else {
             WordCounts::of(suggestion, &self.next)
         }
+    }
+
+    /// Returns the checkpoints of the case for `replay`: the case itself, then a case for each
+    /// place in `next` that `replay` asks at, with the text of `next` up to that place at the end
+    /// of `before`. The id of such a case adds `@` and the count of the characters that it moved.
+    /// Each checkpoint has text to type after it, and names the case in `reference`. A typo case, a
+    /// case with a text before Enter and a case without a next word keep only the case itself,
+    /// without a reference.
+    pub fn checkpoints(&self, replay: Replay) -> Vec<Self> {
+        let is_replayed = replay != Replay::Off
+            && !self.typo
+            && self.before_enter.is_none()
+            && !self.next.trim().is_empty();
+        if !is_replayed {
+            return vec![self.clone()];
+        }
+        let reference = Some(self.id.clone());
+        let checkpoint_at = |place: Place| Self {
+            id: format!("{}@{}", self.id, place.typed),
+            before: format!("{}{}", self.before, &self.next[..place.offset]),
+            next: self.next[place.offset..].to_owned(),
+            reference: reference.clone(),
+            ..self.clone()
+        };
+        iter::once(Self {
+            reference: reference.clone(),
+            ..self.clone()
+        })
+        .chain(replay_places(&self.next, replay).map(checkpoint_at))
+        .collect()
     }
 
     /// Whether the case has a text before Enter, and `before` has no line break after that text.
@@ -127,8 +162,42 @@ impl Case {
     }
 }
 
+/// A place inside the `next` text of a case.
+#[derive(Debug, Clone, Copy)]
+struct Place {
+    /// The characters of `next` before the place.
+    typed: usize,
+    /// The byte offset of the place in `next`.
+    offset: usize,
+}
+
+/// Returns the places inside `next` where `replay` asks for a suggestion. Each place has text
+/// after it that is not only whitespace.
+fn replay_places(next: &str, replay: Replay) -> impl Iterator<Item = Place> {
+    next.char_indices().zip(next.chars().skip(1)).zip(1..).filter_map(
+        move |(((offset, before), after), typed)| {
+            let place = Place {
+                typed,
+                offset: offset + before.len_utf8(),
+            };
+            let has_text_after = !next[place.offset..].trim().is_empty();
+            (has_text_after && asks_between(replay, before, after)).then_some(place)
+        },
+    )
+}
+
+/// Whether `replay` asks for a suggestion between `before` and `after`, two characters next to
+/// each other in `next`.
+fn asks_between(replay: Replay, before: char, after: char) -> bool {
+    match replay {
+        Replay::Off => false,
+        Replay::Word => before.is_whitespace() && !after.is_whitespace(),
+        Replay::Character => true,
+    }
+}
+
 /// An earlier text of the writer.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaseEntry {
     text: String,
@@ -219,7 +288,7 @@ pub fn read_writers(directory: &Path, cases: &[Case]) -> anyhow::Result<BTreeMap
 /// A frame as `[left, top, right, bottom]`.
 type CaseFrame = [i32; 4];
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaseScreen {
     field: CaseFrame,
@@ -227,7 +296,7 @@ pub struct CaseScreen {
     lines: Vec<CaseLine>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CaseLine {
     text: String,
@@ -403,6 +472,103 @@ mod tests {
         let kinds = cases.map(|case| case.kind());
 
         assert_eq!(kinds, [CaseKind::NoNewLine, CaseKind::NextWord]);
+    }
+
+    fn case_with_next(before: &str, next: &str) -> Case {
+        Case {
+            before: before.to_owned(),
+            next: next.to_owned(),
+            ..case_of(None, &[])
+        }
+    }
+
+    fn places(checkpoints: &[Case]) -> Vec<(&str, &str, &str)> {
+        checkpoints
+            .iter()
+            .map(|checkpoint| {
+                (
+                    checkpoint.id.as_str(),
+                    checkpoint.before.as_str(),
+                    checkpoint.next.as_str(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn word_replay_asks_at_the_caret_of_the_case_and_at_the_start_of_each_word_of_next() {
+        let case = case_with_next("Thanks for the", " meeting at noon");
+
+        let checkpoints = case.checkpoints(Replay::Word);
+
+        assert_eq!(
+            places(&checkpoints),
+            [
+                ("case", "Thanks for the", " meeting at noon"),
+                ("case@1", "Thanks for the ", "meeting at noon"),
+                ("case@9", "Thanks for the meeting ", "at noon"),
+                ("case@12", "Thanks for the meeting at ", "noon"),
+            ]
+        );
+    }
+
+    #[test]
+    fn character_replay_asks_after_each_character_of_next_that_leaves_text_to_type() {
+        let case = case_with_next("Se", "ñor ");
+
+        let checkpoints = case.checkpoints(Replay::Character);
+
+        assert_eq!(
+            places(&checkpoints),
+            [
+                ("case", "Se", "ñor "),
+                ("case@1", "Señ", "or "),
+                ("case@2", "Seño", "r "),
+            ]
+        );
+    }
+
+    #[test]
+    fn each_checkpoint_of_a_replay_names_the_case_that_it_replays() {
+        let case = case_with_next("a", " b c");
+
+        let checkpoints = case.checkpoints(Replay::Word);
+
+        assert_eq!(
+            checkpoints
+                .iter()
+                .map(|checkpoint| checkpoint.reference.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("case"), Some("case"), Some("case")]
+        );
+    }
+
+    #[test]
+    fn case_that_the_eval_does_not_replay_is_its_only_checkpoint() {
+        let cases = [
+            (Replay::Off, case_with_next("a", " b c")),
+            (
+                Replay::Character,
+                Case {
+                    typo: true,
+                    ..case_with_next("the dle", "ivery soon")
+                },
+            ),
+            (Replay::Character, case_before("- milk\n- ", Some("- milk"))),
+            (Replay::Character, case_with_next("See you", " ")),
+        ];
+
+        let checkpoints = cases.each_ref().map(|(replay, case)| {
+            case.checkpoints(*replay)
+                .into_iter()
+                .map(|checkpoint| (checkpoint.id, checkpoint.reference))
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            checkpoints,
+            cases.each_ref().map(|_| vec![("case".to_owned(), None)])
+        );
     }
 
     #[test]

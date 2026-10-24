@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use crate::score::{Comparison, SizeTime, Summary};
+use crate::score::{Comparison, ReferenceScore, SizeTime, Summary};
 
 pub fn write_report(
     output: &mut impl Write,
@@ -43,6 +43,7 @@ pub fn write_report(
         writeln!(output, "log prob:      {mean:.3}")?;
     }
     write_word_report(output, summary)?;
+    write_reference_report(output, &summary.references)?;
     comparison.map_or(Ok(()), |comparison| write_comparison(output, comparison))
 }
 
@@ -61,6 +62,24 @@ fn write_size_report(output: &mut impl Write, groups: &[SizeTime]) -> io::Result
             output,
             "  {size:<12}  {:>5}   {} ms",
             group.cases, group.median_millis
+        )?;
+    }
+    Ok(())
+}
+
+/// Writes the scores of each text that a replay types.
+fn write_reference_report(output: &mut impl Write, references: &[ReferenceScore]) -> io::Result<()> {
+    if references.is_empty() {
+        return Ok(());
+    }
+    writeln!(output, "next word         partial word      replayed text")?;
+    for reference in references {
+        writeln!(
+            output,
+            "  {:<16}  {:<16}  {}",
+            reference.next_word.to_string(),
+            reference.partial_word.to_string(),
+            reference.id
         )?;
     }
     Ok(())

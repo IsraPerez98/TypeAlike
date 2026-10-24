@@ -7,7 +7,7 @@
 //!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
-//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long]
+//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] //!     [--replay off|word|character]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -143,6 +143,17 @@
 //! `--length` sets the suggestion length: `very_short`, `short`, `medium` (the default), `long` or
 //! `very_long`. The length sets the token limit and the cut of the tail of each request. As in the
 //! app, the CPU backend allows at most `short`.
+//!
+//! `--replay` types the text of `next` and asks for a suggestion at more checkpoints than the caret
+//! of each case: `word` at the start of each word, `character` after each character, `off` (the
+//! default) at the caret only. A checkpoint moves the start of `next` to the end of `before`, so
+//! the input always follows the text of the writer, also after a wrong suggestion. Its id is the
+//! id of the case, `@` and the count of the characters that it moved. The replay skips the typo
+//! cases, the cases with `before_enter` and the cases where `next` has only whitespace. The score
+//! of the checkpoints inside a word goes to the partial word. The report also gives the score of
+//! each replayed text. Use `character` to measure a change of the token healing, because each
+//! case gives only one caret inside a word. The model keeps the prompt of the checkpoint before in
+//! its cache, so the median time of a replay is not the time of a first key.
 
 mod arguments;
 mod case;
@@ -203,21 +214,20 @@ fn main() -> anyhow::Result<()> {
         arguments.cpu_cores,
         arguments.batch,
     )?;
-    let runs = cases
-        .iter()
-        .zip(1..)
-        .map(|(case, version)| {
-            let history = history_of(case, &writers)?;
-            let settings = settings_for_case(&settings, case, &history, arguments.shared_history);
+    let mut runs = Vec::new();
+    for (case, version) in cases.iter().zip(1..) {
+        let history = history_of(case, &writers)?;
+        let settings = settings_for_case(&settings, case, &history, arguments.shared_history);
+        for checkpoint in case.checkpoints(arguments.replay) {
             let setup = CaseSetup {
-                case,
+                case: &checkpoint,
                 history: &history,
                 settings: &settings,
                 version,
             };
-            run_case(&mut model, setup, &arguments)
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+            runs.push(run_case(&mut model, setup, &arguments)?);
+        }
+    }
     drop(model);
     let continuations = runs
         .iter()

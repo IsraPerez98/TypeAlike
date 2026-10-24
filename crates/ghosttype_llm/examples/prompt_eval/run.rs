@@ -123,6 +123,7 @@ impl CaseRun {
                 warm_millis: Some(warm_millis),
                 prompt_tokens: None,
                 log_probability: None,
+                reference: case.reference.clone(),
             },
             continuation: cold
                 .answer
