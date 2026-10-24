@@ -4,6 +4,8 @@ use std::io::{self, Write};
 
 use crate::score::{Comparison, ReferenceScore, SizeTime, Summary};
 
+const SMALLEST_SHOWN_P_VALUE: f64 = 0.001;
+
 pub fn write_report(
     output: &mut impl Write,
     summary: &Summary,
@@ -102,7 +104,7 @@ fn write_comparison(output: &mut impl Write, comparison: &Comparison) -> io::Res
     )?;
     writeln!(output, "unchanged:     {}", comparison.unchanged)?;
     if let Some(p_value) = comparison.sign_test_p_value() {
-        writeln!(output, "sign test:     p = {p_value:.3}")?;
+        writeln!(output, "sign test:     {}", p_value_text(p_value))?;
     }
     let Some(change) = comparison.log_probability else {
         return Ok(());
@@ -115,6 +117,14 @@ fn write_comparison(output: &mut impl Write, comparison: &Comparison) -> io::Res
         "log prob diff: {:+.3}{interval} (higher {}, lower {})",
         change.mean, change.higher, change.lower
     )
+}
+
+/// The p value of a sign test with 3 decimals, or a bound when 3 decimals show no digit.
+fn p_value_text(p_value: f64) -> String {
+    if p_value < SMALLEST_SHOWN_P_VALUE {
+        return format!("p < {SMALLEST_SHOWN_P_VALUE}");
+    }
+    format!("p = {p_value:.3}")
 }
 
 /// Writes the words that show, and what a minimum for the first word and a cut of the tail do.
@@ -197,5 +207,14 @@ mod tests {
              sign test:     p = 0.500\n\
              log prob diff: +2.000 [+0.040, +3.960] (higher 2, lower 0)\n"
         );
+    }
+
+    #[test]
+    fn p_value_below_a_thousandth_shows_as_a_bound() {
+        let p_values = [0.5, 0.0703, 0.001, 0.000_76];
+
+        let texts = p_values.map(p_value_text);
+
+        assert_eq!(texts, ["p = 0.500", "p = 0.070", "p = 0.001", "p < 0.001"]);
     }
 }
