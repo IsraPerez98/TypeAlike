@@ -102,6 +102,9 @@
 //! several languages, and fields where Enter sends the text, submits a search or confirms an input
 //! method. Run it with `--name "Sara Novak"`. `cases/mid_line.jsonl` has cases with the caret
 //! inside a line: the writer adds words before text that the field already holds.
+//! `cases/long_range.jsonl` has emails where a name or a code shows one time, 2000 to 12000
+//! characters before the caret, and the next word repeats it. The id gives the distance. Run it
+//! after a change to the limits of the text before the caret.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
