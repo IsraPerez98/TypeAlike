@@ -14,14 +14,16 @@ use std::time::Duration;
 use badge::{TypedPlace, place_entries};
 use field_place::{FieldPlace, ReadField};
 
-use crate::desktop::{Desktop, EnergySaver, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{
+    Desktop, EnergySaver, Field, GameActivity, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource,
+};
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{
-    EnergySaverRule, PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
-    SuggestionDisplay, SuggestionPlaces,
+    EnergySaverRule, GameRule, PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings,
+    Settings, SuggestionDisplay, SuggestionPlaces,
 };
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
@@ -60,6 +62,8 @@ impl Status {
 const OFF_HERE_NAME: &str = "GhostType (off here)";
 /// The name of the app while the energy saver of the computer stops suggestions.
 const ENERGY_SAVER_NAME: &str = "GhostType (off to save energy)";
+/// The name of the app while a game in front stops suggestions.
+const GAME_NAME: &str = "GhostType (off during a game)";
 
 /// Why GhostType keeps the suggestion model unloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +72,9 @@ pub enum StopReason {
     Paused,
     /// The energy saver of the computer is on, and the Energy saving pane stops suggestions then.
     EnergySaver,
+    /// A game is in front, and the Energy saving pane stops suggestions then. After the game, a
+    /// key still gets a suggestion: the next request for a suggestion ends this stop.
+    Game,
     /// The user did not type or click for the idle timeout of the Energy saving pane. A key still
     /// gets a suggestion: the next request for a suggestion ends this stop.
     Idle,
@@ -149,6 +156,10 @@ pub struct App {
     energy_saver_rule: EnergySaverRule,
     /// Whether the idle timeout ran out, and no request for a suggestion came after it.
     is_idle: bool,
+    game: GameActivity,
+    game_rule: GameRule,
+    /// Whether a game stopped suggestions, and no request for a suggestion came after it.
+    has_game_stop: bool,
 }
 
 impl App {
@@ -162,10 +173,11 @@ impl App {
     /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
     /// place on, and its prompt preparation, suggestion display, suggestion length, screen text
     /// and suggestion places from now on. A session in a place that is off now ends, and the
-    /// earlier writing keeps none of its text. When the energy saver stops suggestions now, the
-    /// session ends.
+    /// earlier writing keeps none of its text. When the energy saver or a game stops suggestions
+    /// now, the session ends.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.use_energy_saver_state(self.energy_saver, settings.energy_saving.energy_saver);
+        self.use_game_state(self.game, settings.energy_saving.game);
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
         self.suggestion_display = settings.suggestion_display;
@@ -198,9 +210,36 @@ impl App {
         self.energy_saver = energy_saver;
         self.energy_saver_rule = rule;
         if self.stops_for_energy_saver() && !was_stopped {
-            self.engine.reset();
-            self.idle_field_place = None;
+            self.end_session_for_a_stop();
         }
+    }
+
+    /// Uses `game`, whether a game is in front, from now on. When a game starts to stop
+    /// suggestions, the session ends. After the game, [`StopReason::Game`] applies until
+    /// [`end_stops_before_request`](Self::end_stops_before_request).
+    pub fn use_game(&mut self, game: GameActivity) {
+        self.use_game_state(game, self.game_rule);
+    }
+
+    /// Uses whether a game is in front and the game rule of the Energy saving pane. The session
+    /// ends when they start to stop suggestions. A rule that keeps suggestions ends the stop of an
+    /// earlier game.
+    fn use_game_state(&mut self, game: GameActivity, rule: GameRule) {
+        let was_stopped = self.stops_for_game();
+        self.game = game;
+        self.game_rule = rule;
+        if self.stops_for_game() && !was_stopped {
+            self.has_game_stop = true;
+            self.end_session_for_a_stop();
+        }
+        if rule == GameRule::KeepSuggestions {
+            self.has_game_stop = false;
+        }
+    }
+
+    fn end_session_for_a_stop(&mut self) {
+        self.engine.reset();
+        self.idle_field_place = None;
     }
 
     /// The state of the energy saver of the computer.
@@ -213,19 +252,30 @@ impl App {
         self.energy_saver == EnergySaver::On && self.energy_saver_rule == EnergySaverRule::StopSuggestions
     }
 
+    /// Whether a game is in front of the other apps.
+    #[must_use]
+    pub fn game(&self) -> GameActivity {
+        self.game
+    }
+
+    fn stops_for_game(&self) -> bool {
+        self.game == GameActivity::InFront && self.game_rule == GameRule::StopSuggestions
+    }
+
     /// Whether a key in a place where suggestions are on can get a suggestion: the user did not
-    /// pause suggestions, and the energy saver does not stop them.
+    /// pause suggestions, and neither the energy saver nor a game stops them.
     fn offers_suggestions(&self) -> bool {
-        self.status == Status::Active && !self.stops_for_energy_saver()
+        self.status == Status::Active && !self.stops_for_energy_saver() && !self.stops_for_game()
     }
 
     /// Why GhostType keeps the suggestion model unloaded now, or `None` when it keeps the model
-    /// loaded. A pause comes before the energy saver, and the energy saver before the idle timeout.
+    /// loaded. A pause comes first, then the energy saver, then a game, and the idle timeout last.
     #[must_use]
     pub fn stop_reason(&self) -> Option<StopReason> {
         [
             (self.status == Status::Paused, StopReason::Paused),
             (self.stops_for_energy_saver(), StopReason::EnergySaver),
+            (self.stops_for_game() || self.has_game_stop, StopReason::Game),
             (self.is_idle, StopReason::Idle),
         ]
         .into_iter()
@@ -233,25 +283,38 @@ impl App {
     }
 
     /// Handles the end of the idle timeout of the Energy saving pane: the session ends as after a
-    /// focus change, and [`StopReason::Idle`] applies until [`end_idle`](Self::end_idle).
+    /// focus change, and [`StopReason::Idle`] applies until [`end_idle`](Self::end_idle) or
+    /// [`end_stops_before_request`](Self::end_stops_before_request).
     pub fn on_idle(&mut self) -> Reaction {
         self.is_idle = true;
         self.on_context_lost()
     }
 
-    /// Ends the stop of the idle timeout, before a request for a suggestion. Returns whether the
-    /// app was idle.
+    /// Ends the stop of the idle timeout. Returns whether the app was idle.
     pub fn end_idle(&mut self) -> bool {
         mem::take(&mut self.is_idle)
+    }
+
+    /// Ends the stops that last until the next request for a suggestion: the idle timeout, and a
+    /// game that left the front. Returns whether one of them applied.
+    pub fn end_stops_before_request(&mut self) -> bool {
+        let was_idle = mem::take(&mut self.is_idle);
+        let was_after_game = mem::take(&mut self.has_game_stop);
+        was_idle || was_after_game
     }
 
     /// The status that the glyphs of the badge and the tray icon show, and the name of the app
     /// with that status.
     fn shown_status(&self) -> (Status, &'static str) {
-        if self.status == Status::Active && self.stops_for_energy_saver() {
-            (Status::Paused, ENERGY_SAVER_NAME)
-        } else {
-            (self.status, self.status.name())
+        let stop_name = [
+            (self.stops_for_energy_saver(), ENERGY_SAVER_NAME),
+            (self.stops_for_game(), GAME_NAME),
+        ]
+        .into_iter()
+        .find_map(|(applies, name)| applies.then_some(name));
+        match stop_name {
+            Some(name) if self.status == Status::Active => (Status::Paused, name),
+            _ => (self.status, self.status.name()),
         }
     }
 
@@ -403,7 +466,7 @@ impl App {
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
-    /// While suggestions are paused or the energy saver stops them, or while they are off in the
+    /// While suggestions are paused, the energy saver or a game stops them, or they are off in the
     /// app or on the website of the field, the key gets no suggestion and starts no session.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
         let field = desktop.field();
@@ -456,7 +519,7 @@ impl App {
         self.engine.reset()
     }
 
-    /// Returns what the tray icon and menu must show now. While the energy saver stops
+    /// Returns what the tray icon and menu must show now. While the energy saver or a game stops
     /// suggestions, the icon shows as paused.
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
@@ -489,8 +552,8 @@ impl App {
     }
 
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
-    /// GhostType watches. In a place where suggestions are off, and while the energy saver stops
-    /// suggestions, the badge shows as paused.
+    /// GhostType watches. In a place where suggestions are off, and while the energy saver or a game
+    /// stops suggestions, the badge shows as paused.
     #[must_use]
     pub fn badge_view(&self) -> Option<BadgeView> {
         self.is_in_open_field.then(|| {
@@ -555,6 +618,7 @@ impl App {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
             Status::Paused => {
                 self.is_idle = false;
+                self.has_game_stop = false;
                 (Status::Active, TrayOutcome::Resumed)
             }
         };

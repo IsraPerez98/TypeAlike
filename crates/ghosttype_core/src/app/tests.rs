@@ -4,6 +4,7 @@
 mod badge;
 mod energy_saving;
 mod fixtures;
+mod games;
 mod off_places;
 mod screen_read;
 mod suggestions;

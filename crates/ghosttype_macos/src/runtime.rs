@@ -39,6 +39,7 @@ use crate::clipboard::ClipboardWatch;
 use crate::energy_saver::{self, EnergySaverObserver};
 use crate::event_tap::EventTap;
 use crate::focus::{FocusTracker, TextStyle};
+use crate::game;
 use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
 use crate::keys;
@@ -110,6 +111,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         badge_click: BadgeClickFilter::default(),
         badge_menu: None,
     }));
+    with_runtime(Runtime::read_game);
     tracing::info!("running in the menu bar");
     application.run();
     drop(energy_saver_observer);
@@ -219,7 +221,15 @@ impl Runtime {
     }
 
     fn on_app_activation(&mut self) {
+        self.read_game();
         self.controller.on_input(&mut self.shell);
+    }
+
+    /// Gives the controller whether the app in front is a game.
+    fn read_game(&mut self) {
+        let game = game::read();
+        tracing::debug!(?game, "read the game in front");
+        self.controller.on_game(game, &mut self.shell);
     }
 
     fn on_menu_item(&mut self, tag: isize) {

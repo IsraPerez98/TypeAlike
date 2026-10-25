@@ -2,7 +2,7 @@
 //! suggestion model.
 
 use crate::desktop::EnergySaver;
-use crate::settings::{EnergySaverRule, EnergySavingSettings, IdleTimeout};
+use crate::settings::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
 use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::view::{
     ControlId, Note, NoteTone, Page, PageIcon, Row, RowIcon, Section, SettingsInput, Switch,
@@ -15,10 +15,13 @@ pub enum EnergySavingAction {
     SelectIdleTimeout(IdleTimeout),
     /// Turned on or off the switch that stops suggestions while the energy saver is on.
     SwitchEnergySaver(EnergySaverRule),
+    /// Turned on or off the switch that stops suggestions while a game is in front.
+    SwitchGame(GameRule),
 }
 
 pub(crate) const IDLE_TIMEOUT: &str = "idle-timeout";
 pub(crate) const ENERGY_SAVER: &str = "energy-saver";
+pub(crate) const GAME: &str = "game";
 const PANE_TITLE: &str = "Energy saving";
 const PANE_SUMMARY: &str = "GhostType can stop suggestions and unload the model when you do not need them. \
      This frees memory and uses less power.";
@@ -34,6 +37,9 @@ const IDLE_TIMEOUT_CHOICES: [(IdleTimeout, &str); 4] = [
 const ENERGY_SAVER_LABEL: &str = "Stop in energy saver";
 const ENERGY_SAVER_DESCRIPTION: &str = "While energy saver or Low Power Mode is on, GhostType stops \
      suggestions and unloads the model. Suggestions start again when it goes off.";
+const GAME_LABEL: &str = "Stop during games";
+const GAME_DESCRIPTION: &str = "While a game is in front, GhostType stops suggestions and unloads the model. \
+     It loads the model again when you type in a text field after the game.";
 const STOPPED_NOTE: Note = Note {
     text: "The computer saves energy now, so suggestions are off.",
     tone: NoteTone::Plain,
@@ -79,6 +85,7 @@ impl EnergySavingPane {
             EnergySavingAction::SwitchEnergySaver(rule) => {
                 replace_if_changed(&mut self.settings.energy_saver, rule)
             }
+            EnergySavingAction::SwitchGame(rule) => replace_if_changed(&mut self.settings.game, rule),
         }
     }
 
@@ -94,6 +101,13 @@ impl EnergySavingPane {
                     EnergySaverRule::StopSuggestions
                 } else {
                     EnergySaverRule::KeepSuggestions
+                }))
+            }
+            SettingsInput::Toggled { id, is_on } if id.as_str() == GAME => {
+                Some(EnergySavingAction::SwitchGame(if *is_on {
+                    GameRule::StopSuggestions
+                } else {
+                    GameRule::KeepSuggestions
                 }))
             }
             _ => None,
@@ -124,6 +138,14 @@ impl EnergySavingPane {
             is_on: stops_in_energy_saver,
             note: (stops_in_energy_saver && energy_saver == EnergySaver::On).then_some(STOPPED_NOTE),
         };
+        let game_switch = Switch {
+            id: ControlId::new(GAME),
+            icon: RowIcon::Game,
+            label: GAME_LABEL,
+            description: GAME_DESCRIPTION,
+            is_on: self.settings.game == GameRule::StopSuggestions,
+            note: None,
+        };
         Page {
             title: PANE_TITLE,
             icon: PageIcon::Lightbulb,
@@ -132,6 +154,7 @@ impl EnergySavingPane {
             sections: vec![Section::new(vec![
                 Row::Picker(idle_timeout),
                 Row::Switch(energy_saver_switch),
+                Row::Switch(game_switch),
             ])],
         }
     }
@@ -147,6 +170,7 @@ mod tests {
         EnergySavingPane::new(EnergySavingSettings {
             idle_timeout,
             energy_saver,
+            ..EnergySavingSettings::default()
         })
     }
 
@@ -191,6 +215,38 @@ mod tests {
                 })),
             )
         );
+    }
+
+    #[test]
+    fn page_shows_the_game_switch_below_the_energy_saver_switch() {
+        let pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        let shown = pane.page(EnergySaver::Off);
+
+        assert_eq!(
+            shown.sections[0].rows.get(2),
+            Some(&Row::Switch(Switch {
+                id: ControlId::new(GAME),
+                icon: RowIcon::Game,
+                label: "Stop during games",
+                description: "While a game is in front, GhostType stops suggestions and unloads the model. \
+                     It loads the model again when you type in a text field after the game.",
+                is_on: true,
+                note: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn game_switch_is_off_when_suggestions_continue_during_games() {
+        let pane = EnergySavingPane::new(EnergySavingSettings {
+            game: GameRule::KeepSuggestions,
+            ..EnergySavingSettings::default()
+        });
+
+        let shown = pane.page(EnergySaver::Off);
+
+        assert!(matches!(shown.row(GAME), Some(Row::Switch(switch)) if !switch.is_on));
     }
 
     #[test]
@@ -258,6 +314,21 @@ mod tests {
     }
 
     #[test]
+    fn game_switch_gives_its_rule() {
+        let pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        let actions = [true, false].map(|is_on| pane.action_for(&toggled(GAME, is_on)));
+
+        assert_eq!(
+            actions,
+            [
+                Some(EnergySavingAction::SwitchGame(GameRule::StopSuggestions)),
+                Some(EnergySavingAction::SwitchGame(GameRule::KeepSuggestions)),
+            ]
+        );
+    }
+
+    #[test]
     fn input_of_another_pane_gives_no_action() {
         let pane = EnergySavingPane::new(EnergySavingSettings::default());
 
@@ -275,9 +346,10 @@ mod tests {
             pane.on_action(EnergySavingAction::SwitchEnergySaver(
                 EnergySaverRule::StopSuggestions,
             )),
+            pane.on_action(EnergySavingAction::SwitchGame(GameRule::StopSuggestions)),
         ];
 
-        assert_eq!(changes, [false, false]);
+        assert_eq!(changes, [false, false, false]);
     }
 
     #[test]
@@ -289,5 +361,14 @@ mod tests {
         ));
 
         assert_eq!(pane.settings().energy_saver, EnergySaverRule::KeepSuggestions);
+    }
+
+    #[test]
+    fn game_switch_changes_the_rule() {
+        let mut pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        pane.on_action(EnergySavingAction::SwitchGame(GameRule::KeepSuggestions));
+
+        assert_eq!(pane.settings().game, GameRule::KeepSuggestions);
     }
 }

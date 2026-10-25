@@ -116,6 +116,8 @@ pub enum RowIcon {
     Moon,
     /// A battery, for the energy saver of the computer.
     Battery,
+    /// A game controller, for games.
+    Game,
 }
 
 /// A field that searches for the text that the user submits.

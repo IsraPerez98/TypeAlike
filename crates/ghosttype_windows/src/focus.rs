@@ -137,6 +137,16 @@ pub(crate) fn foreground_thread() -> u32 {
     unsafe { GetWindowThreadProcessId(foreground_hwnd(), None) }
 }
 
+/// The full path of the program of the window in the foreground now, or `None` when no window is
+/// in the foreground or Windows does not give the path.
+pub(crate) fn foreground_program() -> Option<String> {
+    let process_id = process_id(foreground_hwnd());
+    if process_id == 0 {
+        return None;
+    }
+    process_image_path(process_id).ok()
+}
+
 fn process_id(window: HWND) -> u32 {
     let mut process_id = 0;
     // SAFETY: the output pointer refers to a local.

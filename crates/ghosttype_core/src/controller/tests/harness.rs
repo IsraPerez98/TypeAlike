@@ -12,8 +12,8 @@ use crate::controller::{
     MAX_CARET_MOVE_CHECKS, Services, Shell, Startup, Timer,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource,
-    Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, ScreenReadId,
+    ScreenSource, Surroundings,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -406,6 +406,10 @@ impl Harness {
 
     pub(super) fn change_energy_saver(&mut self, energy_saver: EnergySaver) {
         self.controller.on_energy_saver(energy_saver, &mut self.shell);
+    }
+
+    pub(super) fn change_game(&mut self, game: GameActivity) {
+        self.controller.on_game(game, &mut self.shell);
     }
 
     pub(super) fn toggle_pause(&mut self) {

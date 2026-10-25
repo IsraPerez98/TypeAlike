@@ -4,12 +4,20 @@ use std::ffi::OsStr;
 use std::iter;
 use std::os::windows::ffi::OsStrExt;
 
-use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, HANDLE};
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_ROUTINE_FLAGS, REG_SZ, RRF_RT_ANY, RegDeleteKeyValueW, RegGetValueW,
-    RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, KEY_READ, REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_CHANGE_NAME, REG_ROUTINE_FLAGS,
+    REG_SZ, RRF_RT_ANY, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegEnumKeyExW, RegGetValueW,
+    RegNotifyChangeKeyValue, RegOpenKeyExW, RegSetKeyValueW,
 };
-use windows::core::{PCWSTR, Result};
+use windows::core::{Owned, PCWSTR, PWSTR, Result};
+
+use crate::utf16;
+
+/// The longest name of a key, in UTF-16 units, without its nul.
+const MAX_KEY_NAME_UNITS: usize = 255;
+/// The longest text value that [`OpenKey::subkey_text`] reads, in UTF-16 units.
+const MAX_TEXT_UNITS: usize = 1024;
 
 /// Reads the value `name` of `kind` in `key` into `buffer`. Returns how many bytes it holds.
 pub(crate) fn read_value(
@@ -66,4 +74,110 @@ pub(crate) fn delete_value(key: PCWSTR, name: PCWSTR) -> Result<()> {
         return Ok(());
     }
     status.ok()
+}
+
+/// A key of the registry of the current user, open for reads and change notifications. Drop
+/// closes it.
+#[derive(Debug)]
+pub(crate) struct OpenKey {
+    key: Owned<HKEY>,
+}
+
+impl OpenKey {
+    /// Opens `path` under the key of the current user.
+    pub(crate) fn open(path: PCWSTR) -> Result<Self> {
+        let mut key = HKEY::default();
+        // SAFETY: the output pointer refers to a local, and the path is nul-terminated.
+        unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, path, None, KEY_READ, &raw mut key) }.ok()?;
+        // SAFETY: RegOpenKeyExW returned a valid key that nothing else owns.
+        let key = unsafe { Owned::new(key) };
+        Ok(Self { key })
+    }
+
+    /// The names of the subkeys, each with a nul at its end.
+    pub(crate) fn subkey_names(&self) -> Vec<Vec<u16>> {
+        (0..).map_while(|index| self.subkey_name(index)).collect()
+    }
+
+    fn subkey_name(&self, index: u32) -> Option<Vec<u16>> {
+        let mut units = [0_u16; MAX_KEY_NAME_UNITS + 1];
+        let mut length = u32::try_from(units.len()).ok()?;
+        // SAFETY: the buffer and its length are locals of the length passed.
+        unsafe {
+            RegEnumKeyExW(
+                *self.key,
+                index,
+                Some(PWSTR(units.as_mut_ptr())),
+                &raw mut length,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .ok()
+        .ok()?;
+        let name = units.get(..usize::try_from(length).ok()?)?;
+        Some(name.iter().copied().chain(iter::once(0)).collect())
+    }
+
+    /// Reads the number value `name` of the subkey `subkey`.
+    pub(crate) fn subkey_number(&self, subkey: PCWSTR, name: PCWSTR) -> Option<u32> {
+        let mut number = 0_u32;
+        let mut size = u32::try_from(size_of::<u32>()).ok()?;
+        // SAFETY: the output buffer is a local of exactly the size passed.
+        unsafe {
+            RegGetValueW(
+                *self.key,
+                subkey,
+                name,
+                RRF_RT_REG_DWORD,
+                None,
+                Some((&raw mut number).cast()),
+                Some(&raw mut size),
+            )
+        }
+        .ok()
+        .ok()?;
+        Some(number)
+    }
+
+    /// Reads the text value `name` of the subkey `subkey`. A text of more than 1024 UTF-16 units
+    /// gives `None`.
+    pub(crate) fn subkey_text(&self, subkey: PCWSTR, name: PCWSTR) -> Option<String> {
+        let mut units = [0_u16; MAX_TEXT_UNITS];
+        let mut size = u32::try_from(size_of_val(&units)).ok()?;
+        // SAFETY: the output buffer is a local of exactly the size passed.
+        unsafe {
+            RegGetValueW(
+                *self.key,
+                subkey,
+                name,
+                RRF_RT_REG_SZ,
+                None,
+                Some(units.as_mut_ptr().cast()),
+                Some(&raw mut size),
+            )
+        }
+        .ok()
+        .ok()?;
+        let text = utf16::until_nul(&units);
+        (!text.is_empty()).then(|| String::from_utf16_lossy(text))
+    }
+
+    /// Signals `event` one time at the next change of the key, of its values or of its subkeys.
+    pub(crate) fn notify_change(&self, event: HANDLE) -> Result<()> {
+        // SAFETY: the key and the event are open. An asynchronous notification ends with the
+        // thread that asked for it, and this thread keeps `event` open while it lives.
+        unsafe {
+            RegNotifyChangeKeyValue(
+                *self.key,
+                true,
+                REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
+                Some(event),
+                true,
+            )
+        }
+        .ok()
+    }
 }

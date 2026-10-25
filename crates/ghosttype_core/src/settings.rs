@@ -11,7 +11,7 @@ use std::fmt;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
 
-pub use energy_saving::{EnergySaverRule, EnergySavingSettings, IdleTimeout};
+pub use energy_saving::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };

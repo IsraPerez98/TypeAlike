@@ -13,6 +13,7 @@ mod clipboard;
 mod energy_saver;
 mod event_tap;
 mod focus;
+mod game;
 mod geometry;
 mod injection;
 mod keychain;

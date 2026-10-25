@@ -171,6 +171,17 @@ pub enum EnergySaver {
     On,
 }
 
+/// Whether the app in front is a game: an app of the game list of Windows (Game Bar), or an app in
+/// the Games category on macOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameActivity {
+    /// The app in front is not a game.
+    #[default]
+    None,
+    /// A game is in front.
+    InFront,
+}
+
 /// The recognition levels that the OCR of the platform has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OcrLevels {

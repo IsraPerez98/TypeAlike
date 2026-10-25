@@ -21,6 +21,7 @@ mod cpu_cores;
 mod display;
 mod energy_saver;
 mod focus;
+mod game_watch;
 mod gdi;
 mod injection;
 mod key_file;

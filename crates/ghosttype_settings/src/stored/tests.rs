@@ -2,9 +2,9 @@
 
 use super::*;
 use ghosttype_core::settings::{
-    EnergySaverRule, EnergySavingSettings, HistoryAccess, HistoryApp, HistoryScope, IdleTimeout, KeptTexts,
-    OcrLevel, PersonalizationSettings, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionApp,
-    SuggestionPlaces, SuggestionSite, WordChoice,
+    EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp, HistoryScope, IdleTimeout,
+    KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
+    SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -526,6 +526,30 @@ fn energy_saver_rule_reads_from_its_name() {
 }
 
 #[test]
+fn game_rule_reads_from_its_name() {
+    let files = [
+        r#"{ "energy_saving": { "game": "stop_suggestions" } }"#,
+        r#"{ "energy_saving": { "game": "keep_suggestions" } }"#,
+    ];
+
+    let rules = files.map(|json| parse(json).map(|settings| settings.energy_saving.game).ok());
+
+    assert_eq!(
+        rules,
+        [Some(GameRule::StopSuggestions), Some(GameRule::KeepSuggestions)]
+    );
+}
+
+#[test]
+fn file_without_the_game_rule_stops_during_games() {
+    let rule = parse(r#"{ "energy_saving": { "idle_timeout": "off" } }"#)
+        .map(|settings| settings.energy_saving.game)
+        .ok();
+
+    assert_eq!(rule, Some(GameRule::StopSuggestions));
+}
+
+#[test]
 fn file_without_energy_saving_stops_after_30_minutes_and_in_energy_saver() {
     let energy_saving = parse("{}").map(|settings| settings.energy_saving).ok();
 
@@ -537,6 +561,7 @@ fn energy_saving_survives_a_save_and_a_load() {
     let energy_saving = EnergySavingSettings {
         idle_timeout: IdleTimeout::SixtyMinutes,
         energy_saver: EnergySaverRule::KeepSuggestions,
+        game: GameRule::KeepSuggestions,
     };
     let settings = Settings {
         energy_saving,

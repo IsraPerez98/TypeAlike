@@ -1,6 +1,6 @@
 //! Converts the energy saving settings to and from the format of the settings file.
 
-use ghosttype_core::settings::{EnergySaverRule, EnergySavingSettings, IdleTimeout};
+use ghosttype_core::settings::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub(super) struct StoredEnergySaving {
     idle_timeout: StoredIdleTimeout,
     energy_saver: StoredEnergySaverRule,
+    game: StoredGameRule,
 }
 
 impl Default for StoredEnergySaving {
@@ -32,6 +33,13 @@ enum StoredEnergySaverRule {
     KeepSuggestions,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredGameRule {
+    StopSuggestions,
+    KeepSuggestions,
+}
+
 impl From<EnergySavingSettings> for StoredEnergySaving {
     fn from(settings: EnergySavingSettings) -> Self {
         let idle_timeout = match settings.idle_timeout {
@@ -44,9 +52,14 @@ impl From<EnergySavingSettings> for StoredEnergySaving {
             EnergySaverRule::StopSuggestions => StoredEnergySaverRule::StopSuggestions,
             EnergySaverRule::KeepSuggestions => StoredEnergySaverRule::KeepSuggestions,
         };
+        let game = match settings.game {
+            GameRule::StopSuggestions => StoredGameRule::StopSuggestions,
+            GameRule::KeepSuggestions => StoredGameRule::KeepSuggestions,
+        };
         Self {
             idle_timeout,
             energy_saver,
+            game,
         }
     }
 }
@@ -63,9 +76,14 @@ impl From<StoredEnergySaving> for EnergySavingSettings {
             StoredEnergySaverRule::StopSuggestions => EnergySaverRule::StopSuggestions,
             StoredEnergySaverRule::KeepSuggestions => EnergySaverRule::KeepSuggestions,
         };
+        let game = match stored.game {
+            StoredGameRule::StopSuggestions => GameRule::StopSuggestions,
+            StoredGameRule::KeepSuggestions => GameRule::KeepSuggestions,
+        };
         Self {
             idle_timeout,
             energy_saver,
+            game,
         }
     }
 }

@@ -23,7 +23,8 @@ use crate::app::{
     App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, ScreenRect, Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, ScreenRect,
+    Surroundings,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -241,6 +242,18 @@ impl Controller {
     /// the user paused suggestions or the idle timeout ran out.
     pub fn on_energy_saver(&mut self, energy_saver: EnergySaver, shell: &mut dyn Shell) {
         self.app.use_energy_saver(energy_saver);
+        self.on_stop_change(shell);
+    }
+
+    /// Handles a change of the app in front: whether it is a game. While a game is in front and the
+    /// Energy saving pane stops suggestions then, the session ends, the suggestion model unloads,
+    /// and the tray and the badge show the stop. After the game, the next request for a suggestion
+    /// loads the model again. The same state again changes nothing.
+    pub fn on_game(&mut self, game: GameActivity, shell: &mut dyn Shell) {
+        if self.app.game() == game {
+            return;
+        }
+        self.app.use_game(game);
         self.on_stop_change(shell);
     }
 
@@ -663,10 +676,10 @@ impl Controller {
         }
     }
 
-    /// Submits `request` for a suggestion. After the idle timeout, it first loads the suggestion
-    /// model again, so that the runner completes the request after the load.
+    /// Submits `request` for a suggestion. After the idle timeout or a game, it first loads the
+    /// suggestion model again, so that the runner completes the request after the load.
     fn request_suggestion(&mut self, request: InferenceRequest, shell: &mut dyn Shell) {
-        if self.app.end_idle() {
+        if self.app.end_stops_before_request() {
             self.submit_model_request();
             self.render_settings(shell);
         }

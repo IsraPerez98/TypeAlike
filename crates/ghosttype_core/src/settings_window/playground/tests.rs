@@ -28,6 +28,12 @@ const UNLOADED_AFTER_IDLE_TIMEOUT: Note = Note {
     tone: NoteTone::Plain,
 };
 
+const UNLOADED_FOR_A_GAME: Note = Note {
+    text: "GhostType unloaded the model for a game. It loads the model again when you type in a text field \
+           after the game.",
+    tone: NoteTone::Plain,
+};
+
 fn prompt(text: &str) -> Prompt {
     prompt::framed_prompt(&[], text)
 }
@@ -543,7 +549,12 @@ fn unloading_an_unloaded_model_sends_no_request() {
 #[test]
 fn unloaded_model_tells_why_it_is_unloaded() {
     let file = model_file("a.gguf");
-    let reasons = [StopReason::Paused, StopReason::EnergySaver, StopReason::Idle];
+    let reasons = [
+        StopReason::Paused,
+        StopReason::EnergySaver,
+        StopReason::Game,
+        StopReason::Idle,
+    ];
 
     let notes = reasons.map(|reason| {
         let mut pane = ready_pane(&file);
@@ -553,7 +564,13 @@ fn unloaded_model_tells_why_it_is_unloaded() {
 
     assert_eq!(
         notes,
-        [UNLOADED, UNLOADED_TO_SAVE_ENERGY, UNLOADED_AFTER_IDLE_TIMEOUT].map(Some)
+        [
+            UNLOADED,
+            UNLOADED_TO_SAVE_ENERGY,
+            UNLOADED_FOR_A_GAME,
+            UNLOADED_AFTER_IDLE_TIMEOUT
+        ]
+        .map(Some)
     );
 }
 

@@ -52,6 +52,17 @@ pub enum EnergySaverRule {
     KeepSuggestions,
 }
 
+/// What GhostType does while a game is in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameRule {
+    /// GhostType stops suggestions and unloads the suggestion model. After the game, the next
+    /// request for a suggestion loads the model again.
+    #[default]
+    StopSuggestions,
+    /// Suggestions continue as in any other app.
+    KeepSuggestions,
+}
+
 /// When GhostType stops suggestions and unloads the suggestion model to save energy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EnergySavingSettings {
@@ -59,6 +70,8 @@ pub struct EnergySavingSettings {
     pub idle_timeout: IdleTimeout,
     /// What GhostType does while the energy saver of the computer is on.
     pub energy_saver: EnergySaverRule,
+    /// What GhostType does while a game is in front.
+    pub game: GameRule,
 }
 
 #[cfg(test)]
@@ -88,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn default_stops_after_30_minutes_and_in_energy_saver() {
+    fn default_stops_after_30_minutes_in_energy_saver_and_during_games() {
         let settings = EnergySavingSettings::default();
 
         assert_eq!(
@@ -96,6 +109,7 @@ mod tests {
             EnergySavingSettings {
                 idle_timeout: IdleTimeout::ThirtyMinutes,
                 energy_saver: EnergySaverRule::StopSuggestions,
+                game: GameRule::StopSuggestions,
             }
         );
     }

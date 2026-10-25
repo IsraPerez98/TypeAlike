@@ -106,6 +106,11 @@ const ENERGY_SAVER_NOTE: Note = Note {
            Power Mode goes off.",
     tone: NoteTone::Plain,
 };
+const GAME_NOTE: Note = Note {
+    text: "GhostType unloaded the model for a game. It loads the model again when you type in a text field \
+           after the game.",
+    tone: NoteTone::Plain,
+};
 const IDLE_NOTE: Note = Note {
     text: "GhostType unloaded the model after a time without input. It loads the model again when you \
            type in a text field.",
@@ -430,6 +435,7 @@ fn unloaded_note(reason: StopReason) -> Note {
     match reason {
         StopReason::Paused => PAUSED_NOTE,
         StopReason::EnergySaver => ENERGY_SAVER_NOTE,
+        StopReason::Game => GAME_NOTE,
         StopReason::Idle => IDLE_NOTE,
     }
 }
