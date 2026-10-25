@@ -174,6 +174,7 @@ struct Recorder {
     kept_history: Vec<HistoryEntry>,
     history_loads: usize,
     history_saves: Vec<Vec<HistoryEntry>>,
+    history_deletes: usize,
 }
 
 struct FakeRunner(Rc<RefCell<Recorder>>);
@@ -211,6 +212,10 @@ impl WritingHistory for FakeHistory {
 
     fn save(&mut self, entries: &[HistoryEntry]) {
         self.0.borrow_mut().history_saves.push(entries.to_vec());
+    }
+
+    fn delete(&mut self) {
+        self.0.borrow_mut().history_deletes += 1;
     }
 }
 
@@ -394,6 +399,10 @@ impl Harness {
 
     pub(super) fn history_saves(&self) -> Vec<Vec<HistoryEntry>> {
         self.recorder.borrow().history_saves.clone()
+    }
+
+    pub(super) fn history_deletes(&self) -> usize {
+        self.recorder.borrow().history_deletes
     }
 
     pub(super) fn settle_input(&mut self) {

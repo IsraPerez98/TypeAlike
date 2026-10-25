@@ -41,9 +41,10 @@ struct StoredEntry {
     domain: Option<String>,
 }
 
-/// The file that keeps the earlier writing of the user, locked with a key of the `vault`. It
-/// writes entries only after a read that got the entries of the file or found the file unusable,
-/// so that a vault that fails one time never makes it lose the entries.
+/// The file that keeps the earlier writing of the user, locked with a key of the `vault`. A save
+/// changes the file only after a read that got the entries of the file or found the file unusable,
+/// so that a vault that fails one time never makes it lose the entries. Only a delete removes the
+/// file without such a read.
 pub struct HistoryFile {
     path: PathBuf,
     vault: Box<dyn KeyVault>,
@@ -95,12 +96,22 @@ impl HistoryFile {
         }
     }
 
-    /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
-    /// write never leaves a damaged file.
-    fn write(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
+    /// Replaces the file with `entries`, or removes it when there are none. It changes the file only
+    /// after a read that got the entries of the file or found the file unusable.
+    fn replace(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
         if !self.is_replace_allowed {
             return Err(HistoryError::Unread);
         }
+        if entries.is_empty() {
+            self.remove()
+        } else {
+            self.write(entries)
+        }
+    }
+
+    /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
+    /// write never leaves a damaged file.
+    fn write(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
         let plain = entries
             .iter()
             .map(|entry| serde_json::to_string(&StoredEntry::from(entry)).map(|line| line + "\n"))
@@ -156,13 +167,14 @@ impl WritingHistory for HistoryFile {
     }
 
     fn save(&mut self, entries: &[HistoryEntry]) {
-        let saved = if entries.is_empty() {
-            self.remove()
-        } else {
-            self.write(entries)
-        };
-        if let Err(error) = saved {
+        if let Err(error) = self.replace(entries) {
             tracing::warn!(%error, "failed to save the earlier writing");
+        }
+    }
+
+    fn delete(&mut self) {
+        if let Err(error) = self.remove() {
+            tracing::warn!(%error, "failed to delete the earlier writing");
         }
     }
 }
@@ -341,6 +353,29 @@ mod tests {
         history.save(&entries()[..1]);
 
         assert_eq!(fs::read(&path).expect("the file exists"), saved);
+    }
+
+    #[test]
+    fn vault_that_failed_at_the_read_keeps_the_file_when_no_entries_are_saved() {
+        let path = temporary_file("vault-failed-emptied.bin");
+        let vault = OnceLockedVault::default();
+        read_history(&path, Box::new(vault.inner.clone())).save(&entries());
+        let mut history = read_history(&path, Box::new(vault.clone()));
+
+        history.save(&[]);
+
+        assert_eq!(HistoryFile::new(path, Box::new(vault)).load(), entries());
+    }
+
+    #[test]
+    fn delete_removes_the_file_before_a_read() {
+        let path = temporary_file("deleted.bin");
+        let vault = FakeVault::default();
+        read_history(&path, Box::new(vault.clone())).save(&entries());
+
+        HistoryFile::new(path.clone(), Box::new(vault)).delete();
+
+        assert!(!path.exists());
     }
 
     #[test]

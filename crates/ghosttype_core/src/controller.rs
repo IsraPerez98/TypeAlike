@@ -533,7 +533,7 @@ impl Controller {
             }
             PersonalizationChange::DeleteAll => {
                 self.app.use_history(Vec::new());
-                self.history.save(&[]);
+                self.history.delete();
             }
         }
     }

@@ -28,9 +28,13 @@ pub trait WritingHistory {
     /// them. The store reports its own failures.
     fn load(&mut self) -> Vec<HistoryEntry>;
 
-    /// Keeps `entries`, oldest first, in place of all the kept entries. The store reports its own
-    /// failures.
+    /// Keeps `entries`, oldest first, in place of all the kept entries. The store keeps its entries
+    /// as they are when it could not read them. The store reports its own failures.
     fn save(&mut self, entries: &[HistoryEntry]);
+
+    /// Deletes all the kept entries, also when the store could not read them. The store reports its
+    /// own failures.
+    fn delete(&mut self);
 }
 
 /// The secret key that locks the file of the earlier writing. `Debug` does not show it.

@@ -230,11 +230,11 @@ fn second_press_of_the_delete_button_deletes_all_earlier_writing() {
     let mut harness = Harness::with_kept_history(history_on(), vec![mail_entry("Cheers,\nTom")]);
 
     harness.press_button(DELETE);
-    let saves_after_first_press = harness.history_saves().len();
+    let deletes_after_first_press = harness.history_deletes();
     harness.press_button(DELETE);
 
-    assert_eq!(saves_after_first_press, 0);
-    assert_eq!(harness.history_saves(), vec![Vec::new()]);
+    assert_eq!(deletes_after_first_press, 0);
+    assert_eq!(harness.history_deletes(), 1);
 }
 
 #[test]
@@ -245,5 +245,5 @@ fn other_input_cancels_the_first_press_of_the_delete_button() {
     harness.toggle(CLIPBOARD, true);
     harness.press_button(DELETE);
 
-    assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
+    assert_eq!(harness.history_deletes(), 0);
 }
