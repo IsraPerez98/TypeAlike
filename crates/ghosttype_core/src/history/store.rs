@@ -64,20 +64,36 @@ fn is_known(
         .any(|known| is_same_spot(known, entry, personalization) && known.text.contains(&entry.text))
 }
 
-/// Adds `entry` as the newest of `entries`. An older entry of the same place and the same pool of
-/// `personalization` whose text the new text holds goes, and the new entry does not come when such
-/// an older one holds its text. While the entries have more than [`MAX_STORED_CHARS`] characters
-/// or are more than [`MAX_STORED_ENTRIES`], the oldest entry goes, in any place and in any pool.
+/// Where the text of a new entry starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextOrigin {
+    /// The user typed all the text in the session. It is a new text, also when an older text is
+    /// the same, so a repeated message counts each time.
+    Typed,
+    /// The text starts with text that the field held, so it can continue an older text.
+    Field,
+}
+
+/// Adds `entry` as the newest of `entries`. When the text starts with text of the field
+/// ([`TextOrigin::Field`]), an older entry of the same place and the same pool of `personalization`
+/// whose text the new text holds goes, and the new entry does not come when such an older one
+/// holds its text. A typed text always comes and keeps the older entries. While the entries have
+/// more than [`MAX_STORED_CHARS`] characters or are more than [`MAX_STORED_ENTRIES`], the oldest
+/// entry goes, in any place and in any pool.
 pub(crate) fn add(
     entries: &mut Vec<HistoryEntry>,
     entry: HistoryEntry,
+    origin: TextOrigin,
     personalization: &PersonalizationSettings,
 ) {
-    if is_known(entries, &entry, personalization) {
-        return;
+    if origin == TextOrigin::Field {
+        if is_known(entries, &entry, personalization) {
+            return;
+        }
+        entries.retain(|known| {
+            !(is_same_spot(known, &entry, personalization) && entry.text.contains(&known.text))
+        });
     }
-    entries
-        .retain(|known| !(is_same_spot(known, &entry, personalization) && entry.text.contains(&known.text)));
     entries.push(entry);
     let excess = excess_of(entries);
     entries.drain(..excess);
@@ -111,6 +127,29 @@ pub(crate) struct FinishedText<'text> {
     pub(crate) domain: Option<&'text str>,
 }
 
+impl<'text> FinishedText<'text> {
+    /// Where the text starts: [`TextOrigin::Typed`] when the characters that came from the field
+    /// are only whitespace, else [`TextOrigin::Field`].
+    pub(crate) fn origin(&self) -> TextOrigin {
+        let (field, _) = self.split();
+        if field.trim().is_empty() {
+            TextOrigin::Typed
+        } else {
+            TextOrigin::Field
+        }
+    }
+
+    /// Returns the characters that came from the field and the characters that the user added.
+    fn split(&self) -> (&'text str, &'text str) {
+        let added_start = self
+            .text
+            .char_indices()
+            .nth(self.field_chars)
+            .map_or(self.text.len(), |(index, _)| index);
+        self.text.split_at(added_start)
+    }
+}
+
 /// Returns the part of the `finished` text that the user wrote. The characters that came from the
 /// field count as written by the user when an entry of the same place and the same pool of
 /// `personalization` holds them, because the user continues a draft, or when the user added at
@@ -122,11 +161,7 @@ pub(crate) fn own_text<'text>(
     personalization: &PersonalizationSettings,
 ) -> &'text str {
     let text = finished.text;
-    let added_start = text
-        .char_indices()
-        .nth(finished.field_chars)
-        .map_or(text.len(), |(index, _)| index);
-    let (field, added) = text.split_at(added_start);
+    let (field, added) = finished.split();
     let is_draft = HistoryEntry::of(field, finished.app_id, finished.domain)
         .is_some_and(|draft| is_known(entries, &draft, personalization));
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
@@ -309,7 +344,12 @@ mod tests {
     fn added_entry_is_the_newest() {
         let mut entries = vec![mail("Old text of the writer")];
 
-        add(&mut entries, mail("New text of the writer"), &shared());
+        add(
+            &mut entries,
+            mail("New text of the writer"),
+            TextOrigin::Typed,
+            &shared(),
+        );
 
         assert_eq!(
             entries,
@@ -318,13 +358,18 @@ mod tests {
     }
 
     #[test]
-    fn added_entry_replaces_the_older_text_of_its_place_that_it_holds() {
+    fn continued_text_replaces_the_older_text_of_its_place_that_it_holds() {
         let mut entries = vec![
             mail("Dear Ana, the report"),
             entry("Dear Ana, the report", "notes", None),
         ];
 
-        add(&mut entries, mail("Dear Ana, the report is ready."), &shared());
+        add(
+            &mut entries,
+            mail("Dear Ana, the report is ready."),
+            TextOrigin::Field,
+            &shared(),
+        );
 
         assert_eq!(
             entries,
@@ -336,16 +381,21 @@ mod tests {
     }
 
     #[test]
-    fn entry_that_an_older_text_of_its_place_holds_is_not_added() {
+    fn continued_text_that_an_older_text_of_its_place_holds_is_not_added() {
         let mut entries = vec![mail("Dear Ana, the report is ready.")];
 
-        add(&mut entries, mail("Dear Ana, the report"), &shared());
+        add(
+            &mut entries,
+            mail("Dear Ana, the report"),
+            TextOrigin::Field,
+            &shared(),
+        );
 
         assert_eq!(entries, [mail("Dear Ana, the report is ready.")]);
     }
 
     #[test]
-    fn text_with_the_same_closing_keeps_the_older_text_of_its_place() {
+    fn continued_text_with_the_same_closing_keeps_the_older_text_of_its_place() {
         let closing =
             "I look forward to your comments.\nBest regards,\nCamila Aranguiz\nAcademic Coordinator";
         let older = mail(&format!(
@@ -356,25 +406,25 @@ mod tests {
         ));
         let mut entries = vec![older.clone()];
 
-        add(&mut entries, newer.clone(), &shared());
+        add(&mut entries, newer.clone(), TextOrigin::Field, &shared());
 
         assert_eq!(entries, [older, newer]);
     }
 
     #[test]
-    fn text_with_the_same_opening_keeps_the_older_text_of_its_place() {
+    fn continued_text_with_the_same_opening_keeps_the_older_text_of_its_place() {
         let opening = "Hello, thank you for your message to the support team. We received your ticket and";
         let older = mail(&format!("{opening} we will call you about the printer today."));
         let newer = mail(&format!("{opening} the new password is in a separate mail."));
         let mut entries = vec![older.clone()];
 
-        add(&mut entries, newer.clone(), &shared());
+        add(&mut entries, newer.clone(), TextOrigin::Field, &shared());
 
         assert_eq!(entries, [older, newer]);
     }
 
     #[test]
-    fn added_entry_replaces_the_draft_of_the_same_page_in_another_browser() {
+    fn continued_text_replaces_the_draft_of_the_same_page_in_another_browser() {
         let mut entries = vec![entry(DRAFT, "com.apple.Safari", Some("mail.example.com"))];
         let continued = entry(
             &format!("{DRAFT} PS: call me."),
@@ -382,7 +432,7 @@ mod tests {
             Some("mail.example.com"),
         );
 
-        add(&mut entries, continued.clone(), &shared());
+        add(&mut entries, continued.clone(), TextOrigin::Field, &shared());
 
         assert_eq!(entries, [continued]);
     }
@@ -397,9 +447,70 @@ mod tests {
             Some("mail.example.com"),
         );
 
-        add(&mut entries, continued.clone(), &safari_on_its_own());
+        add(
+            &mut entries,
+            continued.clone(),
+            TextOrigin::Field,
+            &safari_on_its_own(),
+        );
 
         assert_eq!(entries, [draft, continued]);
+    }
+
+    #[test]
+    fn typed_text_comes_also_when_an_older_text_of_its_place_holds_it() {
+        let mut entries = vec![chat("hola como estas?")];
+
+        add(
+            &mut entries,
+            chat("hola como estas?"),
+            TextOrigin::Typed,
+            &shared(),
+        );
+
+        assert_eq!(entries, [chat("hola como estas?"), chat("hola como estas?")]);
+    }
+
+    #[test]
+    fn typed_text_keeps_the_older_text_of_its_place_that_it_holds() {
+        let mut entries = vec![chat("hola como estas?")];
+
+        add(
+            &mut entries,
+            chat("hola como estas? todo bien?"),
+            TextOrigin::Typed,
+            &shared(),
+        );
+
+        assert_eq!(
+            entries,
+            [chat("hola como estas?"), chat("hola como estas? todo bien?")]
+        );
+    }
+
+    #[test]
+    fn finished_text_is_typed_when_the_field_gave_only_whitespace() {
+        let texts = [
+            ("hola como estas?", 0),
+            (
+                "
+hola como estas?",
+                1,
+            ),
+            ("hola como estas?", 5),
+        ];
+
+        let origins = texts.map(|(text, field_chars)| {
+            FinishedText {
+                text,
+                field_chars,
+                app_id: "net.whatsapp.WhatsApp",
+                domain: None,
+            }
+            .origin()
+        });
+
+        assert_eq!(origins, [TextOrigin::Typed, TextOrigin::Typed, TextOrigin::Field]);
     }
 
     fn chat(text: &str) -> HistoryEntry {
@@ -418,7 +529,7 @@ mod tests {
     fn short_texts_under_the_character_limit_all_stay() {
         let mut entries = numbered_mails(MAX_STORED_ENTRIES - 1);
 
-        add(&mut entries, mail("newest"), &shared());
+        add(&mut entries, mail("newest"), TextOrigin::Typed, &shared());
 
         assert_eq!(entries.len(), MAX_STORED_ENTRIES);
         assert_eq!(entries.first(), Some(&mail("text 0.")));
@@ -430,7 +541,7 @@ mod tests {
         let old_chat = chat(&text_of('c', MAX_STORED_CHARS / 2));
         let mut entries = vec![document, old_chat.clone()];
 
-        add(&mut entries, chat("newest chat."), &shared());
+        add(&mut entries, chat("newest chat."), TextOrigin::Typed, &shared());
 
         assert_eq!(entries, [old_chat, chat("newest chat.")]);
     }
@@ -441,7 +552,7 @@ mod tests {
         let old_chat = chat(&text_of('c', MAX_STORED_CHARS - newest.text.chars().count()));
         let mut entries = vec![old_chat.clone()];
 
-        add(&mut entries, newest.clone(), &shared());
+        add(&mut entries, newest.clone(), TextOrigin::Typed, &shared());
 
         assert_eq!(entries, [old_chat, newest]);
     }
@@ -450,7 +561,7 @@ mod tests {
     fn count_guard_pushes_out_the_oldest_text_under_the_character_limit() {
         let mut entries = numbered_mails(MAX_STORED_ENTRIES);
 
-        add(&mut entries, mail("newest"), &shared());
+        add(&mut entries, mail("newest"), TextOrigin::Typed, &shared());
 
         assert_eq!(entries.len(), MAX_STORED_ENTRIES);
         assert_eq!(entries.first(), Some(&mail("text 1.")));
@@ -466,7 +577,7 @@ mod tests {
             .chain(kept.clone())
             .collect::<Vec<_>>();
 
-        add(&mut entries, chat("newest chat."), &shared());
+        add(&mut entries, chat("newest chat."), TextOrigin::Typed, &shared());
 
         assert_eq!(entries, [kept[0].clone(), kept[1].clone(), chat("newest chat.")]);
     }

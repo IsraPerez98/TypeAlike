@@ -60,7 +60,7 @@ impl Engine {
         let Some(entry) = HistoryEntry::of(written, &app.app_id, domain) else {
             return;
         };
-        history::add(&mut self.history, entry, &self.personalization);
+        history::add(&mut self.history, entry, finished.origin(), &self.personalization);
         self.has_unsaved_history = true;
     }
 

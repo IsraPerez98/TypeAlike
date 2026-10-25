@@ -186,6 +186,17 @@ fn draft_that_an_entry_holds_is_kept_with_the_new_text_in_one_entry() {
     );
 }
 
+#[test]
+fn message_that_the_user_types_again_is_kept_again() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    finish_typing(&mut engine, &mail_desktop(""), Suggestion::Ignored);
+
+    let saved = finish_typing(&mut engine, &mail_desktop(""), Suggestion::Ignored);
+
+    let message = mail_entry(&format!("{TYPED_TEXT}d"));
+    assert_eq!(saved, Some(vec![message.clone(), message]));
+}
+
 fn press_repeatedly(engine: &mut Engine, key: Key, count: usize, desktop: &FakeDesktop) {
     for _ in 0..count {
         engine.on_key(key, desktop);
