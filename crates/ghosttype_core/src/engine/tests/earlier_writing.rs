@@ -125,7 +125,7 @@ fn mail_desktop(before_caret: &str) -> FakeDesktop {
 }
 
 #[test]
-fn short_finished_text_is_not_kept() {
+fn finished_text_of_one_word_is_not_kept() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
 
     let saved = finish_typing_text(

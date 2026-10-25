@@ -6,8 +6,9 @@ use super::redaction::redacted;
 use crate::excerpt::{from_word, last_chars};
 use crate::place::Place;
 
-/// The fewest characters of a text that GhostType saves.
-pub(super) const MIN_KEPT_CHARS: usize = 40;
+/// The fewest characters of a text that GhostType saves. The text also needs a space between two
+/// words.
+const MIN_KEPT_CHARS: usize = 5;
 /// The most characters of a text that GhostType saves, from its end.
 const MAX_KEPT_CHARS: usize = 1000;
 /// The characters at the start or at the end of two texts that make them near copies, when they
@@ -40,10 +41,12 @@ impl fmt::Debug for HistoryEntry {
 impl HistoryEntry {
     /// The entry of `text`, which the user wrote in the app with `app_id`, on the web page of
     /// `domain` if any, with each secret replaced. It keeps at most the last [`MAX_KEPT_CHARS`]
-    /// characters, from the start of a word. `None` when the text is too short.
+    /// characters, from the start of a word. `None` when the text is shorter than
+    /// [`MIN_KEPT_CHARS`] or has only one word.
     pub(crate) fn of(text: &str, app_id: &str, domain: Option<&str>) -> Option<Self> {
         let text = text.trim();
-        if text.chars().count() < MIN_KEPT_CHARS {
+        let is_long_enough = text.chars().count() >= MIN_KEPT_CHARS && text.contains(char::is_whitespace);
+        if !is_long_enough {
             return None;
         }
         let without_secrets = redacted(text);
@@ -110,12 +113,21 @@ mod tests {
     }
 
     #[test]
-    fn short_text_gives_no_entry() {
-        let short = "a".repeat(MIN_KEPT_CHARS - 1);
+    fn text_of_one_word_or_of_less_than_five_characters_gives_no_entry() {
+        let cases = ["  Wonderful  ", "Hi A", " ok "];
 
-        let kept = HistoryEntry::of(&format!("  {short}  "), "com.apple.mail", None);
+        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None));
 
-        assert_eq!(kept, None);
+        assert_eq!(kept, [None, None, None]);
+    }
+
+    #[test]
+    fn text_of_two_words_and_five_characters_gives_an_entry() {
+        let cases = ["  Hi Al  ", "Hi\nAl"];
+
+        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None));
+
+        assert_eq!(kept, [Some(mail("Hi Al")), Some(mail("Hi\nAl"))]);
     }
 
     #[test]

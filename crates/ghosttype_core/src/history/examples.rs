@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::entry::{HistoryEntry, MIN_KEPT_CHARS};
+use super::entry::HistoryEntry;
 use super::store::SessionTexts;
 use super::words::{is_distinctive_word, small_count, words};
 use crate::desktop::{FieldText, ScreenText, Surroundings};
@@ -22,6 +22,9 @@ const RECENT_IN_FORMAT: usize = 1;
 /// The fewest topic words that a text of another place shares with the field, for an example. A
 /// text of another place often has another topic or style, which harms more than no example.
 const MIN_WIDE_WORDS: usize = 3;
+/// The fewest characters before the caret that make a text which holds them a copy of the field.
+/// Fewer characters, such as a greeting, are also in texts that are not copies.
+const MIN_COPIED_CHARS: usize = 40;
 /// The most estimated tokens of an example.
 const EXAMPLE_TOKENS: TokenCount = TokenCount(160);
 /// The estimated tokens of the start of a text longer than [`EXAMPLE_TOKENS`], which its example
@@ -251,7 +254,7 @@ fn pick<'entries>(
 }
 
 /// Whether the field holds the text of `entry`, or the text of `entry` holds the text before the
-/// caret of a field that has enough text to save.
+/// caret of a field with at least [`MIN_COPIED_CHARS`] characters.
 fn is_copy_of_field(entry: &HistoryEntry, field: Option<&FieldText>) -> bool {
     let Some(field) = field else {
         return false;
@@ -259,7 +262,7 @@ fn is_copy_of_field(entry: &HistoryEntry, field: Option<&FieldText>) -> bool {
     let before = field.before_caret.trim();
     let whole = format!("{}{}", field.before_caret, field.after_caret);
     whole.contains(entry.text.trim())
-        || (before.chars().count() >= MIN_KEPT_CHARS && entry.text.contains(before))
+        || (before.chars().count() >= MIN_COPIED_CHARS && entry.text.contains(before))
 }
 
 #[cfg(test)]
