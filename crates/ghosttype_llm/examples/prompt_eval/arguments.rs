@@ -11,7 +11,7 @@ use ghosttype_core::settings::{
 use ghosttype_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
+     [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
      [--screen on|off] [--clipboard on|off] [--history on|off]";
@@ -22,6 +22,7 @@ pub struct Arguments {
     pub cases: PathBuf,
     pub baseline: Option<PathBuf>,
     pub save: Option<PathBuf>,
+    pub prompts: Option<PathBuf>,
     pub notes: String,
     pub name: String,
     pub backend: Backend,
@@ -84,6 +85,7 @@ impl Arguments {
             cases: PathBuf::from(cases),
             baseline: None,
             save: None,
+            prompts: None,
             notes: String::new(),
             name: String::new(),
             backend: BUILT_IN_BACKEND,
@@ -105,6 +107,7 @@ impl Arguments {
             match option {
                 [name, path] if name == "--baseline" => parsed.baseline = Some(PathBuf::from(path)),
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
+                [name, path] if name == "--prompts" => parsed.prompts = Some(PathBuf::from(path)),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
                 [name, text] if name == "--name" => parsed.name.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
@@ -256,6 +259,7 @@ mod tests {
                 cases: PathBuf::from("cases.jsonl"),
                 baseline: None,
                 save: None,
+                prompts: None,
                 notes: String::new(),
                 name: String::new(),
                 backend: BUILT_IN_BACKEND,
@@ -541,6 +545,16 @@ mod tests {
         assert_eq!(
             arguments.map(|arguments| (arguments.baseline, arguments.save)),
             Some((Some(PathBuf::from("old.jsonl")), Some(PathBuf::from("new.jsonl"))))
+        );
+    }
+
+    #[test]
+    fn prompts_option_names_the_file_of_the_prompts() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--prompts", "prompts.jsonl"]);
+
+        assert_eq!(
+            arguments.map(|arguments| arguments.prompts),
+            Some(Some(PathBuf::from("prompts.jsonl")))
         );
     }
 

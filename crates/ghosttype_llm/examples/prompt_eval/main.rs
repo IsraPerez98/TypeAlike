@@ -3,8 +3,8 @@
 //!
 //! ```text
 //! cargo run --release -p ghosttype_llm --example prompt_eval -- \
-//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] [--notes TEXT] \
-//!     [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
+//!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
+//!     [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
@@ -94,6 +94,13 @@
 //! the `run` cases. The phrase rule shows nothing in these cases. Run it with each `--word-choice`
 //! to measure the word bias, and compare each run with the run without it.
 //!
+//! `cases/repeats.jsonl` has cases with the stores `writers/NAME_repeats.jsonl`: the store of a
+//! writer with 3 messages that the writer sent 3 or 4 times, and one of them one more time with a
+//! typo. Each case starts after the first word or the first two words of such a message. Its id
+//! gives the writer, the line of the message and the words. Run it with `--word-choice medium`
+//! and `off` for a change to the examples or to the word bias. Its baselines with `.medium` in
+//! the name are the runs with `medium`.
+//!
 //! `cases/chat.jsonl` has chats, emails and documents with only one or two characters in the field,
 //! with the names and the times of a chat on the screen, and with a time inside a message. Run it
 //! also with `--notes`. `cases/typos.jsonl` has cases of `tuning.jsonl` and `held_out.jsonl` with
@@ -109,7 +116,8 @@
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
 //! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
-//! branch for each model.
+//! branch for each model. `--prompts` writes the `id` and the `prompt` of each case with a log
+//! probability. Use it to read the examples and the other sections of a prompt.
 //!
 //! `--backend` names the backend that runs the model: `cpu`, `vulkan`, `cuda` or `metal`. The
 //! default is Metal on macOS, else the CPU. Vulkan and CUDA need a build with their features.
@@ -177,12 +185,13 @@ use std::io;
 use std::path::Path;
 
 use anyhow::{Context, bail};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::arguments::{Arguments, USAGE};
 use crate::case::{Case, history_of, read_writers, settings_for_case};
 use crate::report::write_report;
-use crate::run::{CaseSetup, ModelSession, run_case, with_measures};
+use crate::run::{CaseRun, CaseSetup, ModelSession, run_case, with_measures};
 use crate::score::{Comparison, Outcome, Summary};
 
 fn read_json_lines<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Vec<T>> {
@@ -196,12 +205,32 @@ fn read_json_lines<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Vec<T>> {
         .collect()
 }
 
-fn write_json_lines(path: &Path, outcomes: &[Outcome]) -> anyhow::Result<()> {
-    let lines = outcomes
+fn write_json_lines<T: Serialize>(path: &Path, items: &[T]) -> anyhow::Result<()> {
+    let lines = items
         .iter()
-        .map(|outcome| serde_json::to_string(outcome).map(|line| line + "\n"))
+        .map(|item| serde_json::to_string(item).map(|line| line + "\n"))
         .collect::<Result<String, _>>()?;
     fs::write(path, lines).with_context(|| format!("cannot write {}", path.display()))
+}
+
+/// The prompt that one case gave to the model.
+#[derive(Serialize)]
+struct CasePrompt<'run> {
+    id: &'run str,
+    prompt: &'run str,
+}
+
+fn write_prompts(path: &Path, runs: &[CaseRun]) -> anyhow::Result<()> {
+    let prompts = runs
+        .iter()
+        .filter_map(|run| {
+            Some(CasePrompt {
+                id: &run.outcome.id,
+                prompt: &run.continuation.as_ref()?.prompt,
+            })
+        })
+        .collect::<Vec<_>>();
+    write_json_lines(path, &prompts)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -239,6 +268,9 @@ fn main() -> anyhow::Result<()> {
         }
     }
     drop(model);
+    if let Some(path) = &arguments.prompts {
+        write_prompts(path, &runs)?;
+    }
     let continuations = runs
         .iter()
         .map(|run| run.continuation.as_ref())
