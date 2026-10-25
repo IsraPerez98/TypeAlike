@@ -10,6 +10,7 @@ mod accessibility;
 mod badge;
 mod badge_menu;
 mod clipboard;
+mod energy_saver;
 mod event_tap;
 mod focus;
 mod geometry;

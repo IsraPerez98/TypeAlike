@@ -1,5 +1,5 @@
-//! The suggestion session and the pause state of GhostType, with the tray menu and the badge at
-//! the caret that show and change them.
+//! The suggestion session, the pause state of GhostType and its stops that save energy, with the
+//! tray menu and the badge at the caret that show and change them.
 
 mod badge;
 mod field_place;
@@ -8,18 +8,19 @@ mod tray;
 pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView};
 pub use tray::{TrayCommand, TrayItem, TrayOutcome, TrayView};
 
+use std::mem;
 use std::time::Duration;
 
 use badge::{TypedPlace, place_entries};
 use field_place::{FieldPlace, ReadField};
 
-use crate::desktop::{Desktop, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
+use crate::desktop::{Desktop, EnergySaver, Field, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource};
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{
-    PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
+    EnergySaverRule, PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
     SuggestionDisplay, SuggestionPlaces,
 };
 
@@ -57,6 +58,20 @@ impl Status {
 
 /// The name of the app in a field where the user turned suggestions off.
 const OFF_HERE_NAME: &str = "GhostType (off here)";
+/// The name of the app while the energy saver of the computer stops suggestions.
+const ENERGY_SAVER_NAME: &str = "GhostType (off to save energy)";
+
+/// Why GhostType keeps the suggestion model unloaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopReason {
+    /// The user paused suggestions from the tray or the badge.
+    Paused,
+    /// The energy saver of the computer is on, and the Energy saving pane stops suggestions then.
+    EnergySaver,
+    /// The user did not type or click for the idle timeout of the Energy saving pane. A key still
+    /// gets a suggestion: the next request for a suggestion ends this stop.
+    Idle,
+}
 
 /// What GhostType does when the input settles in a field, a session starts or a read of the
 /// screen answers.
@@ -130,6 +145,10 @@ pub struct App {
     /// The place of the field where the user types while suggestions are paused or off there,
     /// which then has no session.
     idle_field_place: Option<FieldPlace>,
+    energy_saver: EnergySaver,
+    energy_saver_rule: EnergySaverRule,
+    /// Whether the idle timeout ran out, and no request for a suggestion came after it.
+    is_idle: bool,
 }
 
 impl App {
@@ -143,8 +162,10 @@ impl App {
     /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
     /// place on, and its prompt preparation, suggestion display, suggestion length, screen text
     /// and suggestion places from now on. A session in a place that is off now ends, and the
-    /// earlier writing keeps none of its text.
+    /// earlier writing keeps none of its text. When the energy saver stops suggestions now, the
+    /// session ends.
     pub fn use_settings(&mut self, settings: &Settings) {
+        self.use_energy_saver_state(self.energy_saver, settings.energy_saving.energy_saver);
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
         self.suggestion_display = settings.suggestion_display;
@@ -161,6 +182,76 @@ impl App {
                 self.engine.discard_session();
                 self.idle_field_place = Some(place);
             }
+        }
+    }
+
+    /// Uses `energy_saver`, the state of the energy saver of the computer, from now on. When the
+    /// energy saver stops suggestions now, the session ends.
+    pub fn use_energy_saver(&mut self, energy_saver: EnergySaver) {
+        self.use_energy_saver_state(energy_saver, self.energy_saver_rule);
+    }
+
+    /// Uses the state of the energy saver and the rule of the Energy saving pane. The session ends
+    /// when they start to stop suggestions.
+    fn use_energy_saver_state(&mut self, energy_saver: EnergySaver, rule: EnergySaverRule) {
+        let was_stopped = self.stops_for_energy_saver();
+        self.energy_saver = energy_saver;
+        self.energy_saver_rule = rule;
+        if self.stops_for_energy_saver() && !was_stopped {
+            self.engine.reset();
+            self.idle_field_place = None;
+        }
+    }
+
+    /// The state of the energy saver of the computer.
+    #[must_use]
+    pub fn energy_saver(&self) -> EnergySaver {
+        self.energy_saver
+    }
+
+    fn stops_for_energy_saver(&self) -> bool {
+        self.energy_saver == EnergySaver::On && self.energy_saver_rule == EnergySaverRule::StopSuggestions
+    }
+
+    /// Whether a key in a place where suggestions are on can get a suggestion: the user did not
+    /// pause suggestions, and the energy saver does not stop them.
+    fn offers_suggestions(&self) -> bool {
+        self.status == Status::Active && !self.stops_for_energy_saver()
+    }
+
+    /// Why GhostType keeps the suggestion model unloaded now, or `None` when it keeps the model
+    /// loaded. A pause comes before the energy saver, and the energy saver before the idle timeout.
+    #[must_use]
+    pub fn stop_reason(&self) -> Option<StopReason> {
+        [
+            (self.status == Status::Paused, StopReason::Paused),
+            (self.stops_for_energy_saver(), StopReason::EnergySaver),
+            (self.is_idle, StopReason::Idle),
+        ]
+        .into_iter()
+        .find_map(|(applies, reason)| applies.then_some(reason))
+    }
+
+    /// Handles the end of the idle timeout of the Energy saving pane: the session ends as after a
+    /// focus change, and [`StopReason::Idle`] applies until [`end_idle`](Self::end_idle).
+    pub fn on_idle(&mut self) -> Reaction {
+        self.is_idle = true;
+        self.on_context_lost()
+    }
+
+    /// Ends the stop of the idle timeout, before a request for a suggestion. Returns whether the
+    /// app was idle.
+    pub fn end_idle(&mut self) -> bool {
+        mem::take(&mut self.is_idle)
+    }
+
+    /// The status that the glyphs of the badge and the tray icon show, and the name of the app
+    /// with that status.
+    fn shown_status(&self) -> (Status, &'static str) {
+        if self.status == Status::Active && self.stops_for_energy_saver() {
+            (Status::Paused, ENERGY_SAVER_NAME)
+        } else {
+            (self.status, self.status.name())
         }
     }
 
@@ -200,7 +291,7 @@ impl App {
     /// place where suggestions are off, it does nothing.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
         let is_excluded = desktop.field() == Field::Excluded;
-        if self.status == Status::Paused || is_excluded || !self.allows_suggestions_in(desktop) {
+        if !self.offers_suggestions() || is_excluded || !self.allows_suggestions_in(desktop) {
             return None;
         }
         if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
@@ -228,7 +319,7 @@ impl App {
     /// returns the request that prepares the prompt of the focused field of `desktop` with the new
     /// screen text. In a place where suggestions are off, it only keeps the screen text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
-        let is_active = self.status == Status::Active
+        let is_active = self.offers_suggestions()
             && desktop.field() == Field::Open
             && self.allows_suggestions_in(desktop);
         let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
@@ -312,8 +403,8 @@ impl App {
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
-    /// While suggestions are paused, or off in the app or on the website of the field, the key
-    /// gets no suggestion and starts no session.
+    /// While suggestions are paused or the energy saver stops them, or while they are off in the
+    /// app or on the website of the field, the key gets no suggestion and starts no session.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
         let field = desktop.field();
         self.is_in_open_field = field == Field::Open;
@@ -321,7 +412,7 @@ impl App {
             self.idle_field_place = None;
             return self.engine.reset();
         }
-        if self.status == Status::Active && !self.engine.starts_session_with(key) {
+        if self.offers_suggestions() && !self.engine.starts_session_with(key) {
             return self.engine.on_key(key, desktop);
         }
         let read_field = ReadField {
@@ -329,7 +420,7 @@ impl App {
             surroundings: desktop.surroundings(),
         };
         let place = FieldPlace::of(&read_field.surroundings);
-        if self.status == Status::Active && place.is_on_in(&self.suggestion_places) {
+        if self.offers_suggestions() && place.is_on_in(&self.suggestion_places) {
             self.idle_field_place = None;
             return self.engine.on_key(key, &read_field);
         }
@@ -365,10 +456,16 @@ impl App {
         self.engine.reset()
     }
 
-    /// Returns what the tray icon and menu must show now.
+    /// Returns what the tray icon and menu must show now. While the energy saver stops
+    /// suggestions, the icon shows as paused.
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
-        TrayView::of(self.status)
+        let (status, tooltip) = self.shown_status();
+        TrayView {
+            status,
+            tooltip,
+            ..TrayView::of(self.status)
+        }
     }
 
     /// Returns the text before the caret in the session, empty without a session.
@@ -392,21 +489,17 @@ impl App {
     }
 
     /// Returns the badge to show at the caret, or `None` while the user types in no field that
-    /// GhostType watches. In a place where suggestions are off, the badge shows as paused.
+    /// GhostType watches. In a place where suggestions are off, and while the energy saver stops
+    /// suggestions, the badge shows as paused.
     #[must_use]
     pub fn badge_view(&self) -> Option<BadgeView> {
         self.is_in_open_field.then(|| {
-            if self.status == Status::Active && self.is_in_off_place() {
-                BadgeView {
-                    status: Status::Paused,
-                    label: OFF_HERE_NAME,
-                }
+            let (status, label) = if self.offers_suggestions() && self.is_in_off_place() {
+                (Status::Paused, OFF_HERE_NAME)
             } else {
-                BadgeView {
-                    status: self.status,
-                    label: self.status.name(),
-                }
-            }
+                self.shown_status()
+            };
+            BadgeView { status, label }
         })
     }
 
@@ -460,7 +553,10 @@ impl App {
         self.idle_field_place = None;
         let (status, outcome) = match self.status {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
-            Status::Paused => (Status::Active, TrayOutcome::Resumed),
+            Status::Paused => {
+                self.is_idle = false;
+                (Status::Active, TrayOutcome::Resumed)
+            }
         };
         self.status = status;
         outcome

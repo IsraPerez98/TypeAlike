@@ -3,6 +3,7 @@
 mod badge;
 mod caret;
 mod caret_look;
+mod energy_saving;
 mod field_room;
 mod harness;
 mod history;

@@ -67,10 +67,10 @@ mod tests {
     use ghosttype_core::hub::ModelFile;
     use ghosttype_core::inference::{Backend, SentenceEnd};
     use ghosttype_core::settings::{
-        ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel,
-        PersonalizationSettings, PromptPreparation, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
-        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice,
-        WriterName, WriterNotes,
+        ClipboardAccess, EnergySaverRule, EnergySavingSettings, HistoryAccess, HistoryApp, HistoryScope,
+        IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
+        ScreenTextApp, ScreenTextSettings, SuggestionDisplay, SuggestionLength, SuggestionPlaces,
+        SuggestionSite, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -124,6 +124,10 @@ mod tests {
                     scope: HistoryScope::ThisApp,
                 }],
                 word_choice: WordChoice::Strong,
+            },
+            energy_saving: EnergySavingSettings {
+                idle_timeout: IdleTimeout::FifteenMinutes,
+                energy_saver: EnergySaverRule::KeepSuggestions,
             },
             prompt_preparation: PromptPreparation::OnFocus,
             suggestion_display: SuggestionDisplay::WordByWord,

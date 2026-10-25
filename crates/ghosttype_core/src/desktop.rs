@@ -160,6 +160,17 @@ pub enum OcrAvailability {
     Ready,
 }
 
+/// Whether the computer saves energy now: energy saver or battery saver on Windows, Low Power Mode
+/// on macOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EnergySaver {
+    /// The computer runs as usual.
+    #[default]
+    Off,
+    /// The computer saves energy.
+    On,
+}
+
 /// The recognition levels that the OCR of the platform has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OcrLevels {

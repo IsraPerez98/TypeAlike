@@ -18,6 +18,8 @@ pub enum Timer {
     /// Ends the hold of a quick Tab after the last part of a suggestion that showed. After it, a
     /// Tab reaches the app again while no ghost text shows.
     TabHold,
+    /// Waits for the idle timeout of the Energy saving pane without keys and clicks.
+    Idle,
 }
 
 /// Whether another window or app has the focus since the shell looked last.

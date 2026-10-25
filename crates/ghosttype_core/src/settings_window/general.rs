@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::app::StopReason;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::settings::{
@@ -209,6 +210,20 @@ impl GeneralPane {
     pub fn load_suggestion_model(&self, playground: &mut PlaygroundPane) -> Option<InferenceRequest> {
         let file = self.settings.suggestion_model.clone()?;
         playground.on_action(PlaygroundAction::SelectModel(file))
+    }
+
+    /// Keeps the model of `playground` unloaded while `reason` applies. When `playground` has no
+    /// model, it selects the saved suggestion model without a load, so that the panes show it.
+    /// Returns the request to send, if any.
+    pub fn unload_suggestion_model(
+        &self,
+        playground: &mut PlaygroundPane,
+        reason: StopReason,
+    ) -> Option<InferenceRequest> {
+        if let Some(file) = self.settings.suggestion_model.clone() {
+            playground.select_unloaded_model(file, reason);
+        }
+        playground.unload_model(reason)
     }
 
     /// Makes the model that `playground` loaded the suggestion model for the next runs. Returns

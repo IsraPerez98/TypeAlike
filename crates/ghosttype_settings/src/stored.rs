@@ -1,5 +1,6 @@
 //! Converts the settings to and from the format of the settings file.
 
+mod energy_saving;
 mod personalization;
 mod screen_text;
 mod suggestion_places;
@@ -12,6 +13,7 @@ use ghosttype_core::settings::{
 };
 use serde::{Deserialize, Serialize};
 
+use energy_saving::StoredEnergySaving;
 use personalization::StoredPersonalization;
 use screen_text::StoredScreenText;
 use suggestion_places::StoredSuggestionPlaces;
@@ -35,6 +37,7 @@ struct StoredSettings {
     clipboard_access: StoredClipboardAccess,
     screen_text: StoredScreenText,
     personalization: StoredPersonalization,
+    energy_saving: StoredEnergySaving,
     prompt_preparation: StoredPromptPreparation,
     suggestion_display: StoredSuggestionDisplay,
     suggestion_length: StoredSuggestionLength,
@@ -169,6 +172,7 @@ impl From<Settings> for StoredSettings {
             clipboard_access,
             screen_text: settings.screen_text.into(),
             personalization: settings.personalization.into(),
+            energy_saving: settings.energy_saving.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,
@@ -237,6 +241,7 @@ impl From<StoredSettings> for Settings {
             clipboard_access,
             screen_text: stored.screen_text.into(),
             personalization: stored.personalization.into(),
+            energy_saving: stored.energy_saving.into(),
             prompt_preparation,
             suggestion_display,
             suggestion_length,

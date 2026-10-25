@@ -9,7 +9,7 @@ mod shell;
 mod tab_hold;
 
 pub use ghost_view::{Ghost, GhostPlacement, GhostView};
-pub use services::{BackendChoice, Delivery, DeliverySink, Services};
+pub use services::{BackendChoice, Delivery, DeliverySink, Services, Startup};
 pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 
 use std::time::Duration;
@@ -22,13 +22,16 @@ use tab_hold::TabHold;
 use crate::app::{
     App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
 };
-use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenRect, Surroundings};
+use crate::desktop::{
+    CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, ScreenRect, Surroundings,
+};
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::{HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, SuggestionApp};
+use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
 use crate::settings_window::general::{GeneralAction, GeneralPane};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
 use crate::settings_window::personalization::{
@@ -57,6 +60,7 @@ enum PaneAction {
     SuggestionPlaces(SuggestionPlacesAction),
     ScreenText(ScreenTextAction),
     Personalization(PersonalizationAction),
+    EnergySaving(EnergySavingAction),
     Models(ModelsAction),
     Playground(PlaygroundAction),
 }
@@ -71,6 +75,7 @@ pub struct Controller {
     suggestion_places: SuggestionPlacesPane,
     screen_text: ScreenTextPane,
     personalization: PersonalizationPane,
+    energy_saving: EnergySavingPane,
     hub: Box<dyn ModelHub>,
     runner: Box<dyn ModelRunner>,
     settings_store: Box<dyn SettingsStore>,
@@ -100,29 +105,27 @@ impl fmt::Debug for Controller {
 
 impl Controller {
     /// Starts GhostType with the saved `settings` and the `services`, and starts to load the
-    /// suggestion model of `settings`. The services answer through `deliver`. When
-    /// `backend_choice` changes the saved backend, it saves the settings with the new backend.
+    /// suggestion model of `settings`, unless the energy saver of `startup` stops suggestions. The
+    /// services answer through `deliver`. When the backend choice of `startup` changes the saved
+    /// backend, it saves the settings with the new backend.
     #[must_use]
-    pub fn new(
-        settings: Settings,
-        services: Services,
-        backend_choice: BackendChoice,
-        deliver: &DeliverySink,
-    ) -> Self {
+    pub fn new(settings: Settings, services: Services, startup: Startup, deliver: &DeliverySink) -> Self {
         let Services {
             hub,
-            mut runner,
+            runner,
             mut settings_store,
             autostart,
             history,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
+        app.use_energy_saver(startup.energy_saver);
+        let energy_saving = EnergySavingPane::new(settings.energy_saving);
         let suggestion_places = SuggestionPlacesPane::new(settings.suggestion_places.clone());
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
-        let general = match backend_choice {
+        let general = match startup.backend_choice {
             BackendChoice::User => GeneralPane::new(settings),
             BackendChoice::Platform(backend) => GeneralPane::new(settings).with_platform_backend(backend),
         };
@@ -132,10 +135,6 @@ impl Controller {
         let mut playground = PlaygroundPane::with_backend(general.settings().backend);
         playground.use_settings(general.settings());
         let general = general.with_autostart(autostart);
-        let playground_sink = delivering_sink(deliver, Delivery::Playground);
-        if let Some(request) = general.load_suggestion_model(&mut playground) {
-            runner.submit(request, &playground_sink);
-        }
         let mut controller = Self {
             app,
             models: ModelsPane::new(),
@@ -144,18 +143,20 @@ impl Controller {
             suggestion_places,
             screen_text,
             personalization,
+            energy_saving,
             hub,
             runner,
             settings_store,
             history,
             is_history_loaded: false,
             hub_sink: delivering_sink(deliver, Delivery::Hub),
-            playground_sink,
+            playground_sink: delivering_sink(deliver, Delivery::Playground),
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
             has_unsaved_app: false,
         };
+        controller.submit_model_request();
         controller.load_history_when_on();
         controller
     }
@@ -167,9 +168,13 @@ impl Controller {
     }
 
     /// Handles a key or a click of the user, or another app that comes to the front: GhostType
-    /// waits for the input to settle again.
+    /// waits for the input to settle again, and the idle timeout of the Energy saving pane starts
+    /// again.
     pub fn on_input(&mut self, shell: &mut dyn Shell) {
         shell.start_timer(Timer::InputSettle, INPUT_SETTLE_DELAY);
+        if let Some(timeout) = self.energy_saving.settings().idle_timeout.duration() {
+            shell.start_timer(Timer::Idle, timeout);
+        }
     }
 
     /// Handles a key that the user pressed, before the key reaches the focused app. `key` is
@@ -226,7 +231,27 @@ impl Controller {
             Timer::CaretSettle => self.on_caret_settled(shell),
             Timer::InputSettle => self.on_input_settled(shell),
             Timer::TabHold => self.tab_hold.on_timer(),
+            Timer::Idle => self.on_idle(shell),
         }
+    }
+
+    /// Handles a change of the energy saver of the computer. While the energy saver is on and the
+    /// Energy saving pane stops suggestions then, the session ends, the suggestion model unloads,
+    /// and the tray and the badge show the stop. When it goes off, the model loads again, unless
+    /// the user paused suggestions or the idle timeout ran out.
+    pub fn on_energy_saver(&mut self, energy_saver: EnergySaver, shell: &mut dyn Shell) {
+        self.app.use_energy_saver(energy_saver);
+        self.on_stop_change(shell);
+    }
+
+    /// Handles the end of the idle timeout: the session ends and the suggestion model unloads. The
+    /// next request for a suggestion loads it again.
+    fn on_idle(&mut self, shell: &mut dyn Shell) {
+        self.tab_hold.end(shell);
+        let reaction = self.app.on_idle();
+        self.apply(reaction, shell);
+        shell.hide_badge();
+        self.on_stop_change(shell);
     }
 
     /// Handles `read`, the look at the caret that the shell gives after it answered
@@ -295,16 +320,7 @@ impl Controller {
     /// Runs a command that the user picked in the tray menu.
     pub fn on_tray_command(&mut self, command: TrayCommand, shell: &mut dyn Shell) {
         match self.app.on_tray_command(command) {
-            TrayOutcome::Paused => {
-                self.tab_hold.end(shell);
-                self.hide_ghost(shell);
-                let request = self.playground.unload_model();
-                self.on_status_change(request, shell);
-            }
-            TrayOutcome::Resumed => {
-                let request = self.general.load_suggestion_model(&mut self.playground);
-                self.on_status_change(request, shell);
-            }
+            TrayOutcome::Paused | TrayOutcome::Resumed => self.on_stop_change(shell),
             TrayOutcome::OpenSettings => self.open_settings(shell),
             TrayOutcome::Quit => {
                 self.save_history();
@@ -329,6 +345,7 @@ impl Controller {
             }
             Some(PaneAction::ScreenText(action)) => self.on_screen_text_action(action),
             Some(PaneAction::Personalization(action)) => self.on_personalization_action(action),
+            Some(PaneAction::EnergySaving(action)) => self.on_energy_saving_action(action, shell),
             Some(PaneAction::Models(action)) => {
                 if let Some(request) = self.models.on_action(action) {
                     self.hub.submit(request, &self.hub_sink);
@@ -361,6 +378,7 @@ impl Controller {
                     .action_for(input)
                     .map(PaneAction::Personalization)
             })
+            .or_else(|| self.energy_saving.action_for(input).map(PaneAction::EnergySaving))
             .or_else(|| {
                 self.playground
                     .action_for(input, &installed)
@@ -430,7 +448,7 @@ impl Controller {
     fn do_settled_work(&mut self, work: Option<SettledWork>, shell: &mut dyn Shell) {
         match work {
             Some(SettledWork::ReadScreen { read, source }) => shell.read_screen(read, source),
-            Some(SettledWork::Prepare(request)) => self.runner.submit(request, &self.suggestion_sink),
+            Some(SettledWork::Prepare(request)) => self.request_suggestion(request, shell),
             Some(SettledWork::Suggest(reaction)) => {
                 self.apply(reaction, shell);
             }
@@ -454,20 +472,21 @@ impl Controller {
         }
     }
 
-    /// Keeps the settings of the Apps and websites, Screen text and Personalization panes for the
-    /// next run, and uses them.
+    /// Keeps the settings of the Apps and websites, Screen text, Personalization and Energy saving
+    /// panes for the next run, and uses them.
     fn keep_pane_settings(&mut self) {
         let settings = self.save_settings(self.general.settings().clone());
         self.app.use_settings(&settings);
     }
 
     /// Saves `general`, the settings of the General pane, with the settings of the Apps and
-    /// websites, Screen text and Personalization panes, and returns them all.
+    /// websites, Screen text, Personalization and Energy saving panes, and returns them all.
     fn save_settings(&mut self, general: Settings) -> Settings {
         let settings = Settings {
             suggestion_places: self.suggestion_places.settings().clone(),
             screen_text: self.screen_text.settings().clone(),
             personalization: self.personalization.settings().clone(),
+            energy_saving: *self.energy_saving.settings(),
             ..general
         };
         self.settings_store.save(&settings);
@@ -504,6 +523,22 @@ impl Controller {
                 self.history.save(&[]);
             }
         }
+    }
+
+    /// Uses the change of the Energy saving pane: the idle timeout starts again with its new time,
+    /// and the suggestion model loads or unloads for the new stop reason.
+    fn on_energy_saving_action(&mut self, action: EnergySavingAction, shell: &mut dyn Shell) {
+        if !self.energy_saving.on_action(action) {
+            return;
+        }
+        self.keep_pane_settings();
+        if let Some(timeout) = self.energy_saving.settings().idle_timeout.duration() {
+            shell.start_timer(Timer::Idle, timeout);
+        } else {
+            shell.stop_timer(Timer::Idle);
+            self.app.end_idle();
+        }
+        self.on_stop_change(shell);
     }
 
     /// Gives the app the entries of the history store the first time that the history is on.
@@ -561,7 +596,7 @@ impl Controller {
             }
             Reaction::Request(request) => {
                 self.hide_ghost(shell);
-                self.runner.submit(request, &self.suggestion_sink);
+                self.request_suggestion(request, shell);
                 Disposition::Pass
             }
         }
@@ -628,10 +663,40 @@ impl Controller {
         }
     }
 
-    fn on_status_change(&mut self, model_request: Option<InferenceRequest>, shell: &mut dyn Shell) {
-        if let Some(request) = model_request {
+    /// Submits `request` for a suggestion. After the idle timeout, it first loads the suggestion
+    /// model again, so that the runner completes the request after the load.
+    fn request_suggestion(&mut self, request: InferenceRequest, shell: &mut dyn Shell) {
+        if self.app.end_idle() {
+            self.submit_model_request();
+            self.render_settings(shell);
+        }
+        self.runner.submit(request, &self.suggestion_sink);
+    }
+
+    /// Unloads the suggestion model while a stop reason applies, and loads it again when no stop
+    /// reason applies and no model is in memory.
+    fn submit_model_request(&mut self) {
+        let request = match self.app.stop_reason() {
+            Some(reason) => self.general.unload_suggestion_model(&mut self.playground, reason),
+            None if self.playground.is_model_unloaded() => {
+                self.general.load_suggestion_model(&mut self.playground)
+            }
+            None => None,
+        };
+        if let Some(request) = request {
             self.runner.submit(request, &self.playground_sink);
         }
+    }
+
+    /// Uses the stop reason of the app after it changed: the ghost text hides while a stop reason
+    /// applies, the suggestion model loads or unloads, and the tray, the badge and the panes show
+    /// the new state.
+    fn on_stop_change(&mut self, shell: &mut dyn Shell) {
+        if self.app.stop_reason().is_some() {
+            self.tab_hold.end(shell);
+            self.hide_ghost(shell);
+        }
+        self.submit_model_request();
         shell.render_tray(&self.app.tray_view());
         self.render_waiting_ghost(shell);
         self.render_settings(shell);
@@ -656,6 +721,7 @@ impl Controller {
                     self.suggestion_places.settings(),
                 ),
                 self.personalization.page(self.suggestion_places.settings()),
+                self.energy_saving.page(self.app.energy_saver()),
                 self.models.page(),
                 self.playground.page(&installed),
             ],

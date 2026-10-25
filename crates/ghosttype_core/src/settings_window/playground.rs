@@ -2,6 +2,7 @@
 
 use std::iter;
 
+use crate::app::StopReason;
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{
@@ -58,7 +59,7 @@ enum ModelState {
     Loading,
     Ready,
     Failed(InferenceError),
-    Unloaded,
+    Unloaded(StopReason),
 }
 
 #[derive(Debug)]
@@ -96,8 +97,18 @@ const NOTHING_ADDED_NOTE: Note = Note {
     text: "The model did not add text.",
     tone: NoteTone::Plain,
 };
-const UNLOADED_NOTE: Note = Note {
+const PAUSED_NOTE: Note = Note {
     text: "Suggestions are paused. GhostType loads the model again when you resume them.",
+    tone: NoteTone::Plain,
+};
+const ENERGY_SAVER_NOTE: Note = Note {
+    text: "Suggestions are off to save energy. GhostType loads the model again when energy saver or Low \
+           Power Mode goes off.",
+    tone: NoteTone::Plain,
+};
+const IDLE_NOTE: Note = Note {
+    text: "GhostType unloaded the model after a time without input. It loads the model again when you \
+           type in a text field.",
     tone: NoteTone::Plain,
 };
 const MAX_COMPLETION_TOKENS: TokenCount = TokenCount(32);
@@ -126,7 +137,7 @@ impl PlaygroundPane {
         let model = self
             .model
             .as_mut()
-            .filter(|model| model.state != ModelState::Unloaded)?;
+            .filter(|model| !matches!(model.state, ModelState::Unloaded(_)))?;
         model.state = ModelState::Loading;
         self.completion = None;
         Some(InferenceRequest::Load {
@@ -161,12 +172,34 @@ impl PlaygroundPane {
             .map(|model| &model.file)
     }
 
-    /// Unloads the selected model to free its memory, while it stays selected, so that
-    /// selecting it again loads it again. Returns the request to send, if any.
-    pub fn unload_model(&mut self) -> Option<InferenceRequest> {
+    /// Whether no model is in memory or on its way there: no model is selected, or the selected
+    /// model is unloaded.
+    #[must_use]
+    pub fn is_model_unloaded(&self) -> bool {
+        self.model
+            .as_ref()
+            .is_none_or(|model| matches!(model.state, ModelState::Unloaded(_)))
+    }
+
+    /// Unloads the selected model to free its memory while `reason` applies. The model stays
+    /// selected, so that selecting it again loads it again. Returns the request to send, if any:
+    /// none when no model is selected or the model is unloaded already.
+    pub fn unload_model(&mut self, reason: StopReason) -> Option<InferenceRequest> {
         let model = self.model.as_mut()?;
-        model.state = ModelState::Unloaded;
-        Some(InferenceRequest::Unload)
+        let was_unloaded = matches!(model.state, ModelState::Unloaded(_));
+        model.state = ModelState::Unloaded(reason);
+        (!was_unloaded).then_some(InferenceRequest::Unload)
+    }
+
+    /// Selects `file` without a load, as a model that `reason` keeps unloaded, when no model is
+    /// selected.
+    pub fn select_unloaded_model(&mut self, file: ModelFile, reason: StopReason) {
+        if self.model.is_none() {
+            self.model = Some(SelectedModel {
+                file,
+                state: ModelState::Unloaded(reason),
+            });
+        }
     }
 
     /// Handles a user action. Returns the request that it needs, if any.
@@ -388,8 +421,16 @@ fn model_note(installed: &[ModelFile], selected_state: Option<ModelState>) -> Op
         Some(ModelState::Loading) => Some(LOADING_NOTE),
         Some(ModelState::Failed(error)) => Some(error_note(error)),
         Some(ModelState::Ready) => None,
-        Some(ModelState::Unloaded) => Some(UNLOADED_NOTE),
+        Some(ModelState::Unloaded(reason)) => Some(unloaded_note(reason)),
         None => installed.is_empty().then_some(NO_MODELS_NOTE),
+    }
+}
+
+fn unloaded_note(reason: StopReason) -> Note {
+    match reason {
+        StopReason::Paused => PAUSED_NOTE,
+        StopReason::EnergySaver => ENERGY_SAVER_NOTE,
+        StopReason::Idle => IDLE_NOTE,
     }
 }
 

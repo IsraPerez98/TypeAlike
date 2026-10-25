@@ -3,7 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::desktop::ScreenRead;
+use crate::desktop::{EnergySaver, ScreenRead};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
@@ -16,6 +16,16 @@ pub enum BackendChoice {
     User,
     /// The platform, which runs each model on this backend.
     Platform(Backend),
+}
+
+/// What the platform tells the controller when GhostType starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Startup {
+    /// Who picks the backend that runs each model.
+    pub backend_choice: BackendChoice,
+    /// Whether the energy saver of the computer is on. The platform reports each later change to
+    /// [`Controller::on_energy_saver`](super::Controller::on_energy_saver).
+    pub energy_saver: EnergySaver,
 }
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs

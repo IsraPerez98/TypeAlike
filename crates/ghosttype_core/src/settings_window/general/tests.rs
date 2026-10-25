@@ -845,7 +845,7 @@ fn suggestion_model_loads_in_the_playground() {
 fn unloaded_model_stays_the_suggestion_model() {
     let mut pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
     let mut playground = loaded_playground(Backend::Cpu, Ok(()));
-    playground.unload_model();
+    playground.unload_model(StopReason::Paused);
 
     let settings = pane.keep_suggestion_model(&playground);
 
@@ -856,10 +856,38 @@ fn unloaded_model_stays_the_suggestion_model() {
 }
 
 #[test]
+fn unloading_the_suggestion_model_unloads_the_model_of_the_playground() {
+    let pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
+    let mut playground = loaded_playground(Backend::Cpu, Ok(()));
+
+    let request = pane.unload_suggestion_model(&mut playground, StopReason::EnergySaver);
+
+    assert_eq!(
+        (request, playground.loaded_model()),
+        (Some(InferenceRequest::Unload), None)
+    );
+}
+
+#[test]
+fn unloading_before_any_load_selects_the_saved_model_without_a_load() {
+    let pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
+    let mut playground = PlaygroundPane::with_backend(Backend::Cpu);
+
+    let request = pane.unload_suggestion_model(&mut playground, StopReason::EnergySaver);
+
+    let shown = pane.page(&playground, &[model_file("model.gguf")]);
+    let menu = picker(&shown, SUGGESTION_MODEL);
+    assert_eq!(
+        (request, menu.choices, menu.selected),
+        (None, vec!["model".to_owned()], 0)
+    );
+}
+
+#[test]
 fn unloaded_suggestion_model_loads_again() {
     let pane = GeneralPane::new(suggestion_settings(Some(model_file("model.gguf"))));
     let mut playground = loaded_playground(Backend::Cpu, Ok(()));
-    playground.unload_model();
+    playground.unload_model(StopReason::Paused);
 
     let request = pane.load_suggestion_model(&mut playground);
 

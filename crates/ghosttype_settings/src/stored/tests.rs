@@ -2,8 +2,9 @@
 
 use super::*;
 use ghosttype_core::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextAccess,
-    ScreenTextApp, ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
+    EnergySaverRule, EnergySavingSettings, HistoryAccess, HistoryApp, HistoryScope, IdleTimeout, KeptTexts,
+    OcrLevel, PersonalizationSettings, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionApp,
+    SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -473,6 +474,78 @@ fn suggestion_length_reads_from_its_name() {
         ]
         .map(Some)
     );
+}
+
+#[test]
+fn idle_timeout_reads_from_its_name() {
+    let files = [
+        r#"{ "energy_saving": { "idle_timeout": "off" } }"#,
+        r#"{ "energy_saving": { "idle_timeout": "fifteen_minutes" } }"#,
+        r#"{ "energy_saving": { "idle_timeout": "thirty_minutes" } }"#,
+        r#"{ "energy_saving": { "idle_timeout": "sixty_minutes" } }"#,
+    ];
+
+    let timeouts = files.map(|json| {
+        parse(json)
+            .map(|settings| settings.energy_saving.idle_timeout)
+            .ok()
+    });
+
+    assert_eq!(
+        timeouts,
+        [
+            IdleTimeout::Off,
+            IdleTimeout::FifteenMinutes,
+            IdleTimeout::ThirtyMinutes,
+            IdleTimeout::SixtyMinutes,
+        ]
+        .map(Some)
+    );
+}
+
+#[test]
+fn energy_saver_rule_reads_from_its_name() {
+    let files = [
+        r#"{ "energy_saving": { "energy_saver": "stop_suggestions" } }"#,
+        r#"{ "energy_saving": { "energy_saver": "keep_suggestions" } }"#,
+    ];
+
+    let rules = files.map(|json| {
+        parse(json)
+            .map(|settings| settings.energy_saving.energy_saver)
+            .ok()
+    });
+
+    assert_eq!(
+        rules,
+        [
+            Some(EnergySaverRule::StopSuggestions),
+            Some(EnergySaverRule::KeepSuggestions)
+        ]
+    );
+}
+
+#[test]
+fn file_without_energy_saving_stops_after_30_minutes_and_in_energy_saver() {
+    let energy_saving = parse("{}").map(|settings| settings.energy_saving).ok();
+
+    assert_eq!(energy_saving, Some(EnergySavingSettings::default()));
+}
+
+#[test]
+fn energy_saving_survives_a_save_and_a_load() {
+    let energy_saving = EnergySavingSettings {
+        idle_timeout: IdleTimeout::SixtyMinutes,
+        energy_saver: EnergySaverRule::KeepSuggestions,
+    };
+    let settings = Settings {
+        energy_saving,
+        ..Settings::default()
+    };
+
+    let loaded = parse(&to_json(&settings)).map(|loaded| loaded.energy_saving).ok();
+
+    assert_eq!(loaded, Some(energy_saving));
 }
 
 #[test]

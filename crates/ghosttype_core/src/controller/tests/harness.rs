@@ -9,10 +9,11 @@ use std::time::Duration;
 use crate::app::{BadgeView, TrayCommand, TrayView};
 use crate::controller::{
     BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView,
-    MAX_CARET_MOVE_CHECKS, Services, Shell, Timer,
+    MAX_CARET_MOVE_CHECKS, Services, Shell, Startup, Timer,
 };
 use crate::desktop::{
-    CopiedText, Desktop, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, FieldText, OcrAvailability, ScreenReadId, ScreenSource,
+    Surroundings,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -238,16 +239,32 @@ impl Harness {
     }
 
     pub(super) fn with_backend_choice(settings: Settings, backend_choice: BackendChoice) -> Self {
-        Self::start(settings, backend_choice, Vec::new())
+        let startup = Startup {
+            backend_choice,
+            energy_saver: EnergySaver::Off,
+        };
+        Self::start(settings, startup, Vec::new())
+    }
+
+    pub(super) fn with_energy_saver(settings: Settings, energy_saver: EnergySaver) -> Self {
+        let startup = Startup {
+            backend_choice: BackendChoice::User,
+            energy_saver,
+        };
+        Self::start(settings, startup, Vec::new())
     }
 
     pub(super) fn with_kept_history(settings: Settings, kept_history: Vec<HistoryEntry>) -> Self {
-        Self::start(settings, BackendChoice::User, kept_history)
+        let startup = Startup {
+            backend_choice: BackendChoice::User,
+            energy_saver: EnergySaver::Off,
+        };
+        Self::start(settings, startup, kept_history)
     }
 
-    /// Starts the controller with the saved `settings`, and a history store that holds
-    /// `kept_history`.
-    fn start(settings: Settings, backend_choice: BackendChoice, kept_history: Vec<HistoryEntry>) -> Self {
+    /// Starts the controller with the saved `settings` and the state of the platform at
+    /// `startup`, and a history store that holds `kept_history`.
+    fn start(settings: Settings, startup: Startup, kept_history: Vec<HistoryEntry>) -> Self {
         let recorder = Rc::new(RefCell::new(Recorder {
             kept_history,
             ..Recorder::default()
@@ -268,7 +285,7 @@ impl Harness {
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
         };
         Self {
-            controller: Controller::new(settings, services, backend_choice, &deliver),
+            controller: Controller::new(settings, services, startup, &deliver),
             shell: FakeShell {
                 field: Field::Open,
                 surroundings: Surroundings::default(),
@@ -381,6 +398,14 @@ impl Harness {
 
     pub(super) fn settle_input(&mut self) {
         self.controller.on_timer(Timer::InputSettle, &mut self.shell);
+    }
+
+    pub(super) fn run_out_idle_timeout(&mut self) {
+        self.controller.on_timer(Timer::Idle, &mut self.shell);
+    }
+
+    pub(super) fn change_energy_saver(&mut self, energy_saver: EnergySaver) {
+        self.controller.on_energy_saver(energy_saver, &mut self.shell);
     }
 
     pub(super) fn toggle_pause(&mut self) {

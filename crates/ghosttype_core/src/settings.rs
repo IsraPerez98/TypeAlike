@@ -1,5 +1,6 @@
 //! The settings that GhostType keeps between runs, and the seams to the services that keep them.
 
+mod energy_saving;
 mod known_apps;
 mod personalization;
 mod screen_text;
@@ -10,6 +11,7 @@ use std::fmt;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
 
+pub use energy_saving::{EnergySaverRule, EnergySavingSettings, IdleTimeout};
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };
@@ -195,6 +197,8 @@ pub struct Settings {
     pub screen_text: ScreenTextSettings,
     /// What suggestions learn from the earlier writing of the user.
     pub personalization: PersonalizationSettings,
+    /// When GhostType stops suggestions and unloads the suggestion model to save energy.
+    pub energy_saving: EnergySavingSettings,
     /// When GhostType gives the text around the caret to the model.
     pub prompt_preparation: PromptPreparation,
     /// When the ghost text shows the words that the model writes.

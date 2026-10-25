@@ -9,6 +9,7 @@ use windows_reactor::{EncodedImage, Icon, Symbol};
 use crate::system_theme::Contrast;
 
 const ROBOT_GLYPH: &str = "\u{E99A}";
+const LIGHTBULB_GLYPH: &str = "\u{EA80}";
 
 /// The glyph that shows `icon` at the leading edge of a card. Each glyph is in Segoe Fluent Icons
 /// and also in Segoe MDL2 Assets, the icon font of Windows 10.
@@ -32,6 +33,8 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
         RowIcon::FloppyDisk => "\u{E74E}",
         RowIcon::Letters => "\u{E8D2}",
         RowIcon::Pencil => "\u{E70F}",
+        RowIcon::Moon => "\u{E708}",
+        RowIcon::Battery => "\u{EA95}",
     }
 }
 
@@ -51,6 +54,7 @@ fn color_page_icon(icon: PageIcon) -> &'static [u8] {
         PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.svg"),
         PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.svg"),
         PageIcon::AppGrid => include_bytes!("../../assets/fluent/apps.svg"),
+        PageIcon::Lightbulb => include_bytes!("../../assets/fluent/lightbulb.svg"),
     }
 }
 
@@ -62,5 +66,6 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
         PageIcon::TextViewfinder => Symbol::Scan.into(),
         PageIcon::PersonText => Symbol::ContactInfo.into(),
         PageIcon::AppGrid => Symbol::AllApps.into(),
+        PageIcon::Lightbulb => Icon::font(LIGHTBULB_GLYPH),
     }
 }

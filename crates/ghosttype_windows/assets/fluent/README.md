@@ -10,6 +10,7 @@ These are the page icons of the settings window on Windows. They come from the F
 | `bot.svg` | `ic_fluent_bot_20_color` | `PageIcon::Cube` |
 | `edit.svg` | `ic_fluent_edit_20_color` | `PageIcon::TextCursor` |
 | `apps.svg` | `ic_fluent_apps_20_color` | `PageIcon::AppGrid` |
+| `lightbulb.svg` | `ic_fluent_lightbulb_20_color` | `PageIcon::Lightbulb` |
 
 The icons are the same as in the source, but each view box is cut to the live area of the icon (`2 2 16 16`), and the size is 16 px. Thus each icon fills the 16 px icon box of the navigation at scale 1. The teeth of `settings.svg` go 0.5 px past the live area, so its view box is `1.5 1.5 17 17`.
 

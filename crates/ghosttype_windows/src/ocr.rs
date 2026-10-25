@@ -10,20 +10,20 @@ use std::num::TryFromIntError;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use ghosttype_core::desktop::{Confidence, OcrAvailability, ScreenLine, ScreenText};
+use ghosttype_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
 use windows::Foundation::Metadata::ApiInformation;
 use windows::Foundation::Rect;
 use windows::Graphics::Capture::GraphicsCaptureSession;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::{OcrEngine, OcrLine};
 use windows::Storage::Streams::DataWriter;
-use windows::System::Power::{EnergySaverStatus, PowerManager};
 use windows::Win32::Foundation::POINT;
 use windows::core::h;
 
 use self::capture::{Band, Capturer};
 use self::geometry::PixelRect;
 use crate::display::round_to_pixel;
+use crate::energy_saver;
 use crate::focus::foreground_hwnd;
 use crate::uia::{FocusedField, Uia};
 use crate::window::WindowId;
@@ -61,14 +61,10 @@ impl OcrSupport {
     pub(crate) fn availability(self) -> OcrAvailability {
         match self {
             Self::Unsupported => OcrAvailability::Unsupported,
-            Self::Supported if is_saving_energy() => OcrAvailability::SavingPower,
+            Self::Supported if energy_saver::read() == EnergySaver::On => OcrAvailability::SavingPower,
             Self::Supported => OcrAvailability::Ready,
         }
     }
-}
-
-fn is_saving_energy() -> bool {
-    PowerManager::EnergySaverStatus().is_ok_and(|status| status == EnergySaverStatus::On)
 }
 
 /// Why an OCR read failed.

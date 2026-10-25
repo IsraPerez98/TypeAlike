@@ -13,10 +13,11 @@ use dispatch2::DispatchQueue;
 use ghosttype_core::app::{BadgeMenu, BadgeView, TrayView};
 use ghosttype_core::controller::{
     BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost,
-    GhostPlacement, GhostView, Services, Shell, Timer,
+    GhostPlacement, GhostView, Services, Shell, Startup, Timer,
 };
 use ghosttype_core::desktop::{
-    CopiedText, Desktop, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource,
+    Surroundings,
 };
 use ghosttype_core::inference::Backend;
 use ghosttype_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
@@ -35,6 +36,7 @@ use crate::accessibility;
 use crate::badge::Badge;
 use crate::badge_menu;
 use crate::clipboard::ClipboardWatch;
+use crate::energy_saver::{self, EnergySaverObserver};
 use crate::event_tap::EventTap;
 use crate::focus::{FocusTracker, TextStyle};
 use crate::geometry::{Caret, screen_rect, whole_points_up};
@@ -67,12 +69,13 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
-    let controller = Controller::new(
-        settings,
-        services,
-        BackendChoice::Platform(Backend::Metal),
-        &deliver,
-    );
+    let energy_saver_observer = EnergySaverObserver::start(on_energy_saver_change);
+    let startup = Startup {
+        backend_choice: BackendChoice::Platform(Backend::Metal),
+        energy_saver: energy_saver::read(),
+    };
+    tracing::info!(energy_saver = ?startup.energy_saver, "read Low Power Mode");
+    let controller = Controller::new(settings, services, startup, &deliver);
     let menu_bar = MenuBarItem::add(
         &controller.tray_view(),
         Retained::into_super(target.clone()),
@@ -98,6 +101,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             caret_timer: None,
             settle_timer: None,
             tab_hold_timer: None,
+            idle_timer: None,
             pending_injections: VecDeque::new(),
             settings: None,
         },
@@ -108,8 +112,14 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     }));
     tracing::info!("running in the menu bar");
     application.run();
+    drop(energy_saver_observer);
     RUNTIME.take();
     Ok(())
+}
+
+/// Gives the new state of Low Power Mode to the runtime, on the main thread.
+fn on_energy_saver_change(energy_saver: EnergySaver) {
+    with_runtime(|runtime| runtime.on_energy_saver(energy_saver));
 }
 
 /// Gives `delivery` to the runtime on the main thread, from any thread.
@@ -193,6 +203,16 @@ impl Runtime {
         self.controller.on_timer(Timer::TabHold, &mut self.shell);
     }
 
+    fn on_idle_timeout(&mut self) {
+        self.shell.idle_timer = None;
+        self.controller.on_timer(Timer::Idle, &mut self.shell);
+    }
+
+    fn on_energy_saver(&mut self, energy_saver: EnergySaver) {
+        tracing::info!(?energy_saver, "Low Power Mode changed");
+        self.controller.on_energy_saver(energy_saver, &mut self.shell);
+    }
+
     fn on_space_change(&mut self) {
         self.controller.on_context_lost(&mut self.shell);
         self.controller.on_input(&mut self.shell);
@@ -261,6 +281,7 @@ struct AppKitShell {
     caret_timer: Option<Retained<NSTimer>>,
     settle_timer: Option<Retained<NSTimer>>,
     tab_hold_timer: Option<Retained<NSTimer>>,
+    idle_timer: Option<Retained<NSTimer>>,
     /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
@@ -315,6 +336,7 @@ impl AppKitShell {
             Timer::CaretSettle => &mut self.caret_timer,
             Timer::InputSettle => &mut self.settle_timer,
             Timer::TabHold => &mut self.tab_hold_timer,
+            Timer::Idle => &mut self.idle_timer,
         }
     }
 }
@@ -406,6 +428,7 @@ impl Shell for AppKitShell {
             Timer::CaretSettle => sel!(caretDidSettle:),
             Timer::InputSettle => sel!(inputDidSettle:),
             Timer::TabHold => sel!(tabHoldDidEnd:),
+            Timer::Idle => sel!(idleTimeoutDidEnd:),
         };
         let scheduled = self.schedule(delay.as_secs_f64(), action);
         *self.timer_slot(timer) = Some(scheduled);

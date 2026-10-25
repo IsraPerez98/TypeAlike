@@ -159,6 +159,7 @@ fn page_look(icon: PageIcon) -> (&'static str, Retained<NSColor>) {
         PageIcon::Cube => ("cube.fill", NSColor::systemPurpleColor()),
         PageIcon::TextCursor => ("text.cursor", NSColor::systemGreenColor()),
         PageIcon::AppGrid => ("square.grid.2x2.fill", NSColor::systemIndigoColor()),
+        PageIcon::Lightbulb => ("lightbulb.fill", NSColor::systemYellowColor()),
     }
 }
 

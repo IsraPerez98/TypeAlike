@@ -15,9 +15,10 @@ fn input_waits_for_input_to_settle() {
 
     harness.controller.on_input(&mut harness.shell);
 
-    assert_eq!(
-        harness.take_calls(),
-        vec![Call::StartTimer(Timer::InputSettle, INPUT_SETTLE_DELAY)]
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::StartTimer(Timer::InputSettle, INPUT_SETTLE_DELAY))
     );
 }
 

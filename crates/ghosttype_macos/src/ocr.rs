@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
-use ghosttype_core::desktop::{Confidence, OcrAvailability, ScreenLine, ScreenText};
+use ghosttype_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
 use ghosttype_core::settings::OcrLevel;
 use objc2::AllocAnyThread;
 use objc2::rc::Retained;
@@ -17,12 +17,13 @@ use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
     CGDataProvider, CGImage, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
 };
-use objc2_foundation::{NSArray, NSDictionary, NSError, NSProcessInfo, NSString, NSURL};
+use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
 use objc2_screen_capture_kit::{
     SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration, SCWindow,
 };
 use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel};
 
+use crate::energy_saver;
 use crate::focus::{self, FocusedField};
 use crate::geometry::{contains, moved_by, screen_rect};
 
@@ -39,7 +40,7 @@ pub(crate) fn availability() -> OcrAvailability {
     if !CGPreflightScreenCaptureAccess() {
         return OcrAvailability::NotPermitted;
     }
-    if NSProcessInfo::processInfo().isLowPowerModeEnabled() {
+    if energy_saver::read() == EnergySaver::On {
         return OcrAvailability::SavingPower;
     }
     OcrAvailability::Ready

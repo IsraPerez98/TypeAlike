@@ -16,6 +16,18 @@ const UNLOADED: Note = Note {
     tone: NoteTone::Plain,
 };
 
+const UNLOADED_TO_SAVE_ENERGY: Note = Note {
+    text: "Suggestions are off to save energy. GhostType loads the model again when energy saver or Low \
+           Power Mode goes off.",
+    tone: NoteTone::Plain,
+};
+
+const UNLOADED_AFTER_IDLE_TIMEOUT: Note = Note {
+    text: "GhostType unloaded the model after a time without input. It loads the model again when you \
+           type in a text field.",
+    tone: NoteTone::Plain,
+};
+
 fn prompt(text: &str) -> Prompt {
     prompt::framed_prompt(&[], text)
 }
@@ -484,7 +496,7 @@ fn selecting_another_loaded_model_loads_it() {
 fn unloading_the_loaded_model_asks_the_runner_to_unload_it() {
     let mut pane = ready_pane(&model_file("a.gguf"));
 
-    let request = pane.unload_model();
+    let request = pane.unload_model(StopReason::Paused);
 
     assert_eq!(request, Some(InferenceRequest::Unload));
 }
@@ -493,7 +505,7 @@ fn unloading_the_loaded_model_asks_the_runner_to_unload_it() {
 fn unloading_without_a_model_does_nothing() {
     let mut pane = PlaygroundPane::new();
 
-    let request = pane.unload_model();
+    let request = pane.unload_model(StopReason::Paused);
 
     assert_eq!(request, None);
 }
@@ -503,7 +515,7 @@ fn unloaded_model_stays_selected_and_tells_that_suggestions_are_paused() {
     let file = model_file("a.gguf");
     let mut pane = ready_pane(&file);
 
-    pane.unload_model();
+    pane.unload_model(StopReason::Paused);
 
     let shown = pane.page(std::slice::from_ref(&file));
     let menu = model_menu(&shown);
@@ -519,10 +531,74 @@ fn unloaded_model_stays_selected_and_tells_that_suggestions_are_paused() {
 }
 
 #[test]
+fn unloading_an_unloaded_model_sends_no_request() {
+    let mut pane = ready_pane(&model_file("a.gguf"));
+    pane.unload_model(StopReason::Paused);
+
+    let request = pane.unload_model(StopReason::EnergySaver);
+
+    assert_eq!(request, None);
+}
+
+#[test]
+fn unloaded_model_tells_why_it_is_unloaded() {
+    let file = model_file("a.gguf");
+    let reasons = [StopReason::Paused, StopReason::EnergySaver, StopReason::Idle];
+
+    let notes = reasons.map(|reason| {
+        let mut pane = ready_pane(&file);
+        pane.unload_model(reason);
+        model_menu(&pane.page(std::slice::from_ref(&file))).note
+    });
+
+    assert_eq!(
+        notes,
+        [UNLOADED, UNLOADED_TO_SAVE_ENERGY, UNLOADED_AFTER_IDLE_TIMEOUT].map(Some)
+    );
+}
+
+#[test]
+fn second_unload_tells_its_own_reason() {
+    let file = model_file("a.gguf");
+    let mut pane = ready_pane(&file);
+    pane.unload_model(StopReason::Idle);
+
+    pane.unload_model(StopReason::Paused);
+
+    let shown = pane.page(std::slice::from_ref(&file));
+    assert_eq!(model_menu(&shown).note, Some(UNLOADED));
+}
+
+#[test]
+fn model_selected_without_a_load_shows_as_unloaded() {
+    let file = model_file("a.gguf");
+    let mut pane = PlaygroundPane::new();
+
+    pane.select_unloaded_model(file.clone(), StopReason::EnergySaver);
+
+    let shown = pane.page(std::slice::from_ref(&file));
+    let menu = model_menu(&shown);
+    assert_eq!(
+        (pane.loaded_model(), menu.selected, menu.note),
+        (None, 0, Some(UNLOADED_TO_SAVE_ENERGY))
+    );
+}
+
+#[test]
+fn selecting_without_a_load_keeps_the_selected_model() {
+    let file = model_file("a.gguf");
+    let mut pane = ready_pane(&file);
+
+    pane.select_unloaded_model(model_file("b.gguf"), StopReason::EnergySaver);
+
+    assert_eq!(pane.loaded_model(), Some(&file));
+}
+
+#[test]
 fn selecting_the_unloaded_model_loads_it_again() {
     let file = model_file("a.gguf");
     let mut pane = ready_pane(&file);
-    pane.unload_model();
+    pane.unload_model(StopReason::Paused);
 
     let request = pane.on_action(PlaygroundAction::SelectModel(file.clone()));
 
@@ -540,7 +616,7 @@ fn load_that_ends_after_an_unload_is_ignored() {
     let file = model_file("a.gguf");
     let mut pane = PlaygroundPane::new();
     pane.on_action(PlaygroundAction::SelectModel(file.clone()));
-    pane.unload_model();
+    pane.unload_model(StopReason::Paused);
 
     pane.on_event(InferenceEvent::Loaded { file, result: Ok(()) });
 
@@ -550,7 +626,7 @@ fn load_that_ends_after_an_unload_is_ignored() {
 #[test]
 fn changing_the_backend_does_not_load_an_unloaded_model() {
     let mut pane = ready_pane(&model_file("a.gguf"));
-    pane.unload_model();
+    pane.unload_model(StopReason::Paused);
 
     let request = pane.change_backend(Backend::Vulkan);
 

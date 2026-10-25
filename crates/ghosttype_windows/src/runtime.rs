@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use std::sync::mpsc;
 
 use ghosttype_core::app::BadgeMenu;
-use ghosttype_core::controller::{BackendChoice, Controller, Delivery, Services, Shell, Timer};
+use ghosttype_core::controller::{BackendChoice, Controller, Delivery, Services, Shell, Startup, Timer};
+use ghosttype_core::desktop::EnergySaver;
 use ghosttype_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
 use ghosttype_core::settings::Settings;
 use ghosttype_core::settings_window::view::SettingsInput;
@@ -31,6 +32,7 @@ use crate::RunError;
 use crate::badge::Badge;
 use crate::caret_reader::{CaretAnswer, CaretReader, FieldRead, KeptFieldText, NewestCaret};
 use crate::clipboard::ClipboardWatch;
+use crate::energy_saver::{self, EnergySaverWatch};
 use crate::focus::FocusTracker;
 use crate::injection::{self, INJECTION_TAG, ReplacementQueue};
 use crate::keys;
@@ -48,6 +50,7 @@ const CARET_TIMER_ID: usize = 1;
 const SETTLE_TIMER_ID: usize = 2;
 const FIELD_TIMER_ID: usize = 3;
 const TAB_HOLD_TIMER_ID: usize = 4;
+const IDLE_TIMER_ID: usize = 5;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -55,6 +58,7 @@ const SETTINGS_INPUT_MESSAGE: u32 = WM_APP + 5;
 const BADGE_CLICK_MESSAGE: u32 = WM_APP + 6;
 const FIELD_READ_MESSAGE: u32 = WM_APP + 7;
 const SCREEN_READ_MESSAGE: u32 = WM_APP + 8;
+const ENERGY_SAVER_MESSAGE: u32 = WM_APP + 9;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const QUIT_RECEIVED: i32 = 0;
@@ -100,12 +104,16 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let settings_thread =
         SettingsThread::start(settings_mailbox).map_err(RunError::during("start the settings window"))?;
     let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
-    let controller = Controller::new(
-        settings,
-        services,
-        BackendChoice::User,
-        &delivery_mailbox.into_sink(),
-    );
+    let (energy_saver_mailbox, energy_saver_changes) = Mailbox::new(window.handle(), ENERGY_SAVER_MESSAGE);
+    let energy_saver_watch = EnergySaverWatch::start(energy_saver_mailbox)
+        .inspect_err(|error| tracing::warn!(%error, "failed to watch the energy saver"))
+        .ok();
+    let startup = Startup {
+        backend_choice: BackendChoice::User,
+        energy_saver: energy_saver::read(),
+    };
+    tracing::info!(energy_saver = ?startup.energy_saver, "read the energy saver");
+    let controller = Controller::new(settings, services, startup, &delivery_mailbox.into_sink());
     let tray =
         Tray::add(window.handle(), &controller.tray_view()).map_err(RunError::during("add the tray icon"))?;
     // SAFETY: plain call with a static, nul-terminated name.
@@ -147,13 +155,14 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             caret_reads,
             field_reads,
             screen_reads,
+            energy_saver_changes,
         }))
     });
     // The focused field counts as a password field until a read of it tells otherwise.
     with_runtime(|runtime| runtime.shell.read_field_text());
     tracing::info!("running in the tray");
     let run_outcome = pump_messages();
-    drop((keyboard_hook, mouse_hook, focus_hook));
+    drop((keyboard_hook, mouse_hook, focus_hook, energy_saver_watch));
     STATE.with(|state| state.runtime.take());
     run_outcome
 }
@@ -224,6 +233,7 @@ struct Runtime {
     caret_reads: mpsc::Receiver<CaretAnswer>,
     field_reads: mpsc::Receiver<FieldRead>,
     screen_reads: mpsc::Receiver<ScreenAnswer>,
+    energy_saver_changes: mpsc::Receiver<EnergySaver>,
 }
 
 impl Runtime {
@@ -306,6 +316,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == SETTLE_TIMER_ID => self.on_timer(Timer::InputSettle),
             WM_TIMER if wparam.0 == FIELD_TIMER_ID => self.shell.read_field_text(),
             WM_TIMER if wparam.0 == TAB_HOLD_TIMER_ID => self.on_timer(Timer::TabHold),
+            WM_TIMER if wparam.0 == IDLE_TIMER_ID => self.on_timer(Timer::Idle),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }
@@ -314,6 +325,7 @@ impl Runtime {
             CARET_READ_MESSAGE => self.take_caret_reads(),
             FIELD_READ_MESSAGE => self.take_field_reads(),
             SCREEN_READ_MESSAGE => self.take_screen_reads(),
+            ENERGY_SAVER_MESSAGE => self.take_energy_saver_changes(),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if Some(message) == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
@@ -367,6 +379,15 @@ impl Runtime {
             tracing::debug!(read = ?answer.read.id, trip = ?answer.sent.elapsed(), "screen read reached the main thread");
             self.controller
                 .on_delivery(Delivery::Screen(answer.read), &mut self.shell);
+        }
+    }
+
+    /// Gives the newest state of the energy saver to the controller. A state that a newer state
+    /// follows in the channel changes nothing.
+    fn take_energy_saver_changes(&mut self) {
+        if let Some(energy_saver) = self.energy_saver_changes.try_iter().last() {
+            tracing::info!(?energy_saver, "the energy saver changed");
+            self.controller.on_energy_saver(energy_saver, &mut self.shell);
         }
     }
 }

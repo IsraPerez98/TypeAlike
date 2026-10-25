@@ -68,6 +68,8 @@ pub enum PageIcon {
     PersonText,
     /// A grid of apps, for the apps and the websites where suggestions show.
     AppGrid,
+    /// A light bulb, for the energy that GhostType uses.
+    Lightbulb,
 }
 
 /// The picture before the label of a setting, such as the icon at the leading edge of a card of
@@ -110,6 +112,10 @@ pub enum RowIcon {
     Letters,
     /// A pencil, for the text that the user writes.
     Pencil,
+    /// A moon, for a time when the user does not type or click.
+    Moon,
+    /// A battery, for the energy saver of the computer.
+    Battery,
 }
 
 /// A field that searches for the text that the user submits.

@@ -343,6 +343,7 @@ fn panes_show_in_the_order_of_the_navigation() {
             "Apps and websites",
             "Screen text",
             "Personalization",
+            "Energy saving",
             "Models",
             "Playground"
         ]
