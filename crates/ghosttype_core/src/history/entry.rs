@@ -11,9 +11,6 @@ use crate::place::Place;
 const MIN_KEPT_CHARS: usize = 5;
 /// The most characters of a text that GhostType saves, from its end.
 const MAX_KEPT_CHARS: usize = 1000;
-/// The characters at the start or at the end of two texts that make them near copies, when they
-/// are the same.
-const MIN_SHARED_CHARS: usize = 80;
 
 /// One text that the user wrote, which later prompts can show as an example. `Debug` shows only
 /// its length and its app, so logs never hold what the user wrote.
@@ -59,19 +56,6 @@ impl HistoryEntry {
 
     pub(super) fn place(&self) -> Place<&str> {
         Place::of(&self.app_id, self.domain.as_deref())
-    }
-
-    /// Whether the texts start with the same [`MIN_SHARED_CHARS`] characters, or end with them.
-    pub(super) fn shares_an_edge_with(&self, other: &Self) -> bool {
-        let is_long = |entry: &Self| entry.text.chars().count() >= MIN_SHARED_CHARS;
-        is_long(self)
-            && is_long(other)
-            && (self
-                .text
-                .chars()
-                .take(MIN_SHARED_CHARS)
-                .eq(other.text.chars().take(MIN_SHARED_CHARS))
-                || last_chars(&self.text, MIN_SHARED_CHARS) == last_chars(&other.text, MIN_SHARED_CHARS))
     }
 
     pub(super) fn overlaps(&self, other: &Self) -> bool {

@@ -66,9 +66,8 @@ fn is_known(
 
 /// Adds `entry` as the newest of `entries`. An older entry of the same place and the same pool of
 /// `personalization` whose text the new text holds goes, and the new entry does not come when such
-/// an older one holds its text. Such an older entry that starts or ends like the new text (a near
-/// copy) also goes. While the entries have more than [`MAX_STORED_CHARS`] characters or are more
-/// than [`MAX_STORED_ENTRIES`], the oldest entry goes, in any place and in any pool.
+/// an older one holds its text. While the entries have more than [`MAX_STORED_CHARS`] characters
+/// or are more than [`MAX_STORED_ENTRIES`], the oldest entry goes, in any place and in any pool.
 pub(crate) fn add(
     entries: &mut Vec<HistoryEntry>,
     entry: HistoryEntry,
@@ -77,10 +76,8 @@ pub(crate) fn add(
     if is_known(entries, &entry, personalization) {
         return;
     }
-    entries.retain(|known| {
-        let is_replaced = entry.text.contains(&known.text) || entry.shares_an_edge_with(known);
-        !(is_same_spot(known, &entry, personalization) && is_replaced)
-    });
+    entries
+        .retain(|known| !(is_same_spot(known, &entry, personalization) && entry.text.contains(&known.text)));
     entries.push(entry);
     let excess = excess_of(entries);
     entries.drain(..excess);
@@ -348,38 +345,32 @@ mod tests {
     }
 
     #[test]
-    fn added_entry_replaces_a_near_copy_with_an_edit_in_the_middle() {
-        let start = "Dear Ana, I send you the report of the third quarter with all the numbers.";
-        let old = format!("{start} The costs went down by two percent. Best, Tom");
-        let new = format!("{start} The costs went down by four percent. Best, Tom");
-        let mut entries = vec![mail(&old)];
+    fn text_with_the_same_closing_keeps_the_older_text_of_its_place() {
+        let closing =
+            "I look forward to your comments.\nBest regards,\nCamila Aranguiz\nAcademic Coordinator";
+        let older = mail(&format!(
+            "Dear Mr. Poblete, I confirm the date of the visit.\n\n{closing}"
+        ));
+        let newer = mail(&format!(
+            "Dear Ms. Tamara, here are the costs of the quarter.\n\n{closing}"
+        ));
+        let mut entries = vec![older.clone()];
 
-        add(&mut entries, mail(&new), &shared());
+        add(&mut entries, newer.clone(), &shared());
 
-        assert_eq!(entries, [mail(&new)]);
+        assert_eq!(entries, [older, newer]);
     }
 
     #[test]
-    fn added_entry_replaces_a_near_copy_with_an_edit_at_its_start() {
-        let end = "the numbers of the third quarter are ready and the costs went down. Best, Tom";
-        let mut entries = vec![mail(&format!("Hi Ana, {end}"))];
+    fn text_with_the_same_opening_keeps_the_older_text_of_its_place() {
+        let opening = "Hello, thank you for your message to the support team. We received your ticket and";
+        let older = mail(&format!("{opening} we will call you about the printer today."));
+        let newer = mail(&format!("{opening} the new password is in a separate mail."));
+        let mut entries = vec![older.clone()];
 
-        add(&mut entries, mail(&format!("Hello Anna, {end}")), &shared());
+        add(&mut entries, newer.clone(), &shared());
 
-        assert_eq!(entries, [mail(&format!("Hello Anna, {end}"))]);
-    }
-
-    #[test]
-    fn short_texts_with_the_same_greeting_stay_two_entries() {
-        let mut entries = vec![mail("Dear Ana, the report is ready for you.")];
-
-        add(
-            &mut entries,
-            mail("Dear Ana, the meeting moved to Friday."),
-            &shared(),
-        );
-
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries, [older, newer]);
     }
 
     #[test]
@@ -409,16 +400,6 @@ mod tests {
         add(&mut entries, continued.clone(), &safari_on_its_own());
 
         assert_eq!(entries, [draft, continued]);
-    }
-
-    #[test]
-    fn near_copy_in_another_place_stays() {
-        let text = "Dear Ana, I send you the report of the third quarter with all the numbers. Best, Tom";
-        let mut entries = vec![entry(text, "com.apple.Notes", None)];
-
-        add(&mut entries, mail(&format!("{text} PS")), &shared());
-
-        assert_eq!(entries.len(), 2);
     }
 
     fn chat(text: &str) -> HistoryEntry {
