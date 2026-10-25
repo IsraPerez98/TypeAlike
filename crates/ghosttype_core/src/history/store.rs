@@ -1,17 +1,19 @@
 //! The store of kept texts and the pool of each app. It adds a new text, finds the part of a text
 //! that the user wrote, and gives the texts of a session.
 
-use std::collections::HashMap;
-
 use super::entry::HistoryEntry;
 use crate::desktop::Surroundings;
 use crate::excerpt::from_word;
 use crate::place::Place;
 use crate::settings::{HistoryScope, PersonalizationSettings};
 
-/// The most texts that GhostType keeps. The oldest text of the place with the most texts goes
-/// first.
-const MAX_ENTRIES: usize = 2000;
+/// The most characters of all the kept texts together. Above it, the oldest texts go first. It
+/// keeps the time to rank the examples and to build the tables on the main thread short.
+const MAX_STORED_CHARS: usize = 1_000_000;
+/// The most texts that GhostType keeps, also when their characters are under
+/// [`MAX_STORED_CHARS`]. It limits the time to rank the examples and to build the tables of a store
+/// of many short texts. Above it, the oldest texts go first.
+const MAX_STORED_ENTRIES: usize = 10_000;
 /// The share of a text, in percent, that the user must add in a session for GhostType to keep the
 /// whole text. With a smaller share, GhostType keeps only the added part.
 const MIN_OWN_PERCENT: usize = 50;
@@ -65,8 +67,8 @@ fn is_known(
 /// Adds `entry` as the newest of `entries`. An older entry of the same place and the same pool of
 /// `personalization` whose text the new text holds goes, and the new entry does not come when such
 /// an older one holds its text. Such an older entry that starts or ends like the new text (a near
-/// copy) also goes. While there are more than [`MAX_ENTRIES`], the oldest entry of the place with
-/// the most entries goes, so that a busy place does not push out the texts of the rare places.
+/// copy) also goes. While the entries have more than [`MAX_STORED_CHARS`] characters or are more
+/// than [`MAX_STORED_ENTRIES`], the oldest entry goes, in any place and in any pool.
 pub(crate) fn add(
     entries: &mut Vec<HistoryEntry>,
     entry: HistoryEntry,
@@ -80,24 +82,24 @@ pub(crate) fn add(
         !(is_same_spot(known, &entry, personalization) && is_replaced)
     });
     entries.push(entry);
-    while entries.len() > MAX_ENTRIES {
-        let oldest = oldest_of_largest_place(entries);
-        entries.remove(oldest);
-    }
+    let excess = excess_of(entries);
+    entries.drain(..excess);
 }
 
-/// Returns the index of the oldest of `entries` in the place with the most entries. Among places
-/// with the same number of entries, the place with the oldest entry goes first.
-fn oldest_of_largest_place(entries: &[HistoryEntry]) -> usize {
-    let mut counts = HashMap::<Place<&str>, usize>::new();
-    for entry in entries {
-        *counts.entry(entry.place()).or_default() += 1;
-    }
-    let largest = counts.values().copied().max().unwrap_or_default();
-    entries
+/// Returns how many of the oldest `entries` must go so that the rest have at most
+/// [`MAX_STORED_CHARS`] characters and are at most [`MAX_STORED_ENTRIES`].
+fn excess_of(entries: &[HistoryEntry]) -> usize {
+    let kept = entries
         .iter()
-        .position(|entry| counts[&entry.place()] == largest)
-        .unwrap_or_default()
+        .rev()
+        .take(MAX_STORED_ENTRIES)
+        .scan(0, |kept_chars, entry| {
+            *kept_chars += entry.text.chars().count();
+            Some(*kept_chars)
+        })
+        .take_while(|&kept_chars| kept_chars <= MAX_STORED_CHARS)
+        .count();
+    entries.len() - kept
 }
 
 /// The text before the caret at the end of a session, with its place.
@@ -419,31 +421,72 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 
+    fn chat(text: &str) -> HistoryEntry {
+        entry(text, "net.whatsapp.WhatsApp", None)
+    }
+
+    fn text_of(letter: char, chars: usize) -> String {
+        std::iter::repeat_n(letter, chars).collect()
+    }
+
+    fn numbered_mails(count: usize) -> Vec<HistoryEntry> {
+        (0..count).map(|index| mail(&format!("text {index}."))).collect()
+    }
+
     #[test]
-    fn full_store_of_one_place_drops_its_oldest_entry() {
-        let mut entries = (0..MAX_ENTRIES)
-            .map(|index| mail(&format!("text {index}.")))
-            .collect::<Vec<_>>();
+    fn short_texts_under_the_character_limit_all_stay() {
+        let mut entries = numbered_mails(MAX_STORED_ENTRIES - 1);
 
         add(&mut entries, mail("newest"), &shared());
 
-        assert_eq!(entries.len(), MAX_ENTRIES);
+        assert_eq!(entries.len(), MAX_STORED_ENTRIES);
+        assert_eq!(entries.first(), Some(&mail("text 0.")));
+    }
+
+    #[test]
+    fn new_text_pushes_out_the_oldest_text_of_the_store_in_another_place() {
+        let document = entry(&text_of('d', MAX_STORED_CHARS / 2), "md.obsidian", None);
+        let old_chat = chat(&text_of('c', MAX_STORED_CHARS / 2));
+        let mut entries = vec![document, old_chat.clone()];
+
+        add(&mut entries, chat("newest chat."), &shared());
+
+        assert_eq!(entries, [old_chat, chat("newest chat.")]);
+    }
+
+    #[test]
+    fn store_at_the_character_limit_keeps_all_its_texts() {
+        let newest = chat("newest chat.");
+        let old_chat = chat(&text_of('c', MAX_STORED_CHARS - newest.text.chars().count()));
+        let mut entries = vec![old_chat.clone()];
+
+        add(&mut entries, newest.clone(), &shared());
+
+        assert_eq!(entries, [old_chat, newest]);
+    }
+
+    #[test]
+    fn count_guard_pushes_out_the_oldest_text_under_the_character_limit() {
+        let mut entries = numbered_mails(MAX_STORED_ENTRIES);
+
+        add(&mut entries, mail("newest"), &shared());
+
+        assert_eq!(entries.len(), MAX_STORED_ENTRIES);
         assert_eq!(entries.first(), Some(&mail("text 1.")));
         assert_eq!(entries.last(), Some(&mail("newest")));
     }
 
     #[test]
-    fn full_store_drops_the_oldest_text_of_the_place_with_the_most_texts() {
-        let chat = |text: &str| entry(text, "net.whatsapp.WhatsApp", None);
-        let document = entry("Notes on the roof repair.", "md.obsidian", None);
-        let mut entries = std::iter::once(document.clone())
-            .chain((1..MAX_ENTRIES).map(|index| chat(&format!("chat {index}."))))
+    fn store_over_the_character_limit_drops_its_oldest_texts_until_it_is_under_it() {
+        let quarter = MAX_STORED_CHARS / 4;
+        let kept = [mail(&text_of('c', 2 * quarter)), mail(&text_of('d', quarter))];
+        let mut entries = [mail(&text_of('a', quarter)), mail(&text_of('b', quarter))]
+            .into_iter()
+            .chain(kept.clone())
             .collect::<Vec<_>>();
 
         add(&mut entries, chat("newest chat."), &shared());
 
-        assert_eq!(entries.len(), MAX_ENTRIES);
-        assert_eq!(entries[..2], [document, chat("chat 2.")]);
-        assert_eq!(entries.last(), Some(&chat("newest chat.")));
+        assert_eq!(entries, [kept[0].clone(), kept[1].clone(), chat("newest chat.")]);
     }
 }
