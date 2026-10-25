@@ -379,3 +379,106 @@ fn place_without_entries_has_no_examples() {
 
     assert_eq!(examples, Vec::<&str>::new());
 }
+
+fn chat(text: &str) -> HistoryEntry {
+    entry(text, "net.whatsapp.WhatsApp", None)
+}
+
+fn chat_field(before_caret: &str) -> Surroundings {
+    field_in("net.whatsapp.WhatsApp", None, before_caret)
+}
+
+const DINNER: &str = "Dinner with Ana and Leo on Friday at eight.";
+const PRINTER: &str = "The printer on the second floor works again.";
+
+#[test]
+fn text_with_more_copies_is_the_first_example_among_texts_that_match_the_same() {
+    let entries = [
+        chat("Hola chiquillas, ¿cómo están?"),
+        chat("Hola chiquillas, ¿cómo están?"),
+        chat(DINNER),
+        chat(PRINTER),
+        chat("Hola chiquillas, nos vemos el jueves"),
+    ];
+
+    let examples = examples_with(&entries, &chat_field("Hola chiquillas, "), None, 1);
+
+    assert_eq!(examples, ["Hola chiquillas, ¿cómo están?"]);
+}
+
+#[test]
+fn near_copy_of_a_picked_example_is_no_example_and_the_next_match_takes_its_place() {
+    let entries = [
+        chat("Vale, nos vemos el lunes en la oficina"),
+        chat(DINNER),
+        chat(PRINTER),
+        chat("Vale, perfecto, nos vemos mañana"),
+        chat("Vale, perfeto, nos vemos mañana"),
+    ];
+
+    let examples = examples_in(&entries, &chat_field("Vale, "));
+
+    assert_eq!(
+        examples,
+        [
+            "Vale, nos vemos el lunes en la oficina",
+            "Vale, perfeto, nos vemos mañana"
+        ]
+    );
+}
+
+#[test]
+fn near_copy_with_more_copies_stays_also_when_the_other_text_is_newer() {
+    let entries = [
+        chat("Vale, perfecto, nos vemos mañana"),
+        chat("Vale, perfecto, nos vemos mañana"),
+        chat(DINNER),
+        chat(PRINTER),
+        chat("Vale, perfeto, nos vemos mañana"),
+    ];
+
+    let examples = examples_in(&entries, &chat_field("Vale, "));
+
+    assert_eq!(examples, ["Vale, perfecto, nos vemos mañana"]);
+}
+
+#[test]
+fn two_mails_with_the_same_long_closing_are_both_examples() {
+    let closing = "\n\nQuedo atenta a cualquier duda o comentario. Un abrazo grande y que tengan muy buena semana,\nAna";
+    let first = format!("Hola equipo, el taller del sábado cambia de sala y empieza a las diez.{closing}");
+    let second = format!("Hola equipo, mañana llegan los esmaltes nuevos para la clase del jueves.{closing}");
+    let entries = [mail(&first), mail(&second)];
+
+    let examples = examples_in(&entries, &field_in("com.apple.mail", None, "Hi"));
+
+    assert_eq!(examples, [first, second]);
+}
+
+#[test]
+fn texts_that_differ_in_at_most_two_or_a_tenth_of_their_characters_are_near_copies() {
+    let cases = [
+        ("Hola chiquillas, ¿cómo están?", "Hola chiquillas, ¿cmo están?", 1),
+        (
+            "Vale, perfecto, nos vemos mañana",
+            "Vale, perfeto, nos vemos mañana",
+            1,
+        ),
+        (
+            "thanks so much, see you tomorrow!",
+            "thnaks so much, see you tomorow!",
+            1,
+        ),
+        ("Call me at noon", "Call me at moon!", 1),
+        ("Call me at noon", "Call me at nine", 2),
+    ];
+
+    let counts = cases.map(|(older, newer, _)| {
+        examples_in(
+            &[mail(older), mail(newer)],
+            &field_in("com.apple.mail", None, "Hi"),
+        )
+        .len()
+    });
+
+    assert_eq!(counts, cases.map(|(_, _, count)| count));
+}

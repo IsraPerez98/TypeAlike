@@ -1,6 +1,7 @@
 //! The earlier texts that a prompt shows as examples: the texts that match the topic of the field.
 
 use std::collections::HashMap;
+use std::mem;
 
 use super::entry::HistoryEntry;
 use super::store::SessionTexts;
@@ -8,7 +9,7 @@ use super::words::{is_distinctive_word, small_count, words};
 use crate::desktop::{FieldText, ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, start_at_word};
 use crate::inference::TokenCount;
-use crate::place::{self, Format};
+use crate::place::{self, Format, Place};
 
 /// The examples that the newest texts of a small place fill up to: the same domain in a browser,
 /// else the same app.
@@ -25,6 +26,11 @@ const MIN_WIDE_WORDS: usize = 3;
 /// The fewest characters before the caret that make a text which holds them a copy of the field.
 /// Fewer characters, such as a greeting, are also in texts that are not copies.
 const MIN_COPIED_CHARS: usize = 40;
+/// The most edits of two short near copies. Short texts that differ in so few edits still say the
+/// same thing.
+const MIN_NEAR_COPY_EDITS: usize = 2;
+/// The most edits, as a percent of the characters of the shorter text, of two near copies.
+const NEAR_COPY_EDIT_PERCENT: usize = 10;
 /// The most estimated tokens of an example.
 const EXAMPLE_TOKENS: TokenCount = TokenCount(160);
 /// The estimated tokens of the start of a text longer than [`EXAMPLE_TOKENS`], which its example
@@ -42,7 +48,9 @@ const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_STA
 /// with the same format in the free examples. A text matches when it shares rare words with the
 /// text near the caret, the window, the labels of the field and the `screen`. Each example keeps
 /// the start and the end of its text. A text that the field holds now is no example, and two
-/// examples never hold the same text.
+/// examples never hold the same text or near copies of one text. Among texts that match the same,
+/// the text with more copies in its place comes first, so that the spelling that the writer uses
+/// most stays.
 pub(crate) fn examples(
     texts: &SessionTexts<'_>,
     surroundings: &Surroundings,
@@ -152,20 +160,35 @@ impl Topics {
         }
     }
 
-    /// Returns the `candidates` that hold at least `min_words` query words, best match first, from
-    /// the newest among the same matches.
+    /// Returns the `candidates` that hold at least `min_words` query words, best match first. Among
+    /// the same matches, the text with more copies in its place comes first, then the newest.
     fn best_first<'entries>(
         &self,
         candidates: &[(usize, &'entries HistoryEntry)],
         min_words: usize,
     ) -> Vec<(usize, &'entries HistoryEntry)> {
+        let mut copies = HashMap::<_, usize>::new();
+        for (_, entry) in candidates {
+            *copies.entry(copy_key(entry)).or_default() += 1;
+        }
         let mut scored = candidates
             .iter()
-            .map(|&candidate| (self.score(&candidate.1.text), candidate))
-            .filter(|(topic_match, _)| topic_match.words >= min_words)
+            .map(|&candidate| {
+                (
+                    self.score(&candidate.1.text),
+                    copies[&copy_key(candidate.1)],
+                    candidate,
+                )
+            })
+            .filter(|(topic_match, _, _)| topic_match.words >= min_words)
             .collect::<Vec<_>>();
-        scored.sort_by(|(left, _), (right, _)| right.weight.total_cmp(&left.weight));
-        scored.into_iter().map(|(_, candidate)| candidate).collect()
+        scored.sort_by(|(left, left_copies, _), (right, right_copies, _)| {
+            right
+                .weight
+                .total_cmp(&left.weight)
+                .then(right_copies.cmp(left_copies))
+        });
+        scored.into_iter().map(|(_, _, candidate)| candidate).collect()
     }
 
     /// Returns how well `text` matches. A word that few entries hold weighs more than a word that
@@ -182,6 +205,11 @@ impl Topics {
             words: words.len(),
         }
     }
+}
+
+/// Returns what the copies of the text of `entry` share: its place and its trimmed text.
+fn copy_key(entry: &HistoryEntry) -> (Place<&str>, &str) {
+    (entry.place(), entry.text.trim())
 }
 
 /// Returns the topic words of the text near the caret, the window title, the labels of the field
@@ -234,7 +262,8 @@ fn example_of(text: &str) -> String {
     )
 }
 
-/// Adds to `picked` the first `count` of `candidates` that do not overlap a picked entry.
+/// Adds to `picked` the first `count` of `candidates` that do not overlap a picked entry and are no
+/// near copy of one.
 fn pick<'entries>(
     picked: &mut Vec<(usize, &'entries HistoryEntry)>,
     candidates: &[(usize, &'entries HistoryEntry)],
@@ -245,12 +274,51 @@ fn pick<'entries>(
         if added == count {
             return;
         }
-        if picked.iter().any(|(_, entry)| entry.overlaps(candidate.1)) {
+        let is_known = picked
+            .iter()
+            .any(|(_, entry)| entry.overlaps(candidate.1) || is_near_copy(&entry.text, &candidate.1.text));
+        if is_known {
             continue;
         }
         picked.push(candidate);
         added += 1;
     }
+}
+
+/// Whether `left` and `right` differ in at most [`MIN_NEAR_COPY_EDITS`] edits, or in at most
+/// [`NEAR_COPY_EDIT_PERCENT`] percent of the characters of the shorter one.
+fn is_near_copy(left: &str, right: &str) -> bool {
+    let left = left.chars().collect::<Vec<_>>();
+    let right = right.chars().collect::<Vec<_>>();
+    let shorter = left.len().min(right.len());
+    let limit = MIN_NEAR_COPY_EDITS.max(shorter * NEAR_COPY_EDIT_PERCENT / 100);
+    is_within_edits(&left, &right, limit)
+}
+
+/// Whether at most `limit` inserted, deleted or changed characters turn `left` into `right`.
+fn is_within_edits(left: &[char], right: &[char], limit: usize) -> bool {
+    if left.len().abs_diff(right.len()) > limit {
+        return false;
+    }
+    // A cell outside the band keeps `over`, so the band never reads a stale count.
+    let over = limit + 1;
+    let mut previous = (0..=right.len()).map(|edits| edits.min(over)).collect::<Vec<_>>();
+    let mut current = vec![over; right.len() + 1];
+    for (row, &left_char) in left.iter().enumerate() {
+        let first = row.saturating_sub(limit);
+        let end = (row + limit + 1).min(right.len());
+        current[first] = if first == 0 { (row + 1).min(over) } else { over };
+        for column in first..end {
+            let change = previous[column] + usize::from(left_char != right[column]);
+            let edits = change.min(previous[column + 1] + 1).min(current[column] + 1);
+            current[column + 1] = edits.min(over);
+        }
+        if current[first..=end].iter().all(|&edits| edits == over) {
+            return false;
+        }
+        mem::swap(&mut previous, &mut current);
+    }
+    previous[right.len()] <= limit
 }
 
 /// Whether the field holds the text of `entry`, or the text of `entry` holds the text before the
