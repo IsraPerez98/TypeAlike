@@ -3,3 +3,4 @@
 *.pdb
 CLAUDE.original.md
 /.cargo/config.local.toml
+/.claude/settings.local.json
