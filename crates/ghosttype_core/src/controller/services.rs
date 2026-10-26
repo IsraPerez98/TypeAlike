@@ -8,6 +8,7 @@ use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
 use crate::settings::{Autostart, SettingsStore};
+use crate::spelling::SpellChecker;
 
 /// Who picks the backend that runs each model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,9 @@ pub struct Services {
     pub autostart: Box<dyn Autostart>,
     /// Keeps the earlier writing of the user while the Personalization pane allows it.
     pub history: Box<dyn WritingHistory>,
+    /// Knows the words of the languages that the user writes, so that a suggestion stops before a
+    /// word that the model made up.
+    pub spell_checker: Box<dyn SpellChecker>,
 }
 
 impl fmt::Debug for Services {

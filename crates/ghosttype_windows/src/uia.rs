@@ -18,7 +18,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::{BOOL, Interface, Result};
 
-use self::com::ComApartment;
+pub(crate) use self::com::ComApartment;
 pub(crate) use self::drawn_caret::FocusedCaret;
 pub(crate) use self::field::{ShownField, UiaField};
 pub(crate) use self::screen::FocusedField;

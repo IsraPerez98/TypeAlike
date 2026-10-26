@@ -25,6 +25,7 @@ use crate::settings::{
     EnergySaverRule, GameRule, PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings,
     Settings, SuggestionDisplay, SuggestionPlaces,
 };
+use crate::spelling::SpellChecker;
 
 /// The time without keys and clicks after which the caret is where the user types next. A short
 /// stop on the way to another field must not start the model.
@@ -195,6 +196,12 @@ impl App {
                 self.idle_field_place = Some(place);
             }
         }
+    }
+
+    /// Cuts each suggestion of the model before a word that `spell_checker` does not know and that
+    /// the user did not write.
+    pub fn use_spell_checker(&mut self, spell_checker: Box<dyn SpellChecker>) {
+        self.engine.use_spell_checker(spell_checker);
     }
 
     /// Uses `energy_saver`, the state of the energy saver of the computer, from now on. When the

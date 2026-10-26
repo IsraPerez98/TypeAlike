@@ -1,5 +1,7 @@
 //! The requests, completions, builders and lookups that the tests of several modules share.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use crate::app::{BadgeView, Status};
@@ -12,6 +14,7 @@ use crate::inference::{
 use crate::prompt::framed_prompt;
 use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings, SuggestionApp, SuggestionSite};
 use crate::settings_window::view::{ControlId, Page, Row, SettingsInput};
+use crate::spelling::SpellChecker;
 
 pub(crate) const ACTIVE_BADGE: BadgeView = BadgeView {
     status: Status::Active,
@@ -179,5 +182,28 @@ pub(crate) fn suggestion_site(host: &str, is_on: bool) -> SuggestionSite {
     SuggestionSite {
         host: host.to_owned(),
         is_on,
+    }
+}
+
+/// A dictionary that knows each word but the `unknown` ones, and counts the words that it checks.
+#[derive(Debug, Default)]
+pub(crate) struct FakeSpellChecker {
+    pub(crate) unknown: Vec<&'static str>,
+    pub(crate) checked_words: Rc<Cell<usize>>,
+}
+
+impl FakeSpellChecker {
+    pub(crate) fn without(unknown: &[&'static str]) -> Self {
+        Self {
+            unknown: unknown.to_vec(),
+            ..Self::default()
+        }
+    }
+}
+
+impl SpellChecker for FakeSpellChecker {
+    fn is_known_word(&self, word: &str) -> bool {
+        self.checked_words.set(self.checked_words.get() + 1);
+        !self.unknown.contains(&word)
     }
 }

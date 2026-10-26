@@ -9,6 +9,7 @@ mod reaction;
 mod request;
 mod session;
 mod shown_suggestions;
+mod spelling;
 mod suggestion;
 
 use std::fmt;
@@ -27,6 +28,7 @@ use earlier_writing::needs_new_tables;
 use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
+use spelling::Dictionary;
 use suggestion::{ends_with_typo, fix_after_delimiter, kept_delimiter};
 
 pub use reaction::{AfterAccept, Reaction, WordFix};
@@ -57,6 +59,9 @@ pub(crate) struct Engine {
     tables: HistoryTables,
     /// The newest version of a word bias of `tables`.
     word_bias_version: u64,
+    /// The dictionary of the OS that cuts a suggestion before a word that the model made up, if
+    /// the platform has one.
+    dictionary: Option<Dictionary>,
 }
 
 impl Default for Engine {
@@ -80,6 +85,7 @@ impl Default for Engine {
             has_unsaved_history: false,
             tables: HistoryTables::default(),
             word_bias_version: 0,
+            dictionary: None,
         };
         engine.use_settings(&Settings::default());
         engine

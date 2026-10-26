@@ -26,10 +26,12 @@ use crate::settings::{
     SettingsStore, WordChoice,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
-use crate::test_support::{self, completion, mail_history_app};
+use crate::test_support::{self, FakeSpellChecker, completion, mail_history_app};
 
 /// The width of each character of a ghost text after the caret in the fake shell.
 const GHOST_CHAR_WIDTH: i32 = 10;
+/// A word that the dictionary of the harness does not know.
+pub(super) const MADE_UP_WORD: &str = "zorbly";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
@@ -288,6 +290,7 @@ impl Harness {
             settings_store: Box::new(FakeStore(Rc::clone(&recorder))),
             autostart: Box::new(FakeAutostart),
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
+            spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD])),
         };
         Self {
             controller: Controller::new(settings, services, startup, &deliver),

@@ -28,6 +28,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 data_dir.join("history.key"),
             )),
         )),
+        spell_checker: Box::new(ghosttype_windows::SpellingDictionary::new()),
     };
     ghosttype_windows::run(settings, services).context("ghosttype stopped unexpectedly")
 }
@@ -58,6 +59,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             data_dir.join("history.bin"),
             Box::new(ghosttype_macos::Keychain),
         )),
+        spell_checker: Box::new(ghosttype_macos::SpellingDictionary::new()),
     };
     ghosttype_macos::run(settings, services).context("ghosttype stopped unexpectedly")
 }

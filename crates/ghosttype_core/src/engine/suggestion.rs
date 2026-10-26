@@ -76,7 +76,7 @@ fn start_of_line_after(text: &str, line_after: &str) -> Option<usize> {
 }
 
 /// Returns the byte index of each run of characters without whitespace in `text`.
-fn word_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+pub(super) fn word_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
     text.char_indices()
         .filter(|&(index, character)| {
             !character.is_whitespace() && text[..index].chars().next_back().is_none_or(char::is_whitespace)
@@ -127,7 +127,7 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
 }
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
-fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
+pub(super) fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
     text.split(|character: char| !(character.is_alphanumeric() || is_apostrophe(character)))
         .filter(|word| !word.is_empty())
         .map(str::to_lowercase)

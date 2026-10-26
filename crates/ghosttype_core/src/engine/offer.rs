@@ -5,6 +5,7 @@ use std::mem;
 use crate::inference::{Completion, Correction, InferenceError};
 use crate::settings::TypoFix;
 
+use super::spelling::{WrittenWords, known_start};
 use super::suggestion::{
     complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed, word_fix,
 };
@@ -119,12 +120,14 @@ impl Engine {
 
     /// Returns the fix that the `correction` and the added `text` of the newest request give, when
     /// the user typed nothing since the request, the text before the caret ends with the typo and
-    /// the suggestion after the fixed letters is not bad.
-    fn fix_of(&self, correction: &Correction, text: &str) -> Option<WordFix> {
+    /// the suggestion after the fixed letters is not bad. The dictionary cuts that suggestion
+    /// before a made-up word.
+    fn fix_of(&mut self, correction: &Correction, text: &str) -> Option<WordFix> {
         let is_untouched = matches!(&self.offer, Offer::Growing { typed, .. } if typed.is_empty());
         if !is_untouched || self.typo_fix == TypoFix::Off {
             return None;
         }
+        let word_bias = self.session_word_bias();
         let session = self.session.as_ref()?;
         let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
         let fixed_before = format!("{before_typo}{}", correction.fixed);
@@ -132,7 +135,12 @@ impl Engine {
         if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
             return None;
         }
-        Some(word_fix(correction, &suggestion))
+        let written = WrittenWords {
+            session,
+            word_bias: word_bias.as_ref(),
+        };
+        let known = known_start(self.dictionary.as_mut(), &fixed_before, &suggestion, &written);
+        Some(word_fix(correction, known))
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
@@ -184,20 +192,36 @@ impl Engine {
 
     /// Makes the ghost text the text of `completion`, from the newest request, after the typed
     /// text, when it has text there, and keeps it in the shown suggestions of the session. A bad
-    /// suggestion empties the ghost text. Returns whether the ghost text changed.
+    /// suggestion empties the ghost text, and the dictionary cuts it before a made-up word.
+    /// Returns whether the ghost text changed.
     fn grow(&mut self, completion: &str) -> bool {
+        let word_bias = self.session_word_bias();
         let (Some(session), Offer::Growing { typed, shown, .. }) = (&mut self.session, &mut self.offer)
         else {
             return false;
         };
-        match suggestion_after_typed(&session.text_before, &session.text_after, typed, completion) {
-            Some(grown) if grown != *shown => {
-                session.shown_suggestions.record(&session.text_before, &grown);
-                *shown = grown;
-                true
-            }
-            _ => false,
+        let Some(suggestion) =
+            suggestion_after_typed(&session.text_before, &session.text_after, typed, completion)
+        else {
+            return false;
+        };
+        let written = WrittenWords {
+            session,
+            word_bias: word_bias.as_ref(),
+        };
+        let grown = known_start(
+            self.dictionary.as_mut(),
+            &session.text_before,
+            &suggestion,
+            &written,
+        )
+        .to_owned();
+        if grown == *shown {
+            return false;
         }
+        session.shown_suggestions.record(&session.text_before, &grown);
+        *shown = grown;
+        true
     }
 
     pub(super) fn dismiss(&mut self) -> Reaction {

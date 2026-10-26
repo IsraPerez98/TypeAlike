@@ -1,7 +1,8 @@
 //! Tests of the ghost text, the badge and the fixes at the caret.
 
 use super::harness::{
-    Call, Harness, completed, field_around, fixed, ghost_at_caret, hidden_ghost_and_badge, loaded,
+    Call, Harness, MADE_UP_WORD, completed, field_around, fixed, ghost_at_caret, hidden_ghost_and_badge,
+    loaded,
 };
 use crate::controller::{
     CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, Delivery, FocusChange, Ghost, GhostPlacement, Timer,
@@ -80,6 +81,21 @@ fn completion_shows_when_caret_settles() {
     let mut harness = Harness::new(Settings::default());
     harness.press(Key::Char('B'));
     harness.answer(completed("est"));
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+    );
+}
+
+#[test]
+fn completion_shows_up_to_a_word_that_the_dictionary_does_not_know() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.answer(completed(&format!("est {MADE_UP_WORD} today")));
     harness.take_calls();
 
     harness.settle_caret();

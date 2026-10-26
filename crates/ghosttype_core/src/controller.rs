@@ -117,9 +117,11 @@ impl Controller {
             mut settings_store,
             autostart,
             history,
+            spell_checker,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
+        app.use_spell_checker(spell_checker);
         app.use_energy_saver(startup.energy_saver);
         let energy_saving = EnergySavingPane::new(settings.energy_saving);
         let suggestion_places = SuggestionPlacesPane::new(settings.suggestion_places.clone());

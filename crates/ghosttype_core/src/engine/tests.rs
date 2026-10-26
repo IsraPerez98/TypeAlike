@@ -10,6 +10,7 @@ mod request;
 mod screen_read;
 mod session;
 mod shown_suggestions;
+mod spelling;
 mod support;
 mod typo_fix;
 mod word_choice;

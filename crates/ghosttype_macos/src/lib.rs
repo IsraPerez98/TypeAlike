@@ -30,10 +30,12 @@ mod runtime;
 mod screen_text;
 mod settings;
 mod single_instance;
+mod spelling;
 mod symbol;
 
 pub use keychain::Keychain;
 pub use launch_agent::LaunchAgent;
+pub use spelling::SpellingDictionary;
 
 use ghosttype_core::controller::Services;
 use ghosttype_core::settings::Settings;

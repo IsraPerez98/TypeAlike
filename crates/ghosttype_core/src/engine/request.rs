@@ -108,7 +108,7 @@ impl Engine {
     }
 
     /// The word bias of the pool of the session.
-    fn session_word_bias(&self) -> Option<WordBias> {
+    pub(super) fn session_word_bias(&self) -> Option<WordBias> {
         let (_, pool, _) = self.session_pool()?;
         self.tables.word_bias(&pool)
     }

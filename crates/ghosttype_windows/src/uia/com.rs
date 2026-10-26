@@ -12,10 +12,10 @@ use windows::core::Result;
 /// Membership of this thread in the multithreaded COM apartment, which ends on drop. It cannot go
 /// to another thread, because COM ends only on the thread that joined it.
 #[derive(Debug)]
-pub(super) struct ComApartment(PhantomData<*const ()>);
+pub(crate) struct ComApartment(PhantomData<*const ()>);
 
 impl ComApartment {
-    pub(super) fn join() -> Result<Self> {
+    pub(crate) fn join() -> Result<Self> {
         // SAFETY: plain call; drop balances it on this thread.
         unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok()?;
         Ok(Self(PhantomData))

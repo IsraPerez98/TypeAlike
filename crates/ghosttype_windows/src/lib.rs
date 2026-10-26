@@ -36,6 +36,7 @@ mod runtime;
 mod screen_text;
 mod settings;
 mod single_instance;
+mod spelling;
 mod startup;
 mod system_theme;
 mod tray;
@@ -49,6 +50,7 @@ use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetP
 
 pub use crate::cpu_cores::cpu_cores;
 pub use crate::key_file::ProtectedKeyFile;
+pub use crate::spelling::SpellingDictionary;
 pub use crate::startup::StartupEntry;
 
 /// A failure that stops GhostType from starting or running.
