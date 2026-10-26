@@ -1,11 +1,10 @@
 //! The earlier texts that a prompt shows as examples: the texts that match the topic of the field.
 
 use std::collections::HashMap;
-use std::mem;
 
 use super::entry::HistoryEntry;
 use super::store::SessionTexts;
-use super::words::{is_distinctive_word, small_count, words};
+use super::words::{is_distinctive_word, is_within_edits, small_count, words};
 use crate::desktop::{FieldText, ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, start_at_word};
 use crate::inference::TokenCount;
@@ -293,32 +292,6 @@ fn is_near_copy(left: &str, right: &str) -> bool {
     let shorter = left.len().min(right.len());
     let limit = MIN_NEAR_COPY_EDITS.max(shorter * NEAR_COPY_EDIT_PERCENT / 100);
     is_within_edits(&left, &right, limit)
-}
-
-/// Whether at most `limit` inserted, deleted or changed characters turn `left` into `right`.
-fn is_within_edits(left: &[char], right: &[char], limit: usize) -> bool {
-    if left.len().abs_diff(right.len()) > limit {
-        return false;
-    }
-    // A cell outside the band keeps `over`, so the band never reads a stale count.
-    let over = limit + 1;
-    let mut previous = (0..=right.len()).map(|edits| edits.min(over)).collect::<Vec<_>>();
-    let mut current = vec![over; right.len() + 1];
-    for (row, &left_char) in left.iter().enumerate() {
-        let first = row.saturating_sub(limit);
-        let end = (row + limit + 1).min(right.len());
-        current[first] = if first == 0 { (row + 1).min(over) } else { over };
-        for column in first..end {
-            let change = previous[column] + usize::from(left_char != right[column]);
-            let edits = change.min(previous[column + 1] + 1).min(current[column] + 1);
-            current[column + 1] = edits.min(over);
-        }
-        if current[first..=end].iter().all(|&edits| edits == over) {
-            return false;
-        }
-        mem::swap(&mut previous, &mut current);
-    }
-    previous[right.len()] <= limit
 }
 
 /// Whether the field holds the text of `entry`, or the text of `entry` holds the text before the
