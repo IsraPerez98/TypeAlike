@@ -49,6 +49,10 @@ pub(super) struct Session {
     pub(super) text_before: String,
     /// The characters at the start of `text_before` that the field held when the session started.
     pub(super) field_chars: usize,
+    /// The characters at the start of `text_before` that the last read of the field showed, up to
+    /// the word at the caret of that read. The app can still change the text after them, as an
+    /// autocorrect does when the user finishes a word.
+    pub(super) read_chars: usize,
     /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
     pub(super) max_tokens_before: TokenCount,
     pub(super) text_after: String,
@@ -85,6 +89,7 @@ impl Session {
         Self {
             preface,
             field_chars: text_before.chars().count(),
+            read_chars: finished_chars(&text_before),
             text_before,
             max_tokens_before,
             text_after,
@@ -94,6 +99,12 @@ impl Session {
             field_at_enter: None,
             shown_suggestions: ShownSuggestions::default(),
         }
+    }
+
+    /// Whether a read of the field shows the text before the caret of the session: the platform
+    /// reads the field, the field shows the line of the caret, and no read after Enter waits.
+    pub(super) fn can_follow_field(&self) -> bool {
+        self.field.is_text_field && !self.field.is_caret_line_hidden && self.field_at_enter.is_none()
     }
 
     pub(super) fn is_caret_at_line_end(&self) -> bool {
@@ -123,13 +134,19 @@ impl Session {
 
     pub(super) fn keep_recent_text(&mut self) {
         let kept = recent_text(&self.text_before, self.max_tokens_before).len();
-        let dropped = self.text_before.drain(..self.text_before.len() - kept);
-        self.field_chars = self.field_chars.saturating_sub(dropped.as_str().chars().count());
+        let dropped_chars = self
+            .text_before
+            .drain(..self.text_before.len() - kept)
+            .as_str()
+            .chars()
+            .count();
+        self.field_chars = self.field_chars.saturating_sub(dropped_chars);
+        self.read_chars = self.read_chars.saturating_sub(dropped_chars);
     }
 
     pub(super) fn delete_last_character(&mut self) {
         self.text_before.pop();
-        self.field_chars = self.field_chars.min(self.text_before.chars().count());
+        self.keep_counts_inside_text();
     }
 
     /// Replaces `typo` at the end of the text before the caret with `word`, and drops the oldest
@@ -138,9 +155,32 @@ impl Session {
         if let Some(kept) = self.text_before.strip_suffix(typo).map(str::len) {
             self.text_before.truncate(kept);
         }
-        self.field_chars = self.field_chars.min(self.text_before.chars().count());
+        self.keep_counts_inside_text();
         self.append_text(word);
     }
+
+    /// Makes `text_before` the text before the caret that a read of the field showed, and drops
+    /// the oldest text before the caret that does not fit.
+    pub(super) fn use_read_text(&mut self, text_before: String) {
+        self.read_chars = finished_chars(&text_before);
+        self.text_before = text_before;
+        self.keep_counts_inside_text();
+        self.keep_recent_text();
+    }
+
+    fn keep_counts_inside_text(&mut self) {
+        let chars = self.text_before.chars().count();
+        self.field_chars = self.field_chars.min(chars);
+        self.read_chars = self.read_chars.min(chars);
+    }
+}
+
+/// Returns the characters of `text` before the word at its end, or all of them when `text` ends
+/// with whitespace.
+fn finished_chars(text: &str) -> usize {
+    text.trim_end_matches(|character: char| !character.is_whitespace())
+        .chars()
+        .count()
 }
 
 /// Returns the most estimated tokens of the text before the caret in a prompt with `preface`, so

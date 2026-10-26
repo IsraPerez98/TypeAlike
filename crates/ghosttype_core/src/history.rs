@@ -20,7 +20,7 @@ pub(crate) use examples::examples;
 pub(crate) use store::{FinishedText, HistoryPool, add, own_text, session_texts};
 pub(crate) use tables::HistoryTables;
 pub use word_bias::word_bias_of_counts;
-pub(crate) use words::is_apostrophe;
+pub(crate) use words::{is_apostrophe, is_within_edits};
 
 /// Keeps the earlier writing of the user between runs, on this computer only.
 pub trait WritingHistory {

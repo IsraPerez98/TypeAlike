@@ -1,6 +1,7 @@
 //! Tests the engine through its API, in groups of behavior.
 
 mod accept;
+mod autocorrect;
 mod completion;
 mod earlier_writing;
 mod kept_completion;

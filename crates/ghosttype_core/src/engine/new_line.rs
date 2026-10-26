@@ -54,8 +54,7 @@ impl Engine {
             self.reset();
             return false;
         };
-        session.text_before = text_before;
-        session.keep_recent_text();
+        session.use_read_text(text_before);
         true
     }
 }

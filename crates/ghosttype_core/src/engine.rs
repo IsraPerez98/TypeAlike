@@ -1,5 +1,6 @@
 //! Decides what ghost text to show as the user types, and what Tab inserts.
 
+mod autocorrect;
 mod earlier_writing;
 mod new_line;
 mod offer;

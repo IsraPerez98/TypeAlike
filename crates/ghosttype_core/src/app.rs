@@ -347,6 +347,8 @@ impl App {
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. After Enter, it reads the field of
     /// `desktop` again. When the field shows the text of the session and a new line, the session
     /// continues there, and it returns the suggestion for the new line. Else the session ends.
+    /// Without Enter, the session takes the words that the app changed in the field, as an
+    /// autocorrect does.
     /// In a text field of an app where the screen text is on, it then starts a read of the screen,
     /// unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
@@ -360,6 +362,7 @@ impl App {
         if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
             return Some(SettledWork::Suggest(reaction));
         }
+        self.engine.follow_field(desktop);
         if self.reads_screen_in(desktop) {
             return self
                 .engine

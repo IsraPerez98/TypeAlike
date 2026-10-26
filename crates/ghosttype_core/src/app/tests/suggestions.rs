@@ -203,6 +203,19 @@ fn settled_input_after_enter_suggests_on_the_new_line() {
 }
 
 #[test]
+fn settled_input_takes_the_word_that_the_app_corrected() {
+    let mut app = App::new();
+    for character in "recieve ".chars() {
+        app.on_key(Key::Char(character), &EditedField("I "));
+    }
+    app.on_input_settled(&EditedField("I receive "));
+
+    let reaction = app.on_key(Key::Char('t'), &EditedField("I receive "));
+
+    assert_eq!(reaction, request("I receive t"));
+}
+
+#[test]
 fn settled_input_after_enter_that_emptied_the_field_prepares_a_new_session() {
     let mut app = app_preparing_on_focus();
     app.on_key(Key::Char('k'), &EditedField("o"));
