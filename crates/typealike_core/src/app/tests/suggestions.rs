@@ -1,6 +1,9 @@
 //! Tests of the suggestions, the prompt preparation and the pause of the app.
 
-use super::fixtures::{FakeDesktop, app_preparing_on_focus, request, type_key};
+use super::fixtures::{
+    FakeDesktop, app_preparing_on_first_key, app_preparing_on_focus, app_showing_complete_suggestions,
+    request, type_key,
+};
 use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
@@ -80,7 +83,7 @@ fn partial_completion_shows_when_words_show_early() {
 
 #[test]
 fn partial_completion_shows_nothing_when_suggestions_show_complete() {
-    let mut app = App::new();
+    let mut app = app_showing_complete_suggestions();
     type_key(&mut app, 'B');
 
     let reaction = app.on_partial_completion("est regards");
@@ -90,7 +93,7 @@ fn partial_completion_shows_nothing_when_suggestions_show_complete() {
 
 #[test]
 fn completion_after_a_partial_completion_that_shows_nothing_shows_all_its_text() {
-    let mut app = App::new();
+    let mut app = app_showing_complete_suggestions();
     type_key(&mut app, 'B');
     app.on_partial_completion("est regards");
 
@@ -101,7 +104,7 @@ fn completion_after_a_partial_completion_that_shows_nothing_shows_all_its_text()
 
 #[test]
 fn key_that_a_partial_completion_added_keeps_the_request_when_suggestions_show_complete() {
-    let mut app = App::new();
+    let mut app = app_showing_complete_suggestions();
     type_key(&mut app, 'B');
     app.on_partial_completion("est regards");
 
@@ -165,7 +168,7 @@ fn settled_input_prepares_the_open_field() {
 
 #[test]
 fn settled_input_prepares_nothing_when_preparation_waits_for_the_first_key() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
 
     let request = app.on_input_settled(&FakeDesktop(Field::Open));
 

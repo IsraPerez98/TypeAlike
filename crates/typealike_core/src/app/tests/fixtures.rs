@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, OcrAvailability, Surroundings};
 use crate::engine::Reaction;
 use crate::key::Key;
-use crate::settings::{PromptPreparation, Settings};
+use crate::settings::{PromptPreparation, Settings, SuggestionDisplay};
 use crate::test_support::suggestion_request;
 
 pub(super) struct FakeDesktop(pub(super) Field);
@@ -76,6 +76,24 @@ pub(super) fn request(text_before: &str) -> Reaction {
 
 pub(super) fn type_key(app: &mut App, character: char) -> Reaction {
     app.on_key(Key::Char(character), &FakeDesktop(Field::Open))
+}
+
+pub(super) fn app_preparing_on_first_key() -> App {
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        prompt_preparation: PromptPreparation::OnFirstKey,
+        ..Settings::default()
+    });
+    app
+}
+
+pub(super) fn app_showing_complete_suggestions() -> App {
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        suggestion_display: SuggestionDisplay::WhenComplete,
+        ..Settings::default()
+    });
+    app
 }
 
 pub(super) fn app_preparing_on_focus() -> App {

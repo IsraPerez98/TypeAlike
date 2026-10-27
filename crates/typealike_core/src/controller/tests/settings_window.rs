@@ -7,13 +7,22 @@ use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
 use crate::localization::UiLanguage;
-use crate::settings::{ClipboardAccess, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces};
+use crate::settings::{
+    ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces,
+};
 use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL, WRITER_NAME};
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
 use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
 use crate::test_support::{mail_app, suggestion_app, suggestion_site, writing_rule_breaks};
+
+fn clipboard_denied() -> Settings {
+    Settings {
+        clipboard_access: ClipboardAccess::Denied,
+        ..Settings::default()
+    }
+}
 
 #[test]
 fn settings_window_follows_the_writing_rules() {
@@ -39,7 +48,7 @@ fn settings_window_with_its_warnings_follows_the_writing_rules() {
 
 #[test]
 fn general_change_saves_settings() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(clipboard_denied());
 
     harness.toggle(CLIPBOARD, true);
 
@@ -47,14 +56,14 @@ fn general_change_saves_settings() {
         harness.saved(),
         vec![Settings {
             clipboard_access: ClipboardAccess::Allowed,
-            ..Settings::default()
+            ..clipboard_denied()
         }]
     );
 }
 
 #[test]
 fn general_change_gives_clipboard_access_to_shell() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(clipboard_denied());
 
     harness.toggle(CLIPBOARD, true);
 
@@ -67,7 +76,10 @@ fn general_change_gives_clipboard_access_to_shell() {
 
 #[test]
 fn general_change_applies_to_suggestions() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(Settings {
+        prompt_preparation: PromptPreparation::OnFirstKey,
+        ..Settings::default()
+    });
     harness.toggle(PREPARATION, true);
 
     harness.settle_input();
@@ -80,7 +92,7 @@ fn general_change_applies_to_suggestions() {
 
 #[test]
 fn unchanged_general_setting_saves_nothing() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(clipboard_denied());
 
     harness.toggle(CLIPBOARD, false);
 
@@ -89,7 +101,7 @@ fn unchanged_general_setting_saves_nothing() {
 
 #[test]
 fn general_change_renders_settings() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(clipboard_denied());
 
     harness.toggle(CLIPBOARD, true);
 

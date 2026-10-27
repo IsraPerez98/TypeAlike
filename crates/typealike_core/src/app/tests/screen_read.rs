@@ -1,6 +1,6 @@
 //! Tests of the screen reads that the app starts and the answers that it uses.
 
-use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_focus};
+use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_first_key, app_preparing_on_focus};
 use crate::app::{App, SettledWork};
 use crate::desktop::{
     Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
@@ -70,7 +70,7 @@ fn settled_text_field_reads_the_screen_with_each_preparation() {
 
 #[test]
 fn settled_field_without_text_reads_no_screen() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
 
     let work = app.on_input_settled(&FakeDesktop(Field::Open));
 
@@ -91,7 +91,7 @@ fn settled_password_field_reads_no_screen() {
 
 #[test]
 fn settled_field_of_a_password_manager_reads_no_screen() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
 
     let work = app.on_input_settled(&TextField {
         app_id: "com.1password.1password",
@@ -322,7 +322,7 @@ fn answer_to_the_screen_read_prepares_on_focus() {
 
 #[test]
 fn answer_to_the_screen_read_prepares_nothing_before_the_first_key() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
     let read = screen_read(&mut app);
 
     let request = app.on_screen_read(answer(read), &MAIL);
@@ -337,6 +337,7 @@ fn app_with_earlier_writing(history: HistoryAccess, app_id: &str) -> App {
             history,
             ..PersonalizationSettings::default()
         },
+        prompt_preparation: PromptPreparation::OnFirstKey,
         ..Settings::default()
     });
     app.use_history(vec![HistoryEntry {
@@ -444,7 +445,7 @@ fn ocr_read_uses_the_level_of_the_settings() {
 
 #[test]
 fn answer_with_lines_starts_no_ocr_read() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
     let read = screen_read(&mut app);
 
     let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL_WITH_OCR);
@@ -454,7 +455,7 @@ fn answer_with_lines_starts_no_ocr_read() {
 
 #[test]
 fn answer_without_lines_starts_no_ocr_read_when_the_ocr_cannot_run() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
     let read = screen_read(&mut app);
 
     let work = app.on_screen_read(
@@ -470,7 +471,7 @@ fn answer_without_lines_starts_no_ocr_read_when_the_ocr_cannot_run() {
 
 #[test]
 fn answer_of_the_ocr_without_lines_starts_no_other_read() {
-    let mut app = App::new();
+    let mut app = app_preparing_on_first_key();
     let read = screen_read(&mut app);
     let ocr = ocr_read(&mut app, read);
 

@@ -47,7 +47,10 @@ fn field_with_text(before_caret: &str) -> Surroundings {
 
 /// A harness after the user typed "Best regards," and pressed Enter.
 fn harness_after_enter() -> Harness {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(Settings {
+        prompt_preparation: PromptPreparation::OnFirstKey,
+        ..Settings::default()
+    });
     harness.shell.surroundings = field_with_text("Best regards");
     harness.press(Key::Char(','));
     harness.answer(completed(""));

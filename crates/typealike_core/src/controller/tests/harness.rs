@@ -575,6 +575,16 @@ pub(super) fn field_around(before_caret: &str, after_caret: &str) -> Surrounding
     }
 }
 
+pub(super) fn history_off() -> Settings {
+    Settings {
+        personalization: PersonalizationSettings {
+            history: HistoryAccess::Off,
+            ..PersonalizationSettings::default()
+        },
+        ..Settings::default()
+    }
+}
+
 pub(super) fn history_on() -> Settings {
     Settings {
         personalization: PersonalizationSettings {

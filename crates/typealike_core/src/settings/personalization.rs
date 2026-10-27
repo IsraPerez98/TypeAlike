@@ -7,10 +7,10 @@ use crate::settings::known_apps::{insert_in_name_order, is_password_manager, is_
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HistoryAccess {
     /// TypeAlike saves no new text, and suggestions use no earlier writing.
-    #[default]
     Off,
     /// TypeAlike saves the text that the user writes in each app that is on in the list of the
     /// Personalization pane, and suggestions use it.
+    #[default]
     On,
 }
 
@@ -18,9 +18,9 @@ pub enum HistoryAccess {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeptTexts {
     /// Only a text where the user accepted a suggestion.
-    #[default]
     AcceptedOnly,
     /// Each text.
+    #[default]
     All,
 }
 
@@ -151,10 +151,13 @@ mod tests {
     use crate::test_support::{history_app, screen_text_app};
 
     #[test]
-    fn word_choice_is_medium_by_default() {
+    fn default_keeps_all_texts_and_uses_them_with_a_medium_word_choice() {
         let settings = PersonalizationSettings::default();
 
-        assert_eq!(settings.word_choice, WordChoice::Medium);
+        assert_eq!(
+            (settings.history, settings.kept_texts, settings.word_choice),
+            (HistoryAccess::On, KeptTexts::All, WordChoice::Medium)
+        );
     }
 
     fn personalization(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationSettings {

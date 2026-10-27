@@ -1,6 +1,6 @@
 //! Tests of the earlier writing that the controller loads and saves.
 
-use super::harness::{Harness, history_on};
+use super::harness::{Harness, history_off, history_on};
 use crate::app::BadgeCommand;
 use crate::desktop::FieldText;
 use crate::history::HistoryEntry;
@@ -54,7 +54,7 @@ fn shown_suggestion_in_a_new_app_adds_the_app_to_each_app_list_and_keeps_it() {
 
 #[test]
 fn history_loads_at_start_only_when_it_is_on() {
-    let settings = [Settings::default(), history_on()];
+    let settings = [history_off(), history_on()];
 
     let loads = settings.map(|settings| Harness::new(settings).history_loads());
 
@@ -63,7 +63,7 @@ fn history_loads_at_start_only_when_it_is_on() {
 
 #[test]
 fn turning_on_the_history_loads_it_once() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(history_off());
 
     harness.toggle(HISTORY, true);
     harness.toggle(HISTORY, false);
@@ -74,7 +74,7 @@ fn turning_on_the_history_loads_it_once() {
 
 #[test]
 fn turning_on_the_history_keeps_the_setting() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::new(history_off());
 
     harness.toggle(HISTORY, true);
 

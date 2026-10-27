@@ -237,7 +237,11 @@ impl PersonalizationPane {
                 ..picker(
                     word_choice,
                     &WORD_CHOICE_CHOICES,
-                    self.settings.word_choice,
+                    if is_on {
+                        self.settings.word_choice
+                    } else {
+                        WordChoice::Off
+                    },
                     translations,
                 )
             }),
@@ -346,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn page_shows_the_main_switch_off_by_default() {
+    fn page_shows_the_main_switch_on_by_default() {
         let pane = PersonalizationPane::new(PersonalizationSettings::default());
 
         let shown = pane.page(&SuggestionPlaces::default(), &english());
@@ -359,9 +363,28 @@ mod tests {
                 label: "Use earlier writing".to_owned(),
                 description: "TypeAlike saves the text that you write in an encrypted file on this computer. Suggestions then use your words and your style. When you turn this off, the saved text stays until you delete it at the bottom of this page."
                     .to_owned(),
-                is_on: false,
+                is_on: true,
                 note: None,
             }))
+        );
+    }
+
+    #[test]
+    fn main_switch_off_shows_the_word_choice_off_and_keeps_the_saved_choice() {
+        let pane = PersonalizationPane::new(PersonalizationSettings {
+            history: HistoryAccess::Off,
+            word_choice: WordChoice::Strong,
+            ..PersonalizationSettings::default()
+        });
+
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
+
+        assert_eq!(
+            (
+                picker_of(&shown, WORD_CHOICE).selected,
+                pane.settings().word_choice
+            ),
+            (0, WordChoice::Strong)
         );
     }
 
@@ -436,7 +459,7 @@ mod tests {
                         "Only text where you used a suggestion".to_owned(),
                         "All text".to_owned()
                     ],
-                    0
+                    1
                 ),
                 (
                     ["Off", "Light", "Medium", "Strong"].map(str::to_owned).to_vec(),
@@ -569,7 +592,7 @@ mod tests {
 
         let changes = [
             PersonalizationAction::SwitchHistory(HistoryAccess::On),
-            PersonalizationAction::SelectKeptTexts(KeptTexts::All),
+            PersonalizationAction::SelectKeptTexts(KeptTexts::AcceptedOnly),
             PersonalizationAction::SelectWordChoice(WordChoice::Light),
             PersonalizationAction::SelectWordChoice(WordChoice::Light),
         ]
@@ -588,7 +611,7 @@ mod tests {
             pane.settings(),
             &PersonalizationSettings {
                 history: HistoryAccess::On,
-                kept_texts: KeptTexts::All,
+                kept_texts: KeptTexts::AcceptedOnly,
                 apps: Vec::new(),
                 word_choice: WordChoice::Light,
             }

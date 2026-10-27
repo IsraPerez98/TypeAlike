@@ -63,9 +63,9 @@ impl fmt::Debug for WriterName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ClipboardAccess {
     /// TypeAlike never reads the clipboard.
-    #[default]
     Denied,
     /// TypeAlike reads the clipboard when the user starts to type, and the model reads its text.
+    #[default]
     Allowed,
 }
 
@@ -74,10 +74,10 @@ pub enum ClipboardAccess {
 pub enum PromptPreparation {
     /// At the first key that the user types in a field. In a place where the earlier writing has
     /// a text, the user often types, so TypeAlike prepares there as with [`Self::OnFocus`].
-    #[default]
     OnFirstKey,
     /// When the keys and clicks stop in a field, before the user types. The first suggestion then
     /// shows sooner, but the model also works when the user does not type.
+    #[default]
     OnFocus,
 }
 
@@ -85,10 +85,10 @@ pub enum PromptPreparation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SuggestionDisplay {
     /// After the model writes the full suggestion.
-    #[default]
     WhenComplete,
     /// As soon as the model writes each word. The first word then shows sooner, but the ghost text
     /// grows while the user reads it.
+    #[default]
     WordByWord,
 }
 
@@ -286,6 +286,24 @@ mod tests {
         let max_tokens = lengths.map(SuggestionLength::max_tokens);
 
         assert_eq!(max_tokens, [3, 6, 10, 15, 22].map(TokenCount));
+    }
+
+    #[test]
+    fn default_shows_words_early_uses_copied_text_and_prepares_suggestions_early() {
+        let settings = Settings::default();
+
+        assert_eq!(
+            (
+                settings.suggestion_display,
+                settings.clipboard_access,
+                settings.prompt_preparation,
+            ),
+            (
+                SuggestionDisplay::WordByWord,
+                ClipboardAccess::Allowed,
+                PromptPreparation::OnFocus,
+            )
+        );
     }
 
     #[test]

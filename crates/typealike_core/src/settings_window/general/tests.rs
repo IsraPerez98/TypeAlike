@@ -264,7 +264,7 @@ fn page_shows_the_suggestion_settings() {
                     icon: RowIcon::Stopwatch,
                     label: "Show words early".to_owned(),
                     description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.".to_owned(),
-                    is_on: false,
+                    is_on: true,
                     note: None,
                 }),
                 typo_rule_switch(),
@@ -287,7 +287,7 @@ fn copied_text_section_shows_the_clipboard_switch() {
             icon: RowIcon::Clipboard,
             label: "Use copied text".to_owned(),
             description: "Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.".to_owned(),
-            is_on: false,
+            is_on: true,
             note: None,
         })])
     );
@@ -315,7 +315,7 @@ fn preparation_section_shows_the_preparation_switch() {
             icon: RowIcon::LightningBolt,
             label: "Prepare suggestions early".to_owned(),
             description: "When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.".to_owned(),
-            is_on: false,
+            is_on: true,
             note: None,
         })])
     );
@@ -1044,7 +1044,7 @@ fn editing_the_writer_notes_to_the_same_text_does_nothing() {
 
 #[test]
 fn allowing_the_clipboard_keeps_it_and_turns_the_switch_on() {
-    let mut pane = GeneralPane::new(Settings::default());
+    let mut pane = GeneralPane::new(clipboard_settings(ClipboardAccess::Denied));
 
     let outcome = pane.on_action(
         GeneralAction::SwitchClipboard(ClipboardAccess::Allowed),
@@ -1071,7 +1071,13 @@ fn denying_the_clipboard_keeps_it_and_turns_the_switch_off() {
     );
 
     let is_on = switch(&default_page(&pane), CLIPBOARD).is_on;
-    assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    assert_eq!(
+        (outcome, is_on),
+        (
+            settings_outcome(clipboard_settings(ClipboardAccess::Denied)),
+            false
+        )
+    );
 }
 
 #[test]
@@ -1088,7 +1094,7 @@ fn choosing_the_current_clipboard_access_does_nothing() {
 
 #[test]
 fn preparing_on_focus_keeps_it_and_turns_the_switch_on() {
-    let mut pane = GeneralPane::new(Settings::default());
+    let mut pane = GeneralPane::new(preparation_settings(PromptPreparation::OnFirstKey));
 
     let outcome = pane.on_action(
         GeneralAction::SwitchPreparation(PromptPreparation::OnFocus),
@@ -1115,7 +1121,13 @@ fn preparing_on_the_first_key_keeps_it_and_turns_the_switch_off() {
     );
 
     let is_on = switch(&default_page(&pane), PREPARATION).is_on;
-    assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    assert_eq!(
+        (outcome, is_on),
+        (
+            settings_outcome(preparation_settings(PromptPreparation::OnFirstKey)),
+            false
+        )
+    );
 }
 
 #[test]
@@ -1132,7 +1144,7 @@ fn choosing_the_current_preparation_does_nothing() {
 
 #[test]
 fn showing_word_by_word_keeps_it_and_turns_the_switch_on() {
-    let mut pane = GeneralPane::new(Settings::default());
+    let mut pane = GeneralPane::new(display_settings(SuggestionDisplay::WhenComplete));
 
     let outcome = pane.on_action(
         GeneralAction::SwitchDisplay(SuggestionDisplay::WordByWord),
@@ -1159,7 +1171,13 @@ fn showing_when_complete_keeps_it_and_turns_the_switch_off() {
     );
 
     let is_on = switch(&default_page(&pane), DISPLAY).is_on;
-    assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), false));
+    assert_eq!(
+        (outcome, is_on),
+        (
+            settings_outcome(display_settings(SuggestionDisplay::WhenComplete)),
+            false
+        )
+    );
 }
 
 #[test]
