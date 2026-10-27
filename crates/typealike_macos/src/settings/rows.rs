@@ -160,17 +160,19 @@ struct SettingRow {
 }
 
 impl SettingRow {
-    /// Adds a row with `control` at the bottom of `rows_stack`.
-    fn add(rows_stack: &NSStackView, control: &NSView, main_thread: MainThreadMarker) -> Self {
+    /// Adds a row with `controls` at the bottom of `rows_stack`.
+    fn add(rows_stack: &NSStackView, controls: &[&NSView], main_thread: MainThreadMarker) -> Self {
         let label = truncating_label(&body_font(), main_thread);
         let description = small_secondary_label(main_thread);
         let texts = row_texts(&label, &description, main_thread);
         fill_width(&description, &texts);
-        control.setContentHuggingPriority_forOrientation(
-            NSLayoutPriorityDefaultHigh,
-            NSLayoutConstraintOrientation::Horizontal,
-        );
-        add_grouped_row(rows_stack, &texts, &[control], main_thread);
+        for control in controls {
+            control.setContentHuggingPriority_forOrientation(
+                NSLayoutPriorityDefaultHigh,
+                NSLayoutConstraintOrientation::Horizontal,
+            );
+        }
+        add_grouped_row(rows_stack, &texts, controls, main_thread);
         Self {
             texts,
             label,
@@ -197,7 +199,7 @@ impl SwitchRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let switch = NSSwitch::new(binder.main_thread);
         binder.target.connect(&switch, ControlAction::Toggle);
-        let setting = SettingRow::add(rows_stack, &switch, binder.main_thread);
+        let setting = SettingRow::add(rows_stack, &[&switch], binder.main_thread);
         let note = NoteView::add(&setting.texts, binder.main_thread);
         Self {
             setting,
@@ -229,7 +231,7 @@ pub(super) struct PickerRow {
 impl PickerRow {
     pub(super) fn add(rows_stack: &NSStackView, id: &ControlId, binder: &Binder<'_>) -> Self {
         let choices = MenuChoices::new(binder.target, binder.main_thread);
-        let setting = SettingRow::add(rows_stack, &choices.menu, binder.main_thread);
+        let setting = SettingRow::add(rows_stack, &[&choices.menu], binder.main_thread);
         let note = NoteView::add(&setting.texts, binder.main_thread);
         Self {
             setting,
@@ -276,17 +278,7 @@ impl PermissionRowView {
         let state = label(&body_font(), main_thread);
         state.setTextColor(Some(&NSColor::secondaryLabelColor()));
         let button = push_button(binder.target, main_thread);
-        let controls = stack(
-            NSUserInterfaceLayoutOrientation::Horizontal,
-            MESSAGE_SPACING,
-            NO_INSETS,
-            main_thread,
-        );
-        let parts: [&NSView; 3] = [&check_mark, &state, &button];
-        for part in parts {
-            controls.addArrangedSubview(part);
-        }
-        let setting = SettingRow::add(rows_stack, &controls, main_thread);
+        let setting = SettingRow::add(rows_stack, &[&check_mark, &state, &button], main_thread);
         Self {
             setting,
             check_mark,

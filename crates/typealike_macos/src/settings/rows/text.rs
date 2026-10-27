@@ -39,7 +39,7 @@ impl TextLineRow {
             .constraintEqualToConstant(TEXT_LINE_WIDTH)
             .setActive(true);
         Self {
-            setting: SettingRow::add(rows_stack, &field, main_thread),
+            setting: SettingRow::add(rows_stack, &[&field], main_thread),
             field,
             id: id.clone(),
         }
