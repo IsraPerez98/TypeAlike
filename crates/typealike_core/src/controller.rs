@@ -24,8 +24,8 @@ use crate::app::{
     TrayView,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, ScreenRect,
-    Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, Permission,
+    PermissionState, ScreenRect, Surroundings,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -37,13 +37,14 @@ use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Sugges
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
 use crate::settings_window::general::{GeneralAction, GeneralPane};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
+use crate::settings_window::permissions;
 use crate::settings_window::personalization::{
     PersonalizationAction, PersonalizationChange, PersonalizationPane,
 };
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
 use crate::settings_window::suggestion_places::{SuggestionPlacesAction, SuggestionPlacesPane};
-use crate::settings_window::view::{SettingsInput, SettingsView};
+use crate::settings_window::view::{PageIcon, SettingsInput, SettingsView};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -66,6 +67,7 @@ enum PaneAction {
     EnergySaving(EnergySavingAction),
     Models(ModelsAction),
     Playground(PlaygroundAction),
+    Permissions(Permission),
 }
 
 /// TypeAlike while it runs: the suggestions at the caret, the panes of the settings window and
@@ -343,12 +345,24 @@ impl Controller {
     pub fn on_tray_command(&mut self, command: TrayCommand, shell: &mut dyn Shell) {
         match self.app.on_tray_command(command) {
             TrayOutcome::Paused | TrayOutcome::Resumed => self.on_stop_change(shell),
-            TrayOutcome::OpenSettings => self.open_settings(shell),
+            TrayOutcome::OpenSettings => self.open_settings(None, shell),
             TrayOutcome::Quit => {
                 self.save_history();
                 shell.quit();
             }
         }
+    }
+
+    /// Opens the settings window at the Permissions pane, because TypeAlike lacks a permission that
+    /// it needs to show suggestions.
+    pub fn on_missing_permission(&mut self, shell: &mut dyn Shell) {
+        self.open_settings(Some(PageIcon::Hand), shell);
+    }
+
+    /// Shows the new state of the permissions in the settings window, after the user gave or took
+    /// back a permission.
+    pub fn on_permission_change(&mut self, shell: &mut dyn Shell) {
+        self.render_settings(shell);
     }
 
     /// Handles something that the user did with a control of the settings window, then shows
@@ -363,7 +377,7 @@ impl Controller {
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
             Some(PaneAction::SuggestionPlaces(action)) => self.on_suggestion_places_action(action),
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
-                shell.ask_for_ocr_permission();
+                shell.ask_for_permission(Permission::ScreenRecording);
             }
             Some(PaneAction::ScreenText(action)) => self.on_screen_text_action(action),
             Some(PaneAction::Personalization(action)) => self.on_personalization_action(action),
@@ -378,6 +392,7 @@ impl Controller {
                     self.runner.submit(request, &self.playground_sink);
                 }
             }
+            Some(PaneAction::Permissions(permission)) => shell.ask_for_permission(permission),
             None => {}
         }
         self.render_settings(shell);
@@ -411,6 +426,7 @@ impl Controller {
                     .action_for(input, self.general.settings().backend, &self.translations)
                     .map(PaneAction::Models)
             })
+            .or_else(|| permissions::action_for(input).map(PaneAction::Permissions))
     }
 
     fn render_settings(&self, shell: &mut dyn Shell) {
@@ -743,11 +759,14 @@ impl Controller {
         self.render_settings(shell);
     }
 
-    fn open_settings(&mut self, shell: &mut dyn Shell) {
+    /// Opens the settings window at the page with the icon `page`, else at the page that it shows.
+    fn open_settings(&mut self, page: Option<PageIcon>, shell: &mut dyn Shell) {
         self.personalization.cancel_delete();
         let request = self.models.on_open();
         self.hub.submit(request, &self.hub_sink);
-        shell.show_settings(&self.settings_view(shell));
+        let view = self.settings_view(shell);
+        let page = page.and_then(|icon| view.pages.iter().position(|shown| shown.icon == icon));
+        shell.show_settings(&view, page);
     }
 
     fn settings_view(&self, desktop: &dyn Desktop) -> SettingsView {
@@ -777,6 +796,7 @@ impl Controller {
                 .page(backend, translations)
                 .with_first_section(general.model_section(&self.playground, &installed, translations)),
         ];
+        pages.extend(permissions::page(&desktop.permissions(), translations));
         if self.playground_page == PlaygroundPage::Shown {
             pages.push(self.playground.page(&installed, recommended, translations));
         }
@@ -857,6 +877,10 @@ impl Desktop for DesktopWithPendingRest<'_> {
 
     fn ocr_levels(&self) -> OcrLevels {
         self.0.ocr_levels()
+    }
+
+    fn permissions(&self) -> Vec<(Permission, PermissionState)> {
+        self.0.permissions()
     }
 
     fn is_ghost_shown(&self) -> bool {

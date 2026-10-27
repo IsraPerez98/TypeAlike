@@ -9,7 +9,7 @@ related_targets: ["crates/typealike_core/src/settings_window/view.rs","crates/ty
 
 ## Scope
 
-The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, and Playground only in a build with the `playground` feature). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
+The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, Permissions on macOS, and Playground only in a build with the `playground` feature). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
 
 ## Mode
 
@@ -43,6 +43,8 @@ Closed on 2026-10-27, from `.claude/rules/ui-text.md` and the table "Not in the 
 - **The first run.** Before the first download, the General pane shows first the note "TypeAlike needs a model to write suggestions. Download the recommended model below.", and below it the row of the recommended model with its size and a "Download" button. The row shows the progress, the cancel button and the errors of the download, as in the Models pane. TypeAlike recommends Qwen3.5 0.8B (516 MB) on the processor, because suggestions on the processor must be short to show soon, and Gemma 4 E2B (2.6 GB) on a graphics card, because it fits in the memory of most graphics cards. The Models pane marks the same model "Recommended for this computer". When the first download finishes and no suggestion model is saved, that model starts as the suggestion model, so that suggestions work with no other step.
 
 - **The panes by topic.** Closed on 2026-10-27. The General pane had 13 rows on 6 topics. Now each row is on the page of its topic. General keeps "Open at login" and how suggestions show: length, the end of a sentence, "Show words early" and the typo switches. "Use copied text" is on the Copied and screen text page (the Screen text page before). "Your name" and "Notes about you" are first on the Personalization page. "Prepare suggestions early" is last on the Energy saving page, because it uses more power. The suggestion model and "Run the model on" are first on the Models page. The settings file does not change.
+
+- **Permissions on macOS.** Closed on 2026-10-27. The Permissions pane shows Accessibility and Screen & System Audio Recording, each with the reason for it and "Allowed" with a check mark, or a "Give access" button. Without Accessibility, TypeAlike does not quit. It opens the settings window at this pane, as the pre-prompt window of `macos-ui.md`, and the button shows the prompt of macOS. The footer tells the user to quit and reopen TypeAlike when System Settings asks.
 
 ## Open decisions
 

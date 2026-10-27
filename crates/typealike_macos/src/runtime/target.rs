@@ -113,6 +113,11 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(checkAccessibility:))]
+        fn check_accessibility(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_accessibility_check);
+        }
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(quitApplication:))]
         fn quit_application(&self, _timer: &NSTimer) {
             NSApplication::sharedApplication(self.mtm()).terminate(None);

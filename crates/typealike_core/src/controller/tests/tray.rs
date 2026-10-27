@@ -86,7 +86,10 @@ fn open_settings_shows_settings_window() {
         .controller
         .on_tray_command(TrayCommand::OpenSettings, &mut harness.shell);
 
-    assert!(matches!(harness.take_calls().as_slice(), [Call::ShowSettings(_)]));
+    assert!(matches!(
+        harness.take_calls().as_slice(),
+        [Call::ShowSettings(_, None)]
+    ));
 }
 
 #[test]

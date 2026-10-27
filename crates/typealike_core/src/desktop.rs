@@ -160,6 +160,25 @@ pub enum OcrAvailability {
     Ready,
 }
 
+/// A permission that the OS asks the user to give, before TypeAlike can use a part of the OS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permission {
+    /// Read the field where the user types, watch the keys and type suggestions. Without it,
+    /// TypeAlike shows no suggestion.
+    Accessibility,
+    /// Capture the windows on the screen, for the OCR of the screen text.
+    ScreenRecording,
+}
+
+/// Whether the user gave TypeAlike a permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionState {
+    /// TypeAlike has the permission.
+    Granted,
+    /// TypeAlike does not have the permission, or the OS refuses an old grant.
+    Missing,
+}
+
 /// Whether the computer saves energy now: energy saver or battery saver on Windows, Low Power Mode
 /// on macOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -327,6 +346,12 @@ pub trait Desktop {
     /// level, or that has no OCR, keeps this default.
     fn ocr_levels(&self) -> OcrLevels {
         OcrLevels::One
+    }
+
+    /// Tells the state of each permission that the OS asks the user for, in the order of the
+    /// Permissions pane. A platform whose OS asks for no permission keeps this default.
+    fn permissions(&self) -> Vec<(Permission, PermissionState)> {
+        Vec::new()
     }
 
     /// Tells whether the ghost text shows on the screen now. The platform hides it when it finds

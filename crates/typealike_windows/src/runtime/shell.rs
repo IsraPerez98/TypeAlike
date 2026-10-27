@@ -7,7 +7,7 @@ use std::time::Duration;
 use typealike_core::app::{BadgeView, TrayView};
 use typealike_core::controller::{CaretLook, FocusChange, Ghost, GhostView, Shell, Timer};
 use typealike_core::desktop::{
-    CopiedText, Desktop, Field, OcrAvailability, ScreenReadId, ScreenSource, Surroundings,
+    CopiedText, Desktop, Field, OcrAvailability, Permission, ScreenReadId, ScreenSource, Surroundings,
 };
 use typealike_core::settings::ClipboardAccess;
 use typealike_core::settings_window::view::SettingsView;
@@ -222,8 +222,8 @@ impl Shell for Win32Shell {
         self.settings.render(view.clone());
     }
 
-    fn show_settings(&mut self, view: &SettingsView) {
-        self.settings.show(view.clone());
+    fn show_settings(&mut self, view: &SettingsView, page: Option<usize>) {
+        self.settings.show(view.clone(), page);
     }
 
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
@@ -234,8 +234,8 @@ impl Shell for Win32Shell {
         self.screen_text.read(read, source);
     }
 
-    /// Windows asks for no permission to capture a window, so core never asks for it.
-    fn ask_for_ocr_permission(&mut self) {}
+    /// Windows asks for no permission, so core never asks for one.
+    fn ask_for_permission(&mut self, _permission: Permission) {}
 
     fn quit(&mut self) {
         // SAFETY: the call takes no pointer and only posts a message to this thread.

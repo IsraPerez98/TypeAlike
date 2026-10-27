@@ -28,6 +28,7 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
         RowIcon::Person => "\u{E77B}",
         RowIcon::Note => "\u{E70B}",
         RowIcon::Monitor => "\u{E7F4}",
+        RowIcon::Accessibility => "\u{E776}",
         RowIcon::Gauge => "\u{EC4A}",
         RowIcon::ClockArrow => "\u{E81C}",
         RowIcon::FloppyDisk => "\u{E74E}",
@@ -49,7 +50,8 @@ pub(super) fn page_icon(icon: PageIcon, contrast: Contrast) -> Icon {
 
 fn color_page_icon(icon: PageIcon) -> &'static [u8] {
     match icon {
-        PageIcon::Gear => include_bytes!("../../assets/fluent/settings.svg"),
+        // Windows asks for no permission, so the Permissions page never shows here.
+        PageIcon::Gear | PageIcon::Hand => include_bytes!("../../assets/fluent/settings.svg"),
         PageIcon::Cube => include_bytes!("../../assets/fluent/bot.svg"),
         PageIcon::TextCursor => include_bytes!("../../assets/fluent/edit.svg"),
         PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.svg"),
@@ -68,5 +70,6 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
         PageIcon::PersonText => Symbol::ContactInfo.into(),
         PageIcon::AppGrid => Symbol::AllApps.into(),
         PageIcon::Lightbulb => Icon::font(LIGHTBULB_GLYPH),
+        PageIcon::Hand => Symbol::Permissions.into(),
     }
 }

@@ -42,6 +42,8 @@ struct Host {
     inputs: Mailbox<SettingsInput>,
     /// The last view from the controller. A window that opens starts with it.
     view: SettingsView,
+    /// The index of the page that a window that opens selects, when the controller asked for one.
+    page_to_open: Option<usize>,
     page: PageState,
 }
 
@@ -103,9 +105,9 @@ impl SettingsThread {
     }
 
     /// Shows the settings window with `view` and brings it to the front. Opens the window when it
-    /// is closed.
-    pub(crate) fn show(&self, view: SettingsView) {
-        self.dispatch(move |context| open_or_show(view, context));
+    /// is closed. With a `page`, the window selects the page of that index.
+    pub(crate) fn show(&self, view: SettingsView, page: Option<usize>) {
+        self.dispatch(move |context| open_or_show(view, page, context));
     }
 
     /// Shows the page icons for `contrast`, when the window shows. WinUI makes the rest of the
@@ -149,6 +151,7 @@ fn run(inputs: Mailbox<SettingsInput>, started: &mpsc::Sender<Result<AppProxy>>)
             host.replace(Some(Host {
                 inputs,
                 view: SettingsView::default(),
+                page_to_open: None,
                 page: PageState::Closed,
             }))
         });
@@ -178,19 +181,27 @@ impl Host {
     }
 }
 
-/// Shows `view` in the open window and brings it to the front, or opens the window with it. The
-/// window opens outside any borrow of the host, because its page reads the host when it starts.
-fn open_or_show(view: SettingsView, context: &AppContext) {
+/// Shows `view` in the open window and brings it to the front, or opens the window with it. With a
+/// `page`, the window selects the page of that index. The window opens outside any borrow of the
+/// host, because its page reads the host when it starts.
+fn open_or_show(view: SettingsView, page: Option<usize>, context: &AppContext) {
     let should_open = with_host(|host| {
         host.view = view.clone();
         match &host.page {
-            PageState::Open(page) => {
-                send(page, PageMessage::Show(view));
-                send(page, PageMessage::Activate);
+            PageState::Open(sender) => {
+                send(sender, PageMessage::Show(view));
+                if let Some(index) = page {
+                    send(sender, PageMessage::SelectIndex(index));
+                }
+                send(sender, PageMessage::Activate);
                 false
             }
-            PageState::Opening => false,
+            PageState::Opening => {
+                host.page_to_open = page.or(host.page_to_open);
+                false
+            }
             PageState::Closed => {
+                host.page_to_open = page;
                 host.page = PageState::Opening;
                 true
             }
@@ -226,6 +237,8 @@ enum PageMessage {
     Contrast(Contrast),
     /// The user picked the page with this tag in the navigation.
     Select(Option<Rc<str>>),
+    /// The controller asks to show the page of this index.
+    SelectIndex(usize),
     /// The user changed the text of a field that submits its text.
     Typed { id: ControlId, text: String },
     /// The user submitted the text of a field, with the return key or with its button.
@@ -282,18 +295,21 @@ impl Component for SettingsPage {
     type Message = PageMessage;
 
     fn create(_input: &(), context: &ComponentContext<Self>) -> Self {
-        let view = with_host(|host| {
+        let opened = with_host(|host| {
             host.page = PageState::Open(context.sender());
-            host.view.clone()
+            (host.view.clone(), host.page_to_open.take())
         });
         let mut page = Self {
             view: SettingsView::default(),
-            selected: 0,
+            selected: opened
+                .as_ref()
+                .and_then(|(_, page_to_open)| *page_to_open)
+                .unwrap_or(0),
             typed: HashMap::new(),
             app_icons: HashMap::new(),
             contrast: SystemTheme::read().contrast,
         };
-        if let Some(view) = view {
+        if let Some((view, _)) = opened {
             page.show(view);
         }
         page
@@ -308,6 +324,7 @@ impl Component for SettingsPage {
                 }
             }
             PageMessage::Contrast(contrast) => self.contrast = contrast,
+            PageMessage::SelectIndex(index) => self.selected = index,
             PageMessage::Select(tag) => {
                 if let Some(index) = tag.and_then(|tag| tag.parse().ok()) {
                     self.selected = index;

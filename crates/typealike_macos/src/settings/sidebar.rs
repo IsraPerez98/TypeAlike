@@ -33,6 +33,7 @@ const PAGE_COLUMN: &str = "page";
 #[derive(Debug)]
 pub(super) struct Sidebar {
     pub(super) view: Retained<NSScrollView>,
+    table: Retained<NSTableView>,
     list: Retained<PageList>,
 }
 
@@ -72,7 +73,13 @@ impl Sidebar {
         view.setHasVerticalScroller(true);
         view.setAutohidesScrollers(true);
         view.setDocumentView(Some(&table));
-        Self { view, list }
+        Self { view, table, list }
+    }
+
+    /// Picks the row of `index`, which shows its page as a pick of the user does.
+    pub(super) fn select(&self, index: usize) {
+        self.table
+            .selectRowIndexes_byExtendingSelection(&NSIndexSet::indexSetWithIndex(index), false);
     }
 
     /// Shows `titles` in the rows, top to bottom.
@@ -160,6 +167,7 @@ fn page_look(icon: PageIcon) -> (&'static str, Retained<NSColor>) {
         PageIcon::TextCursor => ("text.cursor", NSColor::systemGreenColor()),
         PageIcon::AppGrid => ("square.grid.2x2.fill", NSColor::systemIndigoColor()),
         PageIcon::Lightbulb => ("lightbulb.fill", NSColor::systemYellowColor()),
+        PageIcon::Hand => ("hand.raised.fill", NSColor::systemBlueColor()),
     }
 }
 

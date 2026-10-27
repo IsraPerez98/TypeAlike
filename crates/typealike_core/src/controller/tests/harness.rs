@@ -12,8 +12,8 @@ use crate::controller::{
     MAX_CARET_MOVE_CHECKS, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, ScreenReadId,
-    ScreenSource, Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, Permission,
+    PermissionState, ScreenReadId, ScreenSource, Surroundings,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -48,10 +48,10 @@ pub(super) enum Call {
     StopTimer(Timer),
     RenderTray(TrayView),
     RenderSettings(Box<SettingsView>),
-    ShowSettings(Box<SettingsView>),
+    ShowSettings(Box<SettingsView>, Option<usize>),
     UseClipboardAccess(ClipboardAccess),
     ReadScreen(ScreenReadId, ScreenSource),
-    AskForOcrPermission,
+    AskForPermission(Permission),
     Quit,
 }
 
@@ -60,6 +60,7 @@ pub(super) struct FakeShell {
     pub(super) surroundings: Surroundings,
     pub(super) focus_change: FocusChange,
     pub(super) ocr: OcrAvailability,
+    pub(super) permissions: Vec<(Permission, PermissionState)>,
     calls: Vec<Call>,
     pub(super) ghost_view: Option<GhostView>,
     pub(super) is_ghost_shown: bool,
@@ -82,6 +83,10 @@ impl Desktop for FakeShell {
 
     fn ocr_availability(&self) -> OcrAvailability {
         self.ocr
+    }
+
+    fn permissions(&self) -> Vec<(Permission, PermissionState)> {
+        self.permissions.clone()
     }
 
     fn is_ghost_shown(&self) -> bool {
@@ -148,8 +153,8 @@ impl Shell for FakeShell {
         self.calls.push(Call::RenderSettings(Box::new(view.clone())));
     }
 
-    fn show_settings(&mut self, view: &SettingsView) {
-        self.calls.push(Call::ShowSettings(Box::new(view.clone())));
+    fn show_settings(&mut self, view: &SettingsView, page: Option<usize>) {
+        self.calls.push(Call::ShowSettings(Box::new(view.clone()), page));
     }
 
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
@@ -160,8 +165,8 @@ impl Shell for FakeShell {
         self.calls.push(Call::ReadScreen(read, source));
     }
 
-    fn ask_for_ocr_permission(&mut self) {
-        self.calls.push(Call::AskForOcrPermission);
+    fn ask_for_permission(&mut self, permission: Permission) {
+        self.calls.push(Call::AskForPermission(permission));
     }
 
     fn quit(&mut self) {
@@ -322,6 +327,7 @@ impl Harness {
                 surroundings: Surroundings::default(),
                 focus_change: FocusChange::Unchanged,
                 ocr: OcrAvailability::Unsupported,
+                permissions: Vec::new(),
                 calls: Vec::new(),
                 ghost_view: None,
                 is_ghost_shown: true,
@@ -505,7 +511,7 @@ impl Harness {
         self.controller
             .on_tray_command(TrayCommand::OpenSettings, &mut self.shell);
         match self.take_calls().pop() {
-            Some(Call::ShowSettings(view)) => *view,
+            Some(Call::ShowSettings(view, _)) => *view,
             other => panic!("the settings window did not show: {other:?}"),
         }
     }

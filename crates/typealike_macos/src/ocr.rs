@@ -35,9 +35,14 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_secs(3);
 const SCREEN_RECORDING_SETTINGS: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
+/// Tells whether the user gave TypeAlike the Screen & System Audio Recording permission.
+pub(crate) fn is_permitted() -> bool {
+    CGPreflightScreenCaptureAccess()
+}
+
 /// Tells whether TypeAlike can do an OCR now.
 pub(crate) fn availability() -> OcrAvailability {
-    if !CGPreflightScreenCaptureAccess() {
+    if !is_permitted() {
         return OcrAvailability::NotPermitted;
     }
     if energy_saver::read() == EnergySaver::On {

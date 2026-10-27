@@ -17,14 +17,14 @@ use objc2_app_kit::{
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
 use typealike_core::settings_window::view::{
-    self as view, ChoiceText, ControlId, Note, NoteTone, Row, SettingsInput,
+    self as view, Access, ChoiceText, ControlId, Note, NoteTone, Row, SettingsInput,
 };
 
 use crate::labels::menu_label;
 use crate::settings::controls::{
-    MenuChoices, body_font, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
-    show_push_button, show_status, small_secondary_label, small_symbol_view, spinner, start_spinning,
-    stop_spinning, truncating_label, warning_color, wrapping_label,
+    MenuChoices, body_font, control_state, detail_font, label, push_button, secondary_wrapping_label,
+    set_text, show_push_button, show_status, small_secondary_label, small_symbol_view, spinner,
+    start_spinning, stop_spinning, truncating_label, warning_color, wrapping_label,
 };
 use crate::settings::layout::{LIST_PART_SPACING, NO_INSETS, add_grouped_row, fill_width, row_texts, stack};
 use crate::settings::rows::app::{AppPickerRow, AppSwitchRow, SiteSwitchRow};
@@ -35,6 +35,7 @@ use crate::settings::{Binder, ControlAction};
 const MESSAGE_SPACING: CGFloat = 8.0;
 const WARNING_SYMBOL: &str = "exclamationmark.triangle.fill";
 const WARNING_DESCRIPTION: &str = "Warning";
+const GRANTED_SYMBOL: &str = "checkmark.circle.fill";
 const MESSAGE_INSETS: NSEdgeInsets = NSEdgeInsets {
     top: 28.0,
     left: 16.0,
@@ -56,6 +57,7 @@ pub(super) enum RowView {
     Note(NoteView),
     Output(OutputRow),
     Item(ItemRow),
+    Permission(PermissionRowView),
     Message(MessageRow),
 }
 
@@ -79,6 +81,7 @@ impl RowView {
             }
             Row::Output(_) => Self::Output(OutputRow::add(container, main_thread)),
             Row::Item(_) => Self::Item(ItemRow::add(container, binder)),
+            Row::Permission(_) => Self::Permission(PermissionRowView::add(container, binder)),
             Row::Loading(_) | Row::Message(_) => Self::Message(MessageRow::add(container, binder)),
             Row::TextArea(text_area) => Self::TextArea(TextAreaRow::add(container, &text_area.id, binder)),
             Row::TextField(text_field) => {
@@ -102,6 +105,7 @@ impl RowView {
             (Self::Note(_), Row::Note(_))
             | (Self::Output(_), Row::Output(_))
             | (Self::Item(_), Row::Item(_))
+            | (Self::Permission(_), Row::Permission(_))
             | (Self::Message(_), Row::Loading(_) | Row::Message(_)) => true,
             _ => false,
         }
@@ -121,6 +125,7 @@ impl RowView {
             (Self::Note(row_view), Row::Note(note)) => row_view.render(Some(note)),
             (Self::Output(row_view), Row::Output(output)) => row_view.render(output),
             (Self::Item(row_view), Row::Item(item)) => row_view.render(item, binder),
+            (Self::Permission(row_view), Row::Permission(permission)) => row_view.render(permission, binder),
             (Self::Message(row_view), Row::Loading(text)) => row_view.render_loading(text),
             (Self::Message(row_view), Row::Message(message)) => row_view.render_message(message, binder),
             _ => {}
@@ -251,6 +256,63 @@ impl PickerRow {
         self.choices.menu.setEnabled(shown.is_enabled);
         self.note.render(shown.note.as_ref());
         binder.bind(&self.choices.menu, &shown.id);
+    }
+}
+
+/// A row with the label and the reason of a permission, and at its trailing edge a check mark with
+/// the state, or the button that asks for the permission.
+#[derive(Debug)]
+pub(super) struct PermissionRowView {
+    setting: SettingRow,
+    check_mark: Retained<NSImageView>,
+    state: Retained<NSTextField>,
+    button: Retained<NSButton>,
+}
+
+impl PermissionRowView {
+    pub(super) fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
+        let main_thread = binder.main_thread;
+        let check_mark = NSImageView::new(main_thread);
+        let state = label(&body_font(), main_thread);
+        state.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        let button = push_button(binder.target, main_thread);
+        let controls = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            MESSAGE_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        let parts: [&NSView; 3] = [&check_mark, &state, &button];
+        for part in parts {
+            controls.addArrangedSubview(part);
+        }
+        let setting = SettingRow::add(rows_stack, &controls, main_thread);
+        Self {
+            setting,
+            check_mark,
+            state,
+            button,
+        }
+    }
+
+    fn render(&self, shown: &view::PermissionRow, binder: &mut Binder<'_>) {
+        self.setting.render(&shown.label, &shown.description);
+        let is_granted = matches!(shown.access, Access::Granted(_));
+        self.check_mark.setHidden(!is_granted);
+        self.state.setHidden(!is_granted);
+        self.button.setHidden(is_granted);
+        match &shown.access {
+            Access::Granted(text) => {
+                show_status(
+                    &self.check_mark,
+                    GRANTED_SYMBOL,
+                    text,
+                    &NSColor::systemGreenColor(),
+                );
+                set_text(&self.state, text);
+            }
+            Access::Missing(button) => show_push_button(&self.button, button, Some(&shown.label), binder),
+        }
     }
 }
 

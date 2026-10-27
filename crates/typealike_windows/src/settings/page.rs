@@ -5,8 +5,9 @@ use std::iter;
 use std::rc::Rc;
 
 use typealike_core::settings_window::view::{
-    self as view, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, Output, Page, Permille, Picker,
-    Row, RowIcon, SearchField, Section, SettingsInput, SiteSwitch, Switch, TextArea, TextField, TextLine,
+    self as view, Access, Accessory, AppPicker, AppSwitch, ControlId, Item, Note, Output, Page, Permille,
+    PermissionRow, Picker, Row, RowIcon, SearchField, Section, SettingsInput, SiteSwitch, Switch, TextArea,
+    TextField, TextLine,
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
@@ -131,6 +132,7 @@ impl Renderer<'_, '_> {
             Row::Note(note) => card(note_view(note)),
             Row::Output(output) => output_card(output),
             Row::Item(item) => self.item_card(item),
+            Row::Permission(permission) => self.permission_card(permission),
             Row::Loading(text) => loading_card(text),
             Row::Message(message) => self.message_card(message),
         }
@@ -259,6 +261,21 @@ impl Renderer<'_, '_> {
         stacked_card(
             setting_header(field.icon, &field.label, "", None),
             vec![line.into()],
+        )
+    }
+
+    /// A card with the label and the reason of a permission, and at the trailing edge its state or
+    /// the button that asks for it.
+    fn permission_card(&self, permission: &PermissionRow) -> View {
+        let state = match &permission.access {
+            Access::Granted(text) => secondary_text(text)
+                .vertical_alignment(VerticalAlignment::Center)
+                .into(),
+            Access::Missing(button) => self.button(button, ButtonStyle::Accent),
+        };
+        control_card(
+            setting_header(permission.icon, &permission.label, &permission.description, None),
+            state,
         )
     }
 

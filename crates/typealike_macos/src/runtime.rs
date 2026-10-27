@@ -23,8 +23,8 @@ use typealike_core::controller::{
     GhostPlacement, GhostView, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use typealike_core::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource,
-    Surroundings,
+    CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, Permission, PermissionState,
+    ScreenReadId, ScreenSource, Surroundings,
 };
 use typealike_core::inference::Backend;
 use typealike_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
@@ -50,11 +50,13 @@ use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
 use crate::ocr;
 use crate::overlay::{self, Overlay};
+use crate::permissions;
 use crate::runtime::target::{RuntimeTarget, observe_workspace};
 use crate::screen_text::ScreenTextReader;
 use crate::settings::{ActionTarget, SettingsWindow};
 
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
+const ACCESSIBILITY_CHECK_INTERVAL: NSTimeInterval = 1.0;
 
 thread_local! {
     static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) };
@@ -66,10 +68,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-    if !accessibility::request_access() {
-        tracing::warn!("accessibility access is not granted yet");
-    }
-    let tap = EventTap::install(Some(tap_callback)).ok_or(RunError::KeyboardAccess)?;
+    let tap = EventTap::install(Some(tap_callback));
+    let has_keyboard_access = tap.is_some();
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
     let energy_saver_observer = EnergySaverObserver::start(on_energy_saver_change);
@@ -116,6 +116,10 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         badge_menu: None,
     }));
     with_runtime(Runtime::read_game);
+    if !has_keyboard_access {
+        tracing::warn!("no accessibility access, so the keyboard is not watched yet");
+        with_runtime(Runtime::wait_for_accessibility);
+    }
     tracing::info!("running in the menu bar");
     application.run();
     drop(energy_saver_observer);
@@ -146,7 +150,8 @@ fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<O
 struct Runtime {
     controller: Controller,
     shell: AppKitShell,
-    tap: EventTap,
+    /// The event tap, which macOS refuses until the user gives the Accessibility permission.
+    tap: Option<EventTap>,
     release_filter: ReleaseFilter<CGKeyCode>,
     badge_click: BadgeClickFilter,
     /// The badge menu that shows now, whose entries a pick names by their index.
@@ -227,6 +232,31 @@ impl Runtime {
     fn on_app_activation(&mut self) {
         self.read_game();
         self.controller.on_input(&mut self.shell);
+        if NSApplication::sharedApplication(self.shell.target.mtm()).isActive() {
+            self.controller.on_permission_change(&mut self.shell);
+        }
+    }
+
+    /// Opens the Permissions pane, and looks for the Accessibility permission until the user gives
+    /// it.
+    fn wait_for_accessibility(&mut self) {
+        self.controller.on_missing_permission(&mut self.shell);
+        self.shell
+            .schedule(ACCESSIBILITY_CHECK_INTERVAL, sel!(checkAccessibility:));
+    }
+
+    /// Starts the event tap when the user gave the Accessibility permission, else looks again later.
+    fn on_accessibility_check(&mut self) {
+        if accessibility::is_trusted() {
+            self.tap = EventTap::install(Some(tap_callback));
+        }
+        if self.tap.is_none() {
+            self.shell
+                .schedule(ACCESSIBILITY_CHECK_INTERVAL, sel!(checkAccessibility:));
+            return;
+        }
+        tracing::info!("accessibility access given, watching the keyboard");
+        self.controller.on_permission_change(&mut self.shell);
     }
 
     /// Gives the controller whether the app in front is a game.
@@ -372,6 +402,10 @@ impl Desktop for AppKitShell {
         ocr::availability()
     }
 
+    fn permissions(&self) -> Vec<(Permission, PermissionState)> {
+        permissions::states()
+    }
+
     /// Vision reads at the level `.fast` or `.accurate`.
     fn ocr_levels(&self) -> OcrLevels {
         OcrLevels::Selectable
@@ -464,7 +498,7 @@ impl Shell for AppKitShell {
         }
     }
 
-    fn show_settings(&mut self, view: &SettingsView) {
+    fn show_settings(&mut self, view: &SettingsView, page: Option<usize>) {
         let target = &self.target;
         let settings = self.settings.get_or_insert_with(|| {
             let action_target = ActionTarget {
@@ -478,7 +512,7 @@ impl Shell for AppKitShell {
             SettingsWindow::new(action_target, view, target.mtm())
         });
         settings.render(view);
-        settings.show();
+        settings.show(page);
     }
 
     /// macOS reads the clipboard only when core asks for its text, so it keeps no copied text.
@@ -489,8 +523,8 @@ impl Shell for AppKitShell {
             .read(read, source, self.focus.frontmost_process());
     }
 
-    fn ask_for_ocr_permission(&mut self) {
-        ocr::ask_for_permission();
+    fn ask_for_permission(&mut self, permission: Permission) {
+        permissions::ask(permission);
     }
 
     /// Ends the app from a timer, outside the borrow of the runtime that the end of the app drops.
@@ -506,7 +540,7 @@ extern "C-unwind" fn tap_callback(
     _user_info: *mut c_void,
 ) -> *mut CGEvent {
     if kind == CGEventType::TapDisabledByTimeout {
-        with_runtime(|runtime| runtime.tap.enable());
+        with_runtime(|runtime| runtime.tap.as_ref().map(EventTap::enable));
         return event.as_ptr();
     }
     // SAFETY: the tap passes an event that stays valid for the whole callback.

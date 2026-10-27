@@ -90,6 +90,8 @@ pub enum PageIcon {
     AppGrid,
     /// A light bulb, for the energy that TypeAlike uses.
     Lightbulb,
+    /// A raised hand, for the permissions that the OS gives TypeAlike.
+    Hand,
 }
 
 /// The picture before the label of a setting, such as the icon at the leading edge of a card of
@@ -122,6 +124,8 @@ pub enum RowIcon {
     Note,
     /// A monitor, for the text on the screen.
     Monitor,
+    /// A person in a circle, for the access of TypeAlike to the text fields of other apps.
+    Accessibility,
     /// A gauge, for a choice between speed and accuracy.
     Gauge,
     /// A clock with an arrow around it, for the earlier writing of the user.
@@ -200,6 +204,8 @@ pub enum Row {
     Output(Output),
     /// One thing of a list, such as a model or a file.
     Item(Item),
+    /// A permission of the OS, and whether TypeAlike has it.
+    Permission(PermissionRow),
     /// The rows of the section are on their way. The text tells what happens.
     Loading(String),
     /// The section has no rows to show, and this tells why.
@@ -219,7 +225,12 @@ impl Row {
             Self::TextArea(text_area) => Some(&text_area.id),
             Self::TextLine(text_line) => Some(&text_line.id),
             Self::TextField(text_field) => Some(&text_field.id),
-            Self::Note(_) | Self::Output(_) | Self::Item(_) | Self::Loading(_) | Self::Message(_) => None,
+            Self::Note(_)
+            | Self::Output(_)
+            | Self::Item(_)
+            | Self::Permission(_)
+            | Self::Loading(_)
+            | Self::Message(_) => None,
         }
     }
 }
@@ -429,6 +440,28 @@ pub enum Accessory {
     },
     /// The item cannot be used. The subtitle of the item tells why.
     Unavailable,
+}
+
+/// A permission of the OS, after its label and the reason that TypeAlike needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionRow {
+    /// The picture before the label.
+    pub icon: RowIcon,
+    /// The name of the permission, as the settings of the OS name it.
+    pub label: String,
+    /// A sentence below the label about what TypeAlike does with the permission.
+    pub description: String,
+    /// Whether TypeAlike has the permission, at the trailing edge.
+    pub access: Access,
+}
+
+/// Whether TypeAlike has a permission of the OS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Access {
+    /// TypeAlike has the permission. The text tells it, next to a check mark.
+    Granted(String),
+    /// TypeAlike does not have the permission. The button asks the user for it.
+    Missing(Button),
 }
 
 /// How far a download got, in thousandths of the file.

@@ -2,7 +2,7 @@
 
 use super::harness::{Call, Harness, completed, loaded, model_file, suggestion_settings};
 use crate::controller::Delivery;
-use crate::desktop::EnergySaver;
+use crate::desktop::{EnergySaver, Permission, PermissionState};
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
@@ -12,7 +12,7 @@ use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTIO
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
-use crate::settings_window::view::{ControlId, Row, SettingsInput, SettingsView};
+use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
 use crate::test_support::{mail_app, suggestion_app, suggestion_site, writing_rule_breaks};
 
 #[test]
@@ -207,7 +207,11 @@ fn permission_button_asks_for_the_ocr_permission() {
         &mut harness.shell,
     );
 
-    assert!(harness.take_calls().contains(&Call::AskForOcrPermission));
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::AskForPermission(Permission::ScreenRecording))
+    );
 }
 
 #[test]
@@ -432,4 +436,85 @@ fn playground_pane_shows_last_in_a_build_with_the_playground() {
         view.pages.last().map(|page| page.title.as_str()),
         Some("Playground")
     );
+}
+
+fn harness_with_permissions(accessibility: PermissionState) -> Harness {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.permissions = vec![
+        (Permission::Accessibility, accessibility),
+        (Permission::ScreenRecording, PermissionState::Granted),
+    ];
+    harness
+}
+
+fn page_icons(view: &SettingsView) -> Vec<PageIcon> {
+    view.pages.iter().map(|page| page.icon).collect()
+}
+
+#[test]
+fn permissions_pane_shows_after_the_models_pane_when_the_os_asks_for_permissions() {
+    let mut harness = harness_with_permissions(PermissionState::Granted);
+
+    let view = harness.shown_settings();
+
+    assert_eq!(
+        page_icons(&view),
+        [
+            PageIcon::Gear,
+            PageIcon::AppGrid,
+            PageIcon::TextViewfinder,
+            PageIcon::PersonText,
+            PageIcon::Lightbulb,
+            PageIcon::Cube,
+            PageIcon::Hand
+        ]
+    );
+}
+
+#[test]
+fn os_that_asks_for_no_permission_shows_no_permissions_pane() {
+    let mut harness = Harness::new(Settings::default());
+
+    let view = harness.shown_settings();
+
+    assert!(!page_icons(&view).contains(&PageIcon::Hand));
+}
+
+#[test]
+fn give_access_button_asks_the_os_for_the_permission() {
+    let mut harness = harness_with_permissions(PermissionState::Missing);
+
+    harness.press_button("permission-accessibility");
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::AskForPermission(Permission::Accessibility))
+    );
+}
+
+#[test]
+fn missing_permission_opens_the_settings_at_the_permissions_pane() {
+    let mut harness = harness_with_permissions(PermissionState::Missing);
+
+    harness.controller.on_missing_permission(&mut harness.shell);
+
+    let opened = harness.take_calls().into_iter().find_map(|call| match call {
+        Call::ShowSettings(view, Some(page)) => Some(view.pages[page].icon),
+        _ => None,
+    });
+    assert_eq!(opened, Some(PageIcon::Hand));
+}
+
+#[test]
+fn permission_change_shows_the_new_state_in_the_settings() {
+    let mut harness = harness_with_permissions(PermissionState::Missing);
+    harness.shell.permissions[0].1 = PermissionState::Granted;
+
+    harness.controller.on_permission_change(&mut harness.shell);
+
+    assert!(matches!(
+        harness.take_calls().as_slice(),
+        [Call::RenderSettings(_)]
+    ));
 }

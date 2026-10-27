@@ -219,3 +219,15 @@ energy-saving-game = Detener durante juegos
 energy-saving-game-description = Mientras juegas, las sugerencias se detienen para dejar memoria libre al juego. Vuelven cuando escribes en un campo de texto.
 energy-saving-preparation = Preparar las sugerencias antes
 energy-saving-preparation-description = Cuando entras en un campo de texto, el modelo lee su texto de inmediato. La primera sugerencia aparece antes, pero esto usa más energía.
+
+## The Permissions pane of the settings window. It shows only on an OS that asks the user for permissions (macOS). The labels are the names of the permissions in System Settings.
+
+permissions-title = Permisos
+permissions-summary = TypeAlike usa estos permisos para mostrar sugerencias en otras apps. Los das en Ajustes del Sistema.
+permissions-accessibility = Accesibilidad
+permissions-accessibility-description = TypeAlike necesita este permiso para leer el texto donde escribes y para escribir una sugerencia cuando pulsas Tab. Sin él, no aparece ninguna sugerencia.
+permissions-screen-recording = Grabación de pantalla y audio del sistema
+permissions-screen-recording-description = Algunas apps no dan su texto a TypeAlike. Con este permiso, TypeAlike lee su texto de una imagen de la ventana. Las sugerencias también funcionan sin él.
+permissions-granted = Permitido
+permissions-give-access = Dar acceso
+permissions-footer = Cuando Ajustes del Sistema te pida que cierres y vuelvas a abrir TypeAlike, hazlo para que TypeAlike pueda usar el nuevo permiso.

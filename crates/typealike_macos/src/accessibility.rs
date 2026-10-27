@@ -6,7 +6,8 @@
 use std::ptr::{self, NonNull};
 
 use objc2_application_services::{
-    AXError, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType, kAXTrustedCheckOptionPrompt,
+    AXError, AXIsProcessTrusted, AXIsProcessTrustedWithOptions, AXUIElement, AXValue, AXValueType,
+    kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{
     CFArray, CFBoolean, CFDictionary, CFNumber, CFRange, CFRetained, CFString, CFType, CGPoint, CGRect,
@@ -29,6 +30,12 @@ pub(crate) const WINDOW_ROLE: &str = "AXWindow";
 const DOM_CLASS_LIST_ATTRIBUTE: &str = "AXDOMClassList";
 const CHILDREN_ATTRIBUTE: &str = "AXChildren";
 const QUERY_TIMEOUT_SECONDS: f32 = 0.1;
+
+/// Returns whether TypeAlike may use Accessibility, without a prompt.
+pub(crate) fn is_trusted() -> bool {
+    // SAFETY: plain call without arguments.
+    unsafe { AXIsProcessTrusted() }
+}
 
 /// Returns whether TypeAlike may use Accessibility, asking macOS to prompt the user when not.
 pub(crate) fn request_access() -> bool {

@@ -27,6 +27,7 @@ mod mirror;
 mod ocr;
 mod overlay;
 mod panel;
+mod permissions;
 mod runtime;
 mod screen_text;
 mod settings;
@@ -50,9 +51,6 @@ pub enum RunError {
     /// The lock that keeps one TypeAlike per user could not be checked.
     #[error("failed to check for a running instance")]
     InstanceCheck(#[source] std::io::Error),
-    /// macOS refused the keyboard event tap, almost always for lack of Accessibility access.
-    #[error("typealike needs accessibility access to watch the keyboard")]
-    KeyboardAccess,
 }
 
 /// Runs TypeAlike in the menu bar until the user quits.

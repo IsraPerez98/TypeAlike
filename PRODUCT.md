@@ -59,7 +59,7 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 
 ## Capabilities and Constraints
 
-- Panes of the settings window: General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models. Only a build with the `playground` feature shows the Playground pane, a tool for developers.
+- Panes of the settings window: General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, and Permissions on macOS. Only a build with the `playground` feature shows the Playground pane, a tool for developers.
 - `typealike_core` owns all the text that the user sees, and the state of each control. The platform crates only show it and send back what the user did. Thus a change to the UI text goes into core, and it changes both platforms.
 - Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, and Spanish. The settings window, the menus and the badge take all their texts from these files, in the first preferred language of the user that has a file, else in English. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
 - On macOS, the platform crate changes the labels of menus, buttons and window titles to title case in English. Spanish keeps sentence case. Core labels stay in sentence case.

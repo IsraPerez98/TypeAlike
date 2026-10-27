@@ -215,3 +215,15 @@ energy-saving-game = Stop during games
 energy-saving-game-description = While you play a game, suggestions stop to free memory for the game. They start again when you type in a text field.
 energy-saving-preparation = Prepare suggestions early
 energy-saving-preparation-description = When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.
+
+## The Permissions pane of the settings window. It shows only on an OS that asks the user for permissions (macOS). The labels are the names of the permissions in System Settings.
+
+permissions-title = Permissions
+permissions-summary = TypeAlike uses these permissions to show suggestions in other apps. You give them in System Settings.
+permissions-accessibility = Accessibility
+permissions-accessibility-description = TypeAlike needs this permission to read the text where you type and to type a suggestion when you press Tab. Without it, no suggestion shows.
+permissions-screen-recording = Screen & System Audio Recording
+permissions-screen-recording-description = Some apps do not give their text to TypeAlike. With this permission, TypeAlike reads their text from an image of the window. Suggestions also work without it.
+permissions-granted = Allowed
+permissions-give-access = Give access
+permissions-footer = When System Settings asks you to quit and reopen TypeAlike, do it, so that TypeAlike can use the new permission.

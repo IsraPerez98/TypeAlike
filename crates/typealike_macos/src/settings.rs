@@ -142,8 +142,11 @@ impl SettingsWindow {
         }
     }
 
-    /// Brings the window and the app to the front.
-    pub(crate) fn show(&self) {
+    /// Brings the window and the app to the front. With a `page`, it shows the page of that index.
+    pub(crate) fn show(&self, page: Option<usize>) {
+        if let Some(index) = page {
+            self.sidebar.select(index);
+        }
         NSApplication::sharedApplication(self.main_thread).activate();
         self.window.makeKeyAndOrderFront(None);
     }

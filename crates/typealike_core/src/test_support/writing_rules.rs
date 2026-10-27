@@ -2,7 +2,7 @@
 //! sentence case of Fluent (`.claude/rules/windows-ui.md`), and the terms and the table "Not in the
 //! UI" of `PRODUCT.md`.
 
-use crate::settings_window::view::{Accessory, Button, ChoiceText, Page, Row, Section, SettingsView};
+use crate::settings_window::view::{Access, Accessory, Button, ChoiceText, Page, Row, Section, SettingsView};
 
 /// The longest sentence that a description can have, in words.
 const MAX_SENTENCE_WORDS: usize = 25;
@@ -57,9 +57,16 @@ const CODE_WORDS: [&str; 17] = [
 ];
 
 /// The names that keep their capital letters inside a text in sentence case: the names of the
-/// product, of its services, of a graphics interface, of a pane of macOS and of the apps of the
-/// tests.
-const PROPER_NAMES: [&str; 5] = ["TypeAlike", "Hugging Face", "Vulkan", "System Settings", "Safari"];
+/// product, of its services, of a graphics interface, of a pane and a permission of macOS and of
+/// the apps of the tests.
+const PROPER_NAMES: [&str; 6] = [
+    "TypeAlike",
+    "Hugging Face",
+    "Vulkan",
+    "System Settings",
+    "Screen & System Audio Recording",
+    "Safari",
+];
 
 /// The word that takes the place of a proper name before the check of the sentence case.
 const PROPER_NAME_STAND_IN: &str = "name";
@@ -174,6 +181,14 @@ fn row_texts(row: &Row) -> Vec<UiText> {
         Row::Message(message) => {
             let mut texts = vec![UiText::prose(&message.text)];
             texts.extend(message.button.iter().map(button_text));
+            texts
+        }
+        Row::Permission(permission) => {
+            let mut texts = labeled(&permission.label, &permission.description, None);
+            texts.push(match &permission.access {
+                Access::Granted(text) => UiText::name(text),
+                Access::Missing(button) => button_text(button),
+            });
             texts
         }
         Row::AppSwitch(_) | Row::SiteSwitch(_) => Vec::new(),

@@ -4,6 +4,7 @@ mod controls;
 pub mod energy_saving;
 pub mod general;
 pub mod models;
+pub mod permissions;
 pub mod personalization;
 pub mod playground;
 pub mod screen_text;

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::{Ghost, GhostView};
 use crate::app::{BadgeView, TrayView};
-use crate::desktop::{Desktop, ScreenReadId, ScreenRect, ScreenSource};
+use crate::desktop::{Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
 use crate::settings::ClipboardAccess;
 use crate::settings_window::view::SettingsView;
 
@@ -99,8 +99,9 @@ pub trait Shell: Desktop {
     fn render_settings(&mut self, view: &SettingsView);
 
     /// Shows the settings window with `view` and brings it to the front. Makes the window the
-    /// first time.
-    fn show_settings(&mut self, view: &SettingsView);
+    /// first time. With a `page`, the window selects the page of that index in `view`, else it
+    /// keeps the page that it shows.
+    fn show_settings(&mut self, view: &SettingsView, page: Option<usize>);
 
     /// Keeps the text that the user copies while `access` allows it, and forgets it when not.
     fn use_clipboard_access(&mut self, access: ClipboardAccess);
@@ -111,9 +112,10 @@ pub trait Shell: Desktop {
     /// [`Delivery::Screen`](super::Delivery::Screen).
     fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource);
 
-    /// Asks the user for the permission that the OCR needs: shows the prompt of the system, or the
-    /// place in the system settings where the user gives it.
-    fn ask_for_ocr_permission(&mut self);
+    /// Asks the user for `permission`: shows the prompt of the system, or the place in the system
+    /// settings where the user gives it. When the OS keeps an old grant that it refuses, the shell
+    /// removes that grant first, so that the user can give the permission again.
+    fn ask_for_permission(&mut self, permission: Permission);
 
     /// Ends TypeAlike after the event that the controller handles now.
     fn quit(&mut self);
