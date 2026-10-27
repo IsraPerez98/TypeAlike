@@ -24,6 +24,16 @@ pub const BUILT_IN_BACKEND: Backend = if cfg!(target_os = "macos") {
     Backend::Cpu
 };
 
+/// The backend that a new user starts with: the GPU backend of the build (CUDA, else Vulkan), else
+/// [`BUILT_IN_BACKEND`].
+pub const DEFAULT_BACKEND: Backend = if cfg!(feature = "cuda") {
+    Backend::Cuda
+} else if cfg!(feature = "vulkan") {
+    Backend::Vulkan
+} else {
+    BUILT_IN_BACKEND
+};
+
 /// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
 /// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
 /// GPU supports it, and only when the whole model fits in the free memory of that GPU.

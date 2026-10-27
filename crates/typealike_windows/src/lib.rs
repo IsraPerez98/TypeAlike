@@ -9,10 +9,11 @@
 //! - the ghost text overlay and the badge at the caret
 //! - text injection
 //! - the tray icon and the settings window
-//! - the startup entry, the key file of the earlier writing and the CPU cores
+//! - the startup entry, the key file of the earlier writing, the CPU cores and the account name
 
 #![cfg(windows)]
 
+mod account;
 mod badge;
 mod caret;
 mod caret_reader;
@@ -49,6 +50,7 @@ use typealike_core::controller::Services;
 use typealike_core::settings::Settings;
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 
+pub use crate::account::account_name;
 pub use crate::cpu_cores::cpu_cores;
 pub use crate::key_file::ProtectedKeyFile;
 pub use crate::spelling::SpellingDictionary;

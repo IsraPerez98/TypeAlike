@@ -7,6 +7,7 @@
 #![cfg(target_os = "macos")]
 
 mod accessibility;
+mod account;
 mod badge;
 mod badge_menu;
 mod clipboard;
@@ -35,6 +36,7 @@ mod single_instance;
 mod spelling;
 mod symbol;
 
+pub use account::account_name;
 pub use keychain::Keychain;
 pub use launch_agent::LaunchAgent;
 pub use spelling::SpellingDictionary;

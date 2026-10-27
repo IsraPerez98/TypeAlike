@@ -4,13 +4,18 @@
 #[cfg(target_os = "windows")]
 pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
+    use typealike_core::settings::Settings;
     let data_dir = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .context("no local app data directory")?
         .join("TypeAlike");
     let models_dir = data_dir.join("Models");
     let settings_file = typealike_settings::SettingsFile::new(data_dir.join("settings.json"));
-    let settings = settings_file.load();
+    let settings = settings_file.load(|| Settings {
+        backend: typealike_llm::DEFAULT_BACKEND,
+        writer_name: typealike_windows::account_name(),
+        ..Settings::default()
+    });
     let program = std::env::current_exe().context("no path to the running program")?;
     let hub = typealike_models::HuggingFace::new(models_dir.clone());
     let runner = typealike_llm::LlamaCpp::new(
@@ -38,13 +43,17 @@ pub(crate) fn run() -> anyhow::Result<()> {
 #[cfg(target_os = "macos")]
 pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
+    use typealike_core::settings::Settings;
     const DATA_DIR: &str = "Library/Application Support/TypeAlike";
     const LAUNCH_AGENTS_DIR: &str = "Library/LaunchAgents";
     let home_dir = std::env::home_dir().context("no home directory")?;
     let data_dir = home_dir.join(DATA_DIR);
     let models_dir = data_dir.join("Models");
     let settings_file = typealike_settings::SettingsFile::new(data_dir.join("settings.json"));
-    let settings = settings_file.load();
+    let settings = settings_file.load(|| Settings {
+        writer_name: typealike_macos::account_name(),
+        ..Settings::default()
+    });
     let program = std::env::current_exe().context("no path to the running program")?;
     let launch_agent = typealike_macos::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), &program);
     let hub = typealike_models::HuggingFace::new(models_dir.clone());

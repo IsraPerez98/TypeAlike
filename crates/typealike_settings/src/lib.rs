@@ -23,21 +23,21 @@ impl SettingsFile {
         Self { path }
     }
 
-    /// Reads the saved settings. Gives the default settings when there is no file, or when the
-    /// file is damaged.
+    /// Reads the saved settings. Gives the settings of `defaults` when there is no file, or when
+    /// the file is damaged.
     #[must_use]
-    pub fn load(&self) -> Settings {
+    pub fn load(&self, defaults: impl FnOnce() -> Settings) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Settings::default(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return defaults(),
             Err(error) => {
                 tracing::warn!(%error, "failed to read the settings file, using the default settings");
-                return Settings::default();
+                return defaults();
             }
         };
         parse(&json).unwrap_or_else(|error| {
             tracing::warn!(%error, "the settings file is damaged, using the default settings");
-            Settings::default()
+            defaults()
         })
     }
 
@@ -103,7 +103,7 @@ mod tests {
             },
             writer_name: WriterName("Sara Novak".to_owned()),
             writer_notes: WriterNotes("I am a nurse.".to_owned()),
-            clipboard_access: ClipboardAccess::Allowed,
+            clipboard_access: ClipboardAccess::Denied,
             screen_text: ScreenTextSettings {
                 access: ScreenTextAccess::Denied,
                 apps: vec![ScreenTextApp {
@@ -115,8 +115,8 @@ mod tests {
                 ocr_level: OcrLevel::Accurate,
             },
             personalization: PersonalizationSettings {
-                history: HistoryAccess::On,
-                kept_texts: KeptTexts::All,
+                history: HistoryAccess::Off,
+                kept_texts: KeptTexts::AcceptedOnly,
                 apps: vec![HistoryApp {
                     app_id: "slack.exe".to_owned(),
                     app_name: "Slack".to_owned(),
@@ -130,8 +130,8 @@ mod tests {
                 energy_saver: EnergySaverRule::KeepSuggestions,
                 game: GameRule::KeepSuggestions,
             },
-            prompt_preparation: PromptPreparation::OnFocus,
-            suggestion_display: SuggestionDisplay::WordByWord,
+            prompt_preparation: PromptPreparation::OnFirstKey,
+            suggestion_display: SuggestionDisplay::WhenComplete,
             suggestion_length: SuggestionLength::Long,
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
@@ -139,28 +139,36 @@ mod tests {
         };
 
         file.save(&settings);
-        let loaded = file.load();
+        let loaded = file.load(first_start_defaults);
 
         fs::remove_file(&path).ok();
         assert_eq!(loaded, settings);
     }
 
-    #[test]
-    fn missing_file_gives_the_default_settings() {
-        let file = SettingsFile::new(temporary_file("missing.json"));
-
-        assert_eq!(file.load(), Settings::default());
+    fn first_start_defaults() -> Settings {
+        Settings {
+            backend: Backend::Vulkan,
+            writer_name: WriterName("Sara Novak".to_owned()),
+            ..Settings::default()
+        }
     }
 
     #[test]
-    fn damaged_file_gives_the_default_settings() {
+    fn missing_file_gives_the_defaults() {
+        let file = SettingsFile::new(temporary_file("missing.json"));
+
+        assert_eq!(file.load(first_start_defaults), first_start_defaults());
+    }
+
+    #[test]
+    fn damaged_file_gives_the_defaults() {
         let path = temporary_file("damaged.json");
         fs::create_dir_all(path.parent().expect("the path has a folder")).expect("temp dir is writable");
         fs::write(&path, "not json").expect("temp dir is writable");
 
-        let loaded = SettingsFile::new(path.clone()).load();
+        let loaded = SettingsFile::new(path.clone()).load(first_start_defaults);
 
         fs::remove_file(&path).ok();
-        assert_eq!(loaded, Settings::default());
+        assert_eq!(loaded, first_start_defaults());
     }
 }
