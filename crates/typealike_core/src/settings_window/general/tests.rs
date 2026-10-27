@@ -735,7 +735,8 @@ fn autostart_switch_shows_the_state_that_the_os_keeps() {
             id: ControlId::new(AUTOSTART),
             icon: RowIcon::Power,
             label: "Open at login".to_owned(),
-            description: "Suggestions then show after you log in, with no need to open TypeAlike.".to_owned(),
+            description: "TypeAlike starts each time you log in, so you do not need to start it yourself."
+                .to_owned(),
             is_on: true,
             note: None,
         }
