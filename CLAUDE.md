@@ -32,3 +32,8 @@ Virtual workspace, flat `crates/`. A module with children is `foo.rs` plus `foo/
 - `tdd.md` test-first workflow · `clean-code.md` naming, structure, no comments · `architecture.md` crate boundaries, traits
 - `portability.md` logic in core; platform crates only translate, so OS ports never touch core
 - `rust.md` API, errors, docs, types · `dependencies.md` Cargo · `windows.md` FFI, threads, runtime invariants · `windows-ui.md` Windows 11 look & feel (Fluent) · `macos-ui.md` macOS look & feel (Apple HIG, Liquid Glass) · `git.md` · `ste100.md` Simplified Technical English for prose and UI strings
+
+## UI design
+- `PRODUCT.md` (users, voice, terms, principles) and `DESIGN.md` (the look comes from the OS) give the context of the `impeccable` skill. Its briefs for the settings window, the overlay and the menus are in `.impeccable/surfaces/`.
+- Use `/impeccable clarify` for UI text, and `audit` and `critique` for a review against `windows-ui.md` and `macos-ui.md`. The detector, the design hook, `live` and `generate` read only web files, so they do not apply here.
+- A test checks the writing rules of the UI text (`typealike_core`, `test_support/writing_rules.rs`): no em dash, semicolon, contraction or marketing word, sentence case, at most 25 words in a sentence, and the terms of `PRODUCT.md`. A new view or menu text gets a test that uses it.
