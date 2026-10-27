@@ -7,11 +7,11 @@ use crate::settings::Settings;
 use crate::settings_window::general::BACKEND;
 use crate::settings_window::view::{Page, SettingsView};
 
-fn general_page(view: &SettingsView) -> &Page {
+fn models_page(view: &SettingsView) -> &Page {
     view.pages
         .iter()
-        .find(|page| page.title == "General")
-        .expect("the settings window shows the General pane")
+        .find(|page| page.title == "Models")
+        .expect("the settings window shows the Models pane")
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn user_backend_choice_shows_backend_menu() {
 
     let view = harness.shown_settings();
 
-    assert!(general_page(&view).row(BACKEND).is_some());
+    assert!(models_page(&view).row(BACKEND).is_some());
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn platform_backend_choice_shows_no_backend_menu() {
 
     let view = harness.shown_settings();
 
-    assert_eq!(general_page(&view).row(BACKEND), None);
+    assert_eq!(models_page(&view).row(BACKEND), None);
 }
 
 #[test]

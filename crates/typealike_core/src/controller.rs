@@ -495,7 +495,7 @@ impl Controller {
         }
     }
 
-    /// Keeps the settings of the Apps and websites, Screen text, Personalization and Energy saving
+    /// Keeps the settings of the Apps and websites, Copied and screen text, Personalization and Energy saving
     /// panes for the next run, and uses them.
     fn keep_pane_settings(&mut self) {
         let settings = self.save_settings(self.general.settings().clone());
@@ -503,7 +503,7 @@ impl Controller {
     }
 
     /// Saves `general`, the settings of the General pane, with the settings of the Apps and
-    /// websites, Screen text, Personalization and Energy saving panes, and returns them all.
+    /// websites, Copied and screen text, Personalization and Energy saving panes, and returns them all.
     fn save_settings(&mut self, general: Settings) -> Settings {
         let settings = Settings {
             suggestion_places: self.suggestion_places.settings().clone(),
@@ -755,20 +755,27 @@ impl Controller {
         let installed = self.models.installed_files();
         let backend = self.general.settings().backend;
         let recommended = self.models.recommended_row(backend, translations);
+        let general = &self.general;
         let mut pages = vec![
-            self.general
-                .page(&self.playground, &installed, recommended.clone(), translations),
+            general.page(recommended.clone(), translations),
             self.suggestion_places.page(translations),
-            self.screen_text.page(
-                desktop.ocr_availability(),
-                desktop.ocr_levels(),
-                self.suggestion_places.settings(),
-                translations,
-            ),
+            self.screen_text
+                .page(
+                    desktop.ocr_availability(),
+                    desktop.ocr_levels(),
+                    self.suggestion_places.settings(),
+                    translations,
+                )
+                .with_first_section(general.copied_text_section(translations)),
             self.personalization
-                .page(self.suggestion_places.settings(), translations),
-            self.energy_saving.page(self.app.energy_saver(), translations),
-            self.models.page(backend, translations),
+                .page(self.suggestion_places.settings(), translations)
+                .with_first_section(general.writer_section(translations)),
+            self.energy_saving
+                .page(self.app.energy_saver(), translations)
+                .with_last_section(general.preparation_section(translations)),
+            self.models
+                .page(backend, translations)
+                .with_first_section(general.model_section(&self.playground, &installed, translations)),
         ];
         if self.playground_page == PlaygroundPage::Shown {
             pages.push(self.playground.page(&installed, recommended, translations));

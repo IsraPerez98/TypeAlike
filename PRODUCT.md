@@ -59,11 +59,11 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 
 ## Capabilities and Constraints
 
-- Panes of the settings window: General, Apps and websites, Screen text, Personalization, Energy saving, Models, Playground.
+- Panes of the settings window: General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models. Only a build with the `playground` feature shows the Playground pane, a tool for developers.
 - `typealike_core` owns all the text that the user sees, and the state of each control. The platform crates only show it and send back what the user did. Thus a change to the UI text goes into core, and it changes both platforms.
 - Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, and Spanish. The settings window, the menus and the badge take all their texts from these files, in the first preferred language of the user that has a file, else in English. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
 - On macOS, the platform crate changes the labels of menus, buttons and window titles to title case in English. Spanish keeps sentence case. Core labels stay in sentence case.
-- Before the first model download, the General and Playground panes recommend one model for the computer, with a button that downloads it: Qwen3.5 0.8B on the processor, Gemma 4 E2B on a graphics card. The first model that the user downloads becomes the suggestion model.
+- Before the first model download, the General pane recommends one model for the computer, with a button that downloads it: Qwen3.5 0.8B on the processor, Gemma 4 E2B on a graphics card. The first model that the user downloads becomes the suggestion model.
 - The writing rules of the UI text have a test: `crates/typealike_core/src/test_support/writing_rules.rs`. The tests of the settings window, the Models and Playground panes and the badge menu use it.
 - The strings of the prompt (`crates/typealike_core/src/prompt.rs`) are text for the model, not UI text. A change to them needs a `prompt_eval` run (see `CLAUDE.md`).
 

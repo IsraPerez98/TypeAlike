@@ -8,7 +8,7 @@ use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
 use crate::localization::UiLanguage;
 use crate::settings::{ClipboardAccess, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces};
-use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
+use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL, WRITER_NAME};
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
@@ -347,7 +347,7 @@ fn app_with_suggestions_off_is_dimmed_in_the_screen_text_and_personalization_pan
 
     assert_eq!(
         [
-            is_row_enabled(&view, "Screen text", "screen-text-app:com.apple.mail"),
+            is_row_enabled(&view, "Copied and screen text", "screen-text-app:com.apple.mail"),
             is_row_enabled(&view, "Personalization", "personalization-app:com.apple.mail"),
         ],
         [Some(false), Some(false)]
@@ -368,7 +368,7 @@ fn panes_show_in_the_language_of_the_user() {
         [
             "General",
             "Apps y sitios web",
-            "Texto de la pantalla",
+            "Texto copiado y de la pantalla",
             "Personalización",
             "Ahorro de energía",
             "Modelos"
@@ -390,10 +390,34 @@ fn panes_show_in_the_order_of_the_navigation() {
         [
             "General",
             "Apps and websites",
-            "Screen text",
+            "Copied and screen text",
             "Personalization",
             "Energy saving",
             "Models"
+        ]
+    );
+}
+
+#[test]
+fn settings_of_the_general_pane_show_on_the_page_of_their_topic() {
+    let mut harness = Harness::new(Settings::default());
+
+    let view = harness.shown_settings();
+
+    let page_of = |id: &str| {
+        view.pages
+            .iter()
+            .find(|page| page.row(id).is_some())
+            .map(|page| page.title.as_str())
+    };
+    assert_eq!(
+        [CLIPBOARD, WRITER_NAME, PREPARATION, SUGGESTION_MODEL, BACKEND].map(page_of),
+        [
+            Some("Copied and screen text"),
+            Some("Personalization"),
+            Some("Energy saving"),
+            Some("Models"),
+            Some("Models")
         ]
     );
 }

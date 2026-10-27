@@ -1,4 +1,4 @@
-//! The settings of the Screen text pane: where TypeAlike reads the text near the text field.
+//! The settings of the Copied and screen text pane: where TypeAlike reads the text near the text field.
 
 use crate::desktop::Surroundings;
 use crate::settings::known_apps::{insert_in_name_order, is_password_manager};
@@ -6,14 +6,14 @@ use crate::settings::known_apps::{insert_in_name_order, is_password_manager};
 /// Whether suggestions may use the text near the text field on the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScreenTextAccess {
-    /// TypeAlike reads the screen text in each app that is on in the list of the Screen text pane.
+    /// TypeAlike reads the screen text in each app that is on in the list of the Copied and screen text pane.
     #[default]
     Allowed,
     /// TypeAlike reads no screen text.
     Denied,
 }
 
-/// An app of the Screen text pane, and whether TypeAlike reads the screen text in it.
+/// An app of the Copied and screen text pane, and whether TypeAlike reads the screen text in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenTextApp {
     /// The id of the app, as [`Surroundings::app_id`] gives it.

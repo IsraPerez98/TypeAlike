@@ -1,6 +1,7 @@
-//! The General pane of the settings window: the settings that apply to all of TypeAlike.
+//! The General pane of the settings window, and the sections of its settings that other pages
+//! show.
 
-use std::fmt;
+use std::{fmt, iter};
 
 use crate::app::StopReason;
 use crate::hub::ModelFile;
@@ -17,7 +18,7 @@ use crate::settings_window::view::{
     TextArea, TextLine,
 };
 
-/// Something the user did in the General pane.
+/// Something the user did with a setting of the General pane, on any page that shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeneralAction {
     /// Picked this backend to run models.
@@ -71,7 +72,7 @@ const LENGTH: &str = "suggestion-length";
 const SENTENCE_END: &str = "sentence-end";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
-const WRITER_NAME: &str = "writer-name";
+pub(crate) const WRITER_NAME: &str = "writer-name";
 const WRITER_NOTES: &str = "writer-notes";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
     (SuggestionLength::VeryShort, "general-length-very-short"),
@@ -81,12 +82,14 @@ const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
     (SuggestionLength::VeryLong, "general-length-very-long"),
 ];
 const BACKEND_CHOICES: [(Backend, &str); 3] = [
-    (Backend::Cpu, "general-hardware-processor"),
-    (Backend::Vulkan, "general-hardware-graphics-card"),
-    (Backend::Cuda, "general-hardware-nvidia"),
+    (Backend::Cpu, "models-hardware-processor"),
+    (Backend::Vulkan, "models-hardware-graphics-card"),
+    (Backend::Cuda, "models-hardware-nvidia"),
 ];
 
-/// State of the General pane: the settings that the user changes in it.
+/// State of the General pane: the settings that no other pane keeps. The General page shows some of
+/// them, and the sections of the pane show the others on the Copied and screen text,
+/// Personalization, Energy saving and Models pages.
 ///
 /// ```
 /// use typealike_core::settings_window::general::{GeneralAction, GeneralPane};
@@ -257,122 +260,141 @@ impl GeneralPane {
         }
     }
 
-    /// Returns the page that the pane shows now, with the texts of `translations`, the load state
-    /// of the model that `playground` selected and the downloaded `installed` model files. The row
-    /// of the `recommended` model, if any, shows below the model menu.
+    /// Returns the page that the pane shows now, with the texts of `translations`. While no model
+    /// is downloaded, the row of the `recommended` model shows first, below the reason for it.
     #[must_use]
-    pub fn page(
-        &self,
-        playground: &PlaygroundPane,
-        installed: &[ModelFile],
-        recommended: Option<Row>,
-        translations: &Translations,
-    ) -> Page {
-        let model_picker = playground.model_picker(
-            installed,
-            ControlId::new(SUGGESTION_MODEL),
-            translations.text("general-model-description"),
-            translations,
-        );
-        let suggestion_rows = [
-            Row::Picker(self.suggestion_length_picker(translations)),
-            Row::Switch(self.sentence_end_switch(translations)),
-            Row::Picker(model_picker),
-        ];
-        let backend = self
-            .has_backend_menu
-            .then(|| Row::Picker(self.backend_picker(playground, translations)));
-        let settings = self
-            .switch_rows(translations)
-            .chain(suggestion_rows)
-            .chain(recommended)
-            .chain(backend);
+    pub fn page(&self, recommended: Option<Row>, translations: &Translations) -> Page {
+        let first_run = recommended.map(|row| {
+            Section::new(vec![
+                Row::Note(Note {
+                    text: translations.text("model-needed"),
+                    tone: NoteTone::Plain,
+                }),
+                row,
+            ])
+        });
+        let autostart = self.autostart.as_ref().map(|autostart| {
+            Section::new(vec![switch_row(
+                AUTOSTART,
+                RowIcon::Power,
+                ("general-autostart", "general-autostart-description"),
+                autostart.is_enabled(),
+                translations,
+            )])
+        });
         Page {
             title: translations.text("general-title"),
             icon: PageIcon::Gear,
             summary: translations.text("general-summary"),
             search: None,
-            sections: vec![
-                Section::new(settings.collect()),
-                self.writer_section(translations),
-            ],
+            sections: [first_run, autostart, Some(self.suggestion_section(translations))]
+                .into_iter()
+                .flatten()
+                .collect(),
         }
     }
 
-    fn switch_rows(&self, translations: &Translations) -> impl Iterator<Item = Row> {
-        let switch = |id, icon, (label, description), is_on| {
-            Row::Switch(Switch {
-                id: ControlId::new(id),
-                icon,
-                label: translations.text(label),
-                description: translations.text(description),
-                is_on,
-                note: None,
-            })
-        };
-        let autostart = self.autostart.as_ref().map(|autostart| {
-            switch(
-                AUTOSTART,
-                RowIcon::Power,
-                ("general-autostart", "general-autostart-description"),
-                autostart.is_enabled(),
-            )
-        });
-        let switches = [
-            switch(
-                CLIPBOARD,
-                RowIcon::Clipboard,
-                ("general-clipboard", "general-clipboard-description"),
-                self.settings.clipboard_access == ClipboardAccess::Allowed,
-            ),
-            switch(
-                PREPARATION,
-                RowIcon::LightningBolt,
-                ("general-preparation", "general-preparation-description"),
-                self.settings.prompt_preparation == PromptPreparation::OnFocus,
-            ),
-            switch(
-                DISPLAY,
-                RowIcon::Stopwatch,
-                ("general-display", "general-display-description"),
-                self.settings.suggestion_display == SuggestionDisplay::WordByWord,
-            ),
-            switch(
-                TYPO_RULE,
-                RowIcon::WarningSign,
-                ("general-typo-rule", "general-typo-rule-description"),
-                self.settings.typo_rule == TypoRule::HideSuggestions,
-            ),
-        ];
-        let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
-            switch(
-                TYPO_FIX,
-                RowIcon::SpellCheck,
-                ("general-typo-fix", "general-typo-fix-description"),
-                self.settings.typo_fix == TypoFix::Offer,
-            )
-        });
-        autostart.into_iter().chain(switches).chain(typo_fix)
+    /// Returns the section of the switch for the copied text, for the Copied and screen text page.
+    #[must_use]
+    pub fn copied_text_section(&self, translations: &Translations) -> Section {
+        Section::new(vec![switch_row(
+            CLIPBOARD,
+            RowIcon::Clipboard,
+            ("screen-text-clipboard", "screen-text-clipboard-description"),
+            self.settings.clipboard_access == ClipboardAccess::Allowed,
+            translations,
+        )])
     }
 
-    fn writer_section(&self, translations: &Translations) -> Section {
+    /// Returns the section of the name and the notes of the writer, for the Personalization page.
+    #[must_use]
+    pub fn writer_section(&self, translations: &Translations) -> Section {
         Section::new(vec![
             Row::TextLine(TextLine {
                 id: ControlId::new(WRITER_NAME),
                 icon: RowIcon::Person,
-                label: translations.text("general-name"),
-                description: translations.text("general-name-description"),
+                label: translations.text("personalization-name"),
+                description: translations.text("personalization-name-description"),
                 text: self.settings.writer_name.0.clone(),
             }),
             Row::TextArea(TextArea {
                 id: ControlId::new(WRITER_NOTES),
                 icon: RowIcon::Note,
-                label: translations.text("general-notes"),
-                description: translations.text("general-notes-description"),
+                label: translations.text("personalization-notes"),
+                description: translations.text("personalization-notes-description"),
                 text: self.settings.writer_notes.0.clone(),
                 button: None,
             }),
         ])
+    }
+
+    /// Returns the section of the switch that prepares suggestions early, for the Energy saving
+    /// page.
+    #[must_use]
+    pub fn preparation_section(&self, translations: &Translations) -> Section {
+        Section::new(vec![switch_row(
+            PREPARATION,
+            RowIcon::LightningBolt,
+            (
+                "energy-saving-preparation",
+                "energy-saving-preparation-description",
+            ),
+            self.settings.prompt_preparation == PromptPreparation::OnFocus,
+            translations,
+        )])
+    }
+
+    /// Returns the section of the suggestion model menu and the backend menu, for the Models page.
+    /// `playground` gives the load state of the selected model, and the downloaded `installed`
+    /// model files give the entries of the model menu.
+    #[must_use]
+    pub fn model_section(
+        &self,
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+        translations: &Translations,
+    ) -> Section {
+        let model_picker = playground.model_picker(
+            installed,
+            ControlId::new(SUGGESTION_MODEL),
+            translations.text("models-model-description"),
+            translations,
+        );
+        let backend = self
+            .has_backend_menu
+            .then(|| Row::Picker(self.backend_picker(playground, translations)));
+        Section::new(iter::once(Row::Picker(model_picker)).chain(backend).collect())
+    }
+
+    fn suggestion_section(&self, translations: &Translations) -> Section {
+        let rows = [
+            Row::Picker(self.suggestion_length_picker(translations)),
+            Row::Switch(self.sentence_end_switch(translations)),
+            switch_row(
+                DISPLAY,
+                RowIcon::Stopwatch,
+                ("general-display", "general-display-description"),
+                self.settings.suggestion_display == SuggestionDisplay::WordByWord,
+                translations,
+            ),
+            switch_row(
+                TYPO_RULE,
+                RowIcon::WarningSign,
+                ("general-typo-rule", "general-typo-rule-description"),
+                self.settings.typo_rule == TypoRule::HideSuggestions,
+                translations,
+            ),
+        ];
+        let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
+            switch_row(
+                TYPO_FIX,
+                RowIcon::SpellCheck,
+                ("general-typo-fix", "general-typo-fix-description"),
+                self.settings.typo_fix == TypoFix::Offer,
+                translations,
+            )
+        });
+        Section::new(rows.into_iter().chain(typo_fix).collect())
     }
 
     fn select_backend(&mut self, backend: Backend, playground: &mut PlaygroundPane) -> GeneralOutcome {
@@ -478,14 +500,32 @@ impl GeneralPane {
         let text = MenuText {
             id: BACKEND,
             icon: RowIcon::Chip,
-            label: "general-hardware",
-            description: "general-hardware-description",
+            label: "models-hardware",
+            description: "models-hardware-description",
         };
         Picker {
             is_enabled: !playground.is_busy(),
             ..picker(text, &BACKEND_CHOICES, self.settings.backend, translations)
         }
     }
+}
+
+/// A switch row with the label and the description of the `texts` messages.
+fn switch_row(
+    id: &'static str,
+    icon: RowIcon,
+    (label, description): (&str, &str),
+    is_on: bool,
+    translations: &Translations,
+) -> Row {
+    Row::Switch(Switch {
+        id: ControlId::new(id),
+        icon,
+        label: translations.text(label),
+        description: translations.text(description),
+        is_on,
+        note: None,
+    })
 }
 
 fn action_for_switch(id: &str, is_on: bool) -> Option<GeneralAction> {

@@ -26,7 +26,7 @@ history-scope-off = Off
 history-scope-this-app = Only this app
 history-scope-all-apps = All apps
 
-## The list of apps in the Apps and websites, Screen text and Personalization panes.
+## The list of apps in the Apps and websites, Copied and screen text and Personalization panes.
 
 app-list-heading = Apps
 app-list-empty = No suggestion showed in an app yet.
@@ -35,13 +35,9 @@ app-list-footer = When a suggestion shows in an app for the first time, TypeAlik
 ## The General pane of the settings window.
 
 general-title = General
-general-summary = Change how suggestions show and how TypeAlike runs on this computer.
+general-summary = Change when TypeAlike starts and how suggestions show.
 general-autostart = Open at login
 general-autostart-description = TypeAlike starts each time you log in, so you do not need to start it yourself.
-general-clipboard = Use copied text
-general-clipboard-description = Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.
-general-preparation = Prepare suggestions early
-general-preparation-description = When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.
 general-display = Show words early
 general-display-description = Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.
 general-typo-rule = Hide suggestions on typos
@@ -59,18 +55,8 @@ general-length-processor-note = When the model runs on the processor, suggestion
 general-sentence-end = Stop at the end of a sentence
 general-sentence-end-description = A suggestion ends after the first sentence that it finishes.
 general-sentence-end-off-note = Suggestions are often wrong after the first sentence. Turn on this switch to stop them there.
-general-model-description = A smaller model is faster and needs less memory, but its suggestions are wrong more often.
-general-hardware = Run the model on
-general-hardware-description = A graphics card runs the model faster than the processor, but the whole model must fit in its memory.
-general-hardware-processor = Processor (CPU)
-general-hardware-graphics-card = Graphics card (Vulkan)
-general-hardware-nvidia = NVIDIA graphics card (CUDA)
-general-name = Your name
-general-name-description = Suggestions can use your name, for example to sign an email.
-general-notes = Notes about you
-general-notes-description = Write a few short facts that help suggestions, such as your job and your languages. Start each fact with “I”, for example “I keep my emails short.”
 
-## The menu of the suggestion model and its status, in the General and Playground panes.
+## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Suggestion model
 model-menu-select = Select a model
@@ -107,6 +93,12 @@ playground-time = Written in { $seconds } seconds
 
 models-title = Models
 models-summary = A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. Only the search and the downloads of models use the internet.
+models-model-description = A smaller model is faster and needs less memory, but its suggestions are wrong more often.
+models-hardware = Run the model on
+models-hardware-description = A graphics card runs the model faster than the processor, but the whole model must fit in its memory.
+models-hardware-processor = Processor (CPU)
+models-hardware-graphics-card = Graphics card (Vulkan)
+models-hardware-nvidia = NVIDIA graphics card (CUDA)
 models-search = Search Hugging Face
 models-recommended-heading = Recommended models
 models-recommended-footer = If you are not sure, download the model that TypeAlike recommends for this computer. You can delete a model at any time.
@@ -165,10 +157,12 @@ suggestion-places-websites = Websites
 suggestion-places-no-websites = No suggestion showed on a website yet.
 suggestion-places-websites-footer = When a suggestion shows on a website for the first time, TypeAlike adds the website to this list.
 
-## The Screen text pane of the settings window.
+## The Copied and screen text pane of the settings window.
 
-screen-text-title = Screen text
-screen-text-summary = Suggestions can use the text near the field where you type, for example the last messages of a chat. TypeAlike reads this text on this computer and does not save it.
+screen-text-title = Copied and screen text
+screen-text-summary = Suggestions can use the text that you copy and the text near the field where you type, such as the last messages of a chat. TypeAlike reads this text on this computer and does not save it.
+screen-text-clipboard = Use copied text
+screen-text-clipboard-description = Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.
 screen-text-switch = Use screen text
 screen-text-switch-description = TypeAlike reads the screen text in each app whose switch is on in the list below.
 screen-text-recognition = Text recognition
@@ -181,7 +175,11 @@ screen-text-open-system-settings = Open System Settings
 ## The Personalization pane of the settings window.
 
 personalization-title = Personalization
-personalization-summary = Suggestions can learn from your earlier writing. TypeAlike keeps it encrypted on this computer. It does not save the text of password fields.
+personalization-summary = Suggestions can use facts about you and learn from your earlier writing. TypeAlike keeps the earlier writing encrypted on this computer. It does not save the text of password fields.
+personalization-name = Your name
+personalization-name-description = Suggestions can use your name, for example to sign an email.
+personalization-notes = Notes about you
+personalization-notes-description = Write a few short facts that help suggestions, such as your job and your languages. Start each fact with “I”, for example “I keep my emails short.”
 personalization-history = Use earlier writing
 personalization-history-description = TypeAlike saves the text that you write in an encrypted file on this computer. Suggestions then use your words and your style. When you turn this off, the saved text stays until you delete it at the bottom of this page.
 personalization-kept-texts = Text to save
@@ -215,3 +213,5 @@ energy-saving-energy-saver-description = While energy saver or Low Power Mode is
 energy-saving-energy-saver-stopped = Suggestions are off while the computer saves energy.
 energy-saving-game = Stop during games
 energy-saving-game-description = While you play a game, suggestions stop to free memory for the game. They start again when you type in a text field.
+energy-saving-preparation = Prepare suggestions early
+energy-saving-preparation-description = When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.

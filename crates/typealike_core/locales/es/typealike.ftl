@@ -26,7 +26,7 @@ history-scope-off = Desactivada
 history-scope-this-app = Solo esta app
 history-scope-all-apps = Todas las apps
 
-## The list of apps in the Apps and websites, Screen text and Personalization panes.
+## The list of apps in the Apps and websites, Copied and screen text and Personalization panes.
 
 app-list-heading = Apps
 app-list-empty = Todavía no apareció ninguna sugerencia en ninguna app.
@@ -35,13 +35,9 @@ app-list-footer = Cuando una sugerencia aparece por primera vez en una app, Type
 ## The General pane of the settings window.
 
 general-title = General
-general-summary = Cambia cómo aparecen las sugerencias y cómo funciona TypeAlike en este equipo.
+general-summary = Cambia cuándo se abre TypeAlike y cómo aparecen las sugerencias.
 general-autostart = Abrir al iniciar sesión
 general-autostart-description = TypeAlike se abre cada vez que inicias sesión, así que no tienes que abrirlo tú.
-general-clipboard = Usar el texto copiado
-general-clipboard-description = Las sugerencias pueden usar el texto que copias. TypeAlike lo lee solo mientras usas un campo de texto y no lo guarda.
-general-preparation = Preparar las sugerencias antes
-general-preparation-description = Cuando entras en un campo de texto, el modelo lee su texto de inmediato. La primera sugerencia aparece antes, pero esto usa más energía.
 general-display = Mostrar las palabras una a una
 general-display-description = Cada palabra de una sugerencia aparece en cuanto el modelo la escribe. La primera palabra aparece antes, pero la sugerencia crece mientras la lees.
 general-typo-rule = Ocultar sugerencias con erratas
@@ -59,18 +55,8 @@ general-length-processor-note = Cuando el modelo se ejecuta en el procesador, la
 general-sentence-end = Detener al final de una oración
 general-sentence-end-description = Una sugerencia termina después de la primera oración que completa.
 general-sentence-end-off-note = Las sugerencias suelen ser incorrectas después de la primera oración. Activa este interruptor para detenerlas ahí.
-general-model-description = Un modelo más pequeño es más rápido y necesita menos memoria, pero sus sugerencias son incorrectas más a menudo.
-general-hardware = Ejecutar el modelo en
-general-hardware-description = Una tarjeta gráfica ejecuta el modelo más rápido que el procesador, pero todo el modelo debe caber en su memoria.
-general-hardware-processor = Procesador (CPU)
-general-hardware-graphics-card = Tarjeta gráfica (Vulkan)
-general-hardware-nvidia = Tarjeta gráfica NVIDIA (CUDA)
-general-name = Tu nombre
-general-name-description = Las sugerencias pueden usar tu nombre, por ejemplo para firmar un correo.
-general-notes = Notas sobre ti
-general-notes-description = Escribe algunos datos breves que ayuden a las sugerencias, como tu trabajo y tus idiomas. Escríbelos en primera persona, por ejemplo: «Escribo correos breves».
 
-## The menu of the suggestion model and its status, in the General and Playground panes.
+## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Modelo de sugerencias
 model-menu-select = Selecciona un modelo
@@ -107,6 +93,12 @@ playground-time = Escrita en { $seconds } segundos
 
 models-title = Modelos
 models-summary = Un modelo en este equipo escribe las sugerencias. El texto que escribes en otras apps nunca sale de este equipo. Solo la búsqueda y las descargas de modelos usan internet.
+models-model-description = Un modelo más pequeño es más rápido y necesita menos memoria, pero sus sugerencias son incorrectas más a menudo.
+models-hardware = Ejecutar el modelo en
+models-hardware-description = Una tarjeta gráfica ejecuta el modelo más rápido que el procesador, pero todo el modelo debe caber en su memoria.
+models-hardware-processor = Procesador (CPU)
+models-hardware-graphics-card = Tarjeta gráfica (Vulkan)
+models-hardware-nvidia = Tarjeta gráfica NVIDIA (CUDA)
 models-search = Buscar en Hugging Face
 models-recommended-heading = Modelos recomendados
 models-recommended-footer = Si no estás seguro, descarga el modelo que TypeAlike recomienda para este equipo. Puedes eliminar un modelo en cualquier momento.
@@ -169,10 +161,12 @@ suggestion-places-websites = Sitios web
 suggestion-places-no-websites = Todavía no apareció ninguna sugerencia en ningún sitio web.
 suggestion-places-websites-footer = Cuando una sugerencia aparece por primera vez en un sitio web, TypeAlike agrega el sitio web a esta lista.
 
-## The Screen text pane of the settings window.
+## The Copied and screen text pane of the settings window.
 
-screen-text-title = Texto de la pantalla
-screen-text-summary = Las sugerencias pueden usar el texto cerca del campo donde escribes, por ejemplo los últimos mensajes de un chat. TypeAlike lee este texto en este equipo y no lo guarda.
+screen-text-title = Texto copiado y de la pantalla
+screen-text-summary = Las sugerencias pueden usar el texto que copias y el texto cerca del campo donde escribes, como los últimos mensajes de un chat. TypeAlike lee este texto en este equipo y no lo guarda.
+screen-text-clipboard = Usar el texto copiado
+screen-text-clipboard-description = Las sugerencias pueden usar el texto que copias. TypeAlike lo lee solo mientras usas un campo de texto y no lo guarda.
 screen-text-switch = Usar el texto de la pantalla
 screen-text-switch-description = TypeAlike lee el texto de la pantalla en cada app con el interruptor activado en la lista de abajo.
 screen-text-recognition = Reconocimiento de texto
@@ -185,7 +179,11 @@ screen-text-open-system-settings = Abrir Ajustes del Sistema
 ## The Personalization pane of the settings window.
 
 personalization-title = Personalización
-personalization-summary = Las sugerencias pueden aprender de tu escritura anterior. TypeAlike la guarda cifrada en este equipo. No guarda el texto de los campos de contraseña.
+personalization-summary = Las sugerencias pueden usar datos sobre ti y aprender de tu escritura anterior. TypeAlike guarda la escritura anterior cifrada en este equipo. No guarda el texto de los campos de contraseña.
+personalization-name = Tu nombre
+personalization-name-description = Las sugerencias pueden usar tu nombre, por ejemplo para firmar un correo.
+personalization-notes = Notas sobre ti
+personalization-notes-description = Escribe algunos datos breves que ayuden a las sugerencias, como tu trabajo y tus idiomas. Escríbelos en primera persona, por ejemplo: «Escribo correos breves».
 personalization-history = Usar la escritura anterior
 personalization-history-description = TypeAlike guarda el texto que escribes en un archivo cifrado en este equipo. Las sugerencias usan entonces tus palabras y tu estilo. Si desactivas esto, el texto guardado se queda hasta que lo eliminas al final de esta página.
 personalization-kept-texts = Texto que se guarda
@@ -219,3 +217,5 @@ energy-saving-energy-saver-description = Mientras el ahorro de energía o el mod
 energy-saving-energy-saver-stopped = Las sugerencias están desactivadas mientras el equipo ahorra energía.
 energy-saving-game = Detener durante juegos
 energy-saving-game-description = Mientras juegas, las sugerencias se detienen para dejar memoria libre al juego. Vuelven cuando escribes en un campo de texto.
+energy-saving-preparation = Preparar las sugerencias antes
+energy-saving-preparation-description = Cuando entras en un campo de texto, el modelo lee su texto de inmediato. La primera sugerencia aparece antes, pero esto usa más energía.

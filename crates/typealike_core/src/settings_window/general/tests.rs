@@ -121,8 +121,21 @@ fn loaded_playground(backend: Backend, result: Result<(), InferenceError>) -> Pl
     playground
 }
 
+/// A page with each section of `pane`, so that a test finds each control of the pane.
+fn page_with(pane: &GeneralPane, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
+    let translations = english();
+    let mut shown = pane.page(None, &translations);
+    shown.sections.extend([
+        pane.copied_text_section(&translations),
+        pane.writer_section(&translations),
+        pane.preparation_section(&translations),
+        pane.model_section(playground, installed, &translations),
+    ]);
+    shown
+}
+
 fn default_page(pane: &GeneralPane) -> Page {
-    pane.page(&PlaygroundPane::new(), &[], None, &english())
+    page_with(pane, &PlaygroundPane::new(), &[])
 }
 
 fn row(page: &Page, id: &str) -> Row {
@@ -215,102 +228,138 @@ fn default_writer_section() -> Section {
 }
 
 #[test]
-fn page_shows_the_settings_and_then_the_writer_notes() {
+fn page_shows_the_suggestion_settings() {
     let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-    let shown = pane.page(
-        &PlaygroundPane::with_backend(Backend::Vulkan),
-        &[],
-        None,
-        &english(),
-    );
+    let shown = pane.page(None, &english());
 
     assert_eq!(
         shown,
         Page {
             title: "General".to_owned(),
             icon: PageIcon::Gear,
-            summary: "Change how suggestions show and how TypeAlike runs on this computer.".to_owned(),
+            summary: "Change when TypeAlike starts and how suggestions show.".to_owned(),
             search: None,
-            sections: vec![
-                Section::new(vec![
-                    Row::Switch(Switch {
-                        id: ControlId::new(CLIPBOARD),
-                        icon: RowIcon::Clipboard,
-                        label: "Use copied text".to_owned(),
-                        description: "Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.".to_owned(),
-                        is_on: false,
-                        note: None,
-                    }),
-                    Row::Switch(Switch {
-                        id: ControlId::new(PREPARATION),
-                        icon: RowIcon::LightningBolt,
-                        label: "Prepare suggestions early".to_owned(),
-                        description: "When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.".to_owned(),
-                        is_on: false,
-                        note: None,
-                    }),
-                    Row::Switch(Switch {
-                        id: ControlId::new(DISPLAY),
-                        icon: RowIcon::Stopwatch,
-                        label: "Show words early".to_owned(),
-                        description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.".to_owned(),
-                        is_on: false,
-                        note: None,
-                    }),
-                    typo_rule_switch(),
-                    typo_fix_switch(),
-                    Row::Picker(Picker {
-                        id: ControlId::new(LENGTH),
-                        icon: RowIcon::Ruler,
-                        label: "Suggestion length".to_owned(),
-                        description: "A suggestion stops at this length. A shorter suggestion shows sooner.".to_owned(),
-                        choices: vec![
-                            "Very short".to_owned(),
-                            "Short".to_owned(),
-                            "Medium".to_owned(),
-                            "Long".to_owned(),
-                            "Very long".to_owned(),
-                        ],
-                        choice_text: ChoiceText::Label,
-                        selected: 2,
-                        is_enabled: true,
-                        note: None,
-                    }),
-                    sentence_end_switch(true, None),
-                    Row::Picker(Picker {
-                        id: ControlId::new(SUGGESTION_MODEL),
-                        icon: RowIcon::Robot,
-                        label: "Suggestion model".to_owned(),
-                        description: "A smaller model is faster and needs less memory, but its suggestions are wrong more often.".to_owned(),
-                        choices: vec!["No downloaded models".to_owned()],
-                        choice_text: ChoiceText::Name,
-                        selected: 0,
-                        is_enabled: false,
-                        note: Some(Note {
-                            text: "TypeAlike needs a model to write suggestions. Download the recommended model below.".to_owned(),
-                            tone: NoteTone::Plain,
-                        }),
-                    }),
-                    Row::Picker(Picker {
-                        id: ControlId::new(BACKEND),
-                        icon: RowIcon::Chip,
-                        label: "Run the model on".to_owned(),
-                        description: "A graphics card runs the model faster than the processor, but the whole model must fit in its memory.".to_owned(),
-                        choices: vec![
-                            "Processor (CPU)".to_owned(),
-                            "Graphics card (Vulkan)".to_owned(),
-                            "NVIDIA graphics card (CUDA)".to_owned(),
-                        ],
-                        choice_text: ChoiceText::Label,
-                        selected: 1,
-                        is_enabled: true,
-                        note: None,
-                    }),
-                ]),
-                default_writer_section(),
-            ],
+            sections: vec![Section::new(vec![
+                Row::Picker(Picker {
+                    id: ControlId::new(LENGTH),
+                    icon: RowIcon::Ruler,
+                    label: "Suggestion length".to_owned(),
+                    description: "A suggestion stops at this length. A shorter suggestion shows sooner.".to_owned(),
+                    choices: vec![
+                        "Very short".to_owned(),
+                        "Short".to_owned(),
+                        "Medium".to_owned(),
+                        "Long".to_owned(),
+                        "Very long".to_owned(),
+                    ],
+                    choice_text: ChoiceText::Label,
+                    selected: 2,
+                    is_enabled: true,
+                    note: None,
+                }),
+                sentence_end_switch(true, None),
+                Row::Switch(Switch {
+                    id: ControlId::new(DISPLAY),
+                    icon: RowIcon::Stopwatch,
+                    label: "Show words early".to_owned(),
+                    description: "Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.".to_owned(),
+                    is_on: false,
+                    note: None,
+                }),
+                typo_rule_switch(),
+                typo_fix_switch(),
+            ])],
         }
+    );
+}
+
+#[test]
+fn copied_text_section_shows_the_clipboard_switch() {
+    let pane = GeneralPane::new(settings(Backend::Vulkan));
+
+    let shown = pane.copied_text_section(&english());
+
+    assert_eq!(
+        shown,
+        Section::new(vec![Row::Switch(Switch {
+            id: ControlId::new(CLIPBOARD),
+            icon: RowIcon::Clipboard,
+            label: "Use copied text".to_owned(),
+            description: "Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.".to_owned(),
+            is_on: false,
+            note: None,
+        })])
+    );
+}
+
+#[test]
+fn writer_section_shows_the_name_and_the_notes() {
+    let pane = GeneralPane::new(settings(Backend::Vulkan));
+
+    let shown = pane.writer_section(&english());
+
+    assert_eq!(shown, default_writer_section());
+}
+
+#[test]
+fn preparation_section_shows_the_preparation_switch() {
+    let pane = GeneralPane::new(settings(Backend::Vulkan));
+
+    let shown = pane.preparation_section(&english());
+
+    assert_eq!(
+        shown,
+        Section::new(vec![Row::Switch(Switch {
+            id: ControlId::new(PREPARATION),
+            icon: RowIcon::LightningBolt,
+            label: "Prepare suggestions early".to_owned(),
+            description: "When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.".to_owned(),
+            is_on: false,
+            note: None,
+        })])
+    );
+}
+
+#[test]
+fn model_section_shows_the_model_menu_and_then_the_backend_menu() {
+    let pane = GeneralPane::new(settings(Backend::Vulkan));
+
+    let shown = pane.model_section(&PlaygroundPane::with_backend(Backend::Vulkan), &[], &english());
+
+    assert_eq!(
+        shown,
+        Section::new(vec![
+            Row::Picker(Picker {
+                id: ControlId::new(SUGGESTION_MODEL),
+                icon: RowIcon::Robot,
+                label: "Suggestion model".to_owned(),
+                description: "A smaller model is faster and needs less memory, but its suggestions are wrong more often.".to_owned(),
+                choices: vec!["No downloaded models".to_owned()],
+                choice_text: ChoiceText::Name,
+                selected: 0,
+                is_enabled: false,
+                note: Some(Note {
+                    text: "TypeAlike needs a model to write suggestions. Download the recommended model below.".to_owned(),
+                    tone: NoteTone::Plain,
+                }),
+            }),
+            Row::Picker(Picker {
+                id: ControlId::new(BACKEND),
+                icon: RowIcon::Chip,
+                label: "Run the model on".to_owned(),
+                description: "A graphics card runs the model faster than the processor, but the whole model must fit in its memory.".to_owned(),
+                choices: vec![
+                    "Processor (CPU)".to_owned(),
+                    "Graphics card (Vulkan)".to_owned(),
+                    "NVIDIA graphics card (CUDA)".to_owned(),
+                ],
+                choice_text: ChoiceText::Label,
+                selected: 1,
+                is_enabled: true,
+                note: None,
+            }),
+        ])
     );
 }
 
@@ -322,17 +371,22 @@ fn recommended_row() -> Row {
 }
 
 #[test]
-fn recommended_model_shows_below_the_model_menu() {
+fn recommended_model_shows_first_below_the_reason_for_a_model() {
     let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-    let shown = pane.page(&PlaygroundPane::new(), &[], Some(recommended_row()), &english());
+    let shown = pane.page(Some(recommended_row()), &english());
 
-    let rows = &shown.sections[0].rows;
-    let model_menu = rows
-        .iter()
-        .position(|row| row.id().is_some_and(|id| id.as_str() == SUGGESTION_MODEL))
-        .expect("the page shows the model menu");
-    assert_eq!(rows.get(model_menu + 1), Some(&recommended_row()));
+    assert_eq!(
+        shown.sections.first(),
+        Some(&Section::new(vec![
+            Row::Note(Note {
+                text: "TypeAlike needs a model to write suggestions. Download the recommended model below."
+                    .to_owned(),
+                tone: NoteTone::Plain,
+            }),
+            recommended_row(),
+        ]))
+    );
 }
 
 #[test]
@@ -355,7 +409,7 @@ fn menu_shows_each_saved_backend_as_its_own_choice() {
 fn pane_with_a_platform_backend_hides_the_menu() {
     let pane = GeneralPane::new(settings(Backend::Cpu)).with_platform_backend(Backend::Metal);
 
-    let shown = pane.page(&loading_playground(Backend::Metal), &[], None, &english());
+    let shown = page_with(&pane, &loading_playground(Backend::Metal), &[]);
 
     assert_eq!(shown.row(BACKEND), None);
 }
@@ -690,7 +744,7 @@ fn selecting_a_backend_while_the_model_loads_does_nothing() {
 fn loading_model_locks_the_backend_menu() {
     let pane = GeneralPane::new(settings(Backend::Cuda));
 
-    let shown = pane.page(&loading_playground(Backend::Cuda), &[], None, &english());
+    let shown = page_with(&pane, &loading_playground(Backend::Cuda), &[]);
 
     assert!(!picker(&shown, BACKEND).is_enabled);
 }
@@ -699,11 +753,10 @@ fn loading_model_locks_the_backend_menu() {
 fn model_too_large_for_the_gpu_tells_what_to_do() {
     let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-    let shown = pane.page(
+    let shown = page_with(
+        &pane,
         &loaded_playground(Backend::Vulkan, Err(InferenceError::ModelTooLarge)),
         &[model_file("model.gguf")],
-        None,
-        &english(),
     );
 
     assert_eq!(
@@ -786,11 +839,10 @@ fn suggestion_model_menu_shows_the_model_that_the_playground_selected() {
     let other = model_file("other.gguf");
     let pane = GeneralPane::new(suggestion_settings(None));
 
-    let shown = pane.page(
+    let shown = page_with(
+        &pane,
         &loaded_playground(Backend::Cpu, Ok(())),
         &[other, model_file("model.gguf")],
-        None,
-        &english(),
     );
 
     let menu = picker(&shown, SUGGESTION_MODEL);
@@ -804,11 +856,10 @@ fn suggestion_model_menu_shows_the_model_that_the_playground_selected() {
 fn suggestion_model_menu_locks_and_shows_status_while_the_model_loads() {
     let pane = GeneralPane::new(suggestion_settings(None));
 
-    let shown = pane.page(
+    let shown = page_with(
+        &pane,
         &loading_playground(Backend::Cpu),
         &[model_file("model.gguf")],
-        None,
-        &english(),
     );
 
     let menu = picker(&shown, SUGGESTION_MODEL);
@@ -914,7 +965,7 @@ fn unloading_before_any_load_selects_the_saved_model_without_a_load() {
 
     let request = pane.unload_suggestion_model(&mut playground, StopReason::EnergySaver);
 
-    let shown = pane.page(&playground, &[model_file("model.gguf")], None, &english());
+    let shown = page_with(&pane, &playground, &[model_file("model.gguf")]);
     let menu = picker(&shown, SUGGESTION_MODEL);
     assert_eq!(
         (request, menu.choices, menu.selected),

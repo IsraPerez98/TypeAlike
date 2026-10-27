@@ -13,7 +13,7 @@ name = "TypeAlike"
 path = "src/main.rs"
 
 [features]
-# Builds the GPU backends that the General pane offers. Each needs its SDK at build time (the
+# Builds the GPU backends that the Models pane offers. Each needs its SDK at build time (the
 # Vulkan SDK, the CUDA Toolkit) and its runtime at run time (a GPU driver, the CUDA DLLs).
 vulkan = ["typealike_llm/vulkan"]
 cuda = ["typealike_llm/cuda"]

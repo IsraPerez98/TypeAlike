@@ -57,6 +57,22 @@ pub struct Page {
     pub sections: Vec<Section>,
 }
 
+impl Page {
+    /// Puts `section` above the other sections of the page.
+    #[must_use]
+    pub(crate) fn with_first_section(mut self, section: Section) -> Self {
+        self.sections.insert(0, section);
+        self
+    }
+
+    /// Puts `section` below the other sections of the page.
+    #[must_use]
+    pub(crate) fn with_last_section(mut self, section: Section) -> Self {
+        self.sections.push(section);
+        self
+    }
+}
+
 /// The picture that stands for a page in the navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageIcon {

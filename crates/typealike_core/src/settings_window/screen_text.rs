@@ -1,4 +1,4 @@
-//! The Screen text pane of the settings window: where suggestions can use the text near the text
+//! The Copied and screen text pane of the settings window: where suggestions can use the text near the text
 //! field on the screen.
 
 use crate::desktop::{OcrAvailability, OcrLevels};
@@ -12,7 +12,7 @@ use crate::settings_window::view::{
     Switch,
 };
 
-/// Something the user did in the Screen text pane.
+/// Something the user did in the Copied and screen text pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScreenTextAction {
     /// Turned the main switch on or off.
@@ -39,7 +39,7 @@ const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
     (OcrLevel::Accurate, "screen-text-recognition-accurate"),
 ];
 
-/// State of the Screen text pane: the main switch and the switch of each app.
+/// State of the Copied and screen text pane: the main switch and the switch of each app.
 ///
 /// ```
 /// use typealike_core::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};

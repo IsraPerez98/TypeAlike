@@ -9,7 +9,7 @@ related_targets: ["crates/typealike_core/src/settings_window/view.rs","crates/ty
 
 ## Scope
 
-The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Apps and websites, Screen text, Personalization, Energy saving, Models, Playground). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
+The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, and Playground only in a build with the `playground` feature). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
 
 ## Mode
 
@@ -31,7 +31,7 @@ People who write a lot and are not necessarily technical. They open the window t
 
 Keep the incumbent native look. No visual redesign. Improvements are in the text, the order of the settings, the states (loading, error, empty) and accessibility.
 
-All the texts come from the Fluent files (`crates/typealike_core/locales`), in English and Spanish. The backend menu of the General pane says "Run the model on", with the choices "Processor (CPU)", "Graphics card (Vulkan)" and "NVIDIA graphics card (CUDA)".
+All the texts come from the Fluent files (`crates/typealike_core/locales`), in English and Spanish. The backend menu of the Models pane says "Run the model on", with the choices "Processor (CPU)", "Graphics card (Vulkan)" and "NVIDIA graphics card (CUDA)".
 
 ## Decisions
 
@@ -40,7 +40,9 @@ Closed on 2026-10-27, from `.claude/rules/ui-text.md` and the table "Not in the 
 - **"Caret" in "Prepare before you type".** The UI does not show the word. The switch is now "Prepare suggestions early", and its description says "When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power." The sentence about the off state went, because a description tells what happens when the switch is on.
 - **"Tokens" in the Playground output.** The UI does not show them. The detail tells only the time, "Written in 0.42 seconds", with the decimal separator of the language ("0,42" in Spanish).
 - **"Loads" and "unloads the model".** The UI does not show these words. Each text tells the effect for the user: "suggestions stop to free memory" and "They start again when you type in a text field." The note of a load says "Starting the model…". The Spanish texts say "detener" and "iniciar", so "descargar" means only "download". The test of the writing rules rejects the load words in English.
-- **The first run.** Before the first download, the model menu of the General and Playground panes shows the note "TypeAlike needs a model to write suggestions. Download the recommended model below.", and below the menu the row of the recommended model with its size and a "Download" button. The row shows the progress, the cancel button and the errors of the download, as in the Models pane. TypeAlike recommends Qwen3.5 0.8B (516 MB) on the processor, because suggestions on the processor must be short to show soon, and Gemma 4 E2B (2.6 GB) on a graphics card, because it fits in the memory of most graphics cards. The Models pane marks the same model "Recommended for this computer". When the first download finishes and no suggestion model is saved, that model starts as the suggestion model, so that suggestions work with no other step.
+- **The first run.** Before the first download, the General pane shows first the note "TypeAlike needs a model to write suggestions. Download the recommended model below.", and below it the row of the recommended model with its size and a "Download" button. The row shows the progress, the cancel button and the errors of the download, as in the Models pane. TypeAlike recommends Qwen3.5 0.8B (516 MB) on the processor, because suggestions on the processor must be short to show soon, and Gemma 4 E2B (2.6 GB) on a graphics card, because it fits in the memory of most graphics cards. The Models pane marks the same model "Recommended for this computer". When the first download finishes and no suggestion model is saved, that model starts as the suggestion model, so that suggestions work with no other step.
+
+- **The panes by topic.** Closed on 2026-10-27. The General pane had 13 rows on 6 topics. Now each row is on the page of its topic. General keeps "Open at login" and how suggestions show: length, the end of a sentence, "Show words early" and the typo switches. "Use copied text" is on the Copied and screen text page (the Screen text page before). "Your name" and "Notes about you" are first on the Personalization page. "Prepare suggestions early" is last on the Energy saving page, because it uses more power. The suggestion model and "Run the model on" are first on the Models page. The settings file does not change.
 
 ## Open decisions
 

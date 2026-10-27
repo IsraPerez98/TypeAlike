@@ -14,7 +14,7 @@ use crate::spelling::SpellChecker;
 /// Who picks the backend that runs each model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendChoice {
-    /// The user, in the General pane.
+    /// The user, in the Models pane.
     User,
     /// The platform, which runs each model on this backend.
     Platform(Backend),
@@ -80,7 +80,7 @@ pub struct Services {
     pub hub: Box<dyn ModelHub>,
     /// Loads the suggestion model, and completes the text that the user types.
     pub runner: Box<dyn ModelRunner>,
-    /// Keeps the settings that the user changes in the General pane.
+    /// Keeps the settings that the user changes in the settings window.
     pub settings_store: Box<dyn SettingsStore>,
     /// Starts TypeAlike at login when the user turns it on in the General pane.
     pub autostart: Box<dyn Autostart>,

@@ -19,7 +19,7 @@ pub(super) fn insert_in_name_order<App: Clone>(
 }
 
 /// Whether the app with `app_id` is a password manager, which starts off in the list of the
-/// Screen text pane. Its id matches by its start in lowercase.
+/// Copied and screen text pane. Its id matches by its start in lowercase.
 pub(super) fn is_password_manager(app_id: &str) -> bool {
     starts_with_any(app_id, &PASSWORD_MANAGERS)
 }
