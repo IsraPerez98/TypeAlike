@@ -20,6 +20,8 @@ cuda = ["typealike_llm/cuda"]
 # Puts a private copy of the Windows App Runtime next to the program, so TypeAlike runs without
 # the installed runtime. The Windows installers use it. It adds about 30 MB.
 self-contained = ["dep:windows-reactor-setup"]
+# Shows the Playground pane in the settings window, where a developer tries the model.
+playground = ["typealike_core/playground"]
 
 [dependencies]
 anyhow.workspace = true

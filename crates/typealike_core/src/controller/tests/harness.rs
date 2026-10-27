@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::app::{BadgeView, TrayCommand, TrayView};
 use crate::controller::{
     BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost, GhostView,
-    MAX_CARET_MOVE_CHECKS, Services, Shell, Startup, Timer,
+    MAX_CARET_MOVE_CHECKS, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use crate::desktop::{
     CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, ScreenReadId,
@@ -241,6 +241,16 @@ pub(super) struct Harness {
     deliveries: Arc<Mutex<Vec<Delivery>>>,
 }
 
+/// The start of a release build in English on a computer that does not save energy.
+fn default_startup() -> Startup {
+    Startup {
+        backend_choice: BackendChoice::User,
+        energy_saver: EnergySaver::Off,
+        ui_language: UiLanguage::English,
+        playground: PlaygroundPage::Hidden,
+    }
+}
+
 impl Harness {
     pub(super) fn new(settings: Settings) -> Self {
         Self::with_backend_choice(settings, BackendChoice::User)
@@ -249,37 +259,37 @@ impl Harness {
     pub(super) fn with_backend_choice(settings: Settings, backend_choice: BackendChoice) -> Self {
         let startup = Startup {
             backend_choice,
-            energy_saver: EnergySaver::Off,
-            ui_language: UiLanguage::English,
+            ..default_startup()
         };
         Self::start(settings, startup, Vec::new())
     }
 
     pub(super) fn with_energy_saver(settings: Settings, energy_saver: EnergySaver) -> Self {
         let startup = Startup {
-            backend_choice: BackendChoice::User,
             energy_saver,
-            ui_language: UiLanguage::English,
+            ..default_startup()
         };
         Self::start(settings, startup, Vec::new())
     }
 
     pub(super) fn with_ui_language(settings: Settings, ui_language: UiLanguage) -> Self {
         let startup = Startup {
-            backend_choice: BackendChoice::User,
-            energy_saver: EnergySaver::Off,
             ui_language,
+            ..default_startup()
+        };
+        Self::start(settings, startup, Vec::new())
+    }
+
+    pub(super) fn with_playground_page(settings: Settings) -> Self {
+        let startup = Startup {
+            playground: PlaygroundPage::Shown,
+            ..default_startup()
         };
         Self::start(settings, startup, Vec::new())
     }
 
     pub(super) fn with_kept_history(settings: Settings, kept_history: Vec<HistoryEntry>) -> Self {
-        let startup = Startup {
-            backend_choice: BackendChoice::User,
-            energy_saver: EnergySaver::Off,
-            ui_language: UiLanguage::English,
-        };
-        Self::start(settings, startup, kept_history)
+        Self::start(settings, default_startup(), kept_history)
     }
 
     /// Starts the controller with the saved `settings` and the state of the platform at

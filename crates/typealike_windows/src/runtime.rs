@@ -8,7 +8,9 @@ use std::cell::RefCell;
 use std::sync::mpsc;
 
 use typealike_core::app::BadgeMenu;
-use typealike_core::controller::{BackendChoice, Controller, Delivery, Services, Shell, Startup, Timer};
+use typealike_core::controller::{
+    BackendChoice, Controller, Delivery, PlaygroundPage, Services, Shell, Startup, Timer,
+};
 use typealike_core::desktop::{EnergySaver, GameActivity};
 use typealike_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
 use typealike_core::localization::UiLanguage;
@@ -120,6 +122,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         backend_choice: BackendChoice::User,
         energy_saver: energy_saver::read(),
         ui_language: UiLanguage::for_preferred(&preferred_languages()),
+        playground: PlaygroundPage::of_build(),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read the energy saver");
     let controller = Controller::new(settings, services, startup, &delivery_mailbox.into_sink());

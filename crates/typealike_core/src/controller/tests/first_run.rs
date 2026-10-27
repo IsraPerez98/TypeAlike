@@ -34,11 +34,12 @@ fn items(page: &Page) -> Vec<&Item> {
         .collect()
 }
 
-fn recommended_titles(harness: &mut Harness) -> [Vec<String>; 2] {
+fn recommended_titles(harness: &mut Harness) -> Vec<String> {
     let view = harness.shown_settings();
-    let general = &view.pages[0];
-    let playground = view.pages.last().expect("the window has pages");
-    [general, playground].map(|page| items(page).iter().map(|item| item.title.clone()).collect())
+    items(&view.pages[0])
+        .iter()
+        .map(|item| item.title.clone())
+        .collect()
 }
 
 fn download_button(harness: &mut Harness) -> ControlId {
@@ -72,10 +73,7 @@ fn first_run_recommends_a_small_model_for_the_processor() {
 
     let titles = recommended_titles(&mut harness);
 
-    assert_eq!(
-        titles,
-        [vec!["Qwen3.5 0.8B".to_owned()], vec!["Qwen3.5 0.8B".to_owned()]]
-    );
+    assert_eq!(titles, ["Qwen3.5 0.8B"]);
 }
 
 #[test]
@@ -84,10 +82,7 @@ fn first_run_recommends_a_larger_model_for_a_graphics_card() {
 
     let titles = recommended_titles(&mut harness);
 
-    assert_eq!(
-        titles,
-        [vec!["Gemma 4 E2B".to_owned()], vec!["Gemma 4 E2B".to_owned()]]
-    );
+    assert_eq!(titles, ["Gemma 4 E2B"]);
 }
 
 #[test]
@@ -97,7 +92,7 @@ fn recommended_model_hides_after_a_model_is_downloaded() {
 
     let titles = recommended_titles(&mut harness);
 
-    assert_eq!(titles, [Vec::<String>::new(), Vec::new()]);
+    assert_eq!(titles, Vec::<String>::new());
 }
 
 #[test]

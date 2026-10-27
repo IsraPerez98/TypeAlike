@@ -20,7 +20,7 @@ use objc2_foundation::{NSPoint, NSTimeInterval, NSTimer};
 use typealike_core::app::{BadgeMenu, BadgeView, TrayView};
 use typealike_core::controller::{
     BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost,
-    GhostPlacement, GhostView, Services, Shell, Startup, Timer,
+    GhostPlacement, GhostView, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use typealike_core::desktop::{
     CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, ScreenReadId, ScreenSource,
@@ -77,6 +77,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         backend_choice: BackendChoice::Platform(Backend::Metal),
         energy_saver: energy_saver::read(),
         ui_language: UiLanguage::for_preferred(&preferred_languages()),
+        playground: PlaygroundPage::of_build(),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read Low Power Mode");
     let controller = Controller::new(settings, services, startup, &deliver);

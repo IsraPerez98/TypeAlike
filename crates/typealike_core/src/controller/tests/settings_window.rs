@@ -145,7 +145,7 @@ fn pick_that_does_nothing_renders_settings() {
 
 #[test]
 fn playground_load_keeps_suggestion_model() {
-    let mut harness = Harness::new(Settings::default());
+    let mut harness = Harness::with_playground_page(Settings::default());
     harness.install(model_file());
     harness.pick(MODEL, 1);
 
@@ -371,8 +371,7 @@ fn panes_show_in_the_language_of_the_user() {
             "Texto de la pantalla",
             "Personalización",
             "Ahorro de energía",
-            "Modelos",
-            "Zona de pruebas"
+            "Modelos"
         ]
     );
 }
@@ -394,8 +393,19 @@ fn panes_show_in_the_order_of_the_navigation() {
             "Screen text",
             "Personalization",
             "Energy saving",
-            "Models",
-            "Playground"
+            "Models"
         ]
+    );
+}
+
+#[test]
+fn playground_pane_shows_last_in_a_build_with_the_playground() {
+    let mut harness = Harness::with_playground_page(Settings::default());
+
+    let view = harness.shown_settings();
+
+    assert_eq!(
+        view.pages.last().map(|page| page.title.as_str()),
+        Some("Playground")
     );
 }

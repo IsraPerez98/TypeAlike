@@ -31,6 +31,29 @@ pub struct Startup {
     /// The language of the texts that TypeAlike shows, from the preferred languages of the user
     /// ([`UiLanguage::for_preferred`]).
     pub ui_language: UiLanguage,
+    /// Whether the settings window shows the Playground pane ([`PlaygroundPage::of_build`]).
+    pub playground: PlaygroundPage,
+}
+
+/// Whether the settings window shows the Playground pane, where a developer tries the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaygroundPage {
+    /// The window has no Playground pane.
+    Hidden,
+    /// The Playground pane is the last pane of the window.
+    Shown,
+}
+
+impl PlaygroundPage {
+    /// The Playground pane of this build: shown only with the `playground` feature.
+    #[must_use]
+    pub const fn of_build() -> Self {
+        if cfg!(feature = "playground") {
+            Self::Shown
+        } else {
+            Self::Hidden
+        }
+    }
 }
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs

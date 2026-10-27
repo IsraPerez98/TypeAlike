@@ -9,7 +9,7 @@ mod shell;
 mod tab_hold;
 
 pub use ghost_view::{Ghost, GhostPlacement, GhostView};
-pub use services::{BackendChoice, Delivery, DeliverySink, Services, Startup};
+pub use services::{BackendChoice, Delivery, DeliverySink, PlaygroundPage, Services, Startup};
 pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 
 use std::time::Duration;
@@ -75,6 +75,7 @@ pub struct Controller {
     translations: Translations,
     models: ModelsPane,
     playground: PlaygroundPane,
+    playground_page: PlaygroundPage,
     general: GeneralPane,
     suggestion_places: SuggestionPlacesPane,
     screen_text: ScreenTextPane,
@@ -146,6 +147,7 @@ impl Controller {
             translations: Translations::new(startup.ui_language),
             models: ModelsPane::new(),
             playground,
+            playground_page: startup.playground,
             general,
             suggestion_places,
             screen_text,
@@ -753,23 +755,26 @@ impl Controller {
         let installed = self.models.installed_files();
         let backend = self.general.settings().backend;
         let recommended = self.models.recommended_row(backend, translations);
+        let mut pages = vec![
+            self.general
+                .page(&self.playground, &installed, recommended.clone(), translations),
+            self.suggestion_places.page(translations),
+            self.screen_text.page(
+                desktop.ocr_availability(),
+                desktop.ocr_levels(),
+                self.suggestion_places.settings(),
+                translations,
+            ),
+            self.personalization
+                .page(self.suggestion_places.settings(), translations),
+            self.energy_saving.page(self.app.energy_saver(), translations),
+            self.models.page(backend, translations),
+        ];
+        if self.playground_page == PlaygroundPage::Shown {
+            pages.push(self.playground.page(&installed, recommended, translations));
+        }
         SettingsView {
-            pages: vec![
-                self.general
-                    .page(&self.playground, &installed, recommended.clone(), translations),
-                self.suggestion_places.page(translations),
-                self.screen_text.page(
-                    desktop.ocr_availability(),
-                    desktop.ocr_levels(),
-                    self.suggestion_places.settings(),
-                    translations,
-                ),
-                self.personalization
-                    .page(self.suggestion_places.settings(), translations),
-                self.energy_saving.page(self.app.energy_saver(), translations),
-                self.models.page(backend, translations),
-                self.playground.page(&installed, recommended, translations),
-            ],
+            pages,
             language: translations.language(),
         }
     }
