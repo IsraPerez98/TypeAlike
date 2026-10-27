@@ -16,6 +16,10 @@ use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings, Suggest
 use crate::settings_window::view::{ControlId, Page, Row, SettingsInput};
 use crate::spelling::SpellChecker;
 
+mod writing_rules;
+
+pub(crate) use writing_rules::{UiText, writing_rule_breaks};
+
 pub(crate) const ACTIVE_BADGE: BadgeView = BadgeView {
     status: Status::Active,
     label: "TypeAlike",

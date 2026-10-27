@@ -480,7 +480,7 @@ fn error_note(error: InferenceError) -> Note {
         InferenceError::NoModel => "Select a model first.",
         InferenceError::PromptTooLong => "The text is too long for this model. Use shorter text.",
         InferenceError::Failed => "TypeAlike cannot complete the text. Try again.",
-        InferenceError::Superseded => "A newer request stopped this completion. Try again.",
+        InferenceError::Superseded => "A newer request stopped this suggestion. Try again.",
     };
     Note {
         text,

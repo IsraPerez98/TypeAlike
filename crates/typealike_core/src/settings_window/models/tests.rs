@@ -3,6 +3,7 @@
 use super::*;
 use crate::settings_window::models::catalog::SUGGESTED_MODELS;
 use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, Row, SearchField, Section};
+use crate::test_support::writing_rule_breaks;
 
 const REPO: &str = "owner/Model-GGUF";
 
@@ -980,4 +981,41 @@ fn pressing_a_button_that_the_pane_does_not_show_does_nothing() {
     let action = press(&pane, button("Delete", &ModelsAction::Delete(file("a.gguf"))));
 
     assert_eq!(action, None);
+}
+
+#[test]
+fn pane_in_each_state_follows_the_writing_rules() {
+    let panes = [
+        downloading("model-Q4_K_M.gguf", 100),
+        installed("model-Q4_K_M.gguf", 100),
+        searched("model", vec![repo(REPO, 10, true)]),
+        searched("model", Vec::new()),
+        opening_repo(),
+        browsing(vec![sized("model-Q4_K_M.gguf", 100)]),
+        browsing(Vec::new()),
+    ];
+
+    let texts: Vec<_> = panes.iter().flat_map(|pane| pane.page().texts()).collect();
+
+    assert_eq!(writing_rule_breaks(&texts), Vec::<String>::new());
+}
+
+#[test]
+fn every_failed_search_follows_the_writing_rules() {
+    let errors = [
+        HubError::Offline,
+        HubError::AccessDenied,
+        HubError::NotFound,
+        HubError::Server,
+        HubError::InvalidResponse,
+        HubError::Storage,
+        HubError::Canceled,
+    ];
+
+    let texts: Vec<_> = errors
+        .into_iter()
+        .flat_map(|error| failed_search(error).page().texts())
+        .collect();
+
+    assert_eq!(writing_rule_breaks(&texts), Vec::<String>::new());
 }

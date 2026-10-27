@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::inference::{LogProbability, Prompt};
-use crate::test_support::{model_file, picked};
+use crate::test_support::{UiText, model_file, picked, writing_rule_breaks};
 
 const LOADING: Note = Note {
     text: "Loading the model…",
@@ -914,7 +914,29 @@ fn every_error_has_its_own_message() {
             Some("Select a model first."),
             Some("The text is too long for this model. Use shorter text."),
             Some("TypeAlike cannot complete the text. Try again."),
-            Some("A newer request stopped this completion. Try again."),
+            Some("A newer request stopped this suggestion. Try again."),
         ]
     );
+}
+
+#[test]
+fn every_error_message_follows_the_writing_rules() {
+    let errors = [
+        InferenceError::ModelMissing,
+        InferenceError::ModelInvalid,
+        InferenceError::ModelTooLarge,
+        InferenceError::BackendUnavailable,
+        InferenceError::NoModel,
+        InferenceError::PromptTooLong,
+        InferenceError::Failed,
+        InferenceError::Superseded,
+    ];
+
+    let messages: Vec<UiText> = errors
+        .into_iter()
+        .filter_map(load_failure_text)
+        .map(UiText::prose)
+        .collect();
+
+    assert_eq!(writing_rule_breaks(&messages), Vec::<String>::new());
 }

@@ -12,7 +12,8 @@ use crate::settings::{
     SuggestionPlaces,
 };
 use crate::test_support::{
-    ACTIVE_BADGE, OFF_BADGE, PAUSED_BADGE, history_app, screen_text_app, suggestion_app, suggestion_site,
+    ACTIVE_BADGE, OFF_BADGE, PAUSED_BADGE, UiText, history_app, screen_text_app, suggestion_app,
+    suggestion_site, writing_rule_breaks,
 };
 
 fn mail_places(is_on: bool) -> SuggestionPlaces {
@@ -500,4 +501,27 @@ fn badge_menu_in_an_on_place_keeps_the_screen_text_and_the_earlier_writing_of_th
         ),
         (true, Some(true))
     );
+}
+
+/// The labels of the entries of `menu` and of its submenus.
+fn menu_texts(menu: &BadgeMenu) -> Vec<UiText> {
+    let submenu_labels = menu.entries.iter().filter_map(|entry| match entry {
+        BadgeEntry::Submenu { label, .. } => Some(label),
+        BadgeEntry::Item(_) | BadgeEntry::Separator => None,
+    });
+    let item_labels = menu.items().map(|item| &item.label);
+    submenu_labels.chain(item_labels).map(UiText::name).collect()
+}
+
+#[test]
+fn badge_menu_follows_the_writing_rules() {
+    let places = webmail_places(true, true);
+    let mut app = app_with(places.clone());
+    app.on_key(Key::Char('H'), &WEBMAIL);
+
+    let menu = app
+        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .expect("a key in an open field shows the badge");
+
+    assert_eq!(writing_rule_breaks(&menu_texts(&menu)), Vec::<String>::new());
 }
