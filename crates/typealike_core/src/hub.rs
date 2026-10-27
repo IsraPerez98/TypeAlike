@@ -1,35 +1,10 @@
 //! The seam to the service that finds, downloads and stores model files.
 
-use std::fmt;
 use std::sync::Arc;
 
-/// An amount of data, in bytes. Displays in decimal units, as Finder and Explorer show file sizes.
-///
-/// ```
-/// use typealike_core::hub::ByteSize;
-///
-/// assert_eq!(ByteSize(1_340_000_000).to_string(), "1.3 GB");
-/// ```
+/// An amount of data, in bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ByteSize(pub u64);
-
-const KILOBYTE: u64 = 1_000;
-const MEGABYTE: u64 = 1_000_000;
-const GIGABYTE: u64 = 1_000_000_000;
-
-impl fmt::Display for ByteSize {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            bytes if bytes < KILOBYTE => write!(formatter, "{bytes} bytes"),
-            bytes if bytes < MEGABYTE => write!(formatter, "{} KB", rounded_quotient(bytes, KILOBYTE)),
-            bytes if bytes < GIGABYTE => write!(formatter, "{} MB", rounded_quotient(bytes, MEGABYTE)),
-            bytes => {
-                let tenths = rounded_quotient(bytes, GIGABYTE / 10);
-                write!(formatter, "{}.{} GB", tenths / 10, tenths % 10)
-            }
-        }
-    }
-}
 
 pub(crate) fn rounded_quotient(dividend: u64, divisor: u64) -> u64 {
     dividend.saturating_add(divisor / 2) / divisor
@@ -201,39 +176,4 @@ pub type HubEventSink = Arc<dyn Fn(HubEvent) + Send + Sync>;
 pub trait ModelHub {
     /// Starts `request` and returns at once. Its events reach `sink` in the order they happen.
     fn submit(&mut self, request: HubRequest, sink: &HubEventSink);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn small_sizes_show_in_bytes() {
-        assert_eq!(ByteSize(999).to_string(), "999 bytes");
-    }
-
-    #[test]
-    fn kilobytes_round_to_whole_units() {
-        assert_eq!(ByteSize(1_500).to_string(), "2 KB");
-    }
-
-    #[test]
-    fn megabytes_round_to_whole_units() {
-        assert_eq!(ByteSize(806_058_272).to_string(), "806 MB");
-    }
-
-    #[test]
-    fn gigabytes_keep_one_decimal() {
-        assert_eq!(ByteSize(2_497_281_120).to_string(), "2.5 GB");
-    }
-
-    #[test]
-    fn whole_gigabytes_keep_zero_decimal() {
-        assert_eq!(ByteSize(4_000_000_000).to_string(), "4.0 GB");
-    }
-
-    #[test]
-    fn largest_size_does_not_overflow() {
-        assert_eq!(ByteSize(u64::MAX).to_string(), "18446744073.7 GB");
-    }
 }

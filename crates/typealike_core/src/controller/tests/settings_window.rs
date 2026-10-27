@@ -6,6 +6,7 @@ use crate::desktop::EnergySaver;
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
+use crate::localization::UiLanguage;
 use crate::settings::{ClipboardAccess, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces};
 use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL};
 use crate::settings_window::models::SEARCH;
@@ -354,13 +355,39 @@ fn app_with_suggestions_off_is_dimmed_in_the_screen_text_and_personalization_pan
 }
 
 #[test]
+fn panes_show_in_the_language_of_the_user() {
+    let mut harness = Harness::with_ui_language(Settings::default(), UiLanguage::Spanish);
+
+    let view = harness.shown_settings();
+
+    assert_eq!(
+        view.pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "General",
+            "Apps y sitios web",
+            "Texto de la pantalla",
+            "Personalización",
+            "Ahorro de energía",
+            "Modelos",
+            "Zona de pruebas"
+        ]
+    );
+}
+
+#[test]
 fn panes_show_in_the_order_of_the_navigation() {
     let mut harness = Harness::new(Settings::default());
 
     let view = harness.shown_settings();
 
     assert_eq!(
-        view.pages.iter().map(|page| page.title).collect::<Vec<_>>(),
+        view.pages
+            .iter()
+            .map(|page| page.title.as_str())
+            .collect::<Vec<_>>(),
         [
             "General",
             "Apps and websites",

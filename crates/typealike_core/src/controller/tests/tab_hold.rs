@@ -7,7 +7,7 @@ use crate::desktop::Surroundings;
 use crate::inference::InferenceEvent;
 use crate::key::{Disposition, Key};
 use crate::settings::{PersonalizationSettings, Settings, SuggestionDisplay, WordChoice};
-use crate::test_support::{ACTIVE_BADGE, MAIL_APP, mail_entry};
+use crate::test_support::{MAIL_APP, active_badge, mail_entry};
 
 /// Returns a harness after a Tab on the last part of a suggestion, while the next ghost text does
 /// not show yet.
@@ -68,7 +68,7 @@ fn next_suggestion_shows_after_a_held_tab() {
     assert!(
         harness
             .take_calls()
-            .contains(&ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE)))
+            .contains(&ghost_at_caret(Some(" regards"), Some(active_badge())))
     );
 }
 

@@ -25,7 +25,7 @@ There are two kinds of UI:
 
 - Windows: Segoe UI Variable, and Segoe Fluent Icons for symbols. The type ramp of Fluent: caption, body, body strong, subtitle, title.
 - macOS: the system font (SF Pro) and its text styles, and SF Symbols.
-- Regular for text, semibold for titles and emphasis. Sentence case in core. macOS changes menus, buttons and window titles to title case.
+- Regular for text, semibold for titles and emphasis. Sentence case in core. In English, macOS changes menus, buttons and window titles to title case.
 - Overlay: the font face of the text before the caret when the OS gives it and it is installed, at the height of the caret. Else Segoe UI on Windows and the system font on macOS.
 
 ## Layout

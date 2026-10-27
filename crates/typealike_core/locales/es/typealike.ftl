@@ -1,16 +1,17 @@
-## The Energy saving pane of the settings window.
+## The tray menu on Windows, the menu bar menu on macOS and the first entry of the badge menu.
 
-energy-saving-title = Ahorro de energía
-energy-saving-summary = TypeAlike puede detener las sugerencias y descargar el modelo cuando no los necesitas. Así libera memoria y usa menos energía.
-energy-saving-idle-timeout = Detener sin actividad
-energy-saving-idle-timeout-description = Si no escribes ni haces clic durante este tiempo, TypeAlike detiene las sugerencias y descarga el modelo. Vuelve a cargar el modelo cuando escribes en un campo de texto.
-energy-saving-idle-timeout-off = Nunca
-energy-saving-idle-timeout-minutes = { $minutes } minutos
-energy-saving-energy-saver = Detener con ahorro de energía
-energy-saving-energy-saver-description = Mientras el ahorro de energía o el modo de bajo consumo está activado, TypeAlike detiene las sugerencias y descarga el modelo. Las sugerencias vuelven cuando se desactiva.
-energy-saving-energy-saver-stopped = El equipo ahorra energía ahora, por lo que las sugerencias están desactivadas.
-energy-saving-game = Detener durante juegos
-energy-saving-game-description = Mientras un juego está en primer plano, TypeAlike detiene las sugerencias y descarga el modelo. Vuelve a cargar el modelo cuando escribes en un campo de texto después del juego.
+menu-pause = Pausar las sugerencias
+menu-resume = Reanudar las sugerencias
+menu-settings = Ajustes…
+menu-quit = Salir de TypeAlike
+
+## The name of TypeAlike and its status, in the tooltip of the tray icon and for screen readers at the badge.
+
+status-active = TypeAlike
+status-paused = TypeAlike (en pausa)
+status-off-here = TypeAlike (desactivado aquí)
+status-energy-saver = TypeAlike (desactivado para ahorrar energía)
+status-game = TypeAlike (desactivado durante un juego)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -18,3 +19,203 @@ badge-app-suggestions = Mostrar sugerencias en { $app }
 badge-site-suggestions = Mostrar sugerencias en { $host }
 badge-app-screen-text = Usar el texto de la pantalla en { $app }
 badge-app-earlier-writing = Escritura anterior en { $app }
+
+## The choices of the earlier writing of an app, in the Personalization pane and in the badge menu.
+
+history-scope-off = Desactivada
+history-scope-this-app = Solo esta app
+history-scope-all-apps = Todas las apps
+
+## The list of apps in the Apps and websites, Screen text and Personalization panes.
+
+app-list-heading = Apps
+app-list-empty = Todavía no apareció ninguna sugerencia en ninguna app.
+app-list-footer = Cuando una sugerencia aparece por primera vez en una app, TypeAlike agrega la app a esta lista.
+
+## The General pane of the settings window.
+
+general-title = General
+general-summary = Cambia cómo aparecen las sugerencias y cómo funciona TypeAlike en este equipo.
+general-autostart = Abrir al iniciar sesión
+general-autostart-description = Las sugerencias aparecen después de iniciar sesión, sin abrir TypeAlike.
+general-clipboard = Usar el texto copiado
+general-clipboard-description = Las sugerencias pueden usar el texto que copias. TypeAlike lo lee solo mientras usas un campo de texto y no lo guarda.
+general-preparation = Preparar las sugerencias antes
+general-preparation-description = Cuando entras en un campo de texto, el modelo lee su texto de inmediato. La primera sugerencia aparece antes, pero esto usa más energía.
+general-display = Mostrar las palabras una a una
+general-display-description = Cada palabra de una sugerencia aparece en cuanto el modelo la escribe. La primera palabra aparece antes, pero la sugerencia crece mientras la lees.
+general-typo-rule = Ocultar sugerencias con erratas
+general-typo-rule-description = Cuando una palabra parece tener una errata, ninguna sugerencia la completa, para que Tab no escriba la errata. Un nombre poco común también puede parecer una errata, y entonces no recibe sugerencias.
+general-typo-fix = Corregir erratas
+general-typo-fix-description = Cuando una palabra parece tener una errata, la sugerencia muestra la palabra tachada y luego la palabra corregida. Tab escribe la palabra corregida.
+general-length = Longitud de las sugerencias
+general-length-description = Una sugerencia se detiene en esta longitud. Una sugerencia más corta aparece antes.
+general-length-very-short = Muy corta
+general-length-short = Corta
+general-length-medium = Media
+general-length-long = Larga
+general-length-very-long = Muy larga
+general-length-processor-note = Cuando el modelo se ejecuta en el procesador, las sugerencias son cortas o muy cortas, para que aparezcan antes.
+general-sentence-end = Detener al final de una oración
+general-sentence-end-description = Una sugerencia termina después de la primera oración que completa.
+general-sentence-end-off-note = Las sugerencias suelen ser incorrectas después de la primera oración. Activa este interruptor para detenerlas ahí.
+general-model-description = Un modelo más pequeño es más rápido y necesita menos memoria, pero sus sugerencias son incorrectas más a menudo.
+general-hardware = Ejecutar el modelo en
+general-hardware-description = Una tarjeta gráfica ejecuta el modelo más rápido que el procesador, pero todo el modelo debe caber en su memoria.
+general-hardware-processor = Procesador (CPU)
+general-hardware-graphics-card = Tarjeta gráfica (Vulkan)
+general-hardware-nvidia = Tarjeta gráfica NVIDIA (CUDA)
+general-name = Tu nombre
+general-name-description = Las sugerencias pueden usar tu nombre, por ejemplo para firmar un correo.
+general-notes = Notas sobre ti
+general-notes-description = Escribe algunos datos breves que ayuden a las sugerencias, como tu trabajo y tus idiomas. Escríbelos en primera persona, por ejemplo: «Escribo correos breves».
+
+## The menu of the suggestion model and its status, in the General and Playground panes.
+
+model-menu = Modelo de sugerencias
+model-menu-select = Selecciona un modelo
+model-menu-none = No hay modelos descargados
+model-needed = TypeAlike necesita un modelo para escribir sugerencias. Descarga el modelo recomendado aquí abajo.
+model-recommended = Recomendado para este equipo
+model-starting = Iniciando el modelo…
+model-paused = Las sugerencias están en pausa. Para reanudarlas, selecciona «Reanudar las sugerencias» en el menú de TypeAlike.
+model-energy-saver = Las sugerencias están desactivadas mientras el equipo ahorra energía. Para usarlas ahora, desactiva «Detener con ahorro de energía».
+model-game = Las sugerencias se detuvieron para dejar memoria libre a un juego. Vuelven cuando escribes en un campo de texto.
+model-idle = Las sugerencias se detuvieron para liberar memoria, porque no escribiste ni hiciste clic durante un tiempo. Vuelven cuando escribes en un campo de texto.
+model-error-missing = TypeAlike no encuentra el archivo del modelo. Vuelve a descargar el modelo.
+model-error-invalid = TypeAlike no puede usar este modelo. El archivo puede estar dañado o ser de un tipo que TypeAlike no admite. Vuelve a descargarlo o selecciona otro modelo.
+model-error-too-large = El modelo no cabe en la memoria libre de la tarjeta gráfica. Selecciona un modelo más pequeño.
+model-error-hardware = TypeAlike no puede ejecutar el modelo en esta tarjeta gráfica. En «Ejecutar el modelo en», selecciona otra opción.
+model-error-no-model = Primero selecciona un modelo.
+model-error-text-too-long = El texto es demasiado largo para este modelo. Usa un texto más corto.
+model-error-failed = TypeAlike no pudo escribir una sugerencia. Inténtalo de nuevo.
+model-error-superseded = TypeAlike detuvo esta sugerencia para escribir una más reciente.
+
+## The Playground pane of the settings window. $seconds is the time that the model took to write the suggestion, with two digits after the decimal separator, such as 0.42.
+
+playground-title = Zona de pruebas
+playground-summary = Selecciona un modelo y escribe el comienzo de una oración para ver qué sugiere el modelo.
+playground-text = Texto
+playground-text-placeholder = Escribe el comienzo de una oración
+playground-suggest = Mostrar sugerencia
+playground-output = Sugerencia
+playground-writing = Escribiendo una sugerencia…
+playground-nothing-added = El modelo no tiene una sugerencia para este texto. Escribe más palabras y vuelve a intentarlo.
+playground-time = Escrita en { $seconds } segundos
+
+## The Models pane of the settings window. $developer is the company that made a model, such as Google. $owner is the account on Hugging Face that shares a model. $query is the text that the user searched for.
+
+models-title = Modelos
+models-summary = Un modelo en este equipo escribe las sugerencias. El texto que escribes en otras apps nunca sale de este equipo. Solo la búsqueda y las descargas de modelos usan internet.
+models-search = Buscar en Hugging Face
+models-recommended-heading = Modelos recomendados
+models-recommended-footer = Si no estás seguro, descarga el modelo que TypeAlike recomienda para este equipo. Puedes eliminar un modelo en cualquier momento.
+models-developer = De { $developer }
+models-developer-recommended = De { $developer } · Recomendado para este equipo
+models-searching = Buscando en Hugging Face…
+models-results-heading = Resultados de «{ $query }»
+models-results-footer = La lista muestra solo los modelos que TypeAlike puede usar. Los modelos con más descargas están arriba.
+models-no-results = Ningún modelo de Hugging Face coincide con «{ $query }». Prueba con otras palabras.
+models-owner = De { $owner }
+models-owner-gated = De { $owner } · TypeAlike no puede descargar este modelo
+models-show-files = Mostrar archivos
+models-back-to-results = Volver a los resultados
+models-files-loading = Obteniendo la lista de archivos…
+models-files-footer = Cada archivo es el mismo modelo en otro tamaño. Un archivo más pequeño funciona más rápido, pero sus sugerencias son incorrectas más a menudo. Si no estás seguro, selecciona un archivo Q4_K_M.
+models-no-files = Este modelo no tiene archivos que TypeAlike pueda usar.
+models-downloaded-heading = Modelos descargados
+models-download = Descargar
+models-cancel-download = Cancelar la descarga
+models-canceling = Cancelando la descarga…
+models-delete = Eliminar
+models-try-again = Reintentar
+models-error-offline = TypeAlike no puede conectarse a Hugging Face. Revisa tu conexión a internet.
+models-error-account = TypeAlike no puede descargar este modelo, porque necesita una cuenta de Hugging Face. Selecciona otro modelo.
+models-error-not-found = Hugging Face no encuentra este modelo. Vuelve a buscar el modelo.
+models-error-server = Hugging Face no está disponible. Inténtalo de nuevo más tarde.
+models-error-response = Hugging Face envió una respuesta incorrecta. Inténtalo de nuevo más tarde.
+models-error-storage = TypeAlike no puede guardar el modelo. Asegúrate de que el disco tenga espacio libre.
+models-error-canceled = La descarga se detuvo antes de terminar.
+
+## The numbers of the Models pane. $count is a count of downloads: a whole number below one thousand, else a number of thousands, millions or billions, with one digit after the decimal separator when it is not zero, such as 1.2 or 15. $percent is a whole number from 0 to 100. $size is a file size: a whole number of bytes, kilobytes or megabytes, or a number of gigabytes with one digit after the decimal separator, such as 2.5.
+
+models-downloads =
+    { $count ->
+        [one] { $count } descarga
+       *[other] { $count } descargas
+    }
+models-downloads-thousands = { $count } mil descargas
+models-downloads-millions =
+    { $count ->
+        [one] { $count } millón de descargas
+       *[other] { $count } millones de descargas
+    }
+models-downloads-billions = { $count } mil millones de descargas
+models-download-progress = { $percent } % descargado
+models-size-bytes =
+    { $size ->
+        [one] { $size } byte
+       *[other] { $size } bytes
+    }
+models-size-kilobytes = { $size } KB
+models-size-megabytes = { $size } MB
+models-size-gigabytes = { $size } GB
+
+## The Apps and websites pane of the settings window.
+
+suggestion-places-title = Apps y sitios web
+suggestion-places-summary = Las sugerencias aparecen en cada app y en cada sitio web donde escribes. Para detener las sugerencias en una app o en un sitio web, desactiva su interruptor.
+suggestion-places-websites = Sitios web
+suggestion-places-no-websites = Todavía no apareció ninguna sugerencia en ningún sitio web.
+suggestion-places-websites-footer = Cuando una sugerencia aparece por primera vez en un sitio web, TypeAlike agrega el sitio web a esta lista.
+
+## The Screen text pane of the settings window.
+
+screen-text-title = Texto de la pantalla
+screen-text-summary = Las sugerencias pueden usar el texto cerca del campo donde escribes, por ejemplo los últimos mensajes de un chat. TypeAlike lee este texto en este equipo y no lo guarda.
+screen-text-switch = Usar el texto de la pantalla
+screen-text-switch-description = TypeAlike lee el texto de la pantalla en cada app con el interruptor activado en la lista de abajo.
+screen-text-recognition = Reconocimiento de texto
+screen-text-recognition-description = Cuando TypeAlike no puede obtener el texto de una ventana, lo lee de una imagen de la ventana. «Rápido» lee alemán, español, francés, inglés, italiano y portugués. «Preciso» lee más idiomas con menos errores, pero es más lento.
+screen-text-recognition-fast = Rápido (recomendado)
+screen-text-recognition-accurate = Preciso
+screen-text-permission = Algunas apps no dan su texto a TypeAlike. Para leerlo de una imagen de la ventana, TypeAlike necesita el permiso de Grabación de pantalla y audio del sistema.
+screen-text-open-system-settings = Abrir Ajustes del Sistema
+
+## The Personalization pane of the settings window.
+
+personalization-title = Personalización
+personalization-summary = Las sugerencias pueden aprender de tu escritura anterior. TypeAlike la guarda cifrada en este equipo. No guarda el texto de los campos de contraseña.
+personalization-history = Usar la escritura anterior
+personalization-history-description = TypeAlike guarda el texto que escribes en un archivo cifrado en este equipo. Las sugerencias usan entonces tus palabras y tu estilo. Si desactivas esto, el texto guardado se queda hasta que lo eliminas al final de esta página.
+personalization-kept-texts = Texto que se guarda
+personalization-kept-texts-description = TypeAlike guarda tu texto cuando lo terminas, por ejemplo cuando envías un mensaje.
+personalization-kept-texts-accepted = Solo el texto donde usaste una sugerencia
+personalization-kept-texts-all = Todo el texto
+personalization-word-choice = Elección de palabras
+personalization-word-choice-description = Las sugerencias usan más las palabras que escribes a menudo. Con un nivel más alto aparecen más de tus palabras, pero las sugerencias son incorrectas más a menudo.
+personalization-word-choice-off = Desactivada
+personalization-word-choice-light = Leve
+personalization-word-choice-medium = Media
+personalization-word-choice-strong = Fuerte
+personalization-word-choice-needs-history = Para usar este ajuste, activa «Usar la escritura anterior».
+personalization-apps-footer = Si eliges «Desactivada» para una app, TypeAlike elimina el texto que guardó de esa app. Con «Solo esta app», la escritura anterior de una app ayuda solo en esa app. Las apps con «Todas las apps» comparten su escritura anterior. Cuando una sugerencia aparece por primera vez en una app, TypeAlike agrega la app a esta lista.
+personalization-delete-description = TypeAlike elimina todo el texto que guardó. No puedes deshacer esta acción.
+personalization-delete = Eliminar toda la escritura anterior
+personalization-delete-confirm = Presiona otra vez para eliminar
+
+## The Energy saving pane of the settings window.
+
+energy-saving-title = Ahorro de energía
+energy-saving-summary = TypeAlike puede detener las sugerencias cuando no escribes durante un tiempo, durante los juegos y con el ahorro de energía. Esto libera memoria y ahorra energía.
+energy-saving-idle-timeout = Detener tras un tiempo sin uso
+energy-saving-idle-timeout-description = Si no escribes ni haces clic durante este tiempo, las sugerencias se detienen para liberar memoria. Vuelven cuando escribes en un campo de texto.
+energy-saving-idle-timeout-off = Nunca
+energy-saving-idle-timeout-15 = 15 minutos
+energy-saving-idle-timeout-30 = 30 minutos
+energy-saving-idle-timeout-60 = 60 minutos
+energy-saving-energy-saver = Detener con ahorro de energía
+energy-saving-energy-saver-description = Mientras el ahorro de energía o el modo de bajo consumo está activado, las sugerencias se detienen para ahorrar energía. Vuelven cuando se desactiva.
+energy-saving-energy-saver-stopped = Las sugerencias están desactivadas mientras el equipo ahorra energía.
+energy-saving-game = Detener durante juegos
+energy-saving-game-description = Mientras juegas, las sugerencias se detienen para dejar memoria libre al juego. Vuelven cuando escribes en un campo de texto.

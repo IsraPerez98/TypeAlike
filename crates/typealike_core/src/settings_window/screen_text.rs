@@ -2,6 +2,7 @@
 //! field on the screen.
 
 use crate::desktop::{OcrAvailability, OcrLevels};
+use crate::localization::Translations;
 use crate::settings::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionPlaces};
 use crate::settings_window::controls::{
     MenuText, SUGGESTED_APPS_FOOTER, app_list_section, picker, replace_if_changed,
@@ -33,24 +34,10 @@ pub(crate) const SCREEN_TEXT: &str = "screen-text";
 const APP_SWITCH_PREFIX: &str = "screen-text-app:";
 const OCR_PERMISSION: &str = "screen-text-ocr-permission";
 const OCR_LEVEL: &str = "screen-text-ocr-level";
-const PANE_TITLE: &str = "Screen text";
-const PANE_SUMMARY: &str = "Suggestions can use the text near the text field where you type, for example, \
-     the last messages of a chat. TypeAlike reads this text on this computer and does not save the text.";
-const SCREEN_TEXT_LABEL: &str = "Use screen text";
-const SCREEN_TEXT_DESCRIPTION: &str =
-    "When this switch is off, TypeAlike does not read screen text in any app.";
-const OCR_LEVEL_LABEL: &str = "Text recognition";
-const OCR_LEVEL_DESCRIPTION: &str = "When TypeAlike cannot get the text of a window, it reads the text from an \
-     image of the window. “Fast” reads English, French, German, Italian, Portuguese and Spanish. “Accurate” \
-     reads more languages with fewer errors, but it is slower.";
 const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
-    (OcrLevel::Fast, "Fast (recommended)"),
-    (OcrLevel::Accurate, "Accurate"),
+    (OcrLevel::Fast, "screen-text-recognition-fast"),
+    (OcrLevel::Accurate, "screen-text-recognition-accurate"),
 ];
-const OCR_PERMISSION_NOTE: &str = "TypeAlike reads only part of the screen text. To let TypeAlike read all screen \
-     text, go to System Settings > Privacy & Security > Screen & System Audio Recording. Then set the switch for \
-     TypeAlike to on.";
-const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 
 /// State of the Screen text pane: the main switch and the switch of each app.
 ///
@@ -136,36 +123,37 @@ impl ScreenTextPane {
         }
     }
 
-    /// Returns the page that the pane shows now, with the menu of the OCR level when the platform
-    /// has an OCR whose `levels` the user picks, and a note that tells how to give the permission
-    /// when `ocr` needs it. The switch of an app is dimmed while `suggestion_places` turns its
-    /// suggestions off.
+    /// Returns the page that the pane shows now, with the texts of `translations`. It has the menu
+    /// of the OCR level when the platform has an OCR whose `levels` the user picks, and a note that
+    /// tells how to give the permission when `ocr` needs it. The switch of an app is dimmed while
+    /// `suggestion_places` turns its suggestions off.
     #[must_use]
     pub fn page(
         &self,
         ocr: OcrAvailability,
         levels: OcrLevels,
         suggestion_places: &SuggestionPlaces,
+        translations: &Translations,
     ) -> Page {
         let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
         let main_switch = Row::Switch(Switch {
             id: ControlId::new(SCREEN_TEXT),
             icon: RowIcon::Monitor,
-            label: SCREEN_TEXT_LABEL,
-            description: SCREEN_TEXT_DESCRIPTION,
+            label: translations.text("screen-text-switch"),
+            description: translations.text("screen-text-switch-description"),
             is_on: is_allowed,
             note: None,
         });
         let has_level_menu = ocr != OcrAvailability::Unsupported && levels == OcrLevels::Selectable;
-        let ocr_level = has_level_menu.then(|| Row::Picker(self.ocr_level_picker()));
+        let ocr_level = has_level_menu.then(|| Row::Picker(self.ocr_level_picker(translations)));
         let main_section = Section::new([Some(main_switch), ocr_level].into_iter().flatten().collect());
         let needs_permission = is_allowed && ocr == OcrAvailability::NotPermitted;
         let permission_note = needs_permission.then(|| {
             Section::new(vec![Row::Message(Message {
-                text: OCR_PERMISSION_NOTE.to_owned(),
+                text: translations.text("screen-text-permission"),
                 button: Some(Button {
                     id: ControlId::new(OCR_PERMISSION),
-                    label: OPEN_SYSTEM_SETTINGS,
+                    label: translations.text("screen-text-open-system-settings"),
                     is_enabled: true,
                 }),
             })])
@@ -173,11 +161,12 @@ impl ScreenTextPane {
         let app_list = app_list_section(
             self.app_rows(is_allowed, suggestion_places),
             SUGGESTED_APPS_FOOTER,
+            translations,
         );
         Page {
-            title: PANE_TITLE,
+            title: translations.text("screen-text-title"),
             icon: PageIcon::TextViewfinder,
-            summary: PANE_SUMMARY,
+            summary: translations.text("screen-text-summary"),
             search: None,
             sections: [Some(main_section), permission_note, Some(app_list)]
                 .into_iter()
@@ -186,15 +175,17 @@ impl ScreenTextPane {
         }
     }
 
-    fn ocr_level_picker(&self) -> Picker {
+    fn ocr_level_picker(&self, translations: &Translations) -> Picker {
         let text = MenuText {
             id: OCR_LEVEL,
             icon: RowIcon::Gauge,
-            label: OCR_LEVEL_LABEL,
-            description: OCR_LEVEL_DESCRIPTION,
+            label: "screen-text-recognition",
+            description: "screen-text-recognition-description",
         };
-        let is_allowed = self.settings.access == ScreenTextAccess::Allowed;
-        picker(text, &OCR_LEVEL_CHOICES, self.settings.ocr_level, is_allowed)
+        Picker {
+            is_enabled: self.settings.access == ScreenTextAccess::Allowed,
+            ..picker(text, &OCR_LEVEL_CHOICES, self.settings.ocr_level, translations)
+        }
     }
 
     /// The switch of each app, dimmed while the main switch is off or `suggestion_places` turns
@@ -221,7 +212,7 @@ impl ScreenTextPane {
 mod tests {
     use super::*;
     use crate::settings_window::view::ChoiceText;
-    use crate::test_support::{screen_text_app, suggestion_app, toggled};
+    use crate::test_support::{english, screen_text_app, suggestion_app, toggled};
 
     fn pane_with(access: ScreenTextAccess, apps: Vec<ScreenTextApp>) -> ScreenTextPane {
         ScreenTextPane::new(ScreenTextSettings {
@@ -260,6 +251,7 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
@@ -268,8 +260,10 @@ mod tests {
                 Some(&Row::Switch(Switch {
                     id: ControlId::new(SCREEN_TEXT),
                     icon: RowIcon::Monitor,
-                    label: "Use screen text",
-                    description: "When this switch is off, TypeAlike does not read screen text in any app.",
+                    label: "Use screen text".to_owned(),
+                    description:
+                        "TypeAlike reads the screen text in each app whose switch is on in the list below."
+                            .to_owned(),
                     is_on: true,
                     note: None,
                 })),
@@ -296,6 +290,7 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
@@ -321,7 +316,7 @@ mod tests {
             ..SuggestionPlaces::default()
         };
 
-        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable, &places);
+        let shown = pane.page(OcrAvailability::Ready, OcrLevels::Selectable, &places, &english());
 
         assert_eq!(
             app_switches(&shown)
@@ -340,12 +335,13 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
             shown.sections[1].rows,
             [Row::Message(Message {
-                text: "This list has no apps.".to_owned(),
+                text: "No suggestion showed in an app yet.".to_owned(),
                 button: None,
             })]
         );
@@ -370,18 +366,17 @@ mod tests {
             OcrAvailability::NotPermitted,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
             permission_notes(&shown),
             [&Message {
-                text: "TypeAlike reads only part of the screen text. To let TypeAlike read all screen text, go \
-                       to System Settings > Privacy & Security > Screen & System Audio Recording. Then set the \
-                       switch for TypeAlike to on."
+                text: "Some apps do not give their text to TypeAlike. To read their text from an image of the window, TypeAlike needs the Screen & System Audio Recording permission."
                     .to_owned(),
                 button: Some(Button {
                     id: ControlId::new(OCR_PERMISSION),
-                    label: "Open System Settings",
+                    label: "Open System Settings".to_owned(),
                     is_enabled: true,
                 }),
             }]
@@ -398,16 +393,19 @@ mod tests {
                 OcrAvailability::Ready,
                 OcrLevels::Selectable,
                 &SuggestionPlaces::default(),
+                &english(),
             ),
             ready.page(
                 OcrAvailability::Unsupported,
                 OcrLevels::Selectable,
                 &SuggestionPlaces::default(),
+                &english(),
             ),
             off.page(
                 OcrAvailability::NotPermitted,
                 OcrLevels::Selectable,
                 &SuggestionPlaces::default(),
+                &english(),
             ),
         ];
 
@@ -516,6 +514,7 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
@@ -523,10 +522,12 @@ mod tests {
             Some(&Row::Picker(Picker {
                 id: ControlId::new(OCR_LEVEL),
                 icon: RowIcon::Gauge,
-                label: "Text recognition",
-                description: "When TypeAlike cannot get the text of a window, it reads the text from an image \
+                label: "Text recognition".to_owned(),
+                description:
+                    "When TypeAlike cannot get the text of a window, it reads the text from an image \
                      of the window. “Fast” reads English, French, German, Italian, Portuguese and Spanish. \
-                     “Accurate” reads more languages with fewer errors, but it is slower.",
+                     “Accurate” reads more languages with fewer errors, but it is slower."
+                        .to_owned(),
                 choices: vec!["Fast (recommended)".to_owned(), "Accurate".to_owned()],
                 choice_text: ChoiceText::Label,
                 selected: 0,
@@ -562,6 +563,7 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(
@@ -578,6 +580,7 @@ mod tests {
             OcrAvailability::Unsupported,
             OcrLevels::Selectable,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(ocr_level_picker(&shown), None);
@@ -591,6 +594,7 @@ mod tests {
             OcrAvailability::Ready,
             OcrLevels::One,
             &SuggestionPlaces::default(),
+            &english(),
         );
 
         assert_eq!(ocr_level_picker(&shown), None);

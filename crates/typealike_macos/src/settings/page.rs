@@ -99,7 +99,7 @@ impl PageView {
     /// Shows `page`. A section keeps its views while its rows keep their kinds and controls, so
     /// that an open menu, the focus, the typed text and a click in progress stay.
     pub(super) fn render(&mut self, page: &view::Page, binder: &mut Binder<'_>) {
-        set_text(&self.summary, page.summary);
+        set_text(&self.summary, &page.summary);
         if let (Some(search), Some(field)) = (&mut self.search, &page.search) {
             search.render(field, binder);
         }
@@ -154,7 +154,7 @@ impl SearchView {
 
     fn render(&mut self, shown: &view::SearchField, binder: &mut Binder<'_>) {
         self.field
-            .setPlaceholderString(Some(&NSString::from_str(shown.placeholder)));
+            .setPlaceholderString(Some(&NSString::from_str(&shown.placeholder)));
         binder.bind(&self.field, &shown.id);
         self.id = Some(shown.id.clone());
     }
@@ -225,7 +225,7 @@ impl SectionView {
         }
         self.title_bar
             .setHidden(section.heading.is_none() && section.back.is_none());
-        set_text(&self.footer, section.footer.unwrap_or_default());
+        set_text(&self.footer, section.footer.as_deref().unwrap_or_default());
         let has_same_rows = self.rows.len() == section.rows.len()
             && self
                 .rows

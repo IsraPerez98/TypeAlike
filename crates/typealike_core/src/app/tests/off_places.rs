@@ -3,7 +3,9 @@
 use std::cell::Cell;
 
 use super::fixtures::{FakeDesktop, MAIL, WEBMAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, SettledWork, TrayCommand};
+use crate::app::{
+    App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, SettledWork, TrayCommand,
+};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, ScreenRead, ScreenText, Surroundings};
 use crate::engine::Reaction;
 use crate::key::Key;
@@ -12,7 +14,7 @@ use crate::settings::{
     SuggestionPlaces,
 };
 use crate::test_support::{
-    ACTIVE_BADGE, OFF_BADGE, PAUSED_BADGE, UiText, history_app, screen_text_app, suggestion_app,
+    UiText, active_badge, english, history_app, off_badge, paused_badge, screen_text_app, suggestion_app,
     suggestion_site, writing_rule_breaks,
 };
 
@@ -161,10 +163,10 @@ fn turning_off_the_app_of_the_session_shows_the_off_badge_and_keeps_the_app() {
 
     assert_eq!(
         (
-            app.badge_view(),
+            app.badge_view(&english()),
             app.typed_app().map(|typed| typed.app_id.as_str())
         ),
-        (Some(OFF_BADGE), Some("com.apple.mail"))
+        (Some(off_badge()), Some("com.apple.mail"))
     );
 }
 
@@ -201,7 +203,7 @@ fn typing_in_an_off_app_shows_the_off_badge() {
 
     app.on_key(Key::Char('H'), &MAIL);
 
-    assert_eq!(app.badge_view(), Some(OFF_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(off_badge()));
 }
 
 #[test]
@@ -211,7 +213,7 @@ fn other_keys_in_an_off_app_keep_the_off_badge() {
 
     app.on_key(Key::Other, &MAIL);
 
-    assert_eq!(app.badge_view(), Some(OFF_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(off_badge()));
 }
 
 #[test]
@@ -224,7 +226,7 @@ fn turning_the_app_on_again_shows_the_active_badge() {
         ..Settings::default()
     });
 
-    assert_eq!(app.badge_view(), Some(ACTIVE_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(active_badge()));
 }
 
 #[test]
@@ -234,7 +236,7 @@ fn paused_badge_shows_in_an_off_app_while_suggestions_are_paused() {
 
     app.on_key(Key::Char('H'), &MAIL);
 
-    assert_eq!(app.badge_view(), Some(PAUSED_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(paused_badge()));
 }
 
 #[test]
@@ -244,7 +246,7 @@ fn excluded_field_in_an_off_app_shows_no_badge() {
 
     app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
 
-    assert_eq!((app.badge_view(), app.typed_app()), (None, None));
+    assert_eq!((app.badge_view(&english()), app.typed_app()), (None, None));
 }
 
 #[test]
@@ -273,9 +275,12 @@ fn suggestion_item(label: &str, command: BadgeCommand, is_checked: bool) -> Badg
 
 fn badge_menu_of(app: &App, places: &SuggestionPlaces) -> Option<BadgeMenu> {
     app.badge_menu(
-        places,
-        &ScreenTextSettings::default(),
-        &PersonalizationSettings::default(),
+        &BadgeSettings {
+            suggestion_places: places,
+            screen_text: &ScreenTextSettings::default(),
+            personalization: &PersonalizationSettings::default(),
+        },
+        &english(),
     )
 }
 
@@ -438,7 +443,14 @@ fn badge_menu_in_an_off_app_dims_the_screen_text_and_the_earlier_writing_of_the_
     app.on_key(Key::Char('H'), &MAIL);
 
     let menu = app
-        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .badge_menu(
+            &BadgeSettings {
+                suggestion_places: &places,
+                screen_text: &mail_screen_text(),
+                personalization: &mail_personalization(),
+            },
+            &english(),
+        )
         .expect("a key in an open field shows the badge");
 
     assert_eq!(
@@ -464,7 +476,14 @@ fn badge_menu_on_an_off_website_dims_the_screen_text_and_the_earlier_writing_of_
     app.on_key(Key::Char('H'), &WEBMAIL);
 
     let menu = app
-        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .badge_menu(
+            &BadgeSettings {
+                suggestion_places: &places,
+                screen_text: &mail_screen_text(),
+                personalization: &mail_personalization(),
+            },
+            &english(),
+        )
         .expect("a key in an open field shows the badge");
 
     assert_eq!(
@@ -491,7 +510,14 @@ fn badge_menu_in_an_on_place_keeps_the_screen_text_and_the_earlier_writing_of_th
     app.on_key(Key::Char('H'), &WEBMAIL);
 
     let menu = app
-        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .badge_menu(
+            &BadgeSettings {
+                suggestion_places: &places,
+                screen_text: &mail_screen_text(),
+                personalization: &mail_personalization(),
+            },
+            &english(),
+        )
         .expect("a key in an open field shows the badge");
 
     assert_eq!(
@@ -520,7 +546,14 @@ fn badge_menu_follows_the_writing_rules() {
     app.on_key(Key::Char('H'), &WEBMAIL);
 
     let menu = app
-        .badge_menu(&places, &mail_screen_text(), &mail_personalization())
+        .badge_menu(
+            &BadgeSettings {
+                suggestion_places: &places,
+                screen_text: &mail_screen_text(),
+                personalization: &mail_personalization(),
+            },
+            &english(),
+        )
         .expect("a key in an open field shows the badge");
 
     assert_eq!(writing_rule_breaks(&menu_texts(&menu)), Vec::<String>::new());

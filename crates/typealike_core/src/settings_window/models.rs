@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use crate::hub::{
     ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, usable_model_files,
 };
-use crate::settings_window::view::{Button, ControlId, Page, SettingsInput};
+use crate::inference::Backend;
+use crate::localization::Translations;
+use crate::settings_window::view::{Button, ControlId, Page, Row, SettingsInput};
 
 /// Something the user did in the Models pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,24 +89,36 @@ impl<T> From<Result<T, HubError>> for Fetch<T> {
     }
 }
 
-/// The buttons that a page shows, each with the action that a click on it runs.
-#[derive(Debug, Default)]
-struct Buttons(Vec<(ControlId, ModelsAction)>);
+/// The buttons that a page shows, each with the action that a click on it runs, and the texts of
+/// the page.
+#[derive(Debug)]
+struct Buttons<'translations> {
+    translations: &'translations Translations,
+    actions: Vec<(ControlId, ModelsAction)>,
+}
 
-impl Buttons {
-    /// Returns a button that runs `action`, and keeps the action for [`Self::action_of`].
-    fn add(&mut self, label: &'static str, action: ModelsAction) -> Button {
+impl<'translations> Buttons<'translations> {
+    fn new(translations: &'translations Translations) -> Self {
+        Self {
+            translations,
+            actions: Vec::new(),
+        }
+    }
+
+    /// Returns a button with the label of `message` that runs `action`, and keeps the action for
+    /// [`Self::action_of`].
+    fn add(&mut self, message: &str, action: ModelsAction) -> Button {
         let id = button_id(&action);
-        self.0.push((id.clone(), action));
+        self.actions.push((id.clone(), action));
         Button {
             id,
-            label,
+            label: self.translations.text(message),
             is_enabled: true,
         }
     }
 
     fn action_of(self, id: &ControlId) -> Option<ModelsAction> {
-        self.0
+        self.actions
             .into_iter()
             .find(|(button, _)| button == id)
             .map(|(_, action)| action)
@@ -136,17 +150,24 @@ impl ModelsPane {
         }
     }
 
-    /// Returns the action of `input`, when `input` is for a control of the pane: the search field
-    /// or a button that the pane shows now.
+    /// Returns the action of `input`, when `input` is for a control of the pane: the search field,
+    /// a button that the pane shows now, or a button of the row of the model that TypeAlike
+    /// recommends for `backend`. The `translations` give the texts of the buttons.
     #[must_use]
-    pub fn action_for(&self, input: &SettingsInput) -> Option<ModelsAction> {
+    pub fn action_for(
+        &self,
+        input: &SettingsInput,
+        backend: Backend,
+        translations: &Translations,
+    ) -> Option<ModelsAction> {
         match input {
             SettingsInput::Submitted { id, text } if id.as_str() == SEARCH => {
                 Some(ModelsAction::Search(text.clone()))
             }
             SettingsInput::Pressed(id) => {
-                let mut buttons = Buttons::default();
-                self.build_page(&mut buttons);
+                let mut buttons = Buttons::new(translations);
+                self.build_page(&mut buttons, backend);
+                self.build_recommended_row(&mut buttons, backend);
                 buttons.action_of(id)
             }
             _ => None,
@@ -174,12 +195,21 @@ impl ModelsPane {
             .collect()
     }
 
-    /// Returns the page that the pane shows now: the search field, then the suggested models
-    /// while the search is empty, else the search results or the files of a repository, then the
-    /// downloaded and downloading files.
+    /// Returns the page that the pane shows now, with the texts of `translations`: the search
+    /// field, then the recommended models while the search is empty, else the search results or
+    /// the files of a repository, then the downloaded and downloading files. The list marks the
+    /// model that TypeAlike recommends for `backend`.
     #[must_use]
-    pub fn page(&self) -> Page {
-        self.build_page(&mut Buttons::default())
+    pub fn page(&self, backend: Backend, translations: &Translations) -> Page {
+        self.build_page(&mut Buttons::new(translations), backend)
+    }
+
+    /// Returns the row of the model that TypeAlike recommends for `backend`, with the texts of
+    /// `translations`, while no model is downloaded. Its button downloads the model, and the row
+    /// shows the progress of the download.
+    #[must_use]
+    pub fn recommended_row(&self, backend: Backend, translations: &Translations) -> Option<Row> {
+        self.build_recommended_row(&mut Buttons::new(translations), backend)
     }
 
     fn start_search(&mut self, query: &str) -> Option<HubRequest> {

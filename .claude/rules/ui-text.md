@@ -57,8 +57,11 @@ Sources (checked 2026-10): Microsoft "Writing style" (learn.microsoft.com/window
 - A comment above each group tells the translator what each argument holds.
 - ASD-STE100 applies to English only. The Spanish text uses "tú", sentence case and the Spanish terms of `PRODUCT.md`. It keeps the meaning of the English text.
 - Each row must hold a translated text that is longer than the English text (`DESIGN.md`, "Layout").
+- A number with a fraction goes into its message as `MessageArgument::Decimal`, so that it gets the decimal separator of the language. A unit, such as "MB", belongs in the message.
+- Title case is a rule of English. macOS gives title case only to a language with `UiLanguage::has_title_case`.
 
 ## Check
 - `test_support/writing_rules.rs` checks the rules that a test can check. Add each new rule of this kind there, test first (`tdd.md`).
-- The test does not check the table "Not in the UI" yet, because some current strings use its words.
+- The test also rejects the code words of the table "Not in the UI" (`CODE_WORDS`). A quantization name such as Q4_K_M can show only in the Hugging Face search.
+- Tests make sure that each language has each message of English, with the same arguments.
 - Use `/impeccable clarify` to review a full flow, not one string at a time.

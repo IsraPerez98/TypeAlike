@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::settings_window::models::catalog::SUGGESTED_MODELS;
-use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, Row, SearchField, Section};
-use crate::test_support::writing_rule_breaks;
+use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, SearchField, Section};
+use crate::test_support::{english, writing_rule_breaks};
 
 const REPO: &str = "owner/Model-GGUF";
 
@@ -29,10 +29,10 @@ fn repo(id: &str, downloads: u64, is_gated: bool) -> RepoSummary {
     }
 }
 
-fn button(label: &'static str, action: &ModelsAction) -> Button {
+fn button(label: &str, action: &ModelsAction) -> Button {
     Button {
         id: button_id(action),
-        label,
+        label: label.to_owned(),
         is_enabled: true,
     }
 }
@@ -86,11 +86,11 @@ fn items(section: Section) -> Vec<Item> {
 }
 
 fn browse(pane: &ModelsPane) -> Section {
-    pane.page().sections.remove(0)
+    pane.page(Backend::Cpu, &english()).sections.remove(0)
 }
 
 fn downloaded(pane: &ModelsPane) -> Option<Section> {
-    pane.page().sections.into_iter().nth(1)
+    pane.page(Backend::Cpu, &english()).sections.into_iter().nth(1)
 }
 
 fn browse_rows(pane: &ModelsPane) -> Vec<Item> {
@@ -143,7 +143,7 @@ fn failed_search(error: HubError) -> ModelsPane {
 }
 
 fn press(pane: &ModelsPane, button: Button) -> Option<ModelsAction> {
-    pane.action_for(&SettingsInput::Pressed(button.id))
+    pane.action_for(&SettingsInput::Pressed(button.id), Backend::Cpu, &english())
 }
 
 #[test]
@@ -155,17 +155,18 @@ fn opening_lists_downloaded_files() {
 
 #[test]
 fn pane_explains_itself_above_the_search_field() {
-    let shown = ModelsPane::new().page();
+    let shown = ModelsPane::new().page(Backend::Cpu, &english());
 
     assert_eq!(
         (shown.title, shown.icon, shown.summary, shown.search),
         (
-            "Models",
+            "Models".to_owned(),
             PageIcon::Cube,
-            "TypeAlike uses a language model on this computer to suggest text.",
+            "A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. Only the search and the downloads of models use the internet."
+                .to_owned(),
             Some(SearchField {
                 id: ControlId::new(SEARCH),
-                placeholder: "Search Hugging Face",
+                placeholder: "Search Hugging Face".to_owned(),
             })
         )
     );
@@ -178,13 +179,86 @@ fn empty_search_browses_suggested_models() {
     assert_eq!(
         (shown.heading, shown.back, shown.footer),
         (
-            Some("Suggested models".to_owned()),
+            Some("Recommended models".to_owned()),
             None,
             Some(
-                "Smaller models are faster and use less memory. Larger models give better suggestions. When the model runs on the CPU, select a model with 1B parameters or fewer, so that suggestions show sooner."
+                "If you are not sure, download the model that TypeAlike recommends for this computer. You can delete a model at any time."
+                    .to_owned()
             )
         )
     );
+}
+
+#[test]
+fn each_size_shows_in_its_unit() {
+    let sizes = [999, 1_500, 806_058_272, 2_497_281_120, 4_000_000_000, u64::MAX];
+
+    let details = sizes.map(|size| downloaded_row(&installed("a.gguf", size)).detail);
+
+    assert_eq!(
+        details,
+        [
+            "999 bytes",
+            "2 KB",
+            "806 MB",
+            "2.5 GB",
+            "4.0 GB",
+            "429496729.5 GB"
+        ]
+    );
+}
+
+#[test]
+fn recommended_list_marks_the_model_for_a_graphics_card() {
+    let shown = ModelsPane::new().page(Backend::Vulkan, &english());
+
+    let subtitles: Vec<String> = items(shown.sections.into_iter().next().expect("the page has a list"))
+        .into_iter()
+        .map(|item| item.subtitle)
+        .collect();
+
+    assert_eq!(
+        subtitles,
+        [
+            "By Alibaba",
+            "By Alibaba",
+            "By Google · Recommended for this computer",
+            "By Alibaba",
+            "By Google",
+            "By Alibaba",
+        ]
+    );
+}
+
+#[test]
+fn recommended_row_shows_the_download_of_its_model() {
+    let model = &SUGGESTED_MODELS[0];
+    let mut pane = ModelsPane::new();
+    pane.on_action(ModelsAction::Download(model.sized_file()));
+
+    let row = pane.recommended_row(Backend::Cpu, &english());
+
+    assert_eq!(
+        row,
+        Some(Row::Item(Item {
+            title: "Qwen3.5 0.8B".to_owned(),
+            subtitle: "Recommended for this computer".to_owned(),
+            detail: "0% downloaded".to_owned(),
+            accessory: Accessory::Downloading {
+                progress: Permille(0),
+                cancel: button("Cancel download", &ModelsAction::Cancel(model.sized_file().file)),
+            },
+        }))
+    );
+}
+
+#[test]
+fn recommended_row_hides_while_a_model_is_downloaded() {
+    let pane = installed("a.gguf", 100);
+
+    let row = pane.recommended_row(Backend::Cpu, &english());
+
+    assert_eq!(row, None);
 }
 
 #[test]
@@ -205,8 +279,8 @@ fn suggested_model_offers_its_file_for_download() {
         row,
         Item {
             title: model.name.to_owned(),
-            subtitle: model.description(),
-            detail: model.size.to_string(),
+            subtitle: "By Alibaba · Recommended for this computer".to_owned(),
+            detail: "516 MB".to_owned(),
             accessory: Accessory::Download(button("Download", &ModelsAction::Download(model.sized_file()))),
         }
     );
@@ -264,7 +338,7 @@ fn running_download_shows_progress_and_cancel() {
         Item {
             title: "a".to_owned(),
             subtitle: REPO.to_owned(),
-            detail: "500 KB of 2 MB".to_owned(),
+            detail: "25% downloaded".to_owned(),
             accessory: Accessory::Downloading {
                 progress: Permille(250),
                 cancel: button("Cancel download", &ModelsAction::Cancel(file("a.gguf"))),
@@ -336,7 +410,7 @@ fn canceling_download_shows_it_is_busy() {
     let row = downloaded_row(&pane);
     assert_eq!(
         (row.detail.as_str(), row.accessory),
-        ("Canceling…", Accessory::Canceling)
+        ("Canceling the download…", Accessory::Canceling)
     );
 }
 
@@ -490,8 +564,14 @@ fn second_finish_does_not_change_downloaded_file() {
 #[test]
 fn hub_errors_explain_themselves() {
     let cases = [
-        (HubError::AccessDenied, "This model needs a Hugging Face account."),
-        (HubError::NotFound, "Hugging Face cannot find this model."),
+        (
+            HubError::AccessDenied,
+            "TypeAlike cannot download this model, because it needs a Hugging Face account. Select another model.",
+        ),
+        (
+            HubError::NotFound,
+            "Hugging Face cannot find this model. Search for the model again.",
+        ),
         (
             HubError::Server,
             "Hugging Face is not available. Try again later.",
@@ -504,7 +584,7 @@ fn hub_errors_explain_themselves() {
             HubError::Storage,
             "TypeAlike cannot save the model. Make sure that the disk has free space.",
         ),
-        (HubError::Canceled, "You canceled the download."),
+        (HubError::Canceled, "The download stopped before it finished."),
     ];
 
     let messages = cases.map(|(error, _)| browse(&failed_search(error)).rows);
@@ -639,7 +719,7 @@ fn running_search_replaces_suggestions_with_loading_results() {
         (shown.heading, shown.rows),
         (
             Some("Results for “qwen”".to_owned()),
-            vec![Row::Loading("Searching…")]
+            vec![Row::Loading("Searching Hugging Face…".to_owned())]
         )
     );
 }
@@ -652,7 +732,7 @@ fn blank_search_returns_to_suggestions() {
 
     assert_eq!(
         (request, browse(&pane).heading),
-        (None, Some("Suggested models".to_owned()))
+        (None, Some("Recommended models".to_owned()))
     );
 }
 
@@ -666,7 +746,7 @@ fn search_result_shows_repo_owner_and_downloads() {
         rows,
         [Item {
             title: "Model-GGUF".to_owned(),
-            subtitle: "by owner".to_owned(),
+            subtitle: "By owner".to_owned(),
             detail: "1.2M downloads".to_owned(),
             accessory: Accessory::Open(button("Show files", &ModelsAction::ShowFiles(REPO.to_owned()))),
         }]
@@ -681,14 +761,17 @@ fn search_results_explain_their_order() {
         (shown.heading, shown.footer),
         (
             Some("Results for “qwen”".to_owned()),
-            Some("The list shows only GGUF models. The models with the most downloads are at the top.")
+            Some(
+                "The list shows only the models that TypeAlike can use. The models with the most downloads are at the top."
+                    .to_owned()
+            )
         )
     );
 }
 
 #[test]
 fn download_counts_are_abbreviated() {
-    let counts = [999, 1_000, 4_581, 80_347, 999_950, 1_229_091, 2_000_000_000];
+    let counts = [1, 999, 1_000, 4_581, 80_347, 999_950, 1_229_091, 2_000_000_000];
 
     let details = counts.map(|count| {
         browse_rows(&searched("q", vec![repo(REPO, count, false)]))
@@ -699,6 +782,7 @@ fn download_counts_are_abbreviated() {
     assert_eq!(
         details,
         [
+            "1 download",
             "999 downloads",
             "1K downloads",
             "4.6K downloads",
@@ -718,7 +802,10 @@ fn gated_repo_cannot_be_opened() {
 
     assert_eq!(
         (row.subtitle.as_str(), row.accessory),
-        ("by owner · Needs a Hugging Face account", Accessory::Unavailable)
+        (
+            "By owner · TypeAlike cannot download this model",
+            Accessory::Unavailable
+        )
     );
 }
 
@@ -726,7 +813,13 @@ fn gated_repo_cannot_be_opened() {
 fn search_without_results_says_so() {
     let pane = searched("nothing", Vec::new());
 
-    assert_eq!(browse(&pane).rows, message("No models match “nothing”.", None));
+    assert_eq!(
+        browse(&pane).rows,
+        message(
+            "No models on Hugging Face match “nothing”. Try other words.",
+            None
+        )
+    );
 }
 
 #[test]
@@ -740,7 +833,10 @@ fn result_of_older_query_is_dropped() {
         result: Ok(vec![repo(REPO, 1, false)]),
     });
 
-    assert_eq!(browse(&pane).rows, vec![Row::Loading("Searching…")]);
+    assert_eq!(
+        browse(&pane).rows,
+        vec![Row::Loading("Searching Hugging Face…".to_owned())]
+    );
 }
 
 #[test]
@@ -765,10 +861,10 @@ fn opened_repo_takes_over_the_browse_list() {
         shown,
         Section {
             heading: Some(REPO.to_owned()),
-            back: Some(button("Results", &ModelsAction::BackToResults)),
-            rows: vec![Row::Loading("Loading the files…")],
+            back: Some(button("Back to results", &ModelsAction::BackToResults)),
+            rows: vec![Row::Loading("Getting the list of files…".to_owned())],
             footer: Some(
-                "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file."
+                "Each file is the same model in a different size. A smaller file runs faster, but its suggestions are wrong more often. If you are not sure, select a Q4_K_M file.".to_owned()
             ),
         }
     );
@@ -829,7 +925,7 @@ fn repo_without_usable_files_says_so() {
 
     assert_eq!(
         browse(&pane).rows,
-        message("This model has no GGUF files that TypeAlike can use.", None)
+        message("This model has no files that TypeAlike can use.", None)
     );
 }
 
@@ -845,7 +941,7 @@ fn failed_listing_offers_retry() {
     assert_eq!(
         browse(&pane).rows,
         message(
-            "Hugging Face cannot find this model.",
+            "Hugging Face cannot find this model. Search for the model again.",
             Some(button("Try again", &ModelsAction::ShowFiles(REPO.to_owned())))
         )
     );
@@ -867,7 +963,7 @@ fn retried_listing_loads_again() {
             Some(HubRequest::ListFiles {
                 repo: REPO.to_owned()
             }),
-            vec![Row::Loading("Loading the files…")]
+            vec![Row::Loading("Getting the list of files…".to_owned())]
         )
     );
 }
@@ -881,7 +977,10 @@ fn listing_of_other_repo_is_dropped() {
         result: Ok(vec![sized("a.gguf", 1)]),
     });
 
-    assert_eq!(browse(&pane).rows, vec![Row::Loading("Loading the files…")]);
+    assert_eq!(
+        browse(&pane).rows,
+        vec![Row::Loading("Getting the list of files…".to_owned())]
+    );
 }
 
 #[test]
@@ -906,7 +1005,7 @@ fn submitting_the_search_field_searches() {
         text: "qwen".to_owned(),
     };
 
-    let action = pane.action_for(&input);
+    let action = pane.action_for(&input, Backend::Cpu, &english());
 
     assert_eq!(action, Some(ModelsAction::Search("qwen".to_owned())));
 }
@@ -995,7 +1094,10 @@ fn pane_in_each_state_follows_the_writing_rules() {
         browsing(Vec::new()),
     ];
 
-    let texts: Vec<_> = panes.iter().flat_map(|pane| pane.page().texts()).collect();
+    let texts: Vec<_> = panes
+        .iter()
+        .flat_map(|pane| pane.page(Backend::Cpu, &english()).texts())
+        .collect();
 
     assert_eq!(writing_rule_breaks(&texts), Vec::<String>::new());
 }
@@ -1014,7 +1116,7 @@ fn every_failed_search_follows_the_writing_rules() {
 
     let texts: Vec<_> = errors
         .into_iter()
-        .flat_map(|error| failed_search(error).page().texts())
+        .flat_map(|error| failed_search(error).page(Backend::Cpu, &english()).texts())
         .collect();
 
     assert_eq!(writing_rule_breaks(&texts), Vec::<String>::new());

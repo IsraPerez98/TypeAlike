@@ -2,12 +2,12 @@
 
 use typealike_core::language::closest_languages;
 use typealike_core::spelling::SpellChecker;
-use windows::System::UserProfile::GlobalizationPreferences;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{ISpellChecker, ISpellCheckerFactory, SpellCheckerFactory};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree, IEnumString};
 use windows::core::{HSTRING, PWSTR, Result};
 
+use crate::language::preferred_languages;
 use crate::uia::ComApartment;
 
 /// The spelling dictionaries of Windows for the languages of the user, in Time & language >
@@ -71,10 +71,7 @@ fn open_checkers() -> Result<Vec<ISpellChecker>> {
     // SAFETY: plain call; COM is initialized on this thread.
     let factory: ISpellCheckerFactory =
         unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }?;
-    let preferred = GlobalizationPreferences::Languages()?
-        .into_iter()
-        .map(|language| language.to_string())
-        .collect::<Vec<_>>();
+    let preferred = preferred_languages();
     // SAFETY: plain call on a live factory.
     let available = strings_of(&unsafe { factory.SupportedLanguages() }?);
     closest_languages(&preferred, &available)

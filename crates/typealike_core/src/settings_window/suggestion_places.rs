@@ -1,6 +1,7 @@
 //! The Apps and websites pane of the settings window: the apps and the websites where suggestions
 //! show.
 
+use crate::localization::Translations;
 use crate::settings::{SuggestionApp, SuggestionPlaces};
 use crate::settings_window::controls::{
     SUGGESTED_APPS_FOOTER, app_list_section, list_section, replace_if_changed,
@@ -28,14 +29,6 @@ pub enum SuggestionPlacesAction {
 
 const APP_SWITCH_PREFIX: &str = "suggestions-app:";
 const SITE_SWITCH_PREFIX: &str = "suggestions-site:";
-const PANE_TITLE: &str = "Apps and websites";
-const PANE_SUMMARY: &str = "Suggestions show in each app and on each website where you type. To stop suggestions \
-     in an app or on a website, set its switch to off.";
-const SITES_HEADING: &str = "Websites";
-const NO_SITES: &str = "This list has no websites.";
-const SITES_FOOTER: &str =
-    "When a suggestion shows on a website for the first time, TypeAlike adds the website to this list.";
-
 /// State of the Apps and websites pane: the switch of each app and of each website.
 ///
 /// ```
@@ -125,17 +118,23 @@ impl SuggestionPlacesPane {
             })
     }
 
-    /// Returns the page that the pane shows now.
+    /// Returns the page that the pane shows now, with the texts of `translations`.
     #[must_use]
-    pub fn page(&self) -> Page {
+    pub fn page(&self, translations: &Translations) -> Page {
+        let sites = list_section(
+            translations.text("suggestion-places-websites"),
+            translations.text("suggestion-places-no-websites"),
+            self.site_rows(),
+            translations.text("suggestion-places-websites-footer"),
+        );
         Page {
-            title: PANE_TITLE,
+            title: translations.text("suggestion-places-title"),
             icon: PageIcon::AppGrid,
-            summary: PANE_SUMMARY,
+            summary: translations.text("suggestion-places-summary"),
             search: None,
             sections: vec![
-                app_list_section(self.app_rows(), SUGGESTED_APPS_FOOTER),
-                list_section(SITES_HEADING, NO_SITES, self.site_rows(), SITES_FOOTER),
+                app_list_section(self.app_rows(), SUGGESTED_APPS_FOOTER, translations),
+                sites,
             ],
         }
     }
@@ -177,7 +176,7 @@ mod tests {
     use super::*;
     use crate::settings::SuggestionSite;
     use crate::settings_window::view::Message;
-    use crate::test_support::{suggestion_app, suggestion_site, toggled};
+    use crate::test_support::{english, suggestion_app, suggestion_site, toggled};
 
     fn pane_with(apps: Vec<SuggestionApp>, sites: Vec<SuggestionSite>) -> SuggestionPlacesPane {
         SuggestionPlacesPane::new(SuggestionPlaces { apps, sites })
@@ -190,7 +189,7 @@ mod tests {
             vec![suggestion_site("bank.example", false)],
         );
 
-        let shown = pane.page();
+        let shown = pane.page(&english());
 
         assert_eq!(
             shown
@@ -226,7 +225,7 @@ mod tests {
     fn empty_lists_say_that_they_have_no_apps_and_no_websites() {
         let pane = pane_with(Vec::new(), Vec::new());
 
-        let shown = pane.page();
+        let shown = pane.page(&english());
 
         assert_eq!(
             shown
@@ -236,11 +235,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 vec![Row::Message(Message {
-                    text: "This list has no apps.".to_owned(),
+                    text: "No suggestion showed in an app yet.".to_owned(),
                     button: None,
                 })],
                 vec![Row::Message(Message {
-                    text: "This list has no websites.".to_owned(),
+                    text: "No suggestion showed on a website yet.".to_owned(),
                     button: None,
                 })],
             ]

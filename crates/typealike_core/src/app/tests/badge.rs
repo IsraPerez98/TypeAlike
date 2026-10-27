@@ -1,20 +1,21 @@
 //! Tests of the badge at the caret and its menu.
 
 use super::fixtures::{FakeDesktop, MAIL, WEBMAIL, type_key};
-use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, TrayCommand};
+use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, TrayCommand};
 use crate::desktop::Field;
 use crate::key::Key;
+use crate::localization::UiLanguage;
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
     SuggestionPlaces,
 };
-use crate::test_support::{ACTIVE_BADGE, PAUSED_BADGE, mail_app, mail_history_app};
+use crate::test_support::{active_badge, english, mail_app, mail_history_app, paused_badge};
 
 #[test]
 fn new_app_shows_no_badge() {
     let app = App::new();
 
-    assert_eq!(app.badge_view(), None);
+    assert_eq!(app.badge_view(&english()), None);
 }
 
 #[test]
@@ -23,7 +24,7 @@ fn typing_in_open_field_shows_active_badge() {
 
     type_key(&mut app, 'B');
 
-    assert_eq!(app.badge_view(), Some(ACTIVE_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(active_badge()));
 }
 
 #[test]
@@ -33,7 +34,7 @@ fn typing_in_excluded_field_hides_badge() {
 
     app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
 
-    assert_eq!(app.badge_view(), None);
+    assert_eq!(app.badge_view(&english()), None);
 }
 
 #[test]
@@ -43,7 +44,7 @@ fn context_lost_hides_badge() {
 
     app.on_context_lost();
 
-    assert_eq!(app.badge_view(), None);
+    assert_eq!(app.badge_view(&english()), None);
 }
 
 #[test]
@@ -53,7 +54,7 @@ fn pausing_turns_the_badge_paused() {
 
     app.on_tray_command(TrayCommand::TogglePause);
 
-    assert_eq!(app.badge_view(), Some(PAUSED_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(paused_badge()));
 }
 
 #[test]
@@ -63,7 +64,7 @@ fn paused_app_shows_paused_badge_in_open_field() {
 
     type_key(&mut app, 'B');
 
-    assert_eq!(app.badge_view(), Some(PAUSED_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(paused_badge()));
 }
 
 fn mail_screen_text(access: ScreenTextAccess, is_on: bool) -> ScreenTextSettings {
@@ -123,9 +124,12 @@ fn badge_menu_switches_the_screen_text_and_the_earlier_writing_of_the_typed_app(
     app.on_key(Key::Char('H'), &MAIL);
 
     let menu = app.badge_menu(
-        &SuggestionPlaces::default(),
-        &mail_screen_text(ScreenTextAccess::Allowed, true),
-        &mail_personalization(HistoryAccess::On, HistoryScope::ThisApp),
+        &BadgeSettings {
+            suggestion_places: &SuggestionPlaces::default(),
+            screen_text: &mail_screen_text(ScreenTextAccess::Allowed, true),
+            personalization: &mail_personalization(HistoryAccess::On, HistoryScope::ThisApp),
+        },
+        &english(),
     );
 
     assert_eq!(
@@ -153,6 +157,7 @@ fn badge_menu_switches_the_screen_text_and_the_earlier_writing_of_the_typed_app(
                     is_enabled: true,
                 },
             ],
+            language: UiLanguage::English,
         })
     );
 }
@@ -164,9 +169,12 @@ fn badge_menu_dims_the_entries_of_the_app_while_their_main_switches_are_off() {
 
     let menu = app
         .badge_menu(
-            &SuggestionPlaces::default(),
-            &mail_screen_text(ScreenTextAccess::Denied, true),
-            &mail_personalization(HistoryAccess::Off, HistoryScope::AllApps),
+            &BadgeSettings {
+                suggestion_places: &SuggestionPlaces::default(),
+                screen_text: &mail_screen_text(ScreenTextAccess::Denied, true),
+                personalization: &mail_personalization(HistoryAccess::Off, HistoryScope::AllApps),
+            },
+            &english(),
         )
         .expect("a key in an open field shows the badge");
 
@@ -186,15 +194,19 @@ fn badge_menu_offers_only_the_pause_in_an_app_without_an_id() {
     type_key(&mut app, 'H');
 
     let menu = app.badge_menu(
-        &SuggestionPlaces::default(),
-        &mail_screen_text(ScreenTextAccess::Allowed, true),
-        &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+        &BadgeSettings {
+            suggestion_places: &SuggestionPlaces::default(),
+            screen_text: &mail_screen_text(ScreenTextAccess::Allowed, true),
+            personalization: &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+        },
+        &english(),
     );
 
     assert_eq!(
         menu,
         Some(BadgeMenu {
             entries: vec![pause_entry("Pause suggestions")],
+            language: UiLanguage::English,
         })
     );
 }
@@ -205,15 +217,19 @@ fn badge_menu_leaves_out_the_entries_of_an_app_that_the_lists_do_not_have() {
     app.on_key(Key::Char('H'), &MAIL);
 
     let menu = app.badge_menu(
-        &SuggestionPlaces::default(),
-        &ScreenTextSettings::default(),
-        &PersonalizationSettings::default(),
+        &BadgeSettings {
+            suggestion_places: &SuggestionPlaces::default(),
+            screen_text: &ScreenTextSettings::default(),
+            personalization: &PersonalizationSettings::default(),
+        },
+        &english(),
     );
 
     assert_eq!(
         menu,
         Some(BadgeMenu {
             entries: vec![pause_entry("Pause suggestions")],
+            language: UiLanguage::English,
         })
     );
 }
@@ -226,9 +242,12 @@ fn paused_badge_menu_offers_the_resume_and_the_entries_of_the_app_of_the_field()
 
     let menu = app
         .badge_menu(
-            &SuggestionPlaces::default(),
-            &mail_screen_text(ScreenTextAccess::Allowed, true),
-            &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+            &BadgeSettings {
+                suggestion_places: &SuggestionPlaces::default(),
+                screen_text: &mail_screen_text(ScreenTextAccess::Allowed, true),
+                personalization: &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+            },
+            &english(),
         )
         .expect("a key in an open field shows the badge");
 
@@ -247,9 +266,12 @@ fn no_badge_menu_shows_without_a_badge() {
     let app = App::new();
 
     let menu = app.badge_menu(
-        &SuggestionPlaces::default(),
-        &mail_screen_text(ScreenTextAccess::Allowed, true),
-        &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+        &BadgeSettings {
+            suggestion_places: &SuggestionPlaces::default(),
+            screen_text: &mail_screen_text(ScreenTextAccess::Allowed, true),
+            personalization: &mail_personalization(HistoryAccess::On, HistoryScope::AllApps),
+        },
+        &english(),
     );
 
     assert_eq!(menu, None);
@@ -316,5 +338,5 @@ fn paused_app_shows_no_badge_in_excluded_field() {
 
     app.on_key(Key::Char('B'), &FakeDesktop(Field::Excluded));
 
-    assert_eq!(app.badge_view(), None);
+    assert_eq!(app.badge_view(&english()), None);
 }

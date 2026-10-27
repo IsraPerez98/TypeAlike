@@ -20,7 +20,7 @@ use typealike_core::settings_window::view::{
     self as view, ChoiceText, ControlId, Note, NoteTone, Row, SettingsInput,
 };
 
-use crate::labels::title_case;
+use crate::labels::menu_label;
 use crate::settings::controls::{
     MenuChoices, body_font, control_state, detail_font, push_button, secondary_wrapping_label, set_text,
     show_push_button, show_status, small_secondary_label, small_symbol_view, spinner, start_spinning,
@@ -203,9 +203,9 @@ impl SwitchRow {
     }
 
     fn render(&self, shown: &view::Switch, binder: &mut Binder<'_>) {
-        self.setting.render(shown.label, shown.description);
+        self.setting.render(&shown.label, &shown.description);
         self.switch
-            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.label)));
         self.switch.setState(control_state(shown.is_on));
         self.note.render(shown.note.as_ref());
         binder.bind(&self.switch, &shown.id);
@@ -235,15 +235,15 @@ impl PickerRow {
     }
 
     fn render(&mut self, shown: &view::Picker, binder: &mut Binder<'_>) {
-        self.setting.render(shown.label, shown.description);
+        self.setting.render(&shown.label, &shown.description);
         self.choices
             .menu
-            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.label)));
         let titles: Vec<String> = shown
             .choices
             .iter()
             .map(|choice| match shown.choice_text {
-                ChoiceText::Label => title_case(choice),
+                ChoiceText::Label => menu_label(choice, binder.language),
                 ChoiceText::Name => choice.clone(),
             })
             .collect();
@@ -385,7 +385,7 @@ impl NoteView {
         let Some(note) = note else {
             return;
         };
-        set_text(&self.text, note.text);
+        set_text(&self.text, &note.text);
         let color = match note.tone {
             NoteTone::Plain | NoteTone::Busy => NSColor::secondaryLabelColor(),
             NoteTone::Warning => warning_color(),
@@ -417,23 +417,23 @@ mod tests {
             Row::Switch(Switch {
                 id: ID,
                 icon: ICON,
-                label: "Label",
-                description: "",
+                label: "Label".to_owned(),
+                description: String::new(),
                 is_on: true,
                 note: None,
             }),
             Row::TextLine(TextLine {
                 id: ID,
                 icon: ICON,
-                label: "Label",
-                description: "",
+                label: "Label".to_owned(),
+                description: String::new(),
                 text: String::new(),
             }),
             Row::Output(Output {
                 text: String::new(),
                 detail: String::new(),
             }),
-            Row::Loading("Loading"),
+            Row::Loading("Loading".to_owned()),
             Row::Message(Message {
                 text: String::new(),
                 button: None,
@@ -451,21 +451,21 @@ mod tests {
             Row::TextArea(TextArea {
                 id: ID,
                 icon: ICON,
-                label: "Label",
-                description: "",
+                label: "Label".to_owned(),
+                description: String::new(),
                 text: String::new(),
                 button: None,
             }),
             Row::TextField(TextField {
                 id: ID,
                 icon: ICON,
-                label: "Label",
-                placeholder: "",
-                submit_label: "Submit",
+                label: "Label".to_owned(),
+                placeholder: String::new(),
+                submit_label: "Submit".to_owned(),
                 is_submit_enabled: true,
             }),
             Row::Note(Note {
-                text: "Note",
+                text: "Note".to_owned(),
                 tone: NoteTone::Plain,
             }),
         ];

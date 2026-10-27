@@ -1,32 +1,35 @@
 //! Tests of the tray view and the commands of the tray menu.
 
 use crate::app::{App, Status, TrayCommand, TrayItem, TrayOutcome, TrayView};
+use crate::localization::UiLanguage;
+use crate::test_support::english;
 
 #[test]
 fn new_app_is_active_with_pause_entry() {
     let app = App::new();
 
-    let view = app.tray_view();
+    let view = app.tray_view(&english());
 
     assert_eq!(
         view,
         TrayView {
             status: Status::Active,
-            tooltip: "TypeAlike",
+            tooltip: "TypeAlike".to_owned(),
             items: vec![
                 TrayItem {
-                    label: "Pause suggestions",
+                    label: "Pause suggestions".to_owned(),
                     command: TrayCommand::TogglePause
                 },
                 TrayItem {
-                    label: "Settings…",
+                    label: "Settings…".to_owned(),
                     command: TrayCommand::OpenSettings
                 },
                 TrayItem {
-                    label: "Quit TypeAlike",
+                    label: "Quit TypeAlike".to_owned(),
                     command: TrayCommand::Quit
                 },
             ],
+            language: UiLanguage::English,
         }
     );
 }
@@ -55,27 +58,28 @@ fn paused_app_offers_resume_entry() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
 
-    let view = app.tray_view();
+    let view = app.tray_view(&english());
 
     assert_eq!(
         view,
         TrayView {
             status: Status::Paused,
-            tooltip: "TypeAlike (paused)",
+            tooltip: "TypeAlike (paused)".to_owned(),
             items: vec![
                 TrayItem {
-                    label: "Resume suggestions",
+                    label: "Resume suggestions".to_owned(),
                     command: TrayCommand::TogglePause
                 },
                 TrayItem {
-                    label: "Settings…",
+                    label: "Settings…".to_owned(),
                     command: TrayCommand::OpenSettings
                 },
                 TrayItem {
-                    label: "Quit TypeAlike",
+                    label: "Quit TypeAlike".to_owned(),
                     command: TrayCommand::Quit
                 },
             ],
+            language: UiLanguage::English,
         }
     );
 }

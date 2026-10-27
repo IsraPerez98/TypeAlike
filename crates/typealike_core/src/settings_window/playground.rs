@@ -9,6 +9,7 @@ use crate::inference::{
     Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, SentenceEnd,
     TokenCount, TypoCheck,
 };
+use crate::localization::{MessageArgument, Translations};
 use crate::prompt::{self, Writer};
 use crate::settings::{Settings, WriterName, WriterNotes};
 use crate::settings_window::view::{
@@ -71,51 +72,6 @@ enum CompletionState {
 
 pub(crate) const MODEL: &str = "playground-model";
 const PROMPT: &str = "playground-prompt";
-const PANE_TITLE: &str = "Playground";
-const PANE_SUMMARY: &str =
-    "Select the model that suggests text as you type. Then type the start of a sentence to test the model.";
-const MODEL_LABEL: &str = "Suggestion model";
-const SELECT_MODEL_PLACEHOLDER: &str = "Select a model";
-const NO_MODELS_PLACEHOLDER: &str = "No downloaded models";
-const PROMPT_LABEL: &str = "Text";
-const PROMPT_PLACEHOLDER: &str = "Type the start of a sentence";
-const COMPLETE_LABEL: &str = "Complete text";
-const OUTPUT_HEADING: &str = "Suggestion";
-const NO_MODELS_NOTE: Note = Note {
-    text: "Download a model in the Models pane.",
-    tone: NoteTone::Plain,
-};
-const LOADING_NOTE: Note = Note {
-    text: "Loading the model…",
-    tone: NoteTone::Busy,
-};
-const COMPLETING_NOTE: Note = Note {
-    text: "Completing the text…",
-    tone: NoteTone::Busy,
-};
-const NOTHING_ADDED_NOTE: Note = Note {
-    text: "The model did not add text.",
-    tone: NoteTone::Plain,
-};
-const PAUSED_NOTE: Note = Note {
-    text: "Suggestions are paused. TypeAlike loads the model again when you resume them.",
-    tone: NoteTone::Plain,
-};
-const ENERGY_SAVER_NOTE: Note = Note {
-    text: "Suggestions are off to save energy. TypeAlike loads the model again when energy saver or Low \
-           Power Mode goes off.",
-    tone: NoteTone::Plain,
-};
-const GAME_NOTE: Note = Note {
-    text: "TypeAlike unloaded the model for a game. It loads the model again when you type in a text field \
-           after the game.",
-    tone: NoteTone::Plain,
-};
-const IDLE_NOTE: Note = Note {
-    text: "TypeAlike unloaded the model after a time without input. It loads the model again when you \
-           type in a text field.",
-    tone: NoteTone::Plain,
-};
 const MAX_COMPLETION_TOKENS: TokenCount = TokenCount(32);
 
 impl PlaygroundPane {
@@ -254,30 +210,34 @@ impl PlaygroundPane {
         }
     }
 
-    /// Returns the page that the pane shows now, offering the downloaded `installed` model files.
+    /// Returns the page that the pane shows now, with the texts of `translations`, offering the
+    /// downloaded `installed` model files. The row of the `recommended` model, if any, shows below
+    /// the model menu.
     #[must_use]
-    pub fn page(&self, installed: &[ModelFile]) -> Page {
-        let model = Section::new(vec![Row::Picker(self.model_picker(
-            installed,
-            ControlId::new(MODEL),
-            "",
-        ))]);
+    pub fn page(
+        &self,
+        installed: &[ModelFile],
+        recommended: Option<Row>,
+        translations: &Translations,
+    ) -> Page {
+        let picker = self.model_picker(installed, ControlId::new(MODEL), String::new(), translations);
+        let model = Section::new(iter::once(Row::Picker(picker)).chain(recommended).collect());
         let prompt = Section::new(vec![Row::TextField(TextField {
             id: ControlId::new(PROMPT),
             icon: RowIcon::Pencil,
-            label: PROMPT_LABEL,
-            placeholder: PROMPT_PLACEHOLDER,
-            submit_label: COMPLETE_LABEL,
+            label: translations.text("playground-text"),
+            placeholder: translations.text("playground-text-placeholder"),
+            submit_label: translations.text("playground-suggest"),
             is_submit_enabled: self.can_complete(installed),
         })]);
         let output = self.completion.as_ref().map(|completion| Section {
-            heading: Some(OUTPUT_HEADING.to_owned()),
-            ..Section::new(vec![completion_row(completion)])
+            heading: Some(translations.text("playground-output")),
+            ..Section::new(vec![completion_row(completion, translations)])
         });
         Page {
-            title: PANE_TITLE,
+            title: translations.text("playground-title"),
             icon: PageIcon::TextCursor,
-            summary: PANE_SUMMARY,
+            summary: translations.text("playground-summary"),
             search: None,
             sections: [model, prompt].into_iter().chain(output).collect(),
         }
@@ -337,29 +297,31 @@ impl PlaygroundPane {
         matches!(self.completion, Some(CompletionState::Running))
     }
 
-    /// The menu that picks the model, as control `id`, with `description` below its label.
+    /// The menu that picks the model, as control `id`, with `description` below its label and the
+    /// texts of `translations`.
     pub(super) fn model_picker(
         &self,
         installed: &[ModelFile],
         id: ControlId,
-        description: &'static str,
+        description: String,
+        translations: &Translations,
     ) -> Picker {
         let menu = self.model_menu(installed);
-        let placeholder = placeholder_title(installed);
+        let placeholder = translations.text(placeholder_message(installed));
         Picker {
             id,
             icon: RowIcon::Robot,
-            label: MODEL_LABEL,
+            label: translations.text("model-menu"),
             description,
             choices: menu
                 .entries
                 .iter()
-                .map(|entry| entry.map_or_else(|| placeholder.to_owned(), ModelFile::model_name))
+                .map(|entry| entry.map_or_else(|| placeholder.clone(), ModelFile::model_name))
                 .collect(),
             choice_text: ChoiceText::Name,
             selected: menu.selected,
             is_enabled: !installed.is_empty() && !self.is_busy(),
-            note: model_note(installed, self.selected_state(installed)),
+            note: model_note(installed, self.selected_state(installed), translations),
         }
     }
 
@@ -413,78 +375,82 @@ struct ModelMenu<'files> {
     selected: usize,
 }
 
-fn placeholder_title(installed: &[ModelFile]) -> &'static str {
+fn placeholder_message(installed: &[ModelFile]) -> &'static str {
     if installed.is_empty() {
-        NO_MODELS_PLACEHOLDER
+        "model-menu-none"
     } else {
-        SELECT_MODEL_PLACEHOLDER
+        "model-menu-select"
     }
 }
 
-fn model_note(installed: &[ModelFile], selected_state: Option<ModelState>) -> Option<Note> {
-    match selected_state {
-        Some(ModelState::Loading) => Some(LOADING_NOTE),
-        Some(ModelState::Failed(error)) => Some(error_note(error)),
-        Some(ModelState::Ready) => None,
-        Some(ModelState::Unloaded(reason)) => Some(unloaded_note(reason)),
-        None => installed.is_empty().then_some(NO_MODELS_NOTE),
+fn model_note(
+    installed: &[ModelFile],
+    selected_state: Option<ModelState>,
+    translations: &Translations,
+) -> Option<Note> {
+    let (message, tone) = match selected_state {
+        Some(ModelState::Loading) => ("model-starting", NoteTone::Busy),
+        Some(ModelState::Failed(error)) => (error_message(error), NoteTone::Error),
+        Some(ModelState::Unloaded(reason)) => (unloaded_message(reason), NoteTone::Plain),
+        None if installed.is_empty() => ("model-needed", NoteTone::Plain),
+        Some(ModelState::Ready) | None => return None,
+    };
+    Some(note(message, tone, translations))
+}
+
+fn note(message: &str, tone: NoteTone, translations: &Translations) -> Note {
+    Note {
+        text: translations.text(message),
+        tone,
     }
 }
 
-fn unloaded_note(reason: StopReason) -> Note {
+fn unloaded_message(reason: StopReason) -> &'static str {
     match reason {
-        StopReason::Paused => PAUSED_NOTE,
-        StopReason::EnergySaver => ENERGY_SAVER_NOTE,
-        StopReason::Game => GAME_NOTE,
-        StopReason::Idle => IDLE_NOTE,
+        StopReason::Paused => "model-paused",
+        StopReason::EnergySaver => "model-energy-saver",
+        StopReason::Game => "model-game",
+        StopReason::Idle => "model-idle",
     }
 }
 
-fn completion_row(completion: &CompletionState) -> Row {
+fn completion_row(completion: &CompletionState, translations: &Translations) -> Row {
     match completion {
-        CompletionState::Running => Row::Note(COMPLETING_NOTE),
-        CompletionState::Failed(error) => Row::Note(error_note(*error)),
-        CompletionState::Done(completion) if completion.text.is_empty() => Row::Note(NOTHING_ADDED_NOTE),
+        CompletionState::Running => Row::Note(note("playground-writing", NoteTone::Busy, translations)),
+        CompletionState::Failed(error) => {
+            Row::Note(note(error_message(*error), NoteTone::Error, translations))
+        }
+        CompletionState::Done(completion) if completion.text.is_empty() => {
+            Row::Note(note("playground-nothing-added", NoteTone::Plain, translations))
+        }
         CompletionState::Done(completion) => Row::Output(Output {
             text: completion.text.clone(),
-            detail: completion_detail(completion),
+            detail: completion_detail(completion, translations),
         }),
     }
 }
 
-fn completion_detail(completion: &Completion) -> String {
-    let unit = if completion.tokens == TokenCount(1) {
-        "token"
-    } else {
-        "tokens"
+/// The time that the model took for `completion`, in seconds with two digits after the decimal
+/// separator.
+fn completion_detail(completion: &Completion, translations: &Translations) -> String {
+    let hundredths = completion.duration.as_millis().saturating_add(5) / 10;
+    let seconds = MessageArgument::Decimal {
+        value: u32::try_from(hundredths).unwrap_or(u32::MAX),
+        digits: 2,
     };
-    format!(
-        "{} {unit} in {:.2} seconds",
-        completion.tokens.0,
-        completion.duration.as_secs_f64()
-    )
+    translations.text_with("playground-time", &[("seconds", seconds)])
 }
 
-fn error_note(error: InferenceError) -> Note {
-    let text = match error {
-        InferenceError::ModelMissing => "TypeAlike cannot find the model file. Download the model again.",
-        InferenceError::ModelInvalid => {
-            "TypeAlike cannot load this model. The file is damaged, or TypeAlike cannot use this type of model."
-        }
-        InferenceError::ModelTooLarge => {
-            "The model does not fit in the GPU memory. In General, select another backend, or use a smaller model."
-        }
-        InferenceError::BackendUnavailable => {
-            "TypeAlike cannot use this backend on this computer. In General, select another backend."
-        }
-        InferenceError::NoModel => "Select a model first.",
-        InferenceError::PromptTooLong => "The text is too long for this model. Use shorter text.",
-        InferenceError::Failed => "TypeAlike cannot complete the text. Try again.",
-        InferenceError::Superseded => "A newer request stopped this suggestion. Try again.",
-    };
-    Note {
-        text,
-        tone: NoteTone::Error,
+fn error_message(error: InferenceError) -> &'static str {
+    match error {
+        InferenceError::ModelMissing => "model-error-missing",
+        InferenceError::ModelInvalid => "model-error-invalid",
+        InferenceError::ModelTooLarge => "model-error-too-large",
+        InferenceError::BackendUnavailable => "model-error-hardware",
+        InferenceError::NoModel => "model-error-no-model",
+        InferenceError::PromptTooLong => "model-error-text-too-long",
+        InferenceError::Failed => "model-error-failed",
+        InferenceError::Superseded => "model-error-superseded",
     }
 }
 

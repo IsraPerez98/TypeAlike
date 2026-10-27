@@ -4,35 +4,46 @@ use std::time::Duration;
 
 use super::*;
 use crate::inference::{LogProbability, Prompt};
-use crate::test_support::{UiText, model_file, picked, writing_rule_breaks};
+use crate::settings_window::view::Message;
+use crate::test_support::{UiText, english, model_file, picked, writing_rule_breaks};
 
-const LOADING: Note = Note {
-    text: "Loading the model…",
-    tone: NoteTone::Busy,
-};
+fn loading_note() -> Note {
+    Note {
+        text: "Starting the model…".to_owned(),
+        tone: NoteTone::Busy,
+    }
+}
 
-const UNLOADED: Note = Note {
-    text: "Suggestions are paused. TypeAlike loads the model again when you resume them.",
-    tone: NoteTone::Plain,
-};
+fn paused_note() -> Note {
+    Note {
+        text: "Suggestions are paused. To resume them, select “Resume suggestions” in the TypeAlike menu."
+            .to_owned(),
+        tone: NoteTone::Plain,
+    }
+}
 
-const UNLOADED_TO_SAVE_ENERGY: Note = Note {
-    text: "Suggestions are off to save energy. TypeAlike loads the model again when energy saver or Low \
-           Power Mode goes off.",
-    tone: NoteTone::Plain,
-};
+fn energy_saver_note() -> Note {
+    Note {
+        text: "Suggestions are off while the computer saves energy. To use them now, turn off “Stop in energy saver”.".to_owned(),
+        tone: NoteTone::Plain,
+    }
+}
 
-const UNLOADED_AFTER_IDLE_TIMEOUT: Note = Note {
-    text: "TypeAlike unloaded the model after a time without input. It loads the model again when you \
-           type in a text field.",
-    tone: NoteTone::Plain,
-};
+fn idle_note() -> Note {
+    Note {
+        text: "Suggestions stopped to free memory, because you did not type or click for some time. They start again when you type in a text field.".to_owned(),
+        tone: NoteTone::Plain,
+    }
+}
 
-const UNLOADED_FOR_A_GAME: Note = Note {
-    text: "TypeAlike unloaded the model for a game. It loads the model again when you type in a text field \
-           after the game.",
-    tone: NoteTone::Plain,
-};
+fn game_note() -> Note {
+    Note {
+        text:
+            "Suggestions stopped to free memory for a game. They start again when you type in a text field."
+                .to_owned(),
+        tone: NoteTone::Plain,
+    }
+}
 
 fn prompt(text: &str) -> Prompt {
     prompt::framed_prompt(&[], text)
@@ -102,7 +113,7 @@ fn completed_output(text: &str, tokens: u32, duration: Duration) -> Option<Secti
     let file = model_file("a.gguf");
     let mut pane = completing_pane(&file);
     pane.on_event(InferenceEvent::Completed(Ok(completion(text, tokens, duration))));
-    shown_completion(&pane.page(&[file]))
+    shown_completion(&pane.page(&[file], None, &english()))
 }
 
 fn submitted(text: &str) -> SettingsInput {
@@ -116,36 +127,36 @@ fn submitted(text: &str) -> SettingsInput {
 fn pane_without_downloads_asks_for_one() {
     let pane = PlaygroundPane::new();
 
-    let shown = pane.page(&[]);
+    let shown = pane.page(&[], None, &english());
 
     assert_eq!(
         shown,
         Page {
-            title: "Playground",
+            title: "Playground".to_owned(),
             icon: PageIcon::TextCursor,
-            summary: "Select the model that suggests text as you type. Then type the start of a sentence to test the model.",
+            summary: "Select a model, then type the start of a sentence to see what the model suggests.".to_owned(),
             search: None,
             sections: vec![
                 Section::new(vec![Row::Picker(Picker {
                     id: ControlId::new(MODEL),
                     icon: RowIcon::Robot,
-                    label: "Suggestion model",
-                    description: "",
+                    label: "Suggestion model".to_owned(),
+                    description: String::new(),
                     choices: titles(&["No downloaded models"]),
                     choice_text: ChoiceText::Name,
                     selected: 0,
                     is_enabled: false,
                     note: Some(Note {
-                        text: "Download a model in the Models pane.",
+                        text: "TypeAlike needs a model to write suggestions. Download the recommended model below.".to_owned(),
                         tone: NoteTone::Plain,
                     }),
                 })]),
                 Section::new(vec![Row::TextField(TextField {
                     id: ControlId::new(PROMPT),
                     icon: RowIcon::Pencil,
-                    label: "Text",
-                    placeholder: "Type the start of a sentence",
-                    submit_label: "Complete text",
+                    label: "Text".to_owned(),
+                    placeholder: "Type the start of a sentence".to_owned(),
+                    submit_label: "Show suggestion".to_owned(),
                     is_submit_enabled: false,
                 })]),
             ],
@@ -157,7 +168,11 @@ fn pane_without_downloads_asks_for_one() {
 fn downloaded_models_follow_a_placeholder_until_one_is_selected() {
     let pane = PlaygroundPane::new();
 
-    let shown = pane.page(&[model_file("first.gguf"), model_file("second.gguf")]);
+    let shown = pane.page(
+        &[model_file("first.gguf"), model_file("second.gguf")],
+        None,
+        &english(),
+    );
 
     let menu = model_menu(&shown);
     assert_eq!(
@@ -271,13 +286,16 @@ fn changing_the_backend_loads_the_selected_model_again() {
     let request = pane.change_backend(Backend::Cuda);
 
     assert_eq!(
-        (request, model_menu(&pane.page(std::slice::from_ref(&file))).note),
+        (
+            request,
+            model_menu(&pane.page(std::slice::from_ref(&file), None, &english())).note
+        ),
         (
             Some(InferenceRequest::Load {
                 file,
                 backend: Backend::Cuda,
             }),
-            Some(LOADING),
+            Some(loading_note()),
         )
     );
 }
@@ -341,7 +359,7 @@ fn changing_the_backend_clears_the_output() {
 
     pane.change_backend(Backend::Vulkan);
 
-    assert_eq!(shown_completion(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file], None, &english())), None);
 }
 
 #[test]
@@ -372,7 +390,7 @@ fn loading_model_shows_status_and_locks_the_menu() {
     let mut pane = PlaygroundPane::new();
     pane.on_action(PlaygroundAction::SelectModel(second.clone()));
 
-    let shown = pane.page(&[model_file("first.gguf"), second]);
+    let shown = pane.page(&[model_file("first.gguf"), second], None, &english());
 
     let menu = model_menu(&shown);
     assert_eq!(
@@ -383,7 +401,13 @@ fn loading_model_shows_status_and_locks_the_menu() {
             menu.note,
             can_complete(&shown)
         ),
-        (titles(&["first", "second"]), 1, false, Some(LOADING), false)
+        (
+            titles(&["first", "second"]),
+            1,
+            false,
+            Some(loading_note()),
+            false
+        )
     );
 }
 
@@ -392,7 +416,7 @@ fn loaded_model_can_complete_text() {
     let file = model_file("a.gguf");
     let pane = ready_pane(&file);
 
-    let shown = pane.page(&[file]);
+    let shown = pane.page(&[file], None, &english());
 
     let menu = model_menu(&shown);
     assert_eq!(
@@ -411,7 +435,7 @@ fn failed_load_tells_why() {
         result: Err(InferenceError::ModelInvalid),
     });
 
-    let shown = pane.page(&[file]);
+    let shown = pane.page(&[file], None, &english());
 
     let menu = model_menu(&shown);
     assert_eq!(
@@ -419,7 +443,7 @@ fn failed_load_tells_why() {
         (
             true,
             Some(Note {
-                text: "TypeAlike cannot load this model. The file is damaged, or TypeAlike cannot use this type of model.",
+                text: "TypeAlike cannot use this model. The file can be damaged, or of a type that TypeAlike does not support. Download it again, or select another model.".to_owned(),
                 tone: NoteTone::Error,
             }),
             false,
@@ -459,7 +483,10 @@ fn load_result_of_another_file_is_ignored() {
         result: Ok(()),
     });
 
-    assert_eq!(model_menu(&pane.page(&[file])).note, Some(LOADING));
+    assert_eq!(
+        model_menu(&pane.page(&[file], None, &english())).note,
+        Some(loading_note())
+    );
 }
 
 #[test]
@@ -523,7 +550,7 @@ fn unloaded_model_stays_selected_and_tells_that_suggestions_are_paused() {
 
     pane.unload_model(StopReason::Paused);
 
-    let shown = pane.page(std::slice::from_ref(&file));
+    let shown = pane.page(std::slice::from_ref(&file), None, &english());
     let menu = model_menu(&shown);
     assert_eq!(
         (
@@ -532,7 +559,7 @@ fn unloaded_model_stays_selected_and_tells_that_suggestions_are_paused() {
             menu.note,
             can_complete(&shown)
         ),
-        (None, 0, Some(UNLOADED), false)
+        (None, 0, Some(paused_note()), false)
     );
 }
 
@@ -559,18 +586,12 @@ fn unloaded_model_tells_why_it_is_unloaded() {
     let notes = reasons.map(|reason| {
         let mut pane = ready_pane(&file);
         pane.unload_model(reason);
-        model_menu(&pane.page(std::slice::from_ref(&file))).note
+        model_menu(&pane.page(std::slice::from_ref(&file), None, &english())).note
     });
 
     assert_eq!(
         notes,
-        [
-            UNLOADED,
-            UNLOADED_TO_SAVE_ENERGY,
-            UNLOADED_FOR_A_GAME,
-            UNLOADED_AFTER_IDLE_TIMEOUT
-        ]
-        .map(Some)
+        [paused_note(), energy_saver_note(), game_note(), idle_note()].map(Some)
     );
 }
 
@@ -582,8 +603,8 @@ fn second_unload_tells_its_own_reason() {
 
     pane.unload_model(StopReason::Paused);
 
-    let shown = pane.page(std::slice::from_ref(&file));
-    assert_eq!(model_menu(&shown).note, Some(UNLOADED));
+    let shown = pane.page(std::slice::from_ref(&file), None, &english());
+    assert_eq!(model_menu(&shown).note, Some(paused_note()));
 }
 
 #[test]
@@ -593,11 +614,11 @@ fn model_selected_without_a_load_shows_as_unloaded() {
 
     pane.select_unloaded_model(file.clone(), StopReason::EnergySaver);
 
-    let shown = pane.page(std::slice::from_ref(&file));
+    let shown = pane.page(std::slice::from_ref(&file), None, &english());
     let menu = model_menu(&shown);
     assert_eq!(
         (pane.loaded_model(), menu.selected, menu.note),
-        (None, 0, Some(UNLOADED_TO_SAVE_ENERGY))
+        (None, 0, Some(energy_saver_note()))
     );
 }
 
@@ -745,7 +766,7 @@ fn running_completion_shows_status_and_locks_the_controls() {
     let file = model_file("a.gguf");
     let pane = completing_pane(&file);
 
-    let shown = pane.page(&[file]);
+    let shown = pane.page(&[file], None, &english());
 
     assert_eq!(
         (
@@ -757,7 +778,7 @@ fn running_completion_shows_status_and_locks_the_controls() {
             false,
             false,
             Some(completion_section(Row::Note(Note {
-                text: "Completing the text…",
+                text: "Writing a suggestion…".to_owned(),
                 tone: NoteTone::Busy,
             }))),
         )
@@ -781,20 +802,20 @@ fn finished_completion_shows_text_and_timing() {
         shown,
         Some(completion_section(Row::Output(Output {
             text: " Sir,".to_owned(),
-            detail: "12 tokens in 0.42 seconds".to_owned(),
+            detail: "Written in 0.42 seconds".to_owned(),
         })))
     );
 }
 
 #[test]
-fn one_token_completion_counts_in_singular() {
-    let shown = completed_output(" Sir", 1, Duration::from_millis(50));
+fn completion_time_keeps_two_digits_after_the_decimal_separator() {
+    let shown = completed_output(" Sir", 1, Duration::from_millis(1_500));
 
     assert_eq!(
         shown,
         Some(completion_section(Row::Output(Output {
             text: " Sir".to_owned(),
-            detail: "1 token in 0.05 seconds".to_owned(),
+            detail: "Written in 1.50 seconds".to_owned(),
         })))
     );
 }
@@ -806,7 +827,7 @@ fn empty_completion_says_that_no_text_was_added() {
     assert_eq!(
         shown,
         Some(completion_section(Row::Note(Note {
-            text: "The model did not add text.",
+            text: "The model has no suggestion for this text. Type more words, then try again.".to_owned(),
             tone: NoteTone::Plain,
         })))
     );
@@ -818,14 +839,14 @@ fn failed_completion_tells_why_and_allows_another_try() {
     let mut pane = completing_pane(&file);
     pane.on_event(InferenceEvent::Completed(Err(InferenceError::PromptTooLong)));
 
-    let shown = pane.page(&[file]);
+    let shown = pane.page(&[file], None, &english());
 
     assert_eq!(
         (can_complete(&shown), shown_completion(&shown)),
         (
             true,
             Some(completion_section(Row::Note(Note {
-                text: "The text is too long for this model. Use shorter text.",
+                text: "The text is too long for this model. Use shorter text.".to_owned(),
                 tone: NoteTone::Error,
             }))),
         )
@@ -843,7 +864,7 @@ fn completion_without_a_request_is_ignored() {
         Duration::ZERO,
     ))));
 
-    assert_eq!(shown_completion(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file], None, &english())), None);
 }
 
 #[test]
@@ -858,14 +879,14 @@ fn selecting_another_model_clears_the_output() {
 
     pane.on_action(PlaygroundAction::SelectModel(model_file("b.gguf")));
 
-    assert_eq!(shown_completion(&pane.page(&[file])), None);
+    assert_eq!(shown_completion(&pane.page(&[file], None, &english())), None);
 }
 
 #[test]
 fn deleted_model_is_no_longer_selected() {
     let pane = ready_pane(&model_file("a.gguf"));
 
-    let shown = pane.page(&[model_file("b.gguf")]);
+    let shown = pane.page(&[model_file("b.gguf")], None, &english());
 
     let menu = model_menu(&shown);
     assert_eq!(
@@ -874,7 +895,7 @@ fn deleted_model_is_no_longer_selected() {
     );
 }
 
-fn load_failure_text(error: InferenceError) -> Option<&'static str> {
+fn load_failure_text(error: InferenceError) -> Option<String> {
     let file = model_file("a.gguf");
     let mut pane = PlaygroundPane::new();
     pane.on_action(PlaygroundAction::SelectModel(file.clone()));
@@ -882,7 +903,22 @@ fn load_failure_text(error: InferenceError) -> Option<&'static str> {
         file: file.clone(),
         result: Err(error),
     });
-    model_menu(&pane.page(&[file])).note.map(|note| note.text)
+    model_menu(&pane.page(&[file], None, &english()))
+        .note
+        .map(|note| note.text)
+}
+
+#[test]
+fn recommended_model_shows_below_the_model_menu() {
+    let pane = PlaygroundPane::new();
+    let recommended = Row::Message(Message {
+        text: "The recommended model".to_owned(),
+        button: None,
+    });
+
+    let shown = pane.page(&[], Some(recommended.clone()), &english());
+
+    assert_eq!(shown.sections[0].rows.get(1), Some(&recommended));
 }
 
 #[test]
@@ -903,18 +939,14 @@ fn every_error_has_its_own_message() {
     assert_eq!(
         messages,
         [
-            Some("TypeAlike cannot find the model file. Download the model again."),
-            Some(
-                "TypeAlike cannot load this model. The file is damaged, or TypeAlike cannot use this type of model."
-            ),
-            Some(
-                "The model does not fit in the GPU memory. In General, select another backend, or use a smaller model."
-            ),
-            Some("TypeAlike cannot use this backend on this computer. In General, select another backend."),
-            Some("Select a model first."),
-            Some("The text is too long for this model. Use shorter text."),
-            Some("TypeAlike cannot complete the text. Try again."),
-            Some("A newer request stopped this suggestion. Try again."),
+            Some("TypeAlike cannot find the model file. Download the model again.".to_owned()),
+            Some("TypeAlike cannot use this model. The file can be damaged, or of a type that TypeAlike does not support. Download it again, or select another model.".to_owned()),
+            Some("The model does not fit in the free memory of the graphics card. Select a smaller model.".to_owned()),
+            Some("TypeAlike cannot run the model on this graphics card. In “Run the model on”, select another choice.".to_owned()),
+            Some("Select a model first.".to_owned()),
+            Some("The text is too long for this model. Use shorter text.".to_owned()),
+            Some("TypeAlike could not write a suggestion. Try again.".to_owned()),
+            Some("TypeAlike stopped this suggestion to write a newer one.".to_owned()),
         ]
     );
 }

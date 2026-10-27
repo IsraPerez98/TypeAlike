@@ -5,6 +5,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
+use crate::localization::UiLanguage;
+
 /// Names a control of the settings window. A control keeps its id from one render to the next,
 /// and the platform gives the id back with each input of the control. Two buttons can share an id
 /// when they do the same thing, such as the buttons of a model that shows in two lists.
@@ -31,22 +33,24 @@ impl From<String> for ControlId {
     }
 }
 
-/// Everything that the settings window shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Everything that the settings window shows. The default view has no pages.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SettingsView {
     /// The pages, in the order of the navigation. The first page shows when the window opens.
     pub pages: Vec<Page>,
+    /// The language of the texts.
+    pub language: UiLanguage,
 }
 
 /// One page of the settings window, top to bottom.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
     /// The title, in sentence case.
-    pub title: &'static str,
+    pub title: String,
     /// The picture that stands for the page in the navigation.
     pub icon: PageIcon,
     /// One or two sentences under the title about what the page is for.
-    pub summary: &'static str,
+    pub summary: String,
     /// A search field above the sections.
     pub search: Option<SearchField>,
     /// The sections, top to bottom.
@@ -127,7 +131,7 @@ pub struct SearchField {
     /// [`SettingsInput::Submitted`].
     pub id: ControlId,
     /// The hint that the field shows while it is empty.
-    pub placeholder: &'static str,
+    pub placeholder: String,
 }
 
 /// Rows that belong together.
@@ -140,7 +144,7 @@ pub struct Section {
     /// The rows, top to bottom.
     pub rows: Vec<Row>,
     /// A line of help below the rows.
-    pub footer: Option<&'static str>,
+    pub footer: Option<String>,
 }
 
 impl Section {
@@ -181,7 +185,7 @@ pub enum Row {
     /// One thing of a list, such as a model or a file.
     Item(Item),
     /// The rows of the section are on their way. The text tells what happens.
-    Loading(&'static str),
+    Loading(String),
     /// The section has no rows to show, and this tells why.
     Message(Message),
 }
@@ -212,9 +216,9 @@ pub struct Switch {
     /// The picture before the label.
     pub icon: RowIcon,
     /// Text before the switch, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// A sentence below the label about what the setting changes.
-    pub description: &'static str,
+    pub description: String,
     /// Whether the switch shows on.
     pub is_on: bool,
     /// The status of the setting, or a hint, below the description.
@@ -260,9 +264,9 @@ pub struct Picker {
     /// The picture before the label.
     pub icon: RowIcon,
     /// Text before the menu, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// A sentence below the label about what the setting changes. It is empty when there is none.
-    pub description: &'static str,
+    pub description: String,
     /// Menu entries, top to bottom. Never empty.
     pub choices: Vec<String>,
     /// What the text of the entries is.
@@ -313,9 +317,9 @@ pub struct TextArea {
     /// The picture before the label.
     pub icon: RowIcon,
     /// Text before the field, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// A sentence below the label about what the text changes.
-    pub description: &'static str,
+    pub description: String,
     /// The text in the field. Change the field only when it shows other text, so that the caret
     /// and the undo history of the user stay. Never change a field that the user edits, because
     /// a view can come after newer keys.
@@ -332,9 +336,9 @@ pub struct TextLine {
     /// The picture before the label.
     pub icon: RowIcon,
     /// Text before the field, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// A sentence below the label about what the text changes.
-    pub description: &'static str,
+    pub description: String,
     /// The text in the field. Change the field only when it shows other text, so that the caret
     /// and the undo history of the user stay. Never change a field that the user edits, because
     /// a view can come after newer keys.
@@ -350,11 +354,11 @@ pub struct TextField {
     /// The picture before the label.
     pub icon: RowIcon,
     /// Text above the field, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// The hint that the field shows while it is empty.
-    pub placeholder: &'static str,
+    pub placeholder: String,
     /// What the button does, in sentence case.
-    pub submit_label: &'static str,
+    pub submit_label: String,
     /// Whether the button and the return key submit the text.
     pub is_submit_enabled: bool,
 }
@@ -435,7 +439,7 @@ pub struct Button {
     /// The button. A click gives [`SettingsInput::Pressed`].
     pub id: ControlId,
     /// What the button does, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// Whether the user can click the button.
     pub is_enabled: bool,
 }
@@ -457,7 +461,7 @@ pub enum NoteTone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
     /// The text.
-    pub text: &'static str,
+    pub text: String,
     /// How the text reads.
     pub tone: NoteTone,
 }

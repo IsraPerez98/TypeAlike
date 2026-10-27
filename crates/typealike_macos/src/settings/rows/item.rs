@@ -116,7 +116,7 @@ impl ItemRow {
     fn show_icon(&self, symbol_name: &str, button: &view::Button, subject: &str, binder: &mut Binder<'_>) {
         let spoken_label = format!("{}, {subject}", button.label);
         self.icon.setImage(symbol(symbol_name, &spoken_label).as_deref());
-        self.icon.setToolTip(Some(&NSString::from_str(button.label)));
+        self.icon.setToolTip(Some(&NSString::from_str(&button.label)));
         self.icon
             .setAccessibilityLabel(Some(&NSString::from_str(&spoken_label)));
         self.icon.setEnabled(button.is_enabled);

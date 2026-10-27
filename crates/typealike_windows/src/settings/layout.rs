@@ -148,7 +148,7 @@ pub(super) fn secondary_text(text: &str) -> TextBlock {
 /// The text of `note`, after a warning sign when it warns. Reactor has no caution brush, so a
 /// warning stands out by its sign and its text at full opacity.
 pub(super) fn note_view(note: &Note) -> View {
-    let text = secondary_text(note.text);
+    let text = secondary_text(&note.text);
     match note.tone {
         NoteTone::Plain | NoteTone::Busy => text.into(),
         NoteTone::Warning => {

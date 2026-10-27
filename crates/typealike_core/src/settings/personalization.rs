@@ -53,11 +53,12 @@ pub enum HistoryScope {
 }
 
 impl HistoryScope {
-    /// The entries of a menu that picks the scope of an app, top to bottom, each with its label.
+    /// The entries of a menu that picks the scope of an app, top to bottom, each with the message
+    /// of its label.
     pub(crate) const CHOICES: [(Self, &'static str); 3] = [
-        (Self::Off, "Off"),
-        (Self::ThisApp, "Only this app"),
-        (Self::AllApps, "All apps"),
+        (Self::Off, "history-scope-off"),
+        (Self::ThisApp, "history-scope-this-app"),
+        (Self::AllApps, "history-scope-all-apps"),
     ];
 }
 

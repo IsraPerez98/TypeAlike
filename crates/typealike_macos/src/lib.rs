@@ -19,6 +19,7 @@ mod injection;
 mod keychain;
 mod keys;
 mod labels;
+mod language;
 mod launch_agent;
 mod main_menu;
 mod menu_bar;

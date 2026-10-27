@@ -24,6 +24,7 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
+use typealike_core::localization::UiLanguage;
 use typealike_core::settings_window::view::{self as view, ControlId, SettingsInput, SettingsView};
 
 pub(crate) use crate::settings::controls::control_state;
@@ -75,6 +76,8 @@ impl ActionTarget {
 struct Binder<'a> {
     target: &'a ActionTarget,
     ids: &'a mut Vec<ControlId>,
+    /// The language of the texts, which gives the case of the labels of menus and buttons.
+    language: UiLanguage,
     main_thread: MainThreadMarker,
 }
 
@@ -151,13 +154,15 @@ impl SettingsWindow {
         let mut binder = Binder {
             target: &self.target,
             ids: &mut self.control_ids,
+            language: view.language,
             main_thread: self.main_thread,
         };
         for (pane, page) in self.panes.iter_mut().zip(&view.pages) {
-            pane.set_title(page.title);
+            pane.set_title(&page.title);
             pane.page.render(page, &mut binder);
         }
-        self.sidebar.render(view.pages.iter().map(|page| page.title));
+        self.sidebar
+            .render(view.pages.iter().map(|page| page.title.as_str()));
         show_selected_pane_title(&self.tabs);
     }
 

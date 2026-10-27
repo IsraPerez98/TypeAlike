@@ -51,7 +51,7 @@ fn signed(word: u16) -> i32 {
 pub(crate) struct Tray {
     window: HWND,
     icon: Owned<HICON>,
-    tooltip: &'static str,
+    tooltip: String,
 }
 
 impl Tray {
@@ -60,7 +60,7 @@ impl Tray {
         let tray = Self {
             window,
             icon: render_icon(view.status)?,
-            tooltip: view.tooltip,
+            tooltip: view.tooltip.clone(),
         };
         tray.register()?;
         Ok(tray)
@@ -75,7 +75,7 @@ impl Tray {
     /// Re-renders the icon and tooltip for `view` and the current taskbar theme.
     pub(crate) fn update(&mut self, view: &TrayView) -> Result<()> {
         self.icon = render_icon(view.status)?;
-        self.tooltip = view.tooltip;
+        self.tooltip.clone_from(&view.tooltip);
         self.notify(NIM_MODIFY)
     }
 
@@ -87,7 +87,7 @@ impl Tray {
             uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
             uCallbackMessage: TRAY_CALLBACK_MESSAGE,
             hIcon: *self.icon,
-            szTip: fixed_units(self.tooltip),
+            szTip: fixed_units(&self.tooltip),
             Anonymous: NOTIFYICONDATAW_0 {
                 uVersion: NOTIFYICON_VERSION_4,
             },
@@ -108,7 +108,7 @@ impl Drop for Tray {
 
 /// Shows the tray menu at `anchor` and returns the picked command, if any.
 pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> Result<Option<TrayCommand>> {
-    let labels: Vec<&str> = items.iter().map(|item| item.label).collect();
+    let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
     let picked = menu::pick(window, &labels, anchor)?;
     Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }

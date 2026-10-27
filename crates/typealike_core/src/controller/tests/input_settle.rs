@@ -7,7 +7,7 @@ use crate::desktop::Surroundings;
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, Settings};
-use crate::test_support::{ACTIVE_BADGE, suggestion_request};
+use crate::test_support::{active_badge, suggestion_request};
 
 #[test]
 fn input_waits_for_input_to_settle() {
@@ -69,7 +69,7 @@ fn suggestion_shows_after_enter_and_a_pause() {
         (harness.last_request(), harness.take_calls()),
         (
             Some(suggestion_request(&[], "Best regards,\n")),
-            vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
+            vec![ghost_at_caret(Some("Sara Novak"), Some(active_badge()))]
         )
     );
 }
@@ -86,7 +86,7 @@ fn suggestion_after_enter_and_a_pause_shows_at_once_when_the_caret_settled() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("Sara Novak"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("Sara Novak"), Some(active_badge()))]
     );
 }
 

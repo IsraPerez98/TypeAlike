@@ -5,7 +5,7 @@ mod badge;
 mod field_place;
 mod tray;
 
-pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeView};
+pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, BadgeView};
 pub use tray::{TrayCommand, TrayItem, TrayOutcome, TrayView};
 
 use std::mem;
@@ -21,9 +21,10 @@ use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
+use crate::localization::Translations;
 use crate::settings::{
-    EnergySaverRule, GameRule, PersonalizationSettings, PromptPreparation, ScreenTextApp, ScreenTextSettings,
-    Settings, SuggestionDisplay, SuggestionPlaces,
+    EnergySaverRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
+    SuggestionDisplay, SuggestionPlaces,
 };
 use crate::spelling::SpellChecker;
 
@@ -42,29 +43,29 @@ pub enum Status {
 }
 
 impl Status {
-    /// The label of the menu entry that pauses or resumes suggestions.
-    fn toggle_label(self) -> &'static str {
+    /// The message of the menu entry that pauses or resumes suggestions.
+    fn toggle_message(self) -> &'static str {
         match self {
-            Self::Active => "Pause suggestions",
-            Self::Paused => "Resume suggestions",
+            Self::Active => "menu-pause",
+            Self::Paused => "menu-resume",
         }
     }
 
-    /// The name of the app with this status.
-    fn name(self) -> &'static str {
+    /// The message of the name of the app with this status.
+    fn name_message(self) -> &'static str {
         match self {
-            Self::Active => "TypeAlike",
-            Self::Paused => "TypeAlike (paused)",
+            Self::Active => "status-active",
+            Self::Paused => "status-paused",
         }
     }
 }
 
-/// The name of the app in a field where the user turned suggestions off.
-const OFF_HERE_NAME: &str = "TypeAlike (off here)";
-/// The name of the app while the energy saver of the computer stops suggestions.
-const ENERGY_SAVER_NAME: &str = "TypeAlike (off to save energy)";
-/// The name of the app while a game in front stops suggestions.
-const GAME_NAME: &str = "TypeAlike (off during a game)";
+/// The message of the name of the app in a field where the user turned suggestions off.
+const OFF_HERE_NAME: &str = "status-off-here";
+/// The message of the name of the app while the energy saver of the computer stops suggestions.
+const ENERGY_SAVER_NAME: &str = "status-energy-saver";
+/// The message of the name of the app while a game in front stops suggestions.
+const GAME_NAME: &str = "status-game";
 
 /// Why TypeAlike keeps the suggestion model unloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,8 +311,8 @@ impl App {
         was_idle || was_after_game
     }
 
-    /// The status that the glyphs of the badge and the tray icon show, and the name of the app
-    /// with that status.
+    /// The status that the glyphs of the badge and the tray icon show, and the message of the name
+    /// of the app with that status.
     fn shown_status(&self) -> (Status, &'static str) {
         let stop_name = [
             (self.stops_for_energy_saver(), ENERGY_SAVER_NAME),
@@ -321,7 +322,7 @@ impl App {
         .find_map(|(applies, name)| applies.then_some(name));
         match stop_name {
             Some(name) if self.status == Status::Active => (Status::Paused, name),
-            _ => (self.status, self.status.name()),
+            _ => (self.status, self.status.name_message()),
         }
     }
 
@@ -529,15 +530,15 @@ impl App {
         self.engine.reset()
     }
 
-    /// Returns what the tray icon and menu must show now. While the energy saver or a game stops
-    /// suggestions, the icon shows as paused.
+    /// Returns what the tray icon and menu must show now, with the texts of `translations`. While
+    /// the energy saver or a game stops suggestions, the icon shows as paused.
     #[must_use]
-    pub fn tray_view(&self) -> TrayView {
-        let (status, tooltip) = self.shown_status();
+    pub fn tray_view(&self, translations: &Translations) -> TrayView {
+        let (status, name) = self.shown_status();
         TrayView {
             status,
-            tooltip,
-            ..TrayView::of(self.status)
+            tooltip: translations.text(name),
+            ..TrayView::of(self.status, translations)
         }
     }
 
@@ -561,18 +562,28 @@ impl App {
         self.engine.has_offer()
     }
 
-    /// Returns the badge to show at the caret, or `None` while the user types in no field that
-    /// TypeAlike watches. In a place where suggestions are off, and while the energy saver or a game
-    /// stops suggestions, the badge shows as paused.
+    /// Whether the badge shows at the caret: while the user types in a field that TypeAlike
+    /// watches.
     #[must_use]
-    pub fn badge_view(&self) -> Option<BadgeView> {
+    pub fn has_badge(&self) -> bool {
+        self.is_in_open_field
+    }
+
+    /// Returns the badge to show at the caret, with the texts of `translations`, or `None` while
+    /// the user types in no field that TypeAlike watches. In a place where suggestions are off, and
+    /// while the energy saver or a game stops suggestions, the badge shows as paused.
+    #[must_use]
+    pub fn badge_view(&self, translations: &Translations) -> Option<BadgeView> {
         self.is_in_open_field.then(|| {
-            let (status, label) = if self.offers_suggestions() && self.is_in_off_place() {
+            let (status, name) = if self.offers_suggestions() && self.is_in_off_place() {
                 (Status::Paused, OFF_HERE_NAME)
             } else {
                 self.shown_status()
             };
-            BadgeView { status, label }
+            BadgeView {
+                status,
+                label: translations.text(name),
+            }
         })
     }
 
@@ -580,19 +591,15 @@ impl App {
     /// shows. The menu pauses or resumes suggestions. When the lists of `suggestion_places` have
     /// the app or the website where the user types, it also turns their suggestions on or off.
     /// When the lists of `screen_text` and `personalization` have the app, it also switches the
-    /// screen text of the app and selects the scope of its earlier writing.
+    /// screen text of the app and selects the scope of its earlier writing. The entries have the
+    /// texts of `translations`.
     #[must_use]
-    pub fn badge_menu(
-        &self,
-        suggestion_places: &SuggestionPlaces,
-        screen_text: &ScreenTextSettings,
-        personalization: &PersonalizationSettings,
-    ) -> Option<BadgeMenu> {
+    pub fn badge_menu(&self, settings: &BadgeSettings<'_>, translations: &Translations) -> Option<BadgeMenu> {
         if !self.is_in_open_field {
             return None;
         }
         let pause = BadgeEntry::Item(BadgeItem {
-            label: self.status.toggle_label().to_owned(),
+            label: translations.text(self.status.toggle_message()),
             command: BadgeCommand::TogglePause,
             is_checked: false,
             is_enabled: true,
@@ -601,7 +608,7 @@ impl App {
             app: self.typed_app(),
             host: self.typed_host(),
         };
-        let place_entries = place_entries(&place, suggestion_places, screen_text, personalization);
+        let place_entries = place_entries(&place, settings, translations);
         let separator = (!place_entries.is_empty()).then_some(BadgeEntry::Separator);
         Some(BadgeMenu {
             entries: [Some(pause), separator]
@@ -609,6 +616,7 @@ impl App {
                 .flatten()
                 .chain(place_entries)
                 .collect(),
+            language: translations.language(),
         })
     }
 

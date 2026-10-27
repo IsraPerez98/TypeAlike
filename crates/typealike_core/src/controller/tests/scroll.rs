@@ -8,7 +8,7 @@ use super::harness::{Call, Harness, completed, ghost_at_caret};
 use crate::controller::{CARET_SETTLE_DELAY, Timer};
 use crate::key::Key;
 use crate::settings::Settings;
-use crate::test_support::ACTIVE_BADGE;
+use crate::test_support::active_badge;
 
 #[test]
 fn scroll_while_the_ghost_shows_hides_the_ghost_and_the_badge_until_the_caret_settles() {
@@ -38,7 +38,7 @@ fn ghost_and_badge_show_again_when_the_caret_settles_after_a_scroll() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -53,7 +53,7 @@ fn ghost_shows_again_at_a_caret_that_did_not_move_after_a_scroll() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 

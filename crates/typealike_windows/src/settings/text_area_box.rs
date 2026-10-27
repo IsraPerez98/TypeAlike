@@ -16,7 +16,7 @@ pub(super) struct TextAreaBox {
 #[derive(Clone, PartialEq)]
 pub(super) struct TextAreaBoxInput {
     pub(super) text: String,
-    pub(super) label: &'static str,
+    pub(super) label: String,
     pub(super) on_text_changed: Callback<Rc<str>>,
 }
 
@@ -40,7 +40,7 @@ impl Component for TextAreaBox {
             .accepts_return(true)
             .text_wrapping(TextWrapping::Wrap)
             .min_height(TEXT_AREA_MIN_HEIGHT)
-            .automation_name(input.label)
+            .automation_name(&input.label)
             .on_text_changed(input.on_text_changed.clone());
         if self.shows_text {
             field.text(&input.text).into()

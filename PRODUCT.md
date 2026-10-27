@@ -43,6 +43,7 @@ The UI uses these facts to tell the user what to expect (`.claude/rules/ui-text.
 
 - The language model runs on the computer of the user (llama.cpp, GGUF models, on the CPU or a GPU). The text that the user types never leaves the computer.
 - Suggestions learn from the earlier writing of the user. TypeAlike keeps that writing encrypted on the computer, only while the user allows it.
+- TypeAlike does not save the text of a field that the app marks as a password field.
 - It is open source and free.
 
 ## Operating Context
@@ -60,8 +61,9 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 
 - Panes of the settings window: General, Apps and websites, Screen text, Personalization, Energy saving, Models, Playground.
 - `typealike_core` owns all the text that the user sees, and the state of each control. The platform crates only show it and send back what the user did. Thus a change to the UI text goes into core, and it changes both platforms.
-- Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, and Spanish. The panes do not use these files yet. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
-- On macOS, the platform crate changes the labels of menus, buttons and window titles to title case. Core labels stay in sentence case.
+- Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, and Spanish. The settings window, the menus and the badge take all their texts from these files, in the first preferred language of the user that has a file, else in English. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
+- On macOS, the platform crate changes the labels of menus, buttons and window titles to title case in English. Spanish keeps sentence case. Core labels stay in sentence case.
+- Before the first model download, the General and Playground panes recommend one model for the computer, with a button that downloads it: Qwen3.5 0.8B on the processor, Gemma 4 E2B on a graphics card. The first model that the user downloads becomes the suggestion model.
 - The writing rules of the UI text have a test: `crates/typealike_core/src/test_support/writing_rules.rs`. The tests of the settings window, the Models and Playground panes and the badge menu use it.
 - The strings of the prompt (`crates/typealike_core/src/prompt.rs`) are text for the model, not UI text. A change to them needs a `prompt_eval` run (see `CLAUDE.md`).
 
@@ -75,15 +77,15 @@ Use one term for one thing. The test of the writing rules rejects the words in t
 | earlier writing | escritura anterior | The texts that the user wrote before, which TypeAlike keeps to learn from. | history |
 | screen text | texto de la pantalla | The text near the field that TypeAlike reads on the screen. | |
 | model | modelo | The language model that writes the suggestions. | LLM |
-| pause, resume | | The user stops or starts suggestions in all apps. | |
-| typo fix | | A suggestion that replaces a word with a typo. | |
-| word choice | | How much the earlier writing changes the words of a suggestion. | |
+| pause, resume | pausar, reanudar | The user stops or starts suggestions in all apps. | |
+| typo fix | corrección de erratas | A suggestion that replaces a word with a typo. | |
+| word choice | elección de palabras | How much the earlier writing changes the words of a suggestion. | |
 
 Add the Spanish term of a row when its first message gets a translation.
 
 ### Not in the UI
 
-These words belong to the code and the docs. The UI uses the text of the second column. The test of the writing rules does not check this table yet, and some current strings still use these words.
+These words belong to the code and the docs. The UI uses the text of the second column. The test of the writing rules rejects the words of the first column in the English UI text. Only the Hugging Face search can show a quantization name such as Q4_K_M.
 
 | Code and docs | UI text | Note |
 |---|---|---|

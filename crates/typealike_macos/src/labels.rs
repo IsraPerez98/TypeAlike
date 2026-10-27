@@ -1,5 +1,7 @@
 //! Core labels as macOS shows them.
 
+use typealike_core::localization::UiLanguage;
+
 /// Articles, conjunctions and short prepositions, which title case keeps lowercase between the
 /// first and the last word.
 const MINOR_WORDS: [&str; 20] = [
@@ -7,8 +9,18 @@ const MINOR_WORDS: [&str; 20] = [
     "the", "to", "via", "with",
 ];
 
+/// Writes a sentence-case core label in `language` as macOS shows it in a menu, a button or a
+/// heading: in title case when the language has one, else as it is.
+pub(crate) fn menu_label(label: &str, language: UiLanguage) -> String {
+    if language.has_title_case() {
+        title_case(label)
+    } else {
+        label.to_owned()
+    }
+}
+
 /// Turns a sentence-case core label into the title case of macOS menus, buttons and headings.
-pub(crate) fn title_case(label: &str) -> String {
+fn title_case(label: &str) -> String {
     let words: Vec<&str> = label.split(' ').collect();
     let last = words.len().saturating_sub(1);
     words
@@ -72,6 +84,22 @@ mod tests {
         assert_eq!(
             title_case("Show suggestions on mail.example.com"),
             "Show Suggestions on mail.example.com"
+        );
+    }
+
+    #[test]
+    fn label_of_english_takes_title_case() {
+        assert_eq!(
+            menu_label("Resume suggestions", UiLanguage::English),
+            "Resume Suggestions"
+        );
+    }
+
+    #[test]
+    fn label_of_a_language_without_title_case_keeps_its_sentence_case() {
+        assert_eq!(
+            menu_label("Pausar las sugerencias", UiLanguage::Spanish),
+            "Pausar las sugerencias"
         );
     }
 }

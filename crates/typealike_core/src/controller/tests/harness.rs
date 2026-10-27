@@ -21,6 +21,7 @@ use crate::inference::{
     Completion, Correction, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
 use crate::key::{Disposition, Key};
+use crate::localization::UiLanguage;
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, Settings,
     SettingsStore, WordChoice,
@@ -249,6 +250,7 @@ impl Harness {
         let startup = Startup {
             backend_choice,
             energy_saver: EnergySaver::Off,
+            ui_language: UiLanguage::English,
         };
         Self::start(settings, startup, Vec::new())
     }
@@ -257,6 +259,16 @@ impl Harness {
         let startup = Startup {
             backend_choice: BackendChoice::User,
             energy_saver,
+            ui_language: UiLanguage::English,
+        };
+        Self::start(settings, startup, Vec::new())
+    }
+
+    pub(super) fn with_ui_language(settings: Settings, ui_language: UiLanguage) -> Self {
+        let startup = Startup {
+            backend_choice: BackendChoice::User,
+            energy_saver: EnergySaver::Off,
+            ui_language,
         };
         Self::start(settings, startup, Vec::new())
     }
@@ -265,6 +277,7 @@ impl Harness {
         let startup = Startup {
             backend_choice: BackendChoice::User,
             energy_saver: EnergySaver::Off,
+            ui_language: UiLanguage::English,
         };
         Self::start(settings, startup, kept_history)
     }

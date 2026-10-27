@@ -103,7 +103,7 @@ fn energy_saver_shows_the_stop_in_the_tray() {
     let tray = harness.controller.tray_view();
     assert_eq!(
         (
-            tray.tooltip,
+            tray.tooltip.as_str(),
             harness.take_calls().contains(&Call::RenderTray(tray.clone()))
         ),
         ("TypeAlike (off to save energy)", true)

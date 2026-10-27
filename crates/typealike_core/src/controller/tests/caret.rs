@@ -12,7 +12,7 @@ use crate::engine::WordFix;
 use crate::inference::{InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key};
 use crate::settings::{Settings, SuggestionDisplay};
-use crate::test_support::{ACTIVE_BADGE, suggestion_request};
+use crate::test_support::{active_badge, suggestion_request};
 
 #[test]
 fn key_in_open_field_requests_suggestion() {
@@ -61,7 +61,7 @@ fn settled_caret_shows_badge() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(None, Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(None, Some(active_badge()))]
     );
 }
 
@@ -87,7 +87,7 @@ fn completion_shows_when_caret_settles() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -102,7 +102,7 @@ fn completion_shows_up_to_a_word_that_the_dictionary_does_not_know() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -117,7 +117,7 @@ fn completion_after_caret_settled_shows_at_once() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -134,7 +134,7 @@ fn completion_that_does_not_show_after_caret_settled_checks_the_caret_again() {
     assert_eq!(
         harness.take_calls(),
         vec![
-            ghost_at_caret(Some("est"), Some(ACTIVE_BADGE)),
+            ghost_at_caret(Some("est"), Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
     );
@@ -155,7 +155,7 @@ fn partial_completion_after_caret_settled_shows_at_once_when_words_show_early() 
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -205,7 +205,7 @@ fn accept_shows_rest_when_caret_settles() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
     );
 }
 
@@ -287,7 +287,7 @@ fn ghost_that_does_not_show_after_a_key_checks_the_caret_again() {
     assert_eq!(
         harness.take_calls(),
         vec![
-            ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE)),
+            ghost_at_caret(Some(" regards"), Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
     );
@@ -306,7 +306,7 @@ fn ghost_shows_at_any_caret_after_the_last_check() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
     );
 }
 
@@ -370,7 +370,7 @@ fn fix_shows_when_caret_settles() {
         harness.take_calls(),
         vec![Call::RenderAtCaret {
             ghost: Some(Ghost::Fix(fix)),
-            badge: Some(ACTIVE_BADGE),
+            badge: Some(active_badge()),
         }]
     );
 }
@@ -393,7 +393,7 @@ fn fix_after_caret_settled_shows_at_once() {
         harness.take_calls(),
         vec![Call::RenderAtCaret {
             ghost: Some(Ghost::Fix(fix)),
-            badge: Some(ACTIVE_BADGE),
+            badge: Some(active_badge()),
         }]
     );
 }

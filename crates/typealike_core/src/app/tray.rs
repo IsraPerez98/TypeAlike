@@ -1,6 +1,7 @@
 //! The tray icon and its menu: what they show and the commands of the menu.
 
 use super::Status;
+use crate::localization::{Translations, UiLanguage};
 
 /// An action the user can pick from the tray menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,10 +15,10 @@ pub enum TrayCommand {
 }
 
 /// One entry of the tray menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrayItem {
     /// Text shown for the entry, in sentence case.
-    pub label: &'static str,
+    pub label: String,
     /// Command run when the entry is picked.
     pub command: TrayCommand,
 }
@@ -28,31 +29,29 @@ pub struct TrayView {
     /// Status the icon glyph must reflect.
     pub status: Status,
     /// Tooltip naming the app and its status.
-    pub tooltip: &'static str,
+    pub tooltip: String,
     /// Menu entries, top to bottom.
     pub items: Vec<TrayItem>,
+    /// The language of the texts.
+    pub language: UiLanguage,
 }
 
 impl TrayView {
-    /// The tray icon and its menu while TypeAlike has `status`.
-    pub(super) fn of(status: Status) -> Self {
+    /// The tray icon and its menu while TypeAlike has `status`, with the texts of `translations`.
+    pub(super) fn of(status: Status, translations: &Translations) -> Self {
+        let item = |message, command| TrayItem {
+            label: translations.text(message),
+            command,
+        };
         Self {
             status,
-            tooltip: status.name(),
+            tooltip: translations.text(status.name_message()),
             items: vec![
-                TrayItem {
-                    label: status.toggle_label(),
-                    command: TrayCommand::TogglePause,
-                },
-                TrayItem {
-                    label: "Settings…",
-                    command: TrayCommand::OpenSettings,
-                },
-                TrayItem {
-                    label: "Quit TypeAlike",
-                    command: TrayCommand::Quit,
-                },
+                item(status.toggle_message(), TrayCommand::TogglePause),
+                item("menu-settings", TrayCommand::OpenSettings),
+                item("menu-quit", TrayCommand::Quit),
             ],
+            language: translations.language(),
         }
     }
 }

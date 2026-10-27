@@ -28,6 +28,7 @@ use typealike_core::desktop::{
 };
 use typealike_core::inference::Backend;
 use typealike_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
+use typealike_core::localization::UiLanguage;
 use typealike_core::settings::{ClipboardAccess, Settings};
 use typealike_core::settings_window::view::{SettingsInput, SettingsView};
 
@@ -43,6 +44,7 @@ use crate::game;
 use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
 use crate::keys;
+use crate::language::preferred_languages;
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
@@ -74,6 +76,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let startup = Startup {
         backend_choice: BackendChoice::Platform(Backend::Metal),
         energy_saver: energy_saver::read(),
+        ui_language: UiLanguage::for_preferred(&preferred_languages()),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read Low Power Mode");
     let controller = Controller::new(settings, services, startup, &deliver);

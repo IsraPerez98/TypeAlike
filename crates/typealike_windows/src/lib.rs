@@ -26,6 +26,7 @@ mod gdi;
 mod injection;
 mod key_file;
 mod keys;
+mod language;
 mod mailbox;
 mod menu;
 mod ocr;

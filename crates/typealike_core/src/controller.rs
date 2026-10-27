@@ -20,7 +20,8 @@ use services::delivering_sink;
 use tab_hold::TabHold;
 
 use crate::app::{
-    App, BadgeCommand, BadgeMenu, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome, TrayView,
+    App, BadgeCommand, BadgeMenu, BadgeSettings, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome,
+    TrayView,
 };
 use crate::desktop::{
     CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, ScreenRect,
@@ -28,9 +29,10 @@ use crate::desktop::{
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
-use crate::hub::{HubEventSink, ModelHub};
+use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
+use crate::localization::Translations;
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, SuggestionApp};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
 use crate::settings_window::general::{GeneralAction, GeneralPane};
@@ -70,6 +72,7 @@ enum PaneAction {
 /// the services, driven by the events of the platform.
 pub struct Controller {
     app: App,
+    translations: Translations,
     models: ModelsPane,
     playground: PlaygroundPane,
     general: GeneralPane,
@@ -140,6 +143,7 @@ impl Controller {
         let general = general.with_autostart(autostart);
         let mut controller = Self {
             app,
+            translations: Translations::new(startup.ui_language),
             models: ModelsPane::new(),
             playground,
             general,
@@ -167,7 +171,7 @@ impl Controller {
     /// Returns what the tray icon and its menu must show now.
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
-        self.app.tray_view()
+        self.app.tray_view(&self.translations)
     }
 
     /// Handles a key or a click of the user, or another app that comes to the front: TypeAlike
@@ -220,7 +224,7 @@ impl Controller {
     /// the badge hide, and show again with the same suggestion at the caret when the scroll stops.
     /// A scroll does not end the session and does not count as input, so it reads no screen.
     pub fn on_scroll(&mut self, shell: &mut dyn Shell) {
-        if self.app.badge_view().is_none() {
+        if !self.app.has_badge() {
             return;
         }
         shell.hide_ghost();
@@ -280,7 +284,7 @@ impl Controller {
         };
         match outcome {
             LookOutcome::GhostAndBadge => self.render_at_caret(read, shell),
-            LookOutcome::BadgeOnly => shell.render_at_caret(None, self.app.badge_view()),
+            LookOutcome::BadgeOnly => shell.render_at_caret(None, self.app.badge_view(&self.translations)),
             LookOutcome::Nothing => {
                 shell.hide_ghost();
                 shell.hide_badge();
@@ -293,11 +297,12 @@ impl Controller {
     /// shows.
     #[must_use]
     pub fn badge_menu(&self) -> Option<BadgeMenu> {
-        self.app.badge_menu(
-            self.suggestion_places.settings(),
-            self.screen_text.settings(),
-            self.personalization.settings(),
-        )
+        let settings = BadgeSettings {
+            suggestion_places: self.suggestion_places.settings(),
+            screen_text: self.screen_text.settings(),
+            personalization: self.personalization.settings(),
+        };
+        self.app.badge_menu(&settings, &self.translations)
     }
 
     /// Runs a command that the user picked in the menu of the badge at the caret, then shows the
@@ -399,7 +404,11 @@ impl Controller {
                     .action_for(input, &installed)
                     .map(PaneAction::Playground)
             })
-            .or_else(|| self.models.action_for(input).map(PaneAction::Models))
+            .or_else(|| {
+                self.models
+                    .action_for(input, self.general.settings().backend, &self.translations)
+                    .map(PaneAction::Models)
+            })
     }
 
     fn render_settings(&self, shell: &mut dyn Shell) {
@@ -409,10 +418,7 @@ impl Controller {
     /// Handles the answer of a service.
     pub fn on_delivery(&mut self, delivery: Delivery, shell: &mut dyn Shell) {
         match delivery {
-            Delivery::Hub(event) => {
-                self.models.on_event(event);
-                self.render_settings(shell);
-            }
+            Delivery::Hub(event) => self.on_hub_event(event, shell),
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
             Delivery::Screen(read) => {
@@ -657,6 +663,24 @@ impl Controller {
         }
     }
 
+    /// Gives `event` to the Models pane. When the first model download finishes and no suggestion
+    /// model is selected, the model becomes the suggestion model.
+    fn on_hub_event(&mut self, event: HubEvent, shell: &mut dyn Shell) {
+        let finished = match &event {
+            HubEvent::DownloadFinished { file, result: Ok(_) } => Some(file.clone()),
+            _ => None,
+        };
+        let is_first_model =
+            self.models.installed_files().is_empty() && self.general.settings().suggestion_model.is_none();
+        self.models.on_event(event);
+        let first_model =
+            finished.filter(|file| is_first_model && self.models.installed_files().contains(file));
+        if let Some(file) = first_model {
+            self.on_general_action(GeneralAction::SelectSuggestionModel(file), shell);
+        }
+        self.render_settings(shell);
+    }
+
     fn on_playground_event(&mut self, event: InferenceEvent, shell: &mut dyn Shell) {
         self.playground.on_event(event);
         if let Some(settings) = self.general.keep_suggestion_model(&self.playground) {
@@ -712,7 +736,7 @@ impl Controller {
             self.hide_ghost(shell);
         }
         self.submit_model_request();
-        shell.render_tray(&self.app.tray_view());
+        shell.render_tray(&self.app.tray_view(&self.translations));
         self.render_waiting_ghost(shell);
         self.render_settings(shell);
     }
@@ -725,26 +749,33 @@ impl Controller {
     }
 
     fn settings_view(&self, desktop: &dyn Desktop) -> SettingsView {
+        let translations = &self.translations;
         let installed = self.models.installed_files();
+        let backend = self.general.settings().backend;
+        let recommended = self.models.recommended_row(backend, translations);
         SettingsView {
             pages: vec![
-                self.general.page(&self.playground, &installed),
-                self.suggestion_places.page(),
+                self.general
+                    .page(&self.playground, &installed, recommended.clone(), translations),
+                self.suggestion_places.page(translations),
                 self.screen_text.page(
                     desktop.ocr_availability(),
                     desktop.ocr_levels(),
                     self.suggestion_places.settings(),
+                    translations,
                 ),
-                self.personalization.page(self.suggestion_places.settings()),
-                self.energy_saving.page(self.app.energy_saver()),
-                self.models.page(),
-                self.playground.page(&installed),
+                self.personalization
+                    .page(self.suggestion_places.settings(), translations),
+                self.energy_saving.page(self.app.energy_saver(), translations),
+                self.models.page(backend, translations),
+                self.playground.page(&installed, recommended, translations),
             ],
+            language: translations.language(),
         }
     }
 
     fn render_badge_after_caret_settles(&mut self, shell: &mut dyn Shell) {
-        if self.app.badge_view().is_some() {
+        if self.app.has_badge() {
             self.caret_wait.restart_timer(shell);
         } else {
             shell.hide_badge();
@@ -765,7 +796,7 @@ impl Controller {
             .ghost_view(self.app.text_before_caret(), placement, |view| {
                 fit_to_field(view, read, &*shell)
             });
-        shell.render_at_caret(ghost.as_ref(), self.app.badge_view());
+        shell.render_at_caret(ghost.as_ref(), self.app.badge_view(&self.translations));
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {
             self.add_suggested_place();

@@ -148,7 +148,7 @@ fn run(inputs: Mailbox<SettingsInput>, started: &mpsc::Sender<Result<AppProxy>>)
         HOST.with(|host| {
             host.replace(Some(Host {
                 inputs,
-                view: SettingsView { pages: Vec::new() },
+                view: SettingsView::default(),
                 page: PageState::Closed,
             }))
         });
@@ -287,7 +287,7 @@ impl Component for SettingsPage {
             host.view.clone()
         });
         let mut page = Self {
-            view: SettingsView { pages: Vec::new() },
+            view: SettingsView::default(),
             selected: 0,
             typed: HashMap::new(),
             app_icons: HashMap::new(),
@@ -346,7 +346,7 @@ impl Component for SettingsPage {
                     .is_selected(index == selected)
                     .selects_on_invoked(true)
                     .icon(page_icon(page.icon, self.contrast))
-                    .content(page.title),
+                    .content(page.title.as_str()),
             )
         });
         // The key of the page makes a new scroll viewer for each page, so each page starts at its top.

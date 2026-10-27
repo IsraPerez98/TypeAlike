@@ -12,7 +12,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSString};
 use typealike_core::settings_window::view::{self as view, ControlId};
 
-use crate::labels::title_case;
+use crate::labels::menu_label;
 use crate::settings::controls::{MenuChoices, body_font, control_state, set_text, symbol, truncating_label};
 use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, add_grouped_row, stack};
 use crate::settings::{Binder, ControlAction};
@@ -172,7 +172,11 @@ impl AppPickerRow {
         self.choices
             .menu
             .setAccessibilityLabel(Some(&NSString::from_str(&shown.app_name)));
-        let titles: Vec<String> = shown.choices.iter().map(|choice| title_case(choice)).collect();
+        let titles: Vec<String> = shown
+            .choices
+            .iter()
+            .map(|choice| menu_label(choice, binder.language))
+            .collect();
         self.choices.render(titles, shown.selected);
         self.choices.menu.setEnabled(shown.is_enabled);
         binder.bind(&self.choices.menu, &shown.id);

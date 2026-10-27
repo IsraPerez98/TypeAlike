@@ -3,7 +3,9 @@
 use std::iter;
 
 use crate::hub::{ByteSize, HubError, RepoSummary, SizedFile, rounded_quotient};
-use crate::settings_window::models::catalog::SUGGESTED_MODELS;
+use crate::inference::Backend;
+use crate::localization::{MessageArgument, Translations};
+use crate::settings_window::models::catalog::{SUGGESTED_MODELS, recommended_model};
 use crate::settings_window::models::{
     Buttons, Fetch, FileState, ModelsAction, ModelsPane, OpenRepo, SEARCH, Search, TrackedFile,
 };
@@ -11,44 +13,55 @@ use crate::settings_window::view::{
     Accessory, ControlId, Item, Message, Page, PageIcon, Permille, Row, SearchField, Section,
 };
 
-const PANE_TITLE: &str = "Models";
-const PANE_SUMMARY: &str = "TypeAlike uses a language model on this computer to suggest text.";
-const SEARCH_PLACEHOLDER: &str = "Search Hugging Face";
-const SUGGESTED_HEADING: &str = "Suggested models";
-const SUGGESTED_FOOTER: &str = "Smaller models are faster and use less memory. Larger models give better \
-     suggestions. When the model runs on the CPU, select a model with 1B parameters or fewer, so that \
-     suggestions show sooner.";
-const RESULTS_FOOTER: &str =
-    "The list shows only GGUF models. The models with the most downloads are at the top.";
-const FILES_FOOTER: &str = "Smaller files are faster. Larger files give better suggestions. If you are not sure, select a Q4_K_M file.";
-const DOWNLOADED_HEADING: &str = "Downloaded models";
-const SEARCHING_TEXT: &str = "Searching…";
-const LOADING_FILES_TEXT: &str = "Loading the files…";
-const NO_USABLE_FILES_TEXT: &str = "This model has no GGUF files that TypeAlike can use.";
-const GATED_REPO_NOTE: &str = "Needs a Hugging Face account";
-const CANCELING_DETAIL: &str = "Canceling…";
-const COUNT_UNITS: [(u64, &str); 3] = [(1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")];
+/// The messages of the abbreviated counts of downloads, from the largest unit down.
+const COUNT_UNITS: [(u64, &str); 3] = [
+    (1_000_000_000, "models-downloads-billions"),
+    (1_000_000, "models-downloads-millions"),
+    (1_000, "models-downloads-thousands"),
+];
 const SMALLEST_ABBREVIATED_COUNT: u64 = 1_000;
+const KILOBYTE: u64 = 1_000;
+const MEGABYTE: u64 = 1_000_000;
+const GIGABYTE: u64 = 1_000_000_000;
 
 impl ModelsPane {
-    pub(super) fn build_page(&self, buttons: &mut Buttons) -> Page {
-        let browse = self.browse_section(buttons);
+    pub(super) fn build_page(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Page {
+        let translations = buttons.translations;
+        let browse = self.browse_section(buttons, backend);
         let downloaded = self.downloaded_section(buttons);
         Page {
-            title: PANE_TITLE,
+            title: translations.text("models-title"),
             icon: PageIcon::Cube,
-            summary: PANE_SUMMARY,
+            summary: translations.text("models-summary"),
             search: Some(SearchField {
                 id: ControlId::new(SEARCH),
-                placeholder: SEARCH_PLACEHOLDER,
+                placeholder: translations.text("models-search"),
             }),
             sections: iter::once(browse).chain(downloaded).collect(),
         }
     }
 
-    fn browse_section(&self, buttons: &mut Buttons) -> Section {
+    /// The row of the model that TypeAlike recommends for `backend`, while no model is downloaded.
+    pub(super) fn build_recommended_row(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Option<Row> {
+        let has_installed = self
+            .files
+            .values()
+            .any(|tracked| matches!(tracked.state, FileState::Installed));
+        if has_installed {
+            return None;
+        }
+        let model = recommended_model(backend);
+        let shown = ShownFile {
+            title: model.name.to_owned(),
+            idle_subtitle: buttons.translations.text("model-recommended"),
+            sized: model.sized_file(),
+        };
+        Some(self.file_row(shown, buttons))
+    }
+
+    fn browse_section(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Section {
         match &self.search {
-            None => self.suggested_section(buttons),
+            None => self.suggested_section(buttons, backend),
             Some(Search {
                 open_repo: Some(open_repo),
                 ..
@@ -61,33 +74,42 @@ impl ModelsPane {
         }
     }
 
-    fn suggested_section(&self, buttons: &mut Buttons) -> Section {
+    fn suggested_section(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Section {
+        let translations = buttons.translations;
+        let recommended = recommended_model(backend);
         let rows = SUGGESTED_MODELS
             .iter()
             .map(|model| {
+                let byline = if model == recommended {
+                    "models-developer-recommended"
+                } else {
+                    "models-developer"
+                };
                 let shown = ShownFile {
                     title: model.name.to_owned(),
-                    idle_subtitle: model.description(),
+                    idle_subtitle: translations
+                        .text_with(byline, &[("developer", MessageArgument::Text(model.developer))]),
                     sized: model.sized_file(),
                 };
                 self.file_row(shown, buttons)
             })
             .collect();
         Section {
-            heading: Some(SUGGESTED_HEADING.to_owned()),
+            heading: Some(translations.text("models-recommended-heading")),
             back: None,
             rows,
-            footer: Some(SUGGESTED_FOOTER),
+            footer: Some(translations.text("models-recommended-footer")),
         }
     }
 
-    fn repo_files_section(&self, open_repo: &OpenRepo, buttons: &mut Buttons) -> Section {
+    fn repo_files_section(&self, open_repo: &OpenRepo, buttons: &mut Buttons<'_>) -> Section {
+        let translations = buttons.translations;
         let rows = match &open_repo.files {
-            Fetch::Pending => vec![Row::Loading(LOADING_FILES_TEXT)],
+            Fetch::Pending => vec![Row::Loading(translations.text("models-files-loading"))],
             Fetch::Failed(error) => {
                 failure_message(*error, ModelsAction::ShowFiles(open_repo.id.clone()), buttons)
             }
-            Fetch::Done(files) if files.is_empty() => message_rows(NO_USABLE_FILES_TEXT.to_owned()),
+            Fetch::Done(files) if files.is_empty() => message_rows(translations.text("models-no-files")),
             Fetch::Done(files) => files
                 .iter()
                 .map(|sized| {
@@ -102,13 +124,13 @@ impl ModelsPane {
         };
         Section {
             heading: Some(open_repo.id.clone()),
-            back: Some(buttons.add("Results", ModelsAction::BackToResults)),
+            back: Some(buttons.add("models-back-to-results", ModelsAction::BackToResults)),
             rows,
-            footer: Some(FILES_FOOTER),
+            footer: Some(translations.text("models-files-footer")),
         }
     }
 
-    fn downloaded_section(&self, buttons: &mut Buttons) -> Option<Section> {
+    fn downloaded_section(&self, buttons: &mut Buttons<'_>) -> Option<Section> {
         let rows: Vec<Row> = self
             .files
             .iter()
@@ -125,12 +147,12 @@ impl ModelsPane {
             })
             .collect();
         (!rows.is_empty()).then(|| Section {
-            heading: Some(DOWNLOADED_HEADING.to_owned()),
+            heading: Some(buttons.translations.text("models-downloaded-heading")),
             ..Section::new(rows)
         })
     }
 
-    fn file_row(&self, shown: ShownFile, buttons: &mut Buttons) -> Row {
+    fn file_row(&self, shown: ShownFile, buttons: &mut Buttons<'_>) -> Row {
         let ShownFile {
             title,
             idle_subtitle,
@@ -140,12 +162,12 @@ impl ModelsPane {
             return Row::Item(Item {
                 title,
                 subtitle: idle_subtitle,
-                detail: sized.size.to_string(),
-                accessory: Accessory::Download(buttons.add("Download", ModelsAction::Download(sized))),
+                detail: size_text(sized.size, buttons.translations),
+                accessory: Accessory::Download(buttons.add("models-download", ModelsAction::Download(sized))),
             });
         };
         let subtitle = match tracked.state {
-            FileState::Failed(error) => error_message(error).to_owned(),
+            FileState::Failed(error) => buttons.translations.text(error_message(error)),
             FileState::Downloading { .. } | FileState::Canceling | FileState::Installed => idle_subtitle,
         };
         let (detail, accessory) = tracked_status(&sized, tracked, buttons);
@@ -166,60 +188,79 @@ struct ShownFile {
     sized: SizedFile,
 }
 
-fn tracked_status(sized: &SizedFile, tracked: &TrackedFile, buttons: &mut Buttons) -> (String, Accessory) {
-    let size = tracked.size.to_string();
+fn tracked_status(
+    sized: &SizedFile,
+    tracked: &TrackedFile,
+    buttons: &mut Buttons<'_>,
+) -> (String, Accessory) {
+    let translations = buttons.translations;
     match tracked.state {
-        FileState::Downloading { received } => (
-            format!("{received} of {size}"),
-            Accessory::Downloading {
-                progress: permille(received, tracked.size),
-                cancel: buttons.add("Cancel download", ModelsAction::Cancel(sized.file.clone())),
-            },
-        ),
-        FileState::Canceling => (CANCELING_DETAIL.to_owned(), Accessory::Canceling),
+        FileState::Downloading { received } => {
+            let progress = permille(received, tracked.size);
+            let percent = MessageArgument::Number(u32::from(progress.0 / 10));
+            (
+                translations.text_with("models-download-progress", &[("percent", percent)]),
+                Accessory::Downloading {
+                    progress,
+                    cancel: buttons.add("models-cancel-download", ModelsAction::Cancel(sized.file.clone())),
+                },
+            )
+        }
+        FileState::Canceling => (translations.text("models-canceling"), Accessory::Canceling),
         FileState::Installed => (
-            size,
+            size_text(tracked.size, translations),
             Accessory::Installed {
-                delete: buttons.add("Delete", ModelsAction::Delete(sized.file.clone())),
+                delete: buttons.add("models-delete", ModelsAction::Delete(sized.file.clone())),
             },
         ),
         FileState::Failed(_) => (
-            size,
+            size_text(tracked.size, translations),
             Accessory::Failed {
-                retry: buttons.add("Try again", ModelsAction::Download(sized.clone())),
+                retry: buttons.add("models-try-again", ModelsAction::Download(sized.clone())),
             },
         ),
     }
 }
 
-fn results_section(query: &str, results: &Fetch<Vec<RepoSummary>>, buttons: &mut Buttons) -> Section {
+fn results_section(query: &str, results: &Fetch<Vec<RepoSummary>>, buttons: &mut Buttons<'_>) -> Section {
+    let translations = buttons.translations;
+    let query_argument = [("query", MessageArgument::Text(query))];
     let rows = match results {
-        Fetch::Pending => vec![Row::Loading(SEARCHING_TEXT)],
+        Fetch::Pending => vec![Row::Loading(translations.text("models-searching"))],
         Fetch::Failed(error) => failure_message(*error, ModelsAction::Search(query.to_owned()), buttons),
-        Fetch::Done(repos) if repos.is_empty() => message_rows(format!("No models match “{query}”.")),
+        Fetch::Done(repos) if repos.is_empty() => {
+            message_rows(translations.text_with("models-no-results", &query_argument))
+        }
         Fetch::Done(repos) => repos.iter().map(|repo| repo_row(repo, buttons)).collect(),
     };
     Section {
-        heading: Some(format!("Results for “{query}”")),
+        heading: Some(translations.text_with("models-results-heading", &query_argument)),
         back: None,
         rows,
-        footer: Some(RESULTS_FOOTER),
+        footer: Some(translations.text("models-results-footer")),
     }
 }
 
-fn repo_row(repo: &RepoSummary, buttons: &mut Buttons) -> Row {
+fn repo_row(repo: &RepoSummary, buttons: &mut Buttons<'_>) -> Row {
+    let translations = buttons.translations;
     let (owner, name) = repo.id.split_once('/').unwrap_or_default();
-    let byline = format!("by {owner}");
+    let owner = [("owner", MessageArgument::Text(owner))];
     let (subtitle, accessory) = if repo.is_gated {
-        (format!("{byline} · {GATED_REPO_NOTE}"), Accessory::Unavailable)
+        (
+            translations.text_with("models-owner-gated", &owner),
+            Accessory::Unavailable,
+        )
     } else {
-        let show_files = buttons.add("Show files", ModelsAction::ShowFiles(repo.id.clone()));
-        (byline, Accessory::Open(show_files))
+        let show_files = buttons.add("models-show-files", ModelsAction::ShowFiles(repo.id.clone()));
+        (
+            translations.text_with("models-owner", &owner),
+            Accessory::Open(show_files),
+        )
     };
     Row::Item(Item {
         title: name.to_owned(),
         subtitle,
-        detail: format!("{} downloads", compact_count(repo.downloads)),
+        detail: downloads_text(repo.downloads, translations),
         accessory,
     })
 }
@@ -228,10 +269,10 @@ fn message_rows(text: String) -> Vec<Row> {
     vec![Row::Message(Message { text, button: None })]
 }
 
-fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Buttons) -> Vec<Row> {
+fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Buttons<'_>) -> Vec<Row> {
     vec![Row::Message(Message {
-        text: error_message(error).to_owned(),
-        button: Some(buttons.add("Try again", retry_action)),
+        text: buttons.translations.text(error_message(error)),
+        button: Some(buttons.add("models-try-again", retry_action)),
     })]
 }
 
@@ -250,28 +291,63 @@ fn permille(received: ByteSize, total: ByteSize) -> Permille {
 
 fn error_message(error: HubError) -> &'static str {
     match error {
-        HubError::Offline => "TypeAlike cannot connect to Hugging Face. Check your internet connection.",
-        HubError::AccessDenied => "This model needs a Hugging Face account.",
-        HubError::NotFound => "Hugging Face cannot find this model.",
-        HubError::Server => "Hugging Face is not available. Try again later.",
-        HubError::InvalidResponse => "Hugging Face sent an incorrect response. Try again later.",
-        HubError::Storage => "TypeAlike cannot save the model. Make sure that the disk has free space.",
-        HubError::Canceled => "You canceled the download.",
+        HubError::Offline => "models-error-offline",
+        HubError::AccessDenied => "models-error-account",
+        HubError::NotFound => "models-error-not-found",
+        HubError::Server => "models-error-server",
+        HubError::InvalidResponse => "models-error-response",
+        HubError::Storage => "models-error-storage",
+        HubError::Canceled => "models-error-canceled",
     }
 }
 
-// ponytail: English K/M/B suffixes only, use the OS number formatter for other locales.
-fn compact_count(count: u64) -> String {
+/// The text of `size` in decimal units, as Finder and Explorer show file sizes: whole bytes,
+/// kilobytes and megabytes, and gigabytes with one digit after the decimal separator.
+fn size_text(size: ByteSize, translations: &Translations) -> String {
+    let (message, size) = match size.0 {
+        bytes if bytes < KILOBYTE => ("models-size-bytes", whole_number(bytes)),
+        bytes if bytes < MEGABYTE => (
+            "models-size-kilobytes",
+            whole_number(rounded_quotient(bytes, KILOBYTE)),
+        ),
+        bytes if bytes < GIGABYTE => (
+            "models-size-megabytes",
+            whole_number(rounded_quotient(bytes, MEGABYTE)),
+        ),
+        bytes => (
+            "models-size-gigabytes",
+            tenths(rounded_quotient(bytes, GIGABYTE / 10)),
+        ),
+    };
+    translations.text_with(message, &[("size", size)])
+}
+
+/// The text of a count of downloads, with a unit from a thousand up and one digit after the
+/// decimal separator when it is not zero.
+fn downloads_text(count: u64, translations: &Translations) -> String {
     if count < SMALLEST_ABBREVIATED_COUNT {
-        return count.to_string();
+        return translations.text_with("models-downloads", &[("count", whole_number(count))]);
     }
-    let (tenths, suffix) = COUNT_UNITS
+    let (count_tenths, message) = COUNT_UNITS
         .iter()
-        .map(|&(unit, suffix)| (rounded_quotient(count, unit / 10), suffix))
-        .find(|&(tenths, _)| tenths >= 10)
+        .map(|&(unit, message)| (rounded_quotient(count, unit / 10), message))
+        .find(|&(count_tenths, _)| count_tenths >= 10)
         .expect("a count of at least one thousand has a unit");
-    match tenths % 10 {
-        0 => format!("{}{suffix}", tenths / 10),
-        decimal => format!("{}.{decimal}{suffix}", tenths / 10),
+    let count = if count_tenths % 10 == 0 {
+        whole_number(count_tenths / 10)
+    } else {
+        tenths(count_tenths)
+    };
+    translations.text_with(message, &[("count", count)])
+}
+
+fn whole_number(number: u64) -> MessageArgument<'static> {
+    MessageArgument::Number(u32::try_from(number).unwrap_or(u32::MAX))
+}
+
+fn tenths(count_tenths: u64) -> MessageArgument<'static> {
+    MessageArgument::Decimal {
+        value: u32::try_from(count_tenths).unwrap_or(u32::MAX),
+        digits: 1,
     }
 }

@@ -13,7 +13,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::NSString;
 use typealike_core::settings_window::view::{self as view, ControlId, SettingsInput};
 
-use crate::labels::title_case;
+use crate::labels::menu_label;
 use crate::settings::controls::{button, heading, set_text, small_secondary_label, text_area};
 use crate::settings::layout::{fill_width, trailing_row};
 use crate::settings::rows::SettingRow;
@@ -46,9 +46,9 @@ impl TextLineRow {
     }
 
     pub(super) fn render(&self, shown: &view::TextLine) {
-        self.setting.render(shown.label, shown.description);
+        self.setting.render(&shown.label, &shown.description);
         self.field
-            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.label)));
         let is_user_editing = self.field.currentEditor().is_some();
         if !is_user_editing && self.field.stringValue().to_string() != shown.text {
             self.field.setStringValue(&NSString::from_str(&shown.text));
@@ -101,17 +101,17 @@ impl TextAreaRow {
     }
 
     pub(super) fn render(&self, shown: &view::TextArea, binder: &mut Binder<'_>) {
-        set_text(&self.heading, shown.label);
-        set_text(&self.description, shown.description);
+        set_text(&self.heading, &shown.label);
+        set_text(&self.description, &shown.description);
         self.text_view
-            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.label)));
         if !self.is_user_editing() && self.text_view.string().to_string() != shown.text {
             self.text_view.setString(&NSString::from_str(&shown.text));
         }
         self.button_row.setHidden(shown.button.is_none());
         if let Some(button) = &shown.button {
             self.button
-                .setTitle(&NSString::from_str(&title_case(button.label)));
+                .setTitle(&NSString::from_str(&menu_label(&button.label, binder.language)));
             self.button.setEnabled(button.is_enabled);
             binder.bind(&self.button, &button.id);
         }
@@ -177,13 +177,15 @@ impl TextFieldRow {
     }
 
     pub(super) fn render(&self, shown: &view::TextField, binder: &mut Binder<'_>) {
-        set_text(&self.heading, shown.label);
+        set_text(&self.heading, &shown.label);
         self.field
-            .setPlaceholderString(Some(&NSString::from_str(shown.placeholder)));
+            .setPlaceholderString(Some(&NSString::from_str(&shown.placeholder)));
         self.field
-            .setAccessibilityLabel(Some(&NSString::from_str(shown.label)));
-        self.button
-            .setTitle(&NSString::from_str(&title_case(shown.submit_label)));
+            .setAccessibilityLabel(Some(&NSString::from_str(&shown.label)));
+        self.button.setTitle(&NSString::from_str(&menu_label(
+            &shown.submit_label,
+            binder.language,
+        )));
         self.button.setEnabled(shown.is_submit_enabled);
         binder.bind(&self.field, &shown.id);
         binder.bind(&self.button, &shown.id);

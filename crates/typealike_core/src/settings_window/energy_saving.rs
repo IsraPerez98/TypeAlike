@@ -2,6 +2,7 @@
 //! suggestion model.
 
 use crate::desktop::EnergySaver;
+use crate::localization::Translations;
 use crate::settings::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
 use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::view::{
@@ -22,28 +23,12 @@ pub enum EnergySavingAction {
 pub(crate) const IDLE_TIMEOUT: &str = "idle-timeout";
 pub(crate) const ENERGY_SAVER: &str = "energy-saver";
 pub(crate) const GAME: &str = "game";
-const PANE_TITLE: &str = "Energy saving";
-const PANE_SUMMARY: &str = "TypeAlike can stop suggestions and unload the model when you do not need them. \
-     This frees memory and uses less power.";
-const IDLE_TIMEOUT_LABEL: &str = "Stop when inactive";
-const IDLE_TIMEOUT_DESCRIPTION: &str = "When you do not type or click for this time, TypeAlike stops \
-     suggestions and unloads the model. It loads the model again when you type in a text field.";
 const IDLE_TIMEOUT_CHOICES: [(IdleTimeout, &str); 4] = [
-    (IdleTimeout::Off, "Off"),
-    (IdleTimeout::FifteenMinutes, "15 minutes"),
-    (IdleTimeout::ThirtyMinutes, "30 minutes"),
-    (IdleTimeout::SixtyMinutes, "60 minutes"),
+    (IdleTimeout::Off, "energy-saving-idle-timeout-off"),
+    (IdleTimeout::FifteenMinutes, "energy-saving-idle-timeout-15"),
+    (IdleTimeout::ThirtyMinutes, "energy-saving-idle-timeout-30"),
+    (IdleTimeout::SixtyMinutes, "energy-saving-idle-timeout-60"),
 ];
-const ENERGY_SAVER_LABEL: &str = "Stop in energy saver";
-const ENERGY_SAVER_DESCRIPTION: &str = "While energy saver or Low Power Mode is on, TypeAlike stops \
-     suggestions and unloads the model. Suggestions start again when it goes off.";
-const GAME_LABEL: &str = "Stop during games";
-const GAME_DESCRIPTION: &str = "While a game is in front, TypeAlike stops suggestions and unloads the model. \
-     It loads the model again when you type in a text field after the game.";
-const STOPPED_NOTE: Note = Note {
-    text: "The computer saves energy now, so suggestions are off.",
-    tone: NoteTone::Plain,
-};
 
 /// State of the Energy saving pane: when TypeAlike stops suggestions to save energy.
 ///
@@ -114,42 +99,46 @@ impl EnergySavingPane {
         }
     }
 
-    /// Returns the page that the pane shows now. While `energy_saver` is on and the switch stops
-    /// suggestions then, a note below the switch tells that suggestions are off.
+    /// Returns the page that the pane shows now, with the texts of `translations`. While
+    /// `energy_saver` is on and the switch stops suggestions then, a note below the switch tells
+    /// that suggestions are off.
     #[must_use]
-    pub fn page(&self, energy_saver: EnergySaver) -> Page {
+    pub fn page(&self, energy_saver: EnergySaver, translations: &Translations) -> Page {
         let idle_timeout = picker(
             MenuText {
                 id: IDLE_TIMEOUT,
                 icon: RowIcon::Moon,
-                label: IDLE_TIMEOUT_LABEL,
-                description: IDLE_TIMEOUT_DESCRIPTION,
+                label: "energy-saving-idle-timeout",
+                description: "energy-saving-idle-timeout-description",
             },
             &IDLE_TIMEOUT_CHOICES,
             self.settings.idle_timeout,
-            true,
+            translations,
         );
         let stops_in_energy_saver = self.settings.energy_saver == EnergySaverRule::StopSuggestions;
         let energy_saver_switch = Switch {
             id: ControlId::new(ENERGY_SAVER),
             icon: RowIcon::Battery,
-            label: ENERGY_SAVER_LABEL,
-            description: ENERGY_SAVER_DESCRIPTION,
+            label: translations.text("energy-saving-energy-saver"),
+            description: translations.text("energy-saving-energy-saver-description"),
             is_on: stops_in_energy_saver,
-            note: (stops_in_energy_saver && energy_saver == EnergySaver::On).then_some(STOPPED_NOTE),
+            note: (stops_in_energy_saver && energy_saver == EnergySaver::On).then(|| Note {
+                text: translations.text("energy-saving-energy-saver-stopped"),
+                tone: NoteTone::Plain,
+            }),
         };
         let game_switch = Switch {
             id: ControlId::new(GAME),
             icon: RowIcon::Game,
-            label: GAME_LABEL,
-            description: GAME_DESCRIPTION,
+            label: translations.text("energy-saving-game"),
+            description: translations.text("energy-saving-game-description"),
             is_on: self.settings.game == GameRule::StopSuggestions,
             note: None,
         };
         Page {
-            title: PANE_TITLE,
+            title: translations.text("energy-saving-title"),
             icon: PageIcon::Lightbulb,
-            summary: PANE_SUMMARY,
+            summary: translations.text("energy-saving-summary"),
             search: None,
             sections: vec![Section::new(vec![
                 Row::Picker(idle_timeout),
@@ -164,7 +153,7 @@ impl EnergySavingPane {
 mod tests {
     use super::*;
     use crate::settings_window::view::{ChoiceText, Picker};
-    use crate::test_support::{picked, toggled};
+    use crate::test_support::{english, picked, toggled};
 
     fn pane_with(idle_timeout: IdleTimeout, energy_saver: EnergySaverRule) -> EnergySavingPane {
         EnergySavingPane::new(EnergySavingSettings {
@@ -185,7 +174,7 @@ mod tests {
     fn page_shows_the_idle_timeout_menu_and_the_energy_saver_switch() {
         let pane = pane_with(IdleTimeout::ThirtyMinutes, EnergySaverRule::StopSuggestions);
 
-        let shown = pane.page(EnergySaver::Off);
+        let shown = pane.page(EnergySaver::Off, &english());
 
         assert_eq!(
             (shown.row(IDLE_TIMEOUT), shown.row(ENERGY_SAVER)),
@@ -193,9 +182,10 @@ mod tests {
                 Some(&Row::Picker(Picker {
                     id: ControlId::new(IDLE_TIMEOUT),
                     icon: RowIcon::Moon,
-                    label: "Stop when inactive",
-                    description: "When you do not type or click for this time, TypeAlike stops suggestions \
-                         and unloads the model. It loads the model again when you type in a text field.",
+                    label: "Stop after a time without use".to_owned(),
+                    description: "When you do not type or click for this time, suggestions stop to free \
+                         memory. They start again when you type in a text field."
+                        .to_owned(),
                     choices: ["Off", "15 minutes", "30 minutes", "60 minutes"]
                         .map(str::to_owned)
                         .to_vec(),
@@ -207,9 +197,11 @@ mod tests {
                 Some(&Row::Switch(Switch {
                     id: ControlId::new(ENERGY_SAVER),
                     icon: RowIcon::Battery,
-                    label: "Stop in energy saver",
-                    description: "While energy saver or Low Power Mode is on, TypeAlike stops suggestions \
-                         and unloads the model. Suggestions start again when it goes off.",
+                    label: "Stop in energy saver".to_owned(),
+                    description:
+                        "While energy saver or Low Power Mode is on, suggestions stop to save power. \
+                         They start again when it goes off."
+                            .to_owned(),
                     is_on: true,
                     note: None,
                 })),
@@ -221,16 +213,18 @@ mod tests {
     fn page_shows_the_game_switch_below_the_energy_saver_switch() {
         let pane = EnergySavingPane::new(EnergySavingSettings::default());
 
-        let shown = pane.page(EnergySaver::Off);
+        let shown = pane.page(EnergySaver::Off, &english());
 
         assert_eq!(
             shown.sections[0].rows.get(2),
             Some(&Row::Switch(Switch {
                 id: ControlId::new(GAME),
                 icon: RowIcon::Game,
-                label: "Stop during games",
-                description: "While a game is in front, TypeAlike stops suggestions and unloads the model. \
-                     It loads the model again when you type in a text field after the game.",
+                label: "Stop during games".to_owned(),
+                description:
+                    "While you play a game, suggestions stop to free memory for the game. They start \
+                     again when you type in a text field."
+                        .to_owned(),
                 is_on: true,
                 note: None,
             }))
@@ -244,7 +238,7 @@ mod tests {
             ..EnergySavingSettings::default()
         });
 
-        let shown = pane.page(EnergySaver::Off);
+        let shown = pane.page(EnergySaver::Off, &english());
 
         assert!(matches!(shown.row(GAME), Some(Row::Switch(switch)) if !switch.is_on));
     }
@@ -253,25 +247,34 @@ mod tests {
     fn page_has_the_title_and_the_icon_of_the_pane() {
         let pane = EnergySavingPane::new(EnergySavingSettings::default());
 
-        let shown = pane.page(EnergySaver::Off);
+        let shown = pane.page(EnergySaver::Off, &english());
 
-        assert_eq!((shown.title, shown.icon), ("Energy saving", PageIcon::Lightbulb));
+        assert_eq!(
+            (shown.title.as_str(), shown.icon),
+            ("Energy saving", PageIcon::Lightbulb)
+        );
     }
 
     #[test]
     fn energy_saver_that_stops_suggestions_shows_a_note() {
         let pane = pane_with(IdleTimeout::ThirtyMinutes, EnergySaverRule::StopSuggestions);
 
-        let shown = pane.page(EnergySaver::On);
+        let shown = pane.page(EnergySaver::On, &english());
 
-        assert_eq!(energy_saver_note(&shown), Some(STOPPED_NOTE));
+        assert_eq!(
+            energy_saver_note(&shown),
+            Some(Note {
+                text: "Suggestions are off while the computer saves energy.".to_owned(),
+                tone: NoteTone::Plain,
+            })
+        );
     }
 
     #[test]
     fn energy_saver_that_keeps_suggestions_shows_no_note() {
         let pane = pane_with(IdleTimeout::ThirtyMinutes, EnergySaverRule::KeepSuggestions);
 
-        let shown = pane.page(EnergySaver::On);
+        let shown = pane.page(EnergySaver::On, &english());
 
         assert_eq!(energy_saver_note(&shown), None);
     }

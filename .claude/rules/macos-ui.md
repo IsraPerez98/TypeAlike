@@ -34,7 +34,7 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 - To match system controls, use role fonts: `menuFont`, `controlContentFont`, `labelFont`, `toolTipsFont`.
 - macOS has no Dynamic Type. Layout still grows with longer (localized) strings. No fixed-width text boxes.
 - Title case: menu items, buttons, window and pane titles. Sentence case: checkbox and switch labels, descriptions, alert body, permission purpose strings.
-- Core labels are sentence case (Windows style). Title-case them at this crate's boundary in a pure, unit-tested fn.
+- Core labels are sentence case (Windows style). Title-case them at this crate's boundary in a pure, unit-tested fn (`labels::menu_label`), only in a language with title case (`UiLanguage::has_title_case`, from the `language` of the view).
 - Menu item labels: no articles. Add an ellipsis (…) when the item needs more input before it completes (`Settings…`).
 
 ## Ghost text overlay

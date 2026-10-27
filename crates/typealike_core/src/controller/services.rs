@@ -7,6 +7,7 @@ use crate::desktop::{EnergySaver, ScreenRead};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
+use crate::localization::UiLanguage;
 use crate::settings::{Autostart, SettingsStore};
 use crate::spelling::SpellChecker;
 
@@ -27,6 +28,9 @@ pub struct Startup {
     /// Whether the energy saver of the computer is on. The platform reports each later change to
     /// [`Controller::on_energy_saver`](super::Controller::on_energy_saver).
     pub energy_saver: EnergySaver,
+    /// The language of the texts that TypeAlike shows, from the preferred languages of the user
+    /// ([`UiLanguage::for_preferred`]).
+    pub ui_language: UiLanguage,
 }
 
 /// The answer of a service. The platform gives it back to the controller on the thread that runs

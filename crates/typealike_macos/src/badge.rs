@@ -43,7 +43,7 @@ impl Badge {
             self.hide();
             return;
         };
-        let image = symbol::status_symbol(view.status, view.label);
+        let image = symbol::status_symbol(view.status, &view.label);
         if image.is_none() {
             tracing::warn!(status = ?view.status, "badge symbol is unavailable");
         }

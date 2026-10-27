@@ -5,6 +5,7 @@ use std::fmt;
 use crate::app::StopReason;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
+use crate::localization::Translations;
 use crate::settings::{
     Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
     TypoRule, WriterName, WriterNotes,
@@ -72,60 +73,17 @@ pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
 const WRITER_NAME: &str = "writer-name";
 const WRITER_NOTES: &str = "writer-notes";
-const PANE_TITLE: &str = "General";
-const PANE_SUMMARY: &str = "Change how TypeAlike runs on this computer.";
-const AUTOSTART_LABEL: &str = "Open at login";
-const AUTOSTART_DESCRIPTION: &str = "Start TypeAlike when you log in to this computer.";
-const SUGGESTION_MODEL_DESCRIPTION: &str =
-    "The model that suggests text as you type. TypeAlike loads it again when it starts.";
-const CLIPBOARD_LABEL: &str = "Use copied text";
-const CLIPBOARD_DESCRIPTION: &str = "Suggestions can use the text that you copy. TypeAlike reads the \
-     clipboard when you start to type. Where it saved your earlier writing, it reads the clipboard when you \
-     go to the text field. It does not save the copied text.";
-const CLIPBOARD_ON_FOCUS_DESCRIPTION: &str = "Suggestions can use the text that you copy. TypeAlike reads \
-     the clipboard when you go to a text field, and does not save the text.";
-const PREPARATION_LABEL: &str = "Prepare before you type";
-const PREPARATION_DESCRIPTION: &str = "When you go to a text field, the model reads the text around the \
-     caret before you type. The first suggestion then shows sooner, but this uses more power. When this \
-     switch is off, the model does this only in apps and on web pages where TypeAlike saved your earlier \
-     writing.";
-const DISPLAY_LABEL: &str = "Show words early";
-const DISPLAY_DESCRIPTION: &str = "Each word of a suggestion shows as soon as the model writes it. The first \
-     word then shows sooner, but the suggestion grows while you read it.";
-const TYPO_RULE_LABEL: &str = "Hide suggestions on typos";
-const TYPO_RULE_DESCRIPTION: &str = "While the word that you type looks like it has a typo, no suggestion \
-     finishes the word, so that Tab does not keep the typo. A rare name or term can also look like a typo.";
-const TYPO_FIX_LABEL: &str = "Fix typos";
-const TYPO_FIX_DESCRIPTION: &str = "When the word that you type looks like it has a typo, the suggestion shows \
-     the word struck through and a fix after it. Tab replaces the word with the fix.";
-const LENGTH_LABEL: &str = "Suggestion length";
-const LENGTH_DESCRIPTION: &str = "A suggestion stops at this length. A shorter suggestion shows sooner.";
-const SENTENCE_END_LABEL: &str = "Stop at the end of a sentence";
-const SENTENCE_END_DESCRIPTION: &str = "A suggestion ends with the first sentence that it finishes. When this \
-     switch is off, a suggestion can continue with the next sentence, up to its length.";
-const SENTENCE_END_OFF_NOTE: &str =
-    "Suggestions are often wrong after the first sentence. Turn on this switch to get better suggestions.";
-const LENGTH_CPU_NOTE: &str = "On the CPU, suggestions are short or very short, so that they show sooner.";
-const BACKEND_LABEL: &str = "Inference backend";
-const BACKEND_DESCRIPTION: &str =
-    "The hardware that runs the model. A GPU is faster, but the model must fit in its memory.";
-const WRITER_NAME_LABEL: &str = "Your name";
-const WRITER_NAME_DESCRIPTION: &str = "Suggestions can use your name, for example to sign an email.";
-const WRITER_NOTES_LABEL: &str = "Notes about me";
-const WRITER_NOTES_DESCRIPTION: &str = "Suggestions use these notes. Write a few short facts about you and \
-     how you write, for example your job and your languages. Write in the first person, for example “I keep my \
-     emails short.”";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
-    (SuggestionLength::VeryShort, "Very short"),
-    (SuggestionLength::Short, "Short"),
-    (SuggestionLength::Medium, "Medium"),
-    (SuggestionLength::Long, "Long"),
-    (SuggestionLength::VeryLong, "Very long"),
+    (SuggestionLength::VeryShort, "general-length-very-short"),
+    (SuggestionLength::Short, "general-length-short"),
+    (SuggestionLength::Medium, "general-length-medium"),
+    (SuggestionLength::Long, "general-length-long"),
+    (SuggestionLength::VeryLong, "general-length-very-long"),
 ];
 const BACKEND_CHOICES: [(Backend, &str); 3] = [
-    (Backend::Cpu, "CPU"),
-    (Backend::Vulkan, "Vulkan (GPU)"),
-    (Backend::Cuda, "CUDA (NVIDIA GPU)"),
+    (Backend::Cpu, "general-hardware-processor"),
+    (Backend::Vulkan, "general-hardware-graphics-card"),
+    (Backend::Cuda, "general-hardware-nvidia"),
 ];
 
 /// State of the General pane: the settings that the user changes in it.
@@ -299,105 +257,118 @@ impl GeneralPane {
         }
     }
 
-    /// Returns the page that the pane shows now, with the load state of the model that
-    /// `playground` selected and the downloaded `installed` model files.
+    /// Returns the page that the pane shows now, with the texts of `translations`, the load state
+    /// of the model that `playground` selected and the downloaded `installed` model files. The row
+    /// of the `recommended` model, if any, shows below the model menu.
     #[must_use]
-    pub fn page(&self, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
-        let switches = self.switch_rows();
+    pub fn page(
+        &self,
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+        recommended: Option<Row>,
+        translations: &Translations,
+    ) -> Page {
+        let model_picker = playground.model_picker(
+            installed,
+            ControlId::new(SUGGESTION_MODEL),
+            translations.text("general-model-description"),
+            translations,
+        );
         let suggestion_rows = [
-            Row::Picker(self.suggestion_length_picker()),
-            Row::Switch(self.sentence_end_switch()),
-            Row::Picker(playground.model_picker(
-                installed,
-                ControlId::new(SUGGESTION_MODEL),
-                SUGGESTION_MODEL_DESCRIPTION,
-            )),
+            Row::Picker(self.suggestion_length_picker(translations)),
+            Row::Switch(self.sentence_end_switch(translations)),
+            Row::Picker(model_picker),
         ];
         let backend = self
             .has_backend_menu
-            .then(|| Row::Picker(self.backend_picker(playground)));
-        let settings = switches.chain(suggestion_rows).chain(backend);
+            .then(|| Row::Picker(self.backend_picker(playground, translations)));
+        let settings = self
+            .switch_rows(translations)
+            .chain(suggestion_rows)
+            .chain(recommended)
+            .chain(backend);
         Page {
-            title: PANE_TITLE,
+            title: translations.text("general-title"),
             icon: PageIcon::Gear,
-            summary: PANE_SUMMARY,
+            summary: translations.text("general-summary"),
             search: None,
-            sections: vec![Section::new(settings.collect()), self.writer_section()],
+            sections: vec![
+                Section::new(settings.collect()),
+                self.writer_section(translations),
+            ],
         }
     }
 
-    fn switch_rows(&self) -> impl Iterator<Item = Row> {
-        let autostart = self.autostart.as_ref().map(|autostart| {
+    fn switch_rows(&self, translations: &Translations) -> impl Iterator<Item = Row> {
+        let switch = |id, icon, (label, description), is_on| {
             Row::Switch(Switch {
-                id: ControlId::new(AUTOSTART),
-                icon: RowIcon::Power,
-                label: AUTOSTART_LABEL,
-                description: AUTOSTART_DESCRIPTION,
-                is_on: autostart.is_enabled(),
+                id: ControlId::new(id),
+                icon,
+                label: translations.text(label),
+                description: translations.text(description),
+                is_on,
                 note: None,
             })
+        };
+        let autostart = self.autostart.as_ref().map(|autostart| {
+            switch(
+                AUTOSTART,
+                RowIcon::Power,
+                ("general-autostart", "general-autostart-description"),
+                autostart.is_enabled(),
+            )
         });
         let switches = [
-            Row::Switch(Switch {
-                id: ControlId::new(CLIPBOARD),
-                icon: RowIcon::Clipboard,
-                label: CLIPBOARD_LABEL,
-                description: self.clipboard_description(),
-                is_on: self.settings.clipboard_access == ClipboardAccess::Allowed,
-                note: None,
-            }),
-            Row::Switch(Switch {
-                id: ControlId::new(PREPARATION),
-                icon: RowIcon::LightningBolt,
-                label: PREPARATION_LABEL,
-                description: PREPARATION_DESCRIPTION,
-                is_on: self.settings.prompt_preparation == PromptPreparation::OnFocus,
-                note: None,
-            }),
-            Row::Switch(Switch {
-                id: ControlId::new(DISPLAY),
-                icon: RowIcon::Stopwatch,
-                label: DISPLAY_LABEL,
-                description: DISPLAY_DESCRIPTION,
-                is_on: self.settings.suggestion_display == SuggestionDisplay::WordByWord,
-                note: None,
-            }),
-            Row::Switch(Switch {
-                id: ControlId::new(TYPO_RULE),
-                icon: RowIcon::WarningSign,
-                label: TYPO_RULE_LABEL,
-                description: TYPO_RULE_DESCRIPTION,
-                is_on: self.settings.typo_rule == TypoRule::HideSuggestions,
-                note: None,
-            }),
+            switch(
+                CLIPBOARD,
+                RowIcon::Clipboard,
+                ("general-clipboard", "general-clipboard-description"),
+                self.settings.clipboard_access == ClipboardAccess::Allowed,
+            ),
+            switch(
+                PREPARATION,
+                RowIcon::LightningBolt,
+                ("general-preparation", "general-preparation-description"),
+                self.settings.prompt_preparation == PromptPreparation::OnFocus,
+            ),
+            switch(
+                DISPLAY,
+                RowIcon::Stopwatch,
+                ("general-display", "general-display-description"),
+                self.settings.suggestion_display == SuggestionDisplay::WordByWord,
+            ),
+            switch(
+                TYPO_RULE,
+                RowIcon::WarningSign,
+                ("general-typo-rule", "general-typo-rule-description"),
+                self.settings.typo_rule == TypoRule::HideSuggestions,
+            ),
         ];
         let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
-            Row::Switch(Switch {
-                id: ControlId::new(TYPO_FIX),
-                icon: RowIcon::SpellCheck,
-                label: TYPO_FIX_LABEL,
-                description: TYPO_FIX_DESCRIPTION,
-                is_on: self.settings.typo_fix == TypoFix::Offer,
-                note: None,
-            })
+            switch(
+                TYPO_FIX,
+                RowIcon::SpellCheck,
+                ("general-typo-fix", "general-typo-fix-description"),
+                self.settings.typo_fix == TypoFix::Offer,
+            )
         });
         autostart.into_iter().chain(switches).chain(typo_fix)
     }
 
-    fn writer_section(&self) -> Section {
+    fn writer_section(&self, translations: &Translations) -> Section {
         Section::new(vec![
             Row::TextLine(TextLine {
                 id: ControlId::new(WRITER_NAME),
                 icon: RowIcon::Person,
-                label: WRITER_NAME_LABEL,
-                description: WRITER_NAME_DESCRIPTION,
+                label: translations.text("general-name"),
+                description: translations.text("general-name-description"),
                 text: self.settings.writer_name.0.clone(),
             }),
             Row::TextArea(TextArea {
                 id: ControlId::new(WRITER_NOTES),
                 icon: RowIcon::Note,
-                label: WRITER_NOTES_LABEL,
-                description: WRITER_NOTES_DESCRIPTION,
+                label: translations.text("general-notes"),
+                description: translations.text("general-notes-description"),
                 text: self.settings.writer_notes.0.clone(),
                 button: None,
             }),
@@ -437,13 +408,6 @@ impl GeneralPane {
         GeneralOutcome::default()
     }
 
-    fn clipboard_description(&self) -> &'static str {
-        match self.settings.prompt_preparation {
-            PromptPreparation::OnFirstKey => CLIPBOARD_DESCRIPTION,
-            PromptPreparation::OnFocus => CLIPBOARD_ON_FOCUS_DESCRIPTION,
-        }
-    }
-
     fn action_for_pick(
         &self,
         id: &str,
@@ -473,51 +437,54 @@ impl GeneralPane {
         &LENGTH_CHOICES[..offered]
     }
 
-    fn suggestion_length_picker(&self) -> Picker {
+    fn suggestion_length_picker(&self, translations: &Translations) -> Picker {
         let choices = self.length_choices();
         let text = MenuText {
             id: LENGTH,
             icon: RowIcon::Ruler,
-            label: LENGTH_LABEL,
-            description: LENGTH_DESCRIPTION,
+            label: "general-length",
+            description: "general-length-description",
         };
         Picker {
-            note: (choices.len() < LENGTH_CHOICES.len()).then_some(Note {
-                text: LENGTH_CPU_NOTE,
+            note: (choices.len() < LENGTH_CHOICES.len()).then(|| Note {
+                text: translations.text("general-length-processor-note"),
                 tone: NoteTone::Plain,
             }),
-            ..picker(text, choices, self.settings.suggestion_length_in_use(), true)
+            ..picker(
+                text,
+                choices,
+                self.settings.suggestion_length_in_use(),
+                translations,
+            )
         }
     }
 
-    fn sentence_end_switch(&self) -> Switch {
+    fn sentence_end_switch(&self, translations: &Translations) -> Switch {
         let is_on = self.settings.sentence_end == SentenceEnd::Stop;
         Switch {
             id: ControlId::new(SENTENCE_END),
             icon: RowIcon::StopButton,
-            label: SENTENCE_END_LABEL,
-            description: SENTENCE_END_DESCRIPTION,
+            label: translations.text("general-sentence-end"),
+            description: translations.text("general-sentence-end-description"),
             is_on,
-            note: (!is_on).then_some(Note {
-                text: SENTENCE_END_OFF_NOTE,
+            note: (!is_on).then(|| Note {
+                text: translations.text("general-sentence-end-off-note"),
                 tone: NoteTone::Warning,
             }),
         }
     }
 
-    fn backend_picker(&self, playground: &PlaygroundPane) -> Picker {
+    fn backend_picker(&self, playground: &PlaygroundPane, translations: &Translations) -> Picker {
         let text = MenuText {
             id: BACKEND,
             icon: RowIcon::Chip,
-            label: BACKEND_LABEL,
-            description: BACKEND_DESCRIPTION,
+            label: "general-hardware",
+            description: "general-hardware-description",
         };
-        picker(
-            text,
-            &BACKEND_CHOICES,
-            self.settings.backend,
-            !playground.is_busy(),
-        )
+        Picker {
+            is_enabled: !playground.is_busy(),
+            ..picker(text, &BACKEND_CHOICES, self.settings.backend, translations)
+        }
     }
 }
 

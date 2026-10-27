@@ -50,13 +50,13 @@ impl Renderer<'_, '_> {
             keyed(
                 format!("{index} title"),
                 TextBlock::new()
-                    .text(page.title)
+                    .text(&page.title)
                     .font_size(TITLE_SIZE)
                     .font_weight(FontWeight::SEMI_BOLD),
             ),
             keyed(
                 format!("{index} summary"),
-                secondary_text(page.summary).margin(Thickness::new(0.0, 0.0, 0.0, HEADING_GAP)),
+                secondary_text(&page.summary).margin(Thickness::new(0.0, 0.0, 0.0, HEADING_GAP)),
             ),
         ];
         let search = page
@@ -77,9 +77,9 @@ impl Renderer<'_, '_> {
     fn search(&self, field: &SearchField) -> View {
         let box_view = AutoSuggestBox::new()
             .text(self.typed_text(&field.id, ""))
-            .placeholder_text(field.placeholder)
+            .placeholder_text(&field.placeholder)
             .query_icon(Symbol::Find)
-            .automation_name(field.placeholder)
+            .automation_name(&field.placeholder)
             .on_text_changed(self.typed_callback(&field.id));
         self.submit_on_enter(&field.id, box_view.into())
     }
@@ -109,7 +109,7 @@ impl Renderer<'_, '_> {
             let id = row.id().map_or("", ControlId::as_str);
             keyed(format!("{key} {row_index} {id}"), self.row(row))
         });
-        let footer = section.footer.map(|footer| {
+        let footer = section.footer.as_ref().map(|footer| {
             keyed(
                 format!("{key} footer"),
                 secondary_text(footer).margin(Thickness::new(0.0, CARD_GAP, 0.0, 0.0)),
@@ -137,12 +137,12 @@ impl Renderer<'_, '_> {
     }
 
     fn switch_card(&self, switch: &Switch) -> View {
-        let toggle = self.toggle_switch(&switch.id, switch.label).is_on(switch.is_on);
+        let toggle = self.toggle_switch(&switch.id, &switch.label).is_on(switch.is_on);
         control_card(
             setting_header(
                 switch.icon,
-                switch.label,
-                switch.description,
+                &switch.label,
+                &switch.description,
                 switch.note.as_ref(),
             ),
             toggle.into(),
@@ -196,12 +196,12 @@ impl Renderer<'_, '_> {
         let menu = self
             .picker_menu(&picker.id, &picker.choices, picker.selected)
             .is_enabled(picker.is_enabled)
-            .automation_name(picker.label);
+            .automation_name(&picker.label);
         control_card(
             setting_header(
                 picker.icon,
-                picker.label,
-                picker.description,
+                &picker.label,
+                &picker.description,
                 picker.note.as_ref(),
             ),
             menu.into(),
@@ -211,7 +211,7 @@ impl Renderer<'_, '_> {
     fn text_area_card(&self, area: &TextArea) -> View {
         let field = View::component::<TextAreaBox>(TextAreaBoxInput {
             text: self.typed_text(&area.id, &area.text).to_owned(),
-            label: area.label,
+            label: area.label.clone(),
             on_text_changed: self.edited_callback(&area.id),
         });
         let button = area
@@ -219,7 +219,7 @@ impl Renderer<'_, '_> {
             .as_ref()
             .map(|button| self.button(button, ButtonStyle::Default));
         stacked_card(
-            setting_header(area.icon, area.label, area.description, None),
+            setting_header(area.icon, &area.label, &area.description, None),
             iter::once(field).chain(button).collect(),
         )
     }
@@ -228,10 +228,10 @@ impl Renderer<'_, '_> {
         let field = TextBox::new()
             .text(self.typed_text(&line.id, &line.text))
             .min_width(TEXT_LINE_MIN_WIDTH)
-            .automation_name(line.label)
+            .automation_name(&line.label)
             .on_text_changed(self.edited_callback(&line.id));
         control_card(
-            setting_header(line.icon, line.label, line.description, None),
+            setting_header(line.icon, &line.label, &line.description, None),
             field.into(),
         )
     }
@@ -239,8 +239,8 @@ impl Renderer<'_, '_> {
     fn text_field_card(&self, field: &TextField) -> View {
         let text_box = TextBox::new()
             .text(self.typed_text(&field.id, ""))
-            .placeholder_text(field.placeholder)
-            .automation_name(field.label)
+            .placeholder_text(&field.placeholder)
+            .automation_name(&field.label)
             .on_text_changed(self.typed_callback(&field.id));
         let input: View = if field.is_submit_enabled {
             self.submit_on_enter(&field.id, text_box.into())
@@ -248,7 +248,7 @@ impl Renderer<'_, '_> {
             text_box.into()
         };
         let submit = Button::new()
-            .content(field.submit_label)
+            .content(field.submit_label.as_str())
             .is_enabled(field.is_submit_enabled)
             .style(ButtonStyle::Accent)
             .on_click(self.context.message(PageMessage::Submit(field.id.clone())));
@@ -257,7 +257,7 @@ impl Renderer<'_, '_> {
             .column_spacing(HEADING_GAP)
             .children((Border::new().grid_column(0).content(input), submit.grid_column(1)));
         stacked_card(
-            setting_header(field.icon, field.label, "", None),
+            setting_header(field.icon, &field.label, "", None),
             vec![line.into()],
         )
     }
@@ -360,7 +360,7 @@ impl Renderer<'_, '_> {
 
     fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
         Button::new()
-            .content(button.label)
+            .content(button.label.as_str())
             .is_enabled(button.is_enabled)
             .style(style)
             .on_click(

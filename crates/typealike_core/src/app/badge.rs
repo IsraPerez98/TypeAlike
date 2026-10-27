@@ -3,6 +3,7 @@
 use std::slice;
 
 use super::Status;
+use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextApp,
     ScreenTextSettings, SuggestionPlaces,
@@ -10,12 +11,23 @@ use crate::settings::{
 
 /// The badge at the caret of the field where the user types: a button that opens the
 /// [`BadgeMenu`]. It shows above the caret, on the side opposite to the ghost text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BadgeView {
     /// Status the glyph must reflect: paused also in a place where suggestions are off.
     pub status: Status,
     /// The name of the app and its status, for assistive technology.
-    pub label: &'static str,
+    pub label: String,
+}
+
+/// The settings that the entries of the badge menu show and change.
+#[derive(Debug, Clone, Copy)]
+pub struct BadgeSettings<'settings> {
+    /// The apps and the websites where suggestions show.
+    pub suggestion_places: &'settings SuggestionPlaces,
+    /// The apps where TypeAlike reads the screen text.
+    pub screen_text: &'settings ScreenTextSettings,
+    /// The earlier writing of each app.
+    pub personalization: &'settings PersonalizationSettings,
 }
 
 /// An action the user can pick from the menu of the badge at the caret.
@@ -89,6 +101,8 @@ pub enum BadgeEntry {
 pub struct BadgeMenu {
     /// The lines of the menu, top to bottom.
     pub entries: Vec<BadgeEntry>,
+    /// The language of the texts.
+    pub language: UiLanguage,
 }
 
 impl BadgeMenu {
@@ -106,6 +120,7 @@ impl BadgeMenu {
     ///
     /// ```
     /// use typealike_core::app::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu};
+    /// use typealike_core::localization::UiLanguage;
     ///
     /// let pause = BadgeItem {
     ///     label: "Pause suggestions".to_owned(),
@@ -115,6 +130,7 @@ impl BadgeMenu {
     /// };
     /// let menu = BadgeMenu {
     ///     entries: vec![BadgeEntry::Separator, BadgeEntry::Item(pause)],
+    ///     language: UiLanguage::English,
     /// };
     ///
     /// assert_eq!(menu.command(0), Some(&BadgeCommand::TogglePause));
@@ -134,16 +150,16 @@ pub(super) struct TypedPlace<'place> {
     pub(super) host: Option<&'place str>,
 }
 
-/// The entries of the badge menu for `place`: the suggestion switches of its app and of its
-/// website, then the screen text switch and the menu of the scope of its app, each when its list
-/// has the app or the website. The entries of the app are dimmed while suggestions are off in
-/// `place`.
+/// The entries of the badge menu for `place`, with the texts of `translations`: the suggestion
+/// switches of its app and of its website, then the screen text switch and the menu of the scope
+/// of its app, each when the list of `settings` has the app or the website. The entries of the app
+/// are dimmed while suggestions are off in `place`.
 pub(super) fn place_entries(
     place: &TypedPlace<'_>,
-    suggestion_places: &SuggestionPlaces,
-    screen_text: &ScreenTextSettings,
-    personalization: &PersonalizationSettings,
+    settings: &BadgeSettings<'_>,
+    translations: &Translations,
 ) -> Vec<BadgeEntry> {
+    let suggestion_places = settings.suggestion_places;
     let app_switch = place
         .app
         .and_then(|typed| {
@@ -154,7 +170,10 @@ pub(super) fn place_entries(
         })
         .map(|app| {
             suggestion_switch(
-                format!("Show suggestions in {}", app.app_name),
+                translations.text_with(
+                    "badge-app-suggestions",
+                    &[("app", MessageArgument::Text(&app.app_name))],
+                ),
                 BadgeCommand::SwitchAppSuggestions {
                     app_id: app.app_id.clone(),
                     is_on: !app.is_on,
@@ -167,7 +186,10 @@ pub(super) fn place_entries(
         .and_then(|host| suggestion_places.sites.iter().find(|site| site.host == host))
         .map(|site| {
             suggestion_switch(
-                format!("Show suggestions on {}", site.host),
+                translations.text_with(
+                    "badge-site-suggestions",
+                    &[("host", MessageArgument::Text(&site.host))],
+                ),
                 BadgeCommand::SwitchSiteSuggestions {
                     host: site.host.clone(),
                     is_on: !site.is_on,
@@ -178,7 +200,7 @@ pub(super) fn place_entries(
     let app_id = place.app.map(|app| app.app_id.as_str());
     let is_place_on = suggestion_places.allows(app_id, place.host);
     let app_entries = app_id
-        .map(|app_id| app_entries(app_id, screen_text, personalization, is_place_on))
+        .map(|app_id| app_entries(app_id, settings, is_place_on, translations))
         .unwrap_or_default();
     [app_switch, site_switch]
         .into_iter()
@@ -198,21 +220,29 @@ fn suggestion_switch(label: String, command: BadgeCommand, is_on: bool) -> Badge
 }
 
 /// The entries of the badge menu for the app with `app_id`: its screen text switch and the menu
-/// of its scope, each when its list has the app. An entry is dimmed while its main switch is off
-/// or `is_place_on` is false.
+/// of its scope, each when the list of `settings` has the app. An entry is dimmed while its main
+/// switch is off or `is_place_on` is false.
 fn app_entries(
     app_id: &str,
-    screen_text: &ScreenTextSettings,
-    personalization: &PersonalizationSettings,
+    settings: &BadgeSettings<'_>,
     is_place_on: bool,
+    translations: &Translations,
 ) -> Vec<BadgeEntry> {
+    let BadgeSettings {
+        screen_text,
+        personalization,
+        ..
+    } = *settings;
     let screen_switch = screen_text
         .apps
         .iter()
         .find(|app| app.app_id == app_id)
         .map(|app| {
             BadgeEntry::Item(BadgeItem {
-                label: format!("Use screen text in {}", app.app_name),
+                label: translations.text_with(
+                    "badge-app-screen-text",
+                    &[("app", MessageArgument::Text(&app.app_name))],
+                ),
                 command: BadgeCommand::SwitchScreenText {
                     app_id: app.app_id.clone(),
                     is_on: !app.is_on,
@@ -227,11 +257,14 @@ fn app_entries(
         .iter()
         .find(|app| app.app_id == app_id)
         .map(|app| BadgeEntry::Submenu {
-            label: format!("Earlier writing in {}", app.app_name),
+            label: translations.text_with(
+                "badge-app-earlier-writing",
+                &[("app", MessageArgument::Text(&app.app_name))],
+            ),
             items: HistoryScope::CHOICES
                 .iter()
-                .map(|&(scope, title)| BadgeItem {
-                    label: title.to_owned(),
+                .map(|&(scope, message)| BadgeItem {
+                    label: translations.text(message),
                     command: BadgeCommand::SelectHistoryScope {
                         app_id: app.app_id.clone(),
                         scope,

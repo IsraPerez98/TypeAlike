@@ -11,6 +11,7 @@ use crate::inference::{
     Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd,
     TokenCount, TypoCheck,
 };
+use crate::localization::{Translations, UiLanguage};
 use crate::prompt::framed_prompt;
 use crate::settings::{HistoryApp, HistoryScope, ScreenTextApp, Settings, SuggestionApp, SuggestionSite};
 use crate::settings_window::view::{ControlId, Page, Row, SettingsInput};
@@ -20,20 +21,31 @@ mod writing_rules;
 
 pub(crate) use writing_rules::{UiText, writing_rule_breaks};
 
-pub(crate) const ACTIVE_BADGE: BadgeView = BadgeView {
-    status: Status::Active,
-    label: "TypeAlike",
-};
+/// The texts of the UI in English, the language of the source texts.
+pub(crate) fn english() -> Translations {
+    Translations::new(UiLanguage::English)
+}
 
-pub(crate) const PAUSED_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "TypeAlike (paused)",
-};
+pub(crate) fn active_badge() -> BadgeView {
+    BadgeView {
+        status: Status::Active,
+        label: "TypeAlike".to_owned(),
+    }
+}
 
-pub(crate) const OFF_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "TypeAlike (off here)",
-};
+pub(crate) fn paused_badge() -> BadgeView {
+    BadgeView {
+        status: Status::Paused,
+        label: "TypeAlike (paused)".to_owned(),
+    }
+}
+
+pub(crate) fn off_badge() -> BadgeView {
+    BadgeView {
+        status: Status::Paused,
+        label: "TypeAlike (off here)".to_owned(),
+    }
+}
 
 /// The request of a completion without word bias, which a test changes where its settings differ
 /// from the default settings.

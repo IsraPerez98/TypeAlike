@@ -6,7 +6,7 @@ use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, Timer};
 use crate::desktop::ScreenRect;
 use crate::key::Key;
 use crate::settings::Settings;
-use crate::test_support::{ACTIVE_BADGE, PAUSED_BADGE};
+use crate::test_support::{active_badge, paused_badge};
 
 const CARET_HEIGHT: i32 = 20;
 pub(super) const OLD_CARET: i32 = 100;
@@ -87,7 +87,7 @@ fn look_shows_the_ghost_and_the_badge_at_its_caret() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -125,7 +125,7 @@ fn caret_that_did_not_move_after_a_key_gets_only_the_badge_and_a_new_look() {
     assert_eq!(
         harness.take_calls(),
         vec![
-            ghost_at_caret(None, Some(ACTIVE_BADGE)),
+            ghost_at_caret(None, Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
     );
@@ -142,7 +142,7 @@ fn caret_that_moved_after_a_key_gets_the_ghost_at_once() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
     );
 }
 
@@ -158,7 +158,7 @@ fn ghost_shows_at_the_caret_that_did_not_move_after_the_last_check() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
     );
 }
 
@@ -176,7 +176,7 @@ fn badge_look_at_the_old_caret_keeps_the_next_ghost_off_that_caret() {
     assert_eq!(
         harness.take_calls(),
         vec![
-            ghost_at_caret(None, Some(ACTIVE_BADGE)),
+            ghost_at_caret(None, Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
     );
@@ -196,7 +196,7 @@ fn earlier_suggestion_after_a_backspace_shows_at_once_at_the_caret_where_it_show
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est regards"), Some(active_badge()))]
     );
 }
 
@@ -216,7 +216,7 @@ fn rest_after_a_fix_of_the_same_length_shows_at_once_at_the_same_caret() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" end"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" end"), Some(active_badge()))]
     );
 }
 
@@ -247,7 +247,7 @@ fn look_without_a_caret_renders_the_ghost_and_the_badge() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -262,7 +262,7 @@ fn look_without_a_field_frame_shows_a_far_caret() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("est"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some("est"), Some(active_badge()))]
     );
 }
 
@@ -293,7 +293,7 @@ fn pause_shows_the_paused_badge_when_the_look_comes() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(None, Some(PAUSED_BADGE))]
+        vec![ghost_at_caret(None, Some(paused_badge()))]
     );
 }
 
@@ -309,7 +309,7 @@ fn caret_read_at_once_that_did_not_move_after_a_key_gets_only_the_badge_and_a_ne
     assert_eq!(
         harness.take_calls(),
         vec![
-            ghost_at_caret(None, Some(ACTIVE_BADGE)),
+            ghost_at_caret(None, Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
     );
@@ -327,7 +327,7 @@ fn caret_read_at_once_that_moved_after_a_key_gets_the_ghost() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some(" regards"), Some(ACTIVE_BADGE))]
+        vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
     );
 }
 

@@ -1,5 +1,6 @@
 //! The writing rules of the text that the user sees: ASD-STE100 (`.claude/rules/ste100.md`), the
-//! sentence case of Fluent (`.claude/rules/windows-ui.md`) and the terms of `PRODUCT.md`.
+//! sentence case of Fluent (`.claude/rules/windows-ui.md`), and the terms and the table "Not in the
+//! UI" of `PRODUCT.md`.
 
 use crate::settings_window::view::{Accessory, Button, ChoiceText, Page, Row, Section, SettingsView};
 
@@ -34,9 +35,31 @@ const REPLACED_TERMS: [(&str, &str); 7] = [
     ("llm", "model"),
 ];
 
+/// The words of the code and the docs that the UI does not show (`PRODUCT.md`, "Not in the UI").
+const CODE_WORDS: [&str; 17] = [
+    "backend",
+    "caret",
+    "token",
+    "tokens",
+    "prompt",
+    "prompts",
+    "inference",
+    "ghost",
+    "load",
+    "loads",
+    "loaded",
+    "loading",
+    "unload",
+    "unloads",
+    "unloaded",
+    "unloading",
+    "gguf",
+];
+
 /// The names that keep their capital letters inside a text in sentence case: the names of the
-/// product, of its services and of the apps of the tests.
-const PROPER_NAMES: [&str; 3] = ["TypeAlike", "Hugging Face", "Safari"];
+/// product, of its services, of a graphics interface, of a pane of macOS and of the apps of the
+/// tests.
+const PROPER_NAMES: [&str; 5] = ["TypeAlike", "Hugging Face", "Vulkan", "System Settings", "Safari"];
 
 /// The word that takes the place of a proper name before the check of the sentence case.
 const PROPER_NAME_STAND_IN: &str = "name";
@@ -95,8 +118,8 @@ impl SettingsView {
 impl Page {
     /// The texts of the page, without the text of the user, of a model and of an app.
     pub(crate) fn texts(&self) -> Vec<UiText> {
-        let mut texts = vec![UiText::name(self.title), UiText::prose(self.summary)];
-        texts.extend(self.search.iter().map(|search| UiText::name(search.placeholder)));
+        let mut texts = vec![UiText::name(&self.title), UiText::prose(&self.summary)];
+        texts.extend(self.search.iter().map(|search| UiText::name(&search.placeholder)));
         texts.extend(self.sections.iter().flat_map(section_texts));
         texts
     }
@@ -106,22 +129,22 @@ fn section_texts(section: &Section) -> Vec<UiText> {
     let mut texts: Vec<UiText> = section.heading.iter().map(UiText::name).collect();
     texts.extend(section.back.iter().map(button_text));
     texts.extend(section.rows.iter().flat_map(row_texts));
-    texts.extend(section.footer.iter().map(|footer| UiText::prose(*footer)));
+    texts.extend(section.footer.iter().map(UiText::prose));
     texts
 }
 
 fn row_texts(row: &Row) -> Vec<UiText> {
     match row {
         Row::Switch(switch) => labeled(
-            switch.label,
-            switch.description,
-            switch.note.iter().map(|note| note.text),
+            &switch.label,
+            &switch.description,
+            switch.note.iter().map(|note| note.text.as_str()),
         ),
         Row::Picker(picker) => {
             let mut texts = labeled(
-                picker.label,
-                picker.description,
-                picker.note.iter().map(|note| note.text),
+                &picker.label,
+                &picker.description,
+                picker.note.iter().map(|note| note.text.as_str()),
             );
             if picker.choice_text == ChoiceText::Label {
                 texts.extend(picker.choices.iter().map(UiText::name));
@@ -130,24 +153,24 @@ fn row_texts(row: &Row) -> Vec<UiText> {
         }
         Row::AppPicker(picker) => picker.choices.iter().map(UiText::name).collect(),
         Row::TextArea(text_area) => {
-            let mut texts = labeled(text_area.label, text_area.description, None);
+            let mut texts = labeled(&text_area.label, &text_area.description, None);
             texts.extend(text_area.button.iter().map(button_text));
             texts
         }
-        Row::TextLine(text_line) => labeled(text_line.label, text_line.description, None),
+        Row::TextLine(text_line) => labeled(&text_line.label, &text_line.description, None),
         Row::TextField(text_field) => vec![
-            UiText::name(text_field.label),
-            UiText::name(text_field.placeholder),
-            UiText::name(text_field.submit_label),
+            UiText::name(&text_field.label),
+            UiText::name(&text_field.placeholder),
+            UiText::name(&text_field.submit_label),
         ],
-        Row::Note(note) => vec![UiText::prose(note.text)],
+        Row::Note(note) => vec![UiText::prose(&note.text)],
         Row::Output(output) => vec![UiText::prose(&output.detail)],
         Row::Item(item) => {
             let mut texts = vec![UiText::prose(&item.subtitle), UiText::prose(&item.detail)];
             texts.extend(accessory_button(&item.accessory).map(button_text));
             texts
         }
-        Row::Loading(text) => vec![UiText::prose(*text)],
+        Row::Loading(text) => vec![UiText::prose(text)],
         Row::Message(message) => {
             let mut texts = vec![UiText::prose(&message.text)];
             texts.extend(message.button.iter().map(button_text));
@@ -168,7 +191,7 @@ fn labeled<'note>(
 }
 
 fn button_text(button: &Button) -> UiText {
-    UiText::name(button.label)
+    UiText::name(&button.label)
 }
 
 fn accessory_button(accessory: &Accessory) -> Option<&Button> {
@@ -208,6 +231,12 @@ fn breaks_of(text: &UiText) -> Vec<String> {
             .iter()
             .filter_map(|word| replaced_term(word))
             .map(|(word, term)| format!("says “{word}”, not “{term}”")),
+    );
+    breaks.extend(
+        words
+            .iter()
+            .filter(|word| CODE_WORDS.contains(&word.as_str()))
+            .map(|word| format!("has the code word “{word}”")),
     );
     match text.role {
         TextRole::Name => breaks.extend(
@@ -280,7 +309,9 @@ mod tests {
         let texts = [
             UiText::name("Show suggestions in Safari"),
             UiText::name("Search Hugging Face"),
-            UiText::prose("TypeAlike cannot load this model. Select another model, or download it again."),
+            UiText::name("Graphics card (Vulkan)"),
+            UiText::name("Open System Settings"),
+            UiText::prose("TypeAlike cannot use this model. Select another model, or download it again."),
         ];
 
         let breaks = writing_rule_breaks(&texts);
@@ -316,15 +347,19 @@ mod tests {
                 "“The completion stopped”: says “completion”, not “suggestion”",
             ),
             (
+                UiText::prose("TypeAlike unloads the model"),
+                "“TypeAlike unloads the model”: has the code word “unloads”",
+            ),
+            (
                 UiText::name("Screen Text"),
                 "“Screen Text”: is not in sentence case at “Text”",
             ),
             (
                 UiText::prose(
-                    "When you do not type or click for this time, TypeAlike stops suggestions and unloads the model so \
+                    "When you do not type or click for this time, TypeAlike stops suggestions and frees its memory so \
                      that the computer has much more free memory.",
                 ),
-                "“When you do not type or click for this time, TypeAlike stops suggestions and unloads the model so \
+                "“When you do not type or click for this time, TypeAlike stops suggestions and frees its memory so \
                  that the computer has much more free memory.”: has a sentence of 26 words, more than 25",
             ),
         ];

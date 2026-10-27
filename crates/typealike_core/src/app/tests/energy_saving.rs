@@ -5,12 +5,16 @@ use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayItem, Tray
 use crate::desktop::EnergySaver;
 use crate::engine::Reaction;
 use crate::key::Key;
+use crate::localization::UiLanguage;
 use crate::settings::{EnergySaverRule, EnergySavingSettings, Settings};
+use crate::test_support::english;
 
-const ENERGY_SAVER_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "TypeAlike (off to save energy)",
-};
+fn energy_saver_badge() -> BadgeView {
+    BadgeView {
+        status: Status::Paused,
+        label: "TypeAlike (off to save energy)".to_owned(),
+    }
+}
 
 fn app_keeping_suggestions_in_energy_saver() -> App {
     let mut app = App::new();
@@ -100,7 +104,7 @@ fn typing_in_energy_saver_shows_the_energy_saver_badge() {
 
     app.on_key(Key::Char('H'), &MAIL);
 
-    assert_eq!(app.badge_view(), Some(ENERGY_SAVER_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(energy_saver_badge()));
 }
 
 #[test]
@@ -111,8 +115,8 @@ fn paused_badge_shows_while_suggestions_are_paused_in_energy_saver() {
     app.on_key(Key::Char('H'), &MAIL);
 
     assert_eq!(
-        app.badge_view().map(|badge| badge.label),
-        Some("TypeAlike (paused)")
+        app.badge_view(&english()).map(|badge| badge.label),
+        Some("TypeAlike (paused)".to_owned())
     );
 }
 
@@ -120,27 +124,28 @@ fn paused_badge_shows_while_suggestions_are_paused_in_energy_saver() {
 fn tray_in_energy_saver_shows_the_stop_and_offers_the_pause() {
     let app = app_in_energy_saver();
 
-    let view = app.tray_view();
+    let view = app.tray_view(&english());
 
     assert_eq!(
         view,
         TrayView {
             status: Status::Paused,
-            tooltip: "TypeAlike (off to save energy)",
+            tooltip: "TypeAlike (off to save energy)".to_owned(),
             items: vec![
                 TrayItem {
-                    label: "Pause suggestions",
+                    label: "Pause suggestions".to_owned(),
                     command: TrayCommand::TogglePause
                 },
                 TrayItem {
-                    label: "Settings…",
+                    label: "Settings…".to_owned(),
                     command: TrayCommand::OpenSettings
                 },
                 TrayItem {
-                    label: "Quit TypeAlike",
+                    label: "Quit TypeAlike".to_owned(),
                     command: TrayCommand::Quit
                 },
             ],
+            language: UiLanguage::English,
         }
     );
 }
@@ -203,7 +208,7 @@ fn idle_timeout_ends_the_session_and_hides_the_badge() {
     let reaction = app.on_idle();
 
     assert_eq!(
-        (reaction, app.text_before_caret(), app.badge_view()),
+        (reaction, app.text_before_caret(), app.badge_view(&english())),
         (Reaction::Hide, "", None)
     );
 }

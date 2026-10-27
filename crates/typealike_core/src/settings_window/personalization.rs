@@ -1,6 +1,7 @@
 //! The Personalization pane of the settings window: whether suggestions use the text that the
 //! user wrote before, in which apps, and how much they prefer the words of the user.
 
+use crate::localization::Translations;
 use crate::settings::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, SuggestionPlaces, WordChoice,
 };
@@ -51,37 +52,16 @@ const KEPT_TEXTS: &str = "personalization-kept-texts";
 const WORD_CHOICE: &str = "personalization-word-choice";
 const APP_PREFIX: &str = "personalization-app:";
 pub(crate) const DELETE: &str = "personalization-delete";
-const PANE_TITLE: &str = "Personalization";
-const PANE_SUMMARY: &str = "Suggestions can use text that you wrote before. TypeAlike saves this text only on \
-     this computer, in a locked file. TypeAlike does not save text from password fields.";
-const HISTORY_LABEL: &str = "Use earlier writing";
-const HISTORY_DESCRIPTION: &str =
-    "When this switch is on, TypeAlike saves the text that you write. Suggestions use this text as examples.";
-const KEPT_TEXTS_LABEL: &str = "Text to save";
-const KEPT_TEXTS_DESCRIPTION: &str =
-    "TypeAlike saves your text when you finish it, for example when you send a message.";
 const KEPT_TEXTS_CHOICES: [(KeptTexts, &str); 2] = [
-    (KeptTexts::AcceptedOnly, "Only text where you used a suggestion"),
-    (KeptTexts::All, "All text"),
+    (KeptTexts::AcceptedOnly, "personalization-kept-texts-accepted"),
+    (KeptTexts::All, "personalization-kept-texts-all"),
 ];
-const WORD_CHOICE_LABEL: &str = "Word choice";
-const WORD_CHOICE_DESCRIPTION: &str = "Suggestions use more of the words that you often write. A word that you \
-     often write after the same three words shows at once. A stronger setting gives more of these words, but a \
-     suggestion can match your text less well.";
 const WORD_CHOICE_CHOICES: [(WordChoice, &str); 4] = [
-    (WordChoice::Off, "Off"),
-    (WordChoice::Light, "Light"),
-    (WordChoice::Medium, "Medium"),
-    (WordChoice::Strong, "Strong"),
+    (WordChoice::Off, "personalization-word-choice-off"),
+    (WordChoice::Light, "personalization-word-choice-light"),
+    (WordChoice::Medium, "personalization-word-choice-medium"),
+    (WordChoice::Strong, "personalization-word-choice-strong"),
 ];
-const WORD_CHOICE_OFF_NOTE: &str = "To use this setting, turn on “Use earlier writing”.";
-const APPS_FOOTER: &str = "TypeAlike saves text only from the apps that are not off. The text of an app with “All \
-     apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text of the same app \
-     first. When a suggestion shows in an app for the first time, TypeAlike adds the app to this list. When you \
-     turn off an app, TypeAlike deletes the text that it saved from the app.";
-const DELETE_DESCRIPTION: &str = "This deletes all the text that TypeAlike saved. You cannot undo this.";
-const DELETE_LABEL: &str = "Delete all earlier writing";
-const CONFIRM_DELETE_LABEL: &str = "Press again to delete";
 
 /// State of the Personalization pane: the settings, and whether the delete button waits for its
 /// second press.
@@ -194,75 +174,87 @@ impl PersonalizationPane {
         }
     }
 
-    /// Returns the page that the pane shows now. The menu of an app is dimmed while
-    /// `suggestion_places` turns its suggestions off.
+    /// Returns the page that the pane shows now, with the texts of `translations`. The menu of an
+    /// app is dimmed while `suggestion_places` turns its suggestions off.
     #[must_use]
-    pub fn page(&self, suggestion_places: &SuggestionPlaces) -> Page {
+    pub fn page(&self, suggestion_places: &SuggestionPlaces, translations: &Translations) -> Page {
         let is_on = self.settings.history == HistoryAccess::On;
+        let apps = app_list_section(
+            self.app_rows(is_on, suggestion_places, translations),
+            "personalization-apps-footer",
+            translations,
+        );
         Page {
-            title: PANE_TITLE,
+            title: translations.text("personalization-title"),
             icon: PageIcon::PersonText,
-            summary: PANE_SUMMARY,
+            summary: translations.text("personalization-summary"),
             search: None,
             sections: vec![
-                self.main_section(is_on),
-                app_list_section(self.app_rows(is_on, suggestion_places), APPS_FOOTER),
-                self.delete_section(),
+                self.main_section(is_on, translations),
+                apps,
+                self.delete_section(translations),
             ],
         }
     }
 
-    fn main_section(&self, is_on: bool) -> Section {
+    fn main_section(&self, is_on: bool, translations: &Translations) -> Section {
+        let kept_texts = MenuText {
+            id: KEPT_TEXTS,
+            icon: RowIcon::FloppyDisk,
+            label: "personalization-kept-texts",
+            description: "personalization-kept-texts-description",
+        };
+        let word_choice = MenuText {
+            id: WORD_CHOICE,
+            icon: RowIcon::Letters,
+            label: "personalization-word-choice",
+            description: "personalization-word-choice-description",
+        };
         Section::new(vec![
             Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
                 icon: RowIcon::ClockArrow,
-                label: HISTORY_LABEL,
-                description: HISTORY_DESCRIPTION,
+                label: translations.text("personalization-history"),
+                description: translations.text("personalization-history-description"),
                 is_on,
                 note: None,
             }),
-            Row::Picker(picker(
-                MenuText {
-                    id: KEPT_TEXTS,
-                    icon: RowIcon::FloppyDisk,
-                    label: KEPT_TEXTS_LABEL,
-                    description: KEPT_TEXTS_DESCRIPTION,
-                },
-                &KEPT_TEXTS_CHOICES,
-                self.settings.kept_texts,
-                is_on,
-            )),
             Row::Picker(Picker {
-                note: (!is_on).then_some(Note {
-                    text: WORD_CHOICE_OFF_NOTE,
+                is_enabled: is_on,
+                ..picker(
+                    kept_texts,
+                    &KEPT_TEXTS_CHOICES,
+                    self.settings.kept_texts,
+                    translations,
+                )
+            }),
+            Row::Picker(Picker {
+                is_enabled: is_on,
+                note: (!is_on).then(|| Note {
+                    text: translations.text("personalization-word-choice-needs-history"),
                     tone: NoteTone::Plain,
                 }),
                 ..picker(
-                    MenuText {
-                        id: WORD_CHOICE,
-                        icon: RowIcon::Letters,
-                        label: WORD_CHOICE_LABEL,
-                        description: WORD_CHOICE_DESCRIPTION,
-                    },
+                    word_choice,
                     &WORD_CHOICE_CHOICES,
                     self.settings.word_choice,
-                    is_on,
+                    translations,
                 )
             }),
         ])
     }
 
-    fn delete_section(&self) -> Section {
+    fn delete_section(&self, translations: &Translations) -> Section {
+        let label = if self.is_delete_pending {
+            "personalization-delete-confirm"
+        } else {
+            "personalization-delete"
+        };
         Section::new(vec![Row::Message(Message {
-            text: DELETE_DESCRIPTION.to_owned(),
+            text: translations.text("personalization-delete-description"),
             button: Some(Button {
                 id: ControlId::new(DELETE),
-                label: if self.is_delete_pending {
-                    CONFIRM_DELETE_LABEL
-                } else {
-                    DELETE_LABEL
-                },
+                label: translations.text(label),
                 is_enabled: true,
             }),
         })])
@@ -270,7 +262,12 @@ impl PersonalizationPane {
 
     /// The menu of each app, dimmed while the main switch is off or `suggestion_places` turns the
     /// suggestions of the app off.
-    fn app_rows(&self, is_on: bool, suggestion_places: &SuggestionPlaces) -> Vec<Row> {
+    fn app_rows(
+        &self,
+        is_on: bool,
+        suggestion_places: &SuggestionPlaces,
+        translations: &Translations,
+    ) -> Vec<Row> {
         self.settings
             .apps
             .iter()
@@ -280,7 +277,7 @@ impl PersonalizationPane {
                     app_id: app.app_id.clone(),
                     app_path: app.app_path.clone(),
                     app_name: app.app_name.clone(),
-                    choices: choice_titles(&HistoryScope::CHOICES),
+                    choices: choice_titles(&HistoryScope::CHOICES, translations),
                     selected: choice_index(&HistoryScope::CHOICES, app.scope),
                     is_enabled: is_on && suggestion_places.allows(Some(&app.app_id), None),
                 })
@@ -300,7 +297,7 @@ fn change_to<Value: PartialEq>(setting: &mut Value, value: Value) -> Personaliza
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{history_app, picked, suggestion_app, toggled};
+    use crate::test_support::{english, history_app, picked, suggestion_app, toggled};
 
     fn pane_with(history: HistoryAccess, apps: Vec<HistoryApp>) -> PersonalizationPane {
         PersonalizationPane::new(PersonalizationSettings {
@@ -352,16 +349,16 @@ mod tests {
     fn page_shows_the_main_switch_off_by_default() {
         let pane = PersonalizationPane::new(PersonalizationSettings::default());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             shown.row(HISTORY),
             Some(&Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
                 icon: RowIcon::ClockArrow,
-                label: "Use earlier writing",
-                description: "When this switch is on, TypeAlike saves the text that you write. Suggestions use \
-                     this text as examples.",
+                label: "Use earlier writing".to_owned(),
+                description: "TypeAlike saves the text that you write in an encrypted file on this computer. Suggestions then use your words and your style. When you turn this off, the saved text stays until you delete it at the bottom of this page."
+                    .to_owned(),
                 is_on: false,
                 note: None,
             }))
@@ -372,7 +369,7 @@ mod tests {
     fn menus_show_a_floppy_disk_and_letters() {
         let pane = PersonalizationPane::new(PersonalizationSettings::default());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             (
@@ -387,13 +384,16 @@ mod tests {
     fn main_switch_off_dims_the_menus_and_tells_how_to_use_the_word_choice() {
         let pane = pane_with(HistoryAccess::Off, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             (
                 picker_of(&shown, KEPT_TEXTS).is_enabled,
                 picker_of(&shown, WORD_CHOICE).is_enabled,
-                picker_of(&shown, WORD_CHOICE).note.as_ref().map(|note| note.text),
+                picker_of(&shown, WORD_CHOICE)
+                    .note
+                    .as_ref()
+                    .map(|note| note.text.as_str()),
             ),
             (
                 false,
@@ -407,7 +407,7 @@ mod tests {
     fn main_switch_on_enables_the_menus() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             (
@@ -423,7 +423,7 @@ mod tests {
     fn menus_show_their_entries_and_the_defaults() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             [KEPT_TEXTS, WORD_CHOICE].map(|id| {
@@ -453,7 +453,7 @@ mod tests {
             vec![history_app("com.apple.mail", "Mail", HistoryScope::ThisApp)],
         );
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             shown.sections[1].rows,
@@ -483,7 +483,7 @@ mod tests {
             ..SuggestionPlaces::default()
         };
 
-        let shown = pane.page(&places);
+        let shown = pane.page(&places, &english());
 
         assert_eq!(
             shown.sections[1]
@@ -502,16 +502,12 @@ mod tests {
     fn app_list_tells_what_each_scope_does() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
-            shown.sections[1].footer,
+            shown.sections[1].footer.as_deref(),
             Some(
-                "TypeAlike saves text only from the apps that are not off. The text of an app with “All \
-                 apps” also helps suggestions in the other apps with “All apps”. Suggestions use the text \
-                 of the same app first. When a suggestion shows in an app for the first time, TypeAlike adds \
-                 the app to this list. When you turn off an app, TypeAlike deletes the text that it saved \
-                 from the app."
+                "When you set an app to “Off”, TypeAlike deletes the text that it saved from that app. With “Only this app”, the earlier writing of an app helps only in that app. The apps with “All apps” share their earlier writing. When a suggestion shows in an app for the first time, TypeAlike adds the app to this list."
             )
         );
     }
@@ -520,12 +516,12 @@ mod tests {
     fn empty_list_says_that_it_has_no_apps() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             shown.sections[1].rows,
             [Row::Message(Message {
-                text: "This list has no apps.".to_owned(),
+                text: "No suggestion showed in an app yet.".to_owned(),
                 button: None,
             })]
         );
@@ -653,10 +649,10 @@ mod tests {
 
         assert_eq!(change, PersonalizationChange::None);
         assert_eq!(
-            delete_button(&pane.page(&SuggestionPlaces::default())),
+            delete_button(&pane.page(&SuggestionPlaces::default(), &english())),
             Some(&Button {
                 id: ControlId::new(DELETE),
-                label: "Press again to delete",
+                label: "Press again to delete".to_owned(),
                 is_enabled: true,
             })
         );
@@ -666,15 +662,15 @@ mod tests {
     fn delete_button_tells_what_it_deletes() {
         let pane = pane_with(HistoryAccess::Off, Vec::new());
 
-        let shown = pane.page(&SuggestionPlaces::default());
+        let shown = pane.page(&SuggestionPlaces::default(), &english());
 
         assert_eq!(
             shown.sections[2].rows,
             [Row::Message(Message {
-                text: "This deletes all the text that TypeAlike saved. You cannot undo this.".to_owned(),
+                text: "TypeAlike deletes all the text that it saved. You cannot undo this.".to_owned(),
                 button: Some(Button {
                     id: ControlId::new(DELETE),
-                    label: "Delete all earlier writing",
+                    label: "Delete all earlier writing".to_owned(),
                     is_enabled: true,
                 }),
             })]

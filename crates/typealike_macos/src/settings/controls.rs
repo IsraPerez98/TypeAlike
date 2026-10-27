@@ -22,7 +22,7 @@ use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSArray, NSRect, NSSize, NSString};
 use typealike_core::settings_window::view;
 
-use crate::labels::title_case;
+use crate::labels::menu_label;
 use crate::settings::{ActionTarget, Binder, ControlAction};
 use crate::symbol::system_symbol;
 
@@ -288,7 +288,7 @@ pub(super) fn show_push_button(
     subject: Option<&str>,
     binder: &mut Binder<'_>,
 ) {
-    view.setTitle(&NSString::from_str(&title_case(button.label)));
+    view.setTitle(&NSString::from_str(&menu_label(&button.label, binder.language)));
     let spoken_label = subject.map(|subject| NSString::from_str(&format!("{}, {subject}", button.label)));
     view.setAccessibilityLabel(spoken_label.as_deref());
     view.setEnabled(button.is_enabled);
@@ -298,8 +298,8 @@ pub(super) fn show_push_button(
 
 /// Shows `button` in `view`, the back button of a section title bar.
 pub(super) fn show_back_button(view: &NSButton, button: &view::Button, binder: &mut Binder<'_>) {
-    view.setImage(symbol(BACK_SYMBOL, button.label).as_deref());
-    view.setTitle(&NSString::from_str(&title_case(button.label)));
+    view.setImage(symbol(BACK_SYMBOL, &button.label).as_deref());
+    view.setTitle(&NSString::from_str(&menu_label(&button.label, binder.language)));
     view.setEnabled(button.is_enabled);
     binder.bind(view, &button.id);
     view.setHidden(false);

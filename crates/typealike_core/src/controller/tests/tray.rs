@@ -6,7 +6,7 @@ use crate::hub::HubRequest;
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
 use crate::settings::Settings;
-use crate::test_support::PAUSED_BADGE;
+use crate::test_support::paused_badge;
 
 #[test]
 fn pause_hides_ghost() {
@@ -47,7 +47,7 @@ fn pause_shows_paused_badge_at_caret() {
     assert!(
         harness
             .take_calls()
-            .contains(&ghost_at_caret(None, Some(PAUSED_BADGE)))
+            .contains(&ghost_at_caret(None, Some(paused_badge())))
     );
 }
 

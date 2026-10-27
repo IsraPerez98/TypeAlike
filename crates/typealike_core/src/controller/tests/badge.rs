@@ -6,7 +6,7 @@ use crate::inference::InferenceRequest;
 use crate::key::{Disposition, Key};
 use crate::settings::{HistoryScope, Settings, SuggestionPlaces};
 use crate::test_support::{
-    ACTIVE_BADGE, MAIL_APP, OFF_BADGE, mail_app, mail_entry, mail_history_app, suggestion_app,
+    MAIL_APP, active_badge, mail_app, mail_entry, mail_history_app, off_badge, suggestion_app,
     suggestion_site,
 };
 
@@ -232,7 +232,7 @@ fn turning_off_the_app_from_the_badge_hides_the_ghost_text_and_shows_the_off_bad
     assert!(calls.contains(&Call::HideGhost));
     assert!(calls.contains(&Call::RenderAtCaret {
         ghost: None,
-        badge: Some(OFF_BADGE),
+        badge: Some(off_badge()),
     }));
 }
 
@@ -247,7 +247,7 @@ fn turning_the_app_on_from_the_badge_shows_the_active_badge() {
 
     assert!(harness.take_calls().contains(&Call::RenderAtCaret {
         ghost: None,
-        badge: Some(ACTIVE_BADGE),
+        badge: Some(active_badge()),
     }));
 }
 

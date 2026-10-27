@@ -6,8 +6,9 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSMenu, NSMenuItem};
 use objc2_foundation::NSString;
 use typealike_core::app::{BadgeEntry, BadgeItem, BadgeMenu};
+use typealike_core::localization::UiLanguage;
 
-use crate::labels::title_case;
+use crate::labels::menu_label;
 use crate::menu_bar::NO_KEY_EQUIVALENT;
 use crate::settings::control_state;
 
@@ -24,6 +25,7 @@ pub(crate) fn build(
     let builder = MenuBuilder {
         target,
         action,
+        language: view.language,
         main_thread,
     };
     let menu = builder.build_menu();
@@ -51,6 +53,7 @@ pub(crate) fn build(
 struct MenuBuilder<'target> {
     target: &'target NSObject,
     action: Sel,
+    language: UiLanguage,
     main_thread: MainThreadMarker,
 }
 
@@ -93,7 +96,7 @@ impl MenuBuilder<'_> {
         unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(self.main_thread),
-                &NSString::from_str(&title_case(label)),
+                &NSString::from_str(&menu_label(label, self.language)),
                 action,
                 &NSString::from_str(NO_KEY_EQUIVALENT),
             )

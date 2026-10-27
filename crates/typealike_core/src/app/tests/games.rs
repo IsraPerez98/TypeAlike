@@ -6,11 +6,14 @@ use crate::desktop::{EnergySaver, GameActivity};
 use crate::engine::Reaction;
 use crate::key::Key;
 use crate::settings::{EnergySavingSettings, GameRule, Settings};
+use crate::test_support::english;
 
-const GAME_BADGE: BadgeView = BadgeView {
-    status: Status::Paused,
-    label: "TypeAlike (off during a game)",
-};
+fn game_badge() -> BadgeView {
+    BadgeView {
+        status: Status::Paused,
+        label: "TypeAlike (off during a game)".to_owned(),
+    }
+}
 
 fn settings_with(rule: GameRule) -> Settings {
     Settings {
@@ -112,17 +115,17 @@ fn typing_during_a_game_shows_the_game_badge() {
 
     app.on_key(Key::Char('H'), &MAIL);
 
-    assert_eq!(app.badge_view(), Some(GAME_BADGE));
+    assert_eq!(app.badge_view(&english()), Some(game_badge()));
 }
 
 #[test]
 fn tray_during_a_game_shows_the_stop() {
     let app = app_during_a_game();
 
-    let view = app.tray_view();
+    let view = app.tray_view(&english());
 
     assert_eq!(
-        (view.status, view.tooltip),
+        (view.status, view.tooltip.as_str()),
         (Status::Paused, "TypeAlike (off during a game)")
     );
 }
@@ -131,7 +134,7 @@ fn tray_during_a_game_shows_the_stop() {
 fn tray_after_the_game_shows_suggestions_as_active() {
     let app = app_after_a_game();
 
-    let view = app.tray_view();
+    let view = app.tray_view(&english());
 
     assert_eq!(view.status, Status::Active);
 }
