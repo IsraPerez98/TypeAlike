@@ -12,6 +12,7 @@ pub mod history;
 pub mod hub;
 pub mod inference;
 pub mod key;
+pub mod language;
 mod place;
 mod prompt;
 mod screen;

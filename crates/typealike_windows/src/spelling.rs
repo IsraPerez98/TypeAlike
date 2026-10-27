@@ -1,6 +1,7 @@
 //! Asks the spelling dictionaries of Windows about the words of a suggestion.
 
-use typealike_core::spelling::{SpellChecker, dictionary_languages};
+use typealike_core::language::closest_languages;
+use typealike_core::spelling::SpellChecker;
 use windows::System::UserProfile::GlobalizationPreferences;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{ISpellChecker, ISpellCheckerFactory, SpellCheckerFactory};
@@ -76,7 +77,7 @@ fn open_checkers() -> Result<Vec<ISpellChecker>> {
         .collect::<Vec<_>>();
     // SAFETY: plain call on a live factory.
     let available = strings_of(&unsafe { factory.SupportedLanguages() }?);
-    dictionary_languages(&preferred, &available)
+    closest_languages(&preferred, &available)
         .iter()
         // SAFETY: plain call on a live factory, with a language that it supports.
         .map(|language| unsafe { factory.CreateSpellChecker(&HSTRING::from(language)) })

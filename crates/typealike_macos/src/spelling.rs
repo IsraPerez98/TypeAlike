@@ -5,7 +5,8 @@ use std::ptr;
 use objc2::rc::Retained;
 use objc2_app_kit::NSSpellChecker;
 use objc2_foundation::{NSLocale, NSNotFound, NSString};
-use typealike_core::spelling::{SpellChecker, dictionary_languages};
+use typealike_core::language::closest_languages;
+use typealike_core::spelling::SpellChecker;
 
 /// The spelling dictionary of macOS for the preferred languages of the user, in Language & Region.
 /// It also knows the words that the user taught it with "Learn Spelling".
@@ -29,7 +30,7 @@ impl SpellingDictionary {
             .iter()
             .map(|language| language.to_string())
             .collect::<Vec<_>>();
-        let languages = dictionary_languages(&preferred, &available)
+        let languages = closest_languages(&preferred, &available)
             .iter()
             .map(|language| NSString::from_str(language))
             .collect();
