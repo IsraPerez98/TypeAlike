@@ -25,6 +25,7 @@ The user pauses or resumes suggestions, turns suggestions off in the current app
 - `.claude/rules/macos-ui.md`, section "Menu bar extra & menus". Title case at the boundary of the macOS crate, an ellipsis for an entry that needs more input, keyboard equivalents.
 - The status shows as a change of the glyph and of the tooltip, never of the color only.
 - The label of the pause entry names the action that it does.
+- `.claude/rules/ui-text.md` for the text of each entry and of the tooltip.
 
 ## Direction
 

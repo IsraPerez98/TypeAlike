@@ -24,12 +24,18 @@ People who write a lot and are not necessarily technical. They open the window t
 - Windows: the Settings app of Windows 11 (`.claude/rules/windows-ui.md`, sections "Layering and elevation", "Geometry", "Materials", "Controls", "Typography").
 - macOS: System Settings (`.claude/rules/macos-ui.md`, section "Windows (settings, onboarding)").
 - All text and state come from core. A new setting is a new row in core, never a control in a platform crate.
-- The text follows ASD-STE100 and the terms of `PRODUCT.md`. The test of the writing rules checks the view.
+- The text follows ASD-STE100, `.claude/rules/ui-text.md` and the terms of `PRODUCT.md`. The test of the writing rules checks the view.
+- The Hugging Face search of the Models pane is the only place for experts. Only there can a text show a technical word without a plain word before it.
 
 ## Direction
 
 Keep the incumbent native look. No visual redesign. Improvements are in the text, the order of the settings, the states (loading, error, empty) and accessibility.
 
+Planned text change (decided, not done yet): the backend menu of the General pane says "Run the model on", with the choices "Processor (CPU)", "Graphics card (Vulkan)" and "NVIDIA graphics card (CUDA)".
+
 ## Open decisions
 
-- The label "Inference backend" uses a technical word for this audience. A plainer label is a candidate for `clarify`.
+- The word "caret" in the description of "Prepare before you type".
+- The word "tokens" in the detail of a Playground output.
+- "Loads" and "unloads the model" in the Energy saving pane and in the description of the suggestion model. The Spanish text "descarga el modelo" also means "downloads the model".
+- The first run for a new user: what shows before the first model download, and which model TypeAlike recommends for the computer.

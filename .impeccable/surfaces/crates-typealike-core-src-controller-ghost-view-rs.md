@@ -33,4 +33,4 @@ Keep the incumbent look: inline text in the font of the host, at half the opacit
 
 ## Open decisions
 
-None.
+- A tip at the first suggestion that tells the user that Tab takes it. It shows one time.

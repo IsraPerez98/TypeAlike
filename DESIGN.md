@@ -33,6 +33,7 @@ There are two kinds of UI:
 - Settings window on Windows: navigation at the left (280 px), pages as cards on a 4 px grid, a page margin of 56 px at the sides, a page width of at most 1000 px at the leading edge.
 - Settings window on macOS: a sidebar of panes with colored symbol tiles, a fixed window width, text that wraps.
 - Each setting is one card or row: icon, label, description, and the control at the trailing edge.
+- Text wraps and never cuts. A row must also look right with a translated text that is longer than the English text.
 - Overlay: the suggestion starts at the caret. When text follows the caret on its line, the suggestion goes on a card below the line, under the caret.
 
 ## Elevation & Depth
