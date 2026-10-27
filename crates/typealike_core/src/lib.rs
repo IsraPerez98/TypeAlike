@@ -13,6 +13,7 @@ pub mod hub;
 pub mod inference;
 pub mod key;
 pub mod language;
+pub mod localization;
 mod place;
 mod prompt;
 mod screen;

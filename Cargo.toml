@@ -22,6 +22,9 @@ typealike_history = { path = "crates/typealike_history" }
 typealike_settings = { path = "crates/typealike_settings" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+fluent-bundle = { version = "0.16.0", default-features = false }
+fluent-syntax = { version = "0.12.0", default-features = false }
+unic-langid = { version = "0.9.6", default-features = false }
 llama-cpp-2 = { version = "0.1.159", default-features = false }
 llama-cpp-sys-2 = { version = "0.1.159", default-features = false }
 ring = { version = "0.17.14", default-features = false }
