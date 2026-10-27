@@ -1,10 +1,10 @@
 ---
 paths:
-  - "crates/ghosttype_macos/**"
+  - "crates/typealike_macos/**"
 ---
 # macOS UI
 
-Look native: Apple Human Interface Guidelines (HIG), macOS 26+ Liquid Glass. macOS 27 lowers default glass transparency and adds a user tint control. Principles: purpose, agency ("stay out of the way"), familiarity, simplicity, craft. GhostType is a guest in other apps. UI recedes, never competes with host content.
+Look native: Apple Human Interface Guidelines (HIG), macOS 26+ Liquid Glass. macOS 27 lowers default glass transparency and adds a user tint control. Principles: purpose, agency ("stay out of the way"), familiarity, simplicity, craft. TypeAlike is a guest in other apps. UI recedes, never competes with host content.
 Source: developer.apple.com/design/human-interface-guidelines (design-principles, materials, color, dark-mode, typography, the-menu-bar, menus, settings, privacy, accessibility).
 
 ## Follow the system, never hardcode a look
@@ -23,7 +23,7 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 
 ## Materials
 - Liquid Glass = functional layer only (bars, sidebars, menus, popovers). Standard AppKit components adopt it automatically. Never in the content layer, never stacked.
-- Custom glass (`NSGlassEffectView`, style `.regular`): only on the most important custom control, if any. `.clear` is for rich media backgrounds only. GhostType has none, so do not use it.
+- Custom glass (`NSGlassEffectView`, style `.regular`): only on the most important custom control, if any. `.clear` is for rich media backgrounds only. TypeAlike has none, so do not use it.
 - Content-layer backgrounds: standard `NSVisualEffectView` material picked by purpose (`.menu`, `.popover`, `.hudWindow`, `.sidebar`, `.windowBackground`), never by the color it gives. Vibrant system colors on top.
 - Glass look changes with the user tint setting, Reduce Transparency, and Increase Contrast. Layout must also look right on the opaque fallback.
 
@@ -48,7 +48,7 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 ## Menu bar extra & menus
 - `NSStatusItem` icon: SF Symbol or vector template image (`isTemplate = true`), black and clear only. The system tints it for light/dark menu bar and selection. Menu bar height is 24 pt.
 - State (paused, error) by glyph change, never color alone.
-- Click shows a menu, not a popover. Items: `Pause Suggestions` / `Resume Suggestions` (one item, label shows the action), separator, `Settings…` ⌘,, `Quit GhostType` ⌘Q.
+- Click shows a menu, not a popover. Items: `Pause Suggestions` / `Resume Suggestions` (one item, label shows the action), separator, `Settings…` ⌘,, `Quit TypeAlike` ⌘Q.
 - The system can hide the extra (crowded menu bar, notch, user turns it off in System Settings > Menu Bar). Never rely on it. Reopen of the app (Finder, Spotlight) opens Settings via `applicationShouldHandleReopen`.
 - The user decides if the extra shows: a setting, also offered during setup.
 - Menu icons: sparingly. Give icons to all items in a group or to none. Show keyboard equivalents. Never repurpose standard shortcuts.

@@ -1,0 +1,46 @@
+[package]
+name = "typealike"
+description = "System-wide inline autocomplete"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "TypeAlike"
+path = "src/main.rs"
+
+[features]
+# Builds the GPU backends that the General pane offers. Each needs its SDK at build time (the
+# Vulkan SDK, the CUDA Toolkit) and its runtime at run time (a GPU driver, the CUDA DLLs).
+vulkan = ["typealike_llm/vulkan"]
+cuda = ["typealike_llm/cuda"]
+# Puts a private copy of the Windows App Runtime next to the program, so TypeAlike runs without
+# the installed runtime. The Windows installers use it. It adds about 30 MB.
+self-contained = ["dep:windows-reactor-setup"]
+
+[dependencies]
+anyhow.workspace = true
+typealike_core.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+windows-reactor-setup = { workspace = true, optional = true }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+typealike_history.workspace = true
+typealike_llm.workspace = true
+typealike_models.workspace = true
+typealike_settings.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+typealike_windows.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+typealike_macos.workspace = true
+
+[lints]
+workspace = true

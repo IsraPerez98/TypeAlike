@@ -49,5 +49,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -p ghosttype_core -p ghosttype_history -p ghosttype_models -p ghosttype_settings --all-targets --locked
-      - run: cargo test -p ghosttype_core -p ghosttype_history -p ghosttype_models -p ghosttype_settings --locked
+      - run: cargo clippy -p typealike_core -p typealike_history -p typealike_models -p typealike_settings --all-targets --locked
+      - run: cargo test -p typealike_core -p typealike_history -p typealike_models -p typealike_settings --locked

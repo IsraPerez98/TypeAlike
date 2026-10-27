@@ -1,25 +1,25 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-default-members = ["crates/ghosttype"]
+default-members = ["crates/typealike"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/IsraPerez98/GhostType"
+repository = "https://github.com/IsraPerez98/TypeAlike"
 publish = false
 
 # Each member inherits its dependencies from this table with `foo.workspace = true`.
 [workspace.dependencies]
-ghosttype_core = { path = "crates/ghosttype_core" }
-ghosttype_windows = { path = "crates/ghosttype_windows" }
-ghosttype_macos = { path = "crates/ghosttype_macos" }
-ghosttype_models = { path = "crates/ghosttype_models" }
-ghosttype_llm = { path = "crates/ghosttype_llm" }
-ghosttype_history = { path = "crates/ghosttype_history" }
-ghosttype_settings = { path = "crates/ghosttype_settings" }
+typealike_core = { path = "crates/typealike_core" }
+typealike_windows = { path = "crates/typealike_windows" }
+typealike_macos = { path = "crates/typealike_macos" }
+typealike_models = { path = "crates/typealike_models" }
+typealike_llm = { path = "crates/typealike_llm" }
+typealike_history = { path = "crates/typealike_history" }
+typealike_settings = { path = "crates/typealike_settings" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 llama-cpp-2 = { version = "0.1.159", default-features = false }

@@ -3,7 +3,7 @@
 Copies the files of a Windows installer from a Cargo release folder to one folder.
 
 .DESCRIPTION
-Copies GhostType.exe, the llama.cpp DLLs and the Windows App Runtime of a build with the
+Copies TypeAlike.exe, the llama.cpp DLLs and the Windows App Runtime of a build with the
 self-contained feature. It also copies the Visual C++ runtime DLLs from Visual Studio, because a
 new Windows installation does not always have them. With -CudaPath, it also copies the cuBLAS
 DLLs that ggml-cuda.dll loads.
@@ -52,7 +52,7 @@ Get-ChildItem -LiteralPath $Release -Force |
 $runtimeFolder = Get-VisualCppRuntimeFolder
 $visualCppRuntime | ForEach-Object { Copy-Item (Join-Path $runtimeFolder $_) $Destination -Force }
 
-$required = 'GhostType.exe', 'Microsoft.WindowsAppRuntime.dll', 'ggml-vulkan.dll'
+$required = 'TypeAlike.exe', 'Microsoft.WindowsAppRuntime.dll', 'ggml-vulkan.dll'
 if ($CudaPath) {
     Get-ChildItem -LiteralPath $CudaPath -Recurse -Include 'cublas64_*.dll', 'cublasLt64_*.dll' |
         Copy-Item -Destination $Destination -Force

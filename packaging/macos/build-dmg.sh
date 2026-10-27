@@ -1,5 +1,5 @@
 #!/bin/sh
-# Puts a release build of GhostType in GhostType.app, and the app in a disk image.
+# Puts a release build of TypeAlike in TypeAlike.app, and the app in a disk image.
 # Usage: build-dmg.sh VERSION PROGRAM OUTPUT_FOLDER
 set -eu
 
@@ -9,10 +9,10 @@ output=$3
 
 packaging=$(cd "$(dirname "$0")" && pwd)
 staging=$(mktemp -d)
-app="$staging/GhostType.app"
+app="$staging/TypeAlike.app"
 
 mkdir -p "$app/Contents/MacOS"
-cp "$program" "$app/Contents/MacOS/GhostType"
+cp "$program" "$app/Contents/MacOS/TypeAlike"
 sed "s/@VERSION@/$version/g" "$packaging/Info.plist" >"$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 
@@ -22,4 +22,4 @@ codesign --verify --strict "$app"
 
 ln -s /Applications "$staging/Applications"
 mkdir -p "$output"
-hdiutil create -volname GhostType -srcfolder "$staging" -format UDZO -ov "$output/GhostType-$version-macos-arm64.dmg"
+hdiutil create -volname TypeAlike -srcfolder "$staging" -format UDZO -ov "$output/TypeAlike-$version-macos-arm64.dmg"

@@ -1,9 +1,9 @@
 # Portability
 
-Windows-first, not Windows-only. Porting to macOS/Linux = new `ghosttype_<os>` crate + bin wiring. Zero changes to `ghosttype_core`.
+Windows-first, not Windows-only. Porting to macOS/Linux = new `typealike_<os>` crate + bin wiring. Zero changes to `typealike_core`.
 
 ## Logic lives in core
-- Every decision in `ghosttype_core`: what to suggest, when to show/hide/update ghost text, accept/reject, settings model + validation, tray menu items and their actions, app lifecycle state.
+- Every decision in `typealike_core`: what to suggest, when to show/hide/update ghost text, accept/reject, settings model + validation, tray menu items and their actions, app lifecycle state.
 - Platform crate only translates: OS events → core inputs, core outputs → OS calls. Branches only for OS quirks; any other `if`/`match` belongs in core.
 - UI split: core owns UI state (what is shown, enabled, checked, labelled); platform only renders it and reports user actions back. Same for overlay, tray, settings window.
 - Test: if a behavior can't be unit-tested headless in core, it is in the wrong crate. Move it.
@@ -16,4 +16,4 @@ Windows-first, not Windows-only. Porting to macOS/Linux = new `ghosttype_<os>` c
 ## Wiring
 - Platform crates are target-gated deps of the bin (`[target.'cfg(windows)'.dependencies]`).
 - Platform selection via `cfg(target_os)` in one bin module only; rest of the bin OS-agnostic.
-- `ghosttype_core` builds and tests on Linux in CI. Keep it green.
+- `typealike_core` builds and tests on Linux in CI. Keep it green.

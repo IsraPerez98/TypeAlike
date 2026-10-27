@@ -1,0 +1,20 @@
+[package]
+name = "typealike_models"
+description = "Model files for TypeAlike: Hugging Face search, download and local storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+typealike_core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

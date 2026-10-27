@@ -10,6 +10,6 @@
 - Deterministic: no sleeps, real clock, network, randomness, or desktop. Inject time/IO via traits.
 - Fakes (small hand-written trait impls) over mock frameworks. Builders/helpers for repetitive setup.
 - Unit tests in `#[cfg(test)] mod tests` beside code; cross-crate behavior in `crates/*/tests/`. Pub examples as doctests.
-- `ghosttype_core`: full coverage, every branch of state machine and matching.
-- `ghosttype_windows`: keep logic out of FFI so it's testable as pure fns; thin FFI wrappers checked manually, document manual steps in PR.
+- `typealike_core`: full coverage, every branch of state machine and matching.
+- `typealike_windows`: keep logic out of FFI so it's testable as pure fns; thin FFI wrappers checked manually, document manual steps in PR.
 - Tests are code: same naming/clean rules. `unwrap`/`expect` allowed.

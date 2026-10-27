@@ -1,0 +1,35 @@
+[package]
+name = "typealike_llm"
+description = "Language model runner for TypeAlike: loads GGUF models and completes text with llama.cpp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Each GPU backend builds as a DLL that llama.cpp loads at start. The app still starts and runs on
+# the CPU when the GPU driver or runtime is missing.
+vulkan = ["llama-cpp-2/vulkan", "llama-cpp-2/dynamic-backends"]
+cuda = ["llama-cpp-2/cuda", "llama-cpp-2/dynamic-backends"]
+
+[dependencies]
+typealike_core.workspace = true
+llama-cpp-2 = { workspace = true, features = ["common"] }
+llama-cpp-sys-2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+serde.workspace = true
+# The eval compares log probabilities that it reads back from its own result files.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+
+[[example]]
+name = "prompt_eval"
+test = true
+
+[lints]
+workspace = true

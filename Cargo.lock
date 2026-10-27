@@ -185,106 +185,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghosttype"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ghosttype_core",
- "ghosttype_history",
- "ghosttype_llm",
- "ghosttype_macos",
- "ghosttype_models",
- "ghosttype_settings",
- "ghosttype_windows",
- "tracing",
- "tracing-subscriber",
- "windows-reactor-setup",
-]
-
-[[package]]
-name = "ghosttype_core"
-version = "0.1.0"
-
-[[package]]
-name = "ghosttype_history"
-version = "0.1.0"
-dependencies = [
- "ghosttype_core",
- "ring",
- "serde",
- "serde_json",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ghosttype_llm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ghosttype_core",
- "llama-cpp-2",
- "llama-cpp-sys-2",
- "serde",
- "serde_json",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ghosttype_macos"
-version = "0.1.0"
-dependencies = [
- "block2",
- "dispatch2",
- "ghosttype_core",
- "objc2",
- "objc2-app-kit",
- "objc2-application-services",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-foundation",
- "objc2-screen-capture-kit",
- "objc2-security",
- "objc2-vision",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ghosttype_models"
-version = "0.1.0"
-dependencies = [
- "ghosttype_core",
- "serde",
- "serde_json",
- "thiserror",
- "tracing",
- "ureq",
-]
-
-[[package]]
-name = "ghosttype_settings"
-version = "0.1.0"
-dependencies = [
- "ghosttype_core",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "ghosttype_windows"
-version = "0.1.0"
-dependencies = [
- "ghosttype_core",
- "thiserror",
- "tracing",
- "windows",
- "windows-reactor",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -848,6 +748,106 @@ dependencies = [
  "sharded-slab",
  "thread_local",
  "tracing-core",
+]
+
+[[package]]
+name = "typealike"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+ "tracing-subscriber",
+ "typealike_core",
+ "typealike_history",
+ "typealike_llm",
+ "typealike_macos",
+ "typealike_models",
+ "typealike_settings",
+ "typealike_windows",
+ "windows-reactor-setup",
+]
+
+[[package]]
+name = "typealike_core"
+version = "0.1.0"
+
+[[package]]
+name = "typealike_history"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+]
+
+[[package]]
+name = "typealike_llm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "llama-cpp-2",
+ "llama-cpp-sys-2",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+]
+
+[[package]]
+name = "typealike_macos"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-application-services",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-screen-capture-kit",
+ "objc2-security",
+ "objc2-vision",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+]
+
+[[package]]
+name = "typealike_models"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+ "ureq",
+]
+
+[[package]]
+name = "typealike_settings"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+ "typealike_core",
+]
+
+[[package]]
+name = "typealike_windows"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tracing",
+ "typealike_core",
+ "windows",
+ "windows-reactor",
 ]
 
 [[package]]

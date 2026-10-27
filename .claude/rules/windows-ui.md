@@ -1,10 +1,10 @@
 ---
 paths:
-  - "crates/ghosttype_windows/**"
+  - "crates/typealike_windows/**"
 ---
 # Windows 11 UI
 
-Look native: Fluent 2 / Windows 11 design. Principles: effortless, calm, personal, familiar, coherent. GhostType is a guest in other apps. Its UI recedes and never competes with host content.
+Look native: Fluent 2 / Windows 11 design. Principles: effortless, calm, personal, familiar, coherent. TypeAlike is a guest in other apps. Its UI recedes and never competes with host content.
 Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica` (2026-07), `signature-experiences/layering` (2026-02), `basics/titlebar-design` (2026-07). Fluent 2: fluent2.microsoft.design. windows-reactor: github.com/microsoft/windows-rs, `docs/crates/windows-reactor.md` and `crates/libs/reactor/public-api.txt`.
 
 ## Two kinds of UI
