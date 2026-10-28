@@ -10,7 +10,7 @@ use crate::hub::{
 };
 use crate::inference::{Backend, InferenceError};
 use crate::localization::Translations;
-use crate::settings_window::view::{Button, ControlId, Page, Row, SettingsInput};
+use crate::settings_window::view::{Button, ControlId, Note, NoteTone, Page, Row, SettingsInput};
 
 /// Something the user did in the Models pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +47,27 @@ pub(crate) const SEARCH: &str = "models-search";
 pub struct ModelsPane {
     files: BTreeMap<ModelFile, TrackedFile>,
     search: Option<Search>,
-    /// The free memory of the GPU that runs a backend, from the last read.
-    free_gpu_memory: Option<(Backend, ByteSize)>,
+    /// The last read of the free memory of the GPU that runs a backend.
+    gpu_memory: GpuMemory,
+}
+
+/// The last read of the free memory of the GPU that runs a backend.
+#[derive(Debug, Clone, Copy, Default)]
+enum GpuMemory {
+    #[default]
+    NotRead,
+    Reading(Backend),
+    Free(Backend, ByteSize),
+    Failed(Backend),
+}
+
+impl GpuMemory {
+    fn free_for(self, backend: Backend) -> Option<ByteSize> {
+        match self {
+            Self::Free(read_backend, free) if read_backend == backend => Some(free),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -187,10 +206,52 @@ impl ModelsPane {
         }
     }
 
+    /// Keeps that a read of the free memory of the GPU that runs `backend` started. Until its
+    /// answer, [`Self::is_reading_gpu_memory`] tells it.
+    pub fn start_gpu_memory_read(&mut self, backend: Backend) {
+        self.gpu_memory = GpuMemory::Reading(backend);
+    }
+
     /// Keeps the `result` of a read of the free memory of the GPU that runs `backend`. The model
-    /// that TypeAlike recommends for `backend` then fits in that memory.
+    /// that TypeAlike recommends for `backend` then fits in that memory. After a failed read,
+    /// TypeAlike recommends a model that fits in most graphics cards, with a warning.
     pub fn on_gpu_memory(&mut self, backend: Backend, result: Result<ByteSize, InferenceError>) {
-        self.free_gpu_memory = result.ok().map(|free| (backend, free));
+        self.gpu_memory = match result {
+            Ok(free) => GpuMemory::Free(backend, free),
+            Err(_) => GpuMemory::Failed(backend),
+        };
+    }
+
+    /// Whether the read of the free memory of the GPU that runs `backend` did not answer yet.
+    #[must_use]
+    pub fn is_reading_gpu_memory(&self, backend: Backend) -> bool {
+        matches!(self.gpu_memory, GpuMemory::Reading(read_backend) if read_backend == backend)
+    }
+
+    /// Whether a model downloads now.
+    #[must_use]
+    pub fn has_running_download(&self) -> bool {
+        self.files.values().any(|tracked| {
+            matches!(
+                tracked.state,
+                FileState::Downloading { .. } | FileState::Canceling
+            )
+        })
+    }
+
+    /// Returns the warning that TypeAlike cannot read the graphics card, with the texts of
+    /// `translations`, while the row of the model that TypeAlike recommends for `backend` shows
+    /// after a failed read of the free memory of its GPU.
+    #[must_use]
+    pub fn recommendation_warning(&self, backend: Backend, translations: &Translations) -> Option<Row> {
+        let has_failed =
+            matches!(self.gpu_memory, GpuMemory::Failed(read_backend) if read_backend == backend);
+        (has_failed && self.recommended_row(backend, translations).is_some()).then(|| {
+            Row::Note(Note {
+                text: translations.text("model-recommendation-unknown-gpu"),
+                tone: NoteTone::Warning,
+            })
+        })
     }
 
     /// Returns the downloaded model files, by repository and then name.

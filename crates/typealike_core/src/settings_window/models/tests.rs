@@ -311,6 +311,86 @@ fn failed_read_of_gpu_memory_keeps_the_usual_recommendation() {
 }
 
 #[test]
+fn failed_read_of_gpu_memory_warns_above_the_recommended_model() {
+    let mut pane = ModelsPane::new();
+
+    pane.on_gpu_memory(Backend::Vulkan, Err(InferenceError::BackendUnavailable));
+
+    assert_eq!(
+        pane.recommendation_warning(Backend::Vulkan, &english()),
+        Some(Row::Note(Note {
+            text: "TypeAlike cannot read the graphics card of this computer. Thus it recommends a model that fits in most graphics cards.".to_owned(),
+            tone: NoteTone::Warning,
+        }))
+    );
+}
+
+#[test]
+fn read_of_gpu_memory_gives_no_warning() {
+    let cases = [
+        ModelsPane::new(),
+        with_free_gpu_memory(Backend::Vulkan, 8),
+        reading_gpu_memory(Backend::Vulkan),
+    ];
+
+    let warnings = cases.map(|pane| pane.recommendation_warning(Backend::Vulkan, &english()));
+
+    assert_eq!(warnings, [None, None, None]);
+}
+
+#[test]
+fn failed_read_of_another_backend_gives_no_warning() {
+    let mut pane = ModelsPane::new();
+
+    pane.on_gpu_memory(Backend::Cuda, Err(InferenceError::BackendUnavailable));
+
+    assert_eq!(pane.recommendation_warning(Backend::Vulkan, &english()), None);
+}
+
+#[test]
+fn warning_hides_while_a_model_is_downloaded() {
+    let mut pane = ModelsPane::new();
+    pane.on_gpu_memory(Backend::Vulkan, Err(InferenceError::BackendUnavailable));
+
+    pane.on_event(HubEvent::Installed(vec![sized("model.gguf", 1)]));
+
+    assert_eq!(pane.recommendation_warning(Backend::Vulkan, &english()), None);
+}
+
+#[test]
+fn read_of_gpu_memory_runs_until_its_answer() {
+    let mut pane = reading_gpu_memory(Backend::Vulkan);
+    let before = [Backend::Vulkan, Backend::Cuda].map(|backend| pane.is_reading_gpu_memory(backend));
+
+    pane.on_gpu_memory(Backend::Vulkan, Ok(ByteSize(GIBIBYTE)));
+
+    assert_eq!(
+        (before, pane.is_reading_gpu_memory(Backend::Vulkan)),
+        ([true, false], false)
+    );
+}
+
+#[test]
+fn running_download_counts_until_it_finishes() {
+    let mut pane = ModelsPane::new();
+    pane.on_action(ModelsAction::Download(sized("model.gguf", 10)));
+    let while_downloading = pane.has_running_download();
+
+    pane.on_event(HubEvent::DownloadFinished {
+        file: file("model.gguf"),
+        result: Ok(ByteSize(10)),
+    });
+
+    assert_eq!((while_downloading, pane.has_running_download()), (true, false));
+}
+
+fn reading_gpu_memory(backend: Backend) -> ModelsPane {
+    let mut pane = ModelsPane::new();
+    pane.start_gpu_memory_read(backend);
+    pane
+}
+
+#[test]
 fn recommended_list_marks_the_model_that_fits_the_graphics_card() {
     let pane = with_free_gpu_memory(Backend::Metal, 8);
 

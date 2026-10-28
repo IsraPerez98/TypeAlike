@@ -60,11 +60,7 @@ impl ModelsPane {
     }
 
     fn recommended_model(&self, backend: Backend) -> &'static SuggestedModel {
-        let free_gpu_memory = self
-            .free_gpu_memory
-            .filter(|&(read_backend, _)| read_backend == backend)
-            .map(|(_, free)| free);
-        recommended_model(backend, free_gpu_memory)
+        recommended_model(backend, self.gpu_memory.free_for(backend))
     }
 
     fn browse_section(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Section {

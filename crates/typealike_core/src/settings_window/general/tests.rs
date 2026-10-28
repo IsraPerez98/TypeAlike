@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::inference::{InferenceError, InferenceEvent};
-use crate::settings_window::view::{ChoiceText, Message};
 use crate::test_support::{english, model_file, picked, toggled};
 
 #[derive(Debug)]
@@ -124,7 +123,7 @@ fn loaded_playground(backend: Backend, result: Result<(), InferenceError>) -> Pl
 /// A page with each section of `pane`, so that a test finds each control of the pane.
 fn page_with(pane: &GeneralPane, playground: &PlaygroundPane, installed: &[ModelFile]) -> Page {
     let translations = english();
-    let mut shown = pane.page(None, &translations);
+    let mut shown = pane.page(Vec::new(), &translations);
     shown.sections.extend([
         pane.copied_text_section(&translations),
         pane.writer_section(&translations),
@@ -216,6 +215,7 @@ fn default_writer_section() -> Section {
             description: "Suggestions can use your name, for example to sign an email.".to_owned(),
             text: String::new(),
         }),
+        Row::Picker(notes_example_picker(1)),
         Row::TextArea(TextArea {
             id: ControlId::new(WRITER_NOTES),
             icon: RowIcon::Note,
@@ -227,11 +227,44 @@ fn default_writer_section() -> Section {
     ])
 }
 
+fn notes_example_picker(selected: usize) -> Picker {
+    Picker {
+        id: ControlId::new(NOTES_EXAMPLE),
+        icon: RowIcon::Pencil,
+        label: "Start from an example".to_owned(),
+        description: "Select the example that is nearest to your writing. Then change the notes so that they tell more about you.".to_owned(),
+        choices: vec![
+            "Your own notes".to_owned(),
+            "General".to_owned(),
+            "Work emails".to_owned(),
+            "Customer support".to_owned(),
+            "Chats with friends and family".to_owned(),
+            "School and study".to_owned(),
+            "Software development".to_owned(),
+        ],
+        choice_text: ChoiceText::Label,
+        selected,
+        is_enabled: true,
+        note: None,
+    }
+}
+
+fn reset_section(label: &str) -> Section {
+    Section::new(vec![Row::Message(Message {
+        text: "All settings go back to their first values, and the setup opens again. Your models and your earlier writing stay.".to_owned(),
+        button: Some(Button {
+            id: ControlId::new(RESET),
+            label: label.to_owned(),
+            is_enabled: true,
+        }),
+    })])
+}
+
 #[test]
 fn page_shows_the_suggestion_settings() {
     let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-    let shown = pane.page(None, &english());
+    let shown = pane.page(Vec::new(), &english());
 
     assert_eq!(
         shown,
@@ -269,9 +302,166 @@ fn page_shows_the_suggestion_settings() {
                 }),
                 typo_rule_switch(),
                 typo_fix_switch(),
-            ])],
+            ]), reset_section("Reset all settings")],
         }
     );
+}
+
+#[test]
+fn first_press_of_reset_asks_for_a_second_press() {
+    let mut pane = GeneralPane::new(settings(Backend::Vulkan));
+
+    let press = pane.press_reset();
+
+    let last_section = pane.page(Vec::new(), &english()).sections.pop();
+    assert_eq!(
+        (press, last_section),
+        (ResetPress::Armed, Some(reset_section("Press again to reset")))
+    );
+}
+
+#[test]
+fn second_press_of_reset_confirms_it() {
+    let mut pane = GeneralPane::new(settings(Backend::Vulkan));
+    pane.press_reset();
+
+    let press = pane.press_reset();
+
+    let last_section = pane.page(Vec::new(), &english()).sections.pop();
+    assert_eq!(
+        (press, last_section),
+        (ResetPress::Confirmed, Some(reset_section("Reset all settings")))
+    );
+}
+
+#[test]
+fn canceled_reset_waits_for_its_first_press_again() {
+    let mut pane = GeneralPane::new(settings(Backend::Vulkan));
+    pane.press_reset();
+
+    let was_pending = pane.cancel_reset();
+
+    assert_eq!((was_pending, pane.press_reset()), (true, ResetPress::Armed));
+}
+
+#[test]
+fn reset_button_is_the_only_reset_press() {
+    let inputs = [
+        SettingsInput::Pressed(ControlId::new(RESET)),
+        SettingsInput::Pressed(ControlId::new("download")),
+        toggled(RESET, true),
+    ];
+
+    let presses = inputs.map(|input| presses_reset(&input));
+
+    assert_eq!(presses, [true, false, false]);
+}
+
+#[test]
+fn reset_gives_the_first_start_settings_and_keeps_the_suggestion_model() {
+    let mut pane = GeneralPane::new(Settings {
+        suggestion_model: Some(model_file("model.gguf")),
+        writer_notes: WriterNotes("I am a nurse.".to_owned()),
+        setup: Setup::Finished,
+        ..settings(Backend::Cpu)
+    });
+    let mut playground = PlaygroundPane::with_backend(Backend::Cpu);
+    let first_start = Settings {
+        backend: Backend::Vulkan,
+        setup: Setup::Needed,
+        ..Settings::default()
+    };
+
+    let outcome = pane.reset(first_start.clone(), &mut playground);
+
+    let expected = Settings {
+        suggestion_model: Some(model_file("model.gguf")),
+        ..first_start
+    };
+    assert_eq!(
+        (outcome.settings, pane.settings()),
+        (Some(expected.clone()), &expected)
+    );
+}
+
+#[test]
+fn reset_keeps_the_backend_of_a_platform_with_one_backend() {
+    let mut pane = GeneralPane::new(Settings::default()).with_platform_backend(Backend::Metal);
+    let mut playground = PlaygroundPane::with_backend(Backend::Metal);
+
+    pane.reset(settings(Backend::Cpu), &mut playground);
+
+    assert_eq!(pane.settings().backend, Backend::Metal);
+}
+
+#[test]
+fn finish_of_the_setup_keeps_it_finished() {
+    let mut pane = GeneralPane::new(Settings {
+        setup: Setup::Needed,
+        ..Settings::default()
+    });
+    let mut playground = PlaygroundPane::with_backend(Backend::Cpu);
+
+    let outcome = pane.on_action(GeneralAction::FinishSetup, &mut playground);
+
+    assert_eq!(
+        outcome.settings.map(|settings| settings.setup),
+        Some(Setup::Finished)
+    );
+}
+
+#[test]
+fn notes_example_menu_selects_the_example_of_the_notes() {
+    let cases = [
+        (
+            "I write clear and friendly messages. I keep the tone of the conversation.",
+            1,
+        ),
+        (
+            "I chat with friends and family. I write short and casual messages.",
+            4,
+        ),
+        ("I am a nurse.", 0),
+    ];
+
+    let selected = cases.map(|(notes, _)| {
+        GeneralPane::new(notes_settings(notes))
+            .writer_section(&english())
+            .rows
+            .into_iter()
+            .find_map(|row| match row {
+                Row::Picker(picker) => Some(picker.selected),
+                _ => None,
+            })
+    });
+
+    assert_eq!(selected, cases.map(|(_, index)| Some(index)));
+}
+
+#[test]
+fn pick_of_an_example_writes_its_notes_in_the_language_of_the_pane() {
+    let mut pane = GeneralPane::new(Settings::default()).with_language(UiLanguage::Spanish);
+    let mut playground = PlaygroundPane::with_backend(Backend::Cpu);
+    let action = pane.action_for(&picked(NOTES_EXAMPLE, 4), &playground, &[]);
+
+    let outcome = pane.on_action(action.expect("the menu picks an example"), &mut playground);
+
+    assert_eq!(
+        outcome.settings.map(|settings| settings.writer_notes),
+        Some(WriterNotes(
+            "Chateo con mi familia y mis amigos. Escribo mensajes breves e informales.".to_owned()
+        ))
+    );
+}
+
+#[test]
+fn own_notes_entry_picks_nothing() {
+    let pane = GeneralPane::new(notes_settings("I am a nurse."));
+    let playground = PlaygroundPane::with_backend(Backend::Cpu);
+
+    let action = pane.action_for(&picked(NOTES_EXAMPLE, 0), &playground, &[]);
+
+    assert_eq!(action, None);
 }
 
 #[test]
@@ -374,7 +564,7 @@ fn recommended_row() -> Row {
 fn recommended_model_shows_first_below_the_reason_for_a_model() {
     let pane = GeneralPane::new(settings(Backend::Vulkan));
 
-    let shown = pane.page(Some(recommended_row()), &english());
+    let shown = pane.page(vec![recommended_row()], &english());
 
     assert_eq!(
         shown.sections.first(),

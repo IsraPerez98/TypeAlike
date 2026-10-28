@@ -586,3 +586,33 @@ fn unknown_backend_is_an_error() {
 
     assert!(settings.is_err());
 }
+
+#[test]
+fn setup_reads_from_its_name() {
+    let files = [r#"{ "setup": "needed" }"#, r#"{ "setup": "finished" }"#];
+
+    let setups = files.map(|json| parse(json).map(|settings| settings.setup).ok());
+
+    assert_eq!(setups, [Some(Setup::Needed), Some(Setup::Finished)]);
+}
+
+#[test]
+fn file_of_an_older_version_has_a_finished_setup() {
+    let setup = parse(r#"{ "backend": "cpu" }"#)
+        .map(|settings| settings.setup)
+        .ok();
+
+    assert_eq!(setup, Some(Setup::Finished));
+}
+
+#[test]
+fn needed_setup_survives_a_save_and_a_load() {
+    let settings = Settings {
+        setup: Setup::Needed,
+        ..Settings::default()
+    };
+
+    let loaded = parse(&to_json(&settings)).map(|loaded| loaded.setup).ok();
+
+    assert_eq!(loaded, Some(Setup::Needed));
+}

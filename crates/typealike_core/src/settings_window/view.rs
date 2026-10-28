@@ -169,7 +169,7 @@ pub struct Section {
 
 impl Section {
     /// A section of `rows` with no heading.
-    pub(super) fn new(rows: Vec<Row>) -> Self {
+    pub(crate) fn new(rows: Vec<Row>) -> Self {
         Self {
             heading: None,
             back: None,

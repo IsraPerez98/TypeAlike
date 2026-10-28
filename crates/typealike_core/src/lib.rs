@@ -19,6 +19,7 @@ mod prompt;
 mod screen;
 pub mod settings;
 pub mod settings_window;
+pub mod setup;
 pub mod spelling;
 #[cfg(test)]
 mod test_support;

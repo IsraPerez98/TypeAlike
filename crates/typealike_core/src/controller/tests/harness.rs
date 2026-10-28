@@ -18,15 +18,16 @@ use crate::desktop::{
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
 use crate::inference::{
-    Completion, Correction, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    Backend, Completion, Correction, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
 use crate::key::{Disposition, Key};
 use crate::localization::UiLanguage;
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, Settings,
-    SettingsStore, WordChoice,
+    SettingsStore, Setup, WordChoice, WriterName,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
+use crate::setup::{SetupView, TrayPlace};
 use crate::test_support::{self, FakeSpellChecker, completion, mail_history_app};
 
 /// The width of each character of a ghost text after the caret in the fake shell.
@@ -49,6 +50,9 @@ pub(super) enum Call {
     RenderTray(TrayView),
     RenderSettings(Box<SettingsView>),
     ShowSettings(Box<SettingsView>, Option<usize>),
+    ShowSetup(Box<SetupView>),
+    RenderSetup(Box<SetupView>),
+    CloseSetup,
     UseClipboardAccess(ClipboardAccess),
     ReadScreen(ScreenReadId, ScreenSource),
     AskForPermission(Permission),
@@ -157,6 +161,18 @@ impl Shell for FakeShell {
         self.calls.push(Call::ShowSettings(Box::new(view.clone()), page));
     }
 
+    fn show_setup(&mut self, view: &SetupView) {
+        self.calls.push(Call::ShowSetup(Box::new(view.clone())));
+    }
+
+    fn render_setup(&mut self, view: &SetupView) {
+        self.calls.push(Call::RenderSetup(Box::new(view.clone())));
+    }
+
+    fn close_setup(&mut self) {
+        self.calls.push(Call::CloseSetup);
+    }
+
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
         self.calls.push(Call::UseClipboardAccess(access));
     }
@@ -207,6 +223,21 @@ impl SettingsStore for FakeStore {
     fn save(&mut self, settings: &Settings) {
         self.0.borrow_mut().saved.push(settings.clone());
     }
+
+    fn first_start_settings(&self) -> Settings {
+        first_start_settings()
+    }
+}
+
+/// The settings of the first start in the fake store: the name of the account, the Vulkan
+/// backend, and the setup to do.
+pub(super) fn first_start_settings() -> Settings {
+    Settings {
+        backend: Backend::Vulkan,
+        writer_name: WriterName("Sara Novak".to_owned()),
+        setup: Setup::Needed,
+        ..Settings::default()
+    }
 }
 
 struct FakeHistory(Rc<RefCell<Recorder>>);
@@ -253,6 +284,7 @@ fn default_startup() -> Startup {
         energy_saver: EnergySaver::Off,
         ui_language: UiLanguage::English,
         playground: PlaygroundPage::Hidden,
+        tray: TrayPlace::NotificationArea,
     }
 }
 
@@ -505,6 +537,14 @@ impl Harness {
             Some(Call::ReadScreen(read, ScreenSource::Accessibility)) => read,
             other => panic!("the controller did not read the screen: {other:?}"),
         }
+    }
+
+    /// The setup that the shell showed or rendered last since the last take of the calls.
+    pub(super) fn last_setup(&mut self) -> Option<SetupView> {
+        self.take_calls().into_iter().rev().find_map(|call| match call {
+            Call::ShowSetup(view) | Call::RenderSetup(view) => Some(*view),
+            _ => None,
+        })
     }
 
     pub(super) fn shown_settings(&mut self) -> SettingsView {

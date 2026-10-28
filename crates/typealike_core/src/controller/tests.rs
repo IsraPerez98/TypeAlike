@@ -13,6 +13,7 @@ mod input_settle;
 mod screen_read;
 mod scroll;
 mod settings_window;
+mod setup;
 mod startup;
 mod tab_hold;
 mod tray;

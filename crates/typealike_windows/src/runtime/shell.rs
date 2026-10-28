@@ -11,6 +11,7 @@ use typealike_core::desktop::{
 };
 use typealike_core::settings::ClipboardAccess;
 use typealike_core::settings_window::view::SettingsView;
+use typealike_core::setup::SetupView;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTimer};
 use windows::core::Error;
 
@@ -225,6 +226,12 @@ impl Shell for Win32Shell {
     fn show_settings(&mut self, view: &SettingsView, page: Option<usize>) {
         self.settings.show(view.clone(), page);
     }
+
+    fn show_setup(&mut self, _view: &SetupView) {}
+
+    fn render_setup(&mut self, _view: &SetupView) {}
+
+    fn close_setup(&mut self) {}
 
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
         self.clipboard.use_access(access);

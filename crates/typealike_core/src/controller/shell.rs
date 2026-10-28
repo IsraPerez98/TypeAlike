@@ -7,6 +7,7 @@ use crate::app::{BadgeView, TrayView};
 use crate::desktop::{Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
 use crate::settings::ClipboardAccess;
 use crate::settings_window::view::SettingsView;
+use crate::setup::SetupView;
 
 /// A timer that the shell runs for the controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -102,6 +103,18 @@ pub trait Shell: Desktop {
     /// first time. With a `page`, the window selects the page of that index in `view`, else it
     /// keeps the page that it shows.
     fn show_settings(&mut self, view: &SettingsView, page: Option<usize>);
+
+    /// Shows the setup window with `view` and brings it to the front. Makes the window when it is
+    /// closed. When the user closes the window, the shell tells
+    /// [`Controller::on_setup_closed`](super::Controller::on_setup_closed).
+    fn show_setup(&mut self, view: &SetupView);
+
+    /// Shows `view` in the setup window, when the window exists.
+    fn render_setup(&mut self, view: &SetupView);
+
+    /// Closes the setup window, when it exists, without a call to
+    /// [`Controller::on_setup_closed`](super::Controller::on_setup_closed).
+    fn close_setup(&mut self);
 
     /// Keeps the text that the user copies while `access` allows it, and forgets it when not.
     fn use_clipboard_access(&mut self, access: ClipboardAccess);

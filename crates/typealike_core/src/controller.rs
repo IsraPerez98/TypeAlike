@@ -29,13 +29,14 @@ use crate::desktop::{
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
+use crate::hub::ModelFile;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::localization::Translations;
-use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, SuggestionApp};
+use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
-use crate::settings_window::general::{GeneralAction, GeneralPane};
+use crate::settings_window::general::{GeneralAction, GeneralPane, ResetPress, presses_reset};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
 use crate::settings_window::permissions;
 use crate::settings_window::personalization::{
@@ -44,7 +45,8 @@ use crate::settings_window::personalization::{
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
 use crate::settings_window::suggestion_places::{SuggestionPlacesAction, SuggestionPlacesPane};
-use crate::settings_window::view::{PageIcon, SettingsInput, SettingsView};
+use crate::settings_window::view::{PageIcon, Row, SettingsInput, SettingsView};
+use crate::setup::{SetupAction, SetupContext, SetupFlow, SetupOutcome, SetupView, TrayPlace};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -68,6 +70,8 @@ enum PaneAction {
     Models(ModelsAction),
     Playground(PlaygroundAction),
     Permissions(Permission),
+    Setup(SetupAction),
+    ResetSettings,
 }
 
 /// TypeAlike while it runs: the suggestions at the caret, the panes of the settings window and
@@ -98,6 +102,9 @@ pub struct Controller {
     /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
     /// that the settings store does not have yet.
     has_unsaved_app: bool,
+    /// The state of the setup window while it shows.
+    setup: Option<SetupFlow>,
+    tray: TrayPlace,
 }
 
 impl fmt::Debug for Controller {
@@ -144,7 +151,9 @@ impl Controller {
         }
         let mut playground = PlaygroundPane::with_backend(general.settings().backend);
         playground.use_settings(general.settings());
-        let general = general.with_autostart(autostart);
+        let general = general
+            .with_autostart(autostart)
+            .with_language(startup.ui_language);
         let mut controller = Self {
             app,
             translations: Translations::new(startup.ui_language),
@@ -168,6 +177,8 @@ impl Controller {
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
             has_unsaved_app: false,
+            setup: None,
+            tray: startup.tray,
         };
         controller.submit_model_request();
         controller.read_gpu_memory_for_recommendation();
@@ -179,6 +190,20 @@ impl Controller {
     #[must_use]
     pub fn tray_view(&self) -> TrayView {
         self.app.tray_view(&self.translations)
+    }
+
+    /// Shows the setup when TypeAlike starts, until the user finishes it. The platform calls this
+    /// one time, after it can show windows.
+    pub fn on_launch(&mut self, shell: &mut dyn Shell) {
+        if self.needs_setup() {
+            self.open_setup(shell);
+        }
+    }
+
+    /// Handles a close of the setup window by the user. The setup starts again at its first step
+    /// the next time that it shows.
+    pub fn on_setup_closed(&mut self) {
+        self.setup = None;
     }
 
     /// Handles a key or a click of the user, or another app that comes to the front: TypeAlike
@@ -348,6 +373,7 @@ impl Controller {
     pub fn on_tray_command(&mut self, command: TrayCommand, shell: &mut dyn Shell) {
         match self.app.on_tray_command(command) {
             TrayOutcome::Paused | TrayOutcome::Resumed => self.on_stop_change(shell),
+            TrayOutcome::OpenSettings if self.needs_setup() => self.open_setup(shell),
             TrayOutcome::OpenSettings => self.open_settings(None, shell),
             TrayOutcome::Quit => {
                 self.save_history();
@@ -357,9 +383,14 @@ impl Controller {
     }
 
     /// Opens the settings window at the Permissions pane, because TypeAlike lacks a permission that
-    /// it needs to show suggestions.
+    /// it needs to show suggestions. Until the user finishes the setup, it opens the setup, which
+    /// asks for the permission.
     pub fn on_missing_permission(&mut self, shell: &mut dyn Shell) {
-        self.open_settings(Some(PageIcon::Hand), shell);
+        if self.needs_setup() {
+            self.open_setup(shell);
+        } else {
+            self.open_settings(Some(PageIcon::Hand), shell);
+        }
     }
 
     /// Shows the new state of the permissions in the settings window, after the user gave or took
@@ -368,15 +399,24 @@ impl Controller {
         self.render_settings(shell);
     }
 
-    /// Handles something that the user did with a control of the settings window, then shows
-    /// the panes as they are now. A menu then shows its selected entry again, also when the
-    /// picked entry does nothing.
+    /// Handles something that the user did with a control of the settings window or of the setup
+    /// window, then shows the panes and the setup as they are now. A menu then shows its selected
+    /// entry again, also when the picked entry does nothing.
     pub fn on_settings_input(&mut self, input: &SettingsInput, shell: &mut dyn Shell) {
         let action = self.pane_action(input);
         if !matches!(action, Some(PaneAction::Personalization(_))) {
             self.personalization.cancel_delete();
         }
+        if action != Some(PaneAction::ResetSettings) {
+            self.general.cancel_reset();
+        }
         match action {
+            Some(PaneAction::Setup(action)) => self.on_setup_action(action, shell),
+            Some(PaneAction::ResetSettings) => {
+                if self.general.press_reset() == ResetPress::Confirmed {
+                    self.reset_settings(shell);
+                }
+            }
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
             Some(PaneAction::SuggestionPlaces(action)) => self.on_suggestion_places_action(action),
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
@@ -404,6 +444,12 @@ impl Controller {
     /// The action of the pane that owns the control of `input`, if the input does something.
     fn pane_action(&self, input: &SettingsInput) -> Option<PaneAction> {
         let installed = self.models.installed_files();
+        if let Some(action) = SetupFlow::action_for(input) {
+            return Some(PaneAction::Setup(action));
+        }
+        if presses_reset(input) {
+            return Some(PaneAction::ResetSettings);
+        }
         self.general
             .action_for(input, &self.playground, &installed)
             .map(PaneAction::General)
@@ -432,8 +478,92 @@ impl Controller {
             .or_else(|| permissions::action_for(input).map(PaneAction::Permissions))
     }
 
+    /// Shows the panes in the settings window, and the setup in its window while it shows.
     fn render_settings(&self, shell: &mut dyn Shell) {
         shell.render_settings(&self.settings_view(shell));
+        if let Some(view) = self.setup_view(shell) {
+            shell.render_setup(&view);
+        }
+    }
+
+    fn needs_setup(&self) -> bool {
+        self.general.settings().setup == Setup::Needed
+    }
+
+    /// Shows the setup window at the step that it shows, or at its first step when it is closed.
+    fn open_setup(&mut self, shell: &mut dyn Shell) {
+        let request = self.models.on_open();
+        self.hub.submit(request, &self.hub_sink);
+        self.setup.get_or_insert_with(SetupFlow::new);
+        if let Some(view) = self.setup_view(shell) {
+            shell.show_setup(&view);
+        }
+    }
+
+    fn on_setup_action(&mut self, action: SetupAction, shell: &mut dyn Shell) {
+        let Some(mut flow) = self.setup.take() else {
+            return;
+        };
+        let installed = self.models.installed_files();
+        let permissions = shell.permissions();
+        let outcome = flow.on_action(action, &self.setup_context(&installed, &permissions));
+        match outcome {
+            SetupOutcome::Shown => self.setup = Some(flow),
+            SetupOutcome::Finished(autostart) => {
+                shell.close_setup();
+                self.on_general_action(autostart, shell);
+                self.on_general_action(GeneralAction::FinishSetup, shell);
+            }
+        }
+    }
+
+    fn setup_view(&self, desktop: &dyn Desktop) -> Option<SetupView> {
+        let flow = self.setup.as_ref()?;
+        let installed = self.models.installed_files();
+        let permissions = desktop.permissions();
+        Some(flow.view(&self.setup_context(&installed, &permissions)))
+    }
+
+    fn setup_context<'context>(
+        &'context self,
+        installed: &'context [ModelFile],
+        permissions: &'context [(Permission, PermissionState)],
+    ) -> SetupContext<'context> {
+        SetupContext {
+            general: &self.general,
+            models: &self.models,
+            playground: &self.playground,
+            installed,
+            personalization: self.personalization.settings(),
+            screen_text: self.screen_text.settings(),
+            permissions,
+            tray: self.tray,
+            translations: &self.translations,
+        }
+    }
+
+    /// Gives each pane the settings of the first start, except the suggestion model, and opens the
+    /// setup at its first step. The downloaded models and the earlier writing stay.
+    fn reset_settings(&mut self, shell: &mut dyn Shell) {
+        let first_start = self.settings_store.first_start_settings();
+        let outcome = self.general.reset(first_start.clone(), &mut self.playground);
+        self.suggestion_places = SuggestionPlacesPane::new(first_start.suggestion_places);
+        self.screen_text = ScreenTextPane::new(first_start.screen_text);
+        self.personalization = PersonalizationPane::new(first_start.personalization);
+        self.energy_saving = EnergySavingPane::new(first_start.energy_saving);
+        let settings = self.save_settings(self.general.settings().clone());
+        self.app.use_settings(&settings);
+        self.playground.use_settings(&settings);
+        shell.use_clipboard_access(settings.clipboard_access);
+        if let Some(request) = outcome.request {
+            self.runner.submit(request, &self.playground_sink);
+        }
+        self.load_history_when_on();
+        self.read_gpu_memory_for_recommendation();
+        self.restart_idle_timer(shell);
+        self.setup = None;
+        self.on_stop_change(shell);
+        self.open_setup(shell);
     }
 
     /// Handles the answer of a service.
@@ -575,13 +705,19 @@ impl Controller {
             return;
         }
         self.keep_pane_settings();
+        self.restart_idle_timer(shell);
+        self.on_stop_change(shell);
+    }
+
+    /// Starts the idle timeout again with the time of the Energy saving pane, or stops it when the
+    /// pane has no timeout.
+    fn restart_idle_timer(&mut self, shell: &mut dyn Shell) {
         if let Some(timeout) = self.energy_saving.settings().idle_timeout.duration() {
             shell.start_timer(Timer::Idle, timeout);
         } else {
             shell.stop_timer(Timer::Idle);
             self.app.end_idle();
         }
-        self.on_stop_change(shell);
     }
 
     /// Gives the app the entries of the history store the first time that the history is on.
@@ -742,10 +878,12 @@ impl Controller {
         if settings.suggestion_model.is_some() || settings.backend == Backend::Cpu {
             return;
         }
-        let request = InferenceRequest::ReadGpuMemory {
-            backend: settings.backend,
-        };
-        self.runner.submit(request, &self.recommendation_sink);
+        let backend = settings.backend;
+        self.models.start_gpu_memory_read(backend);
+        self.runner.submit(
+            InferenceRequest::ReadGpuMemory { backend },
+            &self.recommendation_sink,
+        );
     }
 
     /// Submits `request` for a suggestion. After the idle timeout or a game, it first loads the
@@ -802,9 +940,15 @@ impl Controller {
         let installed = self.models.installed_files();
         let backend = self.general.settings().backend;
         let recommended = self.models.recommended_row(backend, translations);
+        let first_run: Vec<Row> = self
+            .models
+            .recommendation_warning(backend, translations)
+            .into_iter()
+            .chain(recommended.clone())
+            .collect();
         let general = &self.general;
         let mut pages = vec![
-            general.page(recommended.clone(), translations),
+            general.page(first_run, translations),
             self.suggestion_places.page(translations),
             self.screen_text
                 .page(

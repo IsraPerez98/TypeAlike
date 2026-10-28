@@ -6,16 +6,16 @@ use std::{fmt, iter};
 use crate::app::StopReason;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
-use crate::localization::Translations;
+use crate::localization::{Translations, UiLanguage};
 use crate::settings::{
-    Autostart, ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix,
-    TypoRule, WriterName, WriterNotes,
+    Autostart, ClipboardAccess, NotesExample, PromptPreparation, Settings, Setup, SuggestionDisplay,
+    SuggestionLength, TypoFix, TypoRule, WriterName, WriterNotes,
 };
 use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::playground::{PlaygroundAction, PlaygroundPane};
 use crate::settings_window::view::{
-    ControlId, Note, NoteTone, Page, PageIcon, Picker, Row, RowIcon, Section, SettingsInput, Switch,
-    TextArea, TextLine,
+    Button, ChoiceText, ControlId, Message, Note, NoteTone, Page, PageIcon, Picker, Row, RowIcon, Section,
+    SettingsInput, Switch, TextArea, TextLine,
 };
 
 /// Something the user did with a setting of the General pane, on any page that shows it.
@@ -31,6 +31,8 @@ pub enum GeneralAction {
     EditWriterName(WriterName),
     /// Changed the notes about the user to this text.
     EditWriterNotes(WriterNotes),
+    /// Picked this example of the notes about the user.
+    PickNotesExample(NotesExample),
     /// Turned on or off the switch that lets suggestions use the text on the clipboard.
     SwitchClipboard(ClipboardAccess),
     /// Turned on or off the switch that gives the text around the caret to the model before the
@@ -51,6 +53,17 @@ pub enum GeneralAction {
     SwitchSentenceEnd(SentenceEnd),
     /// Picked this downloaded model to suggest text.
     SelectSuggestionModel(ModelFile),
+    /// Finished the setup.
+    FinishSetup,
+}
+
+/// What a press of the button that resets all settings does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetPress {
+    /// The first press: the button asks for a second press.
+    Armed,
+    /// The second press: the settings go back to the settings of the first start.
+    Confirmed,
 }
 
 /// What the platform must do after a General action.
@@ -74,6 +87,8 @@ pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
 pub(crate) const WRITER_NAME: &str = "writer-name";
 const WRITER_NOTES: &str = "writer-notes";
+const NOTES_EXAMPLE: &str = "writer-notes-example";
+const RESET: &str = "reset-settings";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
     (SuggestionLength::VeryShort, "general-length-very-short"),
     (SuggestionLength::Short, "general-length-short"),
@@ -108,6 +123,8 @@ pub struct GeneralPane {
     settings: Settings,
     has_backend_menu: bool,
     autostart: Option<Box<dyn Autostart>>,
+    language: UiLanguage,
+    is_reset_pending: bool,
 }
 
 impl fmt::Debug for GeneralPane {
@@ -135,7 +152,15 @@ impl GeneralPane {
             settings,
             has_backend_menu: true,
             autostart: None,
+            language: UiLanguage::English,
+            is_reset_pending: false,
         }
+    }
+
+    /// Gives the notes of each example that the user picks in `language`.
+    #[must_use]
+    pub fn with_language(self, language: UiLanguage) -> Self {
+        Self { language, ..self }
     }
 
     /// Removes the backend menu and runs each model on `backend`, for a platform with one backend.
@@ -164,6 +189,50 @@ impl GeneralPane {
     #[must_use]
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Whether the pane has the switch that starts TypeAlike at login.
+    #[must_use]
+    pub fn has_autostart(&self) -> bool {
+        self.autostart.is_some()
+    }
+
+    /// Handles a press of the button that resets all settings: the first press asks for a second
+    /// press, and the second press confirms the reset.
+    pub fn press_reset(&mut self) -> ResetPress {
+        if self.cancel_reset() {
+            ResetPress::Confirmed
+        } else {
+            self.is_reset_pending = true;
+            ResetPress::Armed
+        }
+    }
+
+    /// Makes the reset button wait for its first press again. Returns whether it waited for its
+    /// second press.
+    pub fn cancel_reset(&mut self) -> bool {
+        std::mem::take(&mut self.is_reset_pending)
+    }
+
+    /// Gives the pane the settings of the `first_start`. The suggestion model stays, because a
+    /// reset keeps the downloaded models. A platform with one backend keeps it. Else the backend of
+    /// the first start runs the models, and `playground` loads its model again on that backend.
+    pub fn reset(&mut self, first_start: Settings, playground: &mut PlaygroundPane) -> GeneralOutcome {
+        let backend = first_start.backend;
+        self.settings = Settings {
+            suggestion_model: self.settings.suggestion_model.take(),
+            backend: self.settings.backend,
+            ..first_start
+        };
+        let outcome = if self.has_backend_menu {
+            self.select_backend(backend, playground)
+        } else {
+            GeneralOutcome::default()
+        };
+        GeneralOutcome {
+            settings: Some(self.settings.clone()),
+            ..outcome
+        }
     }
 
     /// Selects the saved suggestion model in `playground`, so that it loads when TypeAlike starts.
@@ -211,6 +280,10 @@ impl GeneralPane {
             GeneralAction::EditWriterNotes(notes) => {
                 self.change_setting(notes, |settings| &mut settings.writer_notes)
             }
+            GeneralAction::PickNotesExample(example) => {
+                let notes = example.notes(&Translations::new(self.language));
+                self.change_setting(notes, |settings| &mut settings.writer_notes)
+            }
             GeneralAction::SwitchClipboard(access) => {
                 self.change_setting(access, |settings| &mut settings.clipboard_access)
             }
@@ -234,6 +307,9 @@ impl GeneralPane {
                 settings: None,
                 request: playground.on_action(PlaygroundAction::SelectModel(file)),
             },
+            GeneralAction::FinishSetup => {
+                self.change_setting(Setup::Finished, |settings| &mut settings.setup)
+            }
         }
     }
 
@@ -261,17 +337,16 @@ impl GeneralPane {
     }
 
     /// Returns the page that the pane shows now, with the texts of `translations`. While no model
-    /// is downloaded, the row of the `recommended` model shows first, below the reason for it.
+    /// is downloaded, the `recommended` rows show first, below the reason for them: the row of the
+    /// recommended model, after its warning when it has one.
     #[must_use]
-    pub fn page(&self, recommended: Option<Row>, translations: &Translations) -> Page {
-        let first_run = recommended.map(|row| {
-            Section::new(vec![
-                Row::Note(Note {
-                    text: translations.text("model-needed"),
-                    tone: NoteTone::Plain,
-                }),
-                row,
-            ])
+    pub fn page(&self, recommended: Vec<Row>, translations: &Translations) -> Page {
+        let first_run = (!recommended.is_empty()).then(|| {
+            let reason = Row::Note(Note {
+                text: translations.text("model-needed"),
+                tone: NoteTone::Plain,
+            });
+            Section::new(iter::once(reason).chain(recommended).collect())
         });
         let autostart = self.autostart.as_ref().map(|autostart| {
             Section::new(vec![switch_row(
@@ -282,15 +357,18 @@ impl GeneralPane {
                 translations,
             )])
         });
+        let sections = [
+            first_run,
+            autostart,
+            Some(self.suggestion_section(translations)),
+            Some(self.reset_section(translations)),
+        ];
         Page {
             title: translations.text("general-title"),
             icon: PageIcon::Gear,
             summary: translations.text("general-summary"),
             search: None,
-            sections: [first_run, autostart, Some(self.suggestion_section(translations))]
-                .into_iter()
-                .flatten()
-                .collect(),
+            sections: sections.into_iter().flatten().collect(),
         }
     }
 
@@ -306,7 +384,8 @@ impl GeneralPane {
         )])
     }
 
-    /// Returns the section of the name and the notes of the writer, for the Personalization page.
+    /// Returns the section of the name and the notes of the writer, with the menu of the examples
+    /// of the notes, for the Personalization page and the setup.
     #[must_use]
     pub fn writer_section(&self, translations: &Translations) -> Section {
         Section::new(vec![
@@ -317,6 +396,7 @@ impl GeneralPane {
                 description: translations.text("personalization-name-description"),
                 text: self.settings.writer_name.0.clone(),
             }),
+            Row::Picker(self.notes_example_picker(translations)),
             Row::TextArea(TextArea {
                 id: ControlId::new(WRITER_NOTES),
                 icon: RowIcon::Note,
@@ -364,6 +444,58 @@ impl GeneralPane {
             .has_backend_menu
             .then(|| Row::Picker(self.backend_picker(playground, translations)));
         Section::new(iter::once(Row::Picker(model_picker)).chain(backend).collect())
+    }
+
+    /// The menu of the examples of the notes. Its first entry stands for notes that the user
+    /// wrote, and picks nothing.
+    fn notes_example_picker(&self, translations: &Translations) -> Picker {
+        let examples = NotesExample::ALL
+            .iter()
+            .map(|example| translations.text(example.name_message()));
+        let selected = NotesExample::of(&self.settings.writer_notes, translations)
+            .and_then(|example| NotesExample::ALL.iter().position(|&each| each == example))
+            .map_or(0, |index| index + 1);
+        Picker {
+            id: ControlId::new(NOTES_EXAMPLE),
+            icon: RowIcon::Pencil,
+            label: translations.text("personalization-notes-example"),
+            description: translations.text("personalization-notes-example-description"),
+            choices: iter::once(translations.text("notes-example-own"))
+                .chain(examples)
+                .collect(),
+            choice_text: ChoiceText::Label,
+            selected,
+            is_enabled: true,
+            note: None,
+        }
+    }
+
+    fn reset_section(&self, translations: &Translations) -> Section {
+        let label = if self.is_reset_pending {
+            "general-reset-confirm"
+        } else {
+            "general-reset"
+        };
+        Section::new(vec![Row::Message(Message {
+            text: translations.text("general-reset-description"),
+            button: Some(Button {
+                id: ControlId::new(RESET),
+                label: translations.text(label),
+                is_enabled: true,
+            }),
+        })])
+    }
+
+    /// Returns the section of the backend menu, for the setup, when the pane has the menu.
+    /// `playground` gives whether the menu is enabled.
+    #[must_use]
+    pub fn backend_section(
+        &self,
+        playground: &PlaygroundPane,
+        translations: &Translations,
+    ) -> Option<Section> {
+        self.has_backend_menu
+            .then(|| Section::new(vec![Row::Picker(self.backend_picker(playground, translations))]))
     }
 
     fn suggestion_section(&self, translations: &Translations) -> Section {
@@ -448,6 +580,10 @@ impl GeneralPane {
             SUGGESTION_MODEL => playground
                 .model_at(installed, index)
                 .map(GeneralAction::SelectSuggestionModel),
+            NOTES_EXAMPLE => index
+                .checked_sub(1)
+                .and_then(|example| NotesExample::ALL.get(example))
+                .map(|&example| GeneralAction::PickNotesExample(example)),
             _ => None,
         }
     }
@@ -508,6 +644,12 @@ impl GeneralPane {
             ..picker(text, &BACKEND_CHOICES, self.settings.backend, translations)
         }
     }
+}
+
+/// Whether `input` is a press of the button that resets all settings.
+#[must_use]
+pub fn presses_reset(input: &SettingsInput) -> bool {
+    matches!(input, SettingsInput::Pressed(id) if id.as_str() == RESET)
 }
 
 /// A switch row with the label and the description of the `texts` messages.

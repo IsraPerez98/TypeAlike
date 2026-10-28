@@ -46,7 +46,11 @@ pub fn action_for(input: &SettingsInput) -> Option<Permission> {
     }
 }
 
-fn permission_row(permission: Permission, state: PermissionState, translations: &Translations) -> Row {
+pub(crate) fn permission_row(
+    permission: Permission,
+    state: PermissionState,
+    translations: &Translations,
+) -> Row {
     let (id, icon, label, description) = match permission {
         Permission::Accessibility => (
             ACCESSIBILITY,

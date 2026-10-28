@@ -3,6 +3,7 @@
 //! UI" of `PRODUCT.md`.
 
 use crate::settings_window::view::{Access, Accessory, Button, ChoiceText, Page, Row, Section, SettingsView};
+use crate::setup::SetupView;
 
 /// The longest sentence that a description can have, in words.
 const MAX_SENTENCE_WORDS: usize = 25;
@@ -119,6 +120,24 @@ impl SettingsView {
     /// The texts of all the pages, without the text of the user, of a model and of an app.
     pub(crate) fn texts(&self) -> Vec<UiText> {
         self.pages.iter().flat_map(Page::texts).collect()
+    }
+}
+
+impl SetupView {
+    /// The texts of the step, without the text of the user, of a model and of the demo.
+    pub(crate) fn texts(&self) -> Vec<UiText> {
+        let mut texts = vec![
+            UiText::name(&self.window_title),
+            UiText::name(&self.progress.text),
+            UiText::name(&self.title),
+            UiText::prose(&self.body),
+        ];
+        texts.extend(self.sections.iter().flat_map(section_texts));
+        texts.extend(self.instructions.iter().map(UiText::prose));
+        texts.extend(self.footnote.iter().map(UiText::prose));
+        texts.extend(self.back.iter().map(button_text));
+        texts.push(button_text(&self.next));
+        texts
     }
 }
 

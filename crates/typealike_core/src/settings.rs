@@ -2,6 +2,7 @@
 
 mod energy_saving;
 mod known_apps;
+mod notes_example;
 mod personalization;
 mod screen_text;
 mod suggestion_places;
@@ -10,8 +11,10 @@ use std::fmt;
 
 use crate::hub::ModelFile;
 use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
+use crate::localization::UiLanguage;
 
 pub use energy_saving::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
+pub use notes_example::NotesExample;
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
 };
@@ -20,7 +23,8 @@ pub use suggestion_places::{SuggestionApp, SuggestionPlaces, SuggestionSite};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
 /// only its length, so logs never hold what the user wrote. The default notes are true for every
-/// user, so that they show how to write notes in the first person.
+/// user, so that they show how to write notes in the first person. They are in English, and
+/// [`WriterNotes::default_for`] gives them in another language.
 ///
 /// ```
 /// use typealike_core::settings::WriterNotes;
@@ -32,7 +36,7 @@ pub struct WriterNotes(pub String);
 
 impl Default for WriterNotes {
     fn default() -> Self {
-        Self("I write clear and friendly messages. I keep the tone of the conversation.".to_owned())
+        Self::default_for(UiLanguage::English)
     }
 }
 
@@ -171,6 +175,19 @@ impl SuggestionLength {
     }
 }
 
+/// Whether the user finished the setup, which shows when TypeAlike starts for the first time and
+/// after a reset of the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Setup {
+    /// The setup shows each time that TypeAlike starts, until the user finishes it. The settings
+    /// of the first start ([`SettingsStore::first_start_settings`]) have this value.
+    Needed,
+    /// The user finished the setup. It is the default, because the settings of an older version
+    /// of TypeAlike, which had no setup, count as finished.
+    #[default]
+    Finished,
+}
+
 /// Everything that TypeAlike keeps between runs.
 ///
 /// ```
@@ -211,6 +228,8 @@ pub struct Settings {
     pub typo_fix: TypoFix,
     /// Whether a suggestion stops at the end of a sentence.
     pub sentence_end: SentenceEnd,
+    /// Whether the user finished the setup.
+    pub setup: Setup,
 }
 
 impl Settings {
@@ -252,6 +271,10 @@ impl Settings {
 pub trait SettingsStore {
     /// Keeps `settings` for the next run. The store reports its own failures.
     fn save(&mut self, settings: &Settings);
+
+    /// The settings of the first start on this computer, which a reset of the settings gives
+    /// again.
+    fn first_start_settings(&self) -> Settings;
 }
 
 /// Starts TypeAlike when the user logs in. The OS keeps this setting, not the [`SettingsStore`].

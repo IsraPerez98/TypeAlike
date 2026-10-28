@@ -55,6 +55,9 @@ general-length-processor-note = Cuando el modelo se ejecuta en el procesador, la
 general-sentence-end = Detener al final de una oración
 general-sentence-end-description = Una sugerencia termina después de la primera oración que completa.
 general-sentence-end-off-note = Las sugerencias suelen ser incorrectas después de la primera oración. Activa este interruptor para detenerlas ahí.
+general-reset = Restablecer todos los ajustes
+general-reset-description = Todos los ajustes vuelven a sus valores iniciales, y la configuración inicial se abre otra vez. Tus modelos y tu escritura anterior se mantienen.
+general-reset-confirm = Presiona otra vez para restablecer
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -63,6 +66,7 @@ model-menu-select = Selecciona un modelo
 model-menu-none = No hay modelos descargados
 model-needed = TypeAlike necesita un modelo para escribir sugerencias. Descarga el modelo recomendado aquí abajo.
 model-recommended = Recomendado para este equipo
+model-recommendation-unknown-gpu = TypeAlike no puede leer la tarjeta gráfica de este equipo. Por eso recomienda un modelo que cabe en la mayoría de las tarjetas gráficas.
 model-starting = Iniciando el modelo…
 model-paused = Las sugerencias están en pausa. Para reanudarlas, selecciona «Reanudar las sugerencias» en el menú de TypeAlike.
 model-energy-saver = Las sugerencias están desactivadas mientras el equipo ahorra energía. Para usarlas ahora, desactiva «Detener con ahorro de energía».
@@ -184,6 +188,8 @@ personalization-name = Tu nombre
 personalization-name-description = Las sugerencias pueden usar tu nombre, por ejemplo para firmar un correo.
 personalization-notes = Notas sobre ti
 personalization-notes-description = Escribe algunos datos breves que ayuden a las sugerencias, como tu trabajo y tus idiomas. Escríbelos en primera persona, por ejemplo: «Escribo correos breves».
+personalization-notes-example = Empezar con un ejemplo
+personalization-notes-example-description = Elige el ejemplo que más se parezca a tu forma de escribir. Después cambia las notas para que digan más sobre ti.
 personalization-history = Usar la escritura anterior
 personalization-history-description = TypeAlike guarda el texto que escribes en un archivo cifrado en este equipo. Las sugerencias usan entonces tus palabras y tu estilo. Si desactivas esto, el texto guardado se queda hasta que lo eliminas al final de esta página.
 personalization-kept-texts = Texto que se guarda
@@ -231,3 +237,58 @@ permissions-screen-recording-description = Algunas apps no dan su texto a TypeAl
 permissions-granted = Permitido
 permissions-give-access = Dar acceso
 permissions-footer = Cuando Ajustes del Sistema te pida que cierres y vuelvas a abrir TypeAlike, hazlo para que TypeAlike pueda usar el nuevo permiso.
+
+## The examples of the notes about the writer, in the menu “Start from an example” of the Personalization pane and of the setup. The text of each example goes into the notes, in the first person, and the model reads it.
+
+notes-example-own = Tus propias notas
+notes-example-general = General
+notes-example-general-text = Escribo mensajes claros y amables. Mantengo el tono de la conversación.
+notes-example-work = Correos de trabajo
+notes-example-work-text = Escribo correos y mensajes de trabajo. Uso un tono amable y profesional, y mis mensajes son breves y claros.
+notes-example-support = Atención al cliente
+notes-example-support-text = Respondo las preguntas de los clientes. Soy amable y paciente, y doy pasos claros que resuelven el problema.
+notes-example-chats = Chats con familia y amigos
+notes-example-chats-text = Chateo con mi familia y mis amigos. Escribo mensajes breves e informales.
+notes-example-study = Estudios
+notes-example-study-text = Estudio. Escribo ensayos, apuntes y correos a mis profesores con un estilo claro y correcto.
+notes-example-software = Desarrollo de software
+notes-example-software-text = Trabajo en desarrollo de software. Escribo revisiones de código, informes de errores y documentos técnicos. Uso los nombres exactos del código y de las herramientas.
+
+## The setup, which shows when TypeAlike starts for the first time and after a reset of the settings. $number is the number of the step, and $count is the number of steps. The demo shows the typed text, then the suggestion after it in gray, then the key that types the suggestion.
+
+setup-window-title = Configuración de TypeAlike
+setup-progress = Paso { $number } de { $count }
+setup-back = Atrás
+setup-continue = Continuar
+setup-start = Empezar
+setup-finish = Terminar
+setup-welcome-title = Te damos la bienvenida a TypeAlike
+setup-welcome-body = TypeAlike sugiere las siguientes palabras mientras escribes en cualquier app. Presiona Tab para escribir la sugerencia. Para ignorarla, sigue escribiendo.
+setup-welcome-privacy = El modelo funciona en este equipo. El texto que escribes nunca sale de él.
+setup-demo-typed = Gracias por la respuesta. Te envío el
+setup-demo-suggestion = informe el viernes.
+setup-demo-key = Tab
+setup-model-title = Descarga el modelo
+setup-model-body = Un modelo en este equipo escribe las sugerencias. TypeAlike recomienda el modelo adecuado para este equipo.
+setup-model-footer = Puedes continuar con la configuración mientras se descarga el modelo. Más tarde puedes descargar otros modelos en los ajustes.
+setup-model-checking = Revisando la tarjeta gráfica…
+setup-model-ready = El modelo ya está en este equipo. Más tarde puedes elegir otro modelo en los ajustes.
+setup-permission-title = Permite el acceso a los campos de texto
+setup-permission-body = Haz clic en «Dar acceso». Después activa TypeAlike en Ajustes del Sistema y vuelve a esta ventana.
+setup-about-title = Cuéntale a TypeAlike sobre ti
+setup-about-body = Las sugerencias usan tu nombre y tus notas para escribir como tú. Puedes cambiarlos más tarde en los ajustes.
+setup-sources-heading = Qué pueden usar las sugerencias
+setup-history-description = TypeAlike guarda lo que escribes en un archivo cifrado en este equipo. Así las sugerencias usan tus palabras y tu estilo. Puedes eliminar este texto en los ajustes.
+setup-screen-text-description = TypeAlike lee el texto cerca del campo donde escribes, como los últimos mensajes de un chat. No guarda este texto.
+setup-sources-footer = TypeAlike no guarda el texto de los campos de contraseña.
+setup-ready-title = TypeAlike está listo
+setup-ready-body = Las sugerencias aparecen en cada app donde escribes.
+setup-downloading-title = TypeAlike está casi listo
+setup-downloading-body = Las sugerencias empiezan cuando termina la descarga del modelo.
+setup-no-model-title = TypeAlike necesita un modelo
+setup-no-model-body = Descarga el modelo recomendado aquí abajo. Las sugerencias empiezan cuando termina la descarga.
+setup-ready-step-type = Escribe en cualquier app, como tu correo o un chat.
+setup-ready-step-tab = Cuando aparezca texto gris después de tu texto, presiona Tab para escribir su siguiente palabra.
+setup-ready-step-ignore = Para ignorar una sugerencia, sigue escribiendo.
+setup-tray-notification-area = TypeAlike está en el área de notificaciones de la barra de tareas. Usa su icono para pausar las sugerencias o para abrir los ajustes.
+setup-tray-menu-bar = TypeAlike está en la barra de menús. Usa su icono para pausar las sugerencias o para abrir los ajustes.

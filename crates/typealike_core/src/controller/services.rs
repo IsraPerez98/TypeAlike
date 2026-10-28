@@ -9,6 +9,7 @@ use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
 use crate::localization::UiLanguage;
 use crate::settings::{Autostart, SettingsStore};
+use crate::setup::TrayPlace;
 use crate::spelling::SpellChecker;
 
 /// Who picks the backend that runs each model.
@@ -33,6 +34,8 @@ pub struct Startup {
     pub ui_language: UiLanguage,
     /// Whether the settings window shows the Playground pane ([`PlaygroundPage::of_build`]).
     pub playground: PlaygroundPage,
+    /// Where the platform shows the icon of TypeAlike, which the setup tells the user.
+    pub tray: TrayPlace,
 }
 
 /// Whether the settings window shows the Playground pane, where a developer tries the model.

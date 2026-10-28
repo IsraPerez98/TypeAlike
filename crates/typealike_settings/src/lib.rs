@@ -10,34 +10,37 @@ use typealike_core::settings::{Settings, SettingsStore};
 
 use stored::{parse, to_json};
 
-/// The settings file: it gives the saved settings at start, and keeps each change.
+/// The settings file: it gives the saved settings at start, and keeps each change. Without a
+/// file, it gives the settings of the first start on this computer.
 #[derive(Debug)]
 pub struct SettingsFile {
     path: PathBuf,
+    first_start: Settings,
 }
 
 impl SettingsFile {
-    /// Creates the settings file at `path`.
+    /// Creates the settings file at `path`, with the settings of the `first_start` on this
+    /// computer.
     #[must_use]
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    pub fn new(path: PathBuf, first_start: Settings) -> Self {
+        Self { path, first_start }
     }
 
-    /// Reads the saved settings. Gives the settings of `defaults` when there is no file, or when
-    /// the file is damaged.
+    /// Reads the saved settings. Gives the settings of the first start when there is no file, or
+    /// when the file is damaged.
     #[must_use]
-    pub fn load(&self, defaults: impl FnOnce() -> Settings) -> Settings {
+    pub fn load(&self) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return defaults(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return self.first_start.clone(),
             Err(error) => {
                 tracing::warn!(%error, "failed to read the settings file, using the default settings");
-                return defaults();
+                return self.first_start.clone();
             }
         };
         parse(&json).unwrap_or_else(|error| {
             tracing::warn!(%error, "the settings file is damaged, using the default settings");
-            defaults()
+            self.first_start.clone()
         })
     }
 
@@ -59,6 +62,10 @@ impl SettingsStore for SettingsFile {
             tracing::warn!(%error, "failed to save the settings");
         }
     }
+
+    fn first_start_settings(&self) -> Settings {
+        self.first_start.clone()
+    }
 }
 
 #[cfg(test)]
@@ -69,7 +76,7 @@ mod tests {
     use typealike_core::settings::{
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp,
         HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PromptPreparation,
-        ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionDisplay, SuggestionLength,
+        ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup, SuggestionDisplay, SuggestionLength,
         SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
     };
 
@@ -89,7 +96,7 @@ mod tests {
     #[test]
     fn saved_settings_load_again() {
         let path = temporary_file("saved.json");
-        let mut file = SettingsFile::new(path.clone());
+        let mut file = SettingsFile::new(path.clone(), first_start_settings());
 
         let settings = Settings {
             backend: Backend::Cuda,
@@ -136,39 +143,48 @@ mod tests {
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
             sentence_end: SentenceEnd::Stop,
+            setup: Setup::Finished,
         };
 
         file.save(&settings);
-        let loaded = file.load(first_start_defaults);
+        let loaded = file.load();
 
         fs::remove_file(&path).ok();
         assert_eq!(loaded, settings);
     }
 
-    fn first_start_defaults() -> Settings {
+    fn first_start_settings() -> Settings {
         Settings {
             backend: Backend::Vulkan,
             writer_name: WriterName("Sara Novak".to_owned()),
+            setup: Setup::Needed,
             ..Settings::default()
         }
     }
 
     #[test]
-    fn missing_file_gives_the_defaults() {
-        let file = SettingsFile::new(temporary_file("missing.json"));
+    fn missing_file_gives_the_first_start_settings() {
+        let file = SettingsFile::new(temporary_file("missing.json"), first_start_settings());
 
-        assert_eq!(file.load(first_start_defaults), first_start_defaults());
+        assert_eq!(file.load(), first_start_settings());
     }
 
     #[test]
-    fn damaged_file_gives_the_defaults() {
+    fn store_gives_the_first_start_settings_for_a_reset() {
+        let file = SettingsFile::new(temporary_file("reset.json"), first_start_settings());
+
+        assert_eq!(file.first_start_settings(), first_start_settings());
+    }
+
+    #[test]
+    fn damaged_file_gives_the_first_start_settings() {
         let path = temporary_file("damaged.json");
         fs::create_dir_all(path.parent().expect("the path has a folder")).expect("temp dir is writable");
         fs::write(&path, "not json").expect("temp dir is writable");
 
-        let loaded = SettingsFile::new(path.clone()).load(first_start_defaults);
+        let loaded = SettingsFile::new(path.clone(), first_start_settings()).load();
 
         fs::remove_file(&path).ok();
-        assert_eq!(loaded, first_start_defaults());
+        assert_eq!(loaded, first_start_settings());
     }
 }

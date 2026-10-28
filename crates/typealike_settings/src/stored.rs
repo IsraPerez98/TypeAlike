@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{Backend, SentenceEnd};
 use typealike_core::settings::{
-    ClipboardAccess, PromptPreparation, Settings, SuggestionDisplay, SuggestionLength, TypoFix, TypoRule,
-    WriterName, WriterNotes,
+    ClipboardAccess, PromptPreparation, Settings, Setup, SuggestionDisplay, SuggestionLength, TypoFix,
+    TypoRule, WriterName, WriterNotes,
 };
 
 use energy_saving::StoredEnergySaving;
@@ -44,6 +44,8 @@ struct StoredSettings {
     typo_rule: StoredTypoRule,
     typo_fix: StoredTypoFix,
     sentence_end: StoredSentenceEnd,
+    /// A file of an older version has no setup, and counts as finished.
+    setup: StoredSetup,
 }
 
 impl Default for StoredSettings {
@@ -105,6 +107,13 @@ enum StoredSentenceEnd {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+enum StoredSetup {
+    Needed,
+    Finished,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum StoredSuggestionLength {
     VeryShort,
     Short,
@@ -162,6 +171,10 @@ impl From<Settings> for StoredSettings {
             SentenceEnd::Continue => StoredSentenceEnd::Continue,
             SentenceEnd::Stop => StoredSentenceEnd::Stop,
         };
+        let setup = match settings.setup {
+            Setup::Needed => StoredSetup::Needed,
+            Setup::Finished => StoredSetup::Finished,
+        };
         Self {
             backend,
             suggestion_model,
@@ -179,6 +192,7 @@ impl From<Settings> for StoredSettings {
             typo_rule,
             typo_fix,
             sentence_end,
+            setup,
         }
     }
 }
@@ -226,6 +240,10 @@ impl From<StoredSettings> for Settings {
             StoredSentenceEnd::Continue => SentenceEnd::Continue,
             StoredSentenceEnd::Stop => SentenceEnd::Stop,
         };
+        let setup = match stored.setup {
+            StoredSetup::Needed => Setup::Needed,
+            StoredSetup::Finished => Setup::Finished,
+        };
         let writer_notes = match (stored.writer_notes, stored.system_prompt) {
             (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
             (_, Some(system_prompt)) => WriterNotes(system_prompt),
@@ -248,6 +266,7 @@ impl From<StoredSettings> for Settings {
             typo_rule,
             typo_fix,
             sentence_end,
+            setup,
         }
     }
 }

@@ -13,9 +13,9 @@ use typealike_core::controller::{
 };
 use typealike_core::desktop::{EnergySaver, GameActivity};
 use typealike_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
-use typealike_core::localization::UiLanguage;
 use typealike_core::settings::Settings;
 use typealike_core::settings_window::view::SettingsInput;
+use typealike_core::setup::TrayPlace;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
@@ -40,7 +40,7 @@ use crate::focus::FocusTracker;
 use crate::game_watch::GameWatch;
 use crate::injection::{self, INJECTION_TAG, ReplacementQueue};
 use crate::keys;
-use crate::language::preferred_languages;
+use crate::language::ui_language;
 use crate::mailbox::Mailbox;
 use crate::menu;
 use crate::ocr::OcrSupport;
@@ -121,7 +121,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let startup = Startup {
         backend_choice: BackendChoice::User,
         energy_saver: energy_saver::read(),
-        ui_language: UiLanguage::for_preferred(&preferred_languages()),
+        ui_language: ui_language(),
+        tray: TrayPlace::NotificationArea,
         playground: PlaygroundPage::of_build(),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read the energy saver");
