@@ -6,8 +6,9 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSAccessibility as _, NSButton, NSLineBreakMode, NSResponder, NSStackView, NSTextField, NSTextView,
-    NSView,
+    NSAccessibility as _, NSButton, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh,
+    NSLayoutPriorityDefaultLow, NSResponder, NSStackView, NSStackViewDistribution, NSTextField, NSTextView,
+    NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::NSString;
@@ -15,11 +16,10 @@ use typealike_core::settings_window::view::{self as view, ControlId, SettingsInp
 
 use crate::labels::menu_label;
 use crate::settings::controls::{button, heading, set_text, small_secondary_label, text_area};
-use crate::settings::layout::{fill_width, trailing_row};
+use crate::settings::layout::{ACCESSORY_SPACING, NO_INSETS, fill_width, stack, trailing_row};
 use crate::settings::rows::SettingRow;
 use crate::settings::{Binder, ControlAction};
 
-const TEXT_FIELD_HEIGHT: CGFloat = 88.0;
 const TEXT_LINE_WIDTH: CGFloat = 200.0;
 
 /// A row of a group with a field that edits one line of text.
@@ -138,8 +138,8 @@ impl TextAreaRow {
     }
 }
 
-/// A text field under its heading, with the button that submits its text below it. The return
-/// key in the field submits the text too.
+/// A line of text under its heading, with the button that submits its text at its trailing edge.
+/// The return key in the field submits the text too.
 #[derive(Debug)]
 pub(in crate::settings) struct TextFieldRow {
     heading: Retained<NSTextField>,
@@ -154,16 +154,27 @@ impl TextFieldRow {
         let main_thread = binder.main_thread;
         let heading = heading(main_thread);
         let field = NSTextField::textFieldWithString(&NSString::new(), main_thread);
-        field.setUsesSingleLineMode(false);
-        field.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
-        field
-            .heightAnchor()
-            .constraintEqualToConstant(TEXT_FIELD_HEIGHT)
-            .setActive(true);
+        field.setUsesSingleLineMode(true);
+        field.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultLow,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
         binder.target.connect(&field, ControlAction::Submit);
         let button = button(binder.target, binder.target.submit_action, main_thread);
-        let button_row = trailing_row(&button, main_thread);
-        let parts: [&NSView; 3] = [&heading, &field, &button_row];
+        button.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultHigh,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        let field_row = stack(
+            NSUserInterfaceLayoutOrientation::Horizontal,
+            ACCESSORY_SPACING,
+            NO_INSETS,
+            main_thread,
+        );
+        field_row.setDistribution(NSStackViewDistribution::Fill);
+        field_row.addArrangedSubview(&field);
+        field_row.addArrangedSubview(&button);
+        let parts: [&NSView; 2] = [&heading, &field_row];
         for part in parts {
             container.addArrangedSubview(part);
             fill_width(part, container);

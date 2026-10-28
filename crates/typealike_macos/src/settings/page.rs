@@ -220,6 +220,10 @@ impl SectionView {
         );
         title_bar.addArrangedSubview(&back);
         title_bar.addArrangedSubview(&heading);
+        heading
+            .trailingAnchor()
+            .constraintEqualToAnchor(&title_bar.trailingAnchor())
+            .setActive(true);
         let rows_container = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
             LIST_PART_SPACING,
