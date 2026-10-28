@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::settings_window::models::catalog::SUGGESTED_MODELS;
-use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, SearchField, Section};
+use crate::settings_window::view::{Accessory, Item, Message, PageIcon, Permille, SearchField};
 use crate::test_support::{english, writing_rule_breaks};
 
 const REPO: &str = "owner/Model-GGUF";

@@ -66,6 +66,7 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
         RowIcon::Moon => "\u{E708}",
         RowIcon::Battery => "\u{EA95}",
         RowIcon::Game => "\u{E7FC}",
+        RowIcon::MagnifyingGlass => "\u{E721}",
     }
 }
 

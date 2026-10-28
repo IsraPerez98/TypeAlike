@@ -4,8 +4,6 @@
 //! rows of the settings window, so each platform renders them as in the settings window and sends
 //! back each [`SettingsInput`].
 
-use std::iter;
-
 use crate::desktop::{Permission, PermissionState};
 use crate::engine::split_next_part;
 use crate::hub::ModelFile;
@@ -19,11 +17,14 @@ use crate::settings_window::permissions::permission_row;
 use crate::settings_window::personalization::HISTORY;
 use crate::settings_window::playground::PlaygroundPane;
 use crate::settings_window::screen_text::SCREEN_TEXT;
-use crate::settings_window::view::{Button, ControlId, Row, RowIcon, Section, SettingsInput, Switch};
+use crate::settings_window::view::{
+    Button, ControlId, Message, Row, RowIcon, Section, SettingsInput, Switch,
+};
 
 const BACK: &str = "setup-back";
 const NEXT: &str = "setup-next";
 const AUTOSTART: &str = "setup-autostart";
+const OTHER_MODELS: &str = "setup-other-models";
 
 /// Everything that the setup window shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +113,7 @@ pub(crate) enum SetupAction {
     Back,
     Next,
     SwitchAutostart(bool),
+    ShowOtherModels,
 }
 
 /// What the controller must do after a setup action.
@@ -137,11 +139,22 @@ pub(crate) struct SetupContext<'context> {
     pub(crate) translations: &'context Translations,
 }
 
-/// The state of an open setup window: the step that it shows, and the choice of the autostart
-/// switch, which applies when the user finishes the setup. The switch is on by default.
+/// Which models the step of the model shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelChoice {
+    /// The model that TypeAlike recommends, and a button that shows the other models.
+    Recommended,
+    /// The models of the Models page and the search of Hugging Face.
+    Other,
+}
+
+/// The state of an open setup window: the step that it shows, the models that the step of the
+/// model shows, and the choice of the autostart switch, which applies when the user finishes the
+/// setup. The switch is on by default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SetupFlow {
     step: SetupStep,
+    model_choice: ModelChoice,
     is_autostart_on: bool,
 }
 
@@ -150,6 +163,7 @@ impl SetupFlow {
     pub(crate) fn new() -> Self {
         Self {
             step: SetupStep::Welcome,
+            model_choice: ModelChoice::Recommended,
             is_autostart_on: true,
         }
     }
@@ -162,29 +176,35 @@ impl SetupFlow {
             SettingsInput::Toggled { id, is_on } if id.as_str() == AUTOSTART => {
                 Some(SetupAction::SwitchAutostart(*is_on))
             }
+            SettingsInput::Pressed(id) if id.as_str() == OTHER_MODELS => Some(SetupAction::ShowOtherModels),
             _ => None,
         }
     }
 
-    /// Handles `action`. The next button goes on only while the step allows it.
+    /// Handles `action`. The next button goes on only while the step allows it. A new step shows
+    /// the recommended model again.
     pub(crate) fn on_action(&mut self, action: SetupAction, context: &SetupContext<'_>) -> SetupOutcome {
         let steps = steps(context.permissions);
         let index = step_index(&steps, self.step);
         match action {
-            SetupAction::Back => {
-                self.step = steps[index.saturating_sub(1)];
-            }
+            SetupAction::Back => self.go_to(steps[index.saturating_sub(1)]),
             SetupAction::Next if !can_continue(self.step, context) => {}
             SetupAction::Next => match steps.get(index + 1) {
-                Some(&next) => self.step = next,
+                Some(&next) => self.go_to(next),
                 None if self.is_autostart_on => {
                     return SetupOutcome::Finished(GeneralAction::EnableAutostart);
                 }
                 None => return SetupOutcome::Finished(GeneralAction::DisableAutostart),
             },
             SetupAction::SwitchAutostart(is_on) => self.is_autostart_on = is_on,
+            SetupAction::ShowOtherModels => self.model_choice = ModelChoice::Other,
         }
         SetupOutcome::Shown
+    }
+
+    fn go_to(&mut self, step: SetupStep) {
+        self.step = step;
+        self.model_choice = ModelChoice::Recommended;
     }
 
     /// The view of the step that the setup shows.
@@ -195,7 +215,7 @@ impl SetupFlow {
         let count = steps.len();
         let step_content = match self.step {
             SetupStep::Welcome => welcome(translations),
-            SetupStep::Model => model(context),
+            SetupStep::Model => self.model(context),
             SetupStep::Permission => permission(context),
             SetupStep::About => about(context),
             SetupStep::Ready => self.ready(context),
@@ -227,6 +247,56 @@ impl SetupFlow {
             back: (self.step != SetupStep::Welcome).then(|| button(BACK, "setup-back", true, translations)),
             next: button(NEXT, next_label, can_continue(self.step, context), translations),
             language: translations.language(),
+        }
+    }
+
+    /// The step of the model, from top to bottom: the menu of the backend, the models, and the
+    /// menu of the suggestion model while a model is on the computer. The models are the model
+    /// that TypeAlike recommends while no model is on the computer, with a button that shows the
+    /// other models. After that button, they are the models of the Models page and the search of
+    /// Hugging Face.
+    fn model(&self, context: &SetupContext<'_>) -> StepContent {
+        let translations = context.translations;
+        let general = context.general;
+        let backend = general.settings().backend;
+        let models = match self.model_choice {
+            ModelChoice::Other => context.models.browser_sections(backend, translations),
+            ModelChoice::Recommended => {
+                let recommended = recommended_rows(context);
+                let recommended = if recommended.is_empty() {
+                    None
+                } else if context.models.is_reading_gpu_memory(backend) {
+                    Some(Section::new(vec![Row::Loading(
+                        translations.text("setup-model-checking"),
+                    )]))
+                } else {
+                    Some(Section {
+                        footer: Some(translations.text("setup-model-footer")),
+                        ..Section::new(recommended)
+                    })
+                };
+                recommended
+                    .into_iter()
+                    .chain([other_models_section(translations)])
+                    .collect()
+            }
+        };
+        let has_model = !context.installed.is_empty();
+        let model_menu = has_model
+            .then(|| general.suggestion_model_section(context.playground, context.installed, translations));
+        let title = if has_model {
+            "setup-model-select-title"
+        } else {
+            "setup-model-title"
+        };
+        StepContent {
+            sections: general
+                .backend_section(context.playground, translations)
+                .into_iter()
+                .chain(models)
+                .chain(model_menu)
+                .collect(),
+            ..StepContent::new(title, "setup-model-body")
         }
     }
 
@@ -347,38 +417,12 @@ fn welcome(translations: &Translations) -> StepContent {
     }
 }
 
-/// The step of the model: the model that TypeAlike recommends, with the menu of the backend,
-/// while no model is on the computer. Else the menus of the suggestion model and the backend.
-fn model(context: &SetupContext<'_>) -> StepContent {
-    let translations = context.translations;
-    let general = context.general;
-    let recommended = recommended_rows(context);
-    if recommended.is_empty() {
-        return StepContent {
-            sections: vec![Section {
-                footer: Some(translations.text("setup-model-ready")),
-                ..general.model_section(context.playground, context.installed, translations)
-            }],
-            ..StepContent::new("setup-model-select-title", "setup-model-body")
-        };
-    }
-    let sections = {
-        let model = if context.models.is_reading_gpu_memory(general.settings().backend) {
-            Section::new(vec![Row::Loading(translations.text("setup-model-checking"))])
-        } else {
-            Section {
-                footer: Some(translations.text("setup-model-footer")),
-                ..Section::new(recommended)
-            }
-        };
-        iter::once(model)
-            .chain(general.backend_section(context.playground, translations))
-            .collect()
-    };
-    StepContent {
-        sections,
-        ..StepContent::new("setup-model-title", "setup-model-body")
-    }
+/// The other models: a row with the button that shows them.
+fn other_models_section(translations: &Translations) -> Section {
+    Section::new(vec![Row::Message(Message {
+        text: translations.text("setup-other-models-description"),
+        button: Some(button(OTHER_MODELS, "setup-other-models", true, translations)),
+    })])
 }
 
 /// The row of the model that TypeAlike recommends, below its warning, while no model is on the

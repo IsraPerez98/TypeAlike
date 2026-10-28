@@ -434,16 +434,44 @@ impl GeneralPane {
         installed: &[ModelFile],
         translations: &Translations,
     ) -> Section {
-        let model_picker = playground.model_picker(
+        let backend = self
+            .has_backend_menu
+            .then(|| Row::Picker(self.backend_picker(playground, translations)));
+        Section::new(
+            iter::once(Self::suggestion_model_row(playground, installed, translations))
+                .chain(backend)
+                .collect(),
+        )
+    }
+
+    /// Returns the section of the suggestion model menu alone, for the setup. `playground` gives
+    /// the load state of the selected model, and the downloaded `installed` model files give the
+    /// entries of the menu.
+    #[must_use]
+    pub fn suggestion_model_section(
+        &self,
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+        translations: &Translations,
+    ) -> Section {
+        Section::new(vec![Self::suggestion_model_row(
+            playground,
+            installed,
+            translations,
+        )])
+    }
+
+    fn suggestion_model_row(
+        playground: &PlaygroundPane,
+        installed: &[ModelFile],
+        translations: &Translations,
+    ) -> Row {
+        Row::Picker(playground.model_picker(
             installed,
             ControlId::new(SUGGESTION_MODEL),
             translations.text("models-model-description"),
             translations,
-        );
-        let backend = self
-            .has_backend_menu
-            .then(|| Row::Picker(self.backend_picker(playground, translations)));
-        Section::new(iter::once(Row::Picker(model_picker)).chain(backend).collect())
+        ))
     }
 
     /// The menu of the examples of the notes. Its first entry stands for notes that the user

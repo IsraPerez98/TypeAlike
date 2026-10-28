@@ -5,10 +5,11 @@ use super::harness::{Call, Harness, first_start_settings, loaded, model_file};
 use crate::app::TrayCommand;
 use crate::controller::Delivery;
 use crate::desktop::{Permission, PermissionState};
+use crate::hub::HubRequest;
 use crate::inference::{Backend, InferenceError, InferenceEvent};
 use crate::settings::{HistoryAccess, Settings, Setup, WriterNotes};
 use crate::settings_window::personalization::HISTORY;
-use crate::settings_window::view::{PageIcon, Row};
+use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput};
 use crate::setup::SetupStep;
 
 const NEXT: &str = "setup-next";
@@ -228,4 +229,22 @@ fn failed_read_of_the_graphics_card_warns_on_the_general_page() {
         .iter()
         .any(|row| matches!(row, Row::Note(note) if note.text.starts_with("TypeAlike cannot read the memory of the graphics card")));
     assert!(has_warning);
+}
+
+#[test]
+fn search_of_the_setup_searches_hugging_face() {
+    let mut harness = Harness::new(needed());
+    harness.controller.on_launch(&mut harness.shell);
+    harness.press_button(NEXT);
+    harness.press_button("setup-other-models");
+
+    let search = SettingsInput::Submitted {
+        id: ControlId::new("models-search"),
+        text: "qwen".to_owned(),
+    };
+    harness.controller.on_settings_input(&search, &mut harness.shell);
+
+    assert!(harness.hub_requests().contains(&HubRequest::Search {
+        query: "qwen".to_owned()
+    }));
 }

@@ -10,7 +10,9 @@ use crate::hub::{
 };
 use crate::inference::{Backend, InferenceError};
 use crate::localization::Translations;
-use crate::settings_window::view::{Button, ControlId, Note, NoteTone, Page, Row, SettingsInput};
+use crate::settings_window::view::{
+    Button, ControlId, Note, NoteTone, Page, Row, RowIcon, Section, SettingsInput, TextField,
+};
 
 /// Something the user did in the Models pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +273,25 @@ impl ModelsPane {
     #[must_use]
     pub fn page(&self, backend: Backend, translations: &Translations) -> Page {
         self.build_page(&mut Buttons::new(translations), backend)
+    }
+
+    /// Returns the sections of the model browser of the setup, with the texts of `translations`:
+    /// the search of Hugging Face as a field with a button, then the sections of the page, as the
+    /// page shows them for `backend`.
+    #[must_use]
+    pub fn browser_sections(&self, backend: Backend, translations: &Translations) -> Vec<Section> {
+        let page = self.page(backend, translations);
+        let search = page.search.map(|field| {
+            Section::new(vec![Row::TextField(TextField {
+                id: field.id,
+                icon: RowIcon::MagnifyingGlass,
+                label: field.placeholder,
+                placeholder: translations.text("models-search-placeholder"),
+                submit_label: translations.text("models-search-button"),
+                is_submit_enabled: true,
+            })])
+        });
+        search.into_iter().chain(page.sections).collect()
     }
 
     /// Returns the row of the model that TypeAlike recommends for `backend`, with the texts of

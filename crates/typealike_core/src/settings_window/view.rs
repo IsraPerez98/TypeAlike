@@ -142,6 +142,8 @@ pub enum RowIcon {
     Battery,
     /// A game controller, for games.
     Game,
+    /// A magnifying glass, for a search.
+    MagnifyingGlass,
 }
 
 /// A field that searches for the text that the user submits.

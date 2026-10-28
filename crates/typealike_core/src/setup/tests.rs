@@ -136,6 +136,19 @@ fn rows(view: &SetupView) -> Vec<&Row> {
     view.sections.iter().flat_map(|section| &section.rows).collect()
 }
 
+/// What starts each section: the id of its first control, the title of its first item, or the id
+/// of the button of its message.
+fn section_starts(view: &SetupView) -> Vec<&str> {
+    view.sections
+        .iter()
+        .filter_map(|section| match section.rows.first()? {
+            Row::Item(item) => Some(item.title.as_str()),
+            Row::Message(message) => message.button.as_ref().map(|button| button.id.as_str()),
+            row => row.id().map(ControlId::as_str),
+        })
+        .collect()
+}
+
 fn item_titles(view: &SetupView) -> Vec<&str> {
     rows(view)
         .into_iter()
@@ -256,7 +269,7 @@ fn each_step_after_the_first_has_a_back_button() {
 }
 
 #[test]
-fn model_step_shows_the_recommended_model_for_the_processor() {
+fn model_step_shows_the_backend_then_the_recommended_model_then_the_other_models() {
     let fixture = Fixture::new();
 
     let view = fixture.view(&flow_at(SetupStep::Model));
@@ -264,14 +277,63 @@ fn model_step_shows_the_recommended_model_for_the_processor() {
     assert_eq!(
         (
             view.title.as_str(),
-            item_titles(&view),
-            view.sections[0].footer.as_deref()
+            section_starts(&view),
+            view.sections[1].footer.as_deref()
         ),
         (
             "Download the model",
-            vec!["Qwen3.5 0.8B"],
+            vec!["backend", "Qwen3.5 0.8B", OTHER_MODELS],
             Some("You download the model one time. You can continue the setup while it downloads.")
         )
+    );
+}
+
+#[test]
+fn model_step_with_a_model_shows_the_model_menu_last() {
+    let fixture = Fixture::new().with_model();
+
+    let view = fixture.view(&flow_at(SetupStep::Model));
+
+    assert_eq!(
+        (view.title.as_str(), section_starts(&view)),
+        (
+            "Select the model",
+            vec!["backend", OTHER_MODELS, "suggestion-model"]
+        )
+    );
+}
+
+#[test]
+fn other_models_show_the_search_and_the_models_of_the_models_page() {
+    let fixture = Fixture::new();
+    let mut flow = flow_at(SetupStep::Model);
+
+    fixture.act(&mut flow, SetupAction::ShowOtherModels);
+
+    let view = fixture.view(&flow);
+    let headings: Vec<&str> = view
+        .sections
+        .iter()
+        .filter_map(|section| section.heading.as_deref())
+        .collect();
+    assert_eq!(
+        (section_starts(&view)[..2].to_vec(), headings),
+        (vec!["backend", "models-search"], vec!["Recommended models"])
+    );
+}
+
+#[test]
+fn new_step_shows_the_recommended_model_again() {
+    let fixture = Fixture::new();
+    let mut flow = flow_at(SetupStep::Model);
+    fixture.act(&mut flow, SetupAction::ShowOtherModels);
+
+    fixture.act(&mut flow, SetupAction::Back);
+    fixture.act(&mut flow, SetupAction::Next);
+
+    assert_eq!(
+        section_starts(&fixture.view(&flow)),
+        vec!["backend", "Qwen3.5 0.8B", OTHER_MODELS]
     );
 }
 
@@ -306,7 +368,7 @@ fn model_step_checks_the_graphics_card_before_its_recommendation() {
     let view = fixture.view(&flow_at(SetupStep::Model));
 
     assert_eq!(
-        view.sections[0].rows,
+        view.sections[1].rows,
         vec![Row::Loading("Checking the graphics card…".to_owned())]
     );
 }
@@ -321,50 +383,13 @@ fn model_step_warns_when_it_cannot_read_the_graphics_card() {
     let view = fixture.view(&flow_at(SetupStep::Model));
 
     assert_eq!(
-        (view.sections[0].rows.first(), item_titles(&view)),
+        (view.sections[1].rows.first(), item_titles(&view)),
         (
             fixture
                 .models
                 .recommendation_warning(Backend::Vulkan, &english())
                 .as_ref(),
             vec!["Gemma 4 E2B"]
-        )
-    );
-}
-
-#[test]
-fn model_step_offers_the_backend_menu_below_the_model() {
-    let fixture = Fixture::on(Backend::Vulkan);
-
-    let view = fixture.view(&flow_at(SetupStep::Model));
-
-    assert_eq!(
-        view.sections
-            .get(1)
-            .and_then(|section| section.rows.first())
-            .and_then(Row::id),
-        Some(&ControlId::new("backend"))
-    );
-}
-
-#[test]
-fn model_step_shows_the_model_menu_when_a_model_is_on_the_computer() {
-    let fixture = Fixture::new().with_model();
-
-    let view = fixture.view(&flow_at(SetupStep::Model));
-
-    assert_eq!(
-        (
-            view.title.as_str(),
-            view.sections.len(),
-            view.sections[0].rows.first().and_then(Row::id),
-            view.sections[0].footer.as_deref()
-        ),
-        (
-            "Select the model",
-            1,
-            Some(&ControlId::new("suggestion-model")),
-            Some("You can download other models later on the Models page.")
         )
     );
 }
@@ -510,6 +535,7 @@ fn setup_controls_give_their_actions() {
         SettingsInput::Pressed(ControlId::new(BACK)),
         SettingsInput::Pressed(ControlId::new(NEXT)),
         toggled(AUTOSTART, false),
+        SettingsInput::Pressed(ControlId::new(OTHER_MODELS)),
         toggled(HISTORY, false),
     ];
 
@@ -521,6 +547,7 @@ fn setup_controls_give_their_actions() {
             Some(SetupAction::Back),
             Some(SetupAction::Next),
             Some(SetupAction::SwitchAutostart(false)),
+            Some(SetupAction::ShowOtherModels),
             None
         ]
     );
@@ -541,9 +568,19 @@ fn each_step_follows_the_writing_rules() {
         SetupStep::Ready,
     ];
 
+    let other_models = SetupFlow {
+        model_choice: ModelChoice::Other,
+        ..flow_at(SetupStep::Model)
+    };
+
     let texts: Vec<_> = fixtures
         .iter()
-        .flat_map(|fixture| steps.map(|step| fixture.view(&flow_at(step))))
+        .flat_map(|fixture| {
+            steps
+                .map(|step| fixture.view(&flow_at(step)))
+                .into_iter()
+                .chain([fixture.view(&other_models)])
+        })
         .flat_map(|view| view.texts())
         .collect();
 
