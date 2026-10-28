@@ -1,14 +1,13 @@
 //! The content of a setup step, which scrolls: the picture of the step, the title and the body, the
-//! demo, the sections with the rows of the settings window, the numbered instructions and the
-//! footnote, top to bottom.
+//! demo, the sections with the rows of the settings window, and the footnote, top to bottom.
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSAccessibility as _, NSBox, NSColor, NSFont, NSFontWeightRegular, NSImageSymbolConfiguration,
-    NSImageView, NSLayoutAttribute, NSLayoutConstraintOrientation, NSLayoutPriorityDefaultHigh, NSScrollView,
-    NSStackView, NSTextAlignment, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSColor, NSFont, NSFontWeightRegular, NSImageSymbolConfiguration, NSImageView,
+    NSLayoutAttribute, NSScrollView, NSStackView, NSTextAlignment, NSTextField,
+    NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSPoint};
@@ -19,7 +18,7 @@ use crate::settings::Binder;
 use crate::settings::controls::{
     secondary_wrapping_label, set_text, small_secondary_label, symbol, wrapping_label,
 };
-use crate::settings::layout::{NO_INSETS, fill_width, rounded_group, scroll_view, stack};
+use crate::settings::layout::{NO_INSETS, fill_width, scroll_view, stack};
 use crate::settings::page::SectionList;
 use crate::settings::setup::demo::DemoView;
 
@@ -35,14 +34,6 @@ const TITLE_SPACING: CGFloat = 8.0;
 const SECTION_SPACING: CGFloat = 20.0;
 const HERO_SYMBOL_SIZE: CGFloat = 56.0;
 const LARGE_TITLE_SIZE: CGFloat = 26.0;
-const INSTRUCTION_SPACING: CGFloat = 10.0;
-const INSTRUCTION_COLUMN_SPACING: CGFloat = 10.0;
-const INSTRUCTION_INSETS: NSEdgeInsets = NSEdgeInsets {
-    top: 14.0,
-    left: 14.0,
-    bottom: 14.0,
-    right: 14.0,
-};
 
 /// The SF Symbol of each step, and its system color, which names the step and never a state.
 fn hero(step: SetupStep) -> (&'static str, Retained<NSColor>) {
@@ -66,7 +57,6 @@ pub(super) struct StepView {
     pub(super) demo: DemoView,
     sections_stack: Retained<NSStackView>,
     sections: SectionList,
-    instructions: InstructionList,
     footnote: Retained<NSTextField>,
 }
 
@@ -91,17 +81,9 @@ impl StepView {
             NO_INSETS,
             main_thread,
         );
-        let instructions = InstructionList::new(main_thread);
         let footnote = centered_label(small_secondary_label(main_thread));
         content.addArrangedSubview(&hero);
-        let parts: [&NSView; 6] = [
-            &title,
-            &body,
-            &demo.root,
-            &sections_stack,
-            &instructions.group,
-            &footnote,
-        ];
+        let parts: [&NSView; 5] = [&title, &body, &demo.root, &sections_stack, &footnote];
         for part in parts {
             content.addArrangedSubview(part);
             fill_width(part, &content);
@@ -117,7 +99,6 @@ impl StepView {
             demo,
             sections: SectionList::new(sections_stack.clone()),
             sections_stack,
-            instructions,
             footnote,
         }
     }
@@ -136,7 +117,6 @@ impl StepView {
         self.demo.render(view.demo.as_ref());
         self.sections_stack.setHidden(view.sections.is_empty());
         self.sections.render(&view.sections, binder);
-        self.instructions.render(&view.instructions, binder.main_thread);
         set_text(&self.footnote, view.footnote.as_deref().unwrap_or_default());
     }
 
@@ -185,77 +165,4 @@ fn centered_label(label: Retained<NSTextField>) -> Retained<NSTextField> {
     label.setAlignment(NSTextAlignment::Center);
     label.setSelectable(false);
     label
-}
-
-/// The numbered instructions in a rounded group, each number in a circle.
-#[derive(Debug)]
-struct InstructionList {
-    group: Retained<NSBox>,
-    rows: Retained<NSStackView>,
-    shown: Vec<String>,
-}
-
-impl InstructionList {
-    fn new(main_thread: MainThreadMarker) -> Self {
-        let rows = stack(
-            NSUserInterfaceLayoutOrientation::Vertical,
-            INSTRUCTION_SPACING,
-            INSTRUCTION_INSETS,
-            main_thread,
-        );
-        Self {
-            group: rounded_group(&rows, main_thread),
-            rows,
-            shown: Vec::new(),
-        }
-    }
-
-    /// Shows `instructions`, and hides the group when there are none. The rows change only when
-    /// the instructions change.
-    fn render(&mut self, instructions: &[String], main_thread: MainThreadMarker) {
-        self.group.setHidden(instructions.is_empty());
-        if self.shown == instructions {
-            return;
-        }
-        for row in self.rows.arrangedSubviews().to_vec() {
-            row.removeFromSuperview();
-        }
-        for (index, instruction) in instructions.iter().enumerate() {
-            self.add_row(index.saturating_add(1), instruction, main_thread);
-        }
-        self.shown = instructions.to_vec();
-    }
-
-    /// Adds the instruction with the `number`, from 1, at the bottom of the list.
-    fn add_row(&self, number: usize, instruction: &str, main_thread: MainThreadMarker) {
-        let badge = NSImageView::new(main_thread);
-        badge.setImage(symbol(&format!("{number}.circle"), &number.to_string()).as_deref());
-        badge.setSymbolConfiguration(Some(
-            &NSImageSymbolConfiguration::configurationWithPointSize_weight(
-                NSFont::systemFontSize(),
-                // SAFETY: the weight is a constant of AppKit.
-                unsafe { NSFontWeightRegular },
-            ),
-        ));
-        badge.setContentTintColor(Some(&NSColor::secondaryLabelColor()));
-        badge.setContentHuggingPriority_forOrientation(
-            NSLayoutPriorityDefaultHigh,
-            NSLayoutConstraintOrientation::Horizontal,
-        );
-        badge.setAccessibilityElement(false);
-        let text = wrapping_label(main_thread);
-        text.setSelectable(false);
-        set_text(&text, instruction);
-        let row = stack(
-            NSUserInterfaceLayoutOrientation::Horizontal,
-            INSTRUCTION_COLUMN_SPACING,
-            NO_INSETS,
-            main_thread,
-        );
-        row.setAlignment(NSLayoutAttribute::Top);
-        row.addArrangedSubview(&badge);
-        row.addArrangedSubview(&text);
-        self.rows.addArrangedSubview(&row);
-        fill_width(&row, &self.rows);
-    }
 }

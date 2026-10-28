@@ -7,6 +7,7 @@
 use std::iter;
 
 use crate::desktop::{Permission, PermissionState};
+use crate::engine::split_next_part;
 use crate::hub::ModelFile;
 use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
@@ -41,8 +42,6 @@ pub struct SetupView {
     pub demo: Option<Demo>,
     /// The sections, top to bottom, as in the settings window.
     pub sections: Vec<Section>,
-    /// Numbered steps that tell how to use TypeAlike, below the sections.
-    pub instructions: Vec<String>,
     /// A short line at the bottom of the step, such as the promise that the text stays on the
     /// computer.
     pub footnote: Option<String>,
@@ -67,7 +66,7 @@ pub enum SetupStep {
     Permission,
     /// The name and the notes of the user, and what suggestions can use.
     About,
-    /// How to use TypeAlike, and the switch that starts it at login.
+    /// Where to try TypeAlike, where its icon is, and the switch that starts it at login.
     Ready,
 }
 
@@ -83,14 +82,18 @@ pub struct StepProgress {
 }
 
 /// A suggestion as it shows while the user types: the typed text, the suggestion after it in
-/// gray, and the key that types the suggestion.
+/// gray, and the key that types the next part of the suggestion. The suggestion is the next part
+/// and then the rest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Demo {
     /// The text that the user types.
     pub typed: String,
-    /// The suggestion after the typed text, with the space before it.
-    pub suggestion: String,
-    /// The name of the key that types the suggestion, on a key cap.
+    /// The part of the suggestion that one press of the key types: its next word, with the space
+    /// before it.
+    pub next_part: String,
+    /// The rest of the suggestion, which stays gray after the key types the next part.
+    pub rest: String,
+    /// The name of the key that types the next part, on a key cap.
     pub key: String,
 }
 
@@ -220,7 +223,6 @@ impl SetupFlow {
             body: translations.text(step_content.body),
             demo: step_content.demo,
             sections: step_content.sections,
-            instructions: step_content.instructions,
             footnote: step_content.footnote,
             back: (self.step != SetupStep::Welcome).then(|| button(BACK, "setup-back", true, translations)),
             next: button(NEXT, next_label, can_continue(self.step, context), translations),
@@ -253,13 +255,6 @@ impl SetupFlow {
         };
         StepContent {
             sections: download.into_iter().chain(autostart).collect(),
-            instructions: [
-                "setup-ready-step-type",
-                "setup-ready-step-tab",
-                "setup-ready-step-ignore",
-            ]
-            .map(|message| translations.text(message))
-            .to_vec(),
             footnote: Some(translations.text(tray)),
             ..StepContent::new(title, body)
         }
@@ -272,7 +267,6 @@ struct StepContent {
     body: &'static str,
     demo: Option<Demo>,
     sections: Vec<Section>,
-    instructions: Vec<String>,
     footnote: Option<String>,
 }
 
@@ -283,7 +277,6 @@ impl StepContent {
             body,
             demo: None,
             sections: Vec::new(),
-            instructions: Vec::new(),
             footnote: None,
         }
     }
@@ -339,11 +332,15 @@ fn can_continue(step: SetupStep, context: &SetupContext<'_>) -> bool {
     }
 }
 
+/// The step of the welcome, with a demo whose key types the part of the suggestion that Tab types.
 fn welcome(translations: &Translations) -> StepContent {
+    let suggestion = format!(" {}", translations.text("setup-demo-suggestion"));
+    let (next_part, rest) = split_next_part(&suggestion);
     StepContent {
         demo: Some(Demo {
             typed: translations.text("setup-demo-typed"),
-            suggestion: format!(" {}", translations.text("setup-demo-suggestion")),
+            next_part: next_part.to_owned(),
+            rest: rest.to_owned(),
             key: translations.text("setup-demo-key"),
         }),
         footnote: Some(translations.text("setup-welcome-privacy")),
@@ -357,12 +354,16 @@ fn model(context: &SetupContext<'_>) -> StepContent {
     let translations = context.translations;
     let general = context.general;
     let recommended = recommended_rows(context);
-    let sections = if recommended.is_empty() {
-        vec![Section {
-            footer: Some(translations.text("setup-model-ready")),
-            ..general.model_section(context.playground, context.installed, translations)
-        }]
-    } else {
+    if recommended.is_empty() {
+        return StepContent {
+            sections: vec![Section {
+                footer: Some(translations.text("setup-model-ready")),
+                ..general.model_section(context.playground, context.installed, translations)
+            }],
+            ..StepContent::new("setup-model-select-title", "setup-model-body")
+        };
+    }
+    let sections = {
         let model = if context.models.is_reading_gpu_memory(general.settings().backend) {
             Section::new(vec![Row::Loading(translations.text("setup-model-checking"))])
         } else {

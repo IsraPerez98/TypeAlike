@@ -319,7 +319,7 @@ fn failed_read_of_gpu_memory_warns_above_the_recommended_model() {
     assert_eq!(
         pane.recommendation_warning(Backend::Vulkan, &english()),
         Some(Row::Note(Note {
-            text: "TypeAlike cannot read the graphics card of this computer. Thus it recommends a model that fits in most graphics cards.".to_owned(),
+            text: "TypeAlike cannot read the memory of the graphics card, so it recommends a model that fits most graphics cards.".to_owned(),
             tone: NoteTone::Warning,
         }))
     );

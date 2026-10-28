@@ -226,6 +226,6 @@ fn failed_read_of_the_graphics_card_warns_on_the_general_page() {
     let has_warning = view.pages[0].sections[0]
         .rows
         .iter()
-        .any(|row| matches!(row, Row::Note(note) if note.text.starts_with("TypeAlike cannot read the graphics card")));
+        .any(|row| matches!(row, Row::Note(note) if note.text.starts_with("TypeAlike cannot read the memory of the graphics card")));
     assert!(has_warning);
 }

@@ -163,19 +163,43 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
                 text: "Step 1 of 4".to_owned(),
             },
             title: "Welcome to TypeAlike".to_owned(),
-            body: "TypeAlike suggests the next words while you type in any app. Press Tab to type the suggestion. To ignore it, keep typing.".to_owned(),
+            body: "TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.".to_owned(),
             demo: Some(Demo {
                 typed: "Thanks for the quick reply. I will send you the".to_owned(),
-                suggestion: " report by Friday.".to_owned(),
+                next_part: " report".to_owned(),
+                rest: " by Friday.".to_owned(),
                 key: "Tab".to_owned(),
             }),
             sections: Vec::new(),
-            instructions: Vec::new(),
             footnote: Some("The model runs on this computer. The text that you type never leaves it.".to_owned()),
             back: None,
             next: button(NEXT, "Start setup", true),
             language: UiLanguage::English,
         }
+    );
+}
+
+#[test]
+fn demo_key_types_only_the_next_word_as_tab_does() {
+    let cases = [UiLanguage::English, UiLanguage::Spanish];
+
+    let parts = cases.map(|language| {
+        let fixture = Fixture {
+            translations: Translations::new(language),
+            ..Fixture::new()
+        };
+        fixture
+            .view(&SetupFlow::new())
+            .demo
+            .map(|demo| (demo.next_part, demo.rest))
+    });
+
+    assert_eq!(
+        parts,
+        [
+            Some((" report".to_owned(), " by Friday.".to_owned())),
+            Some((" informe".to_owned(), " el viernes.".to_owned())),
+        ]
     );
 }
 
@@ -246,9 +270,7 @@ fn model_step_shows_the_recommended_model_for_the_processor() {
         (
             "Download the model",
             vec!["Qwen3.5 0.8B"],
-            Some(
-                "You can continue the setup while the model downloads. Later, you can download other models in the settings."
-            )
+            Some("You download the model one time. You can continue the setup while it downloads.")
         )
     );
 }
@@ -333,14 +355,16 @@ fn model_step_shows_the_model_menu_when_a_model_is_on_the_computer() {
 
     assert_eq!(
         (
+            view.title.as_str(),
             view.sections.len(),
             view.sections[0].rows.first().and_then(Row::id),
             view.sections[0].footer.as_deref()
         ),
         (
+            "Select the model",
             1,
             Some(&ControlId::new("suggestion-model")),
-            Some("The model is on this computer. You can select another model later in the settings.")
+            Some("You can download other models later on the Models page.")
         )
     );
 }
@@ -371,7 +395,7 @@ fn permission_step_shows_only_accessibility() {
         .collect();
     assert_eq!(
         (view.title.as_str(), labels),
-        ("Allow access to text fields", vec!["Accessibility"])
+        ("Give TypeAlike access to text fields", vec!["Accessibility"])
     );
 }
 
@@ -399,20 +423,16 @@ fn about_step_shows_the_writer_and_what_suggestions_can_use() {
 }
 
 #[test]
-fn ready_step_tells_how_to_use_typealike() {
+fn ready_step_tells_where_to_try_typealike_and_where_its_icon_is() {
     let fixture = Fixture::new().with_model();
 
     let view = fixture.view(&flow_at(SetupStep::Ready));
 
     assert_eq!(
-        (view.title.as_str(), view.instructions, view.footnote, view.next),
+        (view.title.as_str(), view.body.as_str(), view.footnote, view.next),
         (
             "TypeAlike is ready",
-            vec![
-                "Type in any app, such as your email or a chat.".to_owned(),
-                "When gray text shows after your text, press Tab to type its next word.".to_owned(),
-                "To ignore a suggestion, keep typing.".to_owned(),
-            ],
+            "Try it now in any app, such as your email or a chat.",
             Some("TypeAlike stays in the notification area of the taskbar. Use its icon to pause suggestions or to open the settings.".to_owned()),
             button(NEXT, "Finish setup", true),
         )

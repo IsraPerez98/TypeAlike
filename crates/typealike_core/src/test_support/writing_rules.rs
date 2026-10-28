@@ -133,7 +133,6 @@ impl SetupView {
             UiText::prose(&self.body),
         ];
         texts.extend(self.sections.iter().flat_map(section_texts));
-        texts.extend(self.instructions.iter().map(UiText::prose));
         texts.extend(self.footnote.iter().map(UiText::prose));
         texts.extend(self.back.iter().map(button_text));
         texts.push(button_text(&self.next));

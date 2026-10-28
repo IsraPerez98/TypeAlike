@@ -232,10 +232,11 @@ fn notes_example_picker(selected: usize) -> Picker {
         id: ControlId::new(NOTES_EXAMPLE),
         icon: RowIcon::Pencil,
         label: "Start from an example".to_owned(),
-        description: "Select the example that is nearest to your writing. Then change the notes so that they tell more about you.".to_owned(),
+        description: "Select the example that is closest to how you write. Then change the notes below."
+            .to_owned(),
         choices: vec![
             "Your own notes".to_owned(),
-            "General".to_owned(),
+            "Everyday writing".to_owned(),
             "Work emails".to_owned(),
             "Customer support".to_owned(),
             "Chats with friends and family".to_owned(),
@@ -251,7 +252,7 @@ fn notes_example_picker(selected: usize) -> Picker {
 
 fn reset_section(label: &str) -> Section {
     Section::new(vec![Row::Message(Message {
-        text: "All settings go back to their first values, and the setup opens again. Your models and your earlier writing stay.".to_owned(),
+        text: "All settings go back to their defaults, and the setup opens again. Your downloaded models and your earlier writing stay.".to_owned(),
         button: Some(Button {
             id: ControlId::new(RESET),
             label: label.to_owned(),

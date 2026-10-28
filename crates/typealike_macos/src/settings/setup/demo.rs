@@ -1,6 +1,7 @@
 //! The demo of a suggestion on the first step of the setup: a text box where the text types itself,
-//! the suggestion fades in after it in gray, the key cap shows a press, and the suggestion becomes
-//! typed text. It plays one time each time the step shows, and then stays on its last frame.
+//! the suggestion fades in after it in gray, the key cap shows a press, and the next part of the
+//! suggestion becomes typed text while the rest stays gray, as Tab does. It plays one time each time
+//! the step shows, and then stays on its last frame.
 
 use std::time::{Duration, Instant};
 
@@ -57,7 +58,7 @@ enum SuggestionLook {
     Ghost {
         opacity: CGFloat,
     },
-    /// Typed text, after the press of the key.
+    /// The next part typed and the rest gray, after the press of the key.
     Accepted,
 }
 
@@ -131,11 +132,13 @@ impl DemoFrame {
         self.suggestion == SuggestionLook::Accepted && self.key == KeyLook::Up
     }
 
-    /// The opacity of the gray suggestion over the typed text.
+    /// The opacity of the gray suggestion over the typed text. After the press of the key, the rest
+    /// of the suggestion stays gray.
     fn ghost_opacity(&self) -> CGFloat {
         match self.suggestion {
             SuggestionLook::Ghost { opacity } => opacity,
-            SuggestionLook::Hidden | SuggestionLook::Accepted => 0.0,
+            SuggestionLook::Hidden => 0.0,
+            SuggestionLook::Accepted => 1.0,
         }
     }
 
@@ -255,7 +258,7 @@ impl DemoView {
         let Some(demo) = demo else {
             return;
         };
-        let spoken = NSString::from_str(&format!("{}{}", demo.typed, demo.suggestion));
+        let spoken = NSString::from_str(&format!("{}{}{}", demo.typed, demo.next_part, demo.rest));
         // SAFETY: the value of a static text is a string.
         unsafe { self.root.setAccessibilityValue(Some(&spoken)) };
     }
@@ -316,23 +319,26 @@ impl DemoParts {
         let typed_color = NSColor::labelColor();
         let clear = NSColor::clearColor();
         let (typed, untyped) = split_at_letters(&demo.typed, frame.typed_letters);
-        let accepted_color = if frame.suggestion == SuggestionLook::Accepted {
-            &typed_color
+        let gray = NSColor::secondaryLabelColor();
+        let (accepted_color, next_part_gray) = if frame.suggestion == SuggestionLook::Accepted {
+            (&typed_color, &clear)
         } else {
-            &clear
+            (&clear, &gray)
         };
         self.text.setAttributedStringValue(&joined(
             &[
                 (typed, &typed_color),
                 (untyped, &clear),
-                (&demo.suggestion, accepted_color),
+                (&demo.next_part, accepted_color),
+                (&demo.rest, &clear),
             ],
             &font,
         ));
         self.suggestion.setAttributedStringValue(&joined(
             &[
                 (&demo.typed, &clear),
-                (&demo.suggestion, &NSColor::secondaryLabelColor()),
+                (&demo.next_part, next_part_gray),
+                (&demo.rest, &gray),
             ],
             &font,
         ));
@@ -475,10 +481,10 @@ mod tests {
     }
 
     #[test]
-    fn accepted_suggestion_hides_the_gray_text() {
+    fn rest_of_the_suggestion_stays_gray_after_the_key_press() {
         let frame = DemoFrame::last(LETTERS);
 
-        assert!(frame.ghost_opacity().abs() < f64::EPSILON);
+        assert!((frame.ghost_opacity() - 1.0).abs() < f64::EPSILON);
         assert!((frame.key_opacity() - 1.0).abs() < f64::EPSILON);
     }
 

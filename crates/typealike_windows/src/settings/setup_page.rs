@@ -1,5 +1,5 @@
 //! The content of the setup window: the picture, the title and the body of the step, the demo of
-//! a suggestion, the sections of the step as on a settings page, the numbered instructions, and a
+//! a suggestion, the sections of the step as on a settings page, a footnote, and a
 //! footer with the progress and the buttons. A new step slides in and the demo types its text,
 //! unless the animation effects of Windows are off.
 
@@ -11,8 +11,8 @@ use typealike_core::setup::{Demo, SetupView};
 use windows_reactor::{
     AutomationHeadingLevel, Border, ButtonStyle, Component, ComponentContext, ComponentTimer, EncodedImage,
     FontIcon, FontWeight, Grid, GridLength, HorizontalAlignment, Image, KeyedView, Orientation,
-    ScrollBarVisibility, ScrollViewer, StackPanel, TextAlignment, TextBlock, TextWrapping, ThemeBrush,
-    Thickness, VerticalAlignment, View, ViewContext, WindowBackdrop, WindowVisuals, keyed,
+    ScrollBarVisibility, ScrollViewer, StackPanel, TextBlock, TextWrapping, ThemeBrush, Thickness,
+    VerticalAlignment, View, ViewContext, WindowBackdrop, WindowVisuals, keyed,
 };
 
 use super::icons::{setup_glyph, setup_picture};
@@ -43,9 +43,7 @@ const KEY_STROKE: f64 = 1.0;
 const PRESSED_KEY_STROKE: f64 = 2.0;
 const KEY_TEXT_SIZE: f64 = 12.0;
 const STROKE: f64 = 1.0;
-const INSTRUCTION_GAP: f64 = 12.0;
-const NUMBER_SIZE: f64 = 24.0;
-const NUMBER_TEXT_SIZE: f64 = 12.0;
+const DEMO_COLUMN_GAP: f64 = 12.0;
 const FOOTER_PADDING: Thickness = Thickness::xy(24.0, 16.0);
 const FOOTER_GAP: f64 = 8.0;
 const DOT_SIZE: f64 = 6.0;
@@ -63,7 +61,6 @@ const LETTER_WAIT: Duration = Duration::from_millis(35);
 const TYPED_WAIT: Duration = Duration::from_millis(400);
 const SUGGESTED_WAIT: Duration = Duration::from_millis(1000);
 const PRESSED_WAIT: Duration = Duration::from_millis(200);
-const ACCEPTED_WAIT: Duration = Duration::from_millis(1800);
 /// The time after a change of the step in which a press of a button does not count, so that a
 /// double click on the next button goes one step and does not skip a step.
 const TURN_TIME: Duration = Duration::from_millis(350);
@@ -144,19 +141,18 @@ enum DemoFrame {
     Typing(usize),
     /// The suggestion shows in gray after the typed text.
     Suggested,
-    /// The key that types the suggestion shows as pressed.
+    /// The key that types the next part of the suggestion shows as pressed.
     Pressed,
-    /// The suggestion shows as typed text.
+    /// The next part of the suggestion shows as typed text, and the rest stays gray. The demo
+    /// stops here.
     Accepted,
-    /// The suggestion shows in gray again, and the demo stops.
-    Resting,
 }
 
 impl DemoFrame {
     fn first(motion: Motion) -> Self {
         match motion {
             Motion::Animated => Self::Waiting,
-            Motion::Still => Self::Resting,
+            Motion::Still => Self::Accepted,
         }
     }
 
@@ -169,8 +165,7 @@ impl DemoFrame {
             Self::Typing(_) => Some(TYPED_WAIT),
             Self::Suggested => Some(SUGGESTED_WAIT),
             Self::Pressed => Some(PRESSED_WAIT),
-            Self::Accepted => Some(ACCEPTED_WAIT),
-            Self::Resting => None,
+            Self::Accepted => None,
         }
     }
 
@@ -181,8 +176,7 @@ impl DemoFrame {
             Self::Typing(count) if count < letters => Self::Typing(count + 1),
             Self::Typing(_) => Self::Suggested,
             Self::Suggested => Self::Pressed,
-            Self::Pressed => Self::Accepted,
-            Self::Accepted | Self::Resting => Self::Resting,
+            Self::Pressed | Self::Accepted => Self::Accepted,
         }
     }
 
@@ -191,12 +185,12 @@ impl DemoFrame {
         match self {
             Self::Waiting => 0,
             Self::Typing(count) => count,
-            Self::Suggested | Self::Pressed | Self::Accepted | Self::Resting => letters,
+            Self::Suggested | Self::Pressed | Self::Accepted => letters,
         }
     }
 
     fn shows_gray_suggestion(self) -> bool {
-        matches!(self, Self::Suggested | Self::Pressed | Self::Resting)
+        matches!(self, Self::Suggested | Self::Pressed | Self::Accepted)
     }
 }
 
@@ -289,8 +283,6 @@ impl SetupPage {
             .iter()
             .enumerate()
             .flat_map(|(index, section)| spaced_section(renderer, index, section));
-        let instructions = (!view.instructions.is_empty())
-            .then(|| keyed("instructions", instructions_view(&view.instructions)));
         let footnote = view
             .footnote
             .as_ref()
@@ -303,7 +295,6 @@ impl SetupPage {
                     .into_iter()
                     .chain(demo)
                     .chain(sections)
-                    .chain(instructions)
                     .chain(footnote),
             );
         let scroll = ScrollViewer::new()
@@ -347,13 +338,13 @@ impl SetupPage {
     }
 
     /// The demo: a field with the typed text, the suggestion after it in gray, and the key that
-    /// types the suggestion. The gray suggestion is the whole text at half opacity under the
-    /// typed text, so the typed text covers its own part.
+    /// types the next part of the suggestion. The gray suggestion is the whole text at half
+    /// opacity under the typed text, so the typed text covers its own part.
     fn demo_view(&self, demo: &Demo) -> View {
         let letters = demo.typed.chars().count();
-        let whole = format!("{}{}", demo.typed, demo.suggestion);
+        let whole = format!("{}{}{}", demo.typed, demo.next_part, demo.rest);
         let shown = if self.demo == DemoFrame::Accepted {
-            whole.clone()
+            format!("{}{}", demo.typed, demo.next_part)
         } else {
             demo.typed
                 .chars()
@@ -412,7 +403,7 @@ impl SetupPage {
             .content(
                 Grid::new()
                     .columns([GridLength::STAR, GridLength::Auto])
-                    .column_spacing(INSTRUCTION_GAP)
+                    .column_spacing(DEMO_COLUMN_GAP)
                     .children((text, key)),
             )
             .into()
@@ -505,46 +496,6 @@ fn demo_text(text: &str) -> TextBlock {
         .text(text)
         .font_size(DEMO_TEXT_SIZE)
         .text_wrapping(TextWrapping::Wrap)
-}
-
-/// The numbered instructions, each number in a circle.
-fn instructions_view(instructions: &[String]) -> View {
-    let rows = instructions.iter().enumerate().map(|(index, instruction)| {
-        let number = Border::new()
-            .grid_column(0)
-            .width(NUMBER_SIZE)
-            .height(NUMBER_SIZE)
-            .corner_radius(NUMBER_SIZE / 2.0)
-            .background(ThemeBrush::CardBackground)
-            .border_brush(ThemeBrush::CardStroke)
-            .border_thickness(STROKE)
-            .vertical_alignment(VerticalAlignment::Top)
-            .content(
-                TextBlock::new()
-                    .text((index + 1).to_string())
-                    .font_size(NUMBER_TEXT_SIZE)
-                    .font_weight(FontWeight::SEMI_BOLD)
-                    .text_alignment(TextAlignment::Center)
-                    .vertical_alignment(VerticalAlignment::Center),
-            );
-        let text = TextBlock::new()
-            .text(instruction)
-            .text_wrapping(TextWrapping::Wrap)
-            .vertical_alignment(VerticalAlignment::Center)
-            .grid_column(1);
-        keyed(
-            index,
-            Grid::new()
-                .columns([GridLength::Auto, GridLength::STAR])
-                .column_spacing(INSTRUCTION_GAP)
-                .children((number, text)),
-        )
-    });
-    StackPanel::new()
-        .spacing(INSTRUCTION_GAP)
-        .margin(BLOCK_MARGIN)
-        .keyed_children(rows)
-        .into()
 }
 
 impl Component for SetupPage {
@@ -651,7 +602,6 @@ mod tests {
             body: String::new(),
             demo: None,
             sections: Vec::new(),
-            instructions: Vec::new(),
             footnote: None,
             back: None,
             next: typealike_core::settings_window::view::Button {
@@ -713,8 +663,8 @@ mod tests {
                 DemoFrame::Suggested,
                 DemoFrame::Pressed,
                 DemoFrame::Accepted,
-                DemoFrame::Resting,
-                DemoFrame::Resting,
+                DemoFrame::Accepted,
+                DemoFrame::Accepted,
             ]
         );
     }
@@ -736,14 +686,17 @@ mod tests {
     }
 
     #[test]
-    fn demo_stops_at_its_last_frame() {
-        assert_eq!(DemoFrame::Resting.wait(2), None);
+    fn demo_stops_when_the_key_typed_the_next_part() {
+        assert_eq!(DemoFrame::Accepted.wait(2), None);
     }
 
     #[test]
-    fn still_demo_shows_the_gray_suggestion_at_once() {
+    fn still_demo_shows_its_last_frame_at_once() {
         let frame = DemoFrame::first(Motion::Still);
 
-        assert_eq!((frame.typed_letters(5), frame.shows_gray_suggestion()), (5, true));
+        assert_eq!(
+            (frame, frame.typed_letters(5), frame.shows_gray_suggestion()),
+            (DemoFrame::Accepted, 5, true)
+        );
     }
 }
