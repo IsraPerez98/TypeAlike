@@ -171,7 +171,7 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
                 key: "Tab".to_owned(),
             }),
             sections: Vec::new(),
-            footnote: Some("The model runs on this computer. The text that you type never leaves it.".to_owned()),
+            footnote: None,
             back: None,
             next: button(NEXT, "Start setup", true),
             language: UiLanguage::English,
@@ -565,6 +565,20 @@ fn setup_shows_in_spanish() {
             "Te damos la bienvenida a TypeAlike",
             "Paso 1 de 4",
             UiLanguage::Spanish
+        )
+    );
+}
+
+#[test]
+fn about_step_tells_what_uses_the_internet() {
+    let fixture = Fixture::new();
+
+    let view = fixture.view(&flow_at(SetupStep::About));
+
+    assert_eq!(
+        view.sections.last().and_then(|section| section.footer.as_deref()),
+        Some(
+            "TypeAlike uses the internet only to find and download models. It does not save the text of password fields."
         )
     );
 }

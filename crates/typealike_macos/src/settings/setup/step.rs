@@ -118,6 +118,7 @@ impl StepView {
         self.sections_stack.setHidden(view.sections.is_empty());
         self.sections.render(&view.sections, binder);
         set_text(&self.footnote, view.footnote.as_deref().unwrap_or_default());
+        self.footnote.setHidden(view.footnote.is_none());
     }
 
     /// Scrolls the content to its top.

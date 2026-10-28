@@ -343,7 +343,6 @@ fn welcome(translations: &Translations) -> StepContent {
             rest: rest.to_owned(),
             key: translations.text("setup-demo-key"),
         }),
-        footnote: Some(translations.text("setup-welcome-privacy")),
         ..StepContent::new("setup-welcome-title", "setup-welcome-body")
     }
 }
