@@ -228,9 +228,10 @@ impl SetupPage {
                 (next != Entrance::Entered).then(|| context.set_timeout(ENTER_DELAY, SetupMessage::Enter));
         }
         let has_demo = view.demo.is_some();
+        let is_new_demo = self.view.as_ref().is_none_or(|old| old.demo != view.demo);
         self.typed.on_view(&view.sections);
         self.view = Some(view);
-        if is_new_step {
+        if is_new_step || is_new_demo {
             self.demo = DemoFrame::first(self.motion);
             self.demo_timer = None;
             if has_demo {

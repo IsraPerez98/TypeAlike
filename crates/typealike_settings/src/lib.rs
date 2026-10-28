@@ -73,6 +73,7 @@ mod tests {
     use super::*;
     use typealike_core::hub::ModelFile;
     use typealike_core::inference::{Backend, SentenceEnd};
+    use typealike_core::localization::UiLanguage;
     use typealike_core::settings::{
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp,
         HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PromptPreparation,
@@ -143,6 +144,7 @@ mod tests {
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
             sentence_end: SentenceEnd::Stop,
+            ui_language: Some(UiLanguage::Spanish),
             setup: Setup::Finished,
         };
 

@@ -212,7 +212,7 @@ impl SetupFlow {
         let number = step_index(&steps, self.step) + 1;
         let count = steps.len();
         let step_content = match self.step {
-            SetupStep::Welcome => welcome(translations),
+            SetupStep::Welcome => welcome(context),
             SetupStep::Model => self.model(context),
             SetupStep::Permission => permission(context),
             SetupStep::About => about(context),
@@ -386,8 +386,10 @@ fn can_continue(step: SetupStep, context: &SetupContext<'_>) -> bool {
     }
 }
 
-/// The step of the welcome, with a demo whose key types the part of the suggestion that Tab types.
-fn welcome(translations: &Translations) -> StepContent {
+/// The step of the welcome, with a demo whose key types the part of the suggestion that Tab types,
+/// and the language menu.
+fn welcome(context: &SetupContext<'_>) -> StepContent {
+    let translations = context.translations;
     let suggestion = format!(" {}", translations.text("setup-demo-suggestion"));
     let (next_part, rest) = split_next_part(&suggestion);
     StepContent {
@@ -397,6 +399,7 @@ fn welcome(translations: &Translations) -> StepContent {
             rest: rest.to_owned(),
             key: translations.text("setup-demo-key"),
         }),
+        sections: vec![context.general.language_section(translations)],
         ..StepContent::new("setup-welcome-title", "setup-welcome-body")
     }
 }

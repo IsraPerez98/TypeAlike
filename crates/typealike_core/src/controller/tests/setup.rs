@@ -7,7 +7,9 @@ use crate::controller::Delivery;
 use crate::desktop::{Permission, PermissionState};
 use crate::hub::HubRequest;
 use crate::inference::{Backend, InferenceError, InferenceEvent};
+use crate::localization::UiLanguage;
 use crate::settings::{HistoryAccess, Settings, Setup, WriterNotes};
+use crate::settings_window::general::UI_LANGUAGE;
 use crate::settings_window::personalization::HISTORY;
 use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput};
 use crate::setup::SetupStep;
@@ -130,6 +132,37 @@ fn switch_of_the_setup_changes_its_setting_and_shows_it() {
         (history, harness.last_setup().is_some()),
         (Some(HistoryAccess::Off), true)
     );
+}
+
+#[test]
+fn picked_language_shows_the_setup_in_it() {
+    let mut harness = Harness::new(needed());
+    harness.controller.on_launch(&mut harness.shell);
+
+    harness.pick(UI_LANGUAGE, 2);
+
+    let setup = harness.last_setup();
+    assert_eq!(
+        setup.map(|view| (view.step, view.language)),
+        Some((SetupStep::Welcome, UiLanguage::Spanish))
+    );
+}
+
+#[test]
+fn reset_shows_the_setup_in_the_language_of_the_system() {
+    let mut harness = Harness::with_ui_language(
+        Settings {
+            ui_language: Some(UiLanguage::Spanish),
+            ..Settings::default()
+        },
+        UiLanguage::English,
+    );
+    harness.press_button(RESET);
+
+    harness.press_button(RESET);
+
+    let setup = harness.last_setup();
+    assert_eq!(setup.map(|view| view.language), Some(UiLanguage::English));
 }
 
 #[test]

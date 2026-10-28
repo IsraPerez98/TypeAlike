@@ -8,6 +8,7 @@ mod suggestion_places;
 use serde::{Deserialize, Serialize};
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{Backend, SentenceEnd};
+use typealike_core::localization::UiLanguage;
 use typealike_core::settings::{
     ClipboardAccess, PromptPreparation, Settings, Setup, SuggestionDisplay, SuggestionLength, TypoFix,
     TypoRule, WriterName, WriterNotes,
@@ -44,6 +45,8 @@ struct StoredSettings {
     typo_rule: StoredTypoRule,
     typo_fix: StoredTypoFix,
     sentence_end: StoredSentenceEnd,
+    /// `None` follows the language of the OS.
+    ui_language: Option<StoredUiLanguage>,
     /// A file of an older version has no setup, and counts as finished.
     setup: StoredSetup,
 }
@@ -103,6 +106,13 @@ enum StoredTypoFix {
 enum StoredSentenceEnd {
     Continue,
     Stop,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredUiLanguage {
+    English,
+    Spanish,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -171,6 +181,10 @@ impl From<Settings> for StoredSettings {
             SentenceEnd::Continue => StoredSentenceEnd::Continue,
             SentenceEnd::Stop => StoredSentenceEnd::Stop,
         };
+        let ui_language = settings.ui_language.map(|language| match language {
+            UiLanguage::English => StoredUiLanguage::English,
+            UiLanguage::Spanish => StoredUiLanguage::Spanish,
+        });
         let setup = match settings.setup {
             Setup::Needed => StoredSetup::Needed,
             Setup::Finished => StoredSetup::Finished,
@@ -192,6 +206,7 @@ impl From<Settings> for StoredSettings {
             typo_rule,
             typo_fix,
             sentence_end,
+            ui_language,
             setup,
         }
     }
@@ -240,6 +255,10 @@ impl From<StoredSettings> for Settings {
             StoredSentenceEnd::Continue => SentenceEnd::Continue,
             StoredSentenceEnd::Stop => SentenceEnd::Stop,
         };
+        let ui_language = stored.ui_language.map(|language| match language {
+            StoredUiLanguage::English => UiLanguage::English,
+            StoredUiLanguage::Spanish => UiLanguage::Spanish,
+        });
         let setup = match stored.setup {
             StoredSetup::Needed => Setup::Needed,
             StoredSetup::Finished => Setup::Finished,
@@ -266,6 +285,7 @@ impl From<StoredSettings> for Settings {
             typo_rule,
             typo_fix,
             sentence_end,
+            ui_language,
             setup,
         }
     }

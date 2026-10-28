@@ -144,6 +144,8 @@ pub enum RowIcon {
     Game,
     /// A magnifying glass, for a search.
     MagnifyingGlass,
+    /// A globe, for the language of the UI.
+    Globe,
 }
 
 /// A field that searches for the text that the user submits.

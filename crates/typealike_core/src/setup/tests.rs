@@ -181,7 +181,7 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
                 rest: " by Friday.".to_owned(),
                 key: "Tab".to_owned(),
             }),
-            sections: Vec::new(),
+            sections: vec![fixture.general.language_section(&english())],
             footnote: None,
             back: None,
             next: button(NEXT, "Start setup", true),

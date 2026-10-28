@@ -20,7 +20,8 @@ pub enum UiLanguage {
 }
 
 impl UiLanguage {
-    const ALL: [Self; 2] = [Self::English, Self::Spanish];
+    /// Each language of the UI, in the order of the language menu.
+    pub const ALL: [Self; 2] = [Self::English, Self::Spanish];
 
     /// Returns the language of the UI for the `preferred` languages of the user, such as `es-CL`:
     /// the first one that the UI has translations for, else English.
@@ -40,6 +41,16 @@ impl UiLanguage {
         match self {
             Self::English => true,
             Self::Spanish => false,
+        }
+    }
+
+    /// The name of the language in that language, such as "Español". The language menu shows it in
+    /// each UI language, so that the user finds their language in a UI that they cannot read.
+    #[must_use]
+    pub fn native_name(self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::Spanish => "Español",
         }
     }
 

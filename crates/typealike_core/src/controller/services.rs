@@ -29,8 +29,8 @@ pub struct Startup {
     /// Whether the energy saver of the computer is on. The platform reports each later change to
     /// [`Controller::on_energy_saver`](super::Controller::on_energy_saver).
     pub energy_saver: EnergySaver,
-    /// The language of the texts that TypeAlike shows, from the preferred languages of the user
-    /// ([`UiLanguage::for_preferred`]).
+    /// The language of the texts that TypeAlike shows while the user picked no language in the
+    /// settings, from the preferred languages of the user ([`UiLanguage::for_preferred`]).
     pub ui_language: UiLanguage,
     /// Whether the settings window shows the Playground pane ([`PlaygroundPage::of_build`]).
     pub playground: PlaygroundPage,

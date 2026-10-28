@@ -153,10 +153,10 @@ impl Controller {
         playground.use_settings(general.settings());
         let general = general
             .with_autostart(autostart)
-            .with_language(startup.ui_language);
+            .with_system_language(startup.ui_language);
         let mut controller = Self {
             app,
-            translations: Translations::new(startup.ui_language),
+            translations: Translations::new(general.language()),
             models: ModelsPane::new(),
             playground,
             playground_page: startup.playground,
@@ -547,6 +547,7 @@ impl Controller {
     fn reset_settings(&mut self, shell: &mut dyn Shell) {
         let first_start = self.settings_store.first_start_settings();
         let outcome = self.general.reset(first_start.clone(), &mut self.playground);
+        self.use_language(shell);
         self.suggestion_places = SuggestionPlacesPane::new(first_start.suggestion_places);
         self.screen_text = ScreenTextPane::new(first_start.screen_text);
         self.personalization = PersonalizationPane::new(first_start.personalization);
@@ -869,6 +870,18 @@ impl Controller {
         if self.general.settings().backend != backend {
             self.read_gpu_memory_for_recommendation();
         }
+        self.use_language(shell);
+    }
+
+    /// Takes the texts of the language of the General pane, and shows the tray in it, when the
+    /// language changed.
+    fn use_language(&mut self, shell: &mut dyn Shell) {
+        let language = self.general.language();
+        if language == self.translations.language() {
+            return;
+        }
+        self.translations = Translations::new(language);
+        shell.render_tray(&self.app.tray_view(&self.translations));
     }
 
     /// Reads the free memory of the GPU of the backend while no suggestion model is selected, so

@@ -97,10 +97,11 @@ impl SetupWindow {
     }
 
     /// Shows `view`. When the step changes, the new step fades and slides in, from the top of its
-    /// content, and the demo of the step plays.
+    /// content. The demo plays when the step or the text of the demo changes.
     pub(crate) fn render(&mut self, view: &SetupView) {
         let motion = Motion::of_system();
         let is_new_step = self.shown_step != Some(view.step);
+        let is_new_demo = is_new_step || !self.step.demo.has_played(view.demo.as_ref());
         if let Some(transition) = step_transition(self.shown_step, view.step, motion) {
             animate(self.step.animated_view(), transition);
         }
@@ -117,6 +118,8 @@ impl SetupWindow {
         self.footer.render(view, motion, &mut binder);
         if is_new_step {
             self.step.scroll_to_top();
+        }
+        if is_new_demo {
             let target = &self.target.target;
             let action = self.demo_frame_action;
             self.step

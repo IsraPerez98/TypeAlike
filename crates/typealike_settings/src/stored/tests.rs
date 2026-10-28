@@ -616,3 +616,42 @@ fn needed_setup_survives_a_save_and_a_load() {
 
     assert_eq!(loaded, Some(Setup::Needed));
 }
+
+#[test]
+fn ui_language_reads_from_its_name() {
+    let files = [
+        r#"{ "ui_language": "english" }"#,
+        r#"{ "ui_language": "spanish" }"#,
+        r#"{ "ui_language": null }"#,
+    ];
+
+    let languages = files.map(|json| parse(json).map(|settings| settings.ui_language).ok());
+
+    assert_eq!(
+        languages,
+        [
+            Some(Some(UiLanguage::English)),
+            Some(Some(UiLanguage::Spanish)),
+            Some(None)
+        ]
+    );
+}
+
+#[test]
+fn file_without_a_ui_language_follows_the_system() {
+    let language = parse("{}").map(|settings| settings.ui_language).ok();
+
+    assert_eq!(language, Some(None));
+}
+
+#[test]
+fn ui_language_survives_a_save_and_a_load() {
+    let settings = Settings {
+        ui_language: Some(UiLanguage::Spanish),
+        ..Settings::default()
+    };
+
+    let loaded = parse(&to_json(&settings)).map(|loaded| loaded.ui_language).ok();
+
+    assert_eq!(loaded, Some(Some(UiLanguage::Spanish)));
+}

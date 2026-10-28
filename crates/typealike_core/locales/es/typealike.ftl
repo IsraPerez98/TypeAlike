@@ -38,6 +38,10 @@ general-title = General
 general-summary = Cambia cuándo se abre TypeAlike y cómo aparecen las sugerencias.
 general-autostart = Abrir al iniciar sesión
 general-autostart-description = TypeAlike se abre cada vez que inicias sesión, así que no tienes que abrirlo tú.
+general-language = Idioma
+general-language-description = Las ventanas y los menús de TypeAlike aparecen en este idioma. Las sugerencias siguen en el idioma de tu texto.
+# The first entry of the language menu. The other entries are the names of the languages, which stay the same in each language.
+general-language-system = Idioma del sistema
 general-display = Mostrar las palabras una a una
 general-display-description = Cada palabra de una sugerencia aparece en cuanto el modelo la escribe. La primera palabra aparece antes, pero la sugerencia crece mientras la lees.
 general-typo-rule = Ocultar sugerencias con erratas

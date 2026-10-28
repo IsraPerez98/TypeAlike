@@ -180,6 +180,8 @@ fn split_at_letters(text: &str, letters: usize) -> (&str, &str) {
 pub(super) struct DemoView {
     pub(super) root: Retained<NSBox>,
     parts: DemoParts,
+    /// The demo that the box played last.
+    played: Option<Demo>,
     playback: Option<Playback>,
 }
 
@@ -247,8 +249,14 @@ impl DemoView {
                 key_cap,
                 key_label,
             },
+            played: None,
             playback: None,
         }
+    }
+
+    /// Whether `demo` is the demo that the box played last.
+    pub(super) fn has_played(&self, demo: Option<&Demo>) -> bool {
+        self.played.as_ref() == demo
     }
 
     /// Shows the box when there is a `demo`, and gives assistive technology its typed text and
@@ -272,6 +280,7 @@ impl DemoView {
         schedule: impl FnOnce() -> Retained<NSTimer>,
     ) {
         self.stop();
+        self.played = demo.cloned();
         let Some(demo) = demo else {
             return;
         };

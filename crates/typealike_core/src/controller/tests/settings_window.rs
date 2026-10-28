@@ -10,7 +10,9 @@ use crate::localization::UiLanguage;
 use crate::settings::{
     ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces,
 };
-use crate::settings_window::general::{BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL, WRITER_NAME};
+use crate::settings_window::general::{
+    BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL, UI_LANGUAGE, WRITER_NAME,
+};
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
 use crate::settings_window::screen_text::SCREEN_TEXT;
@@ -389,6 +391,41 @@ fn panes_show_in_the_language_of_the_user() {
             "Ahorro de energía",
             "Modelos"
         ]
+    );
+}
+
+#[test]
+fn saved_language_replaces_the_language_of_the_system() {
+    let settings = Settings {
+        ui_language: Some(UiLanguage::English),
+        ..Settings::default()
+    };
+    let mut harness = Harness::with_ui_language(settings, UiLanguage::Spanish);
+
+    let view = harness.shown_settings();
+
+    assert_eq!(view.language, UiLanguage::English);
+}
+
+#[test]
+fn picked_language_shows_the_panes_and_the_tray_in_it() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shown_settings();
+
+    harness.pick(UI_LANGUAGE, 2);
+
+    let calls = harness.take_calls();
+    let tray = calls.iter().rev().find_map(|call| match call {
+        Call::RenderTray(view) => Some(view.language),
+        _ => None,
+    });
+    let panes = calls.iter().rev().find_map(|call| match call {
+        Call::RenderSettings(view) => Some(view.language),
+        _ => None,
+    });
+    assert_eq!(
+        (tray, panes),
+        (Some(UiLanguage::Spanish), Some(UiLanguage::Spanish))
     );
 }
 

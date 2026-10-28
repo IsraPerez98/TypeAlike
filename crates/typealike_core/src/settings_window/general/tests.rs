@@ -250,6 +250,38 @@ fn notes_example_picker(selected: usize) -> Picker {
     }
 }
 
+fn language_section(selected: usize) -> Section {
+    Section::new(vec![Row::Picker(Picker {
+        id: ControlId::new(UI_LANGUAGE),
+        icon: RowIcon::Globe,
+        label: "Language".to_owned(),
+        description: "The windows and the menus of TypeAlike show in this language. Suggestions stay in the language of your text.".to_owned(),
+        choices: vec![
+            "System language".to_owned(),
+            "English".to_owned(),
+            "Español".to_owned(),
+        ],
+        choice_text: ChoiceText::Label,
+        selected,
+        is_enabled: true,
+        note: None,
+    })])
+}
+
+fn language_settings(ui_language: Option<UiLanguage>) -> Settings {
+    Settings {
+        ui_language,
+        ..Settings::default()
+    }
+}
+
+fn select_language(pane: &mut GeneralPane, ui_language: Option<UiLanguage>) -> GeneralOutcome {
+    pane.on_action(
+        GeneralAction::SelectUiLanguage(ui_language),
+        &mut PlaygroundPane::with_backend(Backend::Cpu),
+    )
+}
+
 fn reset_section(label: &str) -> Section {
     Section::new(vec![Row::Message(Message {
         text: "All settings go back to their defaults, and the setup opens again. Your downloaded models and your earlier writing stay.".to_owned(),
@@ -274,7 +306,7 @@ fn page_shows_the_suggestion_settings() {
             icon: PageIcon::Gear,
             summary: "Change when TypeAlike starts and how suggestions show.".to_owned(),
             search: None,
-            sections: vec![Section::new(vec![
+            sections: vec![language_section(0), Section::new(vec![
                 Row::Picker(Picker {
                     id: ControlId::new(LENGTH),
                     icon: RowIcon::Ruler,
@@ -305,6 +337,98 @@ fn page_shows_the_suggestion_settings() {
                 typo_fix_switch(),
             ]), reset_section("Reset all settings")],
         }
+    );
+}
+
+#[test]
+fn language_menu_selects_the_saved_language() {
+    let cases = [
+        (None, 0),
+        (Some(UiLanguage::English), 1),
+        (Some(UiLanguage::Spanish), 2),
+    ];
+
+    let sections = cases.map(|(ui_language, _)| {
+        GeneralPane::new(language_settings(ui_language)).language_section(&english())
+    });
+
+    assert_eq!(sections, cases.map(|(_, selected)| language_section(selected)));
+}
+
+#[test]
+fn each_language_entry_selects_its_language() {
+    let pane = GeneralPane::new(Settings::default());
+    let cases = [
+        (0, None),
+        (1, Some(UiLanguage::English)),
+        (2, Some(UiLanguage::Spanish)),
+    ];
+
+    let actions = cases.map(|(index, _)| action_for(&pane, &picked(UI_LANGUAGE, index)));
+
+    assert_eq!(
+        actions,
+        cases.map(|(_, ui_language)| Some(GeneralAction::SelectUiLanguage(ui_language)))
+    );
+}
+
+#[test]
+fn picking_past_the_last_language_does_nothing() {
+    let pane = GeneralPane::new(Settings::default());
+
+    let action = action_for(&pane, &picked(UI_LANGUAGE, 3));
+
+    assert_eq!(action, None);
+}
+
+#[test]
+fn picked_language_replaces_the_language_of_the_system() {
+    let mut pane = GeneralPane::new(Settings::default()).with_system_language(UiLanguage::English);
+
+    let outcome = select_language(&mut pane, Some(UiLanguage::Spanish));
+
+    assert_eq!(
+        (
+            outcome.settings.map(|settings| settings.ui_language),
+            pane.language()
+        ),
+        (Some(Some(UiLanguage::Spanish)), UiLanguage::Spanish)
+    );
+}
+
+#[test]
+fn system_language_entry_follows_the_language_of_the_system() {
+    let mut pane = GeneralPane::new(language_settings(Some(UiLanguage::English)))
+        .with_system_language(UiLanguage::Spanish);
+
+    select_language(&mut pane, None);
+
+    assert_eq!(pane.language(), UiLanguage::Spanish);
+}
+
+#[test]
+fn picked_language_writes_the_notes_of_an_example_in_it() {
+    let mut pane = GeneralPane::new(notes_settings(
+        "I write emails and messages at work. I use a polite and professional tone, and I keep my messages short and clear.",
+    ));
+
+    let outcome = select_language(&mut pane, Some(UiLanguage::Spanish));
+
+    assert_eq!(
+        outcome.settings.map(|settings| settings.writer_notes),
+        Some(NotesExample::WorkEmails.notes(&Translations::new(UiLanguage::Spanish)))
+    );
+}
+
+#[test]
+fn picked_language_keeps_the_own_notes_of_the_user() {
+    let mut pane = GeneralPane::new(notes_settings("I am a nurse."));
+
+    let outcome = select_language(&mut pane, Some(UiLanguage::Spanish));
+
+    assert_eq!(
+        outcome.settings.map(|settings| settings.writer_notes),
+        Some(WriterNotes("I am a nurse.".to_owned()))
     );
 }
 
@@ -441,7 +565,7 @@ fn notes_example_menu_selects_the_example_of_the_notes() {
 
 #[test]
 fn pick_of_an_example_writes_its_notes_in_the_language_of_the_pane() {
-    let mut pane = GeneralPane::new(Settings::default()).with_language(UiLanguage::Spanish);
+    let mut pane = GeneralPane::new(Settings::default()).with_system_language(UiLanguage::Spanish);
     let mut playground = PlaygroundPane::with_backend(Backend::Cpu);
     let action = pane.action_for(&picked(NOTES_EXAMPLE, 4), &playground, &[]);
 

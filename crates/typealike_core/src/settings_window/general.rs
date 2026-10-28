@@ -53,6 +53,8 @@ pub enum GeneralAction {
     SwitchSentenceEnd(SentenceEnd),
     /// Picked this downloaded model to suggest text.
     SelectSuggestionModel(ModelFile),
+    /// Picked this language of the UI, or `None` for the language that the OS gives.
+    SelectUiLanguage(Option<UiLanguage>),
     /// Finished the setup.
     FinishSetup,
 }
@@ -88,6 +90,7 @@ pub(crate) const BACKEND: &str = "backend";
 pub(crate) const WRITER_NAME: &str = "writer-name";
 const WRITER_NOTES: &str = "writer-notes";
 const NOTES_EXAMPLE: &str = "writer-notes-example";
+pub(crate) const UI_LANGUAGE: &str = "ui-language";
 const RESET: &str = "reset-settings";
 const LENGTH_CHOICES: [(SuggestionLength, &str); 5] = [
     (SuggestionLength::VeryShort, "general-length-very-short"),
@@ -123,7 +126,7 @@ pub struct GeneralPane {
     settings: Settings,
     has_backend_menu: bool,
     autostart: Option<Box<dyn Autostart>>,
-    language: UiLanguage,
+    system_language: UiLanguage,
     is_reset_pending: bool,
 }
 
@@ -152,15 +155,19 @@ impl GeneralPane {
             settings,
             has_backend_menu: true,
             autostart: None,
-            language: UiLanguage::English,
+            system_language: UiLanguage::English,
             is_reset_pending: false,
         }
     }
 
-    /// Gives the notes of each example that the user picks in `language`.
+    /// Shows the UI in `system_language`, the language that the OS gives, while the user picked no
+    /// language.
     #[must_use]
-    pub fn with_language(self, language: UiLanguage) -> Self {
-        Self { language, ..self }
+    pub fn with_system_language(self, system_language: UiLanguage) -> Self {
+        Self {
+            system_language,
+            ..self
+        }
     }
 
     /// Removes the backend menu and runs each model on `backend`, for a platform with one backend.
@@ -189,6 +196,12 @@ impl GeneralPane {
     #[must_use]
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// The language of the UI: the language that the user picked, else the language of the OS.
+    #[must_use]
+    pub fn language(&self) -> UiLanguage {
+        self.settings.ui_language.unwrap_or(self.system_language)
     }
 
     /// Whether the pane has the switch that starts TypeAlike at login.
@@ -281,7 +294,7 @@ impl GeneralPane {
                 self.change_setting(notes, |settings| &mut settings.writer_notes)
             }
             GeneralAction::PickNotesExample(example) => {
-                let notes = example.notes(&Translations::new(self.language));
+                let notes = example.notes(&Translations::new(self.language()));
                 self.change_setting(notes, |settings| &mut settings.writer_notes)
             }
             GeneralAction::SwitchClipboard(access) => {
@@ -307,6 +320,7 @@ impl GeneralPane {
                 settings: None,
                 request: playground.on_action(PlaygroundAction::SelectModel(file)),
             },
+            GeneralAction::SelectUiLanguage(ui_language) => self.select_language(ui_language),
             GeneralAction::FinishSetup => {
                 self.change_setting(Setup::Finished, |settings| &mut settings.setup)
             }
@@ -360,6 +374,7 @@ impl GeneralPane {
         let sections = [
             first_run,
             autostart,
+            Some(self.language_section(translations)),
             Some(self.suggestion_section(translations)),
             Some(self.reset_section(translations)),
         ];
@@ -370,6 +385,34 @@ impl GeneralPane {
             search: None,
             sections: sections.into_iter().flatten().collect(),
         }
+    }
+
+    /// Returns the section of the language menu, for the General page and the setup. Its first entry
+    /// follows the language of the OS, and each other entry shows the name of its language in that
+    /// language.
+    #[must_use]
+    pub fn language_section(&self, translations: &Translations) -> Section {
+        let choices = language_choices()
+            .map(|choice| {
+                choice.map_or_else(
+                    || translations.text("general-language-system"),
+                    |language| language.native_name().to_owned(),
+                )
+            })
+            .collect();
+        Section::new(vec![Row::Picker(Picker {
+            id: ControlId::new(UI_LANGUAGE),
+            icon: RowIcon::Globe,
+            label: translations.text("general-language"),
+            description: translations.text("general-language-description"),
+            choices,
+            choice_text: ChoiceText::Label,
+            selected: language_choices()
+                .position(|choice| choice == self.settings.ui_language)
+                .unwrap_or_default(),
+            is_enabled: true,
+            note: None,
+        })])
     }
 
     /// Returns the section of the switch for the copied text, for the Copied and screen text page.
@@ -583,6 +626,22 @@ impl GeneralPane {
         }
     }
 
+    /// Keeps `ui_language`. Notes that are an example get the text of that example in the new
+    /// language.
+    fn select_language(&mut self, ui_language: Option<UiLanguage>) -> GeneralOutcome {
+        let example = NotesExample::of(&self.settings.writer_notes, &Translations::new(self.language()));
+        if !replace_if_changed(&mut self.settings.ui_language, ui_language) {
+            return GeneralOutcome::default();
+        }
+        if let Some(example) = example {
+            self.settings.writer_notes = example.notes(&Translations::new(self.language()));
+        }
+        GeneralOutcome {
+            settings: Some(self.settings.clone()),
+            request: None,
+        }
+    }
+
     fn change_autostart(&mut self, change: fn(&mut dyn Autostart)) -> GeneralOutcome {
         if let Some(autostart) = &mut self.autostart {
             change(autostart.as_mut());
@@ -612,6 +671,7 @@ impl GeneralPane {
                 .checked_sub(1)
                 .and_then(|example| NotesExample::ALL.get(example))
                 .map(|&example| GeneralAction::PickNotesExample(example)),
+            UI_LANGUAGE => language_choices().nth(index).map(GeneralAction::SelectUiLanguage),
             _ => None,
         }
     }
@@ -678,6 +738,11 @@ impl GeneralPane {
 #[must_use]
 pub fn presses_reset(input: &SettingsInput) -> bool {
     matches!(input, SettingsInput::Pressed(id) if id.as_str() == RESET)
+}
+
+/// The entries of the language menu: the language of the OS, then each language of the UI.
+fn language_choices() -> impl Iterator<Item = Option<UiLanguage>> {
+    iter::once(None).chain(UiLanguage::ALL.map(Some))
 }
 
 /// A switch row with the label and the description of the `texts` messages.
