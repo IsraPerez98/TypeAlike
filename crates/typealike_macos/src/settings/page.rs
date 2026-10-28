@@ -49,10 +49,9 @@ const SEARCH_FIELD_TOP_SPACING: CGFloat = 14.0;
 #[derive(Debug)]
 pub(super) struct PageView {
     pub(super) root: Retained<NSView>,
-    content: Retained<NSStackView>,
     summary: Retained<NSTextField>,
     search: Option<SearchView>,
-    sections: Vec<SectionView>,
+    sections: SectionList,
 }
 
 impl PageView {
@@ -89,10 +88,9 @@ impl PageView {
         };
         Self {
             root,
-            content,
             summary,
             search,
-            sections: Vec::new(),
+            sections: SectionList::new(content),
         }
     }
 
@@ -103,22 +101,13 @@ impl PageView {
         if let (Some(search), Some(field)) = (&mut self.search, &page.search) {
             search.render(field, binder);
         }
-        let kept = page.sections.len().min(self.sections.len());
-        for section in self.sections.drain(kept..) {
-            section.container.removeFromSuperview();
-        }
-        while self.sections.len() < page.sections.len() {
-            self.sections.push(SectionView::new(&self.content, binder));
-        }
-        for (section, shown) in self.sections.iter_mut().zip(&page.sections) {
-            section.render(shown, binder);
-        }
+        self.sections.render(&page.sections, binder);
     }
 
     /// The input of a change of the text in `view`, when it is a text area or a line of text of
     /// the page.
     pub(super) fn edited(&self, view: &AnyObject) -> Option<SettingsInput> {
-        self.rows().find_map(|row| row.edited(view))
+        self.sections.edited(view)
     }
 
     /// The text in the text field or the search field `id`, when it is on the page.
@@ -128,7 +117,52 @@ impl PageView {
             .as_ref()
             .filter(|search| search.id.as_ref() == Some(id))
             .map(|search| search.field.stringValue().to_string());
-        search.or_else(|| self.rows().find_map(|row| row.field_text(id)))
+        search.or_else(|| self.sections.field_text(id))
+    }
+}
+
+/// The sections of a settings page or of a setup step, at the bottom of the vertical stack that
+/// holds them. A section keeps its views while its rows keep their kinds and controls, so that an
+/// open menu, the focus, the typed text and a click in progress stay.
+#[derive(Debug)]
+pub(super) struct SectionList {
+    container: Retained<NSStackView>,
+    sections: Vec<SectionView>,
+}
+
+impl SectionList {
+    /// A list without sections, which adds the views of its sections below the other views of
+    /// `container`.
+    pub(super) fn new(container: Retained<NSStackView>) -> Self {
+        Self {
+            container,
+            sections: Vec::new(),
+        }
+    }
+
+    /// Shows `sections`, top to bottom.
+    pub(super) fn render(&mut self, sections: &[view::Section], binder: &mut Binder<'_>) {
+        let kept = sections.len().min(self.sections.len());
+        for section in self.sections.drain(kept..) {
+            section.container.removeFromSuperview();
+        }
+        while self.sections.len() < sections.len() {
+            self.sections.push(SectionView::new(&self.container, binder));
+        }
+        for (section, shown) in self.sections.iter_mut().zip(sections) {
+            section.render(shown, binder);
+        }
+    }
+
+    /// The input of a change of the text in `view`, when it is a text area or a line of text of
+    /// the sections.
+    pub(super) fn edited(&self, view: &AnyObject) -> Option<SettingsInput> {
+        self.rows().find_map(|row| row.edited(view))
+    }
+
+    /// The text in the text field `id`, when it is in the sections.
+    pub(super) fn field_text(&self, id: &ControlId) -> Option<String> {
+        self.rows().find_map(|row| row.field_text(id))
     }
 
     fn rows(&self) -> impl Iterator<Item = &RowView> {

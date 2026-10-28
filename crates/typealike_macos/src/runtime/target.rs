@@ -77,6 +77,57 @@ define_class!(
             with_runtime(|runtime| runtime.on_settings_control(|settings| settings.submitted(sender)));
         }
 
+        // SAFETY: matches the action signature, called with a switch of the setup window.
+        #[unsafe(method(toggleSetupControl:))]
+        fn toggle_setup_control(&self, sender: &NSSwitch) {
+            with_runtime(|runtime| runtime.on_setup_control(|setup| setup.toggled(sender)));
+        }
+
+        // SAFETY: matches the action signature, called with a menu of the setup window.
+        #[unsafe(method(pickSetupControl:))]
+        fn pick_setup_control(&self, sender: &NSPopUpButton) {
+            with_runtime(|runtime| runtime.on_setup_control(|setup| setup.picked(sender)));
+        }
+
+        // SAFETY: matches the action signature, called with a button of the setup window.
+        #[unsafe(method(pressSetupControl:))]
+        fn press_setup_control(&self, sender: &NSButton) {
+            with_runtime(|runtime| runtime.on_setup_control(|setup| setup.pressed(sender)));
+        }
+
+        // SAFETY: matches the notification observer signature, called for each change of the text
+        // of a text view.
+        #[unsafe(method(editSetupControl:))]
+        fn edit_setup_control(&self, notification: &NSNotification) {
+            with_runtime(|runtime| runtime.on_setup_control(|setup| setup.edited(notification)));
+        }
+
+        // SAFETY: matches the action signature, called with a text field of the setup window or
+        // its button.
+        #[unsafe(method(submitSetupControl:))]
+        fn submit_setup_control(&self, sender: &NSControl) {
+            with_runtime(|runtime| runtime.on_setup_control(|setup| setup.submitted(sender)));
+        }
+
+        // SAFETY: matches the notification observer signature, called when the user closes the
+        // setup window.
+        #[unsafe(method(setupWindowWillClose:))]
+        fn setup_window_will_close(&self, _notification: &NSNotification) {
+            with_runtime(Runtime::on_setup_closed);
+        }
+
+        // SAFETY: matches the timer action signature.
+        #[unsafe(method(advanceSetupDemo:))]
+        fn advance_setup_demo(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::advance_setup_demo);
+        }
+
+        // SAFETY: matches the timer action signature.
+        #[unsafe(method(finishLaunch:))]
+        fn finish_launch(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_launch);
+        }
+
         // SAFETY: matches the timer action signature.
         #[unsafe(method(caretDidSettle:))]
         fn caret_did_settle(&self, _timer: &NSTimer) {

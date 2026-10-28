@@ -141,7 +141,8 @@ pub(super) fn rounded_group(content: &NSView, main_thread: MainThreadMarker) -> 
     group
 }
 
-fn separator(main_thread: MainThreadMarker) -> Retained<NSBox> {
+/// A horizontal line that divides two parts of a window.
+pub(super) fn separator(main_thread: MainThreadMarker) -> Retained<NSBox> {
     let separator = NSBox::new(main_thread);
     separator.setBoxType(NSBoxType::Separator);
     separator

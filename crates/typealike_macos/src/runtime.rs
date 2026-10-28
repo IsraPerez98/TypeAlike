@@ -54,7 +54,7 @@ use crate::overlay::{self, Overlay};
 use crate::permissions;
 use crate::runtime::target::{RuntimeTarget, observe_workspace};
 use crate::screen_text::ScreenTextReader;
-use crate::settings::{ActionTarget, SettingsWindow};
+use crate::settings::{ActionTarget, SettingsWindow, SetupActions, SetupWindow};
 
 const NEXT_RUN_LOOP_PASS: NSTimeInterval = 0.0;
 const ACCESSIBILITY_CHECK_INTERVAL: NSTimeInterval = 1.0;
@@ -70,7 +70,6 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     let tap = EventTap::install(Some(tap_callback));
-    let has_keyboard_access = tap.is_some();
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
     let energy_saver_observer = EnergySaverObserver::start(on_energy_saver_change);
@@ -111,6 +110,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             idle_timer: None,
             pending_injections: VecDeque::new(),
             settings: None,
+            setup: None,
         },
         tap,
         release_filter: ReleaseFilter::default(),
@@ -118,10 +118,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         badge_menu: None,
     }));
     with_runtime(Runtime::read_game);
-    if !has_keyboard_access {
-        tracing::warn!("no accessibility access, so the keyboard is not watched yet");
-        with_runtime(Runtime::wait_for_accessibility);
-    }
+    with_runtime(|runtime| runtime.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(finishLaunch:)));
     tracing::info!("running in the menu bar");
     application.run();
     drop(energy_saver_observer);
@@ -239,8 +236,19 @@ impl Runtime {
         }
     }
 
-    /// Opens the Permissions pane, and looks for the Accessibility permission until the user gives
-    /// it.
+    /// Shows the setup while the user did not finish it. Then, when macOS refused the event tap,
+    /// waits for the Accessibility permission. It runs in the first pass of the run loop, where
+    /// AppKit can show windows.
+    fn on_launch(&mut self) {
+        self.controller.on_launch(&mut self.shell);
+        if self.tap.is_none() {
+            tracing::warn!("no accessibility access, so the keyboard is not watched yet");
+            self.wait_for_accessibility();
+        }
+    }
+
+    /// Opens the setup or the Permissions pane, and looks for the Accessibility permission until
+    /// the user gives it.
     fn wait_for_accessibility(&mut self) {
         self.controller.on_missing_permission(&mut self.shell);
         self.shell
@@ -304,6 +312,27 @@ impl Runtime {
             self.controller.on_settings_input(&input, &mut self.shell);
         }
     }
+
+    /// Handles the input that `read` reads from the setup window, if any.
+    fn on_setup_control(&mut self, read: impl FnOnce(&SetupWindow) -> Option<SettingsInput>) {
+        if let Some(input) = self.shell.setup.as_ref().and_then(read) {
+            self.controller.on_settings_input(&input, &mut self.shell);
+        }
+    }
+
+    /// Handles a close of the setup window by the user.
+    fn on_setup_closed(&mut self) {
+        if let Some(setup) = &mut self.shell.setup {
+            setup.on_closed();
+        }
+        self.controller.on_setup_closed();
+    }
+
+    fn advance_setup_demo(&mut self) {
+        if let Some(setup) = &mut self.shell.setup {
+            setup.advance_demo();
+        }
+    }
 }
 
 /// What the controller reads and does through Accessibility and AppKit.
@@ -331,6 +360,7 @@ struct AppKitShell {
     /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
+    setup: Option<SetupWindow>,
 }
 
 impl AppKitShell {
@@ -500,11 +530,39 @@ impl Shell for AppKitShell {
         }
     }
 
-    fn show_setup(&mut self, _view: &SetupView) {}
+    fn show_setup(&mut self, view: &SetupView) {
+        let target = &self.target;
+        let setup = self.setup.get_or_insert_with(|| {
+            let action_target = ActionTarget {
+                target: Retained::into_super(target.clone()),
+                submit_action: sel!(submitSetupControl:),
+                toggle_action: sel!(toggleSetupControl:),
+                pick_action: sel!(pickSetupControl:),
+                press_action: sel!(pressSetupControl:),
+                edit_action: sel!(editSetupControl:),
+            };
+            let actions = SetupActions {
+                close: sel!(setupWindowWillClose:),
+                demo_frame: sel!(advanceSetupDemo:),
+            };
+            SetupWindow::new(action_target, actions, target.mtm())
+        });
+        setup.render(view);
+        setup.show();
+    }
 
-    fn render_setup(&mut self, _view: &SetupView) {}
+    fn render_setup(&mut self, view: &SetupView) {
+        if let Some(setup) = &mut self.setup {
+            setup.render(view);
+        }
+    }
 
-    fn close_setup(&mut self) {}
+    /// Hides the setup window, which stays for the next setup.
+    fn close_setup(&mut self) {
+        if let Some(setup) = &mut self.setup {
+            setup.close();
+        }
+    }
 
     fn show_settings(&mut self, view: &SettingsView, page: Option<usize>) {
         let target = &self.target;

@@ -1,5 +1,6 @@
 //! The settings window: a sidebar with a row for each page of the core settings view, and the
-//! panes that render the pages and report user actions back.
+//! panes that render the pages and report user actions back. The setup window shows its rows with
+//! the same views.
 //!
 //! Layout follows System Settings: a source list of the pages at the leading edge, and grouped
 //! lists in rounded boxes with hairline separators between rows, under a pinned header with the
@@ -9,6 +10,7 @@ mod controls;
 mod layout;
 mod page;
 mod rows;
+mod setup;
 mod sidebar;
 
 use objc2::rc::Retained;
@@ -30,6 +32,7 @@ use typealike_core::settings_window::view::{self as view, ControlId, SettingsInp
 pub(crate) use crate::settings::controls::control_state;
 use crate::settings::layout::below_toolbar;
 use crate::settings::page::PageView;
+pub(crate) use crate::settings::setup::{SetupActions, SetupWindow};
 use crate::settings::sidebar::Sidebar;
 
 const WINDOW_SIZE: NSSize = NSSize::new(820.0, 680.0);
@@ -123,14 +126,7 @@ impl SettingsWindow {
         let sidebar = Sidebar::new(&icons, tabs.clone(), main_thread);
         let split = split_view(&sidebar, &tabs, main_thread);
         let window = settings_window(&split, &tabs, main_thread);
-        // SAFETY: AppKit defines the notification names before any code runs. The target implements
-        // the edit action, taking the notification, and the app keeps the target alive while it runs.
-        unsafe {
-            let center = NSNotificationCenter::defaultCenter();
-            for name in [NSTextDidChangeNotification, NSControlTextDidChangeNotification] {
-                center.addObserver_selector_name_object(&target.target, target.edit_action, Some(name), None);
-            }
-        }
+        observe_text_changes(&target);
         Self {
             window,
             tabs,
@@ -209,6 +205,19 @@ impl SettingsWindow {
     fn control_id(&self, control: &NSControl) -> Option<ControlId> {
         let index = usize::try_from(control.tag()).ok()?;
         self.control_ids.get(index).cloned()
+    }
+}
+
+/// Makes each change of the text in a text view or a text field send the edit action of `target`
+/// with the notification.
+fn observe_text_changes(target: &ActionTarget) {
+    // SAFETY: AppKit defines the notification names before any code runs. The target implements
+    // the edit action, taking the notification, and the app keeps the target alive while it runs.
+    unsafe {
+        let center = NSNotificationCenter::defaultCenter();
+        for name in [NSTextDidChangeNotification, NSControlTextDidChangeNotification] {
+            center.addObserver_selector_name_object(&target.target, target.edit_action, Some(name), None);
+        }
     }
 }
 
