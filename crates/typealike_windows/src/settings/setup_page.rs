@@ -47,9 +47,11 @@ const DEMO_COLUMN_GAP: f64 = 12.0;
 const FOOTER_PADDING: Thickness = Thickness::xy(24.0, 16.0);
 const FOOTER_GAP: f64 = 8.0;
 const DOT_SIZE: f64 = 6.0;
-const CURRENT_DOT_WIDTH: f64 = 18.0;
-const DOT_GAP: f64 = 6.0;
-const OTHER_DOT_OPACITY: f64 = 0.35;
+const DOT_GAP: f64 = 10.0;
+const PILL_WIDTH: f64 = 18.0;
+/// How far the pill reaches past each side of its dot.
+const PILL_OVERHANG: f64 = (PILL_WIDTH - DOT_SIZE) / 2.0;
+const DOT_OPACITY: f64 = 0.35;
 const SLIDE_DISTANCE: f64 = 40.0;
 const SLIDE_TIME: Duration = Duration::from_millis(300);
 const FADE_TIME: Duration = Duration::from_millis(200);
@@ -409,34 +411,8 @@ impl SetupPage {
             .into()
     }
 
-    /// The bar at the bottom: a dot for each step, then the back and the next buttons.
-    fn footer(renderer: &Renderer<'_, '_, Self>, view: &SetupView) -> View {
-        let dots = (1..=view.progress.count).map(|number| {
-            let is_current = number == view.progress.number;
-            keyed(
-                number,
-                Border::new()
-                    .width(if is_current { CURRENT_DOT_WIDTH } else { DOT_SIZE })
-                    .height(DOT_SIZE)
-                    .corner_radius(DOT_SIZE / 2.0)
-                    .background(if is_current {
-                        ThemeBrush::Accent
-                    } else {
-                        ThemeBrush::PrimaryText
-                    })
-                    .opacity(if is_current { 1.0 } else { OTHER_DOT_OPACITY }),
-            )
-        });
-        let progress = Border::new()
-            .grid_column(0)
-            .vertical_alignment(VerticalAlignment::Center)
-            .automation_name(&view.progress.text)
-            .content(
-                StackPanel::new()
-                    .orientation(Orientation::Horizontal)
-                    .spacing(DOT_GAP)
-                    .keyed_children(dots),
-            );
+    /// The bar at the bottom: the progress, then the back and the next buttons.
+    fn footer(&self, renderer: &Renderer<'_, '_, Self>, view: &SetupView) -> View {
         let back = view.back.as_ref().map(|back| {
             keyed(
                 "back",
@@ -451,6 +427,7 @@ impl SetupPage {
                 .grid_column(3)
                 .content(renderer.button(&view.next, ButtonStyle::Accent)),
         );
+        let progress = self.progress(view).grid_column(0);
         let bar = Grid::new()
             .columns([
                 GridLength::Auto,
@@ -477,6 +454,53 @@ impl SetupPage {
 
 fn is_press(message: &RowMessage) -> bool {
     matches!(message, RowMessage::Input(SettingsInput::Pressed(_)))
+}
+
+impl SetupPage {
+    /// A gray dot for each step, and an accent pill over the dot of the step that shows. When the
+    /// step changes, the pill slides to its new dot, unless the animation effects are off.
+    fn progress(&self, view: &SetupView) -> Border {
+        let dots = (1..=view.progress.count).map(|number| {
+            keyed(
+                number,
+                Border::new()
+                    .width(DOT_SIZE)
+                    .height(DOT_SIZE)
+                    .corner_radius(DOT_SIZE / 2.0)
+                    .background(ThemeBrush::PrimaryText)
+                    .opacity(DOT_OPACITY),
+            )
+        });
+        let dots = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .spacing(DOT_GAP)
+            .margin(Thickness::new(PILL_OVERHANG, 0.0, PILL_OVERHANG, 0.0))
+            .vertical_alignment(VerticalAlignment::Center)
+            .keyed_children(dots);
+        let pill = Border::new()
+            .width(PILL_WIDTH)
+            .height(DOT_SIZE)
+            .corner_radius(DOT_SIZE / 2.0)
+            .background(ThemeBrush::Accent)
+            .horizontal_alignment(HorizontalAlignment::Left)
+            .vertical_alignment(VerticalAlignment::Center)
+            .translation(pill_offset(view.progress.number), 0.0);
+        let pill = match self.motion {
+            Motion::Animated => pill.translation_transition(SLIDE_TIME),
+            Motion::Still => pill,
+        };
+        Border::new()
+            .vertical_alignment(VerticalAlignment::Center)
+            .automation_name(&view.progress.text)
+            .content(Grid::new().children((dots, pill)))
+    }
+}
+
+/// The distance from the leading edge of the progress to the pill over the dot of the step with
+/// the `number`, from 1. The pill reaches as far past its dot on each side.
+fn pill_offset(number: usize) -> f64 {
+    let steps_before = u32::try_from(number.saturating_sub(1)).unwrap_or(u32::MAX);
+    f64::from(steps_before) * (DOT_SIZE + DOT_GAP)
 }
 
 /// The views of `section`, below a gap.
@@ -565,7 +589,7 @@ impl Component for SetupPage {
         let step = keyed(view.progress.number, self.step(&renderer, view));
         let footer = keyed(
             "footer",
-            Border::new().grid_row(1).content(Self::footer(&renderer, view)),
+            Border::new().grid_row(1).content(self.footer(&renderer, view)),
         );
         let root = Grid::new()
             .rows([GridLength::STAR, GridLength::Auto])
@@ -683,6 +707,13 @@ mod tests {
         let presses = messages.map(|message| is_press(&message));
 
         assert_eq!(presses, [true, false, false]);
+    }
+
+    #[test]
+    fn pill_moves_one_dot_and_one_gap_for_each_step() {
+        let offsets = [1, 2, 4].map(pill_offset);
+
+        assert_eq!(offsets, [0.0, 16.0, 48.0]);
     }
 
     #[test]

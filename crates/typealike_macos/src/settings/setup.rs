@@ -114,7 +114,7 @@ impl SetupWindow {
             main_thread: self.main_thread,
         };
         self.step.render(view, &mut binder);
-        self.footer.render(view, &mut binder);
+        self.footer.render(view, motion, &mut binder);
         if is_new_step {
             self.step.scroll_to_top();
             let target = &self.target.target;
