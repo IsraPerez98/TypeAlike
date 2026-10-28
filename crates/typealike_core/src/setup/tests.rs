@@ -283,7 +283,7 @@ fn model_step_shows_the_backend_then_the_recommended_model_then_the_other_models
         (
             "Download the model",
             vec!["backend", "Qwen3.5 0.8B", OTHER_MODELS],
-            Some("You download the model one time. You can continue the setup while it downloads.")
+            Some("You download the model one time. The setup continues when the download finishes.")
         )
     );
 }
@@ -359,7 +359,7 @@ fn new_step_shows_the_recommended_model_again() {
 }
 
 #[test]
-fn model_step_waits_for_a_download_before_next() {
+fn model_step_waits_until_the_download_finishes() {
     let cases = [
         Fixture::new(),
         Fixture::new().with_download(),
@@ -368,7 +368,17 @@ fn model_step_waits_for_a_download_before_next() {
 
     let enabled = cases.map(|fixture| fixture.view(&flow_at(SetupStep::Model)).next.is_enabled);
 
-    assert_eq!(enabled, [false, true, true]);
+    assert_eq!(enabled, [false, false, true]);
+}
+
+#[test]
+fn next_does_nothing_while_the_model_downloads() {
+    let fixture = Fixture::new().with_download();
+    let mut flow = flow_at(SetupStep::Model);
+
+    fixture.act(&mut flow, SetupAction::Next);
+
+    assert_eq!(fixture.view(&flow).step, SetupStep::Model);
 }
 
 #[test]
@@ -494,28 +504,6 @@ fn ready_step_names_the_menu_bar_on_macos() {
     assert_eq!(
         footnote.as_deref(),
         Some("TypeAlike stays in the menu bar. Use its icon to pause suggestions or to open the settings.")
-    );
-}
-
-#[test]
-fn ready_step_shows_the_download_until_it_finishes() {
-    let cases = [Fixture::new().with_download(), Fixture::new()];
-
-    let shown = cases.map(|fixture| {
-        let view = fixture.view(&flow_at(SetupStep::Ready));
-        let accessory = rows(&view).into_iter().find_map(|row| match row {
-            Row::Item(item) => Some(matches!(item.accessory, Accessory::Downloading { .. })),
-            _ => None,
-        });
-        (view.title, accessory)
-    });
-
-    assert_eq!(
-        shown,
-        [
-            ("TypeAlike is almost ready".to_owned(), Some(true)),
-            ("TypeAlike needs a model".to_owned(), Some(false)),
-        ]
     );
 }
 

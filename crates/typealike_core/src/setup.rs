@@ -286,13 +286,6 @@ impl SetupFlow {
 
     fn ready(&self, context: &SetupContext<'_>) -> StepContent {
         let translations = context.translations;
-        let (title, body) = match model_state(context) {
-            ModelState::Ready => ("setup-ready-title", "setup-ready-body"),
-            ModelState::Downloading => ("setup-downloading-title", "setup-downloading-body"),
-            ModelState::Missing => ("setup-no-model-title", "setup-no-model-body"),
-        };
-        let download = recommended_rows(context);
-        let download = (!download.is_empty()).then(|| Section::new(download));
         let autostart = context.general.has_autostart().then(|| {
             Section::new(vec![Row::Switch(Switch {
                 id: ControlId::new(AUTOSTART),
@@ -308,9 +301,9 @@ impl SetupFlow {
             TrayPlace::MenuBar => "setup-tray-menu-bar",
         };
         StepContent {
-            sections: download.into_iter().chain(autostart).collect(),
+            sections: autostart.into_iter().collect(),
             footnote: Some(translations.text(tray)),
-            ..StepContent::new(title, body)
+            ..StepContent::new("setup-ready-title", "setup-ready-body")
         }
     }
 }
@@ -336,22 +329,8 @@ impl StepContent {
     }
 }
 
-/// Whether the suggestion model is on the computer, downloads, or is missing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ModelState {
-    Ready,
-    Downloading,
-    Missing,
-}
-
-fn model_state(context: &SetupContext<'_>) -> ModelState {
-    if context.general.settings().suggestion_model.is_some() || !context.installed.is_empty() {
-        ModelState::Ready
-    } else if context.models.has_running_download() {
-        ModelState::Downloading
-    } else {
-        ModelState::Missing
-    }
+fn has_model(context: &SetupContext<'_>) -> bool {
+    context.general.settings().suggestion_model.is_some() || !context.installed.is_empty()
 }
 
 /// The steps of the setup: the permission step only on an OS that asks for the Accessibility
@@ -374,11 +353,11 @@ fn step_index(steps: &[SetupStep], step: SetupStep) -> usize {
     steps.iter().position(|&each| each == step).unwrap_or(1)
 }
 
-/// Whether the user can go on from `step`: the model must download or be on the computer, and
-/// the Accessibility permission must be given.
+/// Whether the user can go on from `step`: the model must be on the computer, so a download must
+/// finish, and the Accessibility permission must be given.
 fn can_continue(step: SetupStep, context: &SetupContext<'_>) -> bool {
     match step {
-        SetupStep::Model => model_state(context) != ModelState::Missing,
+        SetupStep::Model => has_model(context),
         SetupStep::Permission => context.permissions.iter().all(|&(permission, state)| {
             permission != Permission::Accessibility || state == PermissionState::Granted
         }),
