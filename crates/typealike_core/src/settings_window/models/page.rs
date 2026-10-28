@@ -5,7 +5,7 @@ use std::iter;
 use crate::hub::{ByteSize, HubError, RepoSummary, SizedFile, rounded_quotient};
 use crate::inference::Backend;
 use crate::localization::{MessageArgument, Translations};
-use crate::settings_window::models::catalog::{SUGGESTED_MODELS, recommended_model};
+use crate::settings_window::models::catalog::{SUGGESTED_MODELS, SuggestedModel, recommended_model};
 use crate::settings_window::models::{
     Buttons, Fetch, FileState, ModelsAction, ModelsPane, OpenRepo, SEARCH, Search, TrackedFile,
 };
@@ -50,13 +50,21 @@ impl ModelsPane {
         if has_installed {
             return None;
         }
-        let model = recommended_model(backend);
+        let model = self.recommended_model(backend);
         let shown = ShownFile {
             title: model.name.to_owned(),
             idle_subtitle: buttons.translations.text("model-recommended"),
             sized: model.sized_file(),
         };
         Some(self.file_row(shown, buttons))
+    }
+
+    fn recommended_model(&self, backend: Backend) -> &'static SuggestedModel {
+        let free_gpu_memory = self
+            .free_gpu_memory
+            .filter(|&(read_backend, _)| read_backend == backend)
+            .map(|(_, free)| free);
+        recommended_model(backend, free_gpu_memory)
     }
 
     fn browse_section(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Section {
@@ -76,7 +84,7 @@ impl ModelsPane {
 
     fn suggested_section(&self, buttons: &mut Buttons<'_>, backend: Backend) -> Section {
         let translations = buttons.translations;
-        let recommended = recommended_model(backend);
+        let recommended = self.recommended_model(backend);
         let rows = SUGGESTED_MODELS
             .iter()
             .map(|model| {

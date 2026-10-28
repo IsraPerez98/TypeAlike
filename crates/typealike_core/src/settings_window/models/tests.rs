@@ -261,6 +261,78 @@ fn recommended_row_hides_while_a_model_is_downloaded() {
     assert_eq!(row, None);
 }
 
+const GIBIBYTE: u64 = 1024 * 1024 * 1024;
+
+fn with_free_gpu_memory(backend: Backend, gibibytes: u64) -> ModelsPane {
+    let mut pane = ModelsPane::new();
+    pane.on_gpu_memory(backend, Ok(ByteSize(gibibytes * GIBIBYTE)));
+    pane
+}
+
+fn recommended_title(pane: &ModelsPane, backend: Backend) -> String {
+    match pane.recommended_row(backend, &english()) {
+        Some(Row::Item(item)) => item.title,
+        other => panic!("no recommended model: {other:?}"),
+    }
+}
+
+#[test]
+fn recommendation_for_a_graphics_card_fits_its_free_memory() {
+    let cases = [
+        (8, "Gemma 4 E4B"),
+        (5, "Gemma 4 E2B"),
+        (3, "Qwen3.5 2B"),
+        (2, "Qwen3.5 0.8B"),
+    ];
+
+    let titles = cases.map(|(gibibytes, _)| {
+        recommended_title(&with_free_gpu_memory(Backend::Vulkan, gibibytes), Backend::Vulkan)
+    });
+
+    assert_eq!(titles, cases.map(|(_, title)| title.to_owned()));
+}
+
+#[test]
+fn free_memory_of_another_backend_keeps_the_usual_recommendation() {
+    let pane = with_free_gpu_memory(Backend::Cuda, 8);
+
+    let title = recommended_title(&pane, Backend::Vulkan);
+
+    assert_eq!(title, "Gemma 4 E2B");
+}
+
+#[test]
+fn failed_read_of_gpu_memory_keeps_the_usual_recommendation() {
+    let mut pane = with_free_gpu_memory(Backend::Vulkan, 8);
+
+    pane.on_gpu_memory(Backend::Vulkan, Err(InferenceError::BackendUnavailable));
+
+    assert_eq!(recommended_title(&pane, Backend::Vulkan), "Gemma 4 E2B");
+}
+
+#[test]
+fn recommended_list_marks_the_model_that_fits_the_graphics_card() {
+    let pane = with_free_gpu_memory(Backend::Metal, 8);
+
+    let shown = pane.page(Backend::Metal, &english());
+
+    let subtitles: Vec<String> = items(shown.sections.into_iter().next().expect("the page has a list"))
+        .into_iter()
+        .map(|item| item.subtitle)
+        .collect();
+    assert_eq!(
+        subtitles,
+        [
+            "By Alibaba",
+            "By Alibaba",
+            "By Google",
+            "By Alibaba",
+            "By Google · Recommended for this computer",
+            "By Alibaba",
+        ]
+    );
+}
+
 #[test]
 fn every_suggested_model_has_a_row() {
     let pane = ModelsPane::new();

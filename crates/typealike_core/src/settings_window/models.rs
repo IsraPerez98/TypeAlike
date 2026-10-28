@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::hub::{
     ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, usable_model_files,
 };
-use crate::inference::Backend;
+use crate::inference::{Backend, InferenceError};
 use crate::localization::Translations;
 use crate::settings_window::view::{Button, ControlId, Page, Row, SettingsInput};
 
@@ -47,6 +47,8 @@ pub(crate) const SEARCH: &str = "models-search";
 pub struct ModelsPane {
     files: BTreeMap<ModelFile, TrackedFile>,
     search: Option<Search>,
+    /// The free memory of the GPU that runs a backend, from the last read.
+    free_gpu_memory: Option<(Backend, ByteSize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +185,12 @@ impl ModelsPane {
             HubEvent::DownloadProgress { file, received } => self.on_download_progress(&file, received),
             HubEvent::DownloadFinished { file, result } => self.on_download_finished(file, result),
         }
+    }
+
+    /// Keeps the `result` of a read of the free memory of the GPU that runs `backend`. The model
+    /// that TypeAlike recommends for `backend` then fits in that memory.
+    pub fn on_gpu_memory(&mut self, backend: Backend, result: Result<ByteSize, InferenceError>) {
+        self.free_gpu_memory = result.ok().map(|free| (backend, free));
     }
 
     /// Returns the downloaded model files, by repository and then name.

@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::hub::ModelFile;
+use crate::hub::{ByteSize, ModelFile};
 
 /// A number of model tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -14,6 +14,10 @@ pub struct TokenCount(pub u32);
 /// The tokens of one prompt and its completion that the model runner keeps. Core keeps each
 /// prompt in this room with the longest completion.
 pub const CONTEXT_TOKENS: TokenCount = TokenCount(4096);
+
+/// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
+/// desktop and other apps keep working.
+pub const GPU_MEMORY_MARGIN: ByteSize = ByteSize(1024 * 1024 * 1024);
 
 /// The text the model continues: what it knows about the writing, then the text before the caret.
 /// `Debug` shows only its length, so logs never hold what the user wrote.
@@ -97,6 +101,11 @@ pub enum InferenceRequest {
     },
     /// Unloads the loaded model to free its memory.
     Unload,
+    /// Reads the free memory of the GPU that runs `backend`: [`InferenceEvent::GpuMemory`].
+    ReadGpuMemory {
+        /// The backend of the GPU.
+        backend: Backend,
+    },
 }
 
 /// What the runner does with the typed letters of the last word of a prompt. When the model finds
@@ -204,6 +213,14 @@ pub enum InferenceEvent {
     Partial(String),
     /// A completion finished: the added text, or why there is none.
     Completed(Result<Completion, InferenceError>),
+    /// The free memory of the GPU that runs a backend.
+    GpuMemory {
+        /// The backend of the request.
+        backend: Backend,
+        /// The free memory, or why the runner cannot read it: [`InferenceError::BackendUnavailable`]
+        /// when no GPU runs the backend.
+        result: Result<ByteSize, InferenceError>,
+    },
 }
 
 /// Text a model added after a prompt.

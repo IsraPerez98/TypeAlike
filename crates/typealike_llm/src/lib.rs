@@ -48,7 +48,7 @@ pub struct LlamaCpp {
 
 impl LlamaCpp {
     /// Starts the worker thread. It finds each model file at the path `locate_model` returns, and
-    /// starts llama.cpp only when the first model loads.
+    /// starts llama.cpp only when the first model loads or the first read of GPU memory runs.
     ///
     /// A model on the CPU decodes a prompt with one thread on each performance core of
     /// `cpu_cores`, and at least 4 threads when the CPU has that many cores. It adds each token
@@ -194,6 +194,26 @@ mod tests {
             InferenceEvent::Loaded {
                 file: model_file(),
                 result: Err(InferenceError::ModelInvalid),
+            }
+        );
+    }
+
+    #[test]
+    fn processor_has_no_gpu_memory() {
+        let runner = LlamaCpp::new(|_| None, None);
+
+        let event = first_event(
+            runner,
+            InferenceRequest::ReadGpuMemory {
+                backend: Backend::Cpu,
+            },
+        );
+
+        assert_eq!(
+            event,
+            InferenceEvent::GpuMemory {
+                backend: Backend::Cpu,
+                result: Err(InferenceError::BackendUnavailable),
             }
         );
     }

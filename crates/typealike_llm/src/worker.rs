@@ -19,7 +19,7 @@ use std::time::Instant;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_tracing};
-use typealike_core::hub::ModelFile;
+use typealike_core::hub::{ByteSize, ModelFile};
 use typealike_core::inference::{
     Backend, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
 };
@@ -27,7 +27,9 @@ use typealike_core::inference::{
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 pub(crate) use crate::worker::model_params::PromptBatch;
-use crate::worker::model_params::{ContextSetup, WarmUp, log_devices, model_params, threads_for};
+use crate::worker::model_params::{
+    ContextSetup, WarmUp, free_gpu_memory, log_devices, model_params, threads_for,
+};
 
 /// A request and where its event goes.
 pub(crate) struct Job {
@@ -123,6 +125,10 @@ pub(crate) fn run(
                 sink(InferenceEvent::Completed(Err(InferenceError::NoModel)));
             }
             InferenceRequest::Unload => {}
+            InferenceRequest::ReadGpuMemory { backend } => {
+                let result = read_gpu_memory(&mut llama, backend);
+                sink(InferenceEvent::GpuMemory { backend, result });
+            }
         }
     }
 }
@@ -138,10 +144,7 @@ fn load(
     let path = path
         .filter(|path| path.is_file())
         .ok_or(InferenceError::ModelMissing)?;
-    let llama = start_backend(llama).map_err(|error| {
-        tracing::error!(%error, "failed to start llama.cpp");
-        InferenceError::Failed
-    })?;
+    let llama = start_backend(llama)?;
     let params = model_params(&path, backend, batch_tokens)?;
     LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
         tracing::warn!(%error, "failed to load a model");
@@ -149,17 +152,32 @@ fn load(
     })
 }
 
-fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, LlamaCppError> {
+/// Reads the free memory of the GPU that runs `backend`. For a GPU backend, it starts llama.cpp in
+/// `llama` first, when it did not start before.
+fn read_gpu_memory(llama: &mut Option<LlamaBackend>, backend: Backend) -> Result<ByteSize, InferenceError> {
+    if backend == Backend::Cpu {
+        return Err(InferenceError::BackendUnavailable);
+    }
+    start_backend(llama)?;
+    free_gpu_memory(backend)
+}
+
+fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, InferenceError> {
     if llama.is_none() {
         send_logs_to_tracing(LogOptions::default());
-        *llama = Some(LlamaBackend::init()?);
+        let started = LlamaBackend::init().map_err(|error: LlamaCppError| {
+            tracing::error!(%error, "failed to start llama.cpp");
+            InferenceError::Failed
+        })?;
+        *llama = Some(started);
         log_devices();
     }
     Ok(llama.as_ref().expect("the backend started above"))
 }
 
-/// Runs the completions for the `loaded` model until a job loads or unloads a model. It gives the
-/// job that loads or unloads back to `queue`, so the model is gone before the next model loads.
+/// Runs the completions and the reads of GPU memory for the `loaded` model until a job loads or
+/// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
+/// before the next model loads.
 fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>) {
     while let Some(job) = queue.next() {
         let InferenceRequest::Complete {
@@ -173,6 +191,11 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>) {
             line_after,
         } = &job.request
         else {
+            if let InferenceRequest::ReadGpuMemory { backend } = job.request {
+                let result = free_gpu_memory(backend);
+                (job.sink)(InferenceEvent::GpuMemory { backend, result });
+                continue;
+            }
             queue.give_back(job);
             return;
         };

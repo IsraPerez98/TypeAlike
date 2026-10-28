@@ -183,7 +183,7 @@ impl PlaygroundPane {
                     model.state = result.map_or_else(ModelState::Failed, |()| ModelState::Ready);
                 }
             }
-            InferenceEvent::Partial(_) => {}
+            InferenceEvent::Partial(_) | InferenceEvent::GpuMemory { .. } => {}
             InferenceEvent::Completed(result) => {
                 if self.is_completing() {
                     self.completion =

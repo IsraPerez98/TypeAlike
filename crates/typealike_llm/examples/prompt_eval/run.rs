@@ -72,7 +72,9 @@ impl ModelSession {
             match self.events.recv()? {
                 InferenceEvent::Partial(_) => {}
                 InferenceEvent::Completed(result) => return Ok(result),
-                event @ InferenceEvent::Loaded { .. } => bail!("expected a completion, got {event:?}"),
+                event @ (InferenceEvent::Loaded { .. } | InferenceEvent::GpuMemory { .. }) => {
+                    bail!("expected a completion, got {event:?}")
+                }
             }
         }
     }

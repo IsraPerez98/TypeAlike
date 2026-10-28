@@ -9,7 +9,8 @@ use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::model::params::{FitError, LlamaModelParams};
 use llama_cpp_2::{LlamaBackendDevice, LlamaBackendDeviceType, list_llama_ggml_backend_devices, max_devices};
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
-use typealike_core::inference::{Backend, CONTEXT_TOKENS, CpuCores, InferenceError};
+use typealike_core::hub::ByteSize;
+use typealike_core::inference::{Backend, CONTEXT_TOKENS, CpuCores, GPU_MEMORY_MARGIN, InferenceError};
 
 /// The most prompt tokens that one decode takes on the CPU. No larger batch was faster.
 const BATCH_TOKENS: u32 = 128;
@@ -26,9 +27,6 @@ const MIN_PROMPT_THREADS: usize = 4;
 const MAX_GENERATION_THREADS: usize = 4;
 /// The sequences of a context: the prompt and its completion.
 const SEQUENCES: u32 = 2;
-/// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
-/// desktop and other apps keep working.
-const GPU_MEMORY_MARGIN_BYTES: usize = 1024 * 1024 * 1024;
 const BYTES_IN_MIB: usize = 1024 * 1024;
 
 /// The most prompt tokens that one decode takes. A newer request can stop a prompt decode only
@@ -128,19 +126,29 @@ pub(super) fn model_params(
                 free_mib = device.memory_free / BYTES_IN_MIB,
                 "loading the model on a GPU"
             );
-            check_fit(path, device.index, GPU_MEMORY_MARGIN_BYTES, batch_tokens)?;
+            let margin_bytes = usize::try_from(GPU_MEMORY_MARGIN.0).expect("the margin fits in usize");
+            check_fit(path, device.index, margin_bytes, batch_tokens)?;
             on_devices(&[device.index])
         }
     }
 }
 
+/// Returns the free memory of the GPU that runs `backend`, as a load on `backend` finds it.
+pub(super) fn free_gpu_memory(backend: Backend) -> Result<ByteSize, InferenceError> {
+    let devices = list_llama_ggml_backend_devices();
+    let device = gpu_device(&devices, backend).ok_or(InferenceError::BackendUnavailable)?;
+    let free = u64::try_from(device.memory_free).expect("a memory size fits in u64");
+    Ok(ByteSize(free))
+}
+
 /// Returns the device that runs `backend`: its first discrete GPU, else its first integrated GPU.
-/// The CPU backend has none, and llama.cpp selects the GPU for Metal.
+/// The CPU backend has none.
 fn gpu_device(devices: &[LlamaBackendDevice], backend: Backend) -> Option<&LlamaBackendDevice> {
     let registry = match backend {
-        Backend::Cpu | Backend::Metal => return None,
+        Backend::Cpu => return None,
         Backend::Vulkan => "Vulkan",
         Backend::Cuda => "CUDA",
+        Backend::Metal => "MTL",
     };
     let of_type = |device_type| {
         devices
@@ -322,6 +330,16 @@ mod tests {
         ];
 
         assert_eq!(gpu_index(&devices, Backend::Cuda), Some(1));
+    }
+
+    #[test]
+    fn metal_backend_runs_on_a_metal_device() {
+        let devices = [
+            device(0, "CPU", LlamaBackendDeviceType::Cpu),
+            device(1, "MTL", LlamaBackendDeviceType::Gpu),
+        ];
+
+        assert_eq!(gpu_index(&devices, Backend::Metal), Some(1));
     }
 
     #[test]

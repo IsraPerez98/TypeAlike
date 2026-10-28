@@ -30,7 +30,7 @@ use crate::desktop::{
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
-use crate::inference::{InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
+use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key};
 use crate::localization::Translations;
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, SuggestionApp};
@@ -92,6 +92,7 @@ pub struct Controller {
     hub_sink: HubEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
+    recommendation_sink: InferenceEventSink,
     caret_wait: CaretWait,
     tab_hold: TabHold,
     /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
@@ -163,11 +164,13 @@ impl Controller {
             hub_sink: delivering_sink(deliver, Delivery::Hub),
             playground_sink: delivering_sink(deliver, Delivery::Playground),
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
+            recommendation_sink: delivering_sink(deliver, Delivery::Recommendation),
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
             has_unsaved_app: false,
         };
         controller.submit_model_request();
+        controller.read_gpu_memory_for_recommendation();
         controller.load_history_when_on();
         controller
     }
@@ -439,6 +442,7 @@ impl Controller {
             Delivery::Hub(event) => self.on_hub_event(event, shell),
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
+            Delivery::Recommendation(event) => self.on_recommendation_event(&event, shell),
             Delivery::Screen(read) => {
                 let work = self.app.on_screen_read(read, &*shell);
                 self.do_settled_work(work, shell);
@@ -661,7 +665,7 @@ impl Controller {
         let reaction = match event {
             InferenceEvent::Partial(text) => self.app.on_partial_completion(&text),
             InferenceEvent::Completed(result) => Some(self.app.on_completion(result)),
-            InferenceEvent::Loaded { .. } => None,
+            InferenceEvent::Loaded { .. } | InferenceEvent::GpuMemory { .. } => None,
         };
         match reaction {
             // A completion does not move the caret, so it must not make the wait for the caret longer.
@@ -707,7 +711,15 @@ impl Controller {
         self.render_settings(shell);
     }
 
+    fn on_recommendation_event(&mut self, event: &InferenceEvent, shell: &mut dyn Shell) {
+        if let InferenceEvent::GpuMemory { backend, result } = event {
+            self.models.on_gpu_memory(*backend, *result);
+            self.render_settings(shell);
+        }
+    }
+
     fn on_general_action(&mut self, action: GeneralAction, shell: &mut dyn Shell) {
+        let backend = self.general.settings().backend;
         let outcome = self.general.on_action(action, &mut self.playground);
         if let Some(settings) = outcome.settings {
             let settings = self.save_settings(settings);
@@ -718,6 +730,22 @@ impl Controller {
         if let Some(request) = outcome.request {
             self.runner.submit(request, &self.playground_sink);
         }
+        if self.general.settings().backend != backend {
+            self.read_gpu_memory_for_recommendation();
+        }
+    }
+
+    /// Reads the free memory of the GPU of the backend while no suggestion model is selected, so
+    /// that the model that TypeAlike recommends fits in it.
+    fn read_gpu_memory_for_recommendation(&mut self) {
+        let settings = self.general.settings();
+        if settings.suggestion_model.is_some() || settings.backend == Backend::Cpu {
+            return;
+        }
+        let request = InferenceRequest::ReadGpuMemory {
+            backend: settings.backend,
+        };
+        self.runner.submit(request, &self.recommendation_sink);
     }
 
     /// Submits `request` for a suggestion. After the idle timeout or a game, it first loads the

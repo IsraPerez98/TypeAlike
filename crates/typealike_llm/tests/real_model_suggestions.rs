@@ -96,7 +96,9 @@ impl ModelSession {
             match self.events.recv().expect("the runner answers the completion") {
                 InferenceEvent::Partial(text) => parts.push(text),
                 InferenceEvent::Completed(result) => return (parts, result),
-                event @ InferenceEvent::Loaded { .. } => panic!("expected a completion, got {event:?}"),
+                event @ (InferenceEvent::Loaded { .. } | InferenceEvent::GpuMemory { .. }) => {
+                    panic!("expected a completion, got {event:?}")
+                }
             }
         }
     }

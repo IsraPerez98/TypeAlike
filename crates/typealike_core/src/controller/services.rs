@@ -66,6 +66,8 @@ pub enum Delivery {
     Playground(InferenceEvent),
     /// For the ghost text at the caret.
     Suggestion(InferenceEvent),
+    /// For the model that TypeAlike recommends before the first download.
+    Recommendation(InferenceEvent),
     /// The answer to a read of the screen that [`Shell::read_screen`](super::Shell::read_screen) started.
     Screen(ScreenRead),
 }

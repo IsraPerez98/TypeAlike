@@ -4,8 +4,9 @@
 use super::harness::Harness;
 use crate::controller::Delivery;
 use crate::hub::{ByteSize, HubEvent, HubRequest, ModelFile};
-use crate::inference::{Backend, InferenceRequest};
+use crate::inference::{Backend, InferenceEvent, InferenceRequest};
 use crate::settings::Settings;
+use crate::settings_window::general::BACKEND;
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::view::{Accessory, ControlId, Item, Page, Row, SettingsInput};
 
@@ -83,6 +84,52 @@ fn first_run_recommends_a_larger_model_for_a_graphics_card() {
     let titles = recommended_titles(&mut harness);
 
     assert_eq!(titles, ["Gemma 4 E2B"]);
+}
+
+#[test]
+fn first_run_on_a_graphics_card_reads_its_free_memory() {
+    let harness = Harness::new(settings_on(Backend::Vulkan));
+
+    assert_eq!(
+        harness.requests(),
+        [InferenceRequest::ReadGpuMemory {
+            backend: Backend::Vulkan
+        }]
+    );
+}
+
+#[test]
+fn first_run_on_the_processor_reads_no_gpu_memory() {
+    let harness = Harness::new(settings_on(Backend::Cpu));
+
+    assert_eq!(harness.requests(), []);
+}
+
+#[test]
+fn first_run_recommends_the_model_that_fits_the_free_memory_of_the_graphics_card() {
+    let mut harness = Harness::new(settings_on(Backend::Vulkan));
+    harness.answer(InferenceEvent::GpuMemory {
+        backend: Backend::Vulkan,
+        result: Ok(ByteSize(8 * 1024 * 1024 * 1024)),
+    });
+
+    let titles = recommended_titles(&mut harness);
+
+    assert_eq!(titles, ["Gemma 4 E4B"]);
+}
+
+#[test]
+fn backend_change_before_the_first_download_reads_the_free_memory_of_the_new_gpu() {
+    let mut harness = Harness::new(settings_on(Backend::Cpu));
+
+    harness.pick(BACKEND, 1);
+
+    assert_eq!(
+        harness.last_request(),
+        Some(InferenceRequest::ReadGpuMemory {
+            backend: Backend::Vulkan
+        })
+    );
 }
 
 #[test]
