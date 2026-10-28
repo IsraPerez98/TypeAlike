@@ -10,9 +10,9 @@ use typealike_core::settings_window::view::SettingsInput;
 use typealike_core::setup::{Demo, SetupView};
 use windows_reactor::{
     AutomationHeadingLevel, Border, ButtonStyle, Component, ComponentContext, ComponentTimer, EncodedImage,
-    FontIcon, FontWeight, Grid, GridLength, HorizontalAlignment, Image, KeyedView, Orientation,
-    ScrollBarVisibility, ScrollViewer, StackPanel, TextBlock, TextWrapping, ThemeBrush, Thickness,
-    VerticalAlignment, View, ViewContext, WindowBackdrop, WindowVisuals, keyed,
+    FontIcon, FontWeight, Grid, GridLength, HorizontalAlignment, Image, KeyedView, ScrollBarVisibility,
+    ScrollViewer, StackPanel, TextBlock, TextWrapping, ThemeBrush, Thickness, VerticalAlignment, View,
+    ViewContext, WindowBackdrop, WindowVisuals, keyed,
 };
 
 use super::icons::{setup_glyph, setup_picture};
@@ -49,8 +49,6 @@ const FOOTER_GAP: f64 = 8.0;
 const DOT_SIZE: f64 = 6.0;
 const DOT_GAP: f64 = 10.0;
 const PILL_WIDTH: f64 = 18.0;
-/// How far the pill reaches past each side of its dot.
-const PILL_OVERHANG: f64 = (PILL_WIDTH - DOT_SIZE) / 2.0;
 const DOT_OPACITY: f64 = 0.35;
 const SLIDE_DISTANCE: f64 = 40.0;
 const SLIDE_TIME: Duration = Duration::from_millis(300);
@@ -458,50 +456,70 @@ fn is_press(message: &RowMessage) -> bool {
 }
 
 impl SetupPage {
-    /// A gray dot for each step, and an accent pill over the dot of the step that shows. When the
-    /// step changes, the pill slides to its new dot, unless the animation effects are off.
+    /// A gray dot for each step, and an accent pill over the dot of the step that shows. The dots
+    /// after that step move away by the width that the pill adds, so the gaps between the dots
+    /// stay the same. When the step changes, the pill and the dots slide to their new places,
+    /// unless the animation effects are off.
     fn progress(&self, view: &SetupView) -> Border {
+        let shown = view.progress.number;
         let dots = (1..=view.progress.count).map(|number| {
             keyed(
                 number,
-                Border::new()
-                    .width(DOT_SIZE)
-                    .height(DOT_SIZE)
-                    .corner_radius(DOT_SIZE / 2.0)
-                    .background(ThemeBrush::PrimaryText)
-                    .opacity(DOT_OPACITY),
+                self.slide(
+                    Border::new()
+                        .width(DOT_SIZE)
+                        .background(ThemeBrush::PrimaryText)
+                        .opacity(DOT_OPACITY)
+                        .translation(slot_offset(number, shown), 0.0),
+                ),
             )
         });
-        let dots = StackPanel::new()
-            .orientation(Orientation::Horizontal)
-            .spacing(DOT_GAP)
-            .margin(Thickness::new(PILL_OVERHANG, 0.0, PILL_OVERHANG, 0.0))
-            .vertical_alignment(VerticalAlignment::Center)
-            .keyed_children(dots);
-        let pill = Border::new()
-            .width(PILL_WIDTH)
-            .height(DOT_SIZE)
-            .corner_radius(DOT_SIZE / 2.0)
-            .background(ThemeBrush::Accent)
-            .horizontal_alignment(HorizontalAlignment::Left)
-            .vertical_alignment(VerticalAlignment::Center)
-            .translation(pill_offset(view.progress.number), 0.0);
-        let pill = match self.motion {
-            Motion::Animated => pill.translation_transition(SLIDE_TIME),
-            Motion::Still => pill,
-        };
+        let pill = keyed(
+            "pill",
+            self.slide(
+                Border::new()
+                    .width(PILL_WIDTH)
+                    .background(ThemeBrush::Accent)
+                    .translation(slot_offset(shown, shown), 0.0),
+            ),
+        );
         Border::new()
+            .width(progress_width(view.progress.count))
             .vertical_alignment(VerticalAlignment::Center)
             .automation_name(&view.progress.text)
-            .content(Grid::new().children((dots, pill)))
+            .content(Grid::new().keyed_children(dots.chain([pill])))
+    }
+
+    /// `shape`, a dot or the pill, at the leading edge, which slides to each new place.
+    fn slide(&self, shape: Border) -> Border {
+        let shape = shape
+            .height(DOT_SIZE)
+            .corner_radius(DOT_SIZE / 2.0)
+            .horizontal_alignment(HorizontalAlignment::Left)
+            .vertical_alignment(VerticalAlignment::Center);
+        match self.motion {
+            Motion::Animated => shape.translation_transition(SLIDE_TIME),
+            Motion::Still => shape,
+        }
     }
 }
 
-/// The distance from the leading edge of the progress to the pill over the dot of the step with
-/// the `number`, from 1. The pill reaches as far past its dot on each side.
-fn pill_offset(number: usize) -> f64 {
-    let steps_before = u32::try_from(number.saturating_sub(1)).unwrap_or(u32::MAX);
-    f64::from(steps_before) * (DOT_SIZE + DOT_GAP)
+/// The distance from the leading edge of the progress to the dot of the step with the `number`,
+/// from 1, while the step with the `shown` number shows. The pill covers the dot of that step, and
+/// the dots after it move away by the width that the pill adds.
+fn slot_offset(number: usize, shown: usize) -> f64 {
+    let steps_before = f64::from(u32::try_from(number.saturating_sub(1)).unwrap_or(u32::MAX));
+    let room_for_the_pill = if number > shown {
+        PILL_WIDTH - DOT_SIZE
+    } else {
+        0.0
+    };
+    steps_before * (DOT_SIZE + DOT_GAP) + room_for_the_pill
+}
+
+/// The width of the progress of `count` steps: the last dot when its step shows, under the pill.
+fn progress_width(count: usize) -> f64 {
+    slot_offset(count, count) + PILL_WIDTH
 }
 
 /// The views of `section`, below a gap.
@@ -711,10 +729,15 @@ mod tests {
     }
 
     #[test]
-    fn pill_moves_one_dot_and_one_gap_for_each_step() {
-        let offsets = [1, 2, 4].map(pill_offset);
+    fn dots_after_the_shown_step_make_room_for_the_pill() {
+        let offsets = [1, 2, 3, 4].map(|number| slot_offset(number, 2));
 
-        assert_eq!(offsets, [0.0, 16.0, 48.0]);
+        assert_eq!(offsets, [0.0, 16.0, 44.0, 60.0]);
+    }
+
+    #[test]
+    fn progress_is_as_wide_as_its_dots_its_gaps_and_the_pill() {
+        assert!((progress_width(5) - 82.0).abs() < f64::EPSILON);
     }
 
     #[test]

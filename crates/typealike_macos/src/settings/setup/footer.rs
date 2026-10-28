@@ -1,16 +1,16 @@
 //! The footer of the setup window: the progress dots at the leading edge, then the back button and
 //! the default button that goes on, at the trailing edge, below a separator. An accent pill marks
-//! the dot of the step that shows, and slides to the dot of the next step.
+//! the step that shows, and slides to the next step while the dots make room for it.
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAccessibility as _, NSAccessibilityStaticTextRole, NSAnimatablePropertyContainer as _,
-    NSAnimationContext, NSBox, NSBoxType, NSButton, NSColor, NSControlSize, NSLayoutConstraint, NSStackView,
-    NSStackViewGravity, NSTitlePosition, NSUserInterfaceLayoutOrientation, NSView,
+    NSAccessibility as _, NSAccessibilityStaticTextRole, NSAnimationContext, NSBox, NSBoxType, NSButton,
+    NSColor, NSControlSize, NSLayoutConstraint, NSStackView, NSStackViewGravity, NSTitlePosition,
+    NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSArray, NSEdgeInsets, NSString, NSTimeInterval};
+use objc2_foundation::{NSArray, NSEdgeInsets, NSSize, NSString, NSTimeInterval};
 use typealike_core::setup::{SetupView, StepProgress};
 
 use crate::settings::controls::{push_button, show_push_button};
@@ -29,8 +29,6 @@ const BUTTON_MIN_WIDTH: CGFloat = 88.0;
 const DOT_SIZE: CGFloat = 7.0;
 const DOT_SPACING: CGFloat = 10.0;
 const PILL_WIDTH: CGFloat = 19.0;
-/// How far the pill reaches past each side of its dot.
-const PILL_OVERHANG: CGFloat = (PILL_WIDTH - DOT_SIZE) / 2.0;
 const PILL_SLIDE_SECONDS: NSTimeInterval = 0.3;
 /// The key equivalent of the default button: the Return key.
 const RETURN_KEY: &str = "\r";
@@ -87,12 +85,12 @@ impl Footer {
     /// Shows the progress and the buttons of `view`, with the `motion` of the system. The back
     /// button hides on the first step.
     pub(super) fn render(&mut self, view: &SetupView, motion: Motion, binder: &mut Binder<'_>) {
-        self.dots.render(&view.progress, motion, binder.main_thread);
         match &view.back {
             Some(back) => show_push_button(&self.back, back, None, binder),
             None => self.back.setHidden(true),
         }
         show_push_button(&self.next, &view.next, None, binder);
+        self.dots.render(&view.progress, motion, binder.main_thread);
     }
 }
 
@@ -107,17 +105,27 @@ fn footer_button(target: &ActionTarget, main_thread: MainThreadMarker) -> Retain
     button
 }
 
-/// A gray dot for each step, and an accent pill over the dot of the step that shows. When the step
-/// changes, the pill slides to its new dot, unless the system reduces motion. Assistive technology
-/// reads the dots as one text, such as "Step 2 of 5".
+/// A gray dot for each step. The slot of the step that shows is as wide as a pill, and an accent
+/// pill covers it, so the gaps between the dots stay the same. When the step changes, the pill
+/// slides to the new slot while that slot grows and the old one shrinks, unless the system reduces
+/// motion. Assistive technology reads the dots as one text, such as "Step 2 of 5".
 #[derive(Debug)]
 struct ProgressDots {
     root: Retained<NSView>,
     stack: Retained<NSStackView>,
-    dots: Vec<Retained<NSBox>>,
-    pill_leading: Retained<NSLayoutConstraint>,
+    pill: Retained<NSBox>,
+    slots: Vec<Slot>,
     /// The number of the step that the pill marks, from 1, after the first render.
     shown: Option<usize>,
+}
+
+/// The gray dot of a step, with the constraints that change when its step shows.
+#[derive(Debug)]
+struct Slot {
+    dot: Retained<NSBox>,
+    width: Retained<NSLayoutConstraint>,
+    /// Puts the pill over the dot, active only while the step of the dot shows.
+    pill_leading: Retained<NSLayoutConstraint>,
 }
 
 impl ProgressDots {
@@ -127,15 +135,10 @@ impl ProgressDots {
         root.setAccessibilityElement(true);
         // SAFETY: AppKit defines the role before any code runs.
         root.setAccessibilityRole(Some(unsafe { NSAccessibilityStaticTextRole }));
-        let insets = NSEdgeInsets {
-            left: PILL_OVERHANG,
-            right: PILL_OVERHANG,
-            ..NO_INSETS
-        };
         let stack = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
             DOT_SPACING,
-            insets,
+            NO_INSETS,
             main_thread,
         );
         stack.setTranslatesAutoresizingMaskIntoConstraints(false);
@@ -143,9 +146,6 @@ impl ProgressDots {
         let pill = rounded_shape(&NSColor::controlAccentColor(), main_thread);
         pill.setTranslatesAutoresizingMaskIntoConstraints(false);
         root.addSubview(&pill);
-        let pill_leading = pill
-            .leadingAnchor()
-            .constraintEqualToAnchor(&root.leadingAnchor());
         NSLayoutConstraint::activateConstraints(&NSArray::from_slice(&[
             &*stack
                 .leadingAnchor()
@@ -155,7 +155,6 @@ impl ProgressDots {
                 .constraintEqualToAnchor(&root.trailingAnchor()),
             &*stack.topAnchor().constraintEqualToAnchor(&root.topAnchor()),
             &*stack.bottomAnchor().constraintEqualToAnchor(&root.bottomAnchor()),
-            &*pill_leading,
             &*pill
                 .centerYAnchor()
                 .constraintEqualToAnchor(&root.centerYAnchor()),
@@ -165,57 +164,87 @@ impl ProgressDots {
         Self {
             root,
             stack,
-            dots: Vec::new(),
-            pill_leading,
+            pill,
+            slots: Vec::new(),
             shown: None,
         }
     }
 
     fn render(&mut self, progress: &StepProgress, motion: Motion, main_thread: MainThreadMarker) {
-        if self.dots.len() != progress.count {
+        if self.slots.len() != progress.count {
             self.rebuild(progress.count, main_thread);
+            self.shown = None;
         }
-        let offset = pill_offset(progress.number);
-        match (self.shown, motion) {
-            (Some(shown), Motion::Full) if shown != progress.number => self.slide_pill(offset),
-            _ => self.pill_leading.setConstant(offset),
+        if self.shown != Some(progress.number) {
+            match (self.shown, motion) {
+                (Some(_), Motion::Full) => self.slide_pill_to(progress.number),
+                _ => self.mark(progress.number),
+            }
+            self.shown = Some(progress.number);
         }
-        self.shown = Some(progress.number);
         let text = NSString::from_str(&progress.text);
         // SAFETY: the value of a static text is a string.
         unsafe { self.root.setAccessibilityValue(Some(&text)) };
     }
 
-    fn slide_pill(&self, offset: CGFloat) {
+    /// Animates the change to the step with the `number`. The other changes of the window apply
+    /// first, so that only the dots and the pill move.
+    fn slide_pill_to(&self, number: usize) {
+        if let Some(window) = self.root.window() {
+            window.layoutIfNeeded();
+        }
         NSAnimationContext::beginGrouping();
         let context = NSAnimationContext::currentContext();
         context.setDuration(PILL_SLIDE_SECONDS);
         context.setAllowsImplicitAnimation(true);
-        self.pill_leading.animator().setConstant(offset);
+        self.mark(number);
+        self.root.layoutSubtreeIfNeeded();
         NSAnimationContext::endGrouping();
     }
 
+    /// Widens the slot of the step with the `number` and puts the pill over it.
+    fn mark(&self, number: usize) {
+        for slot in &self.slots {
+            slot.pill_leading.setActive(false);
+        }
+        for (step, slot) in (1..).zip(&self.slots) {
+            slot.width.setConstant(slot_width(step, number));
+        }
+        if let Some(slot) = number.checked_sub(1).and_then(|index| self.slots.get(index)) {
+            slot.pill_leading.setActive(true);
+        }
+    }
+
     fn rebuild(&mut self, count: usize, main_thread: MainThreadMarker) {
-        for dot in self.dots.drain(..) {
-            dot.removeFromSuperview();
+        for slot in self.slots.drain(..) {
+            slot.pill_leading.setActive(false);
+            slot.dot.removeFromSuperview();
         }
         for _ in 0..count {
             let dot = rounded_shape(&NSColor::quaternaryLabelColor(), main_thread);
+            let width = dot.widthAnchor().constraintEqualToConstant(DOT_SIZE);
             NSLayoutConstraint::activateConstraints(&NSArray::from_slice(&[
-                &*dot.widthAnchor().constraintEqualToConstant(DOT_SIZE),
+                &*width,
                 &*dot.heightAnchor().constraintEqualToConstant(DOT_SIZE),
             ]));
             self.stack.addArrangedSubview(&dot);
-            self.dots.push(dot);
+            let pill_leading = self
+                .pill
+                .leadingAnchor()
+                .constraintEqualToAnchor(&dot.leadingAnchor());
+            self.slots.push(Slot {
+                dot,
+                width,
+                pill_leading,
+            });
         }
     }
 }
 
-/// The distance from the leading edge of the dots to the pill over the dot of the step with the
-/// `number`, from 1. The pill reaches as far past its dot on each side.
-fn pill_offset(number: usize) -> CGFloat {
-    let steps_before = u32::try_from(number.saturating_sub(1)).unwrap_or(u32::MAX);
-    CGFloat::from(steps_before) * (DOT_SIZE + DOT_SPACING)
+/// The width of the slot of the step with the `number` while the step with the `shown` number
+/// shows: the width of the pill for the step that shows, else the width of a dot.
+fn slot_width(number: usize, shown: usize) -> CGFloat {
+    if number == shown { PILL_WIDTH } else { DOT_SIZE }
 }
 
 /// A shape with fully rounded ends in `fill`, which assistive technology skips.
@@ -224,6 +253,8 @@ fn rounded_shape(fill: &NSColor, main_thread: MainThreadMarker) -> Retained<NSBo
     shape.setBoxType(NSBoxType::Custom);
     shape.setTitlePosition(NSTitlePosition::NoTitle);
     shape.setBorderWidth(0.0);
+    // With margins, the content view of a slot that shrinks gets no width and keeps the box wide.
+    shape.setContentViewMargins(NSSize::ZERO);
     shape.setCornerRadius(DOT_SIZE / 2.0);
     shape.setFillColor(fill);
     shape.setAccessibilityElement(false);
@@ -235,12 +266,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pill_of_the_first_step_starts_at_the_leading_edge() {
-        assert!(pill_offset(1).abs() < f64::EPSILON);
-    }
+    fn only_the_slot_of_the_shown_step_is_as_wide_as_the_pill() {
+        let widths = [1, 2, 3].map(|number| slot_width(number, 2));
 
-    #[test]
-    fn pill_moves_one_dot_and_one_space_for_each_step() {
-        assert!((pill_offset(3) - 2.0 * (DOT_SIZE + DOT_SPACING)).abs() < f64::EPSILON);
+        assert_eq!(widths, [DOT_SIZE, PILL_WIDTH, DOT_SIZE]);
     }
 }
