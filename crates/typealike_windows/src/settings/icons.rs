@@ -1,15 +1,44 @@
-//! The icons of the settings window. Each page has a color icon of the Fluent UI System Icons in
-//! the navigation, as in the Settings app. High contrast shows the symbol of the page in the text
-//! color instead, because a color icon does not follow the colors of the theme. Each card of a
+//! The icons of the settings window and of the setup window. Each page has a color icon of the
+//! Fluent UI System Icons in the navigation, as in the Settings app, and each step of the setup has
+//! a larger one above its title. High contrast shows the symbol of the page or of the step in the
+//! text color instead, because a color icon does not follow the colors of the theme. Each card of a
 //! setting starts with a glyph of the icon font in the text color.
 
 use typealike_core::settings_window::view::{PageIcon, RowIcon};
+use typealike_core::setup::SetupStep;
 use windows_reactor::{EncodedImage, Icon, Symbol};
 
 use crate::system_theme::Contrast;
 
 const ROBOT_GLYPH: &str = "\u{E99A}";
 const LIGHTBULB_GLYPH: &str = "\u{EA80}";
+const EDIT_GLYPH: &str = "\u{E70F}";
+const PERMISSIONS_GLYPH: &str = "\u{E8D7}";
+const CONTACT_GLYPH: &str = "\u{E779}";
+const ACCEPT_GLYPH: &str = "\u{E8FB}";
+
+/// The color picture above the title of `step` in the setup window, as an SVG file.
+pub(super) fn setup_picture(step: SetupStep) -> &'static [u8] {
+    match step {
+        SetupStep::Welcome => include_bytes!("../../assets/fluent/setup/text_edit_style.svg"),
+        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.svg"),
+        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.svg"),
+        SetupStep::About => include_bytes!("../../assets/fluent/setup/contact_card.svg"),
+        SetupStep::Ready => include_bytes!("../../assets/fluent/setup/checkmark_circle.svg"),
+    }
+}
+
+/// The glyph above the title of `step` in the setup window in high contrast. Each glyph is in
+/// Segoe Fluent Icons and also in Segoe MDL2 Assets.
+pub(super) fn setup_glyph(step: SetupStep) -> &'static str {
+    match step {
+        SetupStep::Welcome => EDIT_GLYPH,
+        SetupStep::Model => ROBOT_GLYPH,
+        SetupStep::Permission => PERMISSIONS_GLYPH,
+        SetupStep::About => CONTACT_GLYPH,
+        SetupStep::Ready => ACCEPT_GLYPH,
+    }
+}
 
 /// The glyph that shows `icon` at the leading edge of a card. Each glyph is in Segoe Fluent Icons
 /// and also in Segoe MDL2 Assets, the icon font of Windows 10.

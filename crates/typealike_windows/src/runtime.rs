@@ -14,7 +14,6 @@ use typealike_core::controller::{
 use typealike_core::desktop::{EnergySaver, GameActivity};
 use typealike_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
 use typealike_core::settings::Settings;
-use typealike_core::settings_window::view::SettingsInput;
 use typealike_core::setup::TrayPlace;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -46,7 +45,7 @@ use crate::menu;
 use crate::ocr::OcrSupport;
 use crate::overlay::Overlay;
 use crate::screen_text::{ScreenAnswer, ScreenTextReader};
-use crate::settings::SettingsThread;
+use crate::settings::{SettingsThread, WindowInput};
 use crate::system_theme::{self, SystemTheme};
 use crate::tray::{self, MenuRequest, TRAY_CALLBACK_MESSAGE, Tray};
 use crate::window::{Window, WindowSpec};
@@ -174,6 +173,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     });
     // The focused field counts as a password field until a read of it tells otherwise.
     with_runtime(|runtime| runtime.shell.read_field_text());
+    with_runtime(|runtime| runtime.controller.on_launch(&mut runtime.shell));
     tracing::info!("running in the tray");
     let run_outcome = pump_messages();
     drop((
@@ -249,7 +249,7 @@ struct Runtime {
     /// register it.
     taskbar_created_message: Option<u32>,
     deliveries: mpsc::Receiver<Delivery>,
-    settings_inputs: mpsc::Receiver<SettingsInput>,
+    settings_inputs: mpsc::Receiver<WindowInput>,
     caret_reads: mpsc::Receiver<CaretAnswer>,
     field_reads: mpsc::Receiver<FieldRead>,
     screen_reads: mpsc::Receiver<ScreenAnswer>,
@@ -376,7 +376,10 @@ impl Runtime {
 
     fn take_settings_inputs(&mut self) {
         for input in self.settings_inputs.try_iter() {
-            self.controller.on_settings_input(&input, &mut self.shell);
+            match input {
+                WindowInput::Control(input) => self.controller.on_settings_input(&input, &mut self.shell),
+                WindowInput::SetupClosed => self.controller.on_setup_closed(),
+            }
         }
     }
 

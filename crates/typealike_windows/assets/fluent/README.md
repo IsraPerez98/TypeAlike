@@ -15,3 +15,13 @@ These are the page icons of the settings window on Windows. They come from the F
 The icons are the same as in the source, but each view box is cut to the live area of the icon (`2 2 16 16`), and the size is 16 px. Thus each icon fills the 16 px icon box of the navigation at scale 1. The teeth of `settings.svg` go 0.5 px past the live area, so its view box is `1.5 1.5 17 17`.
 
 The icons have the MIT license in `LICENSE`.
+
+The pictures above the title of each step of the setup window are in `setup/`. They are the icons of the source as they are, with their own view box, in the color style at the largest size that the source has in color:
+
+| File | Icon | Setup step |
+| --- | --- | --- |
+| `setup/text_edit_style.svg` | `ic_fluent_text_edit_style_24_color` | `SetupStep::Welcome` |
+| `setup/bot.svg` | `ic_fluent_bot_24_color` | `SetupStep::Model` |
+| `setup/shield_checkmark.svg` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |
+| `setup/contact_card.svg` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
+| `setup/checkmark_circle.svg` | `ic_fluent_checkmark_circle_48_color` | `SetupStep::Ready` |

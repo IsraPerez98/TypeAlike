@@ -7,9 +7,10 @@ use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_
 use windows::Win32::System::Registry::RRF_RT_REG_DWORD;
 use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    SPI_GETHIGHCONTRAST, SPI_SETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
+    SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST, SPI_SETHIGHCONTRAST,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
 };
-use windows::core::{PCSTR, PCWSTR, w};
+use windows::core::{BOOL, PCSTR, PCWSTR, w};
 
 use crate::pixels::Rgb;
 use crate::registry::read_value;
@@ -190,4 +191,20 @@ fn is_high_contrast_on() -> bool {
         )
     };
     read.is_ok() && settings.dwFlags.contains(HCF_HIGHCONTRASTON)
+}
+
+/// Whether Windows animates its windows and controls ("Animation effects" in the settings of
+/// Windows). It counts as on when Windows does not answer.
+pub(crate) fn are_animations_on() -> bool {
+    let mut is_on = BOOL::from(true);
+    // SAFETY: the value is a local BOOL, which the call fills.
+    let read = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some((&raw mut is_on).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    read.is_err() || is_on.as_bool()
 }

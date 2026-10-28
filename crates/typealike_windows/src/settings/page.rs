@@ -10,19 +10,20 @@ use typealike_core::settings_window::view::{
     TextField, TextLine,
 };
 use windows_reactor::{
-    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, EncodedImage, FontWeight, Grid,
-    GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
+    AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, Component, EncodedImage, FontWeight,
+    Grid, GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
     StackPanel, Symbol, SymbolIcon, TextBlock, TextBox, TextWrapping, Thickness, ToggleSwitch,
     VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
+use super::RowMessage;
 use super::icons::row_glyph;
 use super::layout::{
     CONTROL_GAP, card, card_header, control_card, glyph_icon, leading_and_text, note_view, scrolling_page,
     secondary_text, stacked_card, two_column_card,
 };
 use super::text_area_box::{TextAreaBox, TextAreaBoxInput};
-use super::{PageMessage, SettingsPage};
+use super::typed_texts::TypedTexts;
 
 const TITLE_SIZE: f64 = 28.0;
 const SECTION_GAP: f64 = 28.0;
@@ -37,14 +38,19 @@ const APP_ICON_SIZE: f64 = 24.0;
 // WinUI makes a switch 154 px wide, which leaves a gap after its "On" at the trailing edge of a card.
 const SWITCH_MIN_WIDTH: f64 = 0.0;
 
-/// Builds the controls of a page from its core sections and rows.
-pub(super) struct Renderer<'page, 'view> {
-    pub(super) context: &'page ViewContext<'view, SettingsPage>,
-    pub(super) typed: &'page HashMap<ControlId, String>,
+/// Builds the controls of a page from its core sections and rows, in the window of the component
+/// `Window`, which takes the message of each control.
+pub(super) struct Renderer<'page, 'view, Window: Component> {
+    pub(super) context: &'page ViewContext<'view, Window>,
+    pub(super) typed: &'page TypedTexts,
     pub(super) app_icons: &'page HashMap<String, Option<EncodedImage>>,
 }
 
-impl Renderer<'_, '_> {
+impl<Window> Renderer<'_, '_, Window>
+where
+    Window: Component,
+    Window::Message: From<RowMessage> + Clone,
+{
     /// The page at `index` of the view, with its header, its search field and its sections.
     pub(super) fn page(&self, index: usize, page: &Page) -> View {
         let header = [
@@ -85,7 +91,8 @@ impl Renderer<'_, '_> {
         self.submit_on_enter(&field.id, box_view.into())
     }
 
-    fn section(&self, key: &str, section: &Section) -> Vec<KeyedView> {
+    /// The heading, the rows and the footer of `section`, each with a key that starts with `key`.
+    pub(super) fn section(&self, key: &str, section: &Section) -> Vec<KeyedView> {
         let heading = (section.heading.is_some() || section.back.is_some()).then(|| {
             let back = section
                 .back
@@ -253,7 +260,7 @@ impl Renderer<'_, '_> {
             .content(field.submit_label.as_str())
             .is_enabled(field.is_submit_enabled)
             .style(ButtonStyle::Accent)
-            .on_click(self.context.message(PageMessage::Submit(field.id.clone())));
+            .on_click(self.context.message(RowMessage::Submit(field.id.clone()).into()));
         let line = Grid::new()
             .columns([GridLength::STAR, GridLength::Auto])
             .column_spacing(HEADING_GAP)
@@ -366,23 +373,26 @@ impl Renderer<'_, '_> {
             .min_width(PICKER_MIN_WIDTH)
             .max_width(PICKER_MAX_WIDTH)
             .on_selection_changed(self.context.callback(move |selection: Option<usize>| {
-                selection.map_or(PageMessage::Ignore, |index| {
-                    PageMessage::Input(SettingsInput::Picked {
-                        id: id.clone(),
-                        index,
+                selection
+                    .map_or(RowMessage::Ignore, |index| {
+                        RowMessage::Input(SettingsInput::Picked {
+                            id: id.clone(),
+                            index,
+                        })
                     })
-                })
+                    .into()
             }))
     }
 
-    fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
+    /// A push button with the label of `button` in `style`, which sends its press.
+    pub(super) fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
         Button::new()
             .content(button.label.as_str())
             .is_enabled(button.is_enabled)
             .style(style)
             .on_click(
                 self.context
-                    .message(PageMessage::Input(SettingsInput::Pressed(button.id.clone()))),
+                    .message(RowMessage::Input(SettingsInput::Pressed(button.id.clone())).into()),
             )
             .into()
     }
@@ -393,7 +403,7 @@ impl Renderer<'_, '_> {
         let id = id.clone();
         Border::new()
             .on_key_up(RoutedCallback::new(move |event: KeyEventInfo| {
-                event.key == VirtualKey::ENTER && sender.send(PageMessage::Submit(id.clone()))
+                event.key == VirtualKey::ENTER && sender.send(RowMessage::Submit(id.clone()).into())
             }))
             .content(field)
             .into()
@@ -401,24 +411,28 @@ impl Renderer<'_, '_> {
 
     /// The text that the user typed in the field `id`, else `shown`, the text of the view.
     fn typed_text<'text>(&'text self, id: &ControlId, shown: &'text str) -> &'text str {
-        self.typed.get(id).map_or(shown, String::as_str)
+        self.typed.text(id, shown)
     }
 
     fn typed_callback(&self, id: &ControlId) -> Callback<Rc<str>> {
         let id = id.clone();
-        self.context.callback(move |text: Rc<str>| PageMessage::Typed {
-            id: id.clone(),
-            text: text.to_string(),
+        self.context.callback(move |text: Rc<str>| {
+            RowMessage::Typed {
+                id: id.clone(),
+                text: text.to_string(),
+            }
+            .into()
         })
     }
 
     fn edited_callback(&self, id: &ControlId) -> Callback<Rc<str>> {
         let id = id.clone();
         self.context.callback(move |text: Rc<str>| {
-            PageMessage::Input(SettingsInput::Edited {
+            RowMessage::Input(SettingsInput::Edited {
                 id: id.clone(),
                 text: text.to_string(),
             })
+            .into()
         })
     }
 
@@ -433,10 +447,11 @@ impl Renderer<'_, '_> {
     fn toggled_callback(&self, id: &ControlId) -> Callback<bool> {
         let id = id.clone();
         self.context.callback(move |is_on| {
-            PageMessage::Input(SettingsInput::Toggled {
+            RowMessage::Input(SettingsInput::Toggled {
                 id: id.clone(),
                 is_on,
             })
+            .into()
         })
     }
 }

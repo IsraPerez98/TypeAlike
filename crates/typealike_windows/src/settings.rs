@@ -1,12 +1,15 @@
-//! The settings window, in WinUI 3 through windows-reactor, on a thread of its own. It shows each
-//! page of the core settings view, with a navigation item for each page. This module is also the
-//! one place reactor callbacks on that thread reach the window's state.
+//! The settings window and the setup window, in WinUI 3 through windows-reactor, on a thread of
+//! their own. The settings window shows each page of the core settings view, with a navigation item
+//! for each page. This module is also the one place reactor callbacks on that thread reach the
+//! state of the windows.
 
 mod app_icon;
 mod icons;
 mod layout;
 mod page;
+mod setup_page;
 mod text_area_box;
+mod typed_texts;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,6 +19,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
 use typealike_core::settings_window::view::{ControlId, Row, SettingsInput, SettingsView};
+use typealike_core::setup::SetupView;
 use windows::Win32::Foundation::E_UNEXPECTED;
 use windows::core::{Error, HRESULT, Result};
 use windows_reactor::{
@@ -27,6 +31,8 @@ use windows_reactor::{
 use crate::mailbox::Mailbox;
 use crate::settings::icons::page_icon;
 use crate::settings::page::Renderer;
+use crate::settings::setup_page::{SetupMessage, SetupPage};
+use crate::settings::typed_texts::TypedTexts;
 use crate::system_theme::{Contrast, SystemTheme};
 
 const THREAD_NAME: &str = "settings window";
@@ -36,24 +42,40 @@ const WINDOW_HEIGHT: f64 = 720.0;
 const MIN_WINDOW_WIDTH: f64 = 640.0;
 const MIN_WINDOW_HEIGHT: f64 = 480.0;
 const NAVIGATION_WIDTH: f64 = 280.0;
+const SETUP_WIDTH: f64 = 720.0;
+const SETUP_HEIGHT: f64 = 660.0;
+const MIN_SETUP_WIDTH: f64 = 560.0;
+const MIN_SETUP_HEIGHT: f64 = 480.0;
+
+/// What the user did in a window of the settings thread.
+#[derive(Debug)]
+pub(crate) enum WindowInput {
+    /// Used a control of the settings window or of the setup window.
+    Control(SettingsInput),
+    /// Closed the setup window.
+    SetupClosed,
+}
 
 /// The state that reactor callbacks on the settings thread can reach.
 struct Host {
-    inputs: Mailbox<SettingsInput>,
+    inputs: Mailbox<WindowInput>,
     /// The last view from the controller. A window that opens starts with it.
     view: SettingsView,
     /// The index of the page that a window that opens selects, when the controller asked for one.
     page_to_open: Option<usize>,
-    page: PageState,
+    page: PageState<PageMessage>,
+    /// The last setup view from the controller. The setup window starts with it.
+    setup_view: Option<SetupView>,
+    setup: PageState<SetupMessage>,
 }
 
-/// Whether the settings window shows.
-enum PageState {
+/// Whether a window shows.
+enum PageState<Message> {
     Closed,
     /// The window opens, and its page does not exist yet.
     Opening,
     /// The window shows its page, which takes messages here.
-    Open(LocalSender<PageMessage>),
+    Open(LocalSender<Message>),
 }
 
 thread_local! {
@@ -81,9 +103,9 @@ impl fmt::Debug for SettingsThread {
 }
 
 impl SettingsThread {
-    /// Starts the thread and the WinUI app on it. The window sends each input of the user to
+    /// Starts the thread and the WinUI app on it. The windows send each input of the user to
     /// `inputs`.
-    pub(crate) fn start(inputs: Mailbox<SettingsInput>) -> Result<Self> {
+    pub(crate) fn start(inputs: Mailbox<WindowInput>) -> Result<Self> {
         let (started, start) = mpsc::channel();
         let thread = thread::Builder::new()
             .name(THREAD_NAME.to_owned())
@@ -110,11 +132,42 @@ impl SettingsThread {
         self.dispatch(move |context| open_or_show(view, page, context));
     }
 
-    /// Shows the page icons for `contrast`, when the window shows. WinUI makes the rest of the
-    /// window follow the contrast.
+    /// Shows the page icons and the pictures of the setup for `contrast`, when the windows show.
+    /// WinUI makes the rest of the windows follow the contrast.
     pub(crate) fn set_contrast(&self, contrast: Contrast) {
         self.dispatch(move |_| {
-            with_host(|host| host.send_to_page(PageMessage::Contrast(contrast)));
+            with_host(|host| {
+                host.send_to_page(PageMessage::Contrast(contrast));
+                host.send_to_setup(SetupMessage::Contrast(contrast));
+            });
+        });
+    }
+
+    /// Shows the setup window with `view` and brings it to the front. Opens the window when it is
+    /// closed.
+    pub(crate) fn show_setup(&self, view: SetupView) {
+        self.dispatch(move |context| open_or_show_setup(view, context));
+    }
+
+    /// Shows `view` in the setup window, when the window shows.
+    pub(crate) fn render_setup(&self, view: SetupView) {
+        self.dispatch(move |_| {
+            with_host(|host| {
+                host.setup_view = Some(view.clone());
+                host.send_to_setup(SetupMessage::Show(Box::new(view)));
+            });
+        });
+    }
+
+    /// Closes the setup window, when it shows, without a [`WindowInput::SetupClosed`].
+    pub(crate) fn close_setup(&self) {
+        self.dispatch(move |_| {
+            with_host(|host| {
+                host.setup_view = None;
+                if let PageState::Open(page) = std::mem::replace(&mut host.setup, PageState::Closed) {
+                    send(&page, SetupMessage::Close);
+                }
+            });
         });
     }
 
@@ -144,7 +197,7 @@ impl Drop for SettingsThread {
 
 /// Runs the WinUI app of the thread: gives its dispatcher to `started`, then runs until the
 /// controller ends it.
-fn run(inputs: Mailbox<SettingsInput>, started: &mpsc::Sender<Result<AppProxy>>) {
+fn run(inputs: Mailbox<WindowInput>, started: &mpsc::Sender<Result<AppProxy>>) {
     let startup_sender = started.clone();
     let ran = App::run_with(move |context| {
         HOST.with(|host| {
@@ -153,6 +206,8 @@ fn run(inputs: Mailbox<SettingsInput>, started: &mpsc::Sender<Result<AppProxy>>)
                 view: SettingsView::default(),
                 page_to_open: None,
                 page: PageState::Closed,
+                setup_view: None,
+                setup: PageState::Closed,
             }))
         });
         // Fails only when the controller stopped to wait, which needs no handling.
@@ -178,6 +233,67 @@ impl Host {
         if let PageState::Open(page) = &self.page {
             send(page, message);
         }
+    }
+
+    /// Sends `message` to the page of the setup window, when the window shows.
+    fn send_to_setup(&self, message: SetupMessage) {
+        if let PageState::Open(page) = &self.setup {
+            send(page, message);
+        }
+    }
+}
+
+/// Shows `view` in the open setup window and brings it to the front, or opens the window with it.
+/// The window opens outside any borrow of the host, because its page reads the host when it starts.
+fn open_or_show_setup(view: SetupView, context: &AppContext) {
+    let title = view.window_title.clone();
+    let should_open = with_host(|host| {
+        host.setup_view = Some(view.clone());
+        match &host.setup {
+            PageState::Open(page) => {
+                send(page, SetupMessage::Show(Box::new(view)));
+                send(page, SetupMessage::Activate);
+                false
+            }
+            PageState::Opening => false,
+            PageState::Closed => {
+                host.setup = PageState::Opening;
+                true
+            }
+        }
+    });
+    if should_open != Some(true) {
+        return;
+    }
+    let policy = WindowPolicy::new()
+        .title(title)
+        .client_size(SETUP_WIDTH, SETUP_HEIGHT)
+        .minimum_client_size(MIN_SETUP_WIDTH, MIN_SETUP_HEIGHT);
+    if let Err(error) = context.open_component_window_with_policy::<SetupPage>((), policy) {
+        tracing::warn!(%error, "failed to open the setup window");
+        with_host(|host| host.setup = PageState::Closed);
+    }
+}
+
+/// Takes the page of the setup window that opens. Returns the view to show.
+fn setup_opened(page: LocalSender<SetupMessage>) -> Option<SetupView> {
+    with_host(|host| {
+        host.setup = PageState::Open(page);
+        host.setup_view.clone()
+    })
+    .flatten()
+}
+
+/// Tells the controller that the user closed the setup window, unless the controller closed it.
+fn setup_dropped() {
+    let is_closed_by_user = with_host(|host| {
+        matches!(
+            std::mem::replace(&mut host.setup, PageState::Closed),
+            PageState::Open(_)
+        )
+    });
+    if is_closed_by_user == Some(true) {
+        with_host(|host| host.inputs.send(WindowInput::SetupClosed));
     }
 }
 
@@ -220,9 +336,42 @@ fn open_or_show(view: SettingsView, page: Option<usize>, context: &AppContext) {
     }
 }
 
-fn send(page: &LocalSender<PageMessage>, message: PageMessage) {
+fn send<Message: 'static>(page: &LocalSender<Message>, message: Message) {
     if !page.send(message) {
-        tracing::warn!("the settings page did not take a message");
+        tracing::warn!("a page of the settings thread did not take a message");
+    }
+}
+
+/// What a control of a row does, in the settings window and in the setup window.
+#[derive(Clone)]
+enum RowMessage {
+    /// The user changed the text of a field that submits its text.
+    Typed { id: ControlId, text: String },
+    /// The user submitted the text of a field, with the return key or with its button.
+    Submit(ControlId),
+    /// The user did something with a control.
+    Input(SettingsInput),
+    /// A control changed in a way that the controller does not need, such as a menu that lost
+    /// its selection.
+    Ignore,
+}
+
+/// Keeps the text that the user typed in each field of `typed`, and sends each input of `message`
+/// to the controller.
+fn on_row_message(typed: &mut TypedTexts, message: RowMessage) {
+    match message {
+        RowMessage::Typed { id, text } => typed.on_typed(id, text),
+        RowMessage::Submit(id) => {
+            let text = typed.submitted(&id);
+            send_input(SettingsInput::Submitted { id, text });
+        }
+        RowMessage::Input(input) => {
+            if let SettingsInput::Edited { id, text } = &input {
+                typed.on_edited(id.clone(), text.clone());
+            }
+            send_input(input);
+        }
+        RowMessage::Ignore => {}
     }
 }
 
@@ -239,15 +388,14 @@ enum PageMessage {
     Select(Option<Rc<str>>),
     /// The controller asks to show the page of this index.
     SelectIndex(usize),
-    /// The user changed the text of a field that submits its text.
-    Typed { id: ControlId, text: String },
-    /// The user submitted the text of a field, with the return key or with its button.
-    Submit(ControlId),
-    /// The user did something with a control.
-    Input(SettingsInput),
-    /// A control changed in a way that the controller does not need, such as a menu that lost
-    /// its selection.
-    Ignore,
+    /// A control of a row did something.
+    Row(RowMessage),
+}
+
+impl From<RowMessage> for PageMessage {
+    fn from(message: RowMessage) -> Self {
+        Self::Row(message)
+    }
 }
 
 /// The content of the settings window: a navigation item for each page of the last view, and the
@@ -255,10 +403,8 @@ enum PageMessage {
 struct SettingsPage {
     view: SettingsView,
     selected: usize,
-    /// The text that the user typed in each field. A field shows it in place of the text of the
-    /// view, because a view from the controller can come after newer keys. A view that sets its
-    /// older text then moves the caret and removes the newer keys.
-    typed: HashMap<ControlId, String>,
+    /// The text that the user typed in each field, which a field shows while the view is behind.
+    typed: TypedTexts,
     /// The icon of each app of the view, by the path of its program, or `None` when the program
     /// has no icon.
     app_icons: HashMap<String, Option<EncodedImage>>,
@@ -270,6 +416,8 @@ impl SettingsPage {
     /// Shows `view`, and loads the icons of its apps that the page does not have yet.
     fn show(&mut self, view: SettingsView) {
         self.view = view;
+        self.typed
+            .on_view(self.view.pages.iter().flat_map(|page| &page.sections));
         let app_paths = self
             .view
             .pages
@@ -305,7 +453,7 @@ impl Component for SettingsPage {
                 .as_ref()
                 .and_then(|(_, page_to_open)| *page_to_open)
                 .unwrap_or(0),
-            typed: HashMap::new(),
+            typed: TypedTexts::default(),
             app_icons: HashMap::new(),
             contrast: SystemTheme::read().contrast,
         };
@@ -330,20 +478,7 @@ impl Component for SettingsPage {
                     self.selected = index;
                 }
             }
-            PageMessage::Typed { id, text } => {
-                self.typed.insert(id, text);
-            }
-            PageMessage::Submit(id) => {
-                let text = self.typed.get(&id).cloned().unwrap_or_default();
-                send_input(SettingsInput::Submitted { id, text });
-            }
-            PageMessage::Input(input) => {
-                if let SettingsInput::Edited { id, text } = &input {
-                    self.typed.insert(id.clone(), text.clone());
-                }
-                send_input(input);
-            }
-            PageMessage::Ignore => {}
+            PageMessage::Row(message) => on_row_message(&mut self.typed, message),
         }
     }
 
@@ -393,5 +528,5 @@ impl Drop for SettingsPage {
 }
 
 fn send_input(input: SettingsInput) {
-    with_host(|host| host.inputs.send(input));
+    with_host(|host| host.inputs.send(WindowInput::Control(input)));
 }

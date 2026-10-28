@@ -227,11 +227,17 @@ impl Shell for Win32Shell {
         self.settings.show(view.clone(), page);
     }
 
-    fn show_setup(&mut self, _view: &SetupView) {}
+    fn show_setup(&mut self, view: &SetupView) {
+        self.settings.show_setup(view.clone());
+    }
 
-    fn render_setup(&mut self, _view: &SetupView) {}
+    fn render_setup(&mut self, view: &SetupView) {
+        self.settings.render_setup(view.clone());
+    }
 
-    fn close_setup(&mut self) {}
+    fn close_setup(&mut self) {
+        self.settings.close_setup();
+    }
 
     fn use_clipboard_access(&mut self, access: ClipboardAccess) {
         self.clipboard.use_access(access);
