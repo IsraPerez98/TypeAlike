@@ -192,9 +192,7 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
 
 #[test]
 fn demo_key_types_only_the_next_word_as_tab_does() {
-    let cases = [UiLanguage::English, UiLanguage::Spanish];
-
-    let parts = cases.map(|language| {
+    let parts = UiLanguage::ALL.map(|language| {
         let fixture = Fixture {
             translations: Translations::new(language),
             ..Fixture::new()
@@ -208,8 +206,12 @@ fn demo_key_types_only_the_next_word_as_tab_does() {
     assert_eq!(
         parts,
         [
+            Some((" Bericht".to_owned(), " bis Freitag.".to_owned())),
             Some((" report".to_owned(), " by Friday.".to_owned())),
             Some((" informe".to_owned(), " el viernes.".to_owned())),
+            Some((" rapport".to_owned(), " d’ici vendredi.".to_owned())),
+            Some((" resoconto".to_owned(), " entro venerdì.".to_owned())),
+            Some((" relatório".to_owned(), " até sexta.".to_owned())),
         ]
     );
 }

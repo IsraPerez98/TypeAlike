@@ -61,8 +61,8 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 
 - Panes of the settings window: General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, and Permissions on macOS. Only a build with the `playground` feature shows the Playground pane, a tool for developers.
 - `typealike_core` owns all the text that the user sees, and the state of each control. The platform crates only show it and send back what the user did. Thus a change to the UI text goes into core, and it changes both platforms.
-- Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, and Spanish. The settings window, the menus and the badge take all their texts from these files, in the first preferred language of the user that has a file, else in English. The language menu of the General pane and of the first step of the setup replaces this language. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
-- On macOS, the platform crate changes the labels of menus, buttons and window titles to title case in English. Spanish keeps sentence case. Core labels stay in sentence case.
+- Each language of the UI has a Fluent file for its texts (`crates/typealike_core/locales/<tag>/typealike.ftl`): English, with the source texts, Spanish, Brazilian Portuguese, French, German and Italian. The settings window, the menus and the badge take all their texts from these files, in the first preferred language of the user that has a file, else in English. The language menu of the General pane and of the first step of the setup replaces this language. `.claude/rules/ui-text.md` gives the rules for the texts and their translations.
+- On macOS, the platform crate changes the labels of menus, buttons and window titles to title case in English. The other languages keep sentence case. Core labels stay in sentence case.
 - Before the first model download, the General pane recommends one model for the computer, with a button that downloads it: Qwen3.5 0.8B on the processor, and on a graphics card the largest of Gemma 4 E4B, Gemma 4 E2B and Qwen3.5 2B that fits in its free memory. When TypeAlike cannot read the graphics card, it recommends Gemma 4 E2B with a warning. The first model that the user downloads becomes the suggestion model.
 - The setup shows when TypeAlike starts for the first time and after "Reset all settings", until the user finishes it. It is short: what TypeAlike does with a demo, the model download, the Accessibility permission on macOS, the name and the notes with their examples, what suggestions can use (earlier writing, copied text, screen text), and "Open at login". Each other setting keeps its default and shows where the user needs it.
 - The writing rules of the UI text have a test: `crates/typealike_core/src/test_support/writing_rules.rs`. The tests of the settings window, the Models and Playground panes and the badge menu use it.
@@ -72,17 +72,17 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 
 Use one term for one thing. The test of the writing rules rejects the words in the column "Not".
 
-| Term | Spanish | Meaning | Not |
-|---|---|---|---|
-| suggestion | sugerencia | The text that TypeAlike offers at the caret. | completion, prediction, autocomplete |
-| earlier writing | escritura anterior | The texts that the user wrote before, which TypeAlike keeps to learn from. | history |
-| screen text | texto de la pantalla | The text near the field that TypeAlike reads on the screen. | |
-| model | modelo | The language model that writes the suggestions. | LLM |
-| pause, resume | pausar, reanudar | The user stops or starts suggestions in all apps. | |
-| typo fix | corrección de erratas | A suggestion that replaces a word with a typo. | |
-| word choice | elección de palabras | How much the earlier writing changes the words of a suggestion. | |
+| Term | Spanish | Portuguese (Brazil) | French | German | Italian | Meaning | Not |
+|---|---|---|---|---|---|---|---|
+| suggestion | sugerencia | sugestão | suggestion | Vorschlag | suggerimento | The text that TypeAlike offers at the caret. | completion, prediction, autocomplete |
+| earlier writing | escritura anterior | textos anteriores | textes précédents | frühere Texte | testi precedenti | The texts that the user wrote before, which TypeAlike keeps to learn from. | history |
+| screen text | texto de la pantalla | texto da tela | texte de l’écran | Bildschirmtext | testo dello schermo | The text near the field that TypeAlike reads on the screen. | |
+| model | modelo | modelo | modèle | Modell | modello | The language model that writes the suggestions. | LLM |
+| pause, resume | pausar, reanudar | pausar, retomar | suspendre, reprendre | pausieren, fortsetzen | sospendere, riprendere | The user stops or starts suggestions in all apps. | |
+| typo fix | corrección de erratas | correção de erros de digitação | correction des fautes de frappe | Tippfehlerkorrektur | correzione degli errori di battitura | A suggestion that replaces a word with a typo. | |
+| word choice | elección de palabras | escolha de palavras | choix des mots | Wortwahl | scelta delle parole | How much the earlier writing changes the words of a suggestion. | |
 
-Add the Spanish term of a row when its first message gets a translation.
+Add the term of each language to a row when its first message gets a translation.
 
 ### Not in the UI
 

@@ -17,11 +17,27 @@ pub enum UiLanguage {
     English,
     /// Spanish.
     Spanish,
+    /// Brazilian Portuguese.
+    Portuguese,
+    /// French.
+    French,
+    /// German.
+    German,
+    /// Italian.
+    Italian,
 }
 
 impl UiLanguage {
-    /// Each language of the UI, in the order of the language menu.
-    pub const ALL: [Self; 2] = [Self::English, Self::Spanish];
+    /// Each language of the UI, in the order of the language menu: by the name of the language in
+    /// that language.
+    pub const ALL: [Self; 6] = [
+        Self::German,
+        Self::English,
+        Self::Spanish,
+        Self::French,
+        Self::Italian,
+        Self::Portuguese,
+    ];
 
     /// Returns the language of the UI for the `preferred` languages of the user, such as `es-CL`:
     /// the first one that the UI has translations for, else English.
@@ -40,7 +56,7 @@ impl UiLanguage {
     pub fn has_title_case(self) -> bool {
         match self {
             Self::English => true,
-            Self::Spanish => false,
+            Self::Spanish | Self::Portuguese | Self::French | Self::German | Self::Italian => false,
         }
     }
 
@@ -51,6 +67,10 @@ impl UiLanguage {
         match self {
             Self::English => "English",
             Self::Spanish => "Español",
+            Self::Portuguese => "Português (Brasil)",
+            Self::French => "Français",
+            Self::German => "Deutsch",
+            Self::Italian => "Italiano",
         }
     }
 
@@ -58,6 +78,10 @@ impl UiLanguage {
         match self {
             Self::English => "en-US",
             Self::Spanish => "es",
+            Self::Portuguese => "pt-BR",
+            Self::French => "fr",
+            Self::German => "de",
+            Self::Italian => "it",
         }
     }
 
@@ -72,7 +96,7 @@ impl UiLanguage {
     fn has_decimal_comma(self) -> bool {
         match self {
             Self::English => false,
-            Self::Spanish => true,
+            Self::Spanish | Self::Portuguese | Self::French | Self::German | Self::Italian => true,
         }
     }
 
@@ -80,6 +104,10 @@ impl UiLanguage {
         match self {
             Self::English => include_str!("../locales/en-US/typealike.ftl"),
             Self::Spanish => include_str!("../locales/es/typealike.ftl"),
+            Self::Portuguese => include_str!("../locales/pt-BR/typealike.ftl"),
+            Self::French => include_str!("../locales/fr/typealike.ftl"),
+            Self::German => include_str!("../locales/de/typealike.ftl"),
+            Self::Italian => include_str!("../locales/it/typealike.ftl"),
         }
     }
 }
@@ -282,8 +310,12 @@ mod tests {
         let cases = [
             (&["es-CL"][..], UiLanguage::Spanish),
             (&["en-GB"], UiLanguage::English),
-            (&["fr-FR", "es-MX", "en-US"], UiLanguage::Spanish),
-            (&["fr-FR"], UiLanguage::English),
+            (&["ja-JP", "es-MX", "en-US"], UiLanguage::Spanish),
+            (&["ja-JP"], UiLanguage::English),
+            (&["pt-PT"], UiLanguage::Portuguese),
+            (&["fr-CA"], UiLanguage::French),
+            (&["de-CH"], UiLanguage::German),
+            (&["it-IT"], UiLanguage::Italian),
             (&[], UiLanguage::English),
         ];
 
@@ -294,11 +326,35 @@ mod tests {
 
     #[test]
     fn each_language_shows_its_own_text() {
-        let languages = [UiLanguage::English, UiLanguage::Spanish];
+        let titles = UiLanguage::ALL.map(|language| Translations::new(language).text("energy-saving-title"));
 
-        let titles = languages.map(|language| Translations::new(language).text("energy-saving-title"));
+        assert_eq!(
+            titles,
+            [
+                "Energiesparen",
+                "Energy saving",
+                "Ahorro de energía",
+                "Économie d’énergie",
+                "Risparmio energetico",
+                "Economia de energia",
+            ]
+            .map(str::to_owned)
+        );
+    }
 
-        assert_eq!(titles, ["Energy saving", "Ahorro de energía"].map(str::to_owned));
+    #[test]
+    fn a_fraction_takes_the_plural_form_of_its_language() {
+        let languages = [UiLanguage::Portuguese, UiLanguage::German];
+        let millions = MessageArgument::Decimal { value: 12, digits: 1 };
+
+        let counts = languages.map(|language| {
+            Translations::new(language).text_with("models-downloads-millions", &[("count", millions)])
+        });
+
+        assert_eq!(
+            counts,
+            ["1,2 milhão de downloads", "1,2 Millionen Downloads"].map(str::to_owned)
+        );
     }
 
     #[test]
@@ -327,16 +383,23 @@ mod tests {
 
     #[test]
     fn a_decimal_argument_has_the_decimal_separator_of_the_language() {
-        let languages = [UiLanguage::English, UiLanguage::Spanish];
         let seconds = MessageArgument::Decimal { value: 42, digits: 2 };
 
-        let details = languages.map(|language| {
+        let details = UiLanguage::ALL.map(|language| {
             Translations::new(language).text_with("playground-time", &[("seconds", seconds)])
         });
 
         assert_eq!(
             details,
-            ["Written in 0.42 seconds", "Escrita en 0,42 segundos"].map(str::to_owned)
+            [
+                "In 0,42 Sekunden geschrieben",
+                "Written in 0.42 seconds",
+                "Escrita en 0,42 segundos",
+                "Écrite en 0,42 secondes",
+                "Scritto in 0,42 secondi",
+                "Escrita em 0,42 segundos",
+            ]
+            .map(str::to_owned)
         );
     }
 

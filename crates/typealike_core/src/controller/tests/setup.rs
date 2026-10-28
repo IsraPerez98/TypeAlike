@@ -139,7 +139,7 @@ fn picked_language_shows_the_setup_in_it() {
     let mut harness = Harness::new(needed());
     harness.controller.on_launch(&mut harness.shell);
 
-    harness.pick(UI_LANGUAGE, 2);
+    harness.pick(UI_LANGUAGE, 3);
 
     let setup = harness.last_setup();
     assert_eq!(

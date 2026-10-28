@@ -55,7 +55,11 @@ Sources (checked 2026-10): Microsoft "Writing style" (learn.microsoft.com/window
 - Each text is one Fluent message: a full sentence with named arguments. Do not join messages, and do not give a message as an argument of another message.
 - Give each UI case its own message. Use a select expression only for grammar, such as a plural.
 - A comment above each group tells the translator what each argument holds.
-- ASD-STE100 applies to English only. The Spanish text uses "tú", sentence case and the Spanish terms of `PRODUCT.md`. It keeps the meaning of the English text.
+- ASD-STE100 applies to English only. A translation keeps the meaning of the English text, uses sentence case and the terms of its language in `PRODUCT.md`, and reads as a native UI text, not as a word-for-word copy of English.
+- The form of address: Spanish "tú", Brazilian Portuguese "você" (with "o TypeAlike"), French "vous", German "du", Italian "tu".
+- A text about the user stays neutral in gender ("Sou estudante", "Je fais des études", "Lehrkräfte").
+- A name of the OS, such as a permission, a pane of System Settings or the notification area, is the name that the OS shows in that language.
+- The quotes and the spaces follow the language: “ ” in Portuguese and Italian, « » in Spanish, « » with a no-break space inside in French, „ “ in German. French also puts a no-break space before %, a unit and "minutes".
 - Each row must hold a translated text that is longer than the English text (`DESIGN.md`, "Layout").
 - A number with a fraction goes into its message as `MessageArgument::Decimal`, so that it gets the decimal separator of the language. A unit, such as "MB", belongs in the message.
 - Title case is a rule of English. macOS gives title case only to a language with `UiLanguage::has_title_case`.

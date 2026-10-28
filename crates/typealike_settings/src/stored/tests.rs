@@ -622,6 +622,10 @@ fn ui_language_reads_from_its_name() {
     let files = [
         r#"{ "ui_language": "english" }"#,
         r#"{ "ui_language": "spanish" }"#,
+        r#"{ "ui_language": "portuguese" }"#,
+        r#"{ "ui_language": "french" }"#,
+        r#"{ "ui_language": "german" }"#,
+        r#"{ "ui_language": "italian" }"#,
         r#"{ "ui_language": null }"#,
     ];
 
@@ -632,6 +636,10 @@ fn ui_language_reads_from_its_name() {
         [
             Some(Some(UiLanguage::English)),
             Some(Some(UiLanguage::Spanish)),
+            Some(Some(UiLanguage::Portuguese)),
+            Some(Some(UiLanguage::French)),
+            Some(Some(UiLanguage::German)),
+            Some(Some(UiLanguage::Italian)),
             Some(None)
         ]
     );

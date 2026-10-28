@@ -258,8 +258,12 @@ fn language_section(selected: usize) -> Section {
         description: "The windows and the menus of TypeAlike show in this language. Suggestions stay in the language of your text.".to_owned(),
         choices: vec![
             "System language".to_owned(),
+            "Deutsch".to_owned(),
             "English".to_owned(),
             "Español".to_owned(),
+            "Français".to_owned(),
+            "Italiano".to_owned(),
+            "Português (Brasil)".to_owned(),
         ],
         choice_text: ChoiceText::Label,
         selected,
@@ -344,8 +348,8 @@ fn page_shows_the_suggestion_settings() {
 fn language_menu_selects_the_saved_language() {
     let cases = [
         (None, 0),
-        (Some(UiLanguage::English), 1),
-        (Some(UiLanguage::Spanish), 2),
+        (Some(UiLanguage::English), 2),
+        (Some(UiLanguage::Spanish), 3),
     ];
 
     let sections = cases.map(|(ui_language, _)| {
@@ -360,8 +364,12 @@ fn each_language_entry_selects_its_language() {
     let pane = GeneralPane::new(Settings::default());
     let cases = [
         (0, None),
-        (1, Some(UiLanguage::English)),
-        (2, Some(UiLanguage::Spanish)),
+        (1, Some(UiLanguage::German)),
+        (2, Some(UiLanguage::English)),
+        (3, Some(UiLanguage::Spanish)),
+        (4, Some(UiLanguage::French)),
+        (5, Some(UiLanguage::Italian)),
+        (6, Some(UiLanguage::Portuguese)),
     ];
 
     let actions = cases.map(|(index, _)| action_for(&pane, &picked(UI_LANGUAGE, index)));
@@ -376,7 +384,7 @@ fn each_language_entry_selects_its_language() {
 fn picking_past_the_last_language_does_nothing() {
     let pane = GeneralPane::new(Settings::default());
 
-    let action = action_for(&pane, &picked(UI_LANGUAGE, 3));
+    let action = action_for(&pane, &picked(UI_LANGUAGE, 7));
 
     assert_eq!(action, None);
 }

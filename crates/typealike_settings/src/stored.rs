@@ -113,6 +113,10 @@ enum StoredSentenceEnd {
 enum StoredUiLanguage {
     English,
     Spanish,
+    Portuguese,
+    French,
+    German,
+    Italian,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,6 +188,10 @@ impl From<Settings> for StoredSettings {
         let ui_language = settings.ui_language.map(|language| match language {
             UiLanguage::English => StoredUiLanguage::English,
             UiLanguage::Spanish => StoredUiLanguage::Spanish,
+            UiLanguage::Portuguese => StoredUiLanguage::Portuguese,
+            UiLanguage::French => StoredUiLanguage::French,
+            UiLanguage::German => StoredUiLanguage::German,
+            UiLanguage::Italian => StoredUiLanguage::Italian,
         });
         let setup = match settings.setup {
             Setup::Needed => StoredSetup::Needed,
@@ -258,6 +266,10 @@ impl From<StoredSettings> for Settings {
         let ui_language = stored.ui_language.map(|language| match language {
             StoredUiLanguage::English => UiLanguage::English,
             StoredUiLanguage::Spanish => UiLanguage::Spanish,
+            StoredUiLanguage::Portuguese => UiLanguage::Portuguese,
+            StoredUiLanguage::French => UiLanguage::French,
+            StoredUiLanguage::German => UiLanguage::German,
+            StoredUiLanguage::Italian => UiLanguage::Italian,
         });
         let setup = match stored.setup {
             StoredSetup::Needed => Setup::Needed,

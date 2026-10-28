@@ -31,7 +31,7 @@ People who write a lot and are not necessarily technical. They open the window t
 
 Keep the incumbent native look. No visual redesign. Improvements are in the text, the order of the settings, the states (loading, error, empty) and accessibility.
 
-All the texts come from the Fluent files (`crates/typealike_core/locales`), in English and Spanish. The backend menu of the Models pane says "Run the model on", with the choices "Processor (CPU)", "Graphics card (Vulkan)" and "NVIDIA graphics card (CUDA)".
+All the texts come from the Fluent files (`crates/typealike_core/locales`), in English, Spanish, Brazilian Portuguese, French, German and Italian. The backend menu of the Models pane says "Run the model on", with the choices "Processor (CPU)", "Graphics card (Vulkan)" and "NVIDIA graphics card (CUDA)".
 
 ## Decisions
 

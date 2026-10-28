@@ -412,7 +412,7 @@ fn picked_language_shows_the_panes_and_the_tray_in_it() {
     let mut harness = Harness::new(Settings::default());
     harness.shown_settings();
 
-    harness.pick(UI_LANGUAGE, 2);
+    harness.pick(UI_LANGUAGE, 3);
 
     let calls = harness.take_calls();
     let tray = calls.iter().rev().find_map(|call| match call {

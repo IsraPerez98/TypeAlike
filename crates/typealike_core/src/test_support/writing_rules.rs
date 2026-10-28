@@ -58,15 +58,16 @@ const CODE_WORDS: [&str; 17] = [
 ];
 
 /// The names that keep their capital letters inside a text in sentence case: the names of the
-/// product, of its services, of a graphics interface, of a pane and a permission of macOS and of
-/// the apps of the tests.
-const PROPER_NAMES: [&str; 6] = [
+/// product, of its services, of a graphics interface, of a pane and a permission of macOS, of the
+/// apps of the tests and of the country in the name of a language.
+const PROPER_NAMES: [&str; 7] = [
     "TypeAlike",
     "Hugging Face",
     "Vulkan",
     "System Settings",
     "Screen & System Audio Recording",
     "Safari",
+    "Brasil",
 ];
 
 /// The word that takes the place of a proper name before the check of the sentence case.
