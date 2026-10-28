@@ -183,7 +183,7 @@ screen-text-recognition = Reconocimiento de texto
 screen-text-recognition-description = Cuando TypeAlike no puede obtener el texto de una ventana, lo lee de una imagen de la ventana. «Rápido» lee alemán, español, francés, inglés, italiano y portugués. «Preciso» lee más idiomas con menos errores, pero es más lento.
 screen-text-recognition-fast = Rápido (recomendado)
 screen-text-recognition-accurate = Preciso
-screen-text-permission = Algunas apps no dan su texto a TypeAlike. Para leerlo de una imagen de la ventana, TypeAlike necesita el permiso de Grabación de pantalla y audio del sistema.
+screen-text-permission = Algunas apps no dan su texto a TypeAlike. Para leerlo de una imagen de la ventana, TypeAlike necesita el permiso de Grabación de pantalla y del audio del sistema.
 screen-text-open-system-settings = Abrir Ajustes del Sistema
 
 ## The Personalization pane of the settings window.
@@ -238,7 +238,7 @@ permissions-title = Permisos
 permissions-summary = TypeAlike usa estos permisos para mostrar sugerencias en otras apps. Los das en Ajustes del Sistema.
 permissions-accessibility = Accesibilidad
 permissions-accessibility-description = TypeAlike necesita este permiso para leer el texto donde escribes y para escribir una sugerencia cuando pulsas Tab. Sin él, no aparece ninguna sugerencia.
-permissions-screen-recording = Grabación de pantalla y audio del sistema
+permissions-screen-recording = Grabación de pantalla y del audio del sistema
 permissions-screen-recording-description = Algunas apps no dan su texto a TypeAlike. Con este permiso, TypeAlike lee su texto de una imagen de la ventana. Las sugerencias también funcionan sin él.
 permissions-granted = Permitido
 permissions-give-access = Dar acceso
