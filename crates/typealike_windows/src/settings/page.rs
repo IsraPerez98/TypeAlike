@@ -11,9 +11,9 @@ use typealike_core::settings_window::view::{
 };
 use windows_reactor::{
     AutoSuggestBox, Border, Button, ButtonStyle, Callback, ComboBox, Component, EncodedImage, FontWeight,
-    Grid, GridLength, Image, KeyEventInfo, KeyedView, Orientation, ProgressBar, ProgressRing, RoutedCallback,
-    StackPanel, Symbol, SymbolIcon, TextBlock, TextBox, TextWrapping, Thickness, ToggleSwitch,
-    VerticalAlignment, View, ViewContext, VirtualKey, keyed,
+    Grid, GridLength, HorizontalAlignment, HyperlinkButton, Image, KeyEventInfo, KeyedView, Orientation,
+    ProgressBar, ProgressRing, RoutedCallback, StackPanel, Symbol, SymbolIcon, TextBlock, TextBox,
+    TextWrapping, Thickness, ToggleSwitch, VerticalAlignment, View, ViewContext, VirtualKey, keyed,
 };
 
 use super::RowMessage;
@@ -142,7 +142,21 @@ where
             Row::Permission(permission) => self.permission_card(permission),
             Row::Loading(text) => loading_card(text),
             Row::Message(message) => self.message_card(message),
+            Row::Link(button) => self.link(button),
         }
+    }
+
+    /// A quiet button that looks like a link, with no card, at the leading edge.
+    fn link(&self, button: &view::Button) -> View {
+        HyperlinkButton::new()
+            .content(button.label.as_str())
+            .is_enabled(button.is_enabled)
+            .horizontal_alignment(HorizontalAlignment::Left)
+            .on_click(
+                self.context
+                    .message(RowMessage::Input(SettingsInput::Pressed(button.id.clone())).into()),
+            )
+            .into()
     }
 
     fn switch_card(&self, switch: &Switch) -> View {

@@ -59,12 +59,16 @@ pub(super) enum RowView {
     Item(ItemRow),
     Permission(PermissionRowView),
     Message(MessageRow),
+    Link(LinkRow),
 }
 
 impl RowView {
     /// Whether `row` sits in a rounded group, which it shares with the grouped rows next to it.
     pub(super) fn is_grouped(row: &Row) -> bool {
-        !matches!(row, Row::TextArea(_) | Row::TextField(_) | Row::Note(_))
+        !matches!(
+            row,
+            Row::TextArea(_) | Row::TextField(_) | Row::Note(_) | Row::Link(_)
+        )
     }
 
     /// Adds the views of `row` at the bottom of `container`.
@@ -88,6 +92,7 @@ impl RowView {
                 Self::TextField(TextFieldRow::add(container, &text_field.id, binder))
             }
             Row::Note(_) => Self::Note(NoteView::add(container, main_thread)),
+            Row::Link(_) => Self::Link(LinkRow::add(container, binder)),
         }
     }
 
@@ -106,7 +111,8 @@ impl RowView {
             | (Self::Output(_), Row::Output(_))
             | (Self::Item(_), Row::Item(_))
             | (Self::Permission(_), Row::Permission(_))
-            | (Self::Message(_), Row::Loading(_) | Row::Message(_)) => true,
+            | (Self::Message(_), Row::Loading(_) | Row::Message(_))
+            | (Self::Link(_), Row::Link(_)) => true,
             _ => false,
         }
     }
@@ -128,6 +134,7 @@ impl RowView {
             (Self::Permission(row_view), Row::Permission(permission)) => row_view.render(permission, binder),
             (Self::Message(row_view), Row::Loading(text)) => row_view.render_loading(text),
             (Self::Message(row_view), Row::Message(message)) => row_view.render_message(message, binder),
+            (Self::Link(row_view), Row::Link(button)) => row_view.render(button, binder),
             _ => {}
         }
     }
@@ -341,6 +348,26 @@ impl OutputRow {
     fn render(&self, shown: &view::Output) {
         set_text(&self.text, &shown.text);
         set_text(&self.detail, &shown.detail);
+    }
+}
+
+/// A quiet button that looks like a link, with no group box, at the leading edge.
+#[derive(Debug)]
+pub(super) struct LinkRow {
+    button: Retained<NSButton>,
+}
+
+impl LinkRow {
+    pub(super) fn add(rows_stack: &NSStackView, binder: &Binder<'_>) -> Self {
+        let button = push_button(binder.target, binder.main_thread);
+        button.setBordered(false);
+        button.setContentTintColor(Some(&NSColor::linkColor()));
+        rows_stack.addArrangedSubview(&button);
+        Self { button }
+    }
+
+    fn render(&self, button: &view::Button, binder: &mut Binder<'_>) {
+        show_push_button(&self.button, button, None, binder);
     }
 }
 

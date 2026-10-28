@@ -136,14 +136,12 @@ fn rows(view: &SetupView) -> Vec<&Row> {
     view.sections.iter().flat_map(|section| &section.rows).collect()
 }
 
-/// What starts each section: the id of its first control, the title of its first item, or the id
-/// of the button of its message.
+/// What starts each section: the title of its first item, else the id of its first control.
 fn section_starts(view: &SetupView) -> Vec<&str> {
     view.sections
         .iter()
         .filter_map(|section| match section.rows.first()? {
             Row::Item(item) => Some(item.title.as_str()),
-            Row::Message(message) => message.button.as_ref().map(|button| button.id.as_str()),
             row => row.id().map(ControlId::as_str),
         })
         .collect()
@@ -289,7 +287,7 @@ fn model_step_shows_the_backend_then_the_recommended_model_then_the_other_models
 }
 
 #[test]
-fn model_step_with_a_model_shows_the_model_menu_last() {
+fn model_step_with_a_model_shows_the_model_menu_above_the_link() {
     let fixture = Fixture::new().with_model();
 
     let view = fixture.view(&flow_at(SetupStep::Model));
@@ -298,8 +296,24 @@ fn model_step_with_a_model_shows_the_model_menu_last() {
         (view.title.as_str(), section_starts(&view)),
         (
             "Select the model",
-            vec!["backend", OTHER_MODELS, "suggestion-model"]
+            vec!["backend", "suggestion-model", OTHER_MODELS]
         )
+    );
+}
+
+#[test]
+fn other_models_are_a_quiet_link() {
+    let fixture = Fixture::new();
+
+    let view = fixture.view(&flow_at(SetupStep::Model));
+
+    assert_eq!(
+        view.sections.last().map(|section| section.rows.clone()),
+        Some(vec![Row::Link(button(
+            OTHER_MODELS,
+            "Choose another model",
+            true
+        ))])
     );
 }
 
@@ -316,9 +330,14 @@ fn other_models_show_the_search_and_the_models_of_the_models_page() {
         .iter()
         .filter_map(|section| section.heading.as_deref())
         .collect();
+    let starts = section_starts(&view);
     assert_eq!(
-        (section_starts(&view)[..2].to_vec(), headings),
-        (vec!["backend", "models-search"], vec!["Recommended models"])
+        (starts[..2].to_vec(), starts.contains(&OTHER_MODELS), headings),
+        (
+            vec!["backend", "models-search"],
+            false,
+            vec!["Recommended models"]
+        )
     );
 }
 

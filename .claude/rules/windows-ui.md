@@ -45,6 +45,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
   - Search field: `AutoSuggestBox` with the `Find` symbol. The return key submits.
   - Item: title and subtitle at the leading edge, the detail and the accessory at the trailing edge. Download progress is a `ProgressBar` with a cancel `Button`.
   - Loading: a small `ProgressRing` and the text. Message: the text and an optional retry `Button`.
+  - Link: a `HyperlinkButton` at the leading edge, with no card, for an option that most users do not need.
   - Navigation: `NavigationView` with the pane at the left, 280 px, no toggle button, no back button, no settings item. One item for each page, with its color icon, as in the Settings app: an SVG of the Fluent UI System Icons in the color style (`assets/fluent`, MIT license). Each SVG fills the 16 px icon box at scale 1. In high contrast, an item shows the symbol of its page, because a color icon does not follow the colors of the theme. The main thread sends each change of the contrast to the window.
   - Each page is a child with a key of its own, so that a page opens at its top and not at the scroll position of the last page.
 - Primary action: `ButtonStyle::Accent`, at most one for each card. A back button in a section heading is `ButtonStyle::Subtle`.

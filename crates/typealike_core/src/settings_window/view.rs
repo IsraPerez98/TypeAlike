@@ -212,6 +212,9 @@ pub enum Row {
     Loading(String),
     /// The section has no rows to show, and this tells why.
     Message(Message),
+    /// A quiet button that looks like a link, with no card, for an option that most users do not
+    /// need.
+    Link(Button),
 }
 
 impl Row {
@@ -227,6 +230,7 @@ impl Row {
             Self::TextArea(text_area) => Some(&text_area.id),
             Self::TextLine(text_line) => Some(&text_line.id),
             Self::TextField(text_field) => Some(&text_field.id),
+            Self::Link(button) => Some(&button.id),
             Self::Note(_)
             | Self::Output(_)
             | Self::Item(_)

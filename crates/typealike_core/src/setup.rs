@@ -17,9 +17,7 @@ use crate::settings_window::permissions::permission_row;
 use crate::settings_window::personalization::HISTORY;
 use crate::settings_window::playground::PlaygroundPane;
 use crate::settings_window::screen_text::SCREEN_TEXT;
-use crate::settings_window::view::{
-    Button, ControlId, Message, Row, RowIcon, Section, SettingsInput, Switch,
-};
+use crate::settings_window::view::{Button, ControlId, Row, RowIcon, Section, SettingsInput, Switch};
 
 const BACK: &str = "setup-back";
 const NEXT: &str = "setup-next";
@@ -250,36 +248,21 @@ impl SetupFlow {
         }
     }
 
-    /// The step of the model, from top to bottom: the menu of the backend, the models, and the
-    /// menu of the suggestion model while a model is on the computer. The models are the model
-    /// that TypeAlike recommends while no model is on the computer, with a button that shows the
-    /// other models. After that button, they are the models of the Models page and the search of
-    /// Hugging Face.
+    /// The step of the model, from top to bottom: the menu of the backend, the models, the menu
+    /// of the suggestion model while a model is on the computer, and a link to the other models.
+    /// The models are the model that TypeAlike recommends while no model is on the computer. After
+    /// the link, they are the models of the Models page and the search of Hugging Face, and the
+    /// link goes.
     fn model(&self, context: &SetupContext<'_>) -> StepContent {
         let translations = context.translations;
         let general = context.general;
         let backend = general.settings().backend;
-        let models = match self.model_choice {
-            ModelChoice::Other => context.models.browser_sections(backend, translations),
-            ModelChoice::Recommended => {
-                let recommended = recommended_rows(context);
-                let recommended = if recommended.is_empty() {
-                    None
-                } else if context.models.is_reading_gpu_memory(backend) {
-                    Some(Section::new(vec![Row::Loading(
-                        translations.text("setup-model-checking"),
-                    )]))
-                } else {
-                    Some(Section {
-                        footer: Some(translations.text("setup-model-footer")),
-                        ..Section::new(recommended)
-                    })
-                };
-                recommended
-                    .into_iter()
-                    .chain([other_models_section(translations)])
-                    .collect()
-            }
+        let (models, other_models) = match self.model_choice {
+            ModelChoice::Other => (context.models.browser_sections(backend, translations), None),
+            ModelChoice::Recommended => (
+                recommended_section(context).into_iter().collect(),
+                Some(other_models_section(translations)),
+            ),
         };
         let has_model = !context.installed.is_empty();
         let model_menu = has_model
@@ -295,6 +278,7 @@ impl SetupFlow {
                 .into_iter()
                 .chain(models)
                 .chain(model_menu)
+                .chain(other_models)
                 .collect(),
             ..StepContent::new(title, "setup-model-body")
         }
@@ -417,12 +401,36 @@ fn welcome(translations: &Translations) -> StepContent {
     }
 }
 
-/// The other models: a row with the button that shows them.
+/// The model that TypeAlike recommends, while no model is on the computer. While TypeAlike reads
+/// the memory of the graphics card, the section tells it.
+fn recommended_section(context: &SetupContext<'_>) -> Option<Section> {
+    let translations = context.translations;
+    let recommended = recommended_rows(context);
+    if recommended.is_empty() {
+        None
+    } else if context
+        .models
+        .is_reading_gpu_memory(context.general.settings().backend)
+    {
+        Some(Section::new(vec![Row::Loading(
+            translations.text("setup-model-checking"),
+        )]))
+    } else {
+        Some(Section {
+            footer: Some(translations.text("setup-model-footer")),
+            ..Section::new(recommended)
+        })
+    }
+}
+
+/// The link that shows the other models, an option that most users do not need.
 fn other_models_section(translations: &Translations) -> Section {
-    Section::new(vec![Row::Message(Message {
-        text: translations.text("setup-other-models-description"),
-        button: Some(button(OTHER_MODELS, "setup-other-models", true, translations)),
-    })])
+    Section::new(vec![Row::Link(button(
+        OTHER_MODELS,
+        "setup-other-models",
+        true,
+        translations,
+    ))])
 }
 
 /// The row of the model that TypeAlike recommends, below its warning, while no model is on the

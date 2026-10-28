@@ -209,6 +209,7 @@ fn row_texts(row: &Row) -> Vec<UiText> {
             });
             texts
         }
+        Row::Link(button) => vec![button_text(button)],
         Row::AppSwitch(_) | Row::SiteSwitch(_) => Vec::new(),
     }
 }
