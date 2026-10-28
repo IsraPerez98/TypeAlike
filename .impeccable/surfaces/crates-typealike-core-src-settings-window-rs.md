@@ -46,6 +46,8 @@ Closed on 2026-10-27, from `.claude/rules/ui-text.md` and the table "Not in the 
 
 - **Permissions on macOS.** Closed on 2026-10-27. The Permissions pane shows Accessibility and Screen & System Audio Recording, each with the reason for it and "Allowed" with a check mark, or a "Give access" button. Without Accessibility, TypeAlike does not quit. It opens the settings window at this pane, as the pre-prompt window of `macos-ui.md`, and the button shows the prompt of macOS. The footer tells the user to quit and reopen TypeAlike when System Settings asks.
 
+- **The setup.** Closed on 2026-10-27. A window of its own shows at each start until the user finishes it, and "Reset all settings" at the end of the General page opens it again. It covers only what a new user must decide: the model, the Accessibility permission on macOS, the name and the notes (with examples for kinds of writing), the switches of the earlier writing, the copied text and the screen text, and "Open at login", on by default. Screen & System Audio Recording stays in the Permissions pane, because suggestions also work without it. A close of the window keeps the setup to do. When TypeAlike cannot read the graphics card, the recommended model shows with a warning.
+
 ## Open decisions
 
 None.
