@@ -1120,12 +1120,19 @@ fn autostart_switch_shows_the_state_that_the_os_keeps() {
 }
 
 #[test]
-fn autostart_switch_comes_first() {
+fn language_menu_comes_first_and_the_autostart_switch_after_it() {
     let pane = autostart_pane(false);
 
     let shown = default_page(&pane);
 
-    assert_eq!(shown.sections[0].rows[0].id(), Some(&ControlId::new(AUTOSTART)));
+    let first_controls = shown.sections[..2]
+        .iter()
+        .map(|section| section.rows[0].id().cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        first_controls,
+        [Some(ControlId::new(UI_LANGUAGE)), Some(ControlId::new(AUTOSTART))]
+    );
 }
 
 #[test]

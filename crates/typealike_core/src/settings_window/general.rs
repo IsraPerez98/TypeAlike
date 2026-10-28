@@ -373,8 +373,8 @@ impl GeneralPane {
         });
         let sections = [
             first_run,
-            autostart,
             Some(self.language_section(translations)),
+            autostart,
             Some(self.suggestion_section(translations)),
             Some(self.reset_section(translations)),
         ];
