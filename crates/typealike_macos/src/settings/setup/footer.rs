@@ -60,6 +60,11 @@ impl Footer {
         bar.addView_inGravity(&dots.root, NSStackViewGravity::Leading);
         bar.addView_inGravity(&back, NSStackViewGravity::Trailing);
         bar.addView_inGravity(&next, NSStackViewGravity::Trailing);
+        // The stack keeps its insets only at its hugging priority, so shorter dots make the bar height ambiguous.
+        dots.root
+            .heightAnchor()
+            .constraintEqualToAnchor(&next.heightAnchor())
+            .setActive(true);
         let divider = separator(main_thread);
         let root = stack(
             NSUserInterfaceLayoutOrientation::Vertical,
