@@ -8,8 +8,7 @@ use objc2_app_kit::{NSView, NSWorkspace};
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSNumber, NSString};
 use objc2_quartz_core::{
-    CABasicAnimation, CAMediaTiming as _, CAMediaTimingFunction, CATransition, kCAMediaTimingFunctionEaseOut,
-    kCATransition, kCATransitionFade,
+    CABasicAnimation, CAMediaTiming as _, CAMediaTimingFunction, kCAMediaTimingFunctionEaseOut,
 };
 use typealike_core::setup::SetupStep;
 
@@ -17,6 +16,8 @@ const STEP_CHANGE_SECONDS: f64 = 0.3;
 const SLIDE_DISTANCE: CGFloat = 24.0;
 const SLIDE_KEY_PATH: &str = "transform.translation.x";
 const SLIDE_ANIMATION_KEY: &str = "setupStepSlide";
+const FADE_KEY_PATH: &str = "opacity";
+const FADE_ANIMATION_KEY: &str = "setupStepFade";
 
 /// Whether the user asked macOS to reduce motion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,40 +90,33 @@ fn position(step: SetupStep) -> u8 {
     }
 }
 
-/// Animates the changes of the layer-backed `view` in the same pass of the run loop with
-/// `transition`.
+/// Animates the entrance of the new step in the layer-backed `view`, whose changes come in the same
+/// pass of the run loop. The step before goes at once, so the two steps never show together.
 pub(super) fn animate(view: &NSView, transition: StepTransition) {
     let Some(layer) = view.layer() else {
         return;
     };
-    // SAFETY: Core Animation defines the key before any code runs.
-    layer.addAnimation_forKey(&crossfade(), Some(unsafe { kCATransition }));
+    let fade_in = step_animation(FADE_KEY_PATH, 0.0, 1.0);
+    layer.addAnimation_forKey(&fade_in, Some(&NSString::from_str(FADE_ANIMATION_KEY)));
     if let StepTransition::Slide(edge) = transition {
-        layer.addAnimation_forKey(&slide(edge), Some(&NSString::from_str(SLIDE_ANIMATION_KEY)));
+        let slide = step_animation(SLIDE_KEY_PATH, slide_start(edge), 0.0);
+        layer.addAnimation_forKey(&slide, Some(&NSString::from_str(SLIDE_ANIMATION_KEY)));
     }
 }
 
-fn crossfade() -> Retained<CATransition> {
-    let fade = CATransition::animation();
-    // SAFETY: Core Animation defines the transition type before any code runs.
-    fade.setType(unsafe { kCATransitionFade });
-    fade.setDuration(STEP_CHANGE_SECONDS);
-    fade.setTimingFunction(Some(&ease_out()));
-    fade
-}
-
-fn slide(edge: Edge) -> Retained<CABasicAnimation> {
-    let slide = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(SLIDE_KEY_PATH)));
-    let start = NSNumber::new_f64(slide_start(edge));
-    let end = NSNumber::new_f64(0.0);
-    // SAFETY: a translation of the transform takes a number.
+/// An animation of the number at `key_path` from `start` to `end`, for the time of a step change.
+fn step_animation(key_path: &str, start: f64, end: f64) -> Retained<CABasicAnimation> {
+    let animation = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(key_path)));
+    let start = NSNumber::new_f64(start);
+    let end = NSNumber::new_f64(end);
+    // SAFETY: the opacity and a translation of the transform take a number.
     unsafe {
-        slide.setFromValue(Some(&start));
-        slide.setToValue(Some(&end));
+        animation.setFromValue(Some(&start));
+        animation.setToValue(Some(&end));
     }
-    slide.setDuration(STEP_CHANGE_SECONDS);
-    slide.setTimingFunction(Some(&ease_out()));
-    slide
+    animation.setDuration(STEP_CHANGE_SECONDS);
+    animation.setTimingFunction(Some(&ease_out()));
+    animation
 }
 
 fn ease_out() -> Retained<CAMediaTimingFunction> {
