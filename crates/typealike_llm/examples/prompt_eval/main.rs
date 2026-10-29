@@ -257,7 +257,7 @@ fn main() -> anyhow::Result<()> {
     for (case, version) in cases.iter().zip(1..) {
         let history = history_of(case, &writers)?;
         let settings = settings_for_case(&settings, case, &history, arguments.shared_history);
-        for checkpoint in case.checkpoints(arguments.replay) {
+        for checkpoint in case.at_time_of(&history).checkpoints(arguments.replay) {
             let setup = CaseSetup {
                 case: &checkpoint,
                 history: &history,

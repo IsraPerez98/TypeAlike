@@ -1,6 +1,6 @@
 //! Holds the text of a typing session and keeps it in the token budget of the prompt.
 
-use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
+use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::{CONTEXT_TOKENS, TokenCount};
 use crate::place;
@@ -69,12 +69,15 @@ pub(super) struct Session {
     /// The suggestions that the ghost text showed in the session, which a backspace or a retype
     /// shows again. They all have the text after the caret of the session.
     pub(super) shown_suggestions: ShownSuggestions,
+    /// When the session started, if the desktop has a clock.
+    pub(super) started_at: Option<Timestamp>,
 }
 
 impl Session {
-    /// Starts a session in the field of `surroundings`, where the model reads `preface` before the
-    /// text. The session keeps the end of the field text before the caret that fits after it.
-    pub(super) fn new(preface: String, surroundings: &Surroundings) -> Self {
+    /// Starts a session at `started_at` in the field of `surroundings`, where the model reads
+    /// `preface` before the text. The session keeps the end of the field text before the caret
+    /// that fits after it.
+    pub(super) fn new(preface: String, surroundings: &Surroundings, started_at: Option<Timestamp>) -> Self {
         let max_tokens_before = tokens_before_caret(&preface);
         let (text_before, text_after) = surroundings
             .field_text
@@ -98,6 +101,7 @@ impl Session {
             has_screen_read: false,
             field_at_enter: None,
             shown_suggestions: ShownSuggestions::default(),
+            started_at,
         }
     }
 

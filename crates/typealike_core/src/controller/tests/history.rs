@@ -2,7 +2,7 @@
 
 use super::harness::{Harness, history_off, history_on};
 use crate::app::BadgeCommand;
-use crate::desktop::FieldText;
+use crate::desktop::{FieldText, Timestamp};
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{
@@ -107,6 +107,25 @@ fn finished_typing_is_saved_when_the_input_settles() {
         vec![vec![mail_entry(
             "Hi Ana, the report is ready and the numbers look good"
         )]]
+    );
+}
+
+#[test]
+fn saved_text_has_the_time_of_the_clock_when_the_typing_started() {
+    let mut harness = Harness::new(history_on());
+    harness.shell.now = Some(Timestamp(1_793_199_600));
+    type_in_mail(&mut harness);
+    harness.shell.now = Some(Timestamp(1_793_203_200));
+    harness.press(Key::Other);
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness.history_saves(),
+        vec![vec![HistoryEntry {
+            written_at: Some(Timestamp(1_793_199_600)),
+            ..mail_entry("Hi Ana, the report is ready and the numbers look good")
+        }]]
     );
 }
 

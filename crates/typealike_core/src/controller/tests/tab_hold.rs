@@ -7,7 +7,7 @@ use crate::desktop::Surroundings;
 use crate::inference::InferenceEvent;
 use crate::key::{Disposition, Key};
 use crate::settings::{PersonalizationSettings, Settings, SuggestionDisplay, WordChoice};
-use crate::test_support::{MAIL_APP, active_badge, mail_entry};
+use crate::test_support::{MAIL_APP, active_badge, mail_entry, on_own_days};
 
 /// Returns a harness after a Tab on the last part of a suggestion, while the next ghost text does
 /// not show yet.
@@ -114,7 +114,10 @@ fn quick_tab_after_the_last_part_of_a_phrase_is_swallowed() {
         },
         ..Settings::default()
     };
-    let mut harness = Harness::with_kept_history(settings, vec![mail_entry("Let me know if it works."); 3]);
+    let mut harness = Harness::with_kept_history(
+        settings,
+        on_own_days(vec![mail_entry("Let me know if it works."); 3]),
+    );
     harness.shell.surroundings = Surroundings {
         app_id: Some(MAIL_APP.to_owned()),
         ..field_around("Please let me know", "")

@@ -3,7 +3,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings, Timestamp};
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::key::Key;
@@ -17,6 +17,7 @@ pub(super) struct FakeDesktop {
     pub(super) surroundings_reads: Cell<usize>,
     pub(super) clipboard_reads: Cell<usize>,
     pub(super) is_ghost_hidden: bool,
+    pub(super) now: Option<Timestamp>,
 }
 
 impl FakeDesktop {
@@ -52,6 +53,11 @@ impl FakeDesktop {
         self
     }
 
+    pub(super) fn at(mut self, now: Timestamp) -> Self {
+        self.now = Some(now);
+        self
+    }
+
     pub(super) fn with_copy(mut self, text: &str, age: Option<Duration>) -> Self {
         self.copied = Some(CopiedText {
             text: text.to_owned(),
@@ -74,6 +80,10 @@ impl Desktop for FakeDesktop {
     fn copied_text(&self) -> Option<CopiedText> {
         self.clipboard_reads.set(self.clipboard_reads.get() + 1);
         self.copied.clone()
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        self.now
     }
 
     fn is_ghost_shown(&self) -> bool {

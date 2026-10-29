@@ -344,6 +344,7 @@ fn app_with_earlier_writing(history: HistoryAccess, app_id: &str) -> App {
         text: "Dear Ana, the report is ready.".to_owned(),
         app_id: app_id.to_owned(),
         domain: None,
+        written_at: None,
     }]);
     app
 }

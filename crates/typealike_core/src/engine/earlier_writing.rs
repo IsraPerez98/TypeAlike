@@ -7,6 +7,10 @@ use crate::history::{self, HistoryEntry, HistoryTables};
 use crate::settings::{HistoryScope, KeptTexts, PersonalizationSettings};
 
 use super::Engine;
+
+/// The most seconds between two builds of the tables while sessions start, so that a text leaves
+/// the last day of the tables at most this late.
+const TABLES_MAX_AGE_SECONDS: u64 = 60 * 60;
 use super::session::Session;
 
 /// Whether the tables of the earlier writing for the personalization `new` differ from the tables
@@ -57,7 +61,7 @@ impl Engine {
             domain,
         };
         let written = history::own_text(&self.history, &finished, &self.personalization);
-        let Some(entry) = HistoryEntry::of(written, &app.app_id, domain) else {
+        let Some(entry) = HistoryEntry::of(written, &app.app_id, domain, session.started_at) else {
             return;
         };
         history::add(&mut self.history, entry, finished.origin(), &self.personalization);
@@ -80,9 +84,29 @@ impl Engine {
         self.has_unsaved_history = true;
     }
 
+    /// Reads the clock of `desktop`, and builds the tables again when they are older than
+    /// [`TABLES_MAX_AGE_SECONDS`], because the texts of the last day count each time and an
+    /// earlier day counts at most two times.
+    pub(super) fn follow_clock(&mut self, desktop: &dyn Desktop) {
+        self.clock = desktop.now();
+        let is_stale = match (self.clock, self.tables_clock) {
+            (Some(now), Some(built)) => now.0.saturating_sub(built.0) >= TABLES_MAX_AGE_SECONDS,
+            (now, built) => now != built,
+        };
+        if is_stale {
+            self.refresh_tables();
+        }
+    }
+
     /// Builds the word bias of each pool, with new versions, and the phrases again from the
     /// history.
     pub(super) fn refresh_tables(&mut self) {
-        self.tables = HistoryTables::of(&self.history, &self.personalization, &mut self.word_bias_version);
+        self.tables_clock = self.clock;
+        self.tables = HistoryTables::of(
+            &self.history,
+            &self.personalization,
+            &mut self.word_bias_version,
+            self.clock,
+        );
     }
 }

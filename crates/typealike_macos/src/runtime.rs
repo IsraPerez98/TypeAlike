@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dispatch2::DispatchQueue;
 use objc2::rc::Retained;
@@ -24,7 +24,7 @@ use typealike_core::controller::{
 };
 use typealike_core::desktop::{
     CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, Permission, PermissionState,
-    ScreenReadId, ScreenSource, Surroundings,
+    ScreenReadId, ScreenSource, Surroundings, Timestamp,
 };
 use typealike_core::inference::Backend;
 use typealike_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
@@ -441,6 +441,11 @@ impl Desktop for AppKitShell {
     /// Vision reads at the level `.fast` or `.accurate`.
     fn ocr_levels(&self) -> OcrLevels {
         OcrLevels::Selectable
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        Some(Timestamp(since_epoch.as_secs()))
     }
 
     /// The ghost text shows at the caret, else in the mirror next to a field without a caret.

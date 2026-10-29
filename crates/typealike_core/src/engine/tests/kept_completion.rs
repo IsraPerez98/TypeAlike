@@ -5,7 +5,7 @@ use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::settings::{HistoryAccess, WordChoice};
-use crate::test_support::{MAIL_APP, completion, mail_entry};
+use crate::test_support::{MAIL_APP, completion, mail_entry, on_own_days};
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_with_history, history_settings, press, request, show, type_text,
@@ -167,7 +167,7 @@ fn mail_field_with(before_caret: &str) -> FakeDesktop {
 
 #[test]
 fn key_after_which_the_writer_repeats_a_phrase_shows_the_phrase() {
-    let mut engine = engine_with_writing(vec![mail_entry("Let me know if it works."); 3]);
+    let mut engine = engine_with_writing(on_own_days(vec![mail_entry("Let me know if it works."); 3]));
     engine.on_key(Key::Char('o'), &mail_field_with("Please let me kn"));
     engine.record_partial_completion("w if it");
 
@@ -185,10 +185,10 @@ fn next_word_bias_of(reaction: Reaction) -> Option<Vec<(String, f32)>> {
 
 #[test]
 fn key_after_which_the_writer_has_next_words_requests_them() {
-    let mut engine = engine_with_writing(vec![
+    let mut engine = engine_with_writing(on_own_days([
         mail_entry("Let me know if it works."),
         mail_entry("Let me know when you can."),
-    ]);
+    ]));
     engine.on_key(Key::Char('w'), &mail_field_with("Please let me kno"));
     engine.record_partial_completion(" if it");
 

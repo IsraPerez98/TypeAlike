@@ -51,6 +51,20 @@ impl fmt::Debug for FieldText {
     }
 }
 
+/// A moment of the clock of the OS: the seconds since the Unix epoch, in UTC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Timestamp(pub u64);
+
+impl Timestamp {
+    const SECONDS_PER_DAY: u64 = 86_400;
+
+    /// The UTC day of the moment, counted from the Unix epoch.
+    #[must_use]
+    pub fn day(self) -> u64 {
+        self.0 / Self::SECONDS_PER_DAY
+    }
+}
+
 /// The text on the clipboard. `Debug` shows only its length, so logs never hold what the user
 /// copied.
 #[derive(Clone, PartialEq, Eq)]
@@ -335,6 +349,12 @@ pub trait Desktop {
 
     /// Reads the text on the clipboard. Core calls it only when the user allows it.
     fn copied_text(&self) -> Option<CopiedText>;
+
+    /// Reads the clock of the OS. A desktop without a clock keeps this default, and the texts
+    /// that the history keeps from it then have no time.
+    fn now(&self) -> Option<Timestamp> {
+        None
+    }
 
     /// Tells whether the platform can read the screen with OCR now. A platform without OCR keeps
     /// this default.

@@ -7,6 +7,7 @@ use super::entry::HistoryEntry;
 use super::phrases::{Phrases, continuation_in, next_word_bias_in, phrases};
 use super::store::HistoryPool;
 use super::word_bias::word_bias;
+use crate::desktop::Timestamp;
 use crate::inference::{NextWordBias, WordBias};
 use crate::place::Place;
 use crate::settings::{PersonalizationSettings, WordChoice};
@@ -34,12 +35,14 @@ impl fmt::Debug for HistoryTables {
 }
 
 impl HistoryTables {
-    /// Builds the tables of `entries` for the pools and the word choice of `personalization`. Each
-    /// word bias gets a new version after `versions`, which then holds the newest version.
+    /// Builds the tables of `entries` for the pools and the word choice of `personalization`, at
+    /// the time `now`. Each word bias gets a new version after `versions`, which then holds the
+    /// newest version.
     pub(crate) fn of(
         entries: &[HistoryEntry],
         personalization: &PersonalizationSettings,
         versions: &mut u64,
+        now: Option<Timestamp>,
     ) -> Self {
         let mut pools = HashMap::<HistoryPool, Vec<&HistoryEntry>>::new();
         for entry in entries {
@@ -53,7 +56,7 @@ impl HistoryTables {
                 *versions = versions.wrapping_add(1);
                 (
                     pool,
-                    PoolTables::of(&texts, personalization.word_choice, *versions),
+                    PoolTables::of(&texts, personalization.word_choice, *versions, now),
                 )
             })
             .collect();
@@ -100,17 +103,17 @@ impl HistoryTables {
 }
 
 impl PoolTables {
-    fn of(texts: &[&HistoryEntry], choice: WordChoice, version: u64) -> Self {
+    fn of(texts: &[&HistoryEntry], choice: WordChoice, version: u64, now: Option<Timestamp>) -> Self {
         let mut places = HashMap::<Place<&str>, Vec<&HistoryEntry>>::new();
         for &entry in texts {
             places.entry(entry.place()).or_default().push(entry);
         }
         Self {
-            word_bias: word_bias(texts, choice, version),
-            phrases: phrases(texts, choice),
+            word_bias: word_bias(texts, choice, version, now),
+            phrases: phrases(texts, choice, now),
             place_phrases: places
                 .into_iter()
-                .map(|(place, texts)| (place.owned(), phrases(&texts, choice)))
+                .map(|(place, texts)| (place.owned(), phrases(&texts, choice, now)))
                 .collect(),
         }
     }
@@ -119,7 +122,7 @@ impl PoolTables {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::test_support::{entry, mail, shared, word};
+    use crate::history::test_support::{entry, mail, on_own_days, shared, word};
 
     fn place_and_pool_entries() -> Vec<HistoryEntry> {
         let mut entries = vec![mail("Let me know when you can."); 2];
@@ -131,11 +134,11 @@ mod tests {
             );
             5
         ]);
-        entries
+        on_own_days(entries)
     }
 
     fn tables_of(entries: &[HistoryEntry]) -> HistoryTables {
-        HistoryTables::of(entries, &shared(), &mut 0)
+        HistoryTables::of(entries, &shared(), &mut 0, None)
     }
 
     #[test]

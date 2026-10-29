@@ -25,7 +25,7 @@ use crate::app::{
 };
 use crate::desktop::{
     CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, Permission,
-    PermissionState, ScreenRect, Surroundings,
+    PermissionState, ScreenRect, Surroundings, Timestamp,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -1066,6 +1066,10 @@ impl Desktop for DesktopWithPendingRest<'_> {
 
     fn permissions(&self) -> Vec<(Permission, PermissionState)> {
         self.0.permissions()
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        self.0.now()
     }
 
     fn is_ghost_shown(&self) -> bool {

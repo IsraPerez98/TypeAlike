@@ -2,12 +2,13 @@
 //!
 //! It reads the desktop and does the effects that the controller asks for.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use typealike_core::app::{BadgeView, TrayView};
 use typealike_core::controller::{CaretLook, FocusChange, Ghost, GhostView, Shell, Timer};
 use typealike_core::desktop::{
     CopiedText, Desktop, Field, OcrAvailability, Permission, ScreenReadId, ScreenSource, Surroundings,
+    Timestamp,
 };
 use typealike_core::settings::ClipboardAccess;
 use typealike_core::settings_window::view::SettingsView;
@@ -147,6 +148,11 @@ impl Desktop for Win32Shell {
 
     fn ocr_availability(&self) -> OcrAvailability {
         self.ocr.availability()
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        Some(Timestamp(since_epoch.as_secs()))
     }
 
     /// The overlay hides the ghost text when the caret reader finds no caret.

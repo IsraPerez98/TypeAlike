@@ -9,7 +9,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use typealike_core::desktop::{
     Confidence, CopiedText, Desktop, Field, FieldLabels, FieldText, ScreenLine, ScreenRect, ScreenText,
-    Surroundings,
+    Surroundings, Timestamp,
 };
 use typealike_core::history::HistoryEntry;
 use typealike_core::key::Key;
@@ -41,6 +41,11 @@ pub struct Case {
     writer: Option<String>,
     #[serde(default)]
     left_out: Option<usize>,
+    /// The seconds since the Unix epoch when the user types the case. The history leaves out the
+    /// texts of the store that the writer wrote later. Without it, the case is at the time of the
+    /// newest text of its history.
+    #[serde(default)]
+    now: Option<u64>,
     history: Vec<CaseEntry>,
     #[serde(default)]
     pub words: BTreeMap<String, u32>,
@@ -120,6 +125,15 @@ impl Case {
         })
     }
 
+    /// Returns the case at its time: its `now`, else the time of the newest text of `history`.
+    pub fn at_time_of(&self, history: &[HistoryEntry]) -> Self {
+        let newest = history.iter().filter_map(|entry| entry.written_at).max();
+        Self {
+            now: self.now.or(newest.map(|written_at| written_at.0)),
+            ..self.clone()
+        }
+    }
+
     /// Returns the text before the caret before the last key, and the last key.
     pub fn last_key(&self) -> anyhow::Result<(String, Key)> {
         if let Some(before_enter) = &self.before_enter {
@@ -158,6 +172,7 @@ impl Case {
                 is_search_field: false,
             },
             clipboard: self.clipboard.clone(),
+            now: self.now.map(Timestamp),
         }
     }
 }
@@ -203,6 +218,9 @@ pub struct CaseEntry {
     text: String,
     app_id: String,
     domain: Option<String>,
+    /// The seconds since the Unix epoch when the writer wrote the text, if known.
+    #[serde(default)]
+    written_at: Option<u64>,
 }
 
 impl CaseEntry {
@@ -211,12 +229,20 @@ impl CaseEntry {
             text: self.text.clone(),
             app_id: self.app_id.clone(),
             domain: self.domain.clone(),
+            written_at: self.written_at.map(Timestamp),
         }
+    }
+
+    /// Whether the writer wrote the text after `now`.
+    fn is_after(&self, now: Option<u64>) -> bool {
+        self.written_at
+            .zip(now)
+            .is_some_and(|(written_at, now)| written_at > now)
     }
 }
 
 /// Returns the earlier texts of `case`: the texts of its writer in `writers` without the text that
-/// it leaves out, then its own.
+/// it leaves out and the texts written after the time of the case, then its own.
 pub fn history_of(
     case: &Case,
     writers: &BTreeMap<String, Vec<CaseEntry>>,
@@ -231,7 +257,7 @@ pub fn history_of(
     Ok(store
         .iter()
         .enumerate()
-        .filter(|&(index, _)| Some(index) != case.left_out)
+        .filter(|&(index, entry)| Some(index) != case.left_out && !entry.is_after(case.now))
         .map(|(_, entry)| entry)
         .chain(&case.history)
         .map(CaseEntry::to_history_entry)
@@ -335,6 +361,7 @@ fn screen_rect([left, top, right, bottom]: CaseFrame) -> ScreenRect {
 pub struct CaseField {
     surroundings: Surroundings,
     clipboard: Option<String>,
+    now: Option<Timestamp>,
 }
 
 impl Desktop for CaseField {
@@ -351,6 +378,10 @@ impl Desktop for CaseField {
             text: self.clipboard.clone()?,
             age: Some(Duration::ZERO),
         })
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        self.now
     }
 }
 
@@ -399,6 +430,49 @@ mod tests {
         let history = history_of(&case, &writers).unwrap();
 
         assert_eq!(texts(&history), ["old one", "old three"]);
+    }
+
+    #[test]
+    fn history_of_a_case_leaves_out_the_texts_of_the_store_written_after_its_time() {
+        let store = dated_texts(&[("before", 100), ("at", 200), ("after", 300)]);
+        let writers = BTreeMap::from([("ana".to_owned(), store)]);
+        let case = Case {
+            now: Some(200),
+            ..case_of(Some("ana"), &[])
+        };
+
+        let history = history_of(&case, &writers).unwrap();
+
+        assert_eq!(texts(&history), ["before", "at"]);
+    }
+
+    #[test]
+    fn case_without_a_time_is_at_the_time_of_the_newest_text_of_its_history() {
+        let store = dated_texts(&[("older", 300), ("newer", 200)]);
+        let writers = BTreeMap::from([("ana".to_owned(), store)]);
+        let cases = [
+            case_of(Some("ana"), &[]),
+            Case {
+                now: Some(250),
+                ..case_of(Some("ana"), &[])
+            },
+        ];
+
+        let times = cases.map(|case| case.at_time_of(&history_of(&case, &writers).unwrap()).now);
+
+        assert_eq!(times, [Some(300), Some(250)]);
+    }
+
+    fn dated_texts(texts: &[(&str, u64)]) -> Vec<CaseEntry> {
+        texts
+            .iter()
+            .map(|&(text, written_at)| CaseEntry {
+                text: text.to_owned(),
+                app_id: "mail".to_owned(),
+                domain: None,
+                written_at: Some(written_at),
+            })
+            .collect()
     }
 
     #[test]

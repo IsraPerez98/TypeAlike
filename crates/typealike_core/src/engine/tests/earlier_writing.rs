@@ -1,5 +1,6 @@
 //! Tests the earlier writing that a prompt shows and the texts that the history keeps.
 
+use crate::desktop::Timestamp;
 use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
@@ -82,6 +83,22 @@ fn finished_text_without_an_accepted_suggestion_is_kept_only_when_all_texts_are_
     });
 
     assert_eq!(saved, [None, Some(vec![mail_entry(&format!("{EARLIER_TEXT}d"))])]);
+}
+
+#[test]
+fn kept_text_has_the_time_when_its_session_started() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    let desktop = mail_desktop(GREETING).at(Timestamp(1_793_199_600));
+
+    let saved = finish_typing(&mut engine, &desktop, Suggestion::Ignored);
+
+    assert_eq!(
+        saved,
+        Some(vec![HistoryEntry {
+            written_at: Some(Timestamp(1_793_199_600)),
+            ..mail_entry(&format!("{EARLIER_TEXT}d"))
+        }])
+    );
 }
 
 #[test]

@@ -8,7 +8,7 @@ use crate::engine::{Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError};
 use crate::key::Key;
 use crate::settings::{ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
-use crate::test_support::{FakeSpellChecker, completion, mail_entry, mail_history_app};
+use crate::test_support::{FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days};
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
@@ -104,7 +104,7 @@ fn unknown_word_stays_only_when_the_word_choice_prefers_it() {
     let reactions = word_choices.map(|word_choice| {
         let mut engine = engine_with_history(
             &shared_pool_settings(word_choice),
-            vec![mail_entry("Cachai the plan, cachai the time, cachai the place")],
+            on_own_days(vec![mail_entry("Cachai the plan, cachai the time"); 3]),
         );
         engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["cachai"])));
         engine.on_key(

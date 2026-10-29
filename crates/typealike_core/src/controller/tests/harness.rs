@@ -13,7 +13,7 @@ use crate::controller::{
 };
 use crate::desktop::{
     CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, Permission,
-    PermissionState, ScreenReadId, ScreenSource, Surroundings,
+    PermissionState, ScreenReadId, ScreenSource, Surroundings, Timestamp,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -70,6 +70,7 @@ pub(super) struct FakeShell {
     pub(super) is_ghost_shown: bool,
     /// How the shell looks at the caret. A shell that looks later records each look as a call.
     pub(super) caret_look: CaretLook,
+    pub(super) now: Option<Timestamp>,
 }
 
 impl Desktop for FakeShell {
@@ -91,6 +92,10 @@ impl Desktop for FakeShell {
 
     fn permissions(&self) -> Vec<(Permission, PermissionState)> {
         self.permissions.clone()
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        self.now
     }
 
     fn is_ghost_shown(&self) -> bool {
@@ -364,6 +369,7 @@ impl Harness {
                 ghost_view: None,
                 is_ghost_shown: true,
                 caret_look: CaretLook::Now(CaretRead::default()),
+                now: None,
             },
             recorder,
             deliveries,

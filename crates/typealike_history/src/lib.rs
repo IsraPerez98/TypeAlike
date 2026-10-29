@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use typealike_core::desktop::Timestamp;
 use typealike_core::history::{HistoryEntry, HistoryKey, KeyVault, WritingHistory};
 
 /// The start of the file, which names its format.
@@ -39,6 +40,10 @@ struct StoredEntry {
     app_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     domain: Option<String>,
+    /// The seconds since the Unix epoch when the user started to write the text. An entry of an
+    /// older file has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    written_at: Option<u64>,
 }
 
 /// The file that keeps the earlier writing of the user, locked with a key of the `vault`. A save
@@ -219,6 +224,7 @@ impl From<StoredEntry> for HistoryEntry {
             text: stored.text,
             app_id: stored.app_id,
             domain: stored.domain,
+            written_at: stored.written_at.map(Timestamp),
         }
     }
 }
@@ -229,6 +235,7 @@ impl From<&HistoryEntry> for StoredEntry {
             text: entry.text.clone(),
             app_id: entry.app_id.clone(),
             domain: entry.domain.clone(),
+            written_at: entry.written_at.map(|written_at| written_at.0),
         }
     }
 }
@@ -306,11 +313,13 @@ mod tests {
                 text: "Cheers,\nTom".to_owned(),
                 app_id: "com.apple.mail".to_owned(),
                 domain: None,
+                written_at: None,
             },
             HistoryEntry {
                 text: "LGTM, ship it".to_owned(),
                 app_id: "com.google.Chrome".to_owned(),
                 domain: Some("github.com".to_owned()),
+                written_at: Some(Timestamp(1_793_199_600)),
             },
         ]
     }

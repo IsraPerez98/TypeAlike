@@ -162,7 +162,7 @@ pub(crate) fn own_text<'text>(
 ) -> &'text str {
     let text = finished.text;
     let (field, added) = finished.split();
-    let is_draft = HistoryEntry::of(field, finished.app_id, finished.domain)
+    let is_draft = HistoryEntry::of(field, finished.app_id, finished.domain, None)
         .is_some_and(|draft| is_known(entries, &draft, personalization));
     let is_mostly_added = added.chars().count() * 100 >= text.chars().count() * MIN_OWN_PERCENT;
     if field.trim().is_empty() || is_draft || is_mostly_added {

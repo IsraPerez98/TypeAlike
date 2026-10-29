@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crate::app::{BadgeView, Status};
+use crate::desktop::Timestamp;
 use crate::history::HistoryEntry;
 use crate::hub::ModelFile;
 use crate::inference::{
@@ -125,7 +126,30 @@ pub(crate) fn mail_entry(text: &str) -> HistoryEntry {
         text: text.to_owned(),
         app_id: MAIL_APP.to_owned(),
         domain: None,
+        written_at: None,
     }
+}
+
+/// Returns `entry` written at noon of the UTC day `day`.
+pub(crate) fn on_day(entry: HistoryEntry, day: u64) -> HistoryEntry {
+    HistoryEntry {
+        written_at: Some(Timestamp(day * 86_400 + 43_200)),
+        ..entry
+    }
+}
+
+/// Returns the moment at `hour` of the UTC day `day`.
+pub(crate) fn at_hour(day: u64, hour: u64) -> Timestamp {
+    Timestamp(day * 86_400 + hour * 3600)
+}
+
+/// Returns `entries`, each written on a day of its own, in their order.
+pub(crate) fn on_own_days(entries: impl IntoIterator<Item = HistoryEntry>) -> Vec<HistoryEntry> {
+    entries
+        .into_iter()
+        .zip(1..)
+        .map(|(entry, day)| on_day(entry, day))
+        .collect()
 }
 
 pub(crate) fn mail_app(is_on: bool) -> ScreenTextApp {

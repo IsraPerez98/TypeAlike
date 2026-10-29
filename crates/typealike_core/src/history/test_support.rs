@@ -3,16 +3,24 @@
 use super::entry::HistoryEntry;
 use crate::settings::{HistoryAccess, PersonalizationSettings};
 
+pub(super) use crate::test_support::{at_hour, on_day, on_own_days};
+
 pub(super) fn entry(text: &str, app_id: &str, domain: Option<&str>) -> HistoryEntry {
     HistoryEntry {
         text: text.to_owned(),
         app_id: app_id.to_owned(),
         domain: domain.map(str::to_owned),
+        written_at: None,
     }
 }
 
 pub(super) fn mail(text: &str) -> HistoryEntry {
     entry(text, "com.apple.mail", None)
+}
+
+/// Returns a mail of `text` on each of `days` days of its own.
+pub(super) fn mail_on_days(text: &str, days: usize) -> Vec<HistoryEntry> {
+    on_own_days(vec![mail(text); days])
 }
 
 pub(super) fn shared() -> PersonalizationSettings {

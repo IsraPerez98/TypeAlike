@@ -1,33 +1,36 @@
-//! The phrases that the writer repeats and the words that the writer wrote after the same words.
+//! The phrases that the writer repeats and the words that the writer wrote after the same words,
+//! with counts where one earlier day adds at most two, so that one long conversation does not
+//! decide them.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
 
-use super::entry::HistoryEntry;
+use super::entry::{HistoryEntry, MAX_COUNT_PER_GROUP, counted_groups};
 use super::redaction::REDACTED;
 use super::word_bias::strength_of;
 use super::words::{is_apostrophe, runs_of, small_count};
+use crate::desktop::Timestamp;
 use crate::inference::NextWordBias;
 use crate::settings::WordChoice;
 
 /// The words before the next word of a phrase.
 const PHRASE_CONTEXT_WORDS: usize = 3;
-/// The fewest times that the writer wrote the same next word after the same words, for a
-/// suggestion of that word without the model.
+/// The smallest count of the same next word after the same words, for a suggestion of that word
+/// without the model.
 const MIN_PHRASE_COUNT: u32 = 3;
-/// The smallest share, in percent, of the next word among all the words that the writer wrote
-/// after the same words.
+/// The smallest share, in percent, of the count of the next word among the counts of all the
+/// words that the writer wrote after the same words.
 const MIN_PHRASE_PERCENT: u32 = 60;
 /// The words of the runs before a next word that give a preference for it, longest first.
 const RUN_WORDS: [usize; 2] = [PHRASE_CONTEXT_WORDS, 2];
-/// The fewest times that the writer wrote a run of words, for a preference for its next words.
+/// The smallest count of a run of words, for a preference for its next words.
 const MIN_RUN_COUNT: u32 = 2;
 /// The most next words that a completion prefers.
 const MAX_NEXT_WORDS: usize = 8;
 
 /// What the writer wrote after each run of [`RUN_WORDS`] words in any case, for the runs that the
-/// writer wrote at least [`MIN_RUN_COUNT`] times: the phrases that the writer repeats, and the
+/// writer wrote with a count of at least [`MIN_RUN_COUNT`]: the phrases that the writer repeats, and the
 /// words that the writer wrote after the last words before the caret. `Debug` shows only the
 /// number of runs, so logs never hold what the user wrote.
 #[derive(Default)]
@@ -39,7 +42,7 @@ pub(super) struct Phrases {
 }
 
 /// For each run of `context_words` words, the texts after it up to the end of the next word, with
-/// the signs before that word, and their counts.
+/// the signs before that word, and the count of each of them.
 struct RunFollowers {
     context_words: usize,
     followers: Followers,
@@ -69,9 +72,9 @@ impl Phrases {
 /// Returns the rest of a phrase after `text_before`, the text before the caret, up to the end of
 /// its next word, or `None`. The text can end inside that word. The rest never goes past the end
 /// of the line. The first of `tables` that has the [`PHRASE_CONTEXT_WORDS`] words before the next
-/// word decides. A phrase needs the same next word, with the same signs before it, at least
-/// [`MIN_PHRASE_COUNT`] times and in at least [`MIN_PHRASE_PERCENT`] of the times that the writer
-/// wrote these words.
+/// word decides. A phrase needs the same next word, with the same signs before it, with a count of
+/// at least [`MIN_PHRASE_COUNT`] and at least [`MIN_PHRASE_PERCENT`] of the counts of the words
+/// that the writer wrote after these words.
 pub(super) fn continuation_in<'tables>(
     tables: &[&'tables Phrases],
     text_before: &str,
@@ -94,7 +97,8 @@ pub(super) fn continuation_in<'tables>(
 
 /// Returns the preference for the words that the writer wrote after the last words of
 /// `text_before`, the text before the caret: the words after the longest run of the first of
-/// `tables` that has some. Each word gets the strength times its share of the words after the run.
+/// `tables` that has some. Each word gets the strength times its share of the counts of the words
+/// after the run.
 /// When the text ends inside a word, the run ends before that word and the words start with its
 /// letters. A word gets no preference when a line break or no space comes before it.
 pub(super) fn next_word_bias_in(tables: &[&Phrases], text_before: &str) -> NextWordBias {
@@ -125,8 +129,8 @@ fn run_before<'text>(
     Some((context_key(text_before, context), typed))
 }
 
-/// Returns the text of `counts` that the writer wrote at least [`MIN_PHRASE_COUNT`] times and in
-/// at least [`MIN_PHRASE_PERCENT`] of the times, if any.
+/// Returns the text of `counts` with a count of at least [`MIN_PHRASE_COUNT`] and at least
+/// [`MIN_PHRASE_PERCENT`] of all the counts, if any.
 fn repeated_follower(counts: &[(String, u32)]) -> Option<&str> {
     let total = counts.iter().map(|(_, count)| count).sum::<u32>();
     let (follower, count) = counts.iter().max_by_key(|(_, count)| count)?;
@@ -156,8 +160,9 @@ fn preferred_words(counts: &[(String, u32)], typed: &str, strength: f32) -> Vec<
         .collect()
 }
 
-/// Returns the phrases of `entries` for `choice`, which have none when the choice is off.
-pub(super) fn phrases(entries: &[&HistoryEntry], choice: WordChoice) -> Phrases {
+/// Returns the phrases of `entries` for `choice` at the time `now`. They have none when the
+/// choice is off.
+pub(super) fn phrases(entries: &[&HistoryEntry], choice: WordChoice, now: Option<Timestamp>) -> Phrases {
     let Some(strength) = strength_of(choice) else {
         return Phrases::default();
     };
@@ -165,23 +170,36 @@ pub(super) fn phrases(entries: &[&HistoryEntry], choice: WordChoice) -> Phrases 
         .iter()
         .map(|&context_words| RunFollowers {
             context_words,
-            followers: repeated_runs(entries, context_words),
+            followers: repeated_runs(entries, context_words, now),
         })
         .collect();
     Phrases { strength, runs }
 }
 
-/// Returns, for each run of `context_words` words of `entries` in any case that the writer wrote
-/// at least [`MIN_RUN_COUNT`] times, the texts that came after it up to the end of the next word,
-/// with the signs before that word, and their counts.
-fn repeated_runs(entries: &[&HistoryEntry], context_words: usize) -> Followers {
+/// Returns, for each run of `context_words` words of `entries`, oldest first, in any case with a
+/// count of at least [`MIN_RUN_COUNT`], the texts that came after it up to the end of the next
+/// word, with the signs before that word, and the count of each text. Each group of
+/// [`counted_groups`] at the time `now` adds its times, at most [`MAX_COUNT_PER_GROUP`].
+fn repeated_runs(entries: &[&HistoryEntry], context_words: usize, now: Option<Timestamp>) -> Followers {
     let mut followers = HashMap::<String, Vec<(&str, u32)>>::new();
-    for part in entries.iter().flat_map(|entry| entry.text.split(REDACTED)) {
-        count_followers(part, context_words, &mut followers);
+    let mut run_counts = HashMap::<String, u32>::new();
+    for group in counted_groups(entries, now) {
+        let mut followers_in_group = HashMap::<String, Vec<(&str, u32)>>::new();
+        for part in group.iter().flat_map(|entry| entry.text.split(REDACTED)) {
+            count_followers(part, context_words, &mut followers_in_group);
+        }
+        for (context, group_followers) in followers_in_group {
+            let run_times = group_followers.iter().map(|(_, times)| times).sum::<u32>();
+            *run_counts.entry(context.clone()).or_default() += run_times.min(MAX_COUNT_PER_GROUP);
+            let counts = followers.entry(context).or_default();
+            for (follower, times) in group_followers {
+                add_count(counts, follower, times.min(MAX_COUNT_PER_GROUP));
+            }
+        }
     }
     followers
         .into_iter()
-        .filter(|(_, counts)| counts.iter().map(|(_, count)| count).sum::<u32>() >= MIN_RUN_COUNT)
+        .filter(|(context, _)| run_counts[context] >= MIN_RUN_COUNT)
         .map(|(context, counts)| {
             let owned = counts
                 .into_iter()
@@ -205,10 +223,15 @@ fn count_followers<'text>(
         let counts = followers
             .entry(context_key(part, &window[..context_words]))
             .or_default();
-        match counts.iter_mut().find(|(known, _)| *known == follower) {
-            Some((_, count)) => *count += 1,
-            None => counts.push((follower, 1)),
-        }
+        add_count(counts, follower, 1);
+    }
+}
+
+/// Adds `times` to the count of `follower` in `counts`.
+fn add_count<'text>(counts: &mut Vec<(&'text str, u32)>, follower: &'text str, times: u32) {
+    match counts.iter_mut().find(|(known, _)| *known == follower) {
+        Some((_, count)) => *count += times,
+        None => counts.push((follower, times)),
     }
 }
 
@@ -232,18 +255,18 @@ fn is_phrase_character(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::test_support::{mail, refs, word};
+    use crate::history::test_support::{at_hour, mail, mail_on_days, on_day, on_own_days, refs, word};
 
-    fn phrase_entries() -> [HistoryEntry; 3] {
-        [
+    fn phrase_entries() -> Vec<HistoryEntry> {
+        on_own_days([
             mail("Please let me know if it works."),
             mail("Let me know if you can come."),
             mail("So let me KNOW if that helps."),
-        ]
+        ])
     }
 
     fn continuation_after(entries: &[HistoryEntry], text_before: &str) -> Option<String> {
-        continuation_in(&[&phrases(&refs(entries), WordChoice::Medium)], text_before).map(str::to_owned)
+        continuation_in(&[&phrases(&refs(entries), WordChoice::Medium, None)], text_before).map(str::to_owned)
     }
 
     #[test]
@@ -262,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn phrase_needs_three_times_and_a_share_of_sixty_percent() {
+    fn phrase_needs_three_days_and_a_share_of_sixty_percent() {
         let cases: [(&[&str], Option<&str>); 4] = [
             (&["if", "if"], None),
             (&["if", "if", "if"], Some("if")),
@@ -271,10 +294,11 @@ mod tests {
         ];
 
         let continuations = cases.map(|(next_words, _)| {
-            let entries = next_words
-                .iter()
-                .map(|word| mail(&format!("let me know {word} it works")))
-                .collect::<Vec<_>>();
+            let entries = on_own_days(
+                next_words
+                    .iter()
+                    .map(|word| mail(&format!("let me know {word} it works"))),
+            );
             continuation_after(&entries, "Can you let me know ")
         });
 
@@ -282,8 +306,54 @@ mod tests {
     }
 
     #[test]
+    fn phrase_of_one_day_is_no_phrase_however_often_it_comes() {
+        let entries = vec![on_day(mail("let me know if it works"), 1); 5];
+
+        let continuation = continuation_after(&entries, "Can you let me know ");
+
+        assert_eq!(continuation, None);
+    }
+
+    #[test]
+    fn texts_without_a_time_count_as_one_day_for_a_phrase() {
+        let entries = vec![mail("let me know if it works"); 5];
+
+        let continuation = continuation_after(&entries, "Can you let me know ");
+
+        assert_eq!(continuation, None);
+    }
+
+    #[test]
+    fn each_text_of_the_last_day_counts_for_a_phrase_and_an_older_day_counts_at_most_two_times() {
+        let entries = vec![on_day(mail("let me know if it works"), 5); 3];
+        let clocks = [Some(at_hour(5, 18)), Some(at_hour(7, 12))];
+
+        let continuations = clocks.map(|now| {
+            continuation_in(
+                &[&phrases(&refs(&entries), WordChoice::Medium, now)],
+                "Can you let me know ",
+            )
+            .map(str::to_owned)
+        });
+
+        assert_eq!(continuations, [Some("if".to_owned()), None]);
+    }
+
+    #[test]
+    fn older_day_and_one_recent_use_make_a_phrase() {
+        let mut entries = vec![on_day(mail("let me know if it works"), 1); 5];
+        entries.push(on_day(mail("let me know if you can"), 5));
+
+        let tables = phrases(&refs(&entries), WordChoice::Medium, Some(at_hour(5, 18)));
+
+        let continuation = continuation_in(&[&tables], "Can you let me know ");
+
+        assert_eq!(continuation, Some("if"));
+    }
+
+    #[test]
     fn phrase_keeps_the_signs_and_the_spelling_of_the_writer() {
-        let entries = vec![mail("Thanks a lot.\nBest regards,\nJordan"); 3];
+        let entries = mail_on_days("Thanks a lot.\nBest regards,\nJordan", 3);
 
         let continuation = continuation_after(&entries, "Thanks a lot.\nBest regards,\nJ");
 
@@ -292,7 +362,7 @@ mod tests {
 
     #[test]
     fn phrase_ends_at_the_end_of_the_line() {
-        let entries = vec![mail("Thanks, kind regards,\nMateo"); 3];
+        let entries = mail_on_days("Thanks, kind regards,\nMateo", 3);
 
         let continuation = continuation_after(&entries, "Thanks, kind regards");
 
@@ -301,7 +371,7 @@ mod tests {
 
     #[test]
     fn redacted_secret_is_no_phrase() {
-        let entries = vec![mail("the code is [redacted] today"); 3];
+        let entries = mail_on_days("the code is [redacted] today", 3);
 
         let continuation = continuation_after(&entries, "So the code is ");
 
@@ -311,7 +381,7 @@ mod tests {
     #[test]
     fn word_choice_off_gives_no_phrases() {
         let continuation = continuation_in(
-            &[&phrases(&refs(&phrase_entries()), WordChoice::Off)],
+            &[&phrases(&refs(&phrase_entries()), WordChoice::Off, None)],
             "Can you let me know ",
         )
         .map(str::to_owned);
@@ -321,21 +391,22 @@ mod tests {
 
     #[test]
     fn debug_of_the_phrases_hides_the_text() {
-        let entries = [mail("let me know if"), mail("let me know if")];
+        let entries = mail_on_days("let me know if", 2);
 
-        let debug = format!("{:?}", phrases(&refs(&entries), WordChoice::Medium));
+        let debug = format!("{:?}", phrases(&refs(&entries), WordChoice::Medium, None));
 
         assert_eq!(debug, "Phrases { runs: 3, .. }");
     }
 
     fn next_word_entries() -> Vec<HistoryEntry> {
-        ["if it works", "if you can", "when you can", "if that helps"]
-            .map(|rest| mail(&format!("Please let me know {rest}.")))
-            .to_vec()
+        on_own_days(
+            ["if it works", "if you can", "when you can", "if that helps"]
+                .map(|rest| mail(&format!("Please let me know {rest}."))),
+        )
     }
 
     fn next_words_in(entries: &[HistoryEntry], choice: WordChoice, text_before: &str) -> Vec<(String, f32)> {
-        next_word_bias_in(&[&phrases(&refs(entries), choice)], text_before).0
+        next_word_bias_in(&[&phrases(&refs(entries), choice, None)], text_before).0
     }
 
     #[test]
@@ -386,11 +457,12 @@ mod tests {
 
     #[test]
     fn next_word_after_a_line_break_or_without_a_space_gets_no_preference() {
-        let entries = ["Thanks a lot.\nJordan", "Thanks a lot, Jordan", "send the e-mail"]
-            .repeat(2)
-            .into_iter()
-            .map(mail)
-            .collect::<Vec<_>>();
+        let entries = on_own_days(
+            ["Thanks a lot.\nJordan", "Thanks a lot, Jordan", "send the e-mail"]
+                .repeat(2)
+                .into_iter()
+                .map(mail),
+        );
         let cases = [
             ("Thanks a lot, ", vec![word("Jordan", 0.5)]),
             ("Thanks a lot.\n", vec![]),
@@ -405,9 +477,20 @@ mod tests {
     }
 
     #[test]
+    fn older_day_adds_at_most_two_to_the_share_of_a_next_word() {
+        let mut entries = vec![on_day(mail("let me know if it works"), 1); 4];
+        entries.extend([2, 3].map(|day| on_day(mail("let me know when you can"), day)));
+
+        let next = next_words_in(&entries, WordChoice::Medium, "Can you let me know ");
+
+        assert_eq!(next, [word("if", 0.5), word("when", 0.5)]);
+    }
+
+    #[test]
     fn next_words_are_at_most_the_eight_most_common() {
-        let entries =
-            ["a", "b", "c", "d", "e", "f", "g", "h", "i", "a"].map(|next| mail(&format!("we go to {next}x")));
+        let entries = on_own_days(
+            ["a", "b", "c", "d", "e", "f", "g", "h", "i", "a"].map(|next| mail(&format!("we go to {next}x"))),
+        );
 
         let next = next_words_in(&entries, WordChoice::Medium, "So we go to ");
 

@@ -3,6 +3,7 @@
 use std::fmt;
 
 use super::redaction::redacted;
+use crate::desktop::Timestamp;
 use crate::excerpt::{from_word, last_chars};
 use crate::place::Place;
 
@@ -11,6 +12,11 @@ use crate::place::Place;
 const MIN_KEPT_CHARS: usize = 5;
 /// The most characters of a text that TypeAlike saves, from its end.
 const MAX_KEPT_CHARS: usize = 1000;
+/// The time before the clock in which each text counts on its own: the texts of the last day.
+const RECENT_SECONDS: u64 = 24 * 60 * 60;
+/// The most that one counted group of texts adds to the count of a word or a run of words. Thus
+/// one long conversation of an earlier day never counts as a habit of the writer by itself.
+pub(super) const MAX_COUNT_PER_GROUP: u32 = 2;
 
 /// One text that the user wrote, which later prompts can show as an example. `Debug` shows only
 /// its length and its app, so logs never hold what the user wrote.
@@ -23,6 +29,9 @@ pub struct HistoryEntry {
     pub app_id: String,
     /// The host of the web page where the user wrote the text, if any.
     pub domain: Option<String>,
+    /// When the user started to write the text, or `None` when the desktop had no clock or the
+    /// text is older than the times of the history.
+    pub written_at: Option<Timestamp>,
 }
 
 impl fmt::Debug for HistoryEntry {
@@ -36,11 +45,16 @@ impl fmt::Debug for HistoryEntry {
 }
 
 impl HistoryEntry {
-    /// The entry of `text`, which the user wrote in the app with `app_id`, on the web page of
-    /// `domain` if any, with each secret replaced. It keeps at most the last [`MAX_KEPT_CHARS`]
-    /// characters, from the start of a word. `None` when the text is shorter than
-    /// [`MIN_KEPT_CHARS`] or has only one word.
-    pub(crate) fn of(text: &str, app_id: &str, domain: Option<&str>) -> Option<Self> {
+    /// The entry of `text`, which the user started to write at `written_at` in the app with
+    /// `app_id`, on the web page of `domain` if any, with each secret replaced. It keeps at most
+    /// the last [`MAX_KEPT_CHARS`] characters, from the start of a word. `None` when the text is
+    /// shorter than [`MIN_KEPT_CHARS`] or has only one word.
+    pub(crate) fn of(
+        text: &str,
+        app_id: &str,
+        domain: Option<&str>,
+        written_at: Option<Timestamp>,
+    ) -> Option<Self> {
         let text = text.trim();
         let is_long_enough = text.chars().count() >= MIN_KEPT_CHARS && text.contains(char::is_whitespace);
         if !is_long_enough {
@@ -51,6 +65,7 @@ impl HistoryEntry {
             text: from_word(&without_secrets, last_chars(&without_secrets, MAX_KEPT_CHARS)).to_owned(),
             app_id: app_id.to_owned(),
             domain: domain.map(str::to_owned),
+            written_at,
         })
     }
 
@@ -58,9 +73,31 @@ impl HistoryEntry {
         Place::of(&self.app_id, self.domain.as_deref())
     }
 
+    /// The UTC day when the user started to write the text, if known.
+    pub(super) fn day(&self) -> Option<u64> {
+        self.written_at.map(Timestamp::day)
+    }
+
     pub(super) fn overlaps(&self, other: &Self) -> bool {
         self.text.contains(&other.text) || other.text.contains(&self.text)
     }
+}
+
+/// Returns `entries`, oldest first, in the groups that each add at most [`MAX_COUNT_PER_GROUP`]
+/// to a count: each entry of the day before `now` alone, and the older entries of each UTC day.
+/// The entries without a time are one group.
+pub(super) fn counted_groups<'entries>(
+    entries: &'entries [&'entries HistoryEntry],
+    now: Option<Timestamp>,
+) -> impl Iterator<Item = &'entries [&'entries HistoryEntry]> {
+    let recent_since = now.map(|now| Timestamp(now.0.saturating_sub(RECENT_SECONDS)));
+    let is_recent = move |entry: &HistoryEntry| {
+        entry
+            .written_at
+            .zip(recent_since)
+            .is_some_and(|(written_at, since)| written_at >= since)
+    };
+    entries.chunk_by(move |left, right| left.day() == right.day() && !is_recent(left) && !is_recent(right))
 }
 
 #[cfg(test)]
@@ -84,6 +121,7 @@ mod tests {
             "  Thanks for the update, I will send the file today.\n",
             "com.google.Chrome",
             Some("mail.google.com"),
+            None,
         );
 
         assert_eq!(
@@ -100,7 +138,7 @@ mod tests {
     fn text_of_one_word_or_of_less_than_five_characters_gives_no_entry() {
         let cases = ["  Wonderful  ", "Hi A", " ok "];
 
-        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None));
+        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None, None));
 
         assert_eq!(kept, [None, None, None]);
     }
@@ -109,7 +147,7 @@ mod tests {
     fn text_of_two_words_and_five_characters_gives_an_entry() {
         let cases = ["  Hi Al  ", "Hi\nAl"];
 
-        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None));
+        let kept = cases.map(|text| HistoryEntry::of(text, "com.apple.mail", None, None));
 
         assert_eq!(kept, [Some(mail("Hi Al")), Some(mail("Hi\nAl"))]);
     }
@@ -118,7 +156,7 @@ mod tests {
     fn long_entry_keeps_the_end_of_its_text_from_a_word() {
         let text = format!("start {}", "word ".repeat(250));
 
-        let kept = HistoryEntry::of(&text, "com.apple.mail", None).unwrap();
+        let kept = HistoryEntry::of(&text, "com.apple.mail", None, None).unwrap();
 
         assert_eq!(kept.text, "word ".repeat(200).trim_end());
     }
@@ -127,7 +165,7 @@ mod tests {
     fn entry_has_its_secrets_redacted() {
         let text = "Here is the key for the staging bot: sk-proj4Hk2LmQ9xT. Do not share it with anyone.";
 
-        let kept = HistoryEntry::of(text, "com.apple.mail", None).unwrap();
+        let kept = HistoryEntry::of(text, "com.apple.mail", None, None).unwrap();
 
         assert_eq!(
             kept.text,

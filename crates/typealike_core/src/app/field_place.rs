@@ -1,7 +1,7 @@
 //! The app and the website of the field where the user types, and a desktop whose field the app
 //! read already.
 
-use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, Surroundings, Timestamp};
 use crate::settings::{ScreenTextApp, SuggestionPlaces};
 
 /// The app and the website of a field where the user types.
@@ -53,6 +53,10 @@ impl Desktop for ReadField<'_> {
 
     fn ocr_levels(&self) -> OcrLevels {
         self.desktop.ocr_levels()
+    }
+
+    fn now(&self) -> Option<Timestamp> {
+        self.desktop.now()
     }
 
     fn is_ghost_shown(&self) -> bool {

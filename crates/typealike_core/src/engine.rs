@@ -14,7 +14,7 @@ mod suggestion;
 
 use std::fmt;
 
-use crate::desktop::{Desktop, Surroundings};
+use crate::desktop::{Desktop, Surroundings, Timestamp};
 use crate::excerpt::plain_spaces;
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TypoCheck};
@@ -59,6 +59,10 @@ pub(crate) struct Engine {
     tables: HistoryTables,
     /// The newest version of a word bias of `tables`.
     word_bias_version: u64,
+    /// The newest time of the clock of the desktop, read at the start of each session.
+    clock: Option<Timestamp>,
+    /// The time of the clock when the engine built `tables`.
+    tables_clock: Option<Timestamp>,
     /// The dictionary of the OS that cuts a suggestion before a word that the model made up, if
     /// the platform has one.
     dictionary: Option<Dictionary>,
@@ -85,6 +89,8 @@ impl Default for Engine {
             has_unsaved_history: false,
             tables: HistoryTables::default(),
             word_bias_version: 0,
+            clock: None,
+            tables_clock: None,
             dictionary: None,
         };
         engine.use_settings(&Settings::default());
@@ -206,9 +212,16 @@ impl Engine {
     /// Returns the session, and starts it with what surrounds the caret in `desktop` when there
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {
+        if self.session.is_none() {
+            self.follow_clock(desktop);
+        }
         let session = self.session.take().unwrap_or_else(|| {
             let surroundings = read_surroundings(desktop);
-            Session::new(self.build_preface(&surroundings, desktop), &surroundings)
+            Session::new(
+                self.build_preface(&surroundings, desktop),
+                &surroundings,
+                desktop.now(),
+            )
         });
         self.session.insert(session)
     }
