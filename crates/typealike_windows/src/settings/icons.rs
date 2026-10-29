@@ -77,7 +77,7 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
 /// The icon of a page with `icon` in the navigation, while the contrast is `contrast`.
 pub(super) fn page_icon(icon: PageIcon, contrast: Contrast) -> Icon {
     match contrast {
-        Contrast::Standard => Icon::image_svg(EncodedImage::from_static(color_page_icon(icon))),
+        Contrast::Standard => Icon::image_data(EncodedImage::from_static(color_page_icon(icon))),
         Contrast::High => symbol_page_icon(icon),
     }
 }
@@ -85,13 +85,13 @@ pub(super) fn page_icon(icon: PageIcon, contrast: Contrast) -> Icon {
 fn color_page_icon(icon: PageIcon) -> &'static [u8] {
     match icon {
         // Windows asks for no permission, so the Permissions page never shows here.
-        PageIcon::Gear | PageIcon::Hand => include_bytes!("../../assets/fluent/settings.svg"),
-        PageIcon::Cube => include_bytes!("../../assets/fluent/bot.svg"),
-        PageIcon::TextCursor => include_bytes!("../../assets/fluent/edit.svg"),
-        PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.svg"),
-        PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.svg"),
-        PageIcon::AppGrid => include_bytes!("../../assets/fluent/apps.svg"),
-        PageIcon::Lightbulb => include_bytes!("../../assets/fluent/lightbulb.svg"),
+        PageIcon::Gear | PageIcon::Hand => include_bytes!("../../assets/fluent/settings.png"),
+        PageIcon::Cube => include_bytes!("../../assets/fluent/bot.png"),
+        PageIcon::TextCursor => include_bytes!("../../assets/fluent/edit.png"),
+        PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.png"),
+        PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.png"),
+        PageIcon::AppGrid => include_bytes!("../../assets/fluent/apps.png"),
+        PageIcon::Lightbulb => include_bytes!("../../assets/fluent/lightbulb.png"),
     }
 }
 
@@ -126,6 +126,24 @@ mod tests {
         let sizes = steps.map(|step| bitmap_size(setup_picture(step)));
 
         assert_eq!(sizes, [Some((224, 224)); 6]);
+    }
+
+    #[test]
+    fn each_page_icon_is_a_bitmap_for_two_times_its_size() {
+        let icons = [
+            PageIcon::Gear,
+            PageIcon::Hand,
+            PageIcon::Cube,
+            PageIcon::TextCursor,
+            PageIcon::TextViewfinder,
+            PageIcon::PersonText,
+            PageIcon::AppGrid,
+            PageIcon::Lightbulb,
+        ];
+
+        let sizes = icons.map(|icon| bitmap_size(color_page_icon(icon)));
+
+        assert_eq!(sizes, [Some((32, 32)); 8]);
     }
 
     /// The width and the height of the PNG file `bytes`, from its header.
