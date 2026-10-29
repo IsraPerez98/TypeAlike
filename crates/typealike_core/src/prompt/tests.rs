@@ -315,8 +315,46 @@ fn text_after_the_caret_goes_last_after_the_screen_text_below_and_above_the_fiel
     assert_eq!(
         preface,
         framed(
-            "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nAbove the field on my screen: “From: Sam\nSee you at 7?”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
+            "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nAbove the field on my screen: “From: Sam\nSee you at 7?”\nThe last line above the field on my screen: “See you at 7?”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
         )
+    );
+}
+
+#[test]
+fn last_line_above_the_field_comes_again_after_the_screen_text() {
+    let screen = screen(&[("From: Sam", 300), ("See you at 7?", 400)]);
+
+    let preface = preface(&Writer::default(), &Surroundings::default(), None, Some(&screen));
+
+    assert_eq!(
+        preface,
+        framed(
+            "Above the field on my screen: “From: Sam\nSee you at 7?”\nThe last line above the field on my screen: “See you at 7?”"
+        )
+    );
+}
+
+#[test]
+fn screen_text_below_the_field_has_no_last_line_above_the_field() {
+    let screen = screen(&[("Sent from my phone", 600)]);
+
+    let preface = preface(&Writer::default(), &Surroundings::default(), None, Some(&screen));
+
+    assert_eq!(
+        preface,
+        framed("Below the field on my screen: “Sent from my phone”")
+    );
+}
+
+#[test]
+fn last_line_above_the_field_comes_again_only_when_it_fits() {
+    let screen = screen(&[("Dinner on Saturday?", 300), ("Hi", 480)]);
+
+    let preface = preface(&Writer::default(), &surroundings_leaving(1), None, Some(&screen));
+
+    assert!(
+        preface.ends_with("\nAbove the field on my screen: “Hi”"),
+        "{preface}"
     );
 }
 
@@ -327,7 +365,9 @@ fn screen_text_fits_in_what_the_preface_has_left() {
     let preface = preface(&Writer::default(), &surroundings_leaving(2), None, Some(&screen));
 
     assert!(
-        preface.ends_with("\nAbove the field on my screen: “Hi”"),
+        preface.ends_with(
+            "\nAbove the field on my screen: “Hi”\nThe last line above the field on my screen: “Hi”"
+        ),
         "{preface}"
     );
 }

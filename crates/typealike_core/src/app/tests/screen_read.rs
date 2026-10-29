@@ -286,7 +286,8 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
             ],
             "H"
         )))
@@ -494,7 +495,8 @@ fn answer_of_the_ocr_goes_into_the_prompt() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
             ],
             ""
         )))

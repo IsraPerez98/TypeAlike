@@ -53,7 +53,13 @@ fn session_shows_the_screen_text_of_the_read_before_it() {
 
     assert_eq!(
         reaction,
-        request_with(&["Above the field on my screen: “Dinner at 7?”"], "S")
+        request_with(
+            &[
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
+            ],
+            "S"
+        )
     );
 }
 
@@ -78,7 +84,13 @@ fn read_that_comes_during_a_session_goes_into_it() {
 
     assert_eq!(
         reaction,
-        request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
+        request_with(
+            &[
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
+            ],
+            "Su"
+        )
     );
 }
 
@@ -142,7 +154,13 @@ fn new_screen_text_replaces_the_stored_text_one_time() {
     assert_eq!(
         (reaction, next_read),
         (
-            request_with(&["Above the field on my screen: “Lunch at 1?”"], "Su"),
+            request_with(
+                &[
+                    "Above the field on my screen: “Lunch at 1?”",
+                    "The last line above the field on my screen: “Lunch at 1?”"
+                ],
+                "Su"
+            ),
             None
         )
     );
@@ -161,7 +179,13 @@ fn same_screen_text_keeps_the_prompt() {
 
     assert_eq!(
         reaction,
-        request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
+        request_with(
+            &[
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
+            ],
+            "Su"
+        )
     );
 }
 
@@ -178,7 +202,13 @@ fn failed_read_keeps_the_stored_screen_text() {
 
     assert_eq!(
         reaction,
-        request_with(&["Above the field on my screen: “Dinner at 7?”"], "Su")
+        request_with(
+            &[
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
+            ],
+            "Su"
+        )
     );
 }
 

@@ -20,6 +20,10 @@ const FRAME: &str = "I type the text below on my computer, for example an email,
 /// The line just before the text before the caret. Without it, the model reads one or two typed
 /// characters as the start of one more line of the preface, and writes a label.
 const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
+/// The label of the last line above the field, which the preface shows one more time. That line
+/// is often the message that the user answers, and its second copy gives it more weight than the
+/// older text of the preface.
+const LAST_LINE_LABEL: &str = "The last line above the field on my screen:";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 const PREFACE_TOKENS: TokenCount = TokenCount(2000);
@@ -66,12 +70,12 @@ impl fmt::Debug for Writer<'_> {
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
 /// line, the place where the user types, the earlier texts of the `writer` with their age, the
-/// `clipboard` text, the text below the field on the `screen`, the text above the field and the
-/// text after the caret. The text above the field comes late, so the messages of a chat come just
-/// before the reply. The text after the caret comes last, next to the heading, so that the model writes text
-/// that leads into it. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in
-/// the order of their priority: the frame, the notes, the text after the caret, the place, the
-/// screen, the earlier texts and the clipboard.
+/// `clipboard` text, the text below the field on the `screen`, the text above the field, its last
+/// line one more time and the text after the caret. The text above the field comes late, so the
+/// messages of a chat come just before the reply. The text after the caret comes last, next to the
+/// heading, so that the model writes text that leads into it. Each part that is empty is left out.
+/// The parts fill [`PREFACE_TOKENS`] in the order of their priority: the frame, the notes, the
+/// text after the caret, the place, the screen, the earlier texts and the clipboard.
 pub(crate) fn preface(
     writer: &Writer<'_>,
     surroundings: &Surroundings,
@@ -91,6 +95,7 @@ struct PrefaceParts<'text> {
     below: String,
     after_caret: Option<&'text str>,
     above: String,
+    last_line_above: Option<String>,
 }
 
 /// Returns the parts of the preface, each cut to its cap and to what is left of
@@ -129,6 +134,11 @@ fn budgeted_parts<'text>(
     let below = nearby.below.join("\n");
     budget.spend(&above);
     budget.spend(&below);
+    let last_line_above = nearby
+        .above
+        .last()
+        .and_then(|line| budget.take_whole(line))
+        .map(str::to_owned);
     let examples = budget.take_examples(&writer.examples);
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
     PrefaceParts {
@@ -140,6 +150,7 @@ fn budgeted_parts<'text>(
         below,
         after_caret,
         above,
+        last_line_above,
     }
 }
 
@@ -170,6 +181,9 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             .map(|text| format!("Text on my clipboard: “{text}”")),
         non_empty(&parts.below).map(|text| format!("Below the field on my screen: “{text}”")),
         non_empty(&parts.above).map(|text| format!("Above the field on my screen: “{text}”")),
+        parts
+            .last_line_above
+            .map(|line| format!("{LAST_LINE_LABEL} “{line}”")),
         parts
             .after_caret
             .and_then(non_empty)
@@ -202,6 +216,15 @@ impl Budget {
         let kept = first_tokens(text, self.left(cap));
         self.spend(kept);
         kept
+    }
+
+    /// Returns all of `text` when it fits in the budget, and spends its tokens.
+    fn take_whole<'text>(&mut self, text: &'text str) -> Option<&'text str> {
+        let fits = estimated_tokens(text) <= self.0;
+        fits.then(|| {
+            self.spend(text);
+            text
+        })
     }
 
     /// Returns the ends of `examples` that fit in [`HISTORY_TOKENS`] and in the budget, each from
