@@ -16,13 +16,19 @@ The icons are the same as in the source, but each view box is cut to the live ar
 
 The icons have the MIT license in `LICENSE`.
 
-The pictures above the title of each step of the setup window are in `setup/`. They are the icons of the source as they are, with their own view box, in the color style at the largest size that the source has in color:
+The pictures above the title of each step of the setup window are in `setup/`. They come from the icons of the source in the color style, at the largest size that the source has in color. They are PNG files of 224 x 224 px, four times the size of the picture (56 DIPs), so they stay sharp up to a display scale of 400 %. WinUI draws an SVG without anti-aliasing when it scales the SVG, and the source has these icons only at 24 or 48 px. A bitmap gets smooth edges when WinUI makes it smaller.
 
 | File | Icon | Setup step |
 | --- | --- | --- |
-| `setup/text_edit_style.svg` | `ic_fluent_text_edit_style_24_color` | `SetupStep::Welcome` |
-| `setup/contact_card.svg` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
-| `setup/scan_type.svg` | `ic_fluent_scan_type_24_color` | `SetupStep::Sources` |
-| `setup/shield_checkmark.svg` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |
-| `setup/bot.svg` | `ic_fluent_bot_24_color` | `SetupStep::Model` |
-| `setup/checkmark_circle.svg` | `ic_fluent_checkmark_circle_48_color` | `SetupStep::Ready` |
+| `setup/text_edit_style.png` | `ic_fluent_text_edit_style_24_color` | `SetupStep::Welcome` |
+| `setup/contact_card.png` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
+| `setup/scan_type.png` | `ic_fluent_scan_type_24_color` | `SetupStep::Sources` |
+| `setup/shield_checkmark.png` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |
+| `setup/bot.png` | `ic_fluent_bot_24_color` | `SetupStep::Model` |
+| `setup/checkmark_circle.png` | `ic_fluent_checkmark_circle_48_color` | `SetupStep::Ready` |
+
+To make a picture again:
+
+1. Download the SVG of the icon from the source.
+2. Change its `width` and `height` to `224`. Keep its view box.
+3. Render it with Microsoft Edge: `msedge --headless --disable-gpu --hide-scrollbars --default-background-color=00000000 --window-size=224,224 --screenshot=NAME.png NAME.svg`.

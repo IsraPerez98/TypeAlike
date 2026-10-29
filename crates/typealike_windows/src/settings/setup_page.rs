@@ -337,7 +337,7 @@ impl SetupPage {
     fn picture(&self, view: &SetupView) -> View {
         match self.contrast {
             Contrast::Standard => Image::new()
-                .source_svg(EncodedImage::from_static(setup_picture(view.step)))
+                .source_data(EncodedImage::from_static(setup_picture(view.step)))
                 .width(PICTURE_SIZE)
                 .height(PICTURE_SIZE)
                 .horizontal_alignment(HorizontalAlignment::Left)

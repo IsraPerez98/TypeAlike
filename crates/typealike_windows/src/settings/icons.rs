@@ -18,15 +18,15 @@ const CONTACT_GLYPH: &str = "\u{E779}";
 const ACCEPT_GLYPH: &str = "\u{E8FB}";
 const SCAN_GLYPH: &str = "\u{E8FE}";
 
-/// The color picture above the title of `step` in the setup window, as an SVG file.
+/// The color picture above the title of `step` in the setup window, as a PNG file.
 pub(super) fn setup_picture(step: SetupStep) -> &'static [u8] {
     match step {
-        SetupStep::Welcome => include_bytes!("../../assets/fluent/setup/text_edit_style.svg"),
-        SetupStep::About => include_bytes!("../../assets/fluent/setup/contact_card.svg"),
-        SetupStep::Sources => include_bytes!("../../assets/fluent/setup/scan_type.svg"),
-        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.svg"),
-        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.svg"),
-        SetupStep::Ready => include_bytes!("../../assets/fluent/setup/checkmark_circle.svg"),
+        SetupStep::Welcome => include_bytes!("../../assets/fluent/setup/text_edit_style.png"),
+        SetupStep::About => include_bytes!("../../assets/fluent/setup/contact_card.png"),
+        SetupStep::Sources => include_bytes!("../../assets/fluent/setup/scan_type.png"),
+        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.png"),
+        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.png"),
+        SetupStep::Ready => include_bytes!("../../assets/fluent/setup/checkmark_circle.png"),
     }
 }
 
@@ -105,5 +105,34 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
         PageIcon::AppGrid => Symbol::AllApps.into(),
         PageIcon::Lightbulb => Icon::font(LIGHTBULB_GLYPH),
         PageIcon::Hand => Symbol::Permissions.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_picture_is_a_bitmap_for_four_times_its_size() {
+        let steps = [
+            SetupStep::Welcome,
+            SetupStep::About,
+            SetupStep::Sources,
+            SetupStep::Permission,
+            SetupStep::Model,
+            SetupStep::Ready,
+        ];
+
+        let sizes = steps.map(|step| bitmap_size(setup_picture(step)));
+
+        assert_eq!(sizes, [Some((224, 224)); 6]);
+    }
+
+    /// The width and the height of the PNG file `bytes`, from its header.
+    fn bitmap_size(bytes: &[u8]) -> Option<(u32, u32)> {
+        let header = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
+        let dimension =
+            |range: std::ops::Range<usize>| Some(u32::from_be_bytes(header.get(range)?.try_into().ok()?));
+        Some((dimension(8..12)?, dimension(12..16)?))
     }
 }
