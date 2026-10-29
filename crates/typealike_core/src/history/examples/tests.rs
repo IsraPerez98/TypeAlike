@@ -212,6 +212,44 @@ fn text_on_the_screen_tells_the_topic_and_the_newest_text_fills_the_second_place
 }
 
 #[test]
+fn text_beside_the_field_on_the_screen_tells_no_topic() {
+    let screen = ScreenText {
+        lines: vec![ScreenLine {
+            text: "Launch".to_owned(),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect {
+                left: 0,
+                top: 100,
+                right: 250,
+                bottom: 120,
+            },
+        }],
+        caret: None,
+        field: ScreenRect {
+            left: 300,
+            top: 500,
+            right: 1400,
+            bottom: 600,
+        },
+    };
+
+    let examples = examples_with(
+        &bluefin_entries(),
+        &field_in("com.apple.mail", None, "Hi Sam"),
+        Some(&screen),
+        2,
+    );
+
+    assert_eq!(
+        examples,
+        [
+            "Weekend trip to the lake with the kids, back on Sunday.",
+            "Bluefin budget review with Dana tomorrow morning."
+        ]
+    );
+}
+
+#[test]
 fn rare_word_counts_more_than_a_word_of_many_texts() {
     let entries = [
         mail("Meeting notes on the roof"),

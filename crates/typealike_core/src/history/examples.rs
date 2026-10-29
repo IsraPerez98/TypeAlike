@@ -9,6 +9,7 @@ use crate::desktop::{FieldText, ScreenText, Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, start_at_word};
 use crate::inference::TokenCount;
 use crate::place::{self, Format, Place};
+use crate::screen::LineScope;
 
 /// The examples that the newest texts of a small place fill up to: the same domain in a browser,
 /// else the same app.
@@ -45,8 +46,9 @@ const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_STA
 /// The best matching texts of other places with at least [`MIN_WIDE_WORDS`] topic words fill the
 /// rest of the `matching_examples`. A place without texts gets the newest texts of other places
 /// with the same format in the free examples. A text matches when it shares rare words with the
-/// text near the caret, the window, the labels of the field and the `screen`. Each example keeps
-/// the start and the end of its text. A text that the field holds now is no example, and two
+/// text near the caret, the window, the labels of the field and the lines of the `screen` in the
+/// column of the field. Each example keeps the start and the end of its text. A text that the
+/// field holds now is no example, and two
 /// examples never hold the same text or near copies of one text. Among texts that match the same,
 /// the text with more copies in its place comes first, so that the spelling that the writer uses
 /// most stays. Each example comes with the time of its text.
@@ -212,7 +214,7 @@ fn copy_key(entry: &HistoryEntry) -> (Place<&str>, &str) {
 }
 
 /// Returns the topic words of the text near the caret, the window title, the labels of the field
-/// and the `screen`, each with no holders yet.
+/// and the lines of the `screen` in the column of the field, each with no holders yet.
 fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> HashMap<String, u32> {
     let labels = place::field_labels(surroundings);
     let mut texts = vec![];
@@ -222,7 +224,11 @@ fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> Hash
     texts.extend(surroundings.window_title.as_deref());
     texts.extend(labels.iter().map(String::as_str));
     if let Some(screen) = screen {
-        texts.extend(screen.lines.iter().map(|line| line.text.as_str()));
+        texts.extend(
+            LineScope::of(surroundings)
+                .lines(screen)
+                .map(|line| line.text.as_str()),
+        );
     }
     let mut query = HashMap::new();
     let mut add_distinctive = |word: &str| {

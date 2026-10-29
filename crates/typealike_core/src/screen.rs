@@ -1,13 +1,14 @@
-//! The text near the caret on the screen, as the prompt shows it: the lines without noise and
-//! without the times of chat headers, the nearest lines first, up to a budget of tokens, above and
-//! below the caret.
+//! The text near the caret on the screen, as the prompt shows it: the lines of its scope, without
+//! noise and without the times of chat headers, the nearest lines first, up to a budget of tokens,
+//! above and below the caret.
 
 use std::collections::HashSet;
 use std::fmt;
 
-use crate::desktop::{Confidence, FieldText, ScreenRect, ScreenText};
+use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, one_line};
 use crate::inference::TokenCount;
+use crate::place::Format;
 
 /// The lowest confidence of a recognized line that is not noise. Vision gives 30% to its guesses.
 const MIN_CONFIDENCE: Confidence = Confidence(40);
@@ -56,28 +57,94 @@ impl fmt::Debug for NearbyLines {
     }
 }
 
-/// How far a line is from the caret. Lines beside the field, such as sidebars and contact lists,
-/// rank after all lines above and below it: they are often near the caret, but they are not part
-/// of the conversation.
+/// How far a line is from the caret. Lines beside the field, such as side panels, rank after all
+/// lines above and below it: they are often near the caret, but they are seldom a part of the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Distance {
     is_beside_field: bool,
     vertical_gap: u32,
 }
 
-/// Returns the text of the lines of `screen` that the prompt shows, above and below the caret:
-/// the nearest lines to the caret that fit in `budget`, without the noise and the lines that
+/// The lines of the screen that the prompt can show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LineScope {
+    /// All the lines of the window, because a panel beside a form or a document, such as its help,
+    /// can tell what the field needs.
+    Window,
+    /// The lines in the column of the field. Beside the column, a chat or an email app shows the
+    /// list of the other conversations, which is not a part of the conversation in the field.
+    Column,
+}
+
+impl LineScope {
+    /// Returns the scope of the field in `surroundings`: its column in a chat or an email app, else
+    /// the window.
+    pub(crate) fn of(surroundings: &Surroundings) -> Self {
+        match Format::of(surroundings) {
+            Some(Format::Chat | Format::Email) => Self::Column,
+            Some(Format::Document | Format::WebPage) | None => Self::Window,
+        }
+    }
+
+    /// Returns the lines of `screen` in the scope. A field without width has no column, so all
+    /// its lines are in the scope.
+    pub(crate) fn lines(self, screen: &ScreenText) -> impl Iterator<Item = &ScreenLine> {
+        let column = match self {
+            Self::Window => None,
+            Self::Column => Column::of(screen),
+        };
+        screen
+            .lines
+            .iter()
+            .filter(move |line| column.is_none_or(|column| column.holds(line.frame)))
+    }
+}
+
+/// The span from left to right of the field and of the lines that reach into that span, such as
+/// the messages of a chat that start left of its input box. A line wholly left or right of the
+/// column is beside the field, such as a sidebar or the list of the other chats.
+#[derive(Clone, Copy)]
+struct Column {
+    left: i32,
+    right: i32,
+}
+
+impl Column {
+    /// Returns the column of the field of `screen`, or `None` when the field has no width.
+    fn of(screen: &ScreenText) -> Option<Self> {
+        let field = Self {
+            left: screen.field.left,
+            right: screen.field.right,
+        };
+        if field.left >= field.right {
+            return None;
+        }
+        let reaching_lines = screen.lines.iter().filter(|line| field.holds(line.frame));
+        Some(reaching_lines.fold(field, |column, line| Self {
+            left: column.left.min(line.frame.left),
+            right: column.right.max(line.frame.right),
+        }))
+    }
+
+    /// Whether a part of `frame` is in the column.
+    fn holds(self, frame: ScreenRect) -> bool {
+        frame.left < self.right && self.left < frame.right
+    }
+}
+
+/// Returns the text of the lines of `screen` in `scope` that the prompt shows, above and below the
+/// caret: the nearest lines to the caret that fit in `budget`, without the noise and the lines that
 /// repeat `field_text`.
 pub(crate) fn nearby_lines(
     screen: &ScreenText,
     field_text: Option<&FieldText>,
     budget: TokenCount,
+    scope: LineScope,
 ) -> NearbyLines {
     let field = FieldLines::of(field_text);
     let caret = screen.caret.unwrap_or(screen.field);
-    let mut candidates = screen
-        .lines
-        .iter()
+    let mut candidates = scope
+        .lines(screen)
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
         .map(|line| {
             let text = one_line(&line.text);
@@ -236,7 +303,6 @@ fn is_separator(word: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::ScreenLine;
 
     const BUDGET: TokenCount = TokenCount(1200);
     const FIELD: ScreenRect = rect(300, 900, 1400, 960);
@@ -292,7 +358,7 @@ mod tests {
 
     /// Returns the text that the prompt keeps of each line, one screen for each line.
     fn kept_texts<const COUNT: usize>(lines: [&str; COUNT]) -> [Vec<String>; COUNT] {
-        lines.map(|text| nearby_lines(&screen(vec![above(text, 1)]), None, BUDGET).above)
+        lines.map(|text| nearby_lines(&screen(vec![above(text, 1)]), None, BUDGET, LineScope::Window).above)
     }
 
     #[test]
@@ -315,7 +381,7 @@ mod tests {
             above("Dinner on Saturday", 2),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(
             lines,
@@ -331,7 +397,7 @@ mod tests {
             above(&"c".repeat(30), 1),
         ]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(15));
+        let lines = nearby_lines(&screen, None, TokenCount(15), LineScope::Window);
 
         assert_eq!(lines, above_the_field(&[&"c".repeat(30)]));
     }
@@ -340,7 +406,7 @@ mod tests {
     fn line_that_does_not_fit_leaves_room_for_a_shorter_line() {
         let screen = screen(vec![above(&"a".repeat(60), 1), above("See you at 7?", 2)]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(10));
+        let lines = nearby_lines(&screen, None, TokenCount(10), LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["See you at 7?"]));
     }
@@ -350,7 +416,7 @@ mod tests {
         let below = line("> Priya wrote: the budget is final", rect(300, 980, 900, 1010));
         let screen = screen(vec![above("Older message", 2), below]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(15));
+        let lines = nearby_lines(&screen, None, TokenCount(15), LineScope::Window);
 
         assert_eq!(lines, below_the_field(&["> Priya wrote: the budget is final"]));
     }
@@ -360,9 +426,74 @@ mod tests {
         let sidebar = line("General channel", rect(0, 920, 250, 940));
         let screen = screen(vec![sidebar, above("Can you send the deck?", 5)]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(10));
+        let lines = nearby_lines(&screen, None, TokenCount(10), LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Can you send the deck?"]));
+    }
+
+    #[test]
+    fn line_beside_the_column_of_the_field_goes() {
+        let sidebar = line("General channel", rect(0, 920, 250, 940));
+        let screen = screen(vec![sidebar, above("Can you send the deck?", 5)]);
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+
+        assert_eq!(lines, above_the_field(&["Can you send the deck?"]));
+    }
+
+    #[test]
+    fn short_message_left_of_the_field_stays_when_a_message_reaches_into_the_field() {
+        let long = line("Can you send the deck before the call?", rect(200, 780, 900, 810));
+        let short = line("Thanks", rect(200, 820, 280, 850));
+        let screen = screen(vec![long, short]);
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["Can you send the deck before the call?", "Thanks"])
+        );
+    }
+
+    #[test]
+    fn chat_and_email_apps_show_the_column_and_other_places_the_window() {
+        let scope_of = |app_id: &str| {
+            LineScope::of(&Surroundings {
+                app_id: Some(app_id.to_owned()),
+                ..Surroundings::default()
+            })
+        };
+
+        let scopes = [
+            "com.tinyspeck.slackmacgap",
+            "com.apple.mail",
+            "com.microsoft.Word",
+            "notepad.exe",
+        ]
+        .map(scope_of);
+
+        assert_eq!(
+            scopes,
+            [
+                LineScope::Column,
+                LineScope::Column,
+                LineScope::Window,
+                LineScope::Window
+            ]
+        );
+    }
+
+    #[test]
+    fn field_without_width_keeps_the_lines_beside_it() {
+        let screen = ScreenText {
+            lines: vec![line("General channel", rect(0, 100, 250, 120))],
+            caret: Some(CARET),
+            field: rect(300, 900, 300, 960),
+        };
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+
+        assert_eq!(lines, above_the_field(&["General channel"]));
     }
 
     #[test]
@@ -376,7 +507,7 @@ mod tests {
             field: rect(300, 500, 1400, 600),
         };
 
-        let lines = nearby_lines(&screen, None, TokenCount(6));
+        let lines = nearby_lines(&screen, None, TokenCount(6), LineScope::Window);
 
         assert_eq!(lines, below_the_field(&["Below the field"]));
     }
@@ -385,7 +516,7 @@ mod tests {
     fn whitespace_runs_become_one_space_and_empty_lines_go() {
         let screen = screen(vec![above("  Sure,\n  see\tyou ", 1), above(" \n ", 2)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Sure, see you"]));
     }
@@ -398,7 +529,7 @@ mod tests {
             above("#@%& tags", 3),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, NearbyLines::default());
     }
@@ -416,7 +547,7 @@ mod tests {
             },
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["See you there"]));
     }
@@ -428,7 +559,7 @@ mod tests {
             line("Write a message", rect(320, 915, 600, 945)),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Dinner at 7?"]));
     }
@@ -442,7 +573,7 @@ mod tests {
             above("Apt 3B, 1458 Maple Avenue", 4),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines.above.len(), 4, "{lines:?}");
     }
@@ -455,7 +586,7 @@ mod tests {
         };
         let screen = screen(vec![above("Yes", 1)]);
 
-        let lines = nearby_lines(&screen, Some(&field_text), BUDGET);
+        let lines = nearby_lines(&screen, Some(&field_text), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Yes"]));
     }
@@ -472,7 +603,7 @@ mod tests {
             above("Want to come over?", 3),
         ]);
 
-        let lines = nearby_lines(&screen, Some(&field_text), BUDGET);
+        let lines = nearby_lines(&screen, Some(&field_text), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Want to come over?"]));
     }
@@ -486,7 +617,7 @@ mod tests {
             line("Ana", rect(0, 925, 250, 945)),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET);
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(
             lines,
