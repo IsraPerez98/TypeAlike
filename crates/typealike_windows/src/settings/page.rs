@@ -400,15 +400,19 @@ where
 
     /// A push button with the label of `button` in `style`, which sends its press.
     pub(super) fn button(&self, button: &view::Button, style: ButtonStyle) -> View {
-        Button::new()
+        let control = Button::new()
             .content(button.label.as_str())
             .is_enabled(button.is_enabled)
-            .style(style)
             .on_click(
                 self.context
                     .message(RowMessage::Input(SettingsInput::Pressed(button.id.clone())).into()),
-            )
-            .into()
+            );
+        // Reactor gives `ButtonStyle::Default` a null style, which drops the Fluent style of WinUI.
+        match style {
+            ButtonStyle::Default => control,
+            style => control.style(style),
+        }
+        .into()
     }
 
     /// Wraps `field` so that the return key in it submits the text of the field `id`.
