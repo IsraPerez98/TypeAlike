@@ -95,7 +95,7 @@ fn next_shows_the_next_step() {
 
     harness.press_button(NEXT);
 
-    assert_eq!(shown_step(&mut harness), Some(SetupStep::Model));
+    assert_eq!(shown_step(&mut harness), Some(SetupStep::About));
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn finish_closes_the_setup_and_keeps_it_finished() {
     harness.install(model_file());
     harness.controller.on_launch(&mut harness.shell);
 
-    let steps = [(); 3].map(|()| {
+    let steps = [(); 4].map(|()| {
         harness.press_button(NEXT);
         shown_step(&mut harness)
     });
@@ -186,8 +186,9 @@ fn finish_closes_the_setup_and_keeps_it_finished() {
         ),
         (
             [
-                Some(SetupStep::Model),
                 Some(SetupStep::About),
+                Some(SetupStep::Sources),
+                Some(SetupStep::Model),
                 Some(SetupStep::Ready)
             ],
             true,
@@ -268,6 +269,8 @@ fn failed_read_of_the_graphics_card_warns_on_the_general_page() {
 fn search_of_the_setup_searches_hugging_face() {
     let mut harness = Harness::new(needed());
     harness.controller.on_launch(&mut harness.shell);
+    harness.press_button(NEXT);
+    harness.press_button(NEXT);
     harness.press_button(NEXT);
     harness.press_button("setup-other-models");
 

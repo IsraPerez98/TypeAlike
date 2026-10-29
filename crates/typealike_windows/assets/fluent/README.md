@@ -21,7 +21,8 @@ The pictures above the title of each step of the setup window are in `setup/`. T
 | File | Icon | Setup step |
 | --- | --- | --- |
 | `setup/text_edit_style.svg` | `ic_fluent_text_edit_style_24_color` | `SetupStep::Welcome` |
-| `setup/bot.svg` | `ic_fluent_bot_24_color` | `SetupStep::Model` |
-| `setup/shield_checkmark.svg` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |
 | `setup/contact_card.svg` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
+| `setup/scan_type.svg` | `ic_fluent_scan_type_24_color` | `SetupStep::Sources` |
+| `setup/shield_checkmark.svg` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |
+| `setup/bot.svg` | `ic_fluent_bot_24_color` | `SetupStep::Model` |
 | `setup/checkmark_circle.svg` | `ic_fluent_checkmark_circle_48_color` | `SetupStep::Ready` |

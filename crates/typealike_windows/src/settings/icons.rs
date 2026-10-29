@@ -16,14 +16,16 @@ const EDIT_GLYPH: &str = "\u{E70F}";
 const PERMISSIONS_GLYPH: &str = "\u{E8D7}";
 const CONTACT_GLYPH: &str = "\u{E779}";
 const ACCEPT_GLYPH: &str = "\u{E8FB}";
+const SCAN_GLYPH: &str = "\u{E8FE}";
 
 /// The color picture above the title of `step` in the setup window, as an SVG file.
 pub(super) fn setup_picture(step: SetupStep) -> &'static [u8] {
     match step {
         SetupStep::Welcome => include_bytes!("../../assets/fluent/setup/text_edit_style.svg"),
-        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.svg"),
-        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.svg"),
         SetupStep::About => include_bytes!("../../assets/fluent/setup/contact_card.svg"),
+        SetupStep::Sources => include_bytes!("../../assets/fluent/setup/scan_type.svg"),
+        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.svg"),
+        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.svg"),
         SetupStep::Ready => include_bytes!("../../assets/fluent/setup/checkmark_circle.svg"),
     }
 }
@@ -33,9 +35,10 @@ pub(super) fn setup_picture(step: SetupStep) -> &'static [u8] {
 pub(super) fn setup_glyph(step: SetupStep) -> &'static str {
     match step {
         SetupStep::Welcome => EDIT_GLYPH,
-        SetupStep::Model => ROBOT_GLYPH,
-        SetupStep::Permission => PERMISSIONS_GLYPH,
         SetupStep::About => CONTACT_GLYPH,
+        SetupStep::Sources => SCAN_GLYPH,
+        SetupStep::Permission => PERMISSIONS_GLYPH,
+        SetupStep::Model => ROBOT_GLYPH,
         SetupStep::Ready => ACCEPT_GLYPH,
     }
 }

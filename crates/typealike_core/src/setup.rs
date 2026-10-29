@@ -1,8 +1,8 @@
 //! The setup: a window that shows when TypeAlike starts for the first time and after a reset of
-//! the settings, until the user finishes it. It tells what TypeAlike does, downloads the model,
-//! asks for the permission of the OS, and lets the user pick what suggestions use. Its rows are the
-//! rows of the settings window, so each platform renders them as in the settings window and sends
-//! back each [`SettingsInput`].
+//! the settings, until the user finishes it. It tells what TypeAlike does, asks for the name and
+//! the notes of the user, lets the user pick what suggestions use, asks for the permission of the
+//! OS, and downloads the model. Its rows are the rows of the settings window, so each platform
+//! renders them as in the settings window and sends back each [`SettingsInput`].
 
 use crate::desktop::{Permission, PermissionState};
 use crate::engine::split_next_part;
@@ -35,8 +35,9 @@ pub struct SetupView {
     pub progress: StepProgress,
     /// The title of the step, in sentence case.
     pub title: String,
-    /// One to three sentences below the title.
-    pub body: String,
+    /// One to three sentences below the title, on a step whose rows do not tell what the step is
+    /// for or what to do.
+    pub body: Option<String>,
     /// The demo of a suggestion below the body.
     pub demo: Option<Demo>,
     /// The sections, top to bottom, as in the settings window.
@@ -53,18 +54,20 @@ pub struct SetupView {
     pub language: UiLanguage,
 }
 
-/// A step of the setup, in the order of the setup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A step of the setup. The order of the variants is the order of the setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SetupStep {
     /// What TypeAlike does.
     Welcome,
-    /// The download of the model.
-    Model,
+    /// The name and the notes of the user.
+    About,
+    /// What suggestions can use: the earlier writing, the copied text and the screen text.
+    Sources,
     /// The permission of the OS that suggestions need. Only an OS that asks the user for a
     /// permission has this step.
     Permission,
-    /// The name and the notes of the user, and what suggestions can use.
-    About,
+    /// The download of the model.
+    Model,
     /// Where to try TypeAlike, where its icon is, and the switch that starts it at login.
     Ready,
 }
@@ -213,15 +216,18 @@ impl SetupFlow {
         let count = steps.len();
         let step_content = match self.step {
             SetupStep::Welcome => welcome(context),
-            SetupStep::Model => self.model(context),
-            SetupStep::Permission => permission(context),
             SetupStep::About => about(context),
+            SetupStep::Sources => sources(context),
+            SetupStep::Permission => permission(context),
+            SetupStep::Model => self.model(context),
             SetupStep::Ready => self.ready(context),
         };
         let next_label = match self.step {
             SetupStep::Welcome => "setup-start",
             SetupStep::Ready => "setup-finish",
-            SetupStep::Model | SetupStep::Permission | SetupStep::About => "setup-continue",
+            SetupStep::About | SetupStep::Sources | SetupStep::Permission | SetupStep::Model => {
+                "setup-continue"
+            }
         };
         SetupView {
             window_title: translations.text("setup-window-title"),
@@ -238,7 +244,7 @@ impl SetupFlow {
                 ),
             },
             title: translations.text(step_content.title),
-            body: translations.text(step_content.body),
+            body: step_content.body.map(|body| translations.text(body)),
             demo: step_content.demo,
             sections: step_content.sections,
             footnote: step_content.footnote,
@@ -280,7 +286,7 @@ impl SetupFlow {
                 .chain(model_menu)
                 .chain(other_models)
                 .collect(),
-            ..StepContent::new(title, "setup-model-body")
+            ..StepContent::new(title)
         }
     }
 
@@ -301,9 +307,10 @@ impl SetupFlow {
             TrayPlace::MenuBar => "setup-tray-menu-bar",
         };
         StepContent {
+            body: Some("setup-ready-body"),
             sections: autostart.into_iter().collect(),
             footnote: Some(translations.text(tray)),
-            ..StepContent::new("setup-ready-title", "setup-ready-body")
+            ..StepContent::new("setup-ready-title")
         }
     }
 }
@@ -311,17 +318,17 @@ impl SetupFlow {
 /// The parts of a step that differ from step to step.
 struct StepContent {
     title: &'static str,
-    body: &'static str,
+    body: Option<&'static str>,
     demo: Option<Demo>,
     sections: Vec<Section>,
     footnote: Option<String>,
 }
 
 impl StepContent {
-    fn new(title: &'static str, body: &'static str) -> Self {
+    fn new(title: &'static str) -> Self {
         Self {
             title,
-            body,
+            body: None,
             demo: None,
             sections: Vec::new(),
             footnote: None,
@@ -333,24 +340,24 @@ fn has_model(context: &SetupContext<'_>) -> bool {
     context.general.settings().suggestion_model.is_some() || !context.installed.is_empty()
 }
 
-/// The steps of the setup: the permission step only on an OS that asks for the Accessibility
-/// permission.
+/// The steps of the setup: the steps about the user first, then the permission step only on an
+/// OS that asks for the Accessibility permission, the model, and the last step.
 fn steps(permissions: &[(Permission, PermissionState)]) -> Vec<SetupStep> {
     let permission = permissions
         .iter()
         .any(|&(permission, _)| permission == Permission::Accessibility)
         .then_some(SetupStep::Permission);
-    [SetupStep::Welcome, SetupStep::Model]
+    [SetupStep::Welcome, SetupStep::About, SetupStep::Sources]
         .into_iter()
         .chain(permission)
-        .chain([SetupStep::About, SetupStep::Ready])
+        .chain([SetupStep::Model, SetupStep::Ready])
         .collect()
 }
 
-/// The index of `step` in `steps`. A step that the OS no longer has, such as the permission step,
+/// The index of `step` in `steps`. A step that the OS does not have, such as the permission step,
 /// counts as the step before it.
 fn step_index(steps: &[SetupStep], step: SetupStep) -> usize {
-    steps.iter().position(|&each| each == step).unwrap_or(1)
+    steps.iter().rposition(|&each| each <= step).unwrap_or(0)
 }
 
 /// Whether the user can go on from `step`: the model must be on the computer, so a download must
@@ -361,7 +368,7 @@ fn can_continue(step: SetupStep, context: &SetupContext<'_>) -> bool {
         SetupStep::Permission => context.permissions.iter().all(|&(permission, state)| {
             permission != Permission::Accessibility || state == PermissionState::Granted
         }),
-        SetupStep::Welcome | SetupStep::About | SetupStep::Ready => true,
+        SetupStep::Welcome | SetupStep::About | SetupStep::Sources | SetupStep::Ready => true,
     }
 }
 
@@ -378,8 +385,9 @@ fn welcome(context: &SetupContext<'_>) -> StepContent {
             rest: rest.to_owned(),
             key: translations.text("setup-demo-key"),
         }),
+        body: Some("setup-welcome-body"),
         sections: vec![context.general.language_section(translations)],
-        ..StepContent::new("setup-welcome-title", "setup-welcome-body")
+        ..StepContent::new("setup-welcome-title")
     }
 }
 
@@ -436,12 +444,23 @@ fn permission(context: &SetupContext<'_>) -> StepContent {
         .map(|&(permission, state)| permission_row(permission, state, context.translations))
         .collect();
     StepContent {
+        body: Some("setup-permission-body"),
         sections: vec![Section::new(rows)],
-        ..StepContent::new("setup-permission-title", "setup-permission-body")
+        ..StepContent::new("setup-permission-title")
     }
 }
 
+/// The step of the name and the notes. Each row tells how suggestions use it, so the step has no
+/// body.
 fn about(context: &SetupContext<'_>) -> StepContent {
+    StepContent {
+        sections: vec![context.general.writer_section(context.translations)],
+        ..StepContent::new("setup-about-title")
+    }
+}
+
+/// The step of what suggestions can use. Each switch tells what it gives, so the step has no body.
+fn sources(context: &SetupContext<'_>) -> StepContent {
     let translations = context.translations;
     let switch = |id: &'static str, icon, (label, description): (&str, &str), is_on| {
         Row::Switch(Switch {
@@ -454,7 +473,7 @@ fn about(context: &SetupContext<'_>) -> StepContent {
         })
     };
     let sources = Section {
-        heading: Some(translations.text("setup-sources-heading")),
+        heading: None,
         back: None,
         rows: vec![
             switch(
@@ -479,8 +498,8 @@ fn about(context: &SetupContext<'_>) -> StepContent {
         footer: Some(translations.text("setup-sources-footer")),
     };
     StepContent {
-        sections: vec![context.general.writer_section(translations), sources],
-        ..StepContent::new("setup-about-title", "setup-about-body")
+        sections: vec![sources],
+        ..StepContent::new("setup-sources-title")
     }
 }
 

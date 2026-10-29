@@ -39,9 +39,10 @@ const LARGE_TITLE_SIZE: CGFloat = 26.0;
 fn hero(step: SetupStep) -> (&'static str, Retained<NSColor>) {
     match step {
         SetupStep::Welcome => ("character.cursor.ibeam", NSColor::systemBlueColor()),
-        SetupStep::Model => ("arrow.down.circle", NSColor::systemIndigoColor()),
-        SetupStep::Permission => ("hand.raised", NSColor::systemOrangeColor()),
         SetupStep::About => ("person.text.rectangle", NSColor::systemGreenColor()),
+        SetupStep::Sources => ("text.viewfinder", NSColor::systemPurpleColor()),
+        SetupStep::Permission => ("hand.raised", NSColor::systemOrangeColor()),
+        SetupStep::Model => ("arrow.down.circle", NSColor::systemIndigoColor()),
         SetupStep::Ready => ("checkmark.circle", NSColor::systemTealColor()),
     }
 }
@@ -113,7 +114,15 @@ impl StepView {
     pub(super) fn render(&mut self, view: &SetupView, binder: &mut Binder<'_>) {
         show_hero(&self.hero, view.step, &view.title);
         set_text(&self.title, &view.title);
-        set_text(&self.body, &view.body);
+        set_text(&self.body, view.body.as_deref().unwrap_or_default());
+        self.body.setHidden(view.body.is_none());
+        let title_spacing = if view.body.is_some() {
+            TITLE_SPACING
+        } else {
+            PART_SPACING
+        };
+        self.content
+            .setCustomSpacing_afterView(title_spacing, &self.title);
         self.demo.render(view.demo.as_ref());
         self.sections_stack.setHidden(view.sections.is_empty());
         self.sections.render(&view.sections, binder);

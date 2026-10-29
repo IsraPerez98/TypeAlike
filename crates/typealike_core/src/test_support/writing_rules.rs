@@ -131,8 +131,8 @@ impl SetupView {
             UiText::name(&self.window_title),
             UiText::name(&self.progress.text),
             UiText::name(&self.title),
-            UiText::prose(&self.body),
         ];
+        texts.extend(self.body.iter().map(UiText::prose));
         texts.extend(self.sections.iter().flat_map(section_texts));
         texts.extend(self.footnote.iter().map(UiText::prose));
         texts.extend(self.back.iter().map(button_text));

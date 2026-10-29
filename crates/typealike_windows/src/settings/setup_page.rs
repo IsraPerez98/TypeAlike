@@ -274,14 +274,16 @@ impl SetupPage {
                 .automation_heading_level(AutomationHeadingLevel::Level1)
                 .margin(TITLE_MARGIN),
         );
-        let body = keyed(
-            "body",
-            TextBlock::new()
-                .text(&view.body)
-                .font_size(BODY_SIZE)
-                .opacity(BODY_OPACITY)
-                .text_wrapping(TextWrapping::Wrap),
-        );
+        let body = view.body.as_ref().map(|body| {
+            keyed(
+                "body",
+                TextBlock::new()
+                    .text(body)
+                    .font_size(BODY_SIZE)
+                    .opacity(BODY_OPACITY)
+                    .text_wrapping(TextWrapping::Wrap),
+            )
+        });
         let demo = view.demo.as_ref().map(|demo| {
             keyed(
                 "demo",
@@ -301,8 +303,9 @@ impl SetupPage {
             .spacing(CARD_GAP)
             .max_width(CONTENT_MAX_WIDTH)
             .keyed_children(
-                [picture, title, body]
+                [picture, title]
                     .into_iter()
+                    .chain(body)
                     .chain(demo)
                     .chain(sections)
                     .chain(footnote),
@@ -662,7 +665,7 @@ mod tests {
                 text: String::new(),
             },
             title: String::new(),
-            body: String::new(),
+            body: None,
             demo: None,
             sections: Vec::new(),
             footnote: None,

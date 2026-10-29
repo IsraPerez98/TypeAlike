@@ -61,7 +61,7 @@ pub(super) fn step_transition(
     step: SetupStep,
     motion: Motion,
 ) -> Option<StepTransition> {
-    let edge = match position(step).cmp(&position(shown?)) {
+    let edge = match step.cmp(&shown?) {
         Ordering::Equal => return None,
         Ordering::Greater => Edge::Trailing,
         Ordering::Less => Edge::Leading,
@@ -77,16 +77,6 @@ fn slide_start(edge: Edge) -> CGFloat {
     match edge {
         Edge::Leading => -SLIDE_DISTANCE,
         Edge::Trailing => SLIDE_DISTANCE,
-    }
-}
-
-fn position(step: SetupStep) -> u8 {
-    match step {
-        SetupStep::Welcome => 0,
-        SetupStep::Model => 1,
-        SetupStep::Permission => 2,
-        SetupStep::About => 3,
-        SetupStep::Ready => 4,
     }
 }
 
@@ -144,14 +134,14 @@ mod tests {
 
     #[test]
     fn next_step_slides_in_from_the_trailing_edge() {
-        let transition = step_transition(Some(SetupStep::Model), SetupStep::Permission, Motion::Full);
+        let transition = step_transition(Some(SetupStep::Sources), SetupStep::Permission, Motion::Full);
 
         assert_eq!(transition, Some(StepTransition::Slide(Edge::Trailing)));
     }
 
     #[test]
     fn step_before_slides_in_from_the_leading_edge() {
-        let transition = step_transition(Some(SetupStep::About), SetupStep::Model, Motion::Full);
+        let transition = step_transition(Some(SetupStep::Model), SetupStep::Sources, Motion::Full);
 
         assert_eq!(transition, Some(StepTransition::Slide(Edge::Leading)));
     }

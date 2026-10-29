@@ -50,7 +50,7 @@ There are two kinds of UI:
 
 ## Components
 
-- **Setup window.** A window of its own for the first start: the picture of the step (a Fluent color icon on Windows, an SF Symbol on macOS), the title, the body, the rows of the settings window and a footer with a dot for each step, Back and Next. A step slides in with a short fade, and only fades when the OS reduces motion. A demo shows a suggestion as it shows at the caret. No logo and no brand color.
+- **Setup window.** A window of its own for the first start: the picture of the step (a Fluent color icon on Windows, an SF Symbol on macOS), the title, a body only when the rows do not tell what the step is for, the rows of the settings window and a footer with a dot for each step, Back and Next. A step slides in with a short fade, and only fades when the OS reduces motion. A demo shows a suggestion as it shows at the caret. The window has a fixed size in the center of the screen, and each step fits in it without a scroll bar. No logo and no brand color.
 - **Rows of the settings window.** Core gives each page as sections and rows (`settings_window::view`). Each platform has one renderer for each kind of row: switch, picker, text area, text line, text field, item, note, loading text, message and link. A link is a quiet button with no card, for an option that most users do not need. A new setting needs no platform code.
 - **Suggestion.** Inline text after the caret. It never takes the focus or a click, and it hides at once when the caret moves or the focus changes.
 - **Card below the caret.** The end of the typed word, then the suggestion, when text follows the caret on its line.

@@ -170,11 +170,11 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
             step: SetupStep::Welcome,
             progress: StepProgress {
                 number: 1,
-                count: 4,
-                text: "Step 1 of 4".to_owned(),
+                count: 5,
+                text: "Step 1 of 5".to_owned(),
             },
             title: "Welcome to TypeAlike".to_owned(),
-            body: "TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.".to_owned(),
+            body: Some("TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.".to_owned()),
             demo: Some(Demo {
                 typed: "Thanks for the quick reply. I will send you the".to_owned(),
                 next_part: " report".to_owned(),
@@ -222,7 +222,7 @@ fn os_that_asks_for_accessibility_adds_the_permission_step() {
 
     let counts = cases.map(|fixture| fixture.view(&SetupFlow::new()).progress.count);
 
-    assert_eq!(counts, [4, 5]);
+    assert_eq!(counts, [5, 6]);
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn next_goes_through_each_step_in_order() {
     };
     let mut flow = SetupFlow::new();
 
-    let steps = [(); 4].map(|()| {
+    let steps = [(); 5].map(|()| {
         fixture.act(&mut flow, SetupAction::Next);
         fixture.view(&flow).step
     });
@@ -241,9 +241,10 @@ fn next_goes_through_each_step_in_order() {
     assert_eq!(
         steps,
         [
-            SetupStep::Model,
-            SetupStep::Permission,
             SetupStep::About,
+            SetupStep::Sources,
+            SetupStep::Permission,
+            SetupStep::Model,
             SetupStep::Ready
         ]
     );
@@ -251,12 +252,24 @@ fn next_goes_through_each_step_in_order() {
 
 #[test]
 fn back_goes_to_the_step_before() {
+    let fixtures = [Fixture::new(), Fixture::without_accessibility()];
+
+    let steps = fixtures.map(|fixture| {
+        let mut flow = flow_at(SetupStep::Model);
+        fixture.act(&mut flow, SetupAction::Back);
+        fixture.view(&flow).step
+    });
+
+    assert_eq!(steps, [SetupStep::Sources, SetupStep::Permission]);
+}
+
+#[test]
+fn step_that_the_os_does_not_have_counts_as_the_step_before_it() {
     let fixture = Fixture::new();
-    let mut flow = flow_at(SetupStep::About);
 
-    fixture.act(&mut flow, SetupAction::Back);
+    let progress = fixture.view(&flow_at(SetupStep::Permission)).progress;
 
-    assert_eq!(fixture.view(&flow).step, SetupStep::Model);
+    assert_eq!((progress.number, progress.count), (3, 5));
 }
 
 #[test]
@@ -277,13 +290,17 @@ fn model_step_shows_the_backend_then_the_recommended_model_then_the_other_models
     assert_eq!(
         (
             view.title.as_str(),
+            view.body.as_deref(),
             section_starts(&view),
             view.sections[1].footer.as_deref()
         ),
         (
             "Download the model",
+            None,
             vec!["backend", "Qwen3.5 0.8B", OTHER_MODELS],
-            Some("You download the model one time. The setup continues when the download finishes.")
+            Some(
+                "TypeAlike needs this model to write suggestions. You download it one time. The setup continues when the download finishes."
+            )
         )
     );
 }
@@ -456,11 +473,31 @@ fn permission_step_shows_only_accessibility() {
 }
 
 #[test]
-fn about_step_shows_the_writer_and_what_suggestions_can_use() {
+fn about_step_shows_only_the_name_and_the_notes() {
+    let fixture = Fixture::new();
+
+    let view = fixture.view(&flow_at(SetupStep::About));
+
+    assert_eq!(
+        (
+            view.title.as_str(),
+            view.body.as_deref(),
+            view.sections.as_slice()
+        ),
+        (
+            "Tell TypeAlike about you",
+            None,
+            [fixture.general.writer_section(&english())].as_slice()
+        )
+    );
+}
+
+#[test]
+fn sources_step_shows_what_suggestions_can_use() {
     let mut fixture = Fixture::new();
     fixture.personalization.history = HistoryAccess::Off;
 
-    let view = fixture.view(&flow_at(SetupStep::About));
+    let view = fixture.view(&flow_at(SetupStep::Sources));
 
     let switches: Vec<(&str, bool)> = rows(&view)
         .into_iter()
@@ -470,9 +507,10 @@ fn about_step_shows_the_writer_and_what_suggestions_can_use() {
         })
         .collect();
     assert_eq!(
-        (view.sections[0].clone(), switches),
+        (view.title.as_str(), view.body.as_deref(), switches),
         (
-            fixture.general.writer_section(&english()),
+            "What suggestions can use",
+            None,
             vec![(HISTORY, false), (CLIPBOARD, true), (SCREEN_TEXT, true)]
         )
     );
@@ -485,10 +523,10 @@ fn ready_step_tells_where_to_try_typealike_and_where_its_icon_is() {
     let view = fixture.view(&flow_at(SetupStep::Ready));
 
     assert_eq!(
-        (view.title.as_str(), view.body.as_str(), view.footnote, view.next),
+        (view.title.as_str(), view.body.as_deref(), view.footnote, view.next),
         (
             "TypeAlike is ready",
-            "Try it now in any app, such as your email or a chat.",
+            Some("Try it now in any app, such as your email or a chat."),
             Some("TypeAlike stays in the notification area of the taskbar. Use its icon to pause suggestions or to open the settings.".to_owned()),
             button(NEXT, "Finish setup", true),
         )
@@ -571,9 +609,10 @@ fn each_step_follows_the_writing_rules() {
     ];
     let steps = [
         SetupStep::Welcome,
-        SetupStep::Model,
-        SetupStep::Permission,
         SetupStep::About,
+        SetupStep::Sources,
+        SetupStep::Permission,
+        SetupStep::Model,
         SetupStep::Ready,
     ];
 
@@ -609,17 +648,17 @@ fn setup_shows_in_spanish() {
         (view.title.as_str(), view.progress.text.as_str(), view.language),
         (
             "Te damos la bienvenida a TypeAlike",
-            "Paso 1 de 4",
+            "Paso 1 de 5",
             UiLanguage::Spanish
         )
     );
 }
 
 #[test]
-fn about_step_tells_what_uses_the_internet() {
+fn sources_step_tells_what_uses_the_internet() {
     let fixture = Fixture::new();
 
-    let view = fixture.view(&flow_at(SetupStep::About));
+    let view = fixture.view(&flow_at(SetupStep::Sources));
 
     assert_eq!(
         view.sections.last().and_then(|section| section.footer.as_deref()),
