@@ -1,7 +1,8 @@
 //! The content of the setup window: the picture, the title and the body of the step, the demo of
 //! a suggestion, the sections of the step as on a settings page, a footnote, and a
 //! footer with the progress and the buttons. A new step slides in and the demo types its text,
-//! unless the animation effects of Windows are off.
+//! unless the animation effects of Windows are off. The window has a fixed size in the center of the
+//! main monitor, so the content of each step fits in it.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,6 +16,7 @@ use windows_reactor::{
     ViewContext, WindowBackdrop, WindowVisuals, keyed,
 };
 
+use super::fixed_window::{Size, WindowPlace, fix_size};
 use super::icons::{setup_glyph, setup_picture};
 use super::layout::secondary_text;
 use super::page::Renderer;
@@ -22,6 +24,10 @@ use super::typed_texts::TypedTexts;
 use super::{RowMessage, on_row_message, setup_dropped, setup_opened};
 use crate::system_theme::{Contrast, SystemTheme, are_animations_on};
 
+const WINDOW_SIZE: Size = Size {
+    width: 720,
+    height: 720,
+};
 const PICTURE_SIZE: f64 = 56.0;
 const GLYPH_SIZE: f64 = 48.0;
 const TITLE_SIZE: f64 = 28.0;
@@ -84,6 +90,8 @@ pub(super) enum SetupMessage {
     DemoTick,
     /// The time of a change of the step is over, and the buttons count again.
     Turned,
+    /// The window got its fixed size, or the change of its frame failed.
+    Fixed(windows::core::Result<()>),
 }
 
 impl From<RowMessage> for SetupMessage {
@@ -197,6 +205,7 @@ impl DemoFrame {
 /// The content of the setup window.
 pub(super) struct SetupPage {
     view: Option<SetupView>,
+    place: WindowPlace,
     /// The text that the user typed in each field, as on a settings page.
     typed: TypedTexts,
     /// No row of the setup shows an app, so this stays empty.
@@ -549,6 +558,7 @@ impl Component for SetupPage {
         let motion = Motion::of_system();
         let mut page = Self {
             view: None,
+            place: WindowPlace::centered(WINDOW_SIZE),
             typed: TypedTexts::default(),
             app_icons: HashMap::new(),
             contrast: SystemTheme::read().contrast,
@@ -561,6 +571,9 @@ impl Component for SetupPage {
         };
         if let Some(view) = setup_opened(context.sender()) {
             page.show(view, context);
+        }
+        if !context.run_window(|window| SetupMessage::Fixed(fix_size(&window))) {
+            tracing::warn!("failed to ask for the fixed size of the setup window");
         }
         page
     }
@@ -582,6 +595,10 @@ impl Component for SetupPage {
             SetupMessage::Row(message) if self.turn_timer.is_some() && is_press(&message) => {}
             SetupMessage::Row(message) => on_row_message(&mut self.typed, message),
             SetupMessage::Turned => self.turn_timer = None,
+            SetupMessage::Fixed(Ok(())) => {}
+            SetupMessage::Fixed(Err(error)) => {
+                tracing::warn!(%error, "failed to fix the size of the setup window");
+            }
             SetupMessage::Enter => {
                 self.entrance = Entrance::Entered;
                 self.entrance_timer = None;
@@ -594,7 +611,10 @@ impl Component for SetupPage {
     }
 
     fn view(&self, _input: &(), context: &mut ViewContext<'_, Self>) -> View {
-        context.window_visuals(WindowVisuals::new().backdrop(WindowBackdrop::Mica));
+        context.window_visuals(
+            self.place
+                .applied_to(WindowVisuals::new().backdrop(WindowBackdrop::Mica)),
+        );
         let Some(view) = &self.view else {
             return context.window_frame("", Grid::new());
         };

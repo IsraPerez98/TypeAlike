@@ -4,6 +4,7 @@
 //! state of the windows.
 
 mod app_icon;
+mod fixed_window;
 mod icons;
 mod layout;
 mod page;
@@ -42,10 +43,6 @@ const WINDOW_HEIGHT: f64 = 720.0;
 const MIN_WINDOW_WIDTH: f64 = 640.0;
 const MIN_WINDOW_HEIGHT: f64 = 480.0;
 const NAVIGATION_WIDTH: f64 = 280.0;
-const SETUP_WIDTH: f64 = 720.0;
-const SETUP_HEIGHT: f64 = 660.0;
-const MIN_SETUP_WIDTH: f64 = 560.0;
-const MIN_SETUP_HEIGHT: f64 = 480.0;
 
 /// What the user did in a window of the settings thread.
 #[derive(Debug)]
@@ -265,10 +262,7 @@ fn open_or_show_setup(view: SetupView, context: &AppContext) {
     if should_open != Some(true) {
         return;
     }
-    let policy = WindowPolicy::new()
-        .title(title)
-        .client_size(SETUP_WIDTH, SETUP_HEIGHT)
-        .minimum_client_size(MIN_SETUP_WIDTH, MIN_SETUP_HEIGHT);
+    let policy = WindowPolicy::new().title(title);
     if let Err(error) = context.open_component_window_with_policy::<SetupPage>((), policy) {
         tracing::warn!(%error, "failed to open the setup window");
         with_host(|host| host.setup = PageState::Closed);

@@ -92,6 +92,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Settings-app style: Mica base layer across the whole window and the title bar, the navigation at the left, content as cards.
 - Single instance. Reopen activates the open window. Close drops the window and its state. The reactor app keeps running for the next open.
 - The window opens at 1000 x 720 DIPs, at least 640 x 480 DIPs (`WindowPolicy`).
+- The setup window has a fixed size in the center of the work area of the main monitor: no resize frame and no maximize button (`settings/fixed_window.rs`). Each step fits in it without a scroll bar, also in the longest translation. Measure a new or longer step in each language.
 
 ## Accessibility
 - WinUI controls bring their UIA role, keyboard focus, focus visuals and Tab order. Never replace a control with drawing only.
