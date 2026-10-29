@@ -25,6 +25,9 @@ fn examples_with(
 ) -> Vec<String> {
     let texts = session_texts(entries, surroundings, &shared());
     examples(&texts, surroundings, screen, matching_examples)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect()
 }
 
 fn examples_in(entries: &[HistoryEntry], surroundings: &Surroundings) -> Vec<String> {

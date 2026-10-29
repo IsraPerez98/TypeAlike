@@ -12,8 +12,15 @@ fn notes(text: &str) -> Writer<'_> {
 
 fn examples<'text>(examples: &[&str]) -> Writer<'text> {
     Writer {
-        examples: examples.iter().map(|text| (*text).to_owned()).collect(),
+        examples: examples.iter().map(|text| example(text)).collect(),
         ..Writer::default()
+    }
+}
+
+fn example(text: &str) -> Example {
+    Example {
+        text: text.to_owned(),
+        days_ago: None,
     }
 }
 
@@ -67,7 +74,7 @@ fn debug_of_the_writer_hides_the_text() {
     let writer = Writer {
         notes: "I am a nurse.",
         name: "Sara Novak",
-        examples: vec!["Cheers,\nTom".to_owned()],
+        examples: vec![example("Cheers,\nTom")],
     };
 
     let debug = format!("{writer:?}");
@@ -370,6 +377,28 @@ fn earlier_writing_goes_between_the_place_and_the_clipboard() {
         preface,
         framed(
             "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom”\n“See you soon!”\nText on my clipboard: “1Z999”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
+        )
+    );
+}
+
+#[test]
+fn example_tells_how_many_days_ago_the_writer_wrote_it() {
+    let writer = Writer {
+        examples: [0, 1, 4, 20]
+            .map(|days_ago| Example {
+                text: "See you soon!".to_owned(),
+                days_ago: Some(days_ago),
+            })
+            .to_vec(),
+        ..Writer::default()
+    };
+
+    let preface = preface(&writer, &Surroundings::default(), None, None);
+
+    assert_eq!(
+        preface,
+        framed(
+            "My earlier writing:\n(today) “See you soon!”\n(yesterday) “See you soon!”\n(4 days ago) “See you soon!”\n(2 weeks ago) “See you soon!”"
         )
     );
 }

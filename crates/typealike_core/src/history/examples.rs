@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use super::entry::HistoryEntry;
 use super::store::SessionTexts;
 use super::words::{is_distinctive_word, is_within_edits, small_count, words};
-use crate::desktop::{FieldText, ScreenText, Surroundings};
+use crate::desktop::{FieldText, ScreenText, Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, start_at_word};
 use crate::inference::TokenCount;
 use crate::place::{self, Format, Place};
@@ -49,13 +49,13 @@ const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_STA
 /// the start and the end of its text. A text that the field holds now is no example, and two
 /// examples never hold the same text or near copies of one text. Among texts that match the same,
 /// the text with more copies in its place comes first, so that the spelling that the writer uses
-/// most stays.
+/// most stays. Each example comes with the time of its text.
 pub(crate) fn examples(
     texts: &SessionTexts<'_>,
     surroundings: &Surroundings,
     screen: Option<&ScreenText>,
     matching_examples: usize,
-) -> Vec<String> {
+) -> Vec<(String, Option<Timestamp>)> {
     let field = surroundings.field_text.as_ref();
     let in_place = newest_not_in_field(&texts.local, field);
     let elsewhere = newest_not_in_field(&texts.wide, field);
@@ -89,7 +89,7 @@ pub(crate) fn examples(
     picked.sort_by_key(|&(index, _)| index);
     picked
         .into_iter()
-        .map(|(_, entry)| example_of(&entry.text))
+        .map(|(_, entry)| (example_of(&entry.text), entry.written_at))
         .collect()
 }
 

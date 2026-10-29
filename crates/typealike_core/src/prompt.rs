@@ -33,6 +33,14 @@ const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 const HISTORY_TOKENS: TokenCount = TokenCount(200);
 
+/// An earlier text of the writer that a prompt shows.
+#[derive(Clone)]
+pub(crate) struct Example {
+    pub(crate) text: String,
+    /// The days since the writer wrote the text, if known.
+    pub(crate) days_ago: Option<u64>,
+}
+
 /// What TypeAlike knows about the person who writes. `Debug` shows only the length of each text
 /// and the number of examples, so logs never hold what the user wrote.
 #[derive(Clone, Default)]
@@ -42,7 +50,7 @@ pub(crate) struct Writer<'text> {
     /// The name of the writer.
     pub(crate) name: &'text str,
     /// Earlier texts of the writer, oldest first.
-    pub(crate) examples: Vec<String>,
+    pub(crate) examples: Vec<Example>,
 }
 
 impl fmt::Debug for Writer<'_> {
@@ -57,10 +65,10 @@ impl fmt::Debug for Writer<'_> {
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
-/// line, the place where the user types, the earlier texts of the `writer`, the `clipboard` text,
-/// the text below the field on the `screen`, the text above the field and the text after the
-/// caret. The text above the field comes late, so the messages of a chat come just before the
-/// reply. The text after the caret comes last, next to the heading, so that the model writes text
+/// line, the place where the user types, the earlier texts of the `writer` with their age, the
+/// `clipboard` text, the text below the field on the `screen`, the text above the field and the
+/// text after the caret. The text above the field comes late, so the messages of a chat come just
+/// before the reply. The text after the caret comes last, next to the heading, so that the model writes text
 /// that leads into it. Each part that is empty is left out. The parts fill [`PREFACE_TOKENS`] in
 /// the order of their priority: the frame, the notes, the text after the caret, the place, the
 /// screen, the earlier texts and the clipboard.
@@ -78,7 +86,7 @@ struct PrefaceParts<'text> {
     notes: Option<String>,
     name: Option<String>,
     place: Option<String>,
-    examples: Vec<&'text str>,
+    examples: Vec<(&'text str, Option<u64>)>,
     clipboard: Option<&'text str>,
     below: String,
     after_caret: Option<&'text str>,
@@ -148,7 +156,10 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             let quoted = parts
                 .examples
                 .iter()
-                .map(|text| format!("“{text}”"))
+                .map(|&(text, days_ago)| match days_ago {
+                    Some(days_ago) => format!("({}) “{text}”", age_label(days_ago)),
+                    None => format!("“{text}”"),
+                })
                 .collect::<Vec<_>>();
             format!("My earlier writing:\n{}", quoted.join("\n"))
         }),
@@ -164,6 +175,16 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             .map(|text| format!("The text that comes right after the part that I am typing now: “{text}”")),
     ];
     lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
+}
+
+/// Returns how long ago a text of `days_ago` days is, in words.
+fn age_label(days_ago: u64) -> String {
+    match days_ago {
+        0 => "today".to_owned(),
+        1 => "yesterday".to_owned(),
+        2..14 => format!("{days_ago} days ago"),
+        _ => format!("{} weeks ago", days_ago / 7),
+    }
 }
 
 /// The estimated tokens that the preface can still use.
@@ -183,19 +204,20 @@ impl Budget {
     }
 
     /// Returns the ends of `examples` that fit in [`HISTORY_TOKENS`] and in the budget, each from
-    /// the start of a word, and spends their tokens. The newest examples keep the most text.
-    fn take_examples<'text>(&mut self, examples: &'text [String]) -> Vec<&'text str> {
+    /// the start of a word with its days ago, and spends their tokens. The newest examples keep
+    /// the most text.
+    fn take_examples<'text>(&mut self, examples: &'text [Example]) -> Vec<(&'text str, Option<u64>)> {
         let mut left = self.left(HISTORY_TOKENS);
         let mut kept = examples
             .iter()
             .rev()
             .map(|example| {
-                let end = from_word(example, last_tokens(example, left));
+                let end = from_word(&example.text, last_tokens(&example.text, left));
                 left = TokenCount(left.0.saturating_sub(estimated_tokens(end).0));
                 self.spend(end);
-                end
+                (end, example.days_ago)
             })
-            .filter(|end| !end.is_empty())
+            .filter(|(end, _)| !end.is_empty())
             .collect::<Vec<_>>();
         kept.reverse();
         kept

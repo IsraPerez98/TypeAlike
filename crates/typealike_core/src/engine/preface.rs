@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings};
 use crate::history;
-use crate::prompt::{self, Writer};
+use crate::prompt::{self, Example, Writer};
 use crate::settings::{ClipboardAccess, OcrLevel, ScreenTextSettings};
 
 use super::{Engine, read_surroundings};
@@ -160,7 +160,16 @@ impl Engine {
         };
         let screen = self.screen_reads.text();
         let texts = history::session_texts(&self.history, surroundings, &self.personalization);
-        let examples = history::examples(&texts, surroundings, screen, self.matching_examples);
+        let now = desktop.now();
+        let examples = history::examples(&texts, surroundings, screen, self.matching_examples)
+            .into_iter()
+            .map(|(text, written_at)| Example {
+                text,
+                days_ago: now
+                    .zip(written_at)
+                    .map(|(now, written_at)| now.day().saturating_sub(written_at.day())),
+            })
+            .collect();
         let writer = Writer {
             notes: &self.writer_notes.0,
             name: &self.writer_name.0,
