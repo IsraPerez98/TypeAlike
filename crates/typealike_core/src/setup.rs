@@ -1,6 +1,6 @@
 //! The setup: a window that shows when TypeAlike starts for the first time and after a reset of
 //! the settings, until the user finishes it. It tells what TypeAlike does, asks for the name and
-//! the notes of the user, lets the user pick what suggestions use, asks for the permission of the
+//! the notes of the user, lets the user pick what suggestions use, asks for the permissions of the
 //! OS, and downloads the model. Its rows are the rows of the settings window, so each platform
 //! renders them as in the settings window and sends back each [`SettingsInput`].
 
@@ -63,8 +63,8 @@ pub enum SetupStep {
     About,
     /// What suggestions can use: the earlier writing, the copied text and the screen text.
     Sources,
-    /// The permission of the OS that suggestions need. Only an OS that asks the user for a
-    /// permission has this step.
+    /// The permissions of the OS: Accessibility, which suggestions need, and the screen capture for
+    /// the OCR. Only an OS that asks the user for Accessibility has this step.
     Permission,
     /// The download of the model.
     Model,
@@ -436,11 +436,14 @@ fn recommended_rows(context: &SetupContext<'_>) -> Vec<Row> {
         .collect()
 }
 
+/// The step of the permissions: Accessibility, and the screen capture for the OCR while the screen
+/// text is on, as the Copied and screen text pane asks for it.
 fn permission(context: &SetupContext<'_>) -> StepContent {
+    let is_screen_text_on = context.screen_text.access == ScreenTextAccess::Allowed;
     let rows = context
         .permissions
         .iter()
-        .filter(|&&(permission, _)| permission == Permission::Accessibility)
+        .filter(|&&(permission, _)| permission != Permission::ScreenRecording || is_screen_text_on)
         .map(|&(permission, state)| permission_row(permission, state, context.translations))
         .collect();
     StepContent {

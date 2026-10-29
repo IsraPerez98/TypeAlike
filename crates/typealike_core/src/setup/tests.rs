@@ -453,23 +453,54 @@ fn permission_step_waits_for_accessibility() {
     assert_eq!((missing.next.is_enabled, granted.next.is_enabled), (false, true));
 }
 
-#[test]
-fn permission_step_shows_only_accessibility() {
-    let fixture = Fixture::without_accessibility();
-
-    let view = fixture.view(&flow_at(SetupStep::Permission));
-
-    let labels: Vec<&str> = rows(&view)
+fn permission_labels(view: &SetupView) -> Vec<&str> {
+    rows(view)
         .into_iter()
         .filter_map(|row| match row {
             Row::Permission(PermissionRow { label, .. }) => Some(label.as_str()),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+#[test]
+fn permission_step_asks_for_screen_recording_while_the_screen_text_is_on() {
+    let fixture = Fixture::without_accessibility();
+
+    let view = fixture.view(&flow_at(SetupStep::Permission));
+
     assert_eq!(
-        (view.title.as_str(), labels),
-        ("Give TypeAlike access to text fields", vec!["Accessibility"])
+        (view.title.as_str(), permission_labels(&view)),
+        (
+            "Give TypeAlike access to text fields",
+            vec!["Accessibility", "Screen & System Audio Recording"]
+        )
     );
+}
+
+#[test]
+fn permission_step_shows_only_accessibility_while_the_screen_text_is_off() {
+    let mut fixture = Fixture::without_accessibility();
+    fixture.screen_text.access = ScreenTextAccess::Denied;
+
+    let view = fixture.view(&flow_at(SetupStep::Permission));
+
+    assert_eq!(permission_labels(&view), vec!["Accessibility"]);
+}
+
+#[test]
+fn permission_step_does_not_wait_for_screen_recording() {
+    let fixture = Fixture {
+        permissions: vec![
+            (Permission::Accessibility, PermissionState::Granted),
+            (Permission::ScreenRecording, PermissionState::Missing),
+        ],
+        ..Fixture::without_accessibility()
+    };
+
+    let view = fixture.view(&flow_at(SetupStep::Permission));
+
+    assert!(view.next.is_enabled);
 }
 
 #[test]
