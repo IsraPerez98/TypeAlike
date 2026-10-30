@@ -35,6 +35,8 @@ const DAY_TIME_JOINS: [&str; 4] = ["at", "a", "las", "la"];
 struct Candidate {
     text: String,
     frame: ScreenRect,
+    /// Whether the line is the header of a chat message. Its text is then the name in the header.
+    is_header: bool,
 }
 
 /// The lines of the screen that the prompt shows, each side of the caret in reading order. `Debug`
@@ -161,6 +163,19 @@ pub(crate) fn nearby_lines(
     }
 }
 
+/// Returns the text of the lines of `screen` in the column of the field above the caret, in
+/// reading order, without the chat headers, the noise and the lines that repeat `field_text`: the
+/// messages above the input box of a chat.
+pub(crate) fn message_lines_above(screen: &ScreenText, field_text: Option<&FieldText>) -> Vec<String> {
+    let caret = caret_of(screen);
+    let mut messages = candidates(screen, field_text, LineScope::Column)
+        .into_iter()
+        .filter(|candidate| !candidate.is_header && is_above(candidate.frame, caret))
+        .collect::<Vec<_>>();
+    messages.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
+    messages.into_iter().map(|candidate| candidate.text).collect()
+}
+
 /// Returns the lines of `screen` in `scope` that the prompt can show: without the noise, the lines
 /// inside the field and the lines that repeat `field_text`. A chat header gives only its name.
 fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineScope) -> Vec<Candidate> {
@@ -170,9 +185,17 @@ fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineSc
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
         .map(|line| {
             let text = one_line(&line.text);
-            Candidate {
-                text: header_name(&text).unwrap_or(text),
-                frame: line.frame,
+            match header_name(&text) {
+                Some(name) => Candidate {
+                    text: name,
+                    frame: line.frame,
+                    is_header: true,
+                },
+                None => Candidate {
+                    text,
+                    frame: line.frame,
+                    is_header: false,
+                },
             }
         })
         .filter(|candidate| {
@@ -691,5 +714,20 @@ mod tests {
         let kept = kept_texts(messages);
 
         assert_eq!(kept, messages.map(|message| texts(&[message])));
+    }
+
+    #[test]
+    fn message_lines_are_the_column_lines_above_the_caret_without_the_headers() {
+        let screen = screen(vec![
+            line("General channel", rect(0, 700, 250, 730)),
+            above("Dana Kim 9:58", 4),
+            above("Standup in 5?", 3),
+            above("same room as yesterday", 2),
+            line("Sent from my phone", rect(300, 980, 900, 1000)),
+        ]);
+
+        let lines = message_lines_above(&screen, None);
+
+        assert_eq!(lines, texts(&["Standup in 5?", "same room as yesterday"]));
     }
 }

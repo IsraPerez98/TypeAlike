@@ -29,7 +29,9 @@
 //!   field and its `frame`. A frame is `[left, top, right, bottom]` in pixels of the window.
 //! - `writer`: the name of a store of earlier texts, or `null`. The store is the file
 //!   `writers/NAME.jsonl` next to the case file. Each line is one earlier text with its `text`,
-//!   `app_id` and `domain`, oldest first. The eval loads the store, then adds `history`.
+//!   `app_id` and `domain`, oldest first, and maybe `written_at` and `reply_to`: the message that
+//!   the text answers, as the screen showed it above the field. The eval loads the store, then
+//!   adds `history`.
 //! - `left_out`: the index of a text of the store, from 0, that the history leaves out: the text
 //!   that the case comes from. It can be left out.
 //! - `history`: earlier texts of the same writer, oldest first, after the texts of the store. Each
@@ -180,6 +182,14 @@
 //! such section, and `words` and `history` give no word bias. Each is `on` by default. Compare a
 //! run with one of them off against the run with all on (`--baseline`) to measure the gain of
 //! that section.
+//!
+//! `cases/replies.jsonl` has chats and emails with the stores
+//! `writers/NAME_replies.jsonl`, where each chat and email text has the message that it answers.
+//! The `help` cases answer a message like an earlier message as the writer did then, and the answer
+//! shares no rare word with the message. In the `harm` cases, the message is like an earlier
+//! message, but the answer is new. The `none` cases answer a new message, and the `elsewhere`
+//! cases are in a notes or document app. Run it for a change to the words of the answered
+//! messages.
 
 mod arguments;
 mod case;

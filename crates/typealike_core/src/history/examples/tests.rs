@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::desktop::{Confidence, ScreenLine, ScreenRect};
+use crate::history::reply_words_of;
 use crate::history::store::session_texts;
 use crate::history::test_support::{entry, mail, shared};
 
@@ -431,6 +432,55 @@ fn chat_field(before_caret: &str) -> Surroundings {
 
 const DINNER: &str = "Dinner with Ana and Leo on Friday at eight.";
 const PRINTER: &str = "The printer on the second floor works again.";
+
+fn chat_line(text: &str) -> ScreenText {
+    ScreenText {
+        lines: vec![ScreenLine {
+            text: text.to_owned(),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect::default(),
+        }],
+        ..ScreenText::default()
+    }
+}
+
+fn replying_to(message: &str, entry: HistoryEntry) -> HistoryEntry {
+    HistoryEntry {
+        reply_to: reply_words_of(message),
+        ..entry
+    }
+}
+
+fn large_chat_place() -> Vec<HistoryEntry> {
+    vec![
+        chat(DINNER),
+        chat(PRINTER),
+        replying_to("Standup in 5? Same room", chat("omw, two minutes")),
+        replying_to(
+            "Did you see the game last night?",
+            chat("No, I fell asleep early"),
+        ),
+        chat("Happy birthday! Have a great day"),
+    ]
+}
+
+#[test]
+fn text_whose_answered_message_shares_words_with_the_screen_is_an_example() {
+    let screen = chat_line("Standup moved to the small room today");
+
+    let examples = examples_with(&large_chat_place(), &chat_field("o"), Some(&screen), 1);
+
+    assert_eq!(examples, ["omw, two minutes"]);
+}
+
+#[test]
+fn text_of_another_answered_message_is_no_example() {
+    let screen = chat_line("Are you coming to the barbecue?");
+
+    let examples = examples_with(&large_chat_place(), &chat_field("o"), Some(&screen), 1);
+
+    assert_eq!(examples, Vec::<&str>::new());
+}
 
 #[test]
 fn text_with_more_copies_is_the_first_example_among_texts_that_match_the_same() {

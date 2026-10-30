@@ -64,6 +64,10 @@ impl Engine {
         let Some(entry) = HistoryEntry::of(written, &app.app_id, domain, session.started_at) else {
             return;
         };
+        let entry = HistoryEntry {
+            reply_to: session.reply_to.clone(),
+            ..entry
+        };
         history::add(&mut self.history, entry, finished.origin(), &self.personalization);
         self.has_unsaved_history = true;
     }

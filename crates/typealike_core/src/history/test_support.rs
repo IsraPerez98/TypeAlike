@@ -11,6 +11,7 @@ pub(super) fn entry(text: &str, app_id: &str, domain: Option<&str>) -> HistoryEn
         app_id: app_id.to_owned(),
         domain: domain.map(str::to_owned),
         written_at: None,
+        reply_to: Vec::new(),
     }
 }
 

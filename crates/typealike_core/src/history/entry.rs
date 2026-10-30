@@ -32,6 +32,11 @@ pub struct HistoryEntry {
     /// When the user started to write the text, or `None` when the desktop had no clock or the
     /// text is older than the times of the history.
     pub written_at: Option<Timestamp>,
+    /// The words of the message that the text answers, as [`reply_words_of`] gives them. Empty
+    /// when the text answers no known message.
+    ///
+    /// [`reply_words_of`]: crate::history::reply_words_of
+    pub reply_to: Vec<String>,
 }
 
 impl fmt::Debug for HistoryEntry {
@@ -66,6 +71,7 @@ impl HistoryEntry {
             app_id: app_id.to_owned(),
             domain: domain.map(str::to_owned),
             written_at,
+            reply_to: Vec::new(),
         })
     }
 

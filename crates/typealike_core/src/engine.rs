@@ -228,11 +228,13 @@ impl Engine {
         }
         let session = self.session.take().unwrap_or_else(|| {
             let surroundings = read_surroundings(desktop);
-            Session::new(
+            let mut session = Session::new(
                 self.build_preface(&surroundings, desktop),
                 &surroundings,
                 desktop.now(),
-            )
+            );
+            session.reply_to = self.reply_words(&surroundings);
+            session
         });
         self.session.insert(session)
     }

@@ -134,15 +134,33 @@ impl Engine {
             .as_ref()
             .is_some_and(|session| !session.has_screen_read);
         let has_text = self.screen_reads.text().is_some();
-        let preface =
-            (is_waiting && has_text).then(|| self.build_preface(&read_surroundings(desktop), desktop));
+        let update = (is_waiting && has_text).then(|| {
+            let surroundings = read_surroundings(desktop);
+            (
+                self.build_preface(&surroundings, desktop),
+                self.reply_words(&surroundings),
+            )
+        });
         let Some(session) = &mut self.session else {
             return;
         };
         session.has_screen_read = true;
-        if let Some(preface) = preface.filter(|preface| *preface != session.preface) {
+        let Some((preface, reply_to)) = update else {
+            return;
+        };
+        session.reply_to = reply_to;
+        if preface != session.preface {
             session.use_preface(preface);
         }
+    }
+
+    /// Returns the words of the message that the user answers in the field of `surroundings`, from
+    /// the screen text of the newest read.
+    pub(super) fn reply_words(&self, surroundings: &Surroundings) -> Vec<String> {
+        self.screen_reads
+            .text()
+            .map(|screen| history::reply_words(screen, surroundings, &self.history))
+            .unwrap_or_default()
     }
 
     /// Forgets the screen text and the read that runs, for when another field can have the focus.

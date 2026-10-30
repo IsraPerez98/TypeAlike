@@ -11,7 +11,7 @@ use typealike_core::desktop::{
     Confidence, CopiedText, Desktop, Field, FieldLabels, FieldText, ScreenLine, ScreenRect, ScreenText,
     Surroundings, Timestamp,
 };
-use typealike_core::history::HistoryEntry;
+use typealike_core::history::{HistoryEntry, reply_words_of};
 use typealike_core::key::Key;
 use typealike_core::settings::{HistoryApp, HistoryScope, PersonalizationSettings, Settings};
 
@@ -221,6 +221,9 @@ pub struct CaseEntry {
     /// The seconds since the Unix epoch when the writer wrote the text, if known.
     #[serde(default)]
     written_at: Option<u64>,
+    /// The message that the text answers, if any.
+    #[serde(default)]
+    reply_to: Option<String>,
 }
 
 impl CaseEntry {
@@ -230,6 +233,7 @@ impl CaseEntry {
             app_id: self.app_id.clone(),
             domain: self.domain.clone(),
             written_at: self.written_at.map(Timestamp),
+            reply_to: self.reply_to.as_deref().map(reply_words_of).unwrap_or_default(),
         }
     }
 
@@ -471,8 +475,23 @@ mod tests {
                 app_id: "mail".to_owned(),
                 domain: None,
                 written_at: Some(written_at),
+                reply_to: None,
             })
             .collect()
+    }
+
+    #[test]
+    fn earlier_text_keeps_the_words_of_its_answered_message() {
+        let case: Case = serde_json::from_str(
+            r#"{"id": "case", "app": null, "app_id": null, "window_title": null, "domain": null,
+                "before": "a", "after": "", "clipboard": null, "screen": null, "next": "b",
+                "history": [{"text": "omw", "app_id": "chat", "domain": null, "reply_to": "Standup in 5?"}]}"#,
+        )
+        .unwrap();
+
+        let history = history_of(&case, &BTreeMap::new()).unwrap();
+
+        assert_eq!(history[0].reply_to, ["standup"]);
     }
 
     #[test]

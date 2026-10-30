@@ -71,6 +71,8 @@ pub(super) struct Session {
     pub(super) shown_suggestions: ShownSuggestions,
     /// When the session started, if the desktop has a clock.
     pub(super) started_at: Option<Timestamp>,
+    /// The words of the message that the user answers, from the screen text of the preface.
+    pub(super) reply_to: Vec<String>,
 }
 
 impl Session {
@@ -102,6 +104,7 @@ impl Session {
             field_at_enter: None,
             shown_suggestions: ShownSuggestions::default(),
             started_at,
+            reply_to: Vec::new(),
         }
     }
 

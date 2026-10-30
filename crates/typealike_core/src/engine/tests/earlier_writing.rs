@@ -1,6 +1,6 @@
 //! Tests the earlier writing that a prompt shows and the texts that the history keeps.
 
-use crate::desktop::Timestamp;
+use crate::desktop::{Confidence, ScreenLine, ScreenRead, ScreenRect, ScreenText, Timestamp};
 use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
@@ -98,6 +98,94 @@ fn kept_text_has_the_time_when_its_session_started() {
             written_at: Some(Timestamp(1_793_199_600)),
             ..mail_entry(&format!("{EARLIER_TEXT}d"))
         }])
+    );
+}
+
+const CHAT_APP: &str = "net.whatsapp.WhatsApp";
+
+fn screen_with(line: &str) -> ScreenText {
+    ScreenText {
+        lines: vec![ScreenLine {
+            text: line.to_owned(),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect {
+                left: 0,
+                top: 100,
+                right: 500,
+                bottom: 120,
+            },
+        }],
+        caret: None,
+        field: ScreenRect {
+            left: 0,
+            top: 200,
+            right: 500,
+            bottom: 240,
+        },
+    }
+}
+
+fn read_screen(engine: &mut Engine, line: &str) {
+    let id = engine.start_screen_read().expect("no session waits for a read");
+    engine.on_screen_read(
+        ScreenRead {
+            id,
+            text: Some(screen_with(line)),
+        },
+        &FakeDesktop::default(),
+    );
+}
+
+fn chat_entry(text: &str, reply_to: &[&str]) -> HistoryEntry {
+    HistoryEntry {
+        app_id: CHAT_APP.to_owned(),
+        reply_to: reply_to.iter().map(|&word| word.to_owned()).collect(),
+        ..mail_entry(text)
+    }
+}
+
+#[test]
+fn kept_chat_text_has_the_words_of_the_message_that_it_answers() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    read_screen(&mut engine, "Standup in 5? Same room");
+    let desktop = FakeDesktop::with_field_text(GREETING).in_app(CHAT_APP);
+
+    let saved = finish_typing(&mut engine, &desktop, Suggestion::Ignored);
+
+    assert_eq!(
+        saved,
+        Some(vec![chat_entry(
+            &format!("{EARLIER_TEXT}d"),
+            &["room", "same", "standup"]
+        )])
+    );
+}
+
+#[test]
+fn kept_chat_text_answers_the_message_of_the_screen_read_of_its_session() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    read_screen(&mut engine, "Lunch at noon?");
+    let desktop = FakeDesktop::with_field_text(GREETING).in_app(CHAT_APP);
+    engine.on_key(Key::Char('S'), &desktop);
+    let id = engine
+        .start_screen_read()
+        .expect("the session has no read of its own");
+    engine.on_screen_read(
+        ScreenRead {
+            id,
+            text: Some(screen_with("Standup in 5? Same room")),
+        },
+        &desktop,
+    );
+
+    let saved = finish_typing(&mut engine, &desktop, Suggestion::Ignored);
+
+    assert_eq!(
+        saved,
+        Some(vec![chat_entry(
+            &format!("{GREETING}S{TYPED_TEXT}d"),
+            &["room", "same", "standup"]
+        )])
     );
 }
 

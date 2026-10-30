@@ -47,8 +47,8 @@ const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_STA
 /// rest of the `matching_examples`. A place without texts gets the newest texts of other places
 /// with the same format in the free examples. A text matches when it shares rare words with the
 /// text near the caret, the window, the labels of the field and the lines of the `screen` in the
-/// column of the field. Each example keeps the start and the end of its text. A text that the
-/// field holds now is no example, and two
+/// column of the field, or when the message that it answers shares such words. Each example keeps
+/// the start and the end of its text. A text that the field holds now is no example, and two
 /// examples never hold the same text or near copies of one text. Among texts that match the same,
 /// the text with more copies in its place comes first, so that the spelling that the writer uses
 /// most stays. Each example comes with the time of its text.
@@ -151,7 +151,7 @@ impl Topics {
     fn of(entries: &[&HistoryEntry], surroundings: &Surroundings, screen: Option<&ScreenText>) -> Self {
         let mut holders_by_word = query_words(surroundings, screen);
         for entry in entries {
-            for word in distinct_query_words(&holders_by_word, &entry.text) {
+            for word in matched_words(&holders_by_word, entry) {
                 *holders_by_word.entry(word).or_default() += 1;
             }
         }
@@ -174,13 +174,7 @@ impl Topics {
         }
         let mut scored = candidates
             .iter()
-            .map(|&candidate| {
-                (
-                    self.score(&candidate.1.text),
-                    copies[&copy_key(candidate.1)],
-                    candidate,
-                )
-            })
+            .map(|&candidate| (self.score(candidate.1), copies[&copy_key(candidate.1)], candidate))
             .filter(|(topic_match, _, _)| topic_match.words >= min_words)
             .collect::<Vec<_>>();
         scored.sort_by(|(left, left_copies, _), (right, right_copies, _)| {
@@ -192,11 +186,11 @@ impl Topics {
         scored.into_iter().map(|(_, _, candidate)| candidate).collect()
     }
 
-    /// Returns how well `text` matches. A word that few entries hold weighs more than a word that
+    /// Returns how well `entry` matches. A word that few entries hold weighs more than a word that
     /// many entries hold, but each word weighs something.
-    fn score(&self, text: &str) -> TopicMatch {
+    fn score(&self, entry: &HistoryEntry) -> TopicMatch {
         let entry_count = small_count(self.entry_count);
-        let words = distinct_query_words(&self.holders_by_word, text);
+        let words = matched_words(&self.holders_by_word, entry);
         let mut weight = 0.0;
         for &holders in words.iter().filter_map(|word| self.holders_by_word.get(word)) {
             weight += (entry_count / small_count(holders).max(1.0)).ln_1p();
@@ -240,6 +234,18 @@ fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> Hash
         each_lowercase_word(text, &mut add_distinctive);
     }
     query
+}
+
+/// Returns the words of `query` that the text of `entry` or the message that it answers holds, each
+/// one time.
+fn matched_words(query: &HashMap<String, u32>, entry: &HistoryEntry) -> Vec<String> {
+    let mut words = distinct_query_words(query, &entry.text);
+    for word in &entry.reply_to {
+        if query.contains_key(word) && !words.contains(word) {
+            words.push(word.clone());
+        }
+    }
+    words
 }
 
 /// Returns the words of `query` that `text` holds, each one time, in the order of their first

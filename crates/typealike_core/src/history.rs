@@ -5,6 +5,7 @@ mod entry;
 mod examples;
 mod phrases;
 mod redaction;
+mod reply;
 mod store;
 mod tables;
 #[cfg(test)]
@@ -17,6 +18,8 @@ use std::io;
 
 pub use entry::HistoryEntry;
 pub(crate) use examples::examples;
+pub(crate) use reply::reply_words;
+pub use reply::reply_words_of;
 pub(crate) use store::{FinishedText, HistoryPool, add, own_text, session_texts};
 pub(crate) use tables::HistoryTables;
 pub use word_bias::word_bias_of_counts;
