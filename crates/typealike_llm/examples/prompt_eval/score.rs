@@ -137,6 +137,16 @@ pub struct Outcome {
     /// word, as the model runner gave it, or `None` when no completion came.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typed_log_probability: Option<f64>,
+    /// How sure the model was when it chose the token that writes the start of its completion: the
+    /// natural log of the ratio of the probabilities of the two most likely tokens there, as the
+    /// model runner gave it. `None` when the completion added no text, or when only one token
+    /// could come.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_margin: Option<f64>,
+    /// The entropy in nats of the probabilities of the tokens where the model chose the token that
+    /// writes the start of its completion, or `None` when the completion added no text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_entropy: Option<f64>,
     /// The word that the fix of a typo writes, as [`fixed_word`] gives it, or `None` when no fix
     /// shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]

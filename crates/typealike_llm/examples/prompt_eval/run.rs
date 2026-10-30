@@ -13,13 +13,13 @@ use typealike_core::history::{HistoryEntry, word_bias_of_counts};
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
     Backend, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
-    LogProbability, ModelRunner, WordBias,
+    LogProbability, ModelRunner, TokenChoice, WordBias,
 };
 use typealike_core::key::Key;
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
 use typealike_llm::LlamaCpp;
 
-use crate::arguments::{Arguments, TailCut, WordBiasUse};
+use crate::arguments::{Arguments, FirstWordGateUse, TailCut, WordBiasUse};
 use crate::case::{Case, CaseField, CaseScreen};
 use crate::likelihood::{Continuation, Measured};
 use crate::score::{
@@ -116,6 +116,12 @@ impl CaseRun {
                     .answer
                     .typed_log_probability
                     .map(|log_probability| f64::from(log_probability.0)),
+                first_margin: cold
+                    .answer
+                    .first_choice
+                    .map(|choice| f64::from(choice.margin))
+                    .filter(|margin| margin.is_finite()),
+                first_entropy: cold.answer.first_choice.map(|choice| f64::from(choice.entropy)),
                 is_fix_right: cold.answer.fixed_word.as_ref().map(|word| {
                     *word == intended_word(case.fixed.as_deref().unwrap_or(&case.before), &case.next)
                 }),
@@ -195,6 +201,7 @@ struct Answer {
     prompt: Option<String>,
     word_log_probabilities: Vec<LogProbability>,
     typed_log_probability: Option<LogProbability>,
+    first_choice: Option<TokenChoice>,
     fixed_word: Option<String>,
 }
 
@@ -224,6 +231,7 @@ struct Typing<'case> {
     version: u64,
     word_bias: WordBiasUse,
     tail_cut: TailCut,
+    first_word_gate: FirstWordGateUse,
 }
 
 impl Typing<'_> {
@@ -270,6 +278,7 @@ impl Typing<'_> {
                 prompt: None,
                 word_log_probabilities: Vec::new(),
                 typed_log_probability: None,
+                first_choice: None,
                 fixed_word: None,
             });
         };
@@ -277,7 +286,8 @@ impl Typing<'_> {
             InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
             _ => None,
         };
-        let completion = model.complete(self.with_tail_cut(self.with_case_bias(request)))?;
+        let request = self.with_first_word_gate(self.with_tail_cut(self.with_case_bias(request)));
+        let completion = model.complete(request)?;
         let word_log_probabilities = completion
             .as_ref()
             .map(|completion| completion.word_log_probabilities.clone())
@@ -286,6 +296,10 @@ impl Typing<'_> {
             .as_ref()
             .ok()
             .map(|completion| completion.typed_log_probability);
+        let first_choice = completion
+            .as_ref()
+            .ok()
+            .and_then(|completion| completion.first_choice);
         let reaction = app.on_completion(completion);
         let fixed_word = match &reaction {
             Reaction::ShowFix(fix) => Some(fixed_word(&fix.word).to_owned()),
@@ -296,6 +310,7 @@ impl Typing<'_> {
             prompt,
             word_log_probabilities,
             typed_log_probability,
+            first_choice,
             fixed_word,
         })
     }
@@ -368,6 +383,16 @@ impl Typing<'_> {
         }
         request
     }
+
+    /// Returns `request` without its first word gate when the gate is off.
+    fn with_first_word_gate(&self, mut request: InferenceRequest) -> InferenceRequest {
+        if let (InferenceRequest::Complete { first_word_gate, .. }, FirstWordGateUse::Off) =
+            (&mut request, self.first_word_gate)
+        {
+            *first_word_gate = None;
+        }
+        request
+    }
 }
 
 /// Runs the case of `setup` in a new app: presses its last key, then Tab, then the last key again
@@ -394,6 +419,7 @@ pub fn run_case(
         version,
         word_bias: arguments.word_bias,
         tail_cut: arguments.tail_cut,
+        first_word_gate: arguments.first_word_gate,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, &typing.typed_field) {

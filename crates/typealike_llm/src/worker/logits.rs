@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::vocab::LlamaVocab;
+use typealike_core::inference::TokenChoice;
 
 use super::pieces::TokenPieces;
 use super::words::starts_word;
@@ -110,6 +111,42 @@ pub(super) fn typed_log_probability(logits: &[f32], agreeing: impl Iterator<Item
         .map(|token| (logit_of(logits, token) - highest).exp())
         .sum::<f32>();
     typed.ln() - exp_total(logits, highest).ln()
+}
+
+/// Returns how sure `logits` make the model of the next token, among all tokens.
+pub(super) fn token_choice(logits: &[f32]) -> TokenChoice {
+    let (highest, second) = logits.iter().fold(
+        (f32::NEG_INFINITY, f32::NEG_INFINITY),
+        |(highest, second), &logit| {
+            if logit > highest {
+                (logit, highest)
+            } else {
+                (highest, second.max(logit))
+            }
+        },
+    );
+    let total = exp_total(logits, highest);
+    let weighted = logits
+        .iter()
+        .map(|logit| logit - highest)
+        .filter(|shifted| shifted.is_finite())
+        .map(|shifted| shifted.exp() * shifted)
+        .sum::<f32>();
+    TokenChoice {
+        margin: highest - second,
+        entropy: total.ln() - weighted / total,
+    }
+}
+
+/// Returns how sure `logits` make the model of the next token, among the `candidates`.
+pub(super) fn token_choice_among(
+    logits: &[f32],
+    candidates: impl Iterator<Item = LlamaToken>,
+) -> TokenChoice {
+    let candidate_logits = candidates
+        .map(|token| logit_of(logits, token))
+        .collect::<Vec<_>>();
+    token_choice(&candidate_logits)
 }
 
 fn highest_of(logits: &[f32]) -> f32 {
@@ -302,6 +339,46 @@ mod tests {
         let log_probability = typed_log_probability(&logits, [LlamaToken(0), LlamaToken(1)].into_iter());
 
         assert_near(log_probability, (4.0_f32 / 9.0).ln());
+    }
+
+    #[test]
+    fn choice_gives_the_log_ratio_of_the_two_most_likely_tokens() {
+        let choice = token_choice(&[0.0, 2.0_f32.ln(), 0.0]);
+
+        assert_near(choice.margin, 2.0_f32.ln());
+    }
+
+    #[test]
+    fn choice_gives_the_entropy_of_the_probabilities() {
+        let choice = token_choice(&[0.0, 2.0_f32.ln(), 0.0]);
+
+        assert_near(choice.entropy, 1.5 * 2.0_f32.ln());
+    }
+
+    #[test]
+    fn choice_among_some_tokens_leaves_out_the_other_tokens() {
+        let choice = token_choice_among(&[9.0, 0.0, 0.0], [LlamaToken(1), LlamaToken(2)].into_iter());
+
+        assert_eq!(
+            choice,
+            TokenChoice {
+                margin: 0.0,
+                entropy: 2.0_f32.ln()
+            }
+        );
+    }
+
+    #[test]
+    fn choice_of_one_token_is_sure() {
+        let choice = token_choice_among(&[1.0, 5.0], [LlamaToken(0)].into_iter());
+
+        assert_eq!(
+            choice,
+            TokenChoice {
+                margin: f32::INFINITY,
+                entropy: 0.0
+            }
+        );
     }
 
     #[test]

@@ -133,6 +133,7 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
         typo_check,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     })
 }
 
@@ -184,6 +185,7 @@ fn next_word_bias_picks_only_the_first_word() {
         typo_check: TypoCheck::Off,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     });
 
     let text = model
@@ -299,6 +301,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         typo_check: TypoCheck::Off,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -454,6 +457,7 @@ fn completion_of_no_tokens_adds_no_text() {
         typo_check: TypoCheck::Off,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     }));
 
     assert!(

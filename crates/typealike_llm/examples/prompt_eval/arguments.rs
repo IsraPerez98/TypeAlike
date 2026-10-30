@@ -3,6 +3,7 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
+use typealike_core::hub::ModelFile;
 use typealike_core::inference::{Backend, CpuCores, SentenceEnd};
 use typealike_core::settings::{
     ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
@@ -13,7 +14,7 @@ use typealike_llm::BUILT_IN_BACKEND;
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
-     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
+     [--first-word-gate on|off] [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
      [--screen on|off] [--clipboard on|off] [--history on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub struct Arguments {
     pub word_bias: WordBiasUse,
     pub shared_history: SharedHistory,
     pub tail_cut: TailCut,
+    pub first_word_gate: FirstWordGateUse,
     pub typo_rule: TypoRule,
     pub sentence_end: SentenceEnd,
     pub length: SuggestionLength,
@@ -74,6 +76,17 @@ pub enum TailCut {
     Off,
 }
 
+/// Whether the gate of the model hides a suggestion whose first word is likely wrong, as in the
+/// app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstWordGateUse {
+    On,
+    Off,
+}
+
+/// The repository that the eval gives to the model file.
+const LOCAL_REPO: &str = "local/model";
+
 impl Arguments {
     /// Returns the arguments after the program name, or `None` when they do not follow [`USAGE`].
     pub fn parse(arguments: &[String]) -> Option<Self> {
@@ -95,6 +108,7 @@ impl Arguments {
             word_bias: WordBiasUse::On,
             shared_history: SharedHistory::On,
             tail_cut: TailCut::On,
+            first_word_gate: FirstWordGateUse::On,
             typo_rule: TypoRule::default(),
             sentence_end: SentenceEnd::default(),
             length: SuggestionLength::default(),
@@ -123,6 +137,9 @@ impl Arguments {
                 [name, cut] if name == "--tail-cut" => {
                     parsed.tail_cut = switch_named(cut, TailCut::On, TailCut::Off)?;
                 }
+                [name, gate] if name == "--first-word-gate" => {
+                    parsed.first_word_gate = switch_named(gate, FirstWordGateUse::On, FirstWordGateUse::Off)?;
+                }
                 [name, rule] if name == "--typo-rule" => {
                     parsed.typo_rule = switch_named(rule, TypoRule::HideSuggestions, TypoRule::Suggest)?;
                 }
@@ -149,10 +166,19 @@ impl Arguments {
     }
 
     /// Returns the settings of each case before its earlier writing: the default settings with the
-    /// options of the arguments, and the prompt prepared on focus.
+    /// options of the arguments, the file of the model as the suggestion model, and the prompt
+    /// prepared on focus.
     pub fn settings(&self) -> Settings {
         Settings {
             backend: self.backend,
+            suggestion_model: Some(ModelFile {
+                repo: LOCAL_REPO.to_owned(),
+                name: self
+                    .model
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            }),
             clipboard_access: self.clipboard,
             screen_text: ScreenTextSettings {
                 access: self.screen,
@@ -269,6 +295,7 @@ mod tests {
                 word_bias: WordBiasUse::On,
                 shared_history: SharedHistory::On,
                 tail_cut: TailCut::On,
+                first_word_gate: FirstWordGateUse::On,
                 typo_rule: TypoRule::HideSuggestions,
                 sentence_end: SentenceEnd::Stop,
                 length: SuggestionLength::Medium,
@@ -489,6 +516,36 @@ mod tests {
         });
 
         assert_eq!(cuts, [Some(TailCut::On), Some(TailCut::Off), None]);
+    }
+
+    #[test]
+    fn first_word_gate_option_turns_the_gate_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let gates = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--first-word-gate", name])
+                .map(|arguments| arguments.first_word_gate)
+        });
+
+        assert_eq!(
+            gates,
+            [Some(FirstWordGateUse::On), Some(FirstWordGateUse::Off), None]
+        );
+    }
+
+    #[test]
+    fn settings_name_the_file_of_the_model_as_the_suggestion_model() {
+        let arguments = parse(&["models/gemma-4-E4B.gguf", "cases.jsonl"]).unwrap();
+
+        let model = arguments.settings().suggestion_model;
+
+        assert_eq!(
+            model,
+            Some(ModelFile {
+                repo: "local/model".to_owned(),
+                name: "gemma-4-E4B.gguf".to_owned(),
+            })
+        );
     }
 
     #[test]

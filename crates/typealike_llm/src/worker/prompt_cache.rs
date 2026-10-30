@@ -297,6 +297,7 @@ impl<'model> PromptCache<'model> {
                 return Ok(generation.into_typo_stop());
             }
             generation.add_join_step(logits, limits.line_after);
+            generation.add_choice_step(logits);
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
             let chosen = generation.choose_next_token(scores, logits);
@@ -322,7 +323,7 @@ impl<'model> PromptCache<'model> {
             let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
             logits = decode_next(&mut self.context, &mut batch, token, token_position)?;
         }
-        Ok(generation.into_added())
+        Ok(generation.into_added(limits))
     }
 
     /// Continues the prompt again when `added` stopped for a typo in the `healing` text and a fix
@@ -361,6 +362,7 @@ impl<'model> PromptCache<'model> {
         let fixed_decoder = Decoder {
             limits: Limits {
                 typo_check: TypoCheck::Off,
+                first_word_gate: None,
                 ..limits
             },
             ..*decoder

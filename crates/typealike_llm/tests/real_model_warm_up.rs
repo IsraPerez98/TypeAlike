@@ -39,6 +39,7 @@ fn completion_event(backend: Backend, request: Request) -> InferenceEvent {
         typo_check: TypoCheck::Off,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     };
     let mut runner = LlamaCpp::new(move |_| Some(path.clone()), None);
     let (sender, events) = mpsc::channel();

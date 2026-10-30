@@ -9,8 +9,8 @@ use crate::desktop::Timestamp;
 use crate::history::HistoryEntry;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd,
-    TokenCount, TypoCheck,
+    Completion, FirstWordGate, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt,
+    SentenceEnd, TokenCount, TypoCheck,
 };
 use crate::localization::{Translations, UiLanguage};
 use crate::prompt::framed_prompt;
@@ -56,6 +56,7 @@ pub(crate) struct ExpectedRequest {
     pub(crate) min_log_probability: Option<LogProbability>,
     pub(crate) typo_check: TypoCheck,
     pub(crate) sentence_end: SentenceEnd,
+    pub(crate) first_word_gate: Option<FirstWordGate>,
 }
 
 impl ExpectedRequest {
@@ -68,6 +69,7 @@ impl ExpectedRequest {
             min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
             typo_check: settings.typo_check(),
             sentence_end: settings.sentence_end,
+            first_word_gate: None,
         }
     }
 }
@@ -83,6 +85,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             typo_check: expected.typo_check,
             sentence_end: expected.sentence_end,
             line_after: String::new(),
+            first_word_gate: expected.first_word_gate,
         }
     }
 }
@@ -104,6 +107,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         typo_check: TypoCheck::Off,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        first_word_gate: None,
     }
 }
 
@@ -116,6 +120,7 @@ pub(crate) fn completion(text: &str) -> Result<Completion, InferenceError> {
         word_log_probabilities: Vec::new(),
         typed_log_probability: LogProbability::default(),
         correction: None,
+        first_choice: None,
     })
 }
 

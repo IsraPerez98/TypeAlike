@@ -6,10 +6,15 @@ use std::str;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
-use typealike_core::inference::{Correction, LogProbability, SentenceEnd, TypoCheck};
+use typealike_core::inference::{
+    Correction, FirstWordGate, LogProbability, SentenceEnd, TokenChoice, TypoCheck,
+};
 
 use super::correction::TypedLetters;
-use super::logits::{TokenBias, agreeing_log_probability, choose_token, typed_log_probability};
+use super::logits::{
+    TokenBias, agreeing_log_probability, choose_token, token_choice, token_choice_among,
+    typed_log_probability,
+};
 use super::pieces::TokenPieces;
 use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence, starts_word};
 
@@ -31,6 +36,9 @@ pub(super) struct Limits<'text> {
     pub(super) sentence_end: SentenceEnd,
     /// The text after the caret on its line, which the added text leads into, or empty.
     pub(super) line_after: &'text [u8],
+    /// The gate that hides all the added text when the model was not sure enough of its first
+    /// word, if any.
+    pub(super) first_word_gate: Option<FirstWordGate>,
 }
 
 /// What a running completion asks and tells its job.
@@ -68,6 +76,9 @@ pub(super) struct AddedTokens {
     pub(super) typed_log_probability: LogProbability,
     /// The fix of a typo in the healed text, which the tokens continue, if any.
     pub(super) correction: Option<Correction>,
+    /// How sure the model was when it chose the token that writes the start of the added text, or
+    /// `None` when the tokens write no text after the healed text.
+    pub(super) first_choice: Option<TokenChoice>,
 }
 
 /// Whether a completion goes on after a step.
@@ -96,6 +107,9 @@ pub(super) struct Generation<'text> {
     /// The end of the added text where the model finds the added text and then the line after the
     /// caret most likely, if any.
     best_end: Option<JoinEnd>,
+    /// How sure the model was at the last step before the added tokens wrote text after the
+    /// healed text.
+    first_choice: Option<TokenChoice>,
 }
 
 /// A place where the added text can end before the line after the caret.
@@ -121,6 +135,7 @@ impl<'text> Generation<'text> {
             log_probability_before_sentence: 0.0,
             typed: TypedLetters::default(),
             best_end: None,
+            first_choice: None,
         }
     }
 
@@ -172,6 +187,23 @@ impl<'text> Generation<'text> {
         }
     }
 
+    /// Adds a choice step with `logits`, while the added tokens wrote no text after the healed
+    /// text: it keeps how sure the model is of the next token. Thus the completion keeps the choice
+    /// of the step that writes the start of the added text. While healed text stays unwritten, the
+    /// choice is among the tokens that agree with it, because the next token is one of them.
+    pub(super) fn add_choice_step(&mut self, logits: &[f32]) {
+        if !self.written.is_empty() {
+            return;
+        }
+        let mut agreeing = self.pieces.agreeing_with(self.unwritten).peekable();
+        let choice = if self.unwritten.is_empty() || agreeing.peek().is_none() {
+            token_choice(logits)
+        } else {
+            token_choice_among(logits, agreeing)
+        };
+        self.first_choice = Some(choice);
+    }
+
     /// Returns the next token for `scores`, and the natural log of its probability in `logits`. The
     /// first step takes the first token of the healing, if it has one.
     pub(super) fn choose_next_token(&self, scores: &[f32], logits: &[f32]) -> (LlamaToken, f32) {
@@ -197,7 +229,9 @@ impl<'text> Generation<'text> {
     /// the end of a sentence, or the minimum probability of the `limits` cuts it. The minimum
     /// applies to each sentence on its own. A cut inside a word leaves out that word. Stops after
     /// a line break, and at the token limit, where it leaves out the last word unless that word
-    /// ends a sentence. It never leaves out the only word.
+    /// ends a sentence. It never leaves out the only word. Also stops when the gate of the `limits`
+    /// hides the first word. The first word only gets less likely while it grows, so the gate
+    /// never hides a first word that it shows at the end.
     pub(super) fn add_token(
         &mut self,
         token: LlamaToken,
@@ -230,7 +264,7 @@ impl<'text> Generation<'text> {
         self.written.extend_from_slice(text);
         self.unwritten = after_prefix(self.unwritten, piece);
         self.tokens.push(token);
-        if ends_line {
+        if ends_line || self.hides_first_word(limits) {
             return Step::Stop;
         }
         if self.tokens.len() == limits.max_added {
@@ -245,18 +279,18 @@ impl<'text> Generation<'text> {
 
     /// Returns no tokens, after a healing step stopped for a typo.
     pub(super) fn into_typo_stop(self) -> AddedTokens {
-        AddedTokens {
-            tokens: Vec::new(),
-            word_log_probabilities: Vec::new(),
-            typed_log_probability: self.typed.log_probability(),
-            correction: None,
-        }
+        self.into_no_text()
     }
 
-    /// Returns the tokens that show, as [`Generation::shown_tokens`] gives them.
-    pub(super) fn into_added(self) -> AddedTokens {
+    /// Returns the tokens that show, as [`Generation::shown_tokens`] gives them, or no tokens when
+    /// the gate of the `limits` hides the first word.
+    pub(super) fn into_added(self, limits: Limits<'_>) -> AddedTokens {
+        if self.hides_first_word(limits) {
+            return self.into_no_text();
+        }
         let (tokens, words) = self.shown_counts();
         let typed_log_probability = self.typed.log_probability();
+        let first_choice = self.first_choice.filter(|_| self.has_written_text());
         let mut added = self.tokens;
         added.truncate(tokens);
         let mut word_log_probabilities = self.words.into_vec();
@@ -266,7 +300,31 @@ impl<'text> Generation<'text> {
             word_log_probabilities,
             typed_log_probability,
             correction: None,
+            first_choice,
         }
+    }
+
+    /// Returns no tokens, with how likely the model found the healed text.
+    fn into_no_text(self) -> AddedTokens {
+        AddedTokens {
+            tokens: Vec::new(),
+            word_log_probabilities: Vec::new(),
+            typed_log_probability: self.typed.log_probability(),
+            correction: None,
+            first_choice: None,
+        }
+    }
+
+    /// Whether the gate of the `limits` hides the first word, because the model was not sure
+    /// enough of it. Only a first word with written text counts.
+    fn hides_first_word(&self, limits: Limits<'_>) -> bool {
+        let choice = self.first_choice.filter(|_| self.has_written_text());
+        let (Some(gate), Some(first_word), Some(choice)) =
+            (limits.first_word_gate, self.words.first(), choice)
+        else {
+            return false;
+        };
+        !gate.shows(first_word, choice)
     }
 
     /// The tokens and the words that show.
@@ -378,7 +436,10 @@ fn text_without_cut_character(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use typealike_core::hub::ModelFile;
+
     use super::*;
+    use crate::worker::test_support::assert_near;
 
     #[test]
     fn only_bytes_that_start_with_the_prefix_keep_the_rest_after_it() {
@@ -517,6 +578,7 @@ mod tests {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
+            first_word_gate: None,
         }
     }
 
@@ -578,6 +640,112 @@ mod tests {
         let (token, _) = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0]);
 
         assert_eq!(token, LlamaToken(1));
+    }
+
+    #[test]
+    fn first_choice_is_the_choice_of_the_step_that_writes_the_first_added_text() {
+        let pieces = TokenPieces::from_texts(&[" beaut", "iful", "ify", " soon"]);
+        let mut generation = Generation::new(&pieces, healing(b" beauti"));
+        generation.add_choice_step(&[0.0, 0.0, 0.0, 0.0]);
+        generation.add_token(LlamaToken(0), b" beaut", -0.1, limits(16, None));
+        generation.add_choice_step(&[0.0, 2.0_f32.ln(), 0.0, 5.0]);
+        generation.add_token(LlamaToken(1), b"iful", -0.4, limits(16, None));
+        generation.add_choice_step(&[0.0, 0.0, 0.0, 9.0]);
+        generation.add_token(LlamaToken(3), b" soon", -0.1, limits(16, None));
+
+        let added = generation.into_added(limits(16, None));
+
+        assert_near(added.first_choice.expect("text was added").margin, 2.0_f32.ln());
+    }
+
+    #[test]
+    fn first_choice_after_the_healed_text_is_among_all_tokens() {
+        let pieces = TokenPieces::from_texts(&[" a", " b"]);
+        let mut generation = Generation::new(&pieces, healing(b""));
+        generation.add_choice_step(&[0.0, 0.0, 0.0]);
+        generation.add_token(LlamaToken(0), b" a", -1.1, limits(16, None));
+
+        let added = generation.into_added(limits(16, None));
+
+        assert_near(added.first_choice.expect("text was added").entropy, 3.0_f32.ln());
+    }
+
+    fn gemma_gate() -> FirstWordGate {
+        FirstWordGate::for_model(&ModelFile {
+            repo: "unsloth/gemma-4-E4B-it-qat-GGUF".to_owned(),
+            name: "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf".to_owned(),
+        })
+    }
+
+    /// Adds a choice step with `logits` and then a token for each of `tokens`, with the ids from 1,
+    /// after the `healed` text and before the first word gate of Gemma, until a step stops.
+    /// Returns the last step and the tokens that the generation took.
+    fn add_gated_tokens(healed: &[u8], tokens: &[(&str, f32)], logits: &[f32]) -> (Step, Vec<LlamaToken>) {
+        let pieces = TokenPieces::from_texts(&[]);
+        let limits = Limits {
+            first_word_gate: Some(gemma_gate()),
+            ..limits(16, None)
+        };
+        let mut generation = Generation::new(&pieces, healing(healed));
+        let step = tokens
+            .iter()
+            .zip(1..)
+            .map(|(&(text, log_probability), id)| {
+                generation.add_choice_step(logits);
+                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, limits)
+            })
+            .find(|&step| step == Step::Stop)
+            .unwrap_or(Step::Continue);
+        (step, generation.tokens().to_vec())
+    }
+
+    #[test]
+    fn first_word_that_the_gate_hides_stops_the_added_text() {
+        let added = add_gated_tokens(b"", &[(" very", -3.0), (" soon", -0.1)], &[0.0, 0.0]);
+
+        assert_eq!(added, (Step::Stop, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn first_word_that_the_gate_shows_continues() {
+        let added = add_gated_tokens(b"", &[(" very", -0.1), (" soon", -0.1)], &[9.0, 0.0]);
+
+        assert_eq!(added, (Step::Continue, vec![LlamaToken(1), LlamaToken(2)]));
+    }
+
+    #[test]
+    fn first_word_without_written_text_is_not_hidden_yet() {
+        let added = add_gated_tokens(b" the", &[(" the", -3.0)], &[0.0, 0.0]);
+
+        assert_eq!(added, (Step::Continue, vec![LlamaToken(1)]));
+    }
+
+    #[test]
+    fn only_word_that_the_gate_hides_leaves_no_added_text() {
+        let pieces = TokenPieces::from_texts(&[" very", " soon"]);
+        let limits = Limits {
+            first_word_gate: Some(gemma_gate()),
+            ..limits(16, None)
+        };
+        let mut generation = Generation::new(&pieces, healing(b""));
+        generation.add_choice_step(&[0.0, 0.0]);
+        generation.add_token(LlamaToken(0), b" very", -3.0, limits);
+
+        let added = generation.into_added(limits);
+
+        assert_eq!(added.tokens, []);
+    }
+
+    #[test]
+    fn completion_without_added_text_has_no_first_choice() {
+        let pieces = TokenPieces::from_texts(&[" beaut", "iful"]);
+        let mut generation = Generation::new(&pieces, healing(b" beauti"));
+        generation.add_choice_step(&[0.0, 0.0]);
+        generation.add_token(LlamaToken(0), b" beaut", -0.1, limits(16, None));
+
+        let added = generation.into_added(limits(16, None));
+
+        assert_eq!(added.first_choice, None);
     }
 
     #[test]
@@ -712,7 +880,7 @@ mod tests {
             })
             .find(|&step| step == Step::Stop)
             .unwrap_or(Step::Continue);
-        (step, generation.into_added().tokens)
+        (step, generation.into_added(limits).tokens)
     }
 
     #[test]

@@ -153,6 +153,7 @@ fn settings_give_the_writer_notes() {
             typo_check: Settings::default().typo_check(),
             sentence_end: Settings::default().sentence_end,
             line_after: String::new(),
+            first_word_gate: None,
         })
     );
 }

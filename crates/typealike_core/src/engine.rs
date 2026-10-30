@@ -17,7 +17,7 @@ use std::fmt;
 use crate::desktop::{Desktop, Surroundings, Timestamp};
 use crate::excerpt::plain_spaces;
 use crate::history::{HistoryEntry, HistoryTables};
-use crate::inference::{SentenceEnd, TypoCheck};
+use crate::inference::{FirstWordGate, SentenceEnd, TypoCheck};
 use crate::key::Key;
 use crate::settings::{
     ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TypoFix, WriterName,
@@ -46,6 +46,9 @@ pub(crate) struct Engine {
     typo_check: TypoCheck,
     typo_fix: TypoFix,
     sentence_end: SentenceEnd,
+    /// The gate of the suggestion model, which hides a suggestion whose first word is likely
+    /// wrong. `None` without a suggestion model.
+    first_word_gate: Option<FirstWordGate>,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
     matching_examples: usize,
     screen_reads: ScreenReads,
@@ -82,6 +85,7 @@ impl Default for Engine {
             typo_check: TypoCheck::Off,
             typo_fix: TypoFix::default(),
             sentence_end: SentenceEnd::default(),
+            first_word_gate: None,
             matching_examples: 0,
             screen_reads: ScreenReads::default(),
             personalization: PersonalizationSettings::default(),
@@ -123,6 +127,7 @@ impl Engine {
         self.typo_check = settings.typo_check();
         self.typo_fix = settings.typo_fix;
         self.sentence_end = settings.sentence_end;
+        self.first_word_gate = settings.suggestion_model.as_ref().map(FirstWordGate::for_model);
         self.matching_examples = settings.matching_examples();
         if needs_new_tables {
             self.refresh_tables();

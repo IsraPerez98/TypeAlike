@@ -130,6 +130,7 @@ pub enum SettledWork {
 ///     word_log_probabilities: Vec::new(),
 ///     typed_log_probability: LogProbability::default(),
 ///     correction: None,
+///     first_choice: None,
 /// }));
 ///
 /// assert_eq!(

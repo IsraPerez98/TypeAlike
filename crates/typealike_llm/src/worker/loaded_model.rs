@@ -137,6 +137,7 @@ impl<'model> LoadedModel<'model> {
             word_log_probabilities: added.word_log_probabilities,
             typed_log_probability: added.typed_log_probability,
             correction: added.correction,
+            first_choice: added.first_choice,
         })
     }
 
