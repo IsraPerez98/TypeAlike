@@ -193,6 +193,14 @@
 //! message, but the answer is new. The `none` cases answer a new message, and the `elsewhere`
 //! cases are in a notes or document app. Run it with `--reply-words on` and `off` for a change to
 //! the words of the answered messages.
+//!
+//! `cases/register.jsonl` has cases from the chat and email texts of the stores of `writers/`, each
+//! with its text left out of the history, as in `left_out.jsonl`. The caret is before a word that
+//! the writer uses mostly in one kind of place: at least 80 percent of its counts in chats or in
+//! emails, without the left-out text. In the `own` cases, the word is mostly of the kind of the
+//! place of the case, for example a sign-off of an email. In the `cross` cases, the word is mostly
+//! of the other kind. Run it with `--word-choice medium` for a change to how the history of one app
+//! helps the suggestions in another app.
 
 mod arguments;
 mod case;
