@@ -17,7 +17,8 @@ use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTim
 use windows::core::Error;
 
 use super::{
-    CARET_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID,
+    CARET_TIMER_ID, FIELD_PAUSE_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE, SETTLE_TIMER_ID,
+    TAB_HOLD_TIMER_ID,
 };
 use crate::badge::Badge;
 use crate::caret::Caret;
@@ -268,6 +269,7 @@ fn timer_id(timer: Timer) -> usize {
         Timer::InputSettle => SETTLE_TIMER_ID,
         Timer::TabHold => TAB_HOLD_TIMER_ID,
         Timer::Idle => IDLE_TIMER_ID,
+        Timer::FieldPause => FIELD_PAUSE_TIMER_ID,
     }
 }
 

@@ -232,15 +232,6 @@ fn backspace_on_empty_context_hides() {
 }
 
 #[test]
-fn escape_hides_suggestion() {
-    let mut engine = engine_showing("hel", "lo");
-
-    let reaction = press(&mut engine, Key::Escape);
-
-    assert_eq!(reaction, Reaction::Hide);
-}
-
-#[test]
 fn tab_after_escape_passes_through() {
     let mut engine = engine_showing("hel", "lo");
     press(&mut engine, Key::Escape);
@@ -263,7 +254,11 @@ fn escape_while_waiting_drops_completion() {
 #[test]
 fn typing_after_escape_while_waiting_requests_again() {
     let mut engine = engine_waiting_for("hel");
-    press(&mut engine, Key::Escape);
+    let desktop = FakeDesktop {
+        is_ghost_hidden: true,
+        ..FakeDesktop::default()
+    };
+    engine.on_key(Key::Escape, &desktop);
 
     let reaction = press(&mut engine, Key::Char('p'));
 

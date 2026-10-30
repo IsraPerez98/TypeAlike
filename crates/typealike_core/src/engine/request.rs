@@ -46,8 +46,11 @@ impl Engine {
     }
 
     /// Shows the rest of a suggestion that showed in the session, else the rest of a phrase that
-    /// the writer repeats, else requests a completion.
+    /// the writer repeats, else requests a completion. A paused field gets nothing.
     pub(super) fn suggest(&mut self) -> Reaction {
+        if self.is_field_paused {
+            return self.dismiss();
+        }
         if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
             return self.show(rest);
         }

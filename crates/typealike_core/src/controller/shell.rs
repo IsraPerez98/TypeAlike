@@ -21,6 +21,9 @@ pub enum Timer {
     TabHold,
     /// Waits for the idle timeout of the Energy saving pane without keys and clicks.
     Idle,
+    /// Ends the pause of the suggestions in the field after Escape rejected the suggestion that
+    /// showed.
+    FieldPause,
 }
 
 /// Whether another window or app has the focus since the shell looked last.

@@ -4,6 +4,7 @@ mod badge;
 mod caret;
 mod caret_look;
 mod energy_saving;
+mod field_pause;
 mod field_room;
 mod first_run;
 mod games;

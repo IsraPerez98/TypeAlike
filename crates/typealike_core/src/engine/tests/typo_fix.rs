@@ -148,6 +148,7 @@ fn text_before_the_caret_holds_the_fixed_word_after_tab() {
     let mut engine = engine_showing_a_fix();
     press(&mut engine, Key::Tab);
     press(&mut engine, Key::Escape);
+    engine.end_field_pause();
 
     let reaction = press(&mut engine, Key::Backspace);
 
@@ -174,12 +175,12 @@ fn typing_while_a_fix_shows_asks_again() {
 }
 
 #[test]
-fn escape_hides_a_fix() {
+fn escape_on_a_fix_pauses_the_field() {
     let mut engine = engine_showing_a_fix();
 
     let reaction = press(&mut engine, Key::Escape);
 
-    assert_eq!(reaction, Reaction::Hide);
+    assert_eq!(reaction, Reaction::PauseField);
 }
 
 #[test]

@@ -31,6 +31,11 @@ pub enum Reaction {
     },
     /// Swallow the key and hide any ghost text, so that the focused app does not get the key.
     Swallow,
+    /// Let the key through, hide any ghost text and pause the suggestions in the field, because the
+    /// user rejected the suggestion that showed. The keys there get no suggestion until
+    /// [`App::end_field_pause`](crate::app::App::end_field_pause) or until the caret moves
+    /// somewhere unknown.
+    PauseField,
     /// Let the key through, hide any ghost text and submit this request to the model runner.
     /// Its completion goes to [`App::on_completion`](crate::app::App::on_completion). It replaces
     /// the requests that the runner did not answer yet.

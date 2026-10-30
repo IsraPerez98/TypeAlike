@@ -522,12 +522,19 @@ impl App {
     }
 
     /// Handles the caret moving somewhere unknown: focus change, mouse click. The screen text
-    /// of the last field is not used again.
+    /// of the last field is not used again, and the pause of the suggestions in the field ends.
     pub fn on_context_lost(&mut self) -> Reaction {
         self.is_in_open_field = false;
         self.idle_field_place = None;
         self.engine.forget_screen();
+        self.engine.end_field_pause();
         self.engine.reset()
+    }
+
+    /// Ends the pause of the suggestions in the field that [`Reaction::PauseField`] started, so
+    /// that the next key there gets a suggestion again.
+    pub fn end_field_pause(&mut self) {
+        self.engine.end_field_pause();
     }
 
     /// Returns what the tray icon and menu must show now, with the texts of `translations`. While

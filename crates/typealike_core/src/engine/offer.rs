@@ -238,6 +238,14 @@ impl Engine {
         self.dismiss()
     }
 
+    /// Rejects the suggestion that shows, and pauses the suggestions in the field until
+    /// [`end_field_pause`](Engine::end_field_pause).
+    pub(super) fn pause_field(&mut self) -> Reaction {
+        self.reject();
+        self.is_field_paused = true;
+        Reaction::PauseField
+    }
+
     pub(super) fn show(&mut self, suggestion: String) -> Reaction {
         self.offer = Offer::Shown(suggestion.clone());
         Reaction::Show(suggestion)

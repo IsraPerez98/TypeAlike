@@ -4,6 +4,7 @@ mod accept;
 mod autocorrect;
 mod completion;
 mod earlier_writing;
+mod field_pause;
 mod kept_completion;
 mod new_line;
 mod request;

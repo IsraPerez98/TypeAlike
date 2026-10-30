@@ -66,6 +66,8 @@ pub(crate) struct Engine {
     /// The dictionary of the OS that cuts a suggestion before a word that the model made up, if
     /// the platform has one.
     dictionary: Option<Dictionary>,
+    /// Whether the user rejected a suggestion in the field, so that the keys there get none.
+    is_field_paused: bool,
 }
 
 impl Default for Engine {
@@ -92,6 +94,7 @@ impl Default for Engine {
             clock: None,
             tables_clock: None,
             dictionary: None,
+            is_field_paused: false,
         };
         engine.use_settings(&Settings::default());
         engine
@@ -145,6 +148,7 @@ impl Engine {
                 self.suggest()
             }
             Key::Tab if desktop.is_ghost_shown() => self.accept(desktop),
+            Key::Escape if desktop.is_ghost_shown() => self.pause_field(),
             Key::Escape => self.reject(),
             Key::Dead => self.dismiss(),
             Key::Enter => self.wait_for_new_line(desktop),
@@ -174,6 +178,12 @@ impl Engine {
     pub(crate) fn discard_session(&mut self) {
         self.session = None;
         self.offer = Offer::Idle;
+    }
+
+    /// Ends the pause of the suggestions in the field, so that the next key there gets a suggestion
+    /// again.
+    pub(crate) fn end_field_pause(&mut self) {
+        self.is_field_paused = false;
     }
 
     /// Whether a session runs.

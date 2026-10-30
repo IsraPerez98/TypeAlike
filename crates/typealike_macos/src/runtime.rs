@@ -108,6 +108,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             settle_timer: None,
             tab_hold_timer: None,
             idle_timer: None,
+            field_pause_timer: None,
             pending_injections: VecDeque::new(),
             settings: None,
             setup: None,
@@ -216,6 +217,11 @@ impl Runtime {
     fn on_idle_timeout(&mut self) {
         self.shell.idle_timer = None;
         self.controller.on_timer(Timer::Idle, &mut self.shell);
+    }
+
+    fn on_field_pause_ended(&mut self) {
+        self.shell.field_pause_timer = None;
+        self.controller.on_timer(Timer::FieldPause, &mut self.shell);
     }
 
     fn on_energy_saver(&mut self, energy_saver: EnergySaver) {
@@ -357,6 +363,7 @@ struct AppKitShell {
     settle_timer: Option<Retained<NSTimer>>,
     tab_hold_timer: Option<Retained<NSTimer>>,
     idle_timer: Option<Retained<NSTimer>>,
+    field_pause_timer: Option<Retained<NSTimer>>,
     /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
@@ -413,6 +420,7 @@ impl AppKitShell {
             Timer::InputSettle => &mut self.settle_timer,
             Timer::TabHold => &mut self.tab_hold_timer,
             Timer::Idle => &mut self.idle_timer,
+            Timer::FieldPause => &mut self.field_pause_timer,
         }
     }
 }
@@ -514,6 +522,7 @@ impl Shell for AppKitShell {
             Timer::InputSettle => sel!(inputDidSettle:),
             Timer::TabHold => sel!(tabHoldDidEnd:),
             Timer::Idle => sel!(idleTimeoutDidEnd:),
+            Timer::FieldPause => sel!(fieldPauseDidEnd:),
         };
         let scheduled = self.schedule(delay.as_secs_f64(), action);
         *self.timer_slot(timer) = Some(scheduled);

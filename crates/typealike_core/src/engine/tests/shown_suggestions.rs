@@ -114,6 +114,7 @@ fn new_line_after_enter_requests_its_own_suggestion() {
 fn letter_after_escape_does_not_follow_the_dismissed_suggestion() {
     let mut engine = engine_showing("hel", "lo world");
     press(&mut engine, Key::Escape);
+    engine.end_field_pause();
 
     let reaction = press(&mut engine, Key::Char('l'));
 
@@ -124,6 +125,7 @@ fn letter_after_escape_does_not_follow_the_dismissed_suggestion() {
 fn backspace_after_escape_does_not_show_the_dismissed_suggestion() {
     let mut engine = engine_showing("hel", "lo world");
     press(&mut engine, Key::Escape);
+    engine.end_field_pause();
     press(&mut engine, Key::Char('p'));
 
     let reaction = press(&mut engine, Key::Backspace);
@@ -137,6 +139,7 @@ fn backspace_after_escape_shows_an_earlier_suggestion_that_did_not_show_there() 
     press(&mut engine, Key::Char('l'));
     engine.on_completion(completion("lo world"));
     press(&mut engine, Key::Escape);
+    engine.end_field_pause();
 
     let reaction = press(&mut engine, Key::Backspace);
 

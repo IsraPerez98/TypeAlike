@@ -58,6 +58,8 @@ const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
 /// The room that the ghost text after the caret keeps free before the right edge of its field.
 const FIELD_EDGE_GAP: i32 = 4;
+/// How long the suggestions in a field pause after Escape rejects the suggestion that shows.
+const FIELD_PAUSE_DELAY: Duration = Duration::from_secs(10);
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +273,7 @@ impl Controller {
             Timer::InputSettle => self.on_input_settled(shell),
             Timer::TabHold => self.tab_hold.on_timer(),
             Timer::Idle => self.on_idle(shell),
+            Timer::FieldPause => self.app.end_field_pause(),
         }
     }
 
@@ -773,6 +776,11 @@ impl Controller {
             Reaction::Swallow => {
                 self.hide_ghost(shell);
                 Disposition::Swallow
+            }
+            Reaction::PauseField => {
+                self.hide_ghost(shell);
+                shell.start_timer(Timer::FieldPause, FIELD_PAUSE_DELAY);
+                Disposition::Pass
             }
             Reaction::Request(request) => {
                 self.hide_ghost(shell);
