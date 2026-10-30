@@ -223,7 +223,10 @@ impl<'model> LoadedModel<'model> {
                     .correction
                     .as_ref()
                     .map_or(healed_text.as_slice(), |correction| correction.fixed.as_bytes());
-                Ok((added_text(&vocab, &prompt_tokens, &added.tokens, healed), added))
+                let text = added_text(&added.tokens, healed, |token| {
+                    vocab.token_to_piece(token, false, None)
+                });
+                Ok((text, added))
             }
             Err(GenerateError::Superseded) => Err(GenerateError::Superseded),
             Err(error) => {

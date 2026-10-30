@@ -355,19 +355,15 @@ pub(super) fn is_markup(attrs: LlamaTokenAttrs) -> bool {
     attrs.intersects(LlamaTokenAttr::Control | LlamaTokenAttr::UserDefined)
 }
 
-/// Returns the text `added` puts after `prompt_tokens`, with the spacing it has after them, without
-/// the `healed_text` that the prompt already ends with.
+/// Returns the text that the tokens of `added` write, without the `healed_text` that the prompt
+/// already ends with. `piece` gives the text of each token. The text of each token stays as it is,
+/// so a space before a sign, such as in "Merci !", stays.
 pub(super) fn added_text(
-    vocab: &LlamaVocab<'_>,
-    prompt_tokens: &[LlamaToken],
     added: &[LlamaToken],
     healed_text: &[u8],
+    piece: impl Fn(LlamaToken) -> Vec<u8>,
 ) -> String {
-    let prompt_bytes = vocab.detokenize(prompt_tokens, false, false);
-    let all_bytes = vocab.detokenize(&[prompt_tokens, added].concat(), false, false);
-    let added_bytes = all_bytes
-        .strip_prefix(prompt_bytes.as_slice())
-        .map_or_else(|| vocab.detokenize(added, false, false), <[u8]>::to_vec);
+    let added_bytes = added.iter().flat_map(|&token| piece(token)).collect::<Vec<_>>();
     text_without_cut_character(after_prefix(&added_bytes, healed_text))
 }
 
@@ -447,6 +443,50 @@ mod tests {
         let text = text_without_cut_character(b"a\xffb");
 
         assert_eq!(text, "a\u{FFFD}b");
+    }
+
+    /// Returns the text of each token of `added`, which `texts` give in the order of their ids,
+    /// after the `healed_text`.
+    fn text_of_tokens(texts: &[&[u8]], healed_text: &[u8]) -> String {
+        let added = (0..).take(texts.len()).map(LlamaToken).collect::<Vec<_>>();
+        let piece = |token: LlamaToken| texts[usize::try_from(token.0).unwrap()].to_vec();
+
+        added_text(&added, healed_text, piece)
+    }
+
+    #[test]
+    fn added_text_keeps_the_space_before_punctuation() {
+        let cases = [
+            (&[&b" Merci"[..], b" !"][..], " Merci !"),
+            (&[b" Pues", b" ..."], " Pues ..."),
+            (&[b" one", b" ,", b" two", b" ?"], " one , two ?"),
+            (&[b" it", b" ' ", b"s", b" 're"], " it ' s 're"),
+        ];
+
+        let texts = cases.map(|(texts, _)| text_of_tokens(texts, b""));
+
+        assert_eq!(texts, cases.map(|(_, text)| text));
+    }
+
+    #[test]
+    fn added_text_leaves_out_the_healed_text() {
+        let text = text_of_tokens(&[b" Pu", b"es", b" !"], b" Pu");
+
+        assert_eq!(text, "es !");
+    }
+
+    #[test]
+    fn added_text_leaves_out_a_character_that_the_last_token_cut() {
+        let text = text_of_tokens(&[b" caf", b"\xc3"], b"");
+
+        assert_eq!(text, " caf");
+    }
+
+    #[test]
+    fn added_text_joins_a_character_that_byte_tokens_write() {
+        let text = text_of_tokens(&[b" caf", b"\xc3", b"\xa9", b" !"], b"");
+
+        assert_eq!(text, " café !");
     }
 
     #[test]

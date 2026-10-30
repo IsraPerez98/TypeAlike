@@ -316,12 +316,9 @@ impl<'model> PromptCache<'model> {
             if (progress.is_outdated)() {
                 return Err(GenerateError::Superseded);
             }
-            (progress.send_partial)(added_text(
-                vocab,
-                &self.tokens,
-                generation.shown_tokens(),
-                healing.text,
-            ));
+            (progress.send_partial)(added_text(generation.shown_tokens(), healing.text, |token| {
+                vocab.token_to_piece(token, false, None)
+            }));
             let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
             logits = decode_next(&mut self.context, &mut batch, token, token_position)?;
         }
