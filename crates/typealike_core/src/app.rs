@@ -8,6 +8,7 @@ mod tray;
 pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, BadgeView};
 pub use tray::{TrayCommand, TrayItem, TrayOutcome, TrayView};
 
+use std::collections::HashSet;
 use std::mem;
 use std::time::Duration;
 
@@ -68,7 +69,7 @@ const ENERGY_SAVER_NAME: &str = "status-energy-saver";
 const GAME_NAME: &str = "status-game";
 
 /// Why TypeAlike keeps the suggestion model unloaded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StopReason {
     /// The user paused suggestions from the tray or the badge.
     Paused,
@@ -156,12 +157,11 @@ pub struct App {
     idle_field_place: Option<FieldPlace>,
     energy_saver: EnergySaver,
     energy_saver_rule: EnergySaverRule,
-    /// Whether the idle timeout ran out, and no request for a suggestion came after it.
-    is_idle: bool,
     game: GameActivity,
     game_rule: GameRule,
-    /// Whether a game stopped suggestions, and no request for a suggestion came after it.
-    has_game_stop: bool,
+    /// The stops that apply until the next request for a suggestion: the idle timeout that ran
+    /// out, and a game that stopped suggestions.
+    stops_until_request: HashSet<StopReason>,
 }
 
 impl App {
@@ -237,11 +237,11 @@ impl App {
         self.game = game;
         self.game_rule = rule;
         if self.stops_for_game() && !was_stopped {
-            self.has_game_stop = true;
+            self.stops_until_request.insert(StopReason::Game);
             self.end_session_for_a_stop();
         }
         if rule == GameRule::KeepSuggestions {
-            self.has_game_stop = false;
+            self.stops_until_request.remove(&StopReason::Game);
         }
     }
 
@@ -283,32 +283,37 @@ impl App {
         [
             (self.status == Status::Paused, StopReason::Paused),
             (self.stops_for_energy_saver(), StopReason::EnergySaver),
-            (self.stops_for_game() || self.has_game_stop, StopReason::Game),
-            (self.is_idle, StopReason::Idle),
+            (
+                self.stops_for_game() || self.lasts_until_request(StopReason::Game),
+                StopReason::Game,
+            ),
+            (self.lasts_until_request(StopReason::Idle), StopReason::Idle),
         ]
         .into_iter()
         .find_map(|(applies, reason)| applies.then_some(reason))
+    }
+
+    fn lasts_until_request(&self, reason: StopReason) -> bool {
+        self.stops_until_request.contains(&reason)
     }
 
     /// Handles the end of the idle timeout of the Energy saving pane: the session ends as after a
     /// focus change, and [`StopReason::Idle`] applies until [`end_idle`](Self::end_idle) or
     /// [`end_stops_before_request`](Self::end_stops_before_request).
     pub fn on_idle(&mut self) -> Reaction {
-        self.is_idle = true;
+        self.stops_until_request.insert(StopReason::Idle);
         self.on_context_lost()
     }
 
     /// Ends the stop of the idle timeout. Returns whether the app was idle.
     pub fn end_idle(&mut self) -> bool {
-        mem::take(&mut self.is_idle)
+        self.stops_until_request.remove(&StopReason::Idle)
     }
 
     /// Ends the stops that last until the next request for a suggestion: the idle timeout, and a
     /// game that left the front. Returns whether one of them applied.
     pub fn end_stops_before_request(&mut self) -> bool {
-        let was_idle = mem::take(&mut self.is_idle);
-        let was_after_game = mem::take(&mut self.has_game_stop);
-        was_idle || was_after_game
+        !mem::take(&mut self.stops_until_request).is_empty()
     }
 
     /// The status that the glyphs of the badge and the tray icon show, and the message of the name
@@ -642,8 +647,7 @@ impl App {
         let (status, outcome) = match self.status {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
             Status::Paused => {
-                self.is_idle = false;
-                self.has_game_stop = false;
+                self.stops_until_request.clear();
                 (Status::Active, TrayOutcome::Resumed)
             }
         };
