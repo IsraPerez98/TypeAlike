@@ -237,8 +237,9 @@ fn is_inside(line: ScreenRect, field: ScreenRect) -> bool {
     (field.left..field.right).contains(&middle_x) && (field.top..field.bottom).contains(&middle_y)
 }
 
-/// Whether `line` looks like noise: many signs, or a digit between two letters of a word, as text
-/// recognition makes them.
+/// Whether `line` looks like noise: many signs, or a digit between two lowercase letters of a word,
+/// as text recognition makes them. A digit between capital letters is often a code, such as a
+/// booking code, which the user can need.
 fn is_noise(line: &str) -> bool {
     let characters = line.chars().count();
     let signs = line
@@ -249,14 +250,15 @@ fn is_noise(line: &str) -> bool {
                 && !PLAIN_PUNCTUATION.contains(&character)
         })
         .count();
-    signs.saturating_mul(100) > characters.saturating_mul(MAX_SIGN_PERCENT) || has_digit_inside_a_word(line)
+    signs.saturating_mul(100) > characters.saturating_mul(MAX_SIGN_PERCENT)
+        || has_digit_inside_a_lowercase_word(line)
 }
 
-fn has_digit_inside_a_word(line: &str) -> bool {
+fn has_digit_inside_a_lowercase_word(line: &str) -> bool {
     line.chars()
         .collect::<Vec<_>>()
         .windows(3)
-        .any(|run| run[0].is_alphabetic() && run[1].is_numeric() && run[2].is_alphabetic())
+        .any(|run| run[0].is_lowercase() && run[1].is_numeric() && run[2].is_lowercase())
 }
 
 /// Returns the name of a chat header: at most [`MAX_HEADER_NAME_WORDS`] words, then a time with
@@ -532,6 +534,15 @@ mod tests {
         let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, NearbyLines::default());
+    }
+
+    #[test]
+    fn line_with_a_code_of_capital_letters_and_digits_stays() {
+        let screen = screen(vec![above("Your booking code is KX7P2Q", 1)]);
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+
+        assert_eq!(lines, above_the_field(&["Your booking code is KX7P2Q"]));
     }
 
     #[test]
