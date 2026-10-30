@@ -113,6 +113,14 @@
 //! characters before the caret, and the next word repeats it. The id gives the distance. Run it
 //! after a change to the limits of the text before the caret.
 //!
+//! `cases/recall.jsonl` has chats, emails, documents and web forms in English and Spanish, each
+//! with a fact on the screen or on the clipboard. In the `use` cases, the next word needs that
+//! fact: a name, a time, a place, a code or a number. In the `ignore` cases, an unrelated screen
+//! line or copy holds a fact that does not belong in the text, and the next word comes from the
+//! field. The writer is Sara Novak, and some chats show her own messages with her name. Run it
+//! with `--name "Sara Novak"` for a change to the screen text, the clipboard or the name of the
+//! writer.
+//!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
 //! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
