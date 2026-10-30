@@ -4,7 +4,7 @@ use std::mem;
 
 use crate::desktop::Desktop;
 use crate::history::{self, HistoryEntry, HistoryTables};
-use crate::settings::{HistoryScope, KeptTexts, PersonalizationSettings};
+use crate::settings::{HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords};
 
 use super::Engine;
 
@@ -29,7 +29,20 @@ impl Engine {
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next session on.
     pub(crate) fn use_history(&mut self, entries: Vec<HistoryEntry>) {
         self.history = entries;
+        self.drop_reply_words_when_off();
         self.refresh_tables();
+    }
+
+    /// Removes the words of the answered messages from the earlier writing while the reply words
+    /// are off. The history then needs a save when it had such words.
+    pub(super) fn drop_reply_words_when_off(&mut self) {
+        if self.personalization.reply_words == ReplyWords::On {
+            return;
+        }
+        for entry in self.history.iter_mut().filter(|entry| !entry.reply_to.is_empty()) {
+            entry.reply_to.clear();
+            self.has_unsaved_history = true;
+        }
     }
 
     /// Whether the earlier writing that suggestions may use holds a text of the place of the

@@ -174,7 +174,7 @@ suggestion-places-websites-footer = Quando un suggerimento compare per la prima 
 ## The Copied and screen text pane of the settings window.
 
 screen-text-title = Testo copiato e dello schermo
-screen-text-summary = I suggerimenti possono usare il testo che copi e il testo vicino al campo dove scrivi, come gli ultimi messaggi di una chat. TypeAlike legge questo testo su questo computer e non lo salva.
+screen-text-summary = I suggerimenti possono usare il testo che copi e il testo vicino al campo dove scrivi, come gli ultimi messaggi di una chat. TypeAlike legge questo testo su questo computer. Salva solo alcune parole dei messaggi a cui rispondi, insieme ai tuoi testi precedenti.
 screen-text-clipboard = Usa il testo copiato
 screen-text-clipboard-description = I suggerimenti possono usare il testo che copi. TypeAlike lo legge solo mentre usi un campo di testo e non lo salva.
 screen-text-switch = Usa il testo dello schermo
@@ -202,6 +202,8 @@ personalization-kept-texts = Testo da salvare
 personalization-kept-texts-description = TypeAlike salva il tuo testo quando lo finisci, per esempio quando invii un messaggio.
 personalization-kept-texts-accepted = Solo il testo in cui hai usato un suggerimento
 personalization-kept-texts-all = Tutto il testo
+personalization-reply-words = Impara dai messaggi a cui rispondi
+personalization-reply-words-description = In una chat o in un’email, TypeAlike salva anche alcune parole del messaggio a cui rispondi. I suggerimenti usano poi le tue risposte precedenti a messaggi simili. Se disattivi questa opzione, TypeAlike elimina queste parole.
 personalization-word-choice = Scelta delle parole
 personalization-word-choice-description = I suggerimenti usano di più le parole che scrivi spesso. Un livello più forte usa più parole tue, ma i suggerimenti sono poi sbagliati più spesso.
 personalization-word-choice-off = Disattivata
@@ -283,7 +285,7 @@ setup-permission-body = Fai clic su “Consenti l’accesso”. Poi attiva TypeA
 setup-about-title = Parla di te a TypeAlike
 setup-sources-title = Cosa possono usare i suggerimenti
 setup-history-description = TypeAlike salva quello che scrivi in un file cifrato su questo computer. Così i suggerimenti usano le tue parole e il tuo stile. Puoi eliminare questo testo nella pagina Personalizzazione.
-setup-screen-text-description = TypeAlike legge il testo vicino al campo dove scrivi, come gli ultimi messaggi di una chat. Non salva questo testo.
+setup-screen-text-description = TypeAlike legge il testo vicino al campo dove scrivi, come gli ultimi messaggi di una chat. Insieme ai tuoi testi precedenti, salva anche alcune parole dei messaggi a cui rispondi.
 setup-sources-footer = TypeAlike usa Internet solo per trovare e scaricare i modelli. Non salva il testo dei campi password.
 setup-ready-title = TypeAlike è pronto
 setup-ready-body = Provalo ora in qualsiasi app, come la tua email o una chat.

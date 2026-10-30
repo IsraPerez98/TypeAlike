@@ -695,6 +695,11 @@ impl Controller {
                 self.app.forget_history_of(&app_id);
                 self.save_history();
             }
+            PersonalizationChange::ReplyWordsOff => {
+                self.keep_pane_settings();
+                self.load_history();
+                self.save_history();
+            }
             PersonalizationChange::DeleteAll => {
                 self.app.use_history(Vec::new());
                 self.history.delete();

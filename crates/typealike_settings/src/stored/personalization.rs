@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use typealike_core::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
+    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords, WordChoice,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -12,6 +12,7 @@ pub(super) struct StoredPersonalization {
     kept_texts: StoredKeptTexts,
     apps: Vec<StoredHistoryApp>,
     word_choice: StoredWordChoice,
+    reply_words: StoredReplyWords,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,6 +65,13 @@ enum StoredWordChoice {
     Strong,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StoredReplyWords {
+    Off,
+    On,
+}
+
 impl From<PersonalizationSettings> for StoredPersonalization {
     fn from(settings: PersonalizationSettings) -> Self {
         let history = match settings.history {
@@ -95,11 +103,16 @@ impl From<PersonalizationSettings> for StoredPersonalization {
             WordChoice::Medium => StoredWordChoice::Medium,
             WordChoice::Strong => StoredWordChoice::Strong,
         };
+        let reply_words = match settings.reply_words {
+            ReplyWords::Off => StoredReplyWords::Off,
+            ReplyWords::On => StoredReplyWords::On,
+        };
         Self {
             history,
             kept_texts,
             apps,
             word_choice,
+            reply_words,
         }
     }
 }
@@ -134,11 +147,16 @@ impl From<StoredPersonalization> for PersonalizationSettings {
             StoredWordChoice::Medium => WordChoice::Medium,
             StoredWordChoice::Strong => WordChoice::Strong,
         };
+        let reply_words = match stored.reply_words {
+            StoredReplyWords::Off => ReplyWords::Off,
+            StoredReplyWords::On => ReplyWords::On,
+        };
         Self {
             history,
             kept_texts,
             apps,
             word_choice,
+            reply_words,
         }
     }
 }

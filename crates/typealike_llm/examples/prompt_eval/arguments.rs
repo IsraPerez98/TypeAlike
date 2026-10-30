@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use typealike_core::inference::{Backend, CpuCores, SentenceEnd};
 use typealike_core::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, PromptPreparation, ReplyWords, ScreenTextAccess,
     ScreenTextSettings, Settings, SuggestionLength, TypoRule, WordChoice, WriterName, WriterNotes,
 };
 use typealike_llm::BUILT_IN_BACKEND;
@@ -14,7 +14,7 @@ pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline R
      [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
-     [--screen on|off] [--clipboard on|off] [--history on|off]";
+     [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -40,6 +40,7 @@ pub struct Arguments {
     pub screen: ScreenTextAccess,
     pub clipboard: ClipboardAccess,
     pub history: HistoryAccess,
+    pub reply_words: ReplyWords,
 }
 
 /// Whether the apps of a case share their earlier writing.
@@ -102,6 +103,7 @@ impl Arguments {
             screen: ScreenTextAccess::Allowed,
             clipboard: ClipboardAccess::Allowed,
             history: HistoryAccess::On,
+            reply_words: ReplyWords::On,
         };
         for option in options.chunks(2) {
             match option {
@@ -142,6 +144,9 @@ impl Arguments {
                 [name, history] if name == "--history" => {
                     parsed.history = switch_named(history, HistoryAccess::On, HistoryAccess::Off)?;
                 }
+                [name, reply_words] if name == "--reply-words" => {
+                    parsed.reply_words = switch_named(reply_words, ReplyWords::On, ReplyWords::Off)?;
+                }
                 _ => return None,
             }
         }
@@ -167,6 +172,7 @@ impl Arguments {
             personalization: PersonalizationSettings {
                 history: self.history,
                 word_choice: self.word_choice,
+                reply_words: self.reply_words,
                 ..PersonalizationSettings::default()
             },
             ..Settings::default()
@@ -276,6 +282,7 @@ mod tests {
                 screen: ScreenTextAccess::Allowed,
                 clipboard: ClipboardAccess::Allowed,
                 history: HistoryAccess::On,
+                reply_words: ReplyWords::On,
             })
         );
     }
@@ -478,6 +485,18 @@ mod tests {
             switches,
             [Some(SharedHistory::On), Some(SharedHistory::Off), None]
         );
+    }
+
+    #[test]
+    fn reply_words_option_turns_the_words_of_the_answered_messages_on_or_off() {
+        let names = ["on", "off", "maybe"];
+
+        let switches = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--reply-words", name])
+                .map(|arguments| arguments.settings().personalization.reply_words)
+        });
+
+        assert_eq!(switches, [Some(ReplyWords::On), Some(ReplyWords::Off), None]);
     }
 
     #[test]

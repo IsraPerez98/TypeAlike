@@ -178,7 +178,7 @@ suggestion-places-websites-footer = Quand une suggestion s’affiche pour la pre
 ## The Copied and screen text pane of the settings window.
 
 screen-text-title = Texte copié et texte de l’écran
-screen-text-summary = Les suggestions peuvent utiliser le texte que vous copiez et le texte près du champ où vous tapez, comme les derniers messages d’une discussion. TypeAlike lit ce texte sur cet ordinateur et ne l’enregistre pas.
+screen-text-summary = Les suggestions peuvent utiliser le texte que vous copiez et le texte près du champ où vous tapez, comme les derniers messages d’une discussion. TypeAlike lit ce texte sur cet ordinateur. Il enregistre seulement quelques mots des messages auxquels vous répondez, avec vos textes précédents.
 screen-text-clipboard = Utiliser le texte copié
 screen-text-clipboard-description = Les suggestions peuvent utiliser le texte que vous copiez. TypeAlike le lit seulement pendant que vous utilisez un champ de texte, et ne l’enregistre pas.
 screen-text-switch = Utiliser le texte de l’écran
@@ -206,6 +206,8 @@ personalization-kept-texts = Texte à enregistrer
 personalization-kept-texts-description = TypeAlike enregistre votre texte quand vous le terminez, par exemple quand vous envoyez un message.
 personalization-kept-texts-accepted = Seulement le texte où vous avez utilisé une suggestion
 personalization-kept-texts-all = Tout le texte
+personalization-reply-words = Apprendre des messages auxquels vous répondez
+personalization-reply-words-description = Dans une discussion ou un e-mail, TypeAlike enregistre aussi quelques mots du message auquel vous répondez. Les suggestions utilisent alors vos réponses précédentes à des messages semblables. Si vous désactivez cette option, TypeAlike supprime ces mots.
 personalization-word-choice = Choix des mots
 personalization-word-choice-description = Les suggestions utilisent davantage les mots que vous écrivez souvent. Un réglage plus fort reprend davantage vos mots, mais les suggestions sont alors plus souvent fausses.
 personalization-word-choice-off = Désactivé
@@ -287,7 +289,7 @@ setup-permission-body = Cliquez sur « Autoriser l’accès ». Activez ensuit
 setup-about-title = Présentez-vous à TypeAlike
 setup-sources-title = Ce que les suggestions peuvent utiliser
 setup-history-description = TypeAlike enregistre ce que vous écrivez dans un fichier chiffré sur cet ordinateur. Les suggestions utilisent alors vos mots et votre style. Vous pouvez supprimer ce texte dans la page Personnalisation.
-setup-screen-text-description = TypeAlike lit le texte près du champ où vous tapez, comme les derniers messages d’une discussion. Il n’enregistre pas ce texte.
+setup-screen-text-description = TypeAlike lit le texte près du champ où vous tapez, comme les derniers messages d’une discussion. Avec vos textes précédents, il enregistre aussi quelques mots des messages auxquels vous répondez.
 setup-sources-footer = TypeAlike utilise Internet seulement pour trouver et télécharger des modèles. Il n’enregistre pas le texte des champs de mot de passe.
 setup-ready-title = TypeAlike est prêt
 setup-ready-body = Essayez-le maintenant dans n’importe quelle app, comme votre messagerie ou une discussion.

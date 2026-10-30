@@ -23,8 +23,8 @@ use crate::inference::{
 use crate::key::{Disposition, Key};
 use crate::localization::UiLanguage;
 use crate::settings::{
-    Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, Settings,
-    SettingsStore, Setup, WordChoice, WriterName,
+    Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
+    Settings, SettingsStore, Setup, WordChoice, WriterName,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
 use crate::setup::{SetupView, TrayPlace};
@@ -638,6 +638,7 @@ pub(super) fn history_on() -> Settings {
             kept_texts: KeptTexts::All,
             apps: vec![mail_history_app(HistoryScope::AllApps)],
             word_choice: WordChoice::Off,
+            reply_words: ReplyWords::On,
         },
         ..Settings::default()
     }

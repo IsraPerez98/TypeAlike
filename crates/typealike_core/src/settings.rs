@@ -16,7 +16,7 @@ use crate::localization::UiLanguage;
 pub use energy_saving::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
 pub use notes_example::NotesExample;
 pub use personalization::{
-    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, WordChoice,
+    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords, WordChoice,
 };
 pub use screen_text::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
 pub use suggestion_places::{SuggestionApp, SuggestionPlaces, SuggestionSite};

@@ -146,6 +146,8 @@ pub enum RowIcon {
     MagnifyingGlass,
     /// A globe, for the language of the UI.
     Globe,
+    /// Two speech bubbles, for the messages that the user answers.
+    ChatBubbles,
 }
 
 /// A field that searches for the text that the user submits.

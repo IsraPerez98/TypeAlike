@@ -170,7 +170,7 @@ suggestion-places-websites-footer = When a suggestion shows on a website for the
 ## The Copied and screen text pane of the settings window.
 
 screen-text-title = Copied and screen text
-screen-text-summary = Suggestions can use the text that you copy and the text near the field where you type, such as the last messages of a chat. TypeAlike reads this text on this computer and does not save it.
+screen-text-summary = Suggestions can use the text that you copy and the text near the field where you type, such as the last messages of a chat. TypeAlike reads this text on this computer. It saves only some words of the messages that you answer, with your earlier writing.
 screen-text-clipboard = Use copied text
 screen-text-clipboard-description = Suggestions can use the text that you copy. TypeAlike reads it only while you use a text field, and does not save it.
 screen-text-switch = Use screen text
@@ -198,6 +198,8 @@ personalization-kept-texts = Text to save
 personalization-kept-texts-description = TypeAlike saves your text when you finish it, for example when you send a message.
 personalization-kept-texts-accepted = Only text where you used a suggestion
 personalization-kept-texts-all = All text
+personalization-reply-words = Learn from the messages that you answer
+personalization-reply-words-description = In a chat or an email, TypeAlike also saves some words of the message that you answer. Suggestions then use your earlier answers to similar messages. When you turn this off, TypeAlike deletes these words.
 personalization-word-choice = Word choice
 personalization-word-choice-description = Suggestions use more of the words that you often write. A stronger setting gives more of your words, but suggestions are then wrong more often.
 personalization-word-choice-off = Off
@@ -279,7 +281,7 @@ setup-permission-body = Click “Give access”. Then turn on TypeAlike in Syste
 setup-about-title = Tell TypeAlike about you
 setup-sources-title = What suggestions can use
 setup-history-description = TypeAlike saves what you write in an encrypted file on this computer. Suggestions then use your words and your style. You can delete this text on the Personalization page.
-setup-screen-text-description = TypeAlike reads the text near the field where you type, such as the last messages of a chat. It does not save this text.
+setup-screen-text-description = TypeAlike reads the text near the field where you type, such as the last messages of a chat. With your earlier writing, it also saves some words of the messages that you answer.
 setup-sources-footer = TypeAlike uses the internet only to find and download models. It does not save the text of password fields.
 setup-ready-title = TypeAlike is ready
 setup-ready-body = Try it now in any app, such as your email or a chat.

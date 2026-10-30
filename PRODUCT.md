@@ -43,6 +43,7 @@ The UI uses these facts to tell the user what to expect (`.claude/rules/ui-text.
 
 - The language model runs on the computer of the user (llama.cpp, GGUF models, on the CPU or a GPU). The text that the user types never leaves the computer.
 - Suggestions learn from the earlier writing of the user. TypeAlike keeps that writing encrypted on the computer, only while the user allows it.
+- TypeAlike does not save the screen text, except some words of the messages that the user answers in a chat or an email. It keeps them with the earlier writing, only while the user allows it.
 - TypeAlike does not save the text of a field that the app marks as a password field.
 - It is open source and free.
 

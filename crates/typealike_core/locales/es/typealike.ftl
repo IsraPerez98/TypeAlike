@@ -174,7 +174,7 @@ suggestion-places-websites-footer = Cuando una sugerencia aparece por primera ve
 ## The Copied and screen text pane of the settings window.
 
 screen-text-title = Texto copiado y de la pantalla
-screen-text-summary = Las sugerencias pueden usar el texto que copias y el texto cerca del campo donde escribes, como los últimos mensajes de un chat. TypeAlike lee este texto en este equipo y no lo guarda.
+screen-text-summary = Las sugerencias pueden usar el texto que copias y el texto cerca del campo donde escribes, como los últimos mensajes de un chat. TypeAlike lee este texto en este equipo. Solo guarda algunas palabras de los mensajes que respondes, junto con tu escritura anterior.
 screen-text-clipboard = Usar el texto copiado
 screen-text-clipboard-description = Las sugerencias pueden usar el texto que copias. TypeAlike lo lee solo mientras usas un campo de texto y no lo guarda.
 screen-text-switch = Usar el texto de la pantalla
@@ -202,6 +202,8 @@ personalization-kept-texts = Texto que se guarda
 personalization-kept-texts-description = TypeAlike guarda tu texto cuando lo terminas, por ejemplo cuando envías un mensaje.
 personalization-kept-texts-accepted = Solo el texto donde usaste una sugerencia
 personalization-kept-texts-all = Todo el texto
+personalization-reply-words = Aprender de los mensajes que respondes
+personalization-reply-words-description = En un chat o un correo, TypeAlike también guarda algunas palabras del mensaje que respondes. Las sugerencias usan entonces tus respuestas anteriores a mensajes parecidos. Si desactivas esto, TypeAlike elimina estas palabras.
 personalization-word-choice = Elección de palabras
 personalization-word-choice-description = Las sugerencias usan más las palabras que escribes a menudo. Con un nivel más alto aparecen más de tus palabras, pero las sugerencias son incorrectas más a menudo.
 personalization-word-choice-off = Desactivada
@@ -283,7 +285,7 @@ setup-permission-body = Haz clic en «Dar acceso». Después activa TypeAlike en
 setup-about-title = Cuéntale a TypeAlike sobre ti
 setup-sources-title = Qué pueden usar las sugerencias
 setup-history-description = TypeAlike guarda lo que escribes en un archivo cifrado en este equipo. Así las sugerencias usan tus palabras y tu estilo. Puedes eliminar este texto en la página Personalización.
-setup-screen-text-description = TypeAlike lee el texto cerca del campo donde escribes, como los últimos mensajes de un chat. No guarda este texto.
+setup-screen-text-description = TypeAlike lee el texto cerca del campo donde escribes, como los últimos mensajes de un chat. Junto con tu escritura anterior, también guarda algunas palabras de los mensajes que respondes.
 setup-sources-footer = TypeAlike usa internet solo para buscar y descargar modelos. No guarda el texto de los campos de contraseña.
 setup-ready-title = TypeAlike está listo
 setup-ready-body = Pruébalo ahora en cualquier app, como tu correo o un chat.

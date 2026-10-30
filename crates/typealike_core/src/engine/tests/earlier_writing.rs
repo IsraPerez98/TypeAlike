@@ -4,7 +4,7 @@ use crate::desktop::{Confidence, ScreenLine, ScreenRead, ScreenRect, ScreenText,
 use crate::engine::Engine;
 use crate::history::HistoryEntry;
 use crate::key::Key;
-use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, Settings};
+use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, ReplyWords, Settings};
 use crate::test_support::{MAIL_APP, mail_entry, mail_history_app};
 
 use super::support::{
@@ -187,6 +187,59 @@ fn kept_chat_text_answers_the_message_of_the_screen_read_of_its_session() {
             &["room", "same", "standup"]
         )])
     );
+}
+
+fn reply_words_settings(reply_words: ReplyWords) -> Settings {
+    let mut settings = kept_settings(KeptTexts::All);
+    settings.personalization.reply_words = reply_words;
+    settings
+}
+
+#[test]
+fn kept_chat_text_has_no_reply_words_while_they_are_off() {
+    let mut engine = engine_with(&reply_words_settings(ReplyWords::Off));
+    read_screen(&mut engine, "Standup in 5? Same room");
+    let desktop = FakeDesktop::with_field_text(GREETING).in_app(CHAT_APP);
+
+    let saved = finish_typing(&mut engine, &desktop, Suggestion::Ignored);
+
+    assert_eq!(saved, Some(vec![chat_entry(&format!("{EARLIER_TEXT}d"), &[])]));
+}
+
+#[test]
+fn turning_off_the_reply_words_drops_them_from_the_earlier_writing() {
+    let mut engine = engine_with_history(
+        &reply_words_settings(ReplyWords::On),
+        vec![chat_entry("omw, two minutes", &["standup"])],
+    );
+
+    engine.use_settings(&reply_words_settings(ReplyWords::Off));
+
+    assert_eq!(
+        engine.history_to_save(),
+        Some([chat_entry("omw, two minutes", &[])].as_slice())
+    );
+}
+
+#[test]
+fn earlier_writing_keeps_no_reply_words_while_they_are_off() {
+    let mut engine = engine_with(&reply_words_settings(ReplyWords::Off));
+
+    engine.use_history(vec![chat_entry("omw, two minutes", &["standup"])]);
+
+    assert_eq!(
+        engine.history_to_save(),
+        Some([chat_entry("omw, two minutes", &[])].as_slice())
+    );
+}
+
+#[test]
+fn earlier_writing_without_reply_words_needs_no_save() {
+    let mut engine = engine_with(&reply_words_settings(ReplyWords::Off));
+
+    engine.use_history(vec![chat_entry("omw, two minutes", &[])]);
+
+    assert_eq!(engine.history_to_save(), None);
 }
 
 #[test]

@@ -3,7 +3,8 @@
 
 use crate::localization::Translations;
 use crate::settings::{
-    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, SuggestionPlaces, WordChoice,
+    HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
+    SuggestionPlaces, WordChoice,
 };
 use crate::settings_window::controls::{
     MenuText, app_list_section, choice_index, choice_titles, picker, replace_if_changed,
@@ -22,6 +23,8 @@ pub enum PersonalizationAction {
     SelectKeptTexts(KeptTexts),
     /// Picked how much suggestions prefer the words of the user.
     SelectWordChoice(WordChoice),
+    /// Turned on or off the words of the messages that the user answers.
+    SwitchReplyWords(ReplyWords),
     /// Picked which earlier writing the app with this id gives and gets.
     SelectAppScope {
         /// The id of the app.
@@ -43,6 +46,9 @@ pub enum PersonalizationChange {
     /// The user turned off the app with this id: keep and use the settings, and delete the saved
     /// text of the app.
     AppOff(String),
+    /// The user turned off the words of the messages that the user answers: keep and use the
+    /// settings, and delete the saved words.
+    ReplyWordsOff,
     /// Delete all the saved text.
     DeleteAll,
 }
@@ -50,6 +56,7 @@ pub enum PersonalizationChange {
 pub(crate) const HISTORY: &str = "personalization";
 const KEPT_TEXTS: &str = "personalization-kept-texts";
 const WORD_CHOICE: &str = "personalization-word-choice";
+pub(crate) const REPLY_WORDS: &str = "personalization-reply-words";
 const APP_PREFIX: &str = "personalization-app:";
 pub(crate) const DELETE: &str = "personalization-delete";
 const KEPT_TEXTS_CHOICES: [(KeptTexts, &str); 2] = [
@@ -126,7 +133,17 @@ impl PersonalizationPane {
             PersonalizationAction::SelectWordChoice(choice) => {
                 change_to(&mut self.settings.word_choice, choice)
             }
+            PersonalizationAction::SwitchReplyWords(reply_words) => self.switch_reply_words(reply_words),
             PersonalizationAction::SelectAppScope { app_id, scope } => self.select_app_scope(app_id, scope),
+        }
+    }
+
+    fn switch_reply_words(&mut self, reply_words: ReplyWords) -> PersonalizationChange {
+        match change_to(&mut self.settings.reply_words, reply_words) {
+            PersonalizationChange::Settings if reply_words == ReplyWords::Off => {
+                PersonalizationChange::ReplyWordsOff
+            }
+            change => change,
         }
     }
 
@@ -160,6 +177,13 @@ impl PersonalizationPane {
                     HistoryAccess::On
                 } else {
                     HistoryAccess::Off
+                }))
+            }
+            SettingsInput::Toggled { id, is_on } if id.as_str() == REPLY_WORDS => {
+                Some(PersonalizationAction::SwitchReplyWords(if *is_on {
+                    ReplyWords::On
+                } else {
+                    ReplyWords::Off
                 }))
             }
             SettingsInput::Picked { id, index } => {
@@ -210,16 +234,26 @@ impl PersonalizationPane {
             label: "personalization-word-choice",
             description: "personalization-word-choice-description",
         };
-        Section::new(vec![
+        let reply_words = is_on.then(|| {
             Row::Switch(Switch {
+                id: ControlId::new(REPLY_WORDS),
+                icon: RowIcon::ChatBubbles,
+                label: translations.text("personalization-reply-words"),
+                description: translations.text("personalization-reply-words-description"),
+                is_on: self.settings.reply_words == ReplyWords::On,
+                note: None,
+            })
+        });
+        let rows = [
+            Some(Row::Switch(Switch {
                 id: ControlId::new(HISTORY),
                 icon: RowIcon::ClockArrow,
                 label: translations.text("personalization-history"),
                 description: translations.text("personalization-history-description"),
                 is_on,
                 note: None,
-            }),
-            Row::Picker(Picker {
+            })),
+            Some(Row::Picker(Picker {
                 is_enabled: is_on,
                 ..picker(
                     kept_texts,
@@ -227,8 +261,9 @@ impl PersonalizationPane {
                     self.settings.kept_texts,
                     translations,
                 )
-            }),
-            Row::Picker(Picker {
+            })),
+            reply_words,
+            Some(Row::Picker(Picker {
                 is_enabled: is_on,
                 note: (!is_on).then(|| Note {
                     text: translations.text("personalization-word-choice-needs-history"),
@@ -244,8 +279,9 @@ impl PersonalizationPane {
                     },
                     translations,
                 )
-            }),
-        ])
+            })),
+        ];
+        Section::new(rows.into_iter().flatten().collect())
     }
 
     fn delete_section(&self, translations: &Translations) -> Section {
@@ -551,6 +587,50 @@ mod tests {
     }
 
     #[test]
+    fn reply_words_switch_shows_on_by_default_while_the_earlier_writing_is_on() {
+        let panes = [HistoryAccess::On, HistoryAccess::Off].map(|history| pane_with(history, Vec::new()));
+
+        let rows = panes.map(|pane| {
+            pane.page(&SuggestionPlaces::default(), &english())
+                .row(REPLY_WORDS)
+                .cloned()
+        });
+
+        assert_eq!(
+            rows,
+            [
+                Some(Row::Switch(Switch {
+                    id: ControlId::new(REPLY_WORDS),
+                    icon: RowIcon::ChatBubbles,
+                    label: "Learn from the messages that you answer".to_owned(),
+                    description: "In a chat or an email, TypeAlike also saves some words of the message that you answer. Suggestions then use your earlier answers to similar messages. When you turn this off, TypeAlike deletes these words."
+                        .to_owned(),
+                    is_on: true,
+                    note: None,
+                })),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn turning_off_the_reply_words_asks_to_delete_them() {
+        let mut pane = pane_with(HistoryAccess::On, Vec::new());
+
+        let changes = [ReplyWords::Off, ReplyWords::Off, ReplyWords::On]
+            .map(|reply_words| pane.on_action(PersonalizationAction::SwitchReplyWords(reply_words)));
+
+        assert_eq!(
+            changes,
+            [
+                PersonalizationChange::ReplyWordsOff,
+                PersonalizationChange::None,
+                PersonalizationChange::Settings
+            ]
+        );
+    }
+
+    #[test]
     fn controls_give_their_actions() {
         let pane = pane_with(HistoryAccess::On, Vec::new());
         let inputs = [
@@ -559,6 +639,7 @@ mod tests {
             picked(KEPT_TEXTS, 1),
             picked(WORD_CHOICE, 3),
             picked(WORD_CHOICE, 4),
+            toggled(REPLY_WORDS, false),
             app_picked("com.apple.mail", 1),
             app_picked("com.apple.mail", 3),
             SettingsInput::Pressed(ControlId::new(DELETE)),
@@ -575,6 +656,7 @@ mod tests {
                 Some(PersonalizationAction::SelectKeptTexts(KeptTexts::All)),
                 Some(PersonalizationAction::SelectWordChoice(WordChoice::Strong)),
                 None,
+                Some(PersonalizationAction::SwitchReplyWords(ReplyWords::Off)),
                 Some(PersonalizationAction::SelectAppScope {
                     app_id: "com.apple.mail".to_owned(),
                     scope: HistoryScope::ThisApp,
@@ -614,6 +696,7 @@ mod tests {
                 kept_texts: KeptTexts::AcceptedOnly,
                 apps: Vec::new(),
                 word_choice: WordChoice::Light,
+                reply_words: ReplyWords::On,
             }
         );
     }

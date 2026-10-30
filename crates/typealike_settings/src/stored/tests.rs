@@ -3,8 +3,8 @@
 use super::*;
 use typealike_core::settings::{
     EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp, HistoryScope, IdleTimeout,
-    KeptTexts, OcrLevel, PersonalizationSettings, ScreenTextAccess, ScreenTextApp, ScreenTextSettings,
-    SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
+    KeptTexts, OcrLevel, PersonalizationSettings, ReplyWords, ScreenTextAccess, ScreenTextApp,
+    ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -299,8 +299,23 @@ fn personalization_reads_from_its_names() {
             kept_texts: KeptTexts::AcceptedOnly,
             apps: Vec::new(),
             word_choice: WordChoice::Light,
+            reply_words: ReplyWords::On,
         })
     );
+}
+
+#[test]
+fn reply_words_read_from_their_names() {
+    let names = ["on", "off"];
+
+    let reply_words = names.map(|name| {
+        let json = format!(r#"{{ "personalization": {{ "reply_words": "{name}" }} }}"#);
+        parse(&json)
+            .map(|settings| settings.personalization.reply_words)
+            .ok()
+    });
+
+    assert_eq!(reply_words, [Some(ReplyWords::On), Some(ReplyWords::Off)]);
 }
 
 #[test]

@@ -9,7 +9,7 @@ use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings, SuggestionPlaces,
 };
 use crate::settings_window::general::CLIPBOARD;
-use crate::settings_window::personalization::{DELETE, HISTORY};
+use crate::settings_window::personalization::{DELETE, HISTORY, REPLY_WORDS};
 use crate::test_support::{
     MAIL_APP, mail_app, mail_entry, mail_history_app, suggestion_app, suggestion_request,
 };
@@ -242,6 +242,28 @@ fn app_turned_off_while_the_history_is_off_keeps_the_other_apps() {
     harness.pick("personalization-app:com.apple.mail", 0);
 
     assert_eq!(harness.history_saves(), vec![vec![notes]]);
+}
+
+#[test]
+fn reply_words_turned_off_go_from_the_earlier_writing() {
+    let answer = HistoryEntry {
+        reply_to: vec!["standup".to_owned()],
+        ..mail_entry(
+            "Cheers,
+Tom",
+        )
+    };
+    let mut harness = Harness::with_kept_history(history_on(), vec![answer]);
+
+    harness.toggle(REPLY_WORDS, false);
+
+    assert_eq!(
+        harness.history_saves(),
+        vec![vec![mail_entry(
+            "Cheers,
+Tom"
+        )]]
+    );
 }
 
 #[test]

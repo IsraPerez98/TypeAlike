@@ -174,7 +174,7 @@ suggestion-places-websites-footer = Wenn auf einer Website zum ersten Mal ein Vo
 ## The Copied and screen text pane of the settings window.
 
 screen-text-title = Kopierter Text und Bildschirmtext
-screen-text-summary = Vorschläge können den Text verwenden, den du kopierst, und den Text in der Nähe des Felds, in dem du tippst, etwa die letzten Nachrichten eines Chats. TypeAlike liest diesen Text auf diesem Computer und speichert ihn nicht.
+screen-text-summary = Vorschläge können den Text verwenden, den du kopierst, und den Text in der Nähe des Felds, in dem du tippst, etwa die letzten Nachrichten eines Chats. TypeAlike liest diesen Text auf diesem Computer. Es speichert nur einige Wörter der Nachrichten, auf die du antwortest, zusammen mit deinen früheren Texten.
 screen-text-clipboard = Kopierten Text verwenden
 screen-text-clipboard-description = Vorschläge können den Text verwenden, den du kopierst. TypeAlike liest ihn nur, während du ein Textfeld verwendest, und speichert ihn nicht.
 screen-text-switch = Bildschirmtext verwenden
@@ -202,6 +202,8 @@ personalization-kept-texts = Zu speichernder Text
 personalization-kept-texts-description = TypeAlike speichert deinen Text, wenn du ihn abschließt, zum Beispiel wenn du eine Nachricht sendest.
 personalization-kept-texts-accepted = Nur Texte, in denen du einen Vorschlag verwendet hast
 personalization-kept-texts-all = Alle Texte
+personalization-reply-words = Aus den Nachrichten lernen, auf die du antwortest
+personalization-reply-words-description = In einem Chat oder einer E-Mail speichert TypeAlike auch einige Wörter der Nachricht, auf die du antwortest. Vorschläge verwenden dann deine früheren Antworten auf ähnliche Nachrichten. Wenn du diese Option ausschaltest, löscht TypeAlike diese Wörter.
 personalization-word-choice = Wortwahl
 personalization-word-choice-description = Vorschläge verwenden öfter die Wörter, die du häufig schreibst. Eine stärkere Stufe übernimmt mehr deiner Wörter, aber Vorschläge sind dann öfter falsch.
 personalization-word-choice-off = Aus
@@ -283,7 +285,7 @@ setup-permission-body = Klicke auf „Zugriff erlauben“. Schalte dann TypeAlik
 setup-about-title = Erzähl TypeAlike von dir
 setup-sources-title = Was Vorschläge verwenden können
 setup-history-description = TypeAlike speichert, was du schreibst, in einer verschlüsselten Datei auf diesem Computer. So verwenden Vorschläge deine Wörter und deinen Stil. Du kannst diesen Text auf der Seite „Personalisierung“ löschen.
-setup-screen-text-description = TypeAlike liest den Text in der Nähe des Felds, in dem du tippst, etwa die letzten Nachrichten eines Chats. Diesen Text speichert es nicht.
+setup-screen-text-description = TypeAlike liest den Text in der Nähe des Felds, in dem du tippst, etwa die letzten Nachrichten eines Chats. Mit deinen früheren Texten speichert es auch einige Wörter der Nachrichten, auf die du antwortest.
 setup-sources-footer = TypeAlike verwendet das Internet nur, um Modelle zu finden und herunterzuladen. Den Text von Passwortfeldern speichert es nicht.
 setup-ready-title = TypeAlike ist bereit
 setup-ready-body = Probier es jetzt in einer beliebigen App aus, etwa in deinem E-Mail-Programm oder einem Chat.

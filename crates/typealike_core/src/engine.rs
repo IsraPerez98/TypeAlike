@@ -127,6 +127,7 @@ impl Engine {
         self.typo_fix = settings.typo_fix;
         self.sentence_end = settings.sentence_end;
         self.matching_examples = settings.matching_examples();
+        self.drop_reply_words_when_off();
         if needs_new_tables {
             self.refresh_tables();
         }

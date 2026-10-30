@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings};
 use crate::history;
 use crate::prompt::{self, Example, Writer};
-use crate::settings::{ClipboardAccess, OcrLevel, ScreenTextSettings};
+use crate::settings::{ClipboardAccess, OcrLevel, ReplyWords, ScreenTextSettings};
 
 use super::{Engine, read_surroundings};
 
@@ -155,10 +155,13 @@ impl Engine {
     }
 
     /// Returns the words of the message that the user answers in the field of `surroundings`, from
-    /// the screen text of the newest read.
+    /// the screen text of the newest read. It has none while the reply words are off.
     pub(super) fn reply_words(&self, surroundings: &Surroundings) -> Vec<String> {
-        self.screen_reads
+        let screen = self
+            .screen_reads
             .text()
+            .filter(|_| self.personalization.reply_words == ReplyWords::On);
+        screen
             .map(|screen| history::reply_words(screen, surroundings, &self.history))
             .unwrap_or_default()
     }

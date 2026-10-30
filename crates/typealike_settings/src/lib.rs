@@ -77,8 +77,9 @@ mod tests {
     use typealike_core::settings::{
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp,
         HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PromptPreparation,
-        ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup, SuggestionDisplay, SuggestionLength,
-        SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice, WriterName, WriterNotes,
+        ReplyWords, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup, SuggestionDisplay,
+        SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice, WriterName,
+        WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -132,6 +133,7 @@ mod tests {
                     scope: HistoryScope::ThisApp,
                 }],
                 word_choice: WordChoice::Strong,
+                reply_words: ReplyWords::Off,
             },
             energy_saving: EnergySavingSettings {
                 idle_timeout: IdleTimeout::FifteenMinutes,

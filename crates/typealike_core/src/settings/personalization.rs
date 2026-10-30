@@ -38,6 +38,18 @@ pub enum WordChoice {
     Strong,
 }
 
+/// Whether TypeAlike saves some words of the message that each text of a chat or an email answers,
+/// so that suggestions find the earlier answers of the user to similar messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReplyWords {
+    /// TypeAlike saves no such words, and the earlier writing keeps none.
+    Off,
+    /// TypeAlike saves the words with each text of a chat or an email, while the screen text of
+    /// its app is on.
+    #[default]
+    On,
+}
+
 /// Which earlier writing an app gives to suggestions and gets from them. An app gives its text
 /// only to the apps that it gets text from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +113,8 @@ pub struct PersonalizationSettings {
     pub apps: Vec<HistoryApp>,
     /// How much suggestions prefer the words that the user often writes.
     pub word_choice: WordChoice,
+    /// Whether TypeAlike saves the words of the messages that the user answers.
+    pub reply_words: ReplyWords,
 }
 
 impl PersonalizationSettings {

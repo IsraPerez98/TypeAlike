@@ -8,7 +8,7 @@
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
-//!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off]
+//!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off] //!     [--reply-words on|off]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -183,13 +183,16 @@
 //! run with one of them off against the run with all on (`--baseline`) to measure the gain of
 //! that section.
 //!
-//! `cases/replies.jsonl` has chats and emails with the stores
+//! `--reply-words off` turns off "Learn from the messages that you answer" in the settings, as the
+//! switch of the app does. The earlier writing then has no words of the messages that its texts
+//! answer (`reply_to` of the stores), so that only the text of an earlier text matches the screen.
+//! It is `on` by default. `cases/replies.jsonl` has chats and emails with the stores
 //! `writers/NAME_replies.jsonl`, where each chat and email text has the message that it answers.
 //! The `help` cases answer a message like an earlier message as the writer did then, and the answer
 //! shares no rare word with the message. In the `harm` cases, the message is like an earlier
 //! message, but the answer is new. The `none` cases answer a new message, and the `elsewhere`
-//! cases are in a notes or document app. Run it for a change to the words of the answered
-//! messages.
+//! cases are in a notes or document app. Run it with `--reply-words on` and `off` for a change to
+//! the words of the answered messages.
 
 mod arguments;
 mod case;
