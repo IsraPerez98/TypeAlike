@@ -82,6 +82,7 @@ Use one term for one thing. The test of the writing rules rejects the words in t
 | pause, resume | pausar, reanudar | pausar, retomar | suspendre, reprendre | pausieren, fortsetzen | sospendere, riprendere | The user stops or starts suggestions in all apps. | |
 | typo fix | corrección de erratas | correção de erros de digitação | correction des fautes de frappe | Tippfehlerkorrektur | correzione degli errori di battitura | A suggestion that replaces a word with a typo. | |
 | word choice | elección de palabras | escolha de palavras | choix des mots | Wortwahl | scelta delle parole | How much the earlier writing changes the words of a suggestion. | |
+| full screen | pantalla completa | tela cheia | plein écran | Vollbild | schermo intero | An app whose window fills the whole screen, such as a video or a game. | fullscreen |
 
 Add the term of each language to a row when its first message gets a translation.
 

@@ -12,6 +12,7 @@ status-paused = TypeAlike (in pausa)
 status-off-here = TypeAlike (disattivato qui)
 status-energy-saver = TypeAlike (disattivato per risparmiare energia)
 status-game = TypeAlike (disattivato durante un gioco)
+status-full-screen = TypeAlike (disattivato a schermo intero)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -75,6 +76,7 @@ model-starting = Avvio del modello…
 model-paused = I suggerimenti sono in pausa. Per riprenderli, seleziona “Riprendi i suggerimenti” nel menu di TypeAlike.
 model-energy-saver = I suggerimenti sono disattivati mentre il computer risparmia energia. Per usarli ora, disattiva “Interrompi con il risparmio energetico”.
 model-game = I suggerimenti si sono fermati per lasciare memoria a un gioco. Ripartono quando scrivi in un campo di testo.
+model-full-screen = I suggerimenti si sono fermati per lasciare memoria a un’app a schermo intero. Ripartono quando scrivi in un campo di testo.
 model-idle = I suggerimenti si sono fermati per liberare memoria, perché non hai scritto né fatto clic per un po’. Ripartono quando scrivi in un campo di testo.
 model-error-missing = TypeAlike non trova il file del modello. Scarica di nuovo il modello.
 model-error-invalid = TypeAlike non può usare questo modello. Il file potrebbe essere danneggiato o di un tipo che TypeAlike non supporta. Scaricalo di nuovo o seleziona un altro modello.
@@ -219,7 +221,7 @@ personalization-delete-confirm = Premi di nuovo per eliminare
 ## The Energy saving pane of the settings window.
 
 energy-saving-title = Risparmio energetico
-energy-saving-summary = TypeAlike può fermare i suggerimenti quando non scrivi per un po’, durante i giochi e con il risparmio energetico. Questo libera memoria e risparmia energia.
+energy-saving-summary = TypeAlike può fermare i suggerimenti quando non scrivi per un po’, durante i giochi, a schermo intero e con il risparmio energetico. Questo libera memoria e risparmia energia.
 energy-saving-idle-timeout = Interrompi dopo un periodo di inattività
 energy-saving-idle-timeout-description = Se non scrivi e non fai clic per questo tempo, i suggerimenti si fermano per liberare memoria. Ripartono quando scrivi in un campo di testo.
 energy-saving-idle-timeout-off = Mai
@@ -231,6 +233,8 @@ energy-saving-energy-saver-description = Mentre il risparmio energetico è attiv
 energy-saving-energy-saver-stopped = I suggerimenti sono disattivati mentre il computer risparmia energia.
 energy-saving-game = Interrompi durante i giochi
 energy-saving-game-description = Mentre giochi, i suggerimenti si fermano per lasciare memoria al gioco. Ripartono quando scrivi in un campo di testo.
+energy-saving-full-screen = Interrompi a schermo intero
+energy-saving-full-screen-description = Mentre un’app occupa tutto lo schermo, come un video o un gioco, i suggerimenti si fermano per liberare memoria. Ripartono quando scrivi in un campo di testo.
 energy-saving-preparation = Prepara i suggerimenti in anticipo
 energy-saving-preparation-description = Quando entri in un campo di testo, il modello legge subito il testo al suo interno. Il primo suggerimento compare prima, ma questo consuma più energia.
 

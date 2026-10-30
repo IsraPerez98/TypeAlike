@@ -75,11 +75,11 @@ mod tests {
     use typealike_core::inference::{Backend, SentenceEnd};
     use typealike_core::localization::UiLanguage;
     use typealike_core::settings::{
-        ClipboardAccess, EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp,
-        HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PromptPreparation,
-        ReplyWords, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup, SuggestionDisplay,
-        SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice, WriterName,
-        WriterNotes,
+        ClipboardAccess, EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess,
+        HistoryApp, HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings,
+        PromptPreparation, ReplyWords, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup,
+        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice,
+        WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -139,6 +139,7 @@ mod tests {
                 idle_timeout: IdleTimeout::FifteenMinutes,
                 energy_saver: EnergySaverRule::KeepSuggestions,
                 game: GameRule::KeepSuggestions,
+                full_screen: FullScreenRule::KeepSuggestions,
             },
             prompt_preparation: PromptPreparation::OnFirstKey,
             suggestion_display: SuggestionDisplay::WhenComplete,

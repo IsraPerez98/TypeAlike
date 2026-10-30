@@ -215,6 +215,17 @@ pub enum GameActivity {
     InFront,
 }
 
+/// Whether the app in front shows in full screen: its window fills the whole display, as a video,
+/// a slideshow or a game in full screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FullScreenActivity {
+    /// The app in front does not fill the display.
+    #[default]
+    None,
+    /// An app in full screen is in front.
+    InFront,
+}
+
 /// The recognition levels that the OCR of the platform has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OcrLevels {

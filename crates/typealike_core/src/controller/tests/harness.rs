@@ -12,8 +12,8 @@ use crate::controller::{
     MAX_CARET_MOVE_CHECKS, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, FieldText, GameActivity, OcrAvailability, Permission,
-    PermissionState, ScreenReadId, ScreenSource, Surroundings, Timestamp,
+    CopiedText, Desktop, EnergySaver, Field, FieldText, FullScreenActivity, GameActivity, OcrAvailability,
+    Permission, PermissionState, ScreenReadId, ScreenSource, Surroundings, Timestamp,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -489,6 +489,10 @@ impl Harness {
 
     pub(super) fn change_game(&mut self, game: GameActivity) {
         self.controller.on_game(game, &mut self.shell);
+    }
+
+    pub(super) fn change_full_screen(&mut self, full_screen: FullScreenActivity) {
+        self.controller.on_full_screen(full_screen, &mut self.shell);
     }
 
     pub(super) fn toggle_pause(&mut self) {

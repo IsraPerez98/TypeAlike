@@ -2,8 +2,8 @@
 
 use super::*;
 use typealike_core::settings::{
-    EnergySaverRule, EnergySavingSettings, GameRule, HistoryAccess, HistoryApp, HistoryScope, IdleTimeout,
-    KeptTexts, OcrLevel, PersonalizationSettings, ReplyWords, ScreenTextAccess, ScreenTextApp,
+    EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess, HistoryApp, HistoryScope,
+    IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, ReplyWords, ScreenTextAccess, ScreenTextApp,
     ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
@@ -565,6 +565,37 @@ fn file_without_the_game_rule_stops_during_games() {
 }
 
 #[test]
+fn full_screen_rule_reads_from_its_name() {
+    let files = [
+        r#"{ "energy_saving": { "full_screen": "stop_suggestions" } }"#,
+        r#"{ "energy_saving": { "full_screen": "keep_suggestions" } }"#,
+    ];
+
+    let rules = files.map(|json| {
+        parse(json)
+            .map(|settings| settings.energy_saving.full_screen)
+            .ok()
+    });
+
+    assert_eq!(
+        rules,
+        [
+            Some(FullScreenRule::StopSuggestions),
+            Some(FullScreenRule::KeepSuggestions)
+        ]
+    );
+}
+
+#[test]
+fn file_without_the_full_screen_rule_stops_in_full_screen() {
+    let rule = parse(r#"{ "energy_saving": { "game": "keep_suggestions" } }"#)
+        .map(|settings| settings.energy_saving.full_screen)
+        .ok();
+
+    assert_eq!(rule, Some(FullScreenRule::StopSuggestions));
+}
+
+#[test]
 fn file_without_energy_saving_stops_after_30_minutes_and_in_energy_saver() {
     let energy_saving = parse("{}").map(|settings| settings.energy_saving).ok();
 
@@ -577,6 +608,7 @@ fn energy_saving_survives_a_save_and_a_load() {
         idle_timeout: IdleTimeout::SixtyMinutes,
         energy_saver: EnergySaverRule::KeepSuggestions,
         game: GameRule::KeepSuggestions,
+        full_screen: FullScreenRule::KeepSuggestions,
     };
     let settings = Settings {
         energy_saving,

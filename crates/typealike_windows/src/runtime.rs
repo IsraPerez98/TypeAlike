@@ -11,7 +11,7 @@ use typealike_core::app::BadgeMenu;
 use typealike_core::controller::{
     BackendChoice, Controller, Delivery, PlaygroundPage, Services, Shell, Startup, Timer,
 };
-use typealike_core::desktop::{EnergySaver, GameActivity};
+use typealike_core::desktop::EnergySaver;
 use typealike_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
 use typealike_core::settings::Settings;
 use typealike_core::setup::TrayPlace;
@@ -36,7 +36,7 @@ use crate::caret_reader::{CaretAnswer, CaretReader, FieldRead, KeptFieldText, Ne
 use crate::clipboard::ClipboardWatch;
 use crate::energy_saver::{self, EnergySaverWatch};
 use crate::focus::FocusTracker;
-use crate::game_watch::GameWatch;
+use crate::front_app_watch::{FrontApp, FrontAppWatch};
 use crate::injection::{self, INJECTION_TAG, ReplacementQueue};
 use crate::keys;
 use crate::language::ui_language;
@@ -64,7 +64,7 @@ const BADGE_CLICK_MESSAGE: u32 = WM_APP + 6;
 const FIELD_READ_MESSAGE: u32 = WM_APP + 7;
 const SCREEN_READ_MESSAGE: u32 = WM_APP + 8;
 const ENERGY_SAVER_MESSAGE: u32 = WM_APP + 9;
-const GAME_MESSAGE: u32 = WM_APP + 10;
+const FRONT_APP_MESSAGE: u32 = WM_APP + 10;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const QUIT_RECEIVED: i32 = 0;
@@ -114,9 +114,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let energy_saver_watch = EnergySaverWatch::start(energy_saver_mailbox)
         .inspect_err(|error| tracing::warn!(%error, "failed to watch the energy saver"))
         .ok();
-    let (game_mailbox, game_changes) = Mailbox::new(window.handle(), GAME_MESSAGE);
-    let game_watch = GameWatch::start(game_mailbox)
-        .inspect_err(|error| tracing::warn!(%error, "failed to watch the games"))
+    let (front_app_mailbox, front_app_changes) = Mailbox::new(window.handle(), FRONT_APP_MESSAGE);
+    let front_app_watch = FrontAppWatch::start(front_app_mailbox)
+        .inspect_err(|error| tracing::warn!(%error, "failed to watch the app in front"))
         .ok();
     let startup = Startup {
         backend_choice: BackendChoice::User,
@@ -169,7 +169,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             field_reads,
             screen_reads,
             energy_saver_changes,
-            game_changes,
+            front_app_changes,
         }))
     });
     // The focused field counts as a password field until a read of it tells otherwise.
@@ -182,7 +182,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         mouse_hook,
         focus_hook,
         energy_saver_watch,
-        game_watch,
+        front_app_watch,
     ));
     STATE.with(|state| state.runtime.take());
     run_outcome
@@ -255,7 +255,7 @@ struct Runtime {
     field_reads: mpsc::Receiver<FieldRead>,
     screen_reads: mpsc::Receiver<ScreenAnswer>,
     energy_saver_changes: mpsc::Receiver<EnergySaver>,
-    game_changes: mpsc::Receiver<GameActivity>,
+    front_app_changes: mpsc::Receiver<FrontApp>,
 }
 
 impl Runtime {
@@ -349,7 +349,7 @@ impl Runtime {
             FIELD_READ_MESSAGE => self.take_field_reads(),
             SCREEN_READ_MESSAGE => self.take_screen_reads(),
             ENERGY_SAVER_MESSAGE => self.take_energy_saver_changes(),
-            GAME_MESSAGE => self.take_game_changes(),
+            FRONT_APP_MESSAGE => self.take_front_app_changes(),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
             _ if Some(message) == self.taskbar_created_message => {
                 if let Err(error) = self.shell.tray.register() {
@@ -418,10 +418,13 @@ impl Runtime {
         }
     }
 
-    /// Gives the newest state of the app in front to the controller: whether it is a game.
-    fn take_game_changes(&mut self) {
-        if let Some(game) = self.game_changes.try_iter().last() {
-            self.controller.on_game(game, &mut self.shell);
+    /// Gives the newest state of the app in front to the controller: whether it is a game, and
+    /// whether it shows in full screen.
+    fn take_front_app_changes(&mut self) {
+        if let Some(front_app) = self.front_app_changes.try_iter().last() {
+            self.controller.on_game(front_app.game, &mut self.shell);
+            self.controller
+                .on_full_screen(front_app.full_screen, &mut self.shell);
         }
     }
 }

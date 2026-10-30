@@ -12,6 +12,7 @@ status-paused = TypeAlike (en pausa)
 status-off-here = TypeAlike (desactivado aquí)
 status-energy-saver = TypeAlike (desactivado para ahorrar energía)
 status-game = TypeAlike (desactivado durante un juego)
+status-full-screen = TypeAlike (desactivado en pantalla completa)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -75,6 +76,7 @@ model-starting = Iniciando el modelo…
 model-paused = Las sugerencias están en pausa. Para reanudarlas, selecciona «Reanudar las sugerencias» en el menú de TypeAlike.
 model-energy-saver = Las sugerencias están desactivadas mientras el equipo ahorra energía. Para usarlas ahora, desactiva «Detener con ahorro de energía».
 model-game = Las sugerencias se detuvieron para dejar memoria libre a un juego. Vuelven cuando escribes en un campo de texto.
+model-full-screen = Las sugerencias se detuvieron para dejar memoria libre a una app en pantalla completa. Vuelven cuando escribes en un campo de texto.
 model-idle = Las sugerencias se detuvieron para liberar memoria, porque no escribiste ni hiciste clic durante un tiempo. Vuelven cuando escribes en un campo de texto.
 model-error-missing = TypeAlike no encuentra el archivo del modelo. Vuelve a descargar el modelo.
 model-error-invalid = TypeAlike no puede usar este modelo. El archivo puede estar dañado o ser de un tipo que TypeAlike no admite. Vuelve a descargarlo o selecciona otro modelo.
@@ -219,7 +221,7 @@ personalization-delete-confirm = Presiona otra vez para eliminar
 ## The Energy saving pane of the settings window.
 
 energy-saving-title = Ahorro de energía
-energy-saving-summary = TypeAlike puede detener las sugerencias cuando no escribes durante un tiempo, durante los juegos y con el ahorro de energía. Esto libera memoria y ahorra energía.
+energy-saving-summary = TypeAlike puede detener las sugerencias cuando no escribes durante un tiempo, durante los juegos, en pantalla completa y con el ahorro de energía. Esto libera memoria y ahorra energía.
 energy-saving-idle-timeout = Detener tras un tiempo sin uso
 energy-saving-idle-timeout-description = Si no escribes ni haces clic durante este tiempo, las sugerencias se detienen para liberar memoria. Vuelven cuando escribes en un campo de texto.
 energy-saving-idle-timeout-off = Nunca
@@ -231,6 +233,8 @@ energy-saving-energy-saver-description = Mientras el ahorro de energía o el mod
 energy-saving-energy-saver-stopped = Las sugerencias están desactivadas mientras el equipo ahorra energía.
 energy-saving-game = Detener durante juegos
 energy-saving-game-description = Mientras juegas, las sugerencias se detienen para dejar memoria libre al juego. Vuelven cuando escribes en un campo de texto.
+energy-saving-full-screen = Detener en pantalla completa
+energy-saving-full-screen-description = Mientras una app ocupa toda la pantalla, como un video o un juego, las sugerencias se detienen para liberar memoria. Vuelven cuando escribes en un campo de texto.
 energy-saving-preparation = Preparar las sugerencias antes
 energy-saving-preparation-description = Cuando entras en un campo de texto, el modelo lee su texto de inmediato. La primera sugerencia aparece antes, pero esto usa más energía.
 

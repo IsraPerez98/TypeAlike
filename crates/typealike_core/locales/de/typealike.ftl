@@ -12,6 +12,7 @@ status-paused = TypeAlike (pausiert)
 status-off-here = TypeAlike (hier aus)
 status-energy-saver = TypeAlike (aus, um Energie zu sparen)
 status-game = TypeAlike (während eines Spiels aus)
+status-full-screen = TypeAlike (im Vollbild aus)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -75,6 +76,7 @@ model-starting = Modell wird gestartet…
 model-paused = Vorschläge sind pausiert. Um sie fortzusetzen, wähle „Vorschläge fortsetzen“ im Menü von TypeAlike.
 model-energy-saver = Vorschläge sind aus, solange der Computer Energie spart. Um sie jetzt zu verwenden, schalte „Beim Energiesparen stoppen“ aus.
 model-game = Vorschläge wurden gestoppt, um Speicher für ein Spiel freizugeben. Sie starten wieder, wenn du in ein Textfeld tippst.
+model-full-screen = Vorschläge wurden gestoppt, um Speicher für eine App im Vollbild freizugeben. Sie starten wieder, wenn du in ein Textfeld tippst.
 model-idle = Vorschläge wurden gestoppt, um Speicher freizugeben, weil du eine Zeit lang weder getippt noch geklickt hast. Sie starten wieder, wenn du in ein Textfeld tippst.
 model-error-missing = TypeAlike findet die Modelldatei nicht. Lade das Modell erneut herunter.
 model-error-invalid = TypeAlike kann dieses Modell nicht verwenden. Die Datei ist vielleicht beschädigt oder hat ein Format, das TypeAlike nicht unterstützt. Lade sie erneut herunter oder wähle ein anderes Modell.
@@ -219,7 +221,7 @@ personalization-delete-confirm = Zum Löschen erneut drücken
 ## The Energy saving pane of the settings window.
 
 energy-saving-title = Energiesparen
-energy-saving-summary = TypeAlike kann Vorschläge stoppen, wenn du eine Zeit lang nicht tippst, während Spielen und beim Energiesparen. Das gibt Speicher frei und spart Strom.
+energy-saving-summary = TypeAlike kann Vorschläge stoppen, wenn du eine Zeit lang nicht tippst, während Spielen, im Vollbild und beim Energiesparen. Das gibt Speicher frei und spart Strom.
 energy-saving-idle-timeout = Nach einer Zeit ohne Nutzung stoppen
 energy-saving-idle-timeout-description = Wenn du in dieser Zeit weder tippst noch klickst, stoppen Vorschläge, um Speicher freizugeben. Sie starten wieder, wenn du in ein Textfeld tippst.
 energy-saving-idle-timeout-off = Nie
@@ -231,6 +233,8 @@ energy-saving-energy-saver-description = Solange der Energiesparmodus oder der S
 energy-saving-energy-saver-stopped = Vorschläge sind aus, solange der Computer Energie spart.
 energy-saving-game = Während Spielen stoppen
 energy-saving-game-description = Während du spielst, stoppen Vorschläge, um Speicher für das Spiel freizugeben. Sie starten wieder, wenn du in ein Textfeld tippst.
+energy-saving-full-screen = Im Vollbild stoppen
+energy-saving-full-screen-description = Solange eine App den ganzen Bildschirm füllt, etwa ein Video oder ein Spiel, stoppen Vorschläge, um Speicher freizugeben. Sie starten wieder, wenn du in ein Textfeld tippst.
 energy-saving-preparation = Vorschläge früh vorbereiten
 energy-saving-preparation-description = Wenn du in ein Textfeld wechselst, liest das Modell den Text darin sofort. Der erste Vorschlag erscheint dann früher, aber das braucht mehr Strom.
 

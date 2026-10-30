@@ -147,7 +147,8 @@ pub(crate) fn foreground_program() -> Option<String> {
     process_image_path(process_id).ok()
 }
 
-fn process_id(window: HWND) -> u32 {
+/// The process of `window`, or process 0 when the window does not exist.
+pub(crate) fn process_id(window: HWND) -> u32 {
     let mut process_id = 0;
     // SAFETY: the output pointer refers to a local.
     unsafe { GetWindowThreadProcessId(window, Some(&raw mut process_id)) };

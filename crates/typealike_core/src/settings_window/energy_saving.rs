@@ -3,7 +3,7 @@
 
 use crate::desktop::EnergySaver;
 use crate::localization::Translations;
-use crate::settings::{EnergySaverRule, EnergySavingSettings, GameRule, IdleTimeout};
+use crate::settings::{EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, IdleTimeout};
 use crate::settings_window::controls::{MenuText, picker, replace_if_changed};
 use crate::settings_window::view::{
     ControlId, Note, NoteTone, Page, PageIcon, Row, RowIcon, Section, SettingsInput, Switch,
@@ -18,11 +18,14 @@ pub enum EnergySavingAction {
     SwitchEnergySaver(EnergySaverRule),
     /// Turned on or off the switch that stops suggestions while a game is in front.
     SwitchGame(GameRule),
+    /// Turned on or off the switch that stops suggestions while an app in full screen is in front.
+    SwitchFullScreen(FullScreenRule),
 }
 
 pub(crate) const IDLE_TIMEOUT: &str = "idle-timeout";
 pub(crate) const ENERGY_SAVER: &str = "energy-saver";
 pub(crate) const GAME: &str = "game";
+pub(crate) const FULL_SCREEN: &str = "full-screen";
 const IDLE_TIMEOUT_CHOICES: [(IdleTimeout, &str); 4] = [
     (IdleTimeout::Off, "energy-saving-idle-timeout-off"),
     (IdleTimeout::FifteenMinutes, "energy-saving-idle-timeout-15"),
@@ -71,6 +74,9 @@ impl EnergySavingPane {
                 replace_if_changed(&mut self.settings.energy_saver, rule)
             }
             EnergySavingAction::SwitchGame(rule) => replace_if_changed(&mut self.settings.game, rule),
+            EnergySavingAction::SwitchFullScreen(rule) => {
+                replace_if_changed(&mut self.settings.full_screen, rule)
+            }
         }
     }
 
@@ -93,6 +99,13 @@ impl EnergySavingPane {
                     GameRule::StopSuggestions
                 } else {
                     GameRule::KeepSuggestions
+                }))
+            }
+            SettingsInput::Toggled { id, is_on } if id.as_str() == FULL_SCREEN => {
+                Some(EnergySavingAction::SwitchFullScreen(if *is_on {
+                    FullScreenRule::StopSuggestions
+                } else {
+                    FullScreenRule::KeepSuggestions
                 }))
             }
             _ => None,
@@ -135,6 +148,14 @@ impl EnergySavingPane {
             is_on: self.settings.game == GameRule::StopSuggestions,
             note: None,
         };
+        let full_screen_switch = Switch {
+            id: ControlId::new(FULL_SCREEN),
+            icon: RowIcon::FullScreen,
+            label: translations.text("energy-saving-full-screen"),
+            description: translations.text("energy-saving-full-screen-description"),
+            is_on: self.settings.full_screen == FullScreenRule::StopSuggestions,
+            note: None,
+        };
         Page {
             title: translations.text("energy-saving-title"),
             icon: PageIcon::Lightbulb,
@@ -144,6 +165,7 @@ impl EnergySavingPane {
                 Row::Picker(idle_timeout),
                 Row::Switch(energy_saver_switch),
                 Row::Switch(game_switch),
+                Row::Switch(full_screen_switch),
             ])],
         }
     }
@@ -229,6 +251,39 @@ mod tests {
                 note: None,
             }))
         );
+    }
+
+    #[test]
+    fn page_shows_the_full_screen_switch_below_the_game_switch() {
+        let pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        let shown = pane.page(EnergySaver::Off, &english());
+
+        assert_eq!(
+            shown.sections[0].rows.get(3),
+            Some(&Row::Switch(Switch {
+                id: ControlId::new(FULL_SCREEN),
+                icon: RowIcon::FullScreen,
+                label: "Stop in full screen".to_owned(),
+                description: "While an app fills the whole screen, such as a video or a game, suggestions \
+                     stop to free memory. They start again when you type in a text field."
+                    .to_owned(),
+                is_on: true,
+                note: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn full_screen_switch_is_off_when_suggestions_continue_in_full_screen() {
+        let pane = EnergySavingPane::new(EnergySavingSettings {
+            full_screen: FullScreenRule::KeepSuggestions,
+            ..EnergySavingSettings::default()
+        });
+
+        let shown = pane.page(EnergySaver::Off, &english());
+
+        assert!(matches!(shown.row(FULL_SCREEN), Some(Row::Switch(switch)) if !switch.is_on));
     }
 
     #[test]
@@ -332,6 +387,25 @@ mod tests {
     }
 
     #[test]
+    fn full_screen_switch_gives_its_rule() {
+        let pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        let actions = [true, false].map(|is_on| pane.action_for(&toggled(FULL_SCREEN, is_on)));
+
+        assert_eq!(
+            actions,
+            [
+                Some(EnergySavingAction::SwitchFullScreen(
+                    FullScreenRule::StopSuggestions
+                )),
+                Some(EnergySavingAction::SwitchFullScreen(
+                    FullScreenRule::KeepSuggestions
+                )),
+            ]
+        );
+    }
+
+    #[test]
     fn input_of_another_pane_gives_no_action() {
         let pane = EnergySavingPane::new(EnergySavingSettings::default());
 
@@ -350,9 +424,12 @@ mod tests {
                 EnergySaverRule::StopSuggestions,
             )),
             pane.on_action(EnergySavingAction::SwitchGame(GameRule::StopSuggestions)),
+            pane.on_action(EnergySavingAction::SwitchFullScreen(
+                FullScreenRule::StopSuggestions,
+            )),
         ];
 
-        assert_eq!(changes, [false, false, false]);
+        assert_eq!(changes, [false, false, false, false]);
     }
 
     #[test]
@@ -373,5 +450,16 @@ mod tests {
         pane.on_action(EnergySavingAction::SwitchGame(GameRule::KeepSuggestions));
 
         assert_eq!(pane.settings().game, GameRule::KeepSuggestions);
+    }
+
+    #[test]
+    fn full_screen_switch_changes_the_rule() {
+        let mut pane = EnergySavingPane::new(EnergySavingSettings::default());
+
+        pane.on_action(EnergySavingAction::SwitchFullScreen(
+            FullScreenRule::KeepSuggestions,
+        ));
+
+        assert_eq!(pane.settings().full_screen, FullScreenRule::KeepSuggestions);
     }
 }

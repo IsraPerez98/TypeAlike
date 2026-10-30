@@ -7,6 +7,7 @@ mod energy_saving;
 mod field_pause;
 mod field_room;
 mod first_run;
+mod full_screen;
 mod games;
 mod harness;
 mod history;

@@ -63,6 +63,17 @@ pub enum GameRule {
     KeepSuggestions,
 }
 
+/// What TypeAlike does while an app in full screen is in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FullScreenRule {
+    /// TypeAlike stops suggestions and unloads the suggestion model. After the full screen, the
+    /// next request for a suggestion loads the model again.
+    #[default]
+    StopSuggestions,
+    /// Suggestions continue as in any other app.
+    KeepSuggestions,
+}
+
 /// When TypeAlike stops suggestions and unloads the suggestion model to save energy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EnergySavingSettings {
@@ -72,6 +83,8 @@ pub struct EnergySavingSettings {
     pub energy_saver: EnergySaverRule,
     /// What TypeAlike does while a game is in front.
     pub game: GameRule,
+    /// What TypeAlike does while an app in full screen is in front.
+    pub full_screen: FullScreenRule,
 }
 
 #[cfg(test)]
@@ -101,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn default_stops_after_30_minutes_in_energy_saver_and_during_games() {
+    fn default_stops_after_30_minutes_in_energy_saver_during_games_and_in_full_screen() {
         let settings = EnergySavingSettings::default();
 
         assert_eq!(
@@ -110,6 +123,7 @@ mod tests {
                 idle_timeout: IdleTimeout::ThirtyMinutes,
                 energy_saver: EnergySaverRule::StopSuggestions,
                 game: GameRule::StopSuggestions,
+                full_screen: FullScreenRule::StopSuggestions,
             }
         );
     }

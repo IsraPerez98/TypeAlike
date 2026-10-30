@@ -16,7 +16,8 @@ use badge::{TypedPlace, place_entries};
 use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
-    Desktop, EnergySaver, Field, GameActivity, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource,
+    Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, ScreenRead, ScreenReadId,
+    ScreenSource,
 };
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
@@ -24,8 +25,8 @@ use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::Key;
 use crate::localization::Translations;
 use crate::settings::{
-    EnergySaverRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings, Settings,
-    SuggestionDisplay, SuggestionPlaces,
+    EnergySaverRule, FullScreenRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings,
+    Settings, SuggestionDisplay, SuggestionPlaces,
 };
 use crate::spelling::SpellChecker;
 
@@ -67,6 +68,8 @@ const OFF_HERE_NAME: &str = "status-off-here";
 const ENERGY_SAVER_NAME: &str = "status-energy-saver";
 /// The message of the name of the app while a game in front stops suggestions.
 const GAME_NAME: &str = "status-game";
+/// The message of the name of the app while an app in full screen stops suggestions.
+const FULL_SCREEN_NAME: &str = "status-full-screen";
 
 /// Why TypeAlike keeps the suggestion model unloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,6 +81,10 @@ pub enum StopReason {
     /// A game is in front, and the Energy saving pane stops suggestions then. After the game, a
     /// key still gets a suggestion: the next request for a suggestion ends this stop.
     Game,
+    /// An app in full screen is in front, and the Energy saving pane stops suggestions then. After
+    /// the full screen, a key still gets a suggestion: the next request for a suggestion ends this
+    /// stop.
+    FullScreen,
     /// The user did not type or click for the idle timeout of the Energy saving pane. A key still
     /// gets a suggestion: the next request for a suggestion ends this stop.
     Idle,
@@ -159,8 +166,10 @@ pub struct App {
     energy_saver_rule: EnergySaverRule,
     game: GameActivity,
     game_rule: GameRule,
+    full_screen: FullScreenActivity,
+    full_screen_rule: FullScreenRule,
     /// The stops that apply until the next request for a suggestion: the idle timeout that ran
-    /// out, and a game that stopped suggestions.
+    /// out, and a game or an app in full screen that stopped suggestions.
     stops_until_request: HashSet<StopReason>,
 }
 
@@ -175,11 +184,12 @@ impl App {
     /// Uses the writer notes and the clipboard access of `settings` from the next key in a new
     /// place on, and its prompt preparation, suggestion display, suggestion length, screen text
     /// and suggestion places from now on. A session in a place that is off now ends, and the
-    /// earlier writing keeps none of its text. When the energy saver or a game stops suggestions
-    /// now, the session ends.
+    /// earlier writing keeps none of its text. When the energy saver, a game or an app in full
+    /// screen stops suggestions now, the session ends.
     pub fn use_settings(&mut self, settings: &Settings) {
         self.use_energy_saver_state(self.energy_saver, settings.energy_saving.energy_saver);
         self.use_game_state(self.game, settings.energy_saving.game);
+        self.use_full_screen_state(self.full_screen, settings.energy_saving.full_screen);
         self.engine.use_settings(settings);
         self.prompt_preparation = settings.prompt_preparation;
         self.suggestion_display = settings.suggestion_display;
@@ -245,6 +255,30 @@ impl App {
         }
     }
 
+    /// Uses `full_screen`, whether an app in full screen is in front, from now on. When the full
+    /// screen starts to stop suggestions, the session ends. After the full screen,
+    /// [`StopReason::FullScreen`] applies until
+    /// [`end_stops_before_request`](Self::end_stops_before_request).
+    pub fn use_full_screen(&mut self, full_screen: FullScreenActivity) {
+        self.use_full_screen_state(full_screen, self.full_screen_rule);
+    }
+
+    /// Uses whether an app in full screen is in front and the full-screen rule of the Energy
+    /// saving pane. The session ends when they start to stop suggestions. A rule that keeps
+    /// suggestions ends the stop of an earlier full screen.
+    fn use_full_screen_state(&mut self, full_screen: FullScreenActivity, rule: FullScreenRule) {
+        let was_stopped = self.stops_for_full_screen();
+        self.full_screen = full_screen;
+        self.full_screen_rule = rule;
+        if self.stops_for_full_screen() && !was_stopped {
+            self.stops_until_request.insert(StopReason::FullScreen);
+            self.end_session_for_a_stop();
+        }
+        if rule == FullScreenRule::KeepSuggestions {
+            self.stops_until_request.remove(&StopReason::FullScreen);
+        }
+    }
+
     fn end_session_for_a_stop(&mut self) {
         self.engine.reset();
         self.idle_field_place = None;
@@ -270,14 +304,30 @@ impl App {
         self.game == GameActivity::InFront && self.game_rule == GameRule::StopSuggestions
     }
 
+    /// Whether an app in full screen is in front of the other apps.
+    #[must_use]
+    pub fn full_screen(&self) -> FullScreenActivity {
+        self.full_screen
+    }
+
+    fn stops_for_full_screen(&self) -> bool {
+        self.full_screen == FullScreenActivity::InFront
+            && self.full_screen_rule == FullScreenRule::StopSuggestions
+    }
+
     /// Whether a key in a place where suggestions are on can get a suggestion: the user did not
-    /// pause suggestions, and neither the energy saver nor a game stops them.
+    /// pause suggestions, and neither the energy saver, a game nor an app in full screen stops
+    /// them.
     fn offers_suggestions(&self) -> bool {
-        self.status == Status::Active && !self.stops_for_energy_saver() && !self.stops_for_game()
+        self.status == Status::Active
+            && !self.stops_for_energy_saver()
+            && !self.stops_for_game()
+            && !self.stops_for_full_screen()
     }
 
     /// Why TypeAlike keeps the suggestion model unloaded now, or `None` when it keeps the model
-    /// loaded. A pause comes first, then the energy saver, then a game, and the idle timeout last.
+    /// loaded. A pause comes first, then the energy saver, a game, an app in full screen, and the
+    /// idle timeout last.
     #[must_use]
     pub fn stop_reason(&self) -> Option<StopReason> {
         [
@@ -286,6 +336,10 @@ impl App {
             (
                 self.stops_for_game() || self.lasts_until_request(StopReason::Game),
                 StopReason::Game,
+            ),
+            (
+                self.stops_for_full_screen() || self.lasts_until_request(StopReason::FullScreen),
+                StopReason::FullScreen,
             ),
             (self.lasts_until_request(StopReason::Idle), StopReason::Idle),
         ]
@@ -311,7 +365,7 @@ impl App {
     }
 
     /// Ends the stops that last until the next request for a suggestion: the idle timeout, and a
-    /// game that left the front. Returns whether one of them applied.
+    /// game or an app in full screen that left the front. Returns whether one of them applied.
     pub fn end_stops_before_request(&mut self) -> bool {
         !mem::take(&mut self.stops_until_request).is_empty()
     }
@@ -322,6 +376,7 @@ impl App {
         let stop_name = [
             (self.stops_for_energy_saver(), ENERGY_SAVER_NAME),
             (self.stops_for_game(), GAME_NAME),
+            (self.stops_for_full_screen(), FULL_SCREEN_NAME),
         ]
         .into_iter()
         .find_map(|(applies, name)| applies.then_some(name));
@@ -482,8 +537,8 @@ impl App {
     }
 
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
-    /// While suggestions are paused, the energy saver or a game stops them, or they are off in the
-    /// app or on the website of the field, the key gets no suggestion and starts no session.
+    /// While suggestions are paused, the energy saver, a game or an app in full screen stops them,
+    /// or they are off in the app or on the website of the field, the key gets no suggestion and starts no session.
     pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
         let field = desktop.field();
         self.is_in_open_field = field == Field::Open;
@@ -543,7 +598,8 @@ impl App {
     }
 
     /// Returns what the tray icon and menu must show now, with the texts of `translations`. While
-    /// the energy saver or a game stops suggestions, the icon shows as paused.
+    /// the energy saver, a game or an app in full screen stops suggestions, the icon shows as
+    /// paused.
     #[must_use]
     pub fn tray_view(&self, translations: &Translations) -> TrayView {
         let (status, name) = self.shown_status();
@@ -583,7 +639,8 @@ impl App {
 
     /// Returns the badge to show at the caret, with the texts of `translations`, or `None` while
     /// the user types in no field that TypeAlike watches. In a place where suggestions are off, and
-    /// while the energy saver or a game stops suggestions, the badge shows as paused.
+    /// while the energy saver, a game or an app in full screen stops suggestions, the badge shows
+    /// as paused.
     #[must_use]
     pub fn badge_view(&self, translations: &Translations) -> Option<BadgeView> {
         self.is_in_open_field.then(|| {

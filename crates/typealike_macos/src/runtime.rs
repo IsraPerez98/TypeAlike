@@ -41,6 +41,7 @@ use crate::clipboard::ClipboardWatch;
 use crate::energy_saver::{self, EnergySaverObserver};
 use crate::event_tap::EventTap;
 use crate::focus::{FocusTracker, TextStyle};
+use crate::full_screen;
 use crate::game;
 use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
@@ -119,6 +120,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         badge_menu: None,
     }));
     with_runtime(Runtime::read_game);
+    with_runtime(Runtime::read_full_screen);
     with_runtime(|runtime| runtime.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(finishLaunch:)));
     tracing::info!("running in the menu bar");
     application.run();
@@ -230,12 +232,14 @@ impl Runtime {
     }
 
     fn on_space_change(&mut self) {
+        self.read_full_screen();
         self.controller.on_context_lost(&mut self.shell);
         self.controller.on_input(&mut self.shell);
     }
 
     fn on_app_activation(&mut self) {
         self.read_game();
+        self.read_full_screen();
         self.controller.on_input(&mut self.shell);
         if NSApplication::sharedApplication(self.shell.target.mtm()).isActive() {
             self.controller.on_permission_change(&mut self.shell);
@@ -280,6 +284,14 @@ impl Runtime {
         let game = game::read();
         tracing::debug!(?game, "read the game in front");
         self.controller.on_game(game, &mut self.shell);
+    }
+
+    /// Gives the controller whether the app in front shows in full screen. A window goes into and
+    /// out of full screen in a space of its own, so each change of the space reads it again.
+    fn read_full_screen(&mut self) {
+        let full_screen = full_screen::read(self.shell.target.mtm());
+        tracing::debug!(?full_screen, "read the full screen in front");
+        self.controller.on_full_screen(full_screen, &mut self.shell);
     }
 
     fn on_menu_item(&mut self, tag: isize) {

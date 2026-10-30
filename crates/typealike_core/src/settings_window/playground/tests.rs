@@ -45,6 +45,13 @@ fn game_note() -> Note {
     }
 }
 
+fn full_screen_note() -> Note {
+    Note {
+        text: "Suggestions stopped to free memory for an app in full screen. They start again when you type in a text field.".to_owned(),
+        tone: NoteTone::Plain,
+    }
+}
+
 fn prompt(text: &str) -> Prompt {
     prompt::framed_prompt(&[], text)
 }
@@ -580,6 +587,7 @@ fn unloaded_model_tells_why_it_is_unloaded() {
         StopReason::Paused,
         StopReason::EnergySaver,
         StopReason::Game,
+        StopReason::FullScreen,
         StopReason::Idle,
     ];
 
@@ -591,7 +599,14 @@ fn unloaded_model_tells_why_it_is_unloaded() {
 
     assert_eq!(
         notes,
-        [paused_note(), energy_saver_note(), game_note(), idle_note()].map(Some)
+        [
+            paused_note(),
+            energy_saver_note(),
+            game_note(),
+            full_screen_note(),
+            idle_note()
+        ]
+        .map(Some)
     );
 }
 

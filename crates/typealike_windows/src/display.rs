@@ -1,12 +1,12 @@
 //! The monitors and the physical pixels of the screen.
 //!
-//! It gives the DPI and the work area of a monitor, the scale from DIPs to pixels, and the screen
-//! rectangles of core.
+//! It gives the DPI, the work area and the whole area of a monitor, the scale from DIPs to pixels,
+//! and the screen rectangles of core.
 
 use typealike_core::desktop::ScreenRect;
-use windows::Win32::Foundation::{POINT, RECT};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::core::Result;
@@ -39,13 +39,25 @@ pub(crate) fn to_pixels(dips: i32, dpi: i32) -> i32 {
 pub(crate) fn work_area(point: POINT) -> Result<RECT> {
     // SAFETY: the call takes no pointer, and it gives the nearest monitor for any point.
     let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    Ok(monitor_areas(monitor)?.rcWork)
+}
+
+/// Reads the whole area of the monitor that shows the most of `window`, with the taskbar.
+pub(crate) fn monitor_area(window: HWND) -> Result<RECT> {
+    // SAFETY: the call takes no pointer, and it gives the nearest monitor for any window.
+    let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
+    Ok(monitor_areas(monitor)?.rcMonitor)
+}
+
+fn monitor_areas(monitor: HMONITOR) -> Result<MONITORINFO> {
     let mut areas = MONITORINFO {
         cbSize: struct_size::<MONITORINFO>(),
         ..MONITORINFO::default()
     };
-    // SAFETY: `areas` is a local with its size set.
+    // SAFETY: `areas` is a local with its size set, and an invalid monitor only makes the call
+    // fail.
     unsafe { GetMonitorInfoW(monitor, &raw mut areas) }.ok()?;
-    Ok(areas.rcWork)
+    Ok(areas)
 }
 
 /// The rectangle of the screen that `rect`, in physical screen pixels, covers.

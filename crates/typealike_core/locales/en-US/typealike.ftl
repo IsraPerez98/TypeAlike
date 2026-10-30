@@ -12,6 +12,7 @@ status-paused = TypeAlike (paused)
 status-off-here = TypeAlike (off here)
 status-energy-saver = TypeAlike (off to save energy)
 status-game = TypeAlike (off during a game)
+status-full-screen = TypeAlike (off in full screen)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -75,6 +76,7 @@ model-starting = Starting the model…
 model-paused = Suggestions are paused. To resume them, select “Resume suggestions” in the TypeAlike menu.
 model-energy-saver = Suggestions are off while the computer saves energy. To use them now, turn off “Stop in energy saver”.
 model-game = Suggestions stopped to free memory for a game. They start again when you type in a text field.
+model-full-screen = Suggestions stopped to free memory for an app in full screen. They start again when you type in a text field.
 model-idle = Suggestions stopped to free memory, because you did not type or click for some time. They start again when you type in a text field.
 model-error-missing = TypeAlike cannot find the model file. Download the model again.
 model-error-invalid = TypeAlike cannot use this model. The file can be damaged, or of a type that TypeAlike does not support. Download it again, or select another model.
@@ -215,7 +217,7 @@ personalization-delete-confirm = Press again to delete
 ## The Energy saving pane of the settings window.
 
 energy-saving-title = Energy saving
-energy-saving-summary = TypeAlike can stop suggestions when you do not type for some time, during games and in energy saver. This frees memory and saves power.
+energy-saving-summary = TypeAlike can stop suggestions when you do not type for some time, during games, in full screen and in energy saver. This frees memory and saves power.
 energy-saving-idle-timeout = Stop after a time without use
 energy-saving-idle-timeout-description = When you do not type or click for this time, suggestions stop to free memory. They start again when you type in a text field.
 energy-saving-idle-timeout-off = Off
@@ -227,6 +229,8 @@ energy-saving-energy-saver-description = While energy saver or Low Power Mode is
 energy-saving-energy-saver-stopped = Suggestions are off while the computer saves energy.
 energy-saving-game = Stop during games
 energy-saving-game-description = While you play a game, suggestions stop to free memory for the game. They start again when you type in a text field.
+energy-saving-full-screen = Stop in full screen
+energy-saving-full-screen-description = While an app fills the whole screen, such as a video or a game, suggestions stop to free memory. They start again when you type in a text field.
 energy-saving-preparation = Prepare suggestions early
 energy-saving-preparation-description = When you go to a text field, the model reads the text in it at once. The first suggestion then shows sooner, but this uses more power.
 

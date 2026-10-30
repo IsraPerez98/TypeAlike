@@ -12,6 +12,7 @@ status-paused = TypeAlike (pausado)
 status-off-here = TypeAlike (desativado aqui)
 status-energy-saver = TypeAlike (desativado para economizar energia)
 status-game = TypeAlike (desativado durante um jogo)
+status-full-screen = TypeAlike (desativado em tela cheia)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 
@@ -75,6 +76,7 @@ model-starting = Iniciando o modelo…
 model-paused = As sugestões estão pausadas. Para retomá-las, selecione “Retomar sugestões” no menu do TypeAlike.
 model-energy-saver = As sugestões ficam desativadas enquanto o computador economiza energia. Para usá-las agora, desative “Parar na economia de energia”.
 model-game = As sugestões pararam para liberar memória para um jogo. Elas voltam quando você digitar em um campo de texto.
+model-full-screen = As sugestões pararam para liberar memória para um app em tela cheia. Elas voltam quando você digitar em um campo de texto.
 model-idle = As sugestões pararam para liberar memória, porque você não digitou nem clicou por algum tempo. Elas voltam quando você digitar em um campo de texto.
 model-error-missing = O TypeAlike não encontra o arquivo do modelo. Baixe o modelo de novo.
 model-error-invalid = O TypeAlike não consegue usar este modelo. O arquivo pode estar danificado ou ser de um tipo que o TypeAlike não aceita. Baixe-o de novo ou selecione outro modelo.
@@ -225,7 +227,7 @@ personalization-delete-confirm = Pressione de novo para excluir
 ## The Energy saving pane of the settings window.
 
 energy-saving-title = Economia de energia
-energy-saving-summary = O TypeAlike pode parar as sugestões quando você não digita por algum tempo, durante jogos e na economia de energia. Isso libera memória e economiza energia.
+energy-saving-summary = O TypeAlike pode parar as sugestões quando você não digita por algum tempo, durante jogos, em tela cheia e na economia de energia. Isso libera memória e economiza energia.
 energy-saving-idle-timeout = Parar após um tempo sem uso
 energy-saving-idle-timeout-description = Se você não digitar nem clicar durante esse tempo, as sugestões param para liberar memória. Elas voltam quando você digitar em um campo de texto.
 energy-saving-idle-timeout-off = Nunca
@@ -237,6 +239,8 @@ energy-saving-energy-saver-description = Enquanto a economia de energia ou o Mod
 energy-saving-energy-saver-stopped = As sugestões ficam desativadas enquanto o computador economiza energia.
 energy-saving-game = Parar durante jogos
 energy-saving-game-description = Enquanto você joga, as sugestões param para liberar memória para o jogo. Elas voltam quando você digitar em um campo de texto.
+energy-saving-full-screen = Parar em tela cheia
+energy-saving-full-screen-description = Enquanto um app ocupa a tela inteira, como um vídeo ou um jogo, as sugestões param para liberar memória. Elas voltam quando você digitar em um campo de texto.
 energy-saving-preparation = Preparar sugestões com antecedência
 energy-saving-preparation-description = Quando você entra em um campo de texto, o modelo lê o texto dele na hora. A primeira sugestão aparece mais rápido, mas isso usa mais energia.
 

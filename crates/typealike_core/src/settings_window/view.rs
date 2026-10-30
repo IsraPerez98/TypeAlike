@@ -142,6 +142,8 @@ pub enum RowIcon {
     Battery,
     /// A game controller, for games.
     Game,
+    /// Four corners that point out, for full screen.
+    FullScreen,
     /// A magnifying glass, for a search.
     MagnifyingGlass,
     /// A globe, for the language of the UI.

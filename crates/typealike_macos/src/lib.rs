@@ -14,6 +14,7 @@ mod clipboard;
 mod energy_saver;
 mod event_tap;
 mod focus;
+mod full_screen;
 mod game;
 mod geometry;
 mod injection;

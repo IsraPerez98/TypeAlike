@@ -2,7 +2,7 @@
 
 use super::harness::{Call, Harness, completed, loaded, model_file, suggestion_settings};
 use crate::controller::Delivery;
-use crate::desktop::{EnergySaver, Permission, PermissionState};
+use crate::desktop::{EnergySaver, FullScreenActivity, Permission, PermissionState};
 use crate::hub::{HubEvent, HubRequest};
 use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
@@ -42,6 +42,18 @@ fn settings_window_with_its_warnings_follows_the_writing_rules() {
         ..Settings::default()
     };
     let mut harness = Harness::with_energy_saver(settings, EnergySaver::On);
+
+    let view = harness.shown_settings();
+
+    assert_eq!(writing_rule_breaks(&view.texts()), Vec::<String>::new());
+}
+
+#[test]
+fn settings_window_in_full_screen_follows_the_writing_rules() {
+    let mut harness = Harness::new(suggestion_settings());
+    harness.install(model_file());
+    harness.answer(loaded());
+    harness.change_full_screen(FullScreenActivity::InFront);
 
     let view = harness.shown_settings();
 

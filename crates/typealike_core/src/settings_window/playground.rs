@@ -410,6 +410,7 @@ fn unloaded_message(reason: StopReason) -> &'static str {
         StopReason::Paused => "model-paused",
         StopReason::EnergySaver => "model-energy-saver",
         StopReason::Game => "model-game",
+        StopReason::FullScreen => "model-full-screen",
         StopReason::Idle => "model-idle",
     }
 }

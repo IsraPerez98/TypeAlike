@@ -26,7 +26,7 @@ const MARKETING_WORDS: [&str; 8] = [
 ];
 
 /// The words that the UI does not use, each with the term of `PRODUCT.md` that replaces it.
-const REPLACED_TERMS: [(&str, &str); 7] = [
+const REPLACED_TERMS: [(&str, &str); 8] = [
     ("completion", "suggestion"),
     ("completions", "suggestions"),
     ("prediction", "suggestion"),
@@ -34,6 +34,7 @@ const REPLACED_TERMS: [(&str, &str); 7] = [
     ("autocomplete", "suggestion"),
     ("history", "earlier writing"),
     ("llm", "model"),
+    ("fullscreen", "full screen"),
 ];
 
 /// The words of the code and the docs that the UI does not show (`PRODUCT.md`, "Not in the UI").
@@ -380,6 +381,10 @@ mod tests {
             (
                 UiText::prose("The completion stopped"),
                 "“The completion stopped”: says “completion”, not “suggestion”",
+            ),
+            (
+                UiText::prose("Suggestions stop in fullscreen"),
+                "“Suggestions stop in fullscreen”: says “fullscreen”, not “full screen”",
             ),
             (
                 UiText::prose("TypeAlike unloads the model"),

@@ -1,4 +1,5 @@
-//! Tells whether the app in front is a game. A game is a program in the game list of Windows: the
+//! Tells whether the app in front is a game, and whether it shows in full screen
+//! ([`full_screen`](crate::full_screen)). A game is a program in the game list of Windows: the
 //! programs that Game Bar and Game Mode know as games (`HKCU\System\GameConfigStore\Children`).
 //! Windows adds a game to the list when the game starts, and the user can add a program in Game
 //! Bar ("Remember this is a game"). The list is not a documented API. When it is missing, no app
@@ -6,14 +7,19 @@
 //!
 //! The watch runs on a thread of its own with a message loop: a `WinEvent` hook tells it each change
 //! of the foreground window, and a registry notification tells it each change of the game list.
+//! Windows sends no event when a window goes into or out of full screen, so the watch also reads
+//! the window in front every second.
 
 use std::collections::HashSet;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
-use typealike_core::desktop::GameActivity;
-use windows::Win32::Foundation::{E_UNEXPECTED, HANDLE, HWND, LPARAM, WAIT_FAILED, WAIT_OBJECT_0, WPARAM};
-use windows::Win32::System::Threading::{CreateEventW, GetCurrentThreadId, INFINITE};
+use typealike_core::desktop::{FullScreenActivity, GameActivity};
+use windows::Win32::Foundation::{
+    E_UNEXPECTED, HANDLE, HWND, LPARAM, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+};
+use windows::Win32::System::Threading::{CreateEventW, GetCurrentThreadId};
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_SYSTEM_FOREGROUND, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx,
@@ -22,11 +28,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, Owned, PCWSTR, Result, w};
 
-use crate::focus;
 use crate::mailbox::Mailbox;
 use crate::registry::OpenKey;
+use crate::{focus, full_screen};
 
-const THREAD_NAME: &str = "game watch";
+const THREAD_NAME: &str = "front app watch";
+/// The time between two reads of the window in front while no event comes.
+const FULL_SCREEN_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const GAME_LIST_KEY: PCWSTR = w!("System\\GameConfigStore\\Children");
 const KIND_VALUE: PCWSTR = w!("Type");
 const PROGRAM_VALUE: PCWSTR = w!("MatchedExeFullPath");
@@ -34,21 +42,28 @@ const PROGRAM_VALUE: PCWSTR = w!("MatchedExeFullPath");
 /// games.
 const GAME_KIND: u32 = 1;
 
+/// What the watch tells about the app in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FrontApp {
+    pub(crate) game: GameActivity,
+    pub(crate) full_screen: FullScreenActivity,
+}
+
 /// The thread that watches the app in front. Drop stops the thread and waits for it.
 #[derive(Debug)]
-pub(crate) struct GameWatch {
+pub(crate) struct FrontAppWatch {
     thread_id: u32,
     thread: Option<JoinHandle<()>>,
 }
 
-impl GameWatch {
-    /// Starts the thread, which sends to `changes` whether the app in front is a game: one time at
-    /// the start, and again after each change.
-    pub(crate) fn start(changes: Mailbox<GameActivity>) -> Result<Self> {
+impl FrontAppWatch {
+    /// Starts the thread, which sends to `changes` whether the app in front is a game and whether
+    /// it shows in full screen: one time at the start, and again after each change.
+    pub(crate) fn start(changes: Mailbox<FrontApp>) -> Result<Self> {
         let (started, start) = mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name(THREAD_NAME.to_owned())
-            .spawn(move || watch_games(&changes, &started))?;
+            .spawn(move || watch_front_app(&changes, &started))?;
         let thread_id = start
             .recv()
             .map_err(|_disconnected| Error::from(E_UNEXPECTED))??;
@@ -59,21 +74,21 @@ impl GameWatch {
     }
 }
 
-impl Drop for GameWatch {
+impl Drop for FrontAppWatch {
     fn drop(&mut self) {
         // SAFETY: plain call. The thread made its message queue before it sent its id.
         if let Err(error) = unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) } {
-            tracing::warn!(%error, "failed to stop the game watch");
+            tracing::warn!(%error, "failed to stop the front app watch");
             return;
         }
         if self.thread.take().is_some_and(|thread| thread.join().is_err()) {
-            tracing::warn!("the game watch panicked");
+            tracing::warn!("the front app watch panicked");
         }
     }
 }
 
 /// Sends the id of this thread to `started`, then watches the app in front until a `WM_QUIT`.
-fn watch_games(changes: &Mailbox<GameActivity>, started: &mpsc::SyncSender<Result<u32>>) {
+fn watch_front_app(changes: &Mailbox<FrontApp>, started: &mpsc::SyncSender<Result<u32>>) {
     make_message_queue();
     let hook = match watch_foreground() {
         Ok(hook) => hook,
@@ -87,7 +102,7 @@ fn watch_games(changes: &Mailbox<GameActivity>, started: &mpsc::SyncSender<Resul
     if started.send(Ok(unsafe { GetCurrentThreadId() })).is_err() {
         return;
     }
-    GameWatcher::new(changes).run();
+    FrontAppWatcher::new(changes).run();
     drop(hook);
 }
 
@@ -141,19 +156,21 @@ enum Wake {
     ListChange,
     /// Messages wait, with the events of the foreground window.
     Messages,
+    /// The time to read the window in front again came.
+    FullScreenCheck,
     /// The wait failed.
     Failure,
 }
 
-struct GameWatcher<'changes> {
-    changes: &'changes Mailbox<GameActivity>,
+struct FrontAppWatcher<'changes> {
+    changes: &'changes Mailbox<FrontApp>,
     list_watch: Option<GameListWatch>,
     list: GameList,
-    sent: Option<GameActivity>,
+    sent: Option<FrontApp>,
 }
 
-impl<'changes> GameWatcher<'changes> {
-    fn new(changes: &'changes Mailbox<GameActivity>) -> Self {
+impl<'changes> FrontAppWatcher<'changes> {
+    fn new(changes: &'changes Mailbox<FrontApp>) -> Self {
         let list_watch = GameListWatch::open()
             .inspect_err(|error| tracing::info!(%error, "found no game list"))
             .ok();
@@ -168,38 +185,46 @@ impl<'changes> GameWatcher<'changes> {
 
     fn run(&mut self) {
         loop {
-            self.send_activity();
+            self.send_front_app();
             match self.wait() {
                 Wake::ListChange => self.read_list(),
                 Wake::Messages if dispatch_messages() => {}
                 Wake::Messages => return,
+                Wake::FullScreenCheck => {}
                 Wake::Failure => {
-                    tracing::warn!(error = %Error::from_thread(), "the game watch stopped");
+                    tracing::warn!(error = %Error::from_thread(), "the front app watch stopped");
                     return;
                 }
             }
         }
     }
 
-    /// Sends whether the app in front is a game, when it changed since the last send.
-    fn send_activity(&mut self) {
+    /// Sends whether the app in front is a game and whether it shows in full screen, when this
+    /// changed since the last send.
+    fn send_front_app(&mut self) {
         let program = focus::foreground_program();
-        let activity = self.list.activity_of(program.as_deref());
-        if self.sent == Some(activity) {
+        let front_app = FrontApp {
+            game: self.list.activity_of(program.as_deref()),
+            full_screen: full_screen::read(),
+        };
+        if self.sent == Some(front_app) {
             return;
         }
-        tracing::info!(?activity, program, "the app in front changed");
-        self.sent = Some(activity);
-        self.changes.send(activity);
+        tracing::info!(game = ?front_app.game, full_screen = ?front_app.full_screen, program, "the app in front changed");
+        self.sent = Some(front_app);
+        self.changes.send(front_app);
     }
 
     fn wait(&self) -> Wake {
         let events: Vec<HANDLE> = self.list_watch.iter().map(GameListWatch::event).collect();
         let events = (!events.is_empty()).then_some(events.as_slice());
+        let timeout_ms = u32::try_from(FULL_SCREEN_CHECK_INTERVAL.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: the events stay open for the call.
-        let wake = unsafe { MsgWaitForMultipleObjectsEx(events, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE) };
+        let wake =
+            unsafe { MsgWaitForMultipleObjectsEx(events, timeout_ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE) };
         match wake {
             WAIT_FAILED => Wake::Failure,
+            WAIT_TIMEOUT => Wake::FullScreenCheck,
             WAIT_OBJECT_0 if events.is_some() => Wake::ListChange,
             _ => Wake::Messages,
         }

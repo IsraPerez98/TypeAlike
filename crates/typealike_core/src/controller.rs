@@ -24,8 +24,8 @@ use crate::app::{
     TrayView,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, GameActivity, OcrAvailability, OcrLevels, Permission,
-    PermissionState, ScreenRect, Surroundings, Timestamp,
+    CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrLevels,
+    Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -295,6 +295,19 @@ impl Controller {
             return;
         }
         self.app.use_game(game);
+        self.on_stop_change(shell);
+    }
+
+    /// Handles a change of the app in front: whether it shows in full screen. While an app in full
+    /// screen is in front and the Energy saving pane stops suggestions then, the session ends, the
+    /// suggestion model unloads, and the tray and the badge show the stop. After the full screen,
+    /// the next request for a suggestion loads the model again. The same state again changes
+    /// nothing.
+    pub fn on_full_screen(&mut self, full_screen: FullScreenActivity, shell: &mut dyn Shell) {
+        if self.app.full_screen() == full_screen {
+            return;
+        }
+        self.app.use_full_screen(full_screen);
         self.on_stop_change(shell);
     }
 
@@ -912,8 +925,9 @@ impl Controller {
         );
     }
 
-    /// Submits `request` for a suggestion. After the idle timeout or a game, it first loads the
-    /// suggestion model again, so that the runner completes the request after the load.
+    /// Submits `request` for a suggestion. After the idle timeout, a game or an app in full
+    /// screen, it first loads the suggestion model again, so that the runner completes the
+    /// request after the load.
     fn request_suggestion(&mut self, request: InferenceRequest, shell: &mut dyn Shell) {
         if self.app.end_stops_before_request() {
             self.submit_model_request();
