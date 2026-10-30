@@ -48,7 +48,6 @@ fn read_of_gpu_memory_keeps_the_model_loaded() {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
-            first_word_gate: None,
         },
         &sink,
     );

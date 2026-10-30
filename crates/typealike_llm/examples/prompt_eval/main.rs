@@ -6,8 +6,8 @@
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
 //!     [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--word-choice CHOICE] \
-//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--first-word-gate on|off] \
-//!     [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
+//!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
+//!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
 //!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off]
 //! ```
 //!
@@ -75,12 +75,6 @@
 //! gives, for each cut of the tail, the words that still show, the right words and the wrong
 //! words. `--tail-cut off` turns off the cut of the app, so that the second table starts from the
 //! full suggestions. Use it to choose a cut.
-//!
-//! The file name of the model names the suggestion model, which gives the first word gate of its
-//! family: a suggestion whose first word is likely wrong does not show, as in the app. Each saved
-//! result has the margin and the entropy of the choice of the first token of a shown suggestion.
-//! `--first-word-gate off` turns off the gate, so that each suggestion shows and saves them, for
-//! example to fit the gate again.
 //!
 //! `cases/tuning.jsonl` is for the work on the prompt. `cases/held_out.jsonl` only confirms a
 //! change at the end. Do not tune the prompt against it.

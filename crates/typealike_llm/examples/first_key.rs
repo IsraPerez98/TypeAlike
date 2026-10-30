@@ -195,7 +195,6 @@ impl Session {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
-            first_word_gate: None,
         });
     }
 

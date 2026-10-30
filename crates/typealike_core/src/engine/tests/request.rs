@@ -3,10 +3,8 @@
 use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
-use crate::hub::ModelFile;
 use crate::inference::{
-    Backend, FirstWordGate, InferenceError, InferenceRequest, LogProbability, SentenceEnd, TokenCount,
-    TypoCheck,
+    Backend, InferenceError, InferenceRequest, LogProbability, SentenceEnd, TokenCount, TypoCheck,
 };
 use crate::key::Key;
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
@@ -322,27 +320,5 @@ fn request_inside_a_line_has_no_tail_cut_and_twice_the_tokens() {
     assert_eq!(
         (max_tokens, min_log_probability),
         (TokenCount(length.max_tokens().0 * 2), None)
-    );
-}
-
-#[test]
-fn suggestion_model_gives_the_first_word_gate_of_its_requests() {
-    let model = ModelFile {
-        repo: "unsloth/gemma-4-E4B-it-qat-GGUF".to_owned(),
-        name: "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf".to_owned(),
-    };
-    let mut engine = engine_with(&Settings {
-        suggestion_model: Some(model.clone()),
-        ..Settings::default()
-    });
-
-    let reaction = press(&mut engine, Key::Char('h'));
-
-    assert_eq!(
-        reaction,
-        Reaction::from(ExpectedRequest {
-            first_word_gate: Some(FirstWordGate::for_model(&model)),
-            ..ExpectedRequest::framed(&[], "h")
-        })
     );
 }

@@ -81,7 +81,6 @@ fn completion(text: &str, tokens: u32, duration: Duration) -> Completion {
         word_log_probabilities: Vec::new(),
         typed_log_probability: LogProbability::default(),
         correction: None,
-        first_choice: None,
     }
 }
 
@@ -689,7 +688,6 @@ fn completing_sends_the_prompt_with_a_token_limit() {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
-            first_word_gate: None,
         })
     );
 }
@@ -715,7 +713,6 @@ fn completing_puts_the_writer_name_after_the_notes() {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
-            first_word_gate: None,
         })
     );
 }
@@ -741,7 +738,6 @@ fn completing_puts_the_writer_notes_before_the_text() {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
-            first_word_gate: None,
         })
     );
 }

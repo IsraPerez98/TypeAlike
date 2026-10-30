@@ -1,15 +1,11 @@
 //! The seam to the service that runs a language model on this computer.
 
-mod first_word_gate;
-
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::hub::{ByteSize, ModelFile};
-
-pub use first_word_gate::FirstWordGate;
 
 /// A number of model tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -102,9 +98,6 @@ pub enum InferenceRequest {
         /// write this text, and ends the added text where the model finds this text most likely
         /// after it.
         line_after: String,
-        /// The gate that hides a likely wrong suggestion, if any. The runner adds no text when the
-        /// gate hides the first added word.
-        first_word_gate: Option<FirstWordGate>,
     },
     /// Unloads the loaded model to free its memory.
     Unload,
@@ -251,21 +244,6 @@ pub struct Completion {
     /// The fix of a typo in the typed letters of the last word of the prompt, if any. The added
     /// text then continues the fixed letters, not the prompt.
     pub correction: Option<Correction>,
-    /// How sure the model was when it chose the token that writes the start of the added text, or
-    /// `None` when the model added no text.
-    pub first_choice: Option<TokenChoice>,
-}
-
-/// How sure a model was when it chose a token, among the tokens that it could choose there: each
-/// token of the vocabulary, or the tokens that agree with the typed letters that the runner writes
-/// again.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct TokenChoice {
-    /// The natural log of the ratio of the probabilities of the two most likely of these tokens:
-    /// zero when they are equally likely, and infinite when only one token could come.
-    pub margin: f32,
-    /// The entropy of the probabilities of these tokens, in nats: zero when the model is sure.
-    pub entropy: f32,
 }
 
 /// A fix of the typed letters at the end of a prompt. `Debug` shows only the lengths, so logs

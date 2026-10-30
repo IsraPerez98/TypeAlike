@@ -15,8 +15,6 @@ pub fn outcome(id: &str, kind: CaseKind, is_match: bool, millis: u64) -> Outcome
         cumulative_log_probabilities: Vec::new(),
         words: WordCounts::default(),
         typed_log_probability: None,
-        first_margin: None,
-        first_entropy: None,
         fixed_word: None,
         is_fix_right: None,
         reference: None,

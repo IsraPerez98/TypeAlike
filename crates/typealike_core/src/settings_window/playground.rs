@@ -290,7 +290,6 @@ impl PlaygroundPane {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
-            first_word_gate: None,
         })
     }
 

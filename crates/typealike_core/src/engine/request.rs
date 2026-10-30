@@ -42,7 +42,6 @@ impl Engine {
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Continue,
             line_after,
-            first_word_gate: None,
         })
     }
 
@@ -77,7 +76,6 @@ impl Engine {
             typo_check: self.typo_check,
             sentence_end: self.sentence_end,
             line_after,
-            first_word_gate: self.first_word_gate,
         })
     }
 

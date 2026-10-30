@@ -69,11 +69,6 @@ impl WordLogProbabilities {
         self.words.len()
     }
 
-    /// The log probability of the first word, if any.
-    pub(super) fn first(&self) -> Option<LogProbability> {
-        self.words.first().copied()
-    }
-
     /// Ends the words before a token that writes `text`: it drops the last word when the token
     /// would continue it. Returns how many tokens the dropped word had.
     pub(super) fn end_before(&mut self, text: &[u8]) -> usize {
