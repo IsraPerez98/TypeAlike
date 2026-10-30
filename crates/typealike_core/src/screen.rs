@@ -141,9 +141,31 @@ pub(crate) fn nearby_lines(
     budget: TokenCount,
     scope: LineScope,
 ) -> NearbyLines {
+    let caret = caret_of(screen);
+    let mut candidates = candidates(screen, field_text, scope);
+    candidates.sort_by_key(|candidate| {
+        (
+            distance(candidate.frame, caret, screen.field),
+            candidate.frame.top,
+            candidate.frame.left,
+        )
+    });
+    let mut kept = within_budget(candidates, budget);
+    kept.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
+    let (above, below) = kept
+        .into_iter()
+        .partition::<Vec<_>, _>(|candidate| is_above(candidate.frame, caret));
+    NearbyLines {
+        above: above.into_iter().map(|candidate| candidate.text).collect(),
+        below: below.into_iter().map(|candidate| candidate.text).collect(),
+    }
+}
+
+/// Returns the lines of `screen` in `scope` that the prompt can show: without the noise, the lines
+/// inside the field and the lines that repeat `field_text`. A chat header gives only its name.
+fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineScope) -> Vec<Candidate> {
     let field = FieldLines::of(field_text);
-    let caret = screen.caret.unwrap_or(screen.field);
-    let mut candidates = scope
+    scope
         .lines(screen)
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
         .map(|line| {
@@ -156,24 +178,17 @@ pub(crate) fn nearby_lines(
         .filter(|candidate| {
             !candidate.text.is_empty() && !is_noise(&candidate.text) && !field.repeats(&candidate.text)
         })
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|candidate| {
-        (
-            distance(candidate.frame, caret, screen.field),
-            candidate.frame.top,
-            candidate.frame.left,
-        )
-    });
-    let mut kept = within_budget(candidates, budget);
-    kept.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
-    let caret_middle = caret.top.midpoint(caret.bottom);
-    let (above, below) = kept.into_iter().partition::<Vec<_>, _>(|candidate| {
-        candidate.frame.top.midpoint(candidate.frame.bottom) < caret_middle
-    });
-    NearbyLines {
-        above: above.into_iter().map(|candidate| candidate.text).collect(),
-        below: below.into_iter().map(|candidate| candidate.text).collect(),
-    }
+        .collect()
+}
+
+/// Returns the caret of `screen`, or the frame of its field when the caret is not known.
+fn caret_of(screen: &ScreenText) -> ScreenRect {
+    screen.caret.unwrap_or(screen.field)
+}
+
+/// Whether the middle of `line` is above the middle of `caret`.
+fn is_above(line: ScreenRect, caret: ScreenRect) -> bool {
+    line.top.midpoint(line.bottom) < caret.top.midpoint(caret.bottom)
 }
 
 /// Returns the `candidates` whose tokens fit in what is left of `budget`, in their order.
