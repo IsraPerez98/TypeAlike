@@ -46,6 +46,12 @@ impl ShownSuggestions {
             .rev()
             .find_map(|shown| shown.rest_after(text_before))
     }
+
+    /// Forgets each kept suggestion that `text_before`, the text before the caret, continues, so
+    /// that none of them shows there again.
+    pub(super) fn forget_at(&mut self, text_before: &str) {
+        self.kept.retain(|shown| shown.rest_after(text_before).is_none());
+    }
 }
 
 impl ShownSuggestion {
@@ -121,6 +127,26 @@ mod tests {
         let rests = ["hel", "text 0"].map(|text_before| shown_suggestions.rest_after(text_before));
 
         assert_eq!(rests, [None, Some(" more")]);
+    }
+
+    #[test]
+    fn forgotten_text_gives_no_rest_of_the_suggestions_that_fit_it() {
+        let mut shown_suggestions = kept(&[("he", "llo there"), ("hel", "lo world")]);
+
+        shown_suggestions.forget_at("hel");
+
+        let rests = ["he", "hel", "hell"].map(|text_before| shown_suggestions.rest_after(text_before));
+        assert_eq!(rests, [None; 3]);
+    }
+
+    #[test]
+    fn forgotten_text_keeps_the_suggestions_that_do_not_fit_it() {
+        let mut shown_suggestions = kept(&[("he", "y there"), ("hel", "lo world"), ("Hi", " Ana")]);
+
+        shown_suggestions.forget_at("hel");
+
+        let rests = ["he", "Hi"].map(|text_before| shown_suggestions.rest_after(text_before));
+        assert_eq!(rests, [Some("y there"), Some(" Ana")]);
     }
 
     #[test]

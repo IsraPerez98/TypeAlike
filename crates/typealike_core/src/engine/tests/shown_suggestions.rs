@@ -111,6 +111,39 @@ fn new_line_after_enter_requests_its_own_suggestion() {
 }
 
 #[test]
+fn letter_after_escape_does_not_follow_the_dismissed_suggestion() {
+    let mut engine = engine_showing("hel", "lo world");
+    press(&mut engine, Key::Escape);
+
+    let reaction = press(&mut engine, Key::Char('l'));
+
+    assert_eq!(reaction, request("hell"));
+}
+
+#[test]
+fn backspace_after_escape_does_not_show_the_dismissed_suggestion() {
+    let mut engine = engine_showing("hel", "lo world");
+    press(&mut engine, Key::Escape);
+    press(&mut engine, Key::Char('p'));
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, request("hel"));
+}
+
+#[test]
+fn backspace_after_escape_shows_an_earlier_suggestion_that_did_not_show_there() {
+    let mut engine = engine_showing("he", "y there");
+    press(&mut engine, Key::Char('l'));
+    engine.on_completion(completion("lo world"));
+    press(&mut engine, Key::Escape);
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, show("y there"));
+}
+
+#[test]
 fn new_session_does_not_show_the_suggestions_of_the_session_before() {
     let mut engine = engine_showing("hel", "lo world");
     engine.reset();

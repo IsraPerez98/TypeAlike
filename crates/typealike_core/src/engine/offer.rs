@@ -229,6 +229,15 @@ impl Engine {
         Reaction::Hide
     }
 
+    /// Hides the ghost text, and forgets the shown suggestions that continue the text before the
+    /// caret, so that the suggestion that the user rejected does not show again without the model.
+    pub(super) fn reject(&mut self) -> Reaction {
+        if let Some(session) = self.session.as_mut() {
+            session.shown_suggestions.forget_at(&session.text_before);
+        }
+        self.dismiss()
+    }
+
     pub(super) fn show(&mut self, suggestion: String) -> Reaction {
         self.offer = Offer::Shown(suggestion.clone());
         Reaction::Show(suggestion)

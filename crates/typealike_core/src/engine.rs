@@ -145,7 +145,8 @@ impl Engine {
                 self.suggest()
             }
             Key::Tab if desktop.is_ghost_shown() => self.accept(desktop),
-            Key::Escape | Key::Dead => self.dismiss(),
+            Key::Escape => self.reject(),
+            Key::Dead => self.dismiss(),
             Key::Enter => self.wait_for_new_line(desktop),
             Key::Char(_) | Key::Tab | Key::Other => self.reset(),
         }
