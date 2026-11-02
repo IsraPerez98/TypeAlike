@@ -13,8 +13,8 @@ mod words;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
-use std::time::Instant;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
@@ -31,10 +31,23 @@ use crate::worker::model_params::{
     ContextSetup, WarmUp, free_gpu_memory, log_devices, model_params, threads_for,
 };
 
+/// The time without a request after which the worker frees the context of a model on a GPU: its
+/// cache of the last prompt and its compute buffers. The next request makes the context again.
+const CONTEXT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
+
 /// A request and where its event goes.
 pub(crate) struct Job {
     pub(crate) request: InferenceRequest,
     pub(crate) sink: InferenceEventSink,
+}
+
+/// What a wait for the next job with a time limit gives.
+enum Waited {
+    Job(Job),
+    /// No job came before the time limit.
+    Idle,
+    /// Every sender is gone.
+    Closed,
 }
 
 /// The jobs that wait.
@@ -52,6 +65,18 @@ impl<'jobs> JobQueue<'jobs> {
     /// Waits for the next job. Returns `None` when every sender is gone.
     fn next(&mut self) -> Option<Job> {
         self.next_job.take().or_else(|| self.jobs.recv().ok())
+    }
+
+    /// Waits at most `limit` for the next job.
+    fn next_within(&mut self, limit: Duration) -> Waited {
+        if let Some(job) = self.next_job.take() {
+            return Waited::Job(job);
+        }
+        match self.jobs.recv_timeout(limit) {
+            Ok(job) => Waited::Job(job),
+            Err(RecvTimeoutError::Timeout) => Waited::Idle,
+            Err(RecvTimeoutError::Disconnected) => Waited::Closed,
+        }
     }
 
     /// Makes `job` the next job again.
@@ -113,7 +138,7 @@ pub(crate) fn run(
                         let mut loaded_model = LoadedModel::new(llama, &model, setup);
                         loaded_model.warm_up(&mut || queue.has_waiting_job());
                         sink(InferenceEvent::Loaded { file, result: Ok(()) });
-                        serve(&mut loaded_model, &mut queue);
+                        serve(&mut loaded_model, &mut queue, context_idle_timeout(backend));
                     }
                     (loaded, _) => sink(InferenceEvent::Loaded {
                         file,
@@ -177,9 +202,9 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Infe
 
 /// Runs the completions and the reads of GPU memory for the `loaded` model until a job loads or
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
-/// before the next model loads.
-fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>) {
-    while let Some(job) = queue.next() {
+/// before the next model loads. It frees the context when no job comes for `idle_timeout`.
+fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: Option<Duration>) {
+    while let Some(job) = next_job_for(loaded, queue, idle_timeout) {
         let InferenceRequest::Complete {
             prompt,
             max_tokens,
@@ -213,6 +238,36 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>) {
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
         (job.sink)(InferenceEvent::Completed(result));
+    }
+}
+
+/// Returns the time without a job after which the worker frees the context of a model on
+/// `backend`, or `None` when it keeps the context. On the CPU, the next completion would decode
+/// its whole prompt again, which takes seconds on a slow CPU, and the context holds little memory.
+fn context_idle_timeout(backend: Backend) -> Option<Duration> {
+    match backend {
+        Backend::Vulkan | Backend::Cuda | Backend::Metal => Some(CONTEXT_IDLE_TIMEOUT),
+        Backend::Cpu => None,
+    }
+}
+
+/// Waits for the next job for `loaded`, and frees the context of `loaded` when no job comes for
+/// `idle_timeout`. Returns `None` when every sender is gone.
+fn next_job_for(
+    loaded: &mut LoadedModel<'_>,
+    queue: &mut JobQueue<'_>,
+    idle_timeout: Option<Duration>,
+) -> Option<Job> {
+    let Some(idle_timeout) = idle_timeout else {
+        return queue.next();
+    };
+    match queue.next_within(idle_timeout) {
+        Waited::Job(job) => Some(job),
+        Waited::Closed => None,
+        Waited::Idle => {
+            loaded.free_context();
+            queue.next()
+        }
     }
 }
 
@@ -254,6 +309,23 @@ mod tests {
             })
             .expect("the queue receives jobs");
         JobQueue::new(&jobs).has_newer_completion(running_sink)
+    }
+
+    #[test]
+    fn only_gpu_backends_free_the_context_of_an_idle_model() {
+        let backends = [Backend::Metal, Backend::Vulkan, Backend::Cuda, Backend::Cpu];
+
+        let timeouts = backends.map(context_idle_timeout);
+
+        assert_eq!(
+            timeouts,
+            [
+                Some(CONTEXT_IDLE_TIMEOUT),
+                Some(CONTEXT_IDLE_TIMEOUT),
+                Some(CONTEXT_IDLE_TIMEOUT),
+                None,
+            ]
+        );
     }
 
     #[test]
@@ -312,6 +384,69 @@ mod tests {
         let waits = JobQueue::new(&jobs).has_waiting_job();
 
         assert!(waits);
+    }
+
+    #[test]
+    fn job_in_the_queue_comes_within_the_limit() {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: complete_request(),
+                sink: sink(),
+            })
+            .expect("the queue receives jobs");
+
+        let waited = JobQueue::new(&jobs).next_within(Duration::ZERO);
+
+        assert!(matches!(
+            waited,
+            Waited::Job(Job {
+                request: InferenceRequest::Complete { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn job_that_was_looked_at_comes_within_the_limit() {
+        let (sender, jobs) = mpsc::channel();
+        sender
+            .send(Job {
+                request: InferenceRequest::Unload,
+                sink: sink(),
+            })
+            .expect("the queue receives jobs");
+        let mut queue = JobQueue::new(&jobs);
+        queue.has_waiting_job();
+
+        let waited = queue.next_within(Duration::ZERO);
+
+        assert!(matches!(
+            waited,
+            Waited::Job(Job {
+                request: InferenceRequest::Unload,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn empty_queue_is_idle_after_the_limit() {
+        let (_sender, jobs) = mpsc::channel();
+
+        let waited = JobQueue::new(&jobs).next_within(Duration::ZERO);
+
+        assert!(matches!(waited, Waited::Idle));
+    }
+
+    #[test]
+    fn queue_without_senders_is_closed() {
+        let (sender, jobs) = mpsc::channel::<Job>();
+        drop(sender);
+
+        let waited = JobQueue::new(&jobs).next_within(Duration::ZERO);
+
+        assert!(matches!(waited, Waited::Closed));
     }
 
     #[test]

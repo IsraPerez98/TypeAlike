@@ -94,6 +94,14 @@ impl<'model> LoadedModel<'model> {
         cache.warm_up(&prompt, is_outdated)
     }
 
+    /// Frees the context with the cache of the last prompt and the buffers of the backend. The
+    /// next completion makes them again and decodes its whole prompt.
+    pub(super) fn free_context(&mut self) {
+        if self.cache.take().is_some() {
+            tracing::info!("freed the context of the model");
+        }
+    }
+
     /// Makes the cache of the prompts, when it does not exist.
     fn make_cache(&mut self) -> Result<(), LlamaContextLoadError> {
         if self.cache.is_none() {
@@ -234,5 +242,62 @@ impl<'model> LoadedModel<'model> {
                 Err(error)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use typealike_core::inference::{Backend, SentenceEnd, TypoCheck};
+
+    use super::*;
+    use crate::worker::load;
+
+    const BATCH_TOKENS: u32 = 128;
+
+    fn complete_story(loaded: &mut LoadedModel<'_>) -> String {
+        let limits = Limits {
+            max_added: 8,
+            min_log_probability: None,
+            typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
+            line_after: b"",
+        };
+        let token_bias = loaded.token_bias(None, &NextWordBias::default());
+        let mut progress = Progress {
+            is_outdated: &mut || false,
+            send_partial: &mut |_| {},
+        };
+        loaded
+            .complete(
+                &Prompt("Once upon a time".to_owned()),
+                limits,
+                &token_bias,
+                &mut progress,
+            )
+            .expect("the model completes the prompt")
+            .text
+    }
+
+    #[test]
+    #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+    fn completion_after_freeing_the_context_gives_the_same_text() {
+        let path =
+            PathBuf::from(std::env::var_os("TYPEALIKE_TEST_MODEL").expect("TYPEALIKE_TEST_MODEL is set"));
+        let mut llama = None;
+        let model = load(&mut llama, Some(path), Backend::Cpu, BATCH_TOKENS).expect("the model loads");
+        let setup = ContextSetup {
+            cpu_threads: None,
+            batch_tokens: BATCH_TOKENS,
+            warm_up: WarmUp::Off,
+        };
+        let mut loaded = LoadedModel::new(llama.as_ref().expect("the load starts llama.cpp"), &model, setup);
+        let before = complete_story(&mut loaded);
+
+        loaded.free_context();
+        let after = complete_story(&mut loaded);
+
+        assert_eq!(after, before);
     }
 }
