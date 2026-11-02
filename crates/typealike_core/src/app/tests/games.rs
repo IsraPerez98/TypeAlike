@@ -4,7 +4,7 @@ use super::fixtures::{MAIL, app_preparing_on_focus};
 use crate::app::{App, BadgeView, Status, StopReason, TrayCommand};
 use crate::desktop::{EnergySaver, GameActivity};
 use crate::engine::Reaction;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{EnergySavingSettings, GameRule, Settings};
 use crate::test_support::english;
 
@@ -54,7 +54,7 @@ fn app_keeps_the_game_activity() {
 fn key_during_a_game_asks_for_no_suggestion() {
     let mut app = app_during_a_game();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!((reaction, app.has_offer()), (Reaction::Hide, false));
 }
@@ -64,7 +64,7 @@ fn key_during_a_game_asks_for_a_suggestion_when_the_switch_is_off() {
     let mut app = app_keeping_suggestions_during_games();
     app.use_game(GameActivity::InFront);
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -73,7 +73,7 @@ fn key_during_a_game_asks_for_a_suggestion_when_the_switch_is_off() {
 fn key_after_the_game_asks_for_a_suggestion() {
     let mut app = app_after_a_game();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -81,7 +81,7 @@ fn key_after_the_game_asks_for_a_suggestion() {
 #[test]
 fn game_ends_the_session() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_game(GameActivity::InFront);
 
@@ -92,7 +92,7 @@ fn game_ends_the_session() {
 fn turning_on_the_switch_during_a_game_ends_the_session() {
     let mut app = app_keeping_suggestions_during_games();
     app.use_game(GameActivity::InFront);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&settings_with(GameRule::StopSuggestions));
 
@@ -113,7 +113,7 @@ fn settled_input_during_a_game_prepares_nothing() {
 fn typing_during_a_game_shows_the_game_badge() {
     let mut app = app_during_a_game();
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(app.badge_view(&english()), Some(game_badge()));
 }

@@ -1,7 +1,7 @@
 //! Tests what Tab, typed keys and other keys do with the ghost text.
 
 use crate::engine::{AfterAccept, Engine, Reaction};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::test_support::completion;
 
 use super::support::{
@@ -131,7 +131,7 @@ fn tab_passes_to_the_app_while_the_ghost_text_is_not_on_the_screen() {
         ..FakeDesktop::default()
     };
 
-    let reaction = engine.on_key(Key::Tab, &desktop);
+    let reaction = engine.on_key(Key::Tab, Press::First, &desktop);
 
     assert_eq!(reaction, Reaction::Hide);
 }
@@ -258,7 +258,7 @@ fn typing_after_escape_while_waiting_requests_again() {
         is_ghost_hidden: true,
         ..FakeDesktop::default()
     };
-    engine.on_key(Key::Escape, &desktop);
+    engine.on_key(Key::Escape, Press::First, &desktop);
 
     let reaction = press(&mut engine, Key::Char('p'));
 

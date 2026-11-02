@@ -6,7 +6,7 @@ use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
 use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::prompt;
 use crate::settings::{ClipboardAccess, Settings, WriterName, WriterNotes};
 use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
@@ -23,6 +23,7 @@ fn caret_is_at_the_line_end_while_its_line_has_no_text_after_it() {
         let mut engine = Engine::default();
         engine.on_key(
             Key::Char(' '),
+            Press::First,
             &FakeDesktop::with_text_around("Let's meet", text_after),
         );
         engine.is_caret_at_line_end()
@@ -42,7 +43,7 @@ fn caret_in_a_field_that_hides_its_line_is_not_at_the_line_end() {
     };
     let mut engine = Engine::default();
 
-    engine.on_key(Key::Char(' '), &desktop);
+    engine.on_key(Key::Char(' '), Press::First, &desktop);
 
     assert!(!engine.is_caret_at_line_end());
 }
@@ -124,7 +125,11 @@ fn context_below_the_limit_keeps_its_start() {
 fn first_key_continues_the_field_text_before_the_caret() {
     let mut engine = Engine::default();
 
-    let reaction = engine.on_key(Key::Char('l'), &FakeDesktop::with_field_text("Hello wor"));
+    let reaction = engine.on_key(
+        Key::Char('l'),
+        Press::First,
+        &FakeDesktop::with_field_text("Hello wor"),
+    );
 
     assert_eq!(reaction, request("Hello worl"));
 }
@@ -137,6 +142,7 @@ fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
         let mut engine = Engine::default();
         engine.on_key(
             Key::Char('l'),
+            Press::First,
             &FakeDesktop::with_field_text(&format!("Hello{space}wor")),
         )
     });
@@ -148,10 +154,10 @@ fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
 fn field_text_is_read_once_per_session() {
     let mut engine = Engine::default();
     let desktop = FakeDesktop::with_field_text("Hello ");
-    engine.on_key(Key::Char('w'), &desktop);
+    engine.on_key(Key::Char('w'), Press::First, &desktop);
     engine.on_completion(completion(""));
 
-    let reaction = engine.on_key(Key::Char('o'), &desktop);
+    let reaction = engine.on_key(Key::Char('o'), Press::First, &desktop);
 
     assert_eq!(
         (reaction, desktop.surroundings_reads.get()),
@@ -162,11 +168,19 @@ fn field_text_is_read_once_per_session() {
 #[test]
 fn reset_reads_the_field_again() {
     let mut engine = Engine::default();
-    engine.on_key(Key::Char('x'), &FakeDesktop::with_field_text("Old "));
+    engine.on_key(
+        Key::Char('x'),
+        Press::First,
+        &FakeDesktop::with_field_text("Old "),
+    );
     engine.on_completion(completion(""));
     engine.reset();
 
-    let reaction = engine.on_key(Key::Char('d'), &FakeDesktop::with_field_text("New wor"));
+    let reaction = engine.on_key(
+        Key::Char('d'),
+        Press::First,
+        &FakeDesktop::with_field_text("New wor"),
+    );
 
     assert_eq!(reaction, request("New word"));
 }
@@ -175,7 +189,11 @@ fn reset_reads_the_field_again() {
 fn backspace_deletes_from_the_field_text() {
     let mut engine = Engine::default();
 
-    let reaction = engine.on_key(Key::Backspace, &FakeDesktop::with_field_text("Helloo"));
+    let reaction = engine.on_key(
+        Key::Backspace,
+        Press::First,
+        &FakeDesktop::with_field_text("Helloo"),
+    );
 
     assert_eq!(reaction, request("Hello"));
 }
@@ -185,7 +203,11 @@ fn long_field_text_keeps_its_end() {
     let mut engine = Engine::default();
     let before_caret = format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1));
 
-    let reaction = engine.on_key(Key::Char('y'), &FakeDesktop::with_field_text(&before_caret));
+    let reaction = engine.on_key(
+        Key::Char('y'),
+        Press::First,
+        &FakeDesktop::with_field_text(&before_caret),
+    );
 
     assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET + 1)));
 }
@@ -231,7 +253,7 @@ fn recent_copy_comes_before_the_text() {
         Some(MAX_CLIPBOARD_AGE.saturating_sub(Duration::from_secs(1))),
     );
 
-    let reaction = engine.on_key(Key::Char('h'), &desktop);
+    let reaction = engine.on_key(Key::Char('h'), Press::First, &desktop);
 
     assert_eq!(reaction, request_with(&["Text on my clipboard: “1Z999”"], "h"));
 }
@@ -245,7 +267,11 @@ fn old_copy_or_copy_from_before_the_start_stays_out() {
     let ages = [Some(MAX_CLIPBOARD_AGE), None];
 
     let reactions = ages.map(|age| {
-        engine_with(&settings).on_key(Key::Char('h'), &FakeDesktop::default().with_copy("1Z999", age))
+        engine_with(&settings).on_key(
+            Key::Char('h'),
+            Press::First,
+            &FakeDesktop::default().with_copy("1Z999", age),
+        )
     });
 
     assert_eq!(reactions, ages.map(|_| request("h")));
@@ -259,7 +285,7 @@ fn denied_clipboard_is_never_read() {
     });
     let desktop = FakeDesktop::default().with_copy("1Z999", Some(Duration::ZERO));
 
-    let reaction = engine.on_key(Key::Char('h'), &desktop);
+    let reaction = engine.on_key(Key::Char('h'), Press::First, &desktop);
 
     assert_eq!((reaction, desktop.clipboard_reads.get()), (request("h"), 0));
 }
@@ -270,6 +296,7 @@ fn address_field_of_an_email_gets_no_request() {
 
     let reaction = engine.on_key(
         Key::Char('a'),
+        Press::First,
         &FakeDesktop::default().in_app(MAIL_APP).with_field_name("To:"),
     );
 
@@ -289,7 +316,11 @@ fn subject_field_of_an_email_is_not_prepared() {
 fn search_field_gets_no_request() {
     let mut engine = Engine::default();
 
-    let reaction = engine.on_key(Key::Char('a'), &FakeDesktop::default().in_search_field());
+    let reaction = engine.on_key(
+        Key::Char('a'),
+        Press::First,
+        &FakeDesktop::default().in_search_field(),
+    );
 
     assert_eq!(reaction, Reaction::Hide);
 }
@@ -309,6 +340,7 @@ fn body_of_an_email_gets_a_request() {
 
     let reaction = engine.on_key(
         Key::Char('a'),
+        Press::First,
         &FakeDesktop::default().in_app(MAIL_APP).with_field_name("Message"),
     );
 
@@ -330,6 +362,7 @@ fn session_knows_its_app() {
 
     engine.on_key(
         Key::Char('S'),
+        Press::First,
         &FakeDesktop::default().in_app(MAIL_APP).with_field_name("Message"),
     );
 

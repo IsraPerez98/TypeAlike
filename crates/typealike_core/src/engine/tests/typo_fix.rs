@@ -2,7 +2,7 @@
 
 use crate::engine::{AfterAccept, Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{Settings, TypoFix};
 use crate::test_support::{ExpectedRequest, completion};
 
@@ -42,7 +42,11 @@ fn engine_showing_a_fix_after_a_space() -> Engine {
 
 /// Presses Tab in a field whose text before the caret is `before_caret`.
 fn press_tab_in_field(engine: &mut Engine, before_caret: &str) -> Reaction {
-    engine.on_key(Key::Tab, &FakeDesktop::with_field_text(before_caret))
+    engine.on_key(
+        Key::Tab,
+        Press::First,
+        &FakeDesktop::with_field_text(before_caret),
+    )
 }
 
 fn replace_after_the_space() -> Reaction {
@@ -410,7 +414,7 @@ fn tab_on_a_kept_fix_takes_a_no_break_space_of_the_field_for_its_space() {
 fn tab_on_a_kept_fix_replaces_the_typo_when_the_field_text_is_unknown() {
     let mut engine = engine_showing_a_fix_after_a_space();
 
-    let reaction = engine.on_key(Key::Tab, &FakeDesktop::default());
+    let reaction = engine.on_key(Key::Tab, Press::First, &FakeDesktop::default());
 
     assert_eq!(reaction, replace_after_the_space());
 }
@@ -429,7 +433,11 @@ fn key_after_a_refused_fix_continues_the_text_of_the_field() {
     let mut engine = engine_showing_a_fix_after_a_space();
     press_tab_in_field(&mut engine, "the deli ");
 
-    let reaction = engine.on_key(Key::Char('s'), &FakeDesktop::with_field_text("the deli "));
+    let reaction = engine.on_key(
+        Key::Char('s'),
+        Press::First,
+        &FakeDesktop::with_field_text("the deli "),
+    );
 
     assert_eq!(reaction, request("the deli s"));
 }
@@ -439,7 +447,7 @@ fn tab_on_a_fix_without_a_kept_delimiter_does_not_read_the_field() {
     let mut engine = engine_showing_a_fix();
     let desktop = FakeDesktop::with_field_text("the deli");
 
-    engine.on_key(Key::Tab, &desktop);
+    engine.on_key(Key::Tab, Press::First, &desktop);
 
     assert_eq!(desktop.surroundings_reads.get(), 0);
 }

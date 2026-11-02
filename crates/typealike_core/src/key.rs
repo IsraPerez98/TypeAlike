@@ -99,6 +99,60 @@ pub enum Typed {
     NoSingleChar,
 }
 
+/// Whether the user pressed a key, or the OS repeats a key that the user holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Press {
+    /// The user pressed the key.
+    First,
+    /// The OS repeats the key, because the user holds it down.
+    Repeat,
+}
+
+/// Tells a press of a key from a repeat of a held key, for a platform whose key events do not
+/// mark repeats. The OS repeats only the key that the user pressed last. `Code` is the key code of
+/// the platform.
+///
+/// ```
+/// use typealike_core::key::{HeldKey, Press};
+///
+/// const LETTER_A: u16 = 0x41;
+/// let mut held_key = HeldKey::default();
+/// held_key.on_press(LETTER_A);
+///
+/// assert_eq!(held_key.on_press(LETTER_A), Press::Repeat);
+/// ```
+#[derive(Debug)]
+pub struct HeldKey<Code> {
+    held: Option<Code>,
+}
+
+impl<Code> Default for HeldKey<Code> {
+    fn default() -> Self {
+        Self { held: None }
+    }
+}
+
+impl<Code: Copy + PartialEq> HeldKey<Code> {
+    /// Records a key-down event of `code`, and returns whether it is a repeat: no key-up event of
+    /// `code` came after its last key-down event, and no other key went down between them.
+    pub fn on_press(&mut self, code: Code) -> Press {
+        let press = if self.held == Some(code) {
+            Press::Repeat
+        } else {
+            Press::First
+        };
+        self.held = Some(code);
+        press
+    }
+
+    /// Records a key-up event of `code`.
+    pub fn on_release(&mut self, code: Code) {
+        if self.held == Some(code) {
+            self.held = None;
+        }
+    }
+}
+
 /// What happens to an input event after TypeAlike handles it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Disposition {
@@ -388,5 +442,56 @@ mod tests {
         filter.on_release();
 
         assert_eq!(filter.on_release(), Disposition::Pass);
+    }
+
+    #[test]
+    fn first_press_of_a_key_is_no_repeat() {
+        let mut held_key = HeldKey::default();
+
+        assert_eq!(held_key.on_press(LETTER_A), Press::First);
+    }
+
+    #[test]
+    fn press_of_the_held_key_is_a_repeat() {
+        let mut held_key = HeldKey::default();
+        held_key.on_press(LETTER_A);
+
+        assert_eq!(held_key.on_press(LETTER_A), Press::Repeat);
+    }
+
+    #[test]
+    fn press_after_the_release_is_no_repeat() {
+        let mut held_key = HeldKey::default();
+        held_key.on_press(LETTER_A);
+        held_key.on_release(LETTER_A);
+
+        assert_eq!(held_key.on_press(LETTER_A), Press::First);
+    }
+
+    #[test]
+    fn press_of_another_key_is_no_repeat() {
+        let mut held_key = HeldKey::default();
+        held_key.on_press(LETTER_A);
+
+        assert_eq!(held_key.on_press(TAB), Press::First);
+    }
+
+    #[test]
+    fn release_of_an_earlier_key_keeps_the_newest_key_held() {
+        let mut held_key = HeldKey::default();
+        held_key.on_press(LETTER_A);
+        held_key.on_press(TAB);
+        held_key.on_release(LETTER_A);
+
+        assert_eq!(held_key.on_press(TAB), Press::Repeat);
+    }
+
+    #[test]
+    fn earlier_key_is_no_repeat_after_a_newer_key() {
+        let mut held_key = HeldKey::default();
+        held_key.on_press(LETTER_A);
+        held_key.on_press(TAB);
+
+        assert_eq!(held_key.on_press(LETTER_A), Press::First);
     }
 }

@@ -12,7 +12,7 @@ use typealike_core::controller::{
     BackendChoice, Controller, Delivery, PlaygroundPage, Services, Shell, Startup, Timer,
 };
 use typealike_core::desktop::EnergySaver;
-use typealike_core::key::{BadgeClickFilter, Disposition, ReleaseFilter};
+use typealike_core::key::{BadgeClickFilter, Disposition, HeldKey, ReleaseFilter};
 use typealike_core::settings::Settings;
 use typealike_core::setup::TrayPlace;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -161,6 +161,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
                 settings: settings_thread,
             },
             release_filter: ReleaseFilter::default(),
+            held_key: HeldKey::default(),
             badge_click: BadgeClickFilter::default(),
             taskbar_created_message,
             deliveries,
@@ -245,6 +246,8 @@ struct Runtime {
     controller: Controller,
     shell: Win32Shell,
     release_filter: ReleaseFilter<VIRTUAL_KEY>,
+    /// The low-level hook does not mark the keys that Windows repeats.
+    held_key: HeldKey<VIRTUAL_KEY>,
     badge_click: BadgeClickFilter,
     /// The message that comes when the taskbar starts again, or `None` when Windows did not
     /// register it.
@@ -269,7 +272,10 @@ impl Runtime {
         };
         match message {
             WM_KEYDOWN | WM_SYSKEYDOWN => self.on_key_down(key, event.scanCode),
-            WM_KEYUP | WM_SYSKEYUP => self.release_filter.on_release(key),
+            WM_KEYUP | WM_SYSKEYUP => {
+                self.held_key.on_release(key);
+                self.release_filter.on_release(key)
+            }
             _ => Disposition::Pass,
         }
     }
@@ -278,7 +284,8 @@ impl Runtime {
     /// stale only after the controller. A modifier alone does not change the field.
     fn on_key_down(&mut self, key: VIRTUAL_KEY, scan_code: u32) -> Disposition {
         let core_key = keys::translate(key, keys::current_chord(), keys::typed(key, scan_code));
-        let disposition = self.controller.on_key_down(core_key, &mut self.shell);
+        let press = self.held_key.on_press(key);
+        let disposition = self.controller.on_key_down(core_key, press, &mut self.shell);
         self.release_filter.on_press(key, disposition);
         if core_key.is_some() {
             self.shell.forget_field_text();

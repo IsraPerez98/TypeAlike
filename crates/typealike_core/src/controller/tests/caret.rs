@@ -10,7 +10,7 @@ use crate::controller::{
 use crate::desktop::Field;
 use crate::engine::WordFix;
 use crate::inference::{InferenceEvent, InferenceRequest};
-use crate::key::{Disposition, Key};
+use crate::key::{Disposition, Key, Press};
 use crate::settings::{Settings, SuggestionDisplay};
 use crate::test_support::{active_badge, suggestion_request};
 
@@ -462,7 +462,9 @@ fn tab_on_a_kept_fix_that_the_app_changed_types_nothing() {
 fn untranslated_key_passes() {
     let mut harness = Harness::new(Settings::default());
 
-    let disposition = harness.controller.on_key_down(None, &mut harness.shell);
+    let disposition = harness
+        .controller
+        .on_key_down(None, Press::First, &mut harness.shell);
 
     assert_eq!(disposition, Disposition::Pass);
 }
@@ -471,7 +473,9 @@ fn untranslated_key_passes() {
 fn untranslated_key_requests_nothing() {
     let mut harness = Harness::new(Settings::default());
 
-    harness.controller.on_key_down(None, &mut harness.shell);
+    harness
+        .controller
+        .on_key_down(None, Press::First, &mut harness.shell);
 
     assert_eq!(harness.requests(), Vec::new());
 }
@@ -481,7 +485,9 @@ fn focus_change_before_key_hides_ghost_and_badge() {
     let mut harness = Harness::new(Settings::default());
     harness.shell.focus_change = FocusChange::Changed;
 
-    harness.controller.on_key_down(None, &mut harness.shell);
+    harness
+        .controller
+        .on_key_down(None, Press::First, &mut harness.shell);
 
     assert_eq!(harness.take_calls(), hidden_ghost_and_badge());
 }

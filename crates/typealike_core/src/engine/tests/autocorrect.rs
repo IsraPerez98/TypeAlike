@@ -3,7 +3,7 @@
 
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, KeptTexts, Settings};
 use crate::test_support::{MAIL_APP, mail_entry};
 
@@ -12,7 +12,7 @@ use super::support::{FakeDesktop, engine_with, history_settings, request};
 /// Types each character of `text` in `desktop`.
 fn type_in(engine: &mut Engine, desktop: &FakeDesktop, text: &str) {
     for character in text.chars() {
-        engine.on_key(Key::Char(character), desktop);
+        engine.on_key(Key::Char(character), Press::First, desktop);
     }
 }
 
@@ -26,7 +26,7 @@ fn engine_after_typing(field_before: &str, typed: &str) -> Engine {
 /// Takes the field read `field_before` and returns the request for the next key `t`.
 fn request_after_read(engine: &mut Engine, field_before: &str) -> Reaction {
     engine.follow_field(&FakeDesktop::with_field_text(field_before));
-    engine.on_key(Key::Char('t'), &FakeDesktop::default())
+    engine.on_key(Key::Char('t'), Press::First, &FakeDesktop::default())
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn history_keeps_the_word_that_the_app_corrected() {
     type_in(&mut engine, &field, "I recieve the report ");
     engine.follow_field(&FakeDesktop::with_field_text("I receive the report ").in_app(MAIL_APP));
 
-    engine.on_key(Key::Other, &field);
+    engine.on_key(Key::Other, Press::First, &field);
 
     assert_eq!(
         engine.history_to_save().map(<[HistoryEntry]>::to_vec),

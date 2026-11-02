@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings, Timestamp};
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, HistoryApp, PersonalizationSettings, Settings, WordChoice};
 use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
@@ -92,7 +92,7 @@ impl Desktop for FakeDesktop {
 }
 
 pub(super) fn press(engine: &mut Engine, key: Key) -> Reaction {
-    engine.on_key(key, &FakeDesktop::default())
+    engine.on_key(key, Press::First, &FakeDesktop::default())
 }
 
 pub(super) fn engine_with(settings: &Settings) -> Engine {
@@ -196,16 +196,16 @@ pub(super) fn finish_typing_text(
     suggestion: Suggestion,
 ) -> Option<Vec<HistoryEntry>> {
     for character in typed.chars() {
-        if let Reaction::Request(_) = engine.on_key(Key::Char(character), desktop) {
+        if let Reaction::Request(_) = engine.on_key(Key::Char(character), Press::First, desktop) {
             engine.on_completion(completion(""));
         }
     }
-    engine.on_key(Key::Char('d'), desktop);
+    engine.on_key(Key::Char('d'), Press::First, desktop);
     engine.on_completion(completion(". Best, Tom"));
     if matches!(suggestion, Suggestion::Accepted) {
-        engine.on_key(Key::Tab, desktop);
+        engine.on_key(Key::Tab, Press::First, desktop);
     }
-    engine.on_key(Key::Other, desktop);
+    engine.on_key(Key::Other, Press::First, desktop);
     engine.history_to_save().map(<[HistoryEntry]>::to_vec)
 }
 

@@ -1,7 +1,7 @@
 //! Tests how a backspace or a retype shows a suggestion of the session again without a request.
 
 use crate::engine::{AfterAccept, Engine, Reaction};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::test_support::completion;
 
 use super::support::{FakeDesktop, engine_showing, engine_waiting_for, press, request, show, type_text};
@@ -89,11 +89,23 @@ fn tab_on_the_last_part_of_an_earlier_suggestion_requests_the_next_suggestion() 
 #[test]
 fn backspace_after_enter_shows_the_suggestion_at_the_end_of_the_line_above_again() {
     let mut engine = Engine::default();
-    engine.on_key(Key::Char(','), &FakeDesktop::with_field_text("Best regards"));
+    engine.on_key(
+        Key::Char(','),
+        Press::First,
+        &FakeDesktop::with_field_text("Best regards"),
+    );
     engine.on_completion(completion(" Sara"));
-    engine.on_key(Key::Enter, &FakeDesktop::with_field_text("Best regards,"));
+    engine.on_key(
+        Key::Enter,
+        Press::First,
+        &FakeDesktop::with_field_text("Best regards,"),
+    );
 
-    let reaction = engine.on_key(Key::Backspace, &FakeDesktop::with_field_text("Best regards,\n"));
+    let reaction = engine.on_key(
+        Key::Backspace,
+        Press::First,
+        &FakeDesktop::with_field_text("Best regards,\n"),
+    );
 
     assert_eq!(reaction, show(" Sara"));
 }
@@ -101,9 +113,17 @@ fn backspace_after_enter_shows_the_suggestion_at_the_end_of_the_line_above_again
 #[test]
 fn new_line_after_enter_requests_its_own_suggestion() {
     let mut engine = Engine::default();
-    engine.on_key(Key::Char(','), &FakeDesktop::with_field_text("Best regards"));
+    engine.on_key(
+        Key::Char(','),
+        Press::First,
+        &FakeDesktop::with_field_text("Best regards"),
+    );
     engine.on_completion(completion(" Sara"));
-    engine.on_key(Key::Enter, &FakeDesktop::with_field_text("Best regards,"));
+    engine.on_key(
+        Key::Enter,
+        Press::First,
+        &FakeDesktop::with_field_text("Best regards,"),
+    );
 
     let reaction = engine.suggest_on_new_line(&FakeDesktop::with_field_text("Best regards,\n"));
 
@@ -151,7 +171,7 @@ fn new_session_does_not_show_the_suggestions_of_the_session_before() {
     let mut engine = engine_showing("hel", "lo world");
     engine.reset();
 
-    let reaction = engine.on_key(Key::Char('l'), &FakeDesktop::with_field_text("hel"));
+    let reaction = engine.on_key(Key::Char('l'), Press::First, &FakeDesktop::with_field_text("hel"));
 
     assert_eq!(reaction, request("hell"));
 }

@@ -3,7 +3,7 @@
 use crate::desktop::{Confidence, ScreenLine, ScreenRead, ScreenRect, ScreenText, Timestamp};
 use crate::engine::Engine;
 use crate::history::HistoryEntry;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, HistoryScope, KeptTexts, ReplyWords, Settings};
 use crate::test_support::{MAIL_APP, mail_entry, mail_history_app};
 
@@ -19,7 +19,7 @@ fn earlier_writing_of_the_app_comes_before_the_text() {
         vec![mail_entry("Cheers,\nTom")],
     );
 
-    let reaction = engine.on_key(Key::Char('h'), &mail_field());
+    let reaction = engine.on_key(Key::Char('h'), Press::First, &mail_field());
 
     assert_eq!(
         reaction,
@@ -41,7 +41,11 @@ fn earlier_writing_stays_out_when_the_history_or_the_app_is_off() {
     ];
 
     let reactions = settings.map(|settings| {
-        engine_with_history(&settings, vec![mail_entry("Cheers,\nTom")]).on_key(Key::Char('h'), &mail_field())
+        engine_with_history(&settings, vec![mail_entry("Cheers,\nTom")]).on_key(
+            Key::Char('h'),
+            Press::First,
+            &mail_field(),
+        )
     });
 
     assert_eq!(
@@ -166,7 +170,7 @@ fn kept_chat_text_answers_the_message_of_the_screen_read_of_its_session() {
     let mut engine = engine_with(&kept_settings(KeptTexts::All));
     read_screen(&mut engine, "Lunch at noon?");
     let desktop = FakeDesktop::with_field_text(GREETING).in_app(CHAT_APP);
-    engine.on_key(Key::Char('S'), &desktop);
+    engine.on_key(Key::Char('S'), Press::First, &desktop);
     let id = engine
         .start_screen_read()
         .expect("the session has no read of its own");
@@ -357,7 +361,7 @@ fn message_that_the_user_types_again_is_kept_again() {
 
 fn press_repeatedly(engine: &mut Engine, key: Key, count: usize, desktop: &FakeDesktop) {
     for _ in 0..count {
-        engine.on_key(key, desktop);
+        engine.on_key(key, Press::First, desktop);
     }
 }
 
@@ -403,7 +407,7 @@ fn session_with_two_lines_is_kept_in_one_entry() {
     let first_line = "Hi Ana,";
     engine.prepare(&mail_desktop(""));
     type_text(&mut engine, first_line);
-    engine.on_key(Key::Enter, &mail_desktop(""));
+    engine.on_key(Key::Enter, Press::First, &mail_desktop(""));
     let new_line = mail_desktop(&format!("{first_line}\n"));
     engine.suggest_on_new_line(&new_line);
 

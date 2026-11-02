@@ -1,7 +1,7 @@
 //! Tests the pause of the suggestions in a field after Escape rejects the suggestion that shows.
 
 use crate::engine::{Engine, Reaction};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::test_support::completion;
 
 use super::support::{FakeDesktop, engine_showing, press, request};
@@ -48,7 +48,7 @@ fn field_stays_paused_after_a_key_that_ends_the_session() {
     let mut engine = engine_paused_after("hel", "lo world");
     press(&mut engine, Key::Other);
 
-    let reaction = engine.on_key(Key::Char('p'), &FakeDesktop::with_field_text("hel"));
+    let reaction = engine.on_key(Key::Char('p'), Press::First, &FakeDesktop::with_field_text("hel"));
 
     assert_eq!(reaction, Reaction::Hide);
 }

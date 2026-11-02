@@ -7,7 +7,7 @@ use crate::desktop::{
     ScreenText,
 };
 use crate::history::HistoryEntry;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{
     HistoryAccess, OcrLevel, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
     ScreenTextSettings, Settings,
@@ -152,7 +152,7 @@ fn answer_with(read: ScreenReadId, line: &str) -> ScreenRead {
 #[test]
 fn settled_input_during_a_session_without_screen_text_reads_the_screen() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let work = app.on_input_settled(&MAIL);
 
@@ -162,7 +162,7 @@ fn settled_input_during_a_session_without_screen_text_reads_the_screen() {
 #[test]
 fn settled_input_during_a_session_with_its_screen_text_reads_no_screen() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
     let read = session_read(&mut app);
     app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
 
@@ -176,7 +176,7 @@ fn first_key_starts_a_read_when_the_session_uses_stored_text() {
     let mut app = App::new();
     let read = screen_read(&mut app);
     app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let work = app.start_session_screen_read();
 
@@ -195,7 +195,7 @@ fn first_key_starts_a_read_when_the_session_uses_stored_text() {
 #[test]
 fn session_without_stored_text_reads_at_the_first_key() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let work = app.start_session_screen_read();
 
@@ -221,7 +221,7 @@ fn no_read_starts_at_the_first_key_in_an_app_that_is_off() {
         },
         ..Settings::default()
     });
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let work = app.start_session_screen_read();
 
@@ -233,6 +233,7 @@ fn no_read_starts_at_the_first_key_in_a_field_without_readable_text() {
     let mut app = App::new();
     app.on_key(
         Key::Char('H'),
+        Press::First,
         &TextField {
             has_readable_text: false,
             ..MAIL
@@ -264,7 +265,7 @@ fn settled_input_during_a_session_prepares_nothing() {
         },
         ..Settings::default()
     });
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
     app.on_completion(completion(""));
 
     let work = app.on_input_settled(&MAIL);
@@ -275,7 +276,7 @@ fn settled_input_during_a_session_prepares_nothing() {
 #[test]
 fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
     let mut app = app_preparing_on_focus();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
     app.on_completion(completion(""));
     let read = screen_read(&mut app);
 
@@ -297,7 +298,7 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
 #[test]
 fn answer_during_a_running_completion_prepares_nothing() {
     let mut app = app_preparing_on_focus();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
     let read = screen_read(&mut app);
 
     let request = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
@@ -508,7 +509,7 @@ fn answer_of_the_ocr_goes_into_the_prompt() {
 fn typing_names_the_typed_app() {
     let mut app = App::new();
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(
         app.typed_app().map(|typed| typed.app_id.as_str()),

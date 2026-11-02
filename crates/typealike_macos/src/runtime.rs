@@ -194,7 +194,9 @@ impl Runtime {
         let code = keys::key_code(event);
         let chord = keys::chord_from_flags(CGEvent::flags(Some(event)));
         let key = code.map(|code| Key::from_press(keys::kind_of(code), chord, keys::typed(event)));
-        let disposition = self.controller.on_key_down(key, &mut self.shell);
+        let disposition = self
+            .controller
+            .on_key_down(key, keys::press(event), &mut self.shell);
         if let Some(code) = code {
             self.release_filter.on_press(code, disposition);
         }

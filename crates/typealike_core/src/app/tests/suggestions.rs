@@ -8,7 +8,7 @@ use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
 use crate::inference::{InferenceRequest, NextWordBias};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::prompt::prompt_with_notes;
 use crate::settings::{Settings, SuggestionDisplay, WriterNotes};
 use crate::test_support::{completion, preparation_request};
@@ -117,7 +117,7 @@ fn key_that_a_partial_completion_added_keeps_the_request_when_suggestions_show_c
 fn excluded_field_gets_no_suggestion() {
     let mut app = App::new();
 
-    let reaction = app.on_key(Key::Char('B'), &FakeDesktop(Field::Excluded));
+    let reaction = app.on_key(Key::Char('B'), Press::First, &FakeDesktop(Field::Excluded));
 
     assert_eq!(reaction, Reaction::Hide);
 }
@@ -125,7 +125,7 @@ fn excluded_field_gets_no_suggestion() {
 #[test]
 fn excluded_field_forgets_typed_context() {
     let mut app = app_showing("est");
-    app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
+    app.on_key(Key::Char('x'), Press::First, &FakeDesktop(Field::Excluded));
 
     let reaction = type_key(&mut app, 'r');
 
@@ -197,8 +197,8 @@ fn paused_app_prepares_nothing() {
 #[test]
 fn settled_input_after_enter_suggests_on_the_new_line() {
     let mut app = App::new();
-    app.on_key(Key::Char(','), &EditedField("Best regards"));
-    app.on_key(Key::Enter, &EditedField("Best regards,"));
+    app.on_key(Key::Char(','), Press::First, &EditedField("Best regards"));
+    app.on_key(Key::Enter, Press::First, &EditedField("Best regards,"));
 
     let work = app.on_input_settled(&EditedField("Best regards,\n"));
 
@@ -209,11 +209,11 @@ fn settled_input_after_enter_suggests_on_the_new_line() {
 fn settled_input_takes_the_word_that_the_app_corrected() {
     let mut app = App::new();
     for character in "recieve ".chars() {
-        app.on_key(Key::Char(character), &EditedField("I "));
+        app.on_key(Key::Char(character), Press::First, &EditedField("I "));
     }
     app.on_input_settled(&EditedField("I receive "));
 
-    let reaction = app.on_key(Key::Char('t'), &EditedField("I receive "));
+    let reaction = app.on_key(Key::Char('t'), Press::First, &EditedField("I receive "));
 
     assert_eq!(reaction, request("I receive t"));
 }
@@ -221,8 +221,8 @@ fn settled_input_takes_the_word_that_the_app_corrected() {
 #[test]
 fn settled_input_after_enter_that_emptied_the_field_prepares_a_new_session() {
     let mut app = app_preparing_on_focus();
-    app.on_key(Key::Char('k'), &EditedField("o"));
-    app.on_key(Key::Enter, &EditedField("ok"));
+    app.on_key(Key::Char('k'), Press::First, &EditedField("o"));
+    app.on_key(Key::Enter, Press::First, &EditedField("ok"));
 
     let work = app.on_input_settled(&EditedField(""));
 
@@ -253,7 +253,7 @@ fn paused_app_lets_tab_through() {
     let mut app = app_showing("est");
     app.on_tray_command(TrayCommand::TogglePause);
 
-    let reaction = app.on_key(Key::Tab, &FakeDesktop(Field::Open));
+    let reaction = app.on_key(Key::Tab, Press::First, &FakeDesktop(Field::Open));
 
     assert_eq!(reaction, Reaction::Hide);
 }

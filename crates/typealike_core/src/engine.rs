@@ -18,7 +18,7 @@ use crate::desktop::{Desktop, Surroundings, Timestamp};
 use crate::excerpt::plain_spaces;
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TypoCheck};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{
     ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TypoFix, WriterName,
     WriterNotes,
@@ -68,6 +68,9 @@ pub(crate) struct Engine {
     dictionary: Option<Dictionary>,
     /// Whether the user rejected a suggestion in the field, so that the keys there get none.
     is_field_paused: bool,
+    /// Whether the OS repeated a held key after the last suggestion, so that the end of the hold
+    /// asks for one.
+    is_suggestion_due: bool,
 }
 
 impl Default for Engine {
@@ -95,6 +98,7 @@ impl Default for Engine {
             tables_clock: None,
             dictionary: None,
             is_field_paused: false,
+            is_suggestion_due: false,
         };
         engine.use_settings(&Settings::default());
         engine
@@ -133,8 +137,10 @@ impl Engine {
         }
     }
 
-    /// Updates the text at the caret for a key pressed in the focused field of `desktop`.
-    pub(crate) fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
+    /// Updates the text at the caret for a key pressed in the focused field of `desktop`. A key
+    /// that the OS repeats changes the text, but asks for no suggestion until
+    /// [`suggest_after_hold`](Self::suggest_after_hold).
+    pub(crate) fn on_key(&mut self, key: Key, press: Press, desktop: &dyn Desktop) -> Reaction {
         if key != Key::Enter {
             self.read_field_after_enter(desktop);
         }
@@ -142,11 +148,11 @@ impl Engine {
             Key::Char(character) if !character.is_control() => {
                 self.start_session(desktop)
                     .append_text(character.encode_utf8(&mut [0; 4]));
-                self.on_typed(character)
+                self.on_typed(character, press)
             }
             Key::Backspace => {
                 self.start_session(desktop).delete_last_character();
-                self.suggest()
+                self.suggest_after(press)
             }
             Key::Tab if desktop.is_ghost_shown() => self.accept(desktop),
             Key::Escape if desktop.is_ghost_shown() => self.pause_field(),
@@ -171,6 +177,7 @@ impl Engine {
             self.keep_text_of(&session);
         }
         self.offer = Offer::Idle;
+        self.is_suggestion_due = false;
         Reaction::Hide
     }
 
@@ -179,6 +186,7 @@ impl Engine {
     pub(crate) fn discard_session(&mut self) {
         self.session = None;
         self.offer = Offer::Idle;
+        self.is_suggestion_due = false;
     }
 
     /// Ends the pause of the suggestions in the field, so that the next key there gets a suggestion
@@ -240,7 +248,7 @@ impl Engine {
         self.session.insert(session)
     }
 
-    fn on_typed(&mut self, character: char) -> Reaction {
+    fn on_typed(&mut self, character: char, press: Press) -> Reaction {
         if let Offer::Fix(fix) = &self.offer
             && let Some(kept) = fix_after_delimiter(fix, character)
         {
@@ -250,7 +258,7 @@ impl Engine {
         let rest = match self.offer.shown().strip_prefix(character) {
             Some(rest) if !rest.is_empty() => rest.to_owned(),
             _ if self.keeps_completion_after(character) => String::new(),
-            _ => return self.suggest(),
+            _ => return self.suggest_after(press),
         };
         self.offer.take(character.encode_utf8(&mut [0; 4]), &rest);
         self.offer.reaction()

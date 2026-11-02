@@ -6,7 +6,7 @@ use crate::engine::{Engine, Reaction};
 use crate::inference::{
     Backend, InferenceError, InferenceRequest, LogProbability, SentenceEnd, TokenCount, TypoCheck,
 };
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
 use crate::test_support::{ExpectedRequest, completion, preparation_request};
 
@@ -193,7 +193,7 @@ fn first_key_after_preparing_continues_the_prepared_session() {
     let desktop = FakeDesktop::with_field_text("Hello wor");
     engine.prepare(&desktop);
 
-    let reaction = engine.on_key(Key::Char('l'), &desktop);
+    let reaction = engine.on_key(Key::Char('l'), Press::First, &desktop);
 
     assert_eq!(
         (reaction, desktop.surroundings_reads.get()),
@@ -208,7 +208,7 @@ fn first_key_after_preparing_a_long_field_continues_the_prepared_text() {
     let recent_text = "y".repeat(TRIMMED_CHARS_BEFORE_CARET);
     let prepared = engine.prepare(&desktop);
 
-    let reaction = engine.on_key(Key::Char('z'), &desktop);
+    let reaction = engine.on_key(Key::Char('z'), Press::First, &desktop);
 
     assert_eq!(
         (prepared, reaction),
@@ -249,7 +249,7 @@ fn completion_of_a_key_after_the_preparation_shows() {
     let mut engine = Engine::default();
     let desktop = FakeDesktop::with_field_text("Hello wor");
     engine.prepare(&desktop);
-    engine.on_key(Key::Char('l'), &desktop);
+    engine.on_key(Key::Char('l'), Press::First, &desktop);
     engine.on_completion(Err(InferenceError::Superseded));
 
     let reaction = engine.on_completion(completion("d"));
@@ -273,6 +273,7 @@ fn request_carries_the_text_after_the_caret_on_its_line() {
         let mut engine = Engine::default();
         let reaction = engine.on_key(
             Key::Char(' '),
+            Press::First,
             &FakeDesktop::with_text_around("I paid the", after),
         );
         let Reaction::Request(InferenceRequest::Complete { line_after, .. }) = reaction else {
@@ -290,6 +291,7 @@ fn request_reads_a_no_break_space_after_the_caret_as_a_space() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the", " bill\u{a0}today"),
     );
 
@@ -305,6 +307,7 @@ fn request_inside_a_line_has_no_tail_cut_and_twice_the_tokens() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the", " yesterday, so you can see it."),
     );
 

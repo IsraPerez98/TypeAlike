@@ -2,7 +2,7 @@
 
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::test_support::completion;
 
 use super::support::{FakeDesktop, accept, engine_waiting_for, press, request, show};
@@ -177,6 +177,7 @@ fn completion_that_repeats_the_text_after_the_caret_hides() {
         let mut engine = Engine::default();
         engine.on_key(
             Key::Char(' '),
+            Press::First,
             &FakeDesktop::with_text_around("Thanks for the", "update on the budget."),
         );
         engine.on_completion(completion(text))
@@ -198,7 +199,11 @@ fn completion_that_shares_one_word_or_sign_with_the_text_after_the_caret_shows()
 
     let reactions = cases.map(|(before, after, text)| {
         let mut engine = Engine::default();
-        engine.on_key(Key::Char(' '), &FakeDesktop::with_text_around(before, after));
+        engine.on_key(
+            Key::Char(' '),
+            Press::First,
+            &FakeDesktop::with_text_around(before, after),
+        );
         engine.on_completion(completion(text))
     });
 
@@ -254,7 +259,11 @@ fn completion_stops_where_it_writes_the_text_after_the_caret_again() {
 
     let reactions = cases.map(|(before, after, text, _)| {
         let mut engine = Engine::default();
-        engine.on_key(Key::Char(' '), &FakeDesktop::with_text_around(before, after));
+        engine.on_key(
+            Key::Char(' '),
+            Press::First,
+            &FakeDesktop::with_text_around(before, after),
+        );
         engine.on_completion(completion(text))
     });
 
@@ -266,6 +275,7 @@ fn partial_completion_shows_up_to_the_text_after_the_caret() {
     let mut engine = Engine::default();
     engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the", " yesterday, so you can see it."),
     );
 
@@ -279,6 +289,7 @@ fn completion_keeps_the_words_of_the_text_on_the_next_lines() {
     let mut engine = Engine::default();
     engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the", "\nyesterday was busy."),
     );
 
@@ -312,6 +323,7 @@ fn good_partial_completion_after_a_bad_one_shows() {
     let mut engine = Engine::default();
     engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I like it.", "The end."),
     );
     engine.on_partial_completion("The weat");

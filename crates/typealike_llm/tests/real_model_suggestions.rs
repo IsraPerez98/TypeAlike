@@ -13,7 +13,7 @@ use typealike_core::inference::{
     Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability,
     ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
-use typealike_core::key::Key;
+use typealike_core::key::{Key, Press};
 use typealike_core::settings::{PromptPreparation, Settings, TypoRule};
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -153,7 +153,7 @@ fn complete_text(model: &mut ModelSession, prompt: &str) -> String {
 /// of all of it.
 fn suggest_after(model: &mut ModelSession, app: &mut App, text: &str) -> Reaction {
     text.chars()
-        .map(|character| app.on_key(Key::Char(character), &Editor))
+        .map(|character| app.on_key(Key::Char(character), Press::First, &Editor))
         .for_each(|reaction| model.submit(reaction));
     text.chars()
         .map(|_| app.on_completion(model.next_completion()))

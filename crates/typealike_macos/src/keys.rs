@@ -1,7 +1,7 @@
 //! Translates key-down events from the event tap into core [`Key`](typealike_core::key::Key)s.
 
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGKeyCode};
-use typealike_core::key::{Chord, KeyKind, Typed};
+use typealike_core::key::{Chord, KeyKind, Press, Typed};
 
 const RETURN_KEY_CODE: CGKeyCode = 36;
 const TAB_KEY_CODE: CGKeyCode = 48;
@@ -54,6 +54,15 @@ pub(crate) fn typed_from(units: &[u16]) -> Typed {
 pub(crate) fn key_code(event: &CGEvent) -> Option<CGKeyCode> {
     let code = CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventKeycode);
     CGKeyCode::try_from(code).ok()
+}
+
+/// Reads whether a key-down `event` is a repeat of a key that the user holds.
+pub(crate) fn press(event: &CGEvent) -> Press {
+    if CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventAutorepeat) == 0 {
+        Press::First
+    } else {
+        Press::Repeat
+    }
 }
 
 /// Returns what a keyboard `event` types in the active layout.

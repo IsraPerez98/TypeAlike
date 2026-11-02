@@ -4,7 +4,7 @@ use crate::desktop::Timestamp;
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 use crate::test_support::{MAIL_APP, at_hour, completion, mail_entry, mail_history_app, on_own_days};
 
@@ -36,7 +36,7 @@ fn engine_with_words(settings: &Settings) -> Engine {
 fn request_prefers_the_words_of_the_history() {
     let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
 
-    let reaction = engine.on_key(Key::Char('h'), &mail_field());
+    let reaction = engine.on_key(Key::Char('h'), Press::First, &mail_field());
 
     assert_eq!(
         word_bias_of_request(reaction),
@@ -52,7 +52,7 @@ fn request_has_no_word_bias_when_the_history_or_the_app_is_off() {
     ];
 
     let biases = settings.map(|settings| {
-        word_bias_of_request(engine_with_words(&settings).on_key(Key::Char('h'), &mail_field()))
+        word_bias_of_request(engine_with_words(&settings).on_key(Key::Char('h'), Press::First, &mail_field()))
     });
 
     assert_eq!(biases, [None, None]);
@@ -68,20 +68,20 @@ fn word_bias_version_of_request(reaction: Reaction) -> Option<u64> {
 #[test]
 fn new_word_choice_gives_a_new_version() {
     let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_field()));
     let mut strong_settings = word_choice_settings(HistoryAccess::On, Vec::new());
     strong_settings.personalization.word_choice = WordChoice::Strong;
 
     engine.use_settings(&strong_settings);
 
-    let after = word_bias_version_of_request(engine.on_key(Key::Char('i'), &mail_field()));
+    let after = word_bias_version_of_request(engine.on_key(Key::Char('i'), Press::First, &mail_field()));
     assert!(before < after, "{before:?} {after:?}");
 }
 
 #[test]
 fn new_history_gives_a_new_version() {
     let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_field()));
     engine.on_completion(completion(""));
 
     finish_typing(
@@ -90,7 +90,7 @@ fn new_history_gives_a_new_version() {
         Suggestion::Accepted,
     );
 
-    let after = word_bias_version_of_request(engine.on_key(Key::Char('h'), &mail_field()));
+    let after = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_field()));
     assert!(before < after, "{before:?} {after:?}");
 }
 
@@ -109,7 +109,11 @@ fn mail_field_around(before_caret: &str, after_caret: &str) -> FakeDesktop {
 fn phrase_that_the_writer_repeats_shows_without_a_request() {
     let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
 
-    let reaction = engine.on_key(Key::Char(' '), &mail_field_around("Please let me know", ""));
+    let reaction = engine.on_key(
+        Key::Char(' '),
+        Press::First,
+        &mail_field_around("Please let me know", ""),
+    );
 
     assert_eq!(reaction, show("if"));
 }
@@ -128,7 +132,7 @@ fn engine_with_evening_phrase() -> Engine {
 
 fn phrase_shows_at(engine: &mut Engine, now: Timestamp) -> bool {
     let desktop = mail_field_around("Please let me know", "").at(now);
-    let shows = engine.on_key(Key::Char(' '), &desktop) == show("if");
+    let shows = engine.on_key(Key::Char(' '), Press::First, &desktop) == show("if");
     engine.reset();
     shows
 }
@@ -159,6 +163,7 @@ fn phrase_shows_only_when_the_line_after_the_caret_is_empty() {
         let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
         engine.on_key(
             Key::Char(' '),
+            Press::First,
             &mail_field_around("Please let me know", text_after),
         ) == show("if")
     });
@@ -175,8 +180,11 @@ fn phrase_needs_the_word_choice_the_history_and_the_app() {
     ];
 
     let requests = settings.map(|settings| {
-        let reaction = engine_with_phrases(&settings)
-            .on_key(Key::Char(' '), &mail_field_around("Please let me know", ""));
+        let reaction = engine_with_phrases(&settings).on_key(
+            Key::Char(' '),
+            Press::First,
+            &mail_field_around("Please let me know", ""),
+        );
         matches!(reaction, Reaction::Request(_))
     });
 
@@ -191,7 +199,7 @@ fn next_word_bias_after(settings: &Settings, before_caret: &str) -> Vec<(String,
             mail_entry("Let me know when you can."),
         ]),
     );
-    match engine.on_key(Key::Char(' '), &mail_field_around(before_caret, "")) {
+    match engine.on_key(Key::Char(' '), Press::First, &mail_field_around(before_caret, "")) {
         Reaction::Request(InferenceRequest::Complete { next_word_bias, .. }) => next_word_bias.0,
         _ => Vec::new(),
     }
@@ -222,7 +230,11 @@ fn request_has_no_next_word_bias_without_the_word_choice_the_history_or_the_app(
 #[test]
 fn completion_of_an_older_request_keeps_the_phrase() {
     let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    engine.on_key(Key::Char('n'), &mail_field_around("Please let me k", ""));
+    engine.on_key(
+        Key::Char('n'),
+        Press::First,
+        &mail_field_around("Please let me k", ""),
+    );
     type_text(&mut engine, "ow");
 
     let reaction = engine.on_completion(Err(InferenceError::Superseded));
@@ -233,7 +245,11 @@ fn completion_of_an_older_request_keeps_the_phrase() {
 #[test]
 fn earlier_suggestion_at_the_caret_comes_before_a_phrase() {
     let mut engine = engine_with_phrases(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    engine.on_key(Key::Char(' '), &mail_field_around("Please let me", ""));
+    engine.on_key(
+        Key::Char(' '),
+        Press::First,
+        &mail_field_around("Please let me", ""),
+    );
     engine.on_completion(completion("know if it works"));
     type_text(&mut engine, "know x");
 
@@ -286,6 +302,7 @@ fn only_apps_with_all_apps_give_examples_to_each_other() {
         );
         let reaction = engine.on_key(
             Key::Char('h'),
+            Press::First,
             &FakeDesktop::with_field_text("").in_app(OTHER_CHAT_APP),
         );
         matches!(reaction, Reaction::Request(InferenceRequest::Complete { prompt, .. })
@@ -303,7 +320,7 @@ fn only_apps_with_all_apps_give_phrases_to_each_other() {
             on_own_days(vec![chat_entry("Let me know if it works."); 3]),
         );
         let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
-        engine.on_key(Key::Char(' '), &desktop) == show("if")
+        engine.on_key(Key::Char(' '), Press::First, &desktop) == show("if")
     });
 
     assert_eq!(shown, [true, false, false]);
@@ -321,7 +338,7 @@ fn request_in_other_chat_app(scopes: (HistoryScope, HistoryScope)) -> Reaction {
         ]),
     );
     let desktop = FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP);
-    engine.on_key(Key::Char(' '), &desktop)
+    engine.on_key(Key::Char(' '), Press::First, &desktop)
 }
 
 #[test]
@@ -352,6 +369,7 @@ fn app_with_only_this_app_uses_its_own_texts() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_field_text("Please let me know").in_app(CHAT_APP),
     );
 
@@ -368,6 +386,7 @@ fn new_scope_of_an_app_builds_the_tables_again() {
 
     let reaction = engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_field_text("Please let me know").in_app(OTHER_CHAT_APP),
     );
 

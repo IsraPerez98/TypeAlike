@@ -6,7 +6,7 @@ use crate::desktop::{
 use crate::engine::{Engine, Reaction};
 use crate::excerpt::estimated_tokens;
 use crate::inference::{CONTEXT_TOKENS, InferenceRequest};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{OcrLevel, SuggestionLength};
 use crate::test_support::completion;
 
@@ -99,7 +99,7 @@ fn screen_text_that_comes_during_a_session_keeps_room_for_the_completion() {
     let mut engine = Engine::default();
     let desktop = FakeDesktop::with_field_text(&"字".repeat(MAX_CHARS_BEFORE_CARET - 1));
     let id = engine.start_screen_read().expect("no session runs");
-    engine.on_key(Key::Char('字'), &desktop);
+    engine.on_key(Key::Char('字'), Press::First, &desktop);
     engine.on_completion(completion(""));
     engine.on_screen_read(
         ScreenRead {
@@ -315,7 +315,7 @@ fn text_with_few_characters_for_each_token_keeps_room_for_the_completion() {
     let mut engine = engine_that_read(&"屏".repeat(1100));
     let desktop = FakeDesktop::with_field_text(&"字".repeat(MAX_CHARS_BEFORE_CARET - 1));
 
-    let reaction = engine.on_key(Key::Char('字'), &desktop);
+    let reaction = engine.on_key(Key::Char('字'), Press::First, &desktop);
 
     let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
         panic!("a key in an open field requests a completion: {reaction:?}");

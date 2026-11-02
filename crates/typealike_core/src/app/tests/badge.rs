@@ -3,7 +3,7 @@
 use super::fixtures::{FakeDesktop, MAIL, WEBMAIL, type_key};
 use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, TrayCommand};
 use crate::desktop::Field;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::localization::UiLanguage;
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
@@ -32,7 +32,7 @@ fn typing_in_excluded_field_hides_badge() {
     let mut app = App::new();
     type_key(&mut app, 'B');
 
-    app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
+    app.on_key(Key::Char('x'), Press::First, &FakeDesktop(Field::Excluded));
 
     assert_eq!(app.badge_view(&english()), None);
 }
@@ -121,7 +121,7 @@ fn entry_states(menu: &BadgeMenu) -> Vec<(&str, bool)> {
 #[test]
 fn badge_menu_switches_the_screen_text_and_the_earlier_writing_of_the_typed_app() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = app.badge_menu(
         &BadgeSettings {
@@ -165,7 +165,7 @@ fn badge_menu_switches_the_screen_text_and_the_earlier_writing_of_the_typed_app(
 #[test]
 fn badge_menu_dims_the_entries_of_the_app_while_their_main_switches_are_off() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = app
         .badge_menu(
@@ -214,7 +214,7 @@ fn badge_menu_offers_only_the_pause_in_an_app_without_an_id() {
 #[test]
 fn badge_menu_leaves_out_the_entries_of_an_app_that_the_lists_do_not_have() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = app.badge_menu(
         &BadgeSettings {
@@ -238,7 +238,7 @@ fn badge_menu_leaves_out_the_entries_of_an_app_that_the_lists_do_not_have() {
 fn paused_badge_menu_offers_the_resume_and_the_entries_of_the_app_of_the_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = app
         .badge_menu(
@@ -282,7 +282,7 @@ fn typing_while_paused_names_the_app_of_the_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(
         app.typed_app().map(|typed| typed.app_id.as_str()),
@@ -294,7 +294,7 @@ fn typing_while_paused_names_the_app_of_the_field() {
 fn typing_names_the_website_of_the_session() {
     let mut app = App::new();
 
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     assert_eq!(app.typed_host(), Some("mail.example"));
 }
@@ -304,7 +304,7 @@ fn typing_while_paused_names_the_website_of_the_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
 
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     assert_eq!(app.typed_host(), Some("mail.example"));
 }
@@ -313,7 +313,7 @@ fn typing_while_paused_names_the_website_of_the_field() {
 fn lost_context_forgets_the_website_of_the_paused_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     app.on_context_lost();
 
@@ -324,7 +324,7 @@ fn lost_context_forgets_the_website_of_the_paused_field() {
 fn lost_context_forgets_the_app_of_the_paused_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.on_context_lost();
 
@@ -336,7 +336,7 @@ fn paused_app_shows_no_badge_in_excluded_field() {
     let mut app = App::new();
     app.on_tray_command(TrayCommand::TogglePause);
 
-    app.on_key(Key::Char('B'), &FakeDesktop(Field::Excluded));
+    app.on_key(Key::Char('B'), Press::First, &FakeDesktop(Field::Excluded));
 
     assert_eq!(app.badge_view(&english()), None);
 }

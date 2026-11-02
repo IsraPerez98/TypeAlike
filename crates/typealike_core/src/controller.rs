@@ -32,7 +32,7 @@ use crate::history::WritingHistory;
 use crate::hub::ModelFile;
 use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
-use crate::key::{Disposition, Key};
+use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
@@ -222,8 +222,9 @@ impl Controller {
     /// `None` for a press that the platform does not translate, such as a modifier key alone. The
     /// first key of a session also reads the screen, so that the prompt gets the newest messages.
     /// After the last part of a suggestion, a quick Tab does not reach the app while the next
-    /// suggestion can still come and does not show yet.
-    pub fn on_key_down(&mut self, key: Option<Key>, shell: &mut dyn Shell) -> Disposition {
+    /// suggestion can still come and does not show yet. A key that the OS repeats while the user
+    /// holds it gets no suggestion until the input settles.
+    pub fn on_key_down(&mut self, key: Option<Key>, press: Press, shell: &mut dyn Shell) -> Disposition {
         self.refresh_focus(shell);
         let Some(key) = key else {
             return Disposition::Pass;
@@ -233,9 +234,9 @@ impl Controller {
         }
         self.caret_wait.on_key();
         let reaction = if self.caret_wait.is_rest() {
-            self.app.on_key(key, &DesktopWithPendingRest(&*shell))
+            self.app.on_key(key, press, &DesktopWithPendingRest(&*shell))
         } else {
-            self.app.on_key(key, &*shell)
+            self.app.on_key(key, press, &*shell)
         };
         let disposition = self.apply(reaction, shell);
         self.render_badge_after_caret_settles(shell);

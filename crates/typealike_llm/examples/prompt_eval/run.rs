@@ -15,7 +15,7 @@ use typealike_core::inference::{
     Backend, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
     LogProbability, ModelRunner, WordBias,
 };
-use typealike_core::key::Key;
+use typealike_core::key::{Key, Press};
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
 use typealike_llm::LlamaCpp;
 
@@ -244,7 +244,7 @@ impl Typing<'_> {
             bail!("case {} reads no screen text", self.case.id);
         }
         let start = Instant::now();
-        let reaction = app.on_key(self.last_key, &self.field);
+        let reaction = app.on_key(self.last_key, Press::First, &self.field);
         let mut answer = self.complete(model, &mut app, reaction)?;
         if self.last_key == Key::Enter {
             let settled = self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
@@ -396,7 +396,7 @@ pub fn run_case(
         tail_cut: arguments.tail_cut,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
-    let accepted = match app.on_key(Key::Tab, &typing.typed_field) {
+    let accepted = match app.on_key(Key::Tab, Press::First, &typing.typed_field) {
         Reaction::Accept { text, .. } | Reaction::Replace { text, .. } => text,
         _ => String::new(),
     };

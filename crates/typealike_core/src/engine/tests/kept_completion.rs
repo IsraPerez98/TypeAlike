@@ -3,7 +3,7 @@
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{InferenceError, InferenceRequest};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, WordChoice};
 use crate::test_support::{MAIL_APP, completion, mail_entry, on_own_days};
 
@@ -115,6 +115,7 @@ fn engine_running_before_text_after_caret() -> Engine {
     let mut engine = Engine::default();
     engine.on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the", TEXT_AFTER_CARET),
     );
     engine.record_partial_completion("invoice yesterday, so");
@@ -136,6 +137,7 @@ fn key_past_the_end_that_fits_the_text_after_the_caret_requests_the_new_text() {
     type_text(&mut engine, "invoice");
     let new_request = Engine::default().on_key(
         Key::Char(' '),
+        Press::First,
         &FakeDesktop::with_text_around("I paid the invoice", TEXT_AFTER_CARET),
     );
 
@@ -168,7 +170,7 @@ fn mail_field_with(before_caret: &str) -> FakeDesktop {
 #[test]
 fn key_after_which_the_writer_repeats_a_phrase_shows_the_phrase() {
     let mut engine = engine_with_writing(on_own_days(vec![mail_entry("Let me know if it works."); 3]));
-    engine.on_key(Key::Char('o'), &mail_field_with("Please let me kn"));
+    engine.on_key(Key::Char('o'), Press::First, &mail_field_with("Please let me kn"));
     engine.record_partial_completion("w if it");
 
     let reaction = press(&mut engine, Key::Char('w'));
@@ -189,7 +191,11 @@ fn key_after_which_the_writer_has_next_words_requests_them() {
         mail_entry("Let me know if it works."),
         mail_entry("Let me know when you can."),
     ]));
-    engine.on_key(Key::Char('w'), &mail_field_with("Please let me kno"));
+    engine.on_key(
+        Key::Char('w'),
+        Press::First,
+        &mail_field_with("Please let me kno"),
+    );
     engine.record_partial_completion(" if it");
 
     let reaction = press(&mut engine, Key::Char(' '));

@@ -20,7 +20,7 @@ use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelH
 use crate::inference::{
     Backend, Completion, Correction, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
 };
-use crate::key::{Disposition, Key};
+use crate::key::{Disposition, Key, Press};
 use crate::localization::UiLanguage;
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
@@ -377,7 +377,14 @@ impl Harness {
     }
 
     pub(super) fn press(&mut self, key: Key) -> Disposition {
-        self.controller.on_key_down(Some(key), &mut self.shell)
+        self.controller
+            .on_key_down(Some(key), Press::First, &mut self.shell)
+    }
+
+    /// Presses `key` again, as the OS does while the user holds it.
+    pub(super) fn repeat(&mut self, key: Key) -> Disposition {
+        self.controller
+            .on_key_down(Some(key), Press::Repeat, &mut self.shell)
     }
 
     /// Presses the key of each character of `text`.

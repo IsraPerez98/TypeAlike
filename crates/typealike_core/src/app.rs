@@ -22,7 +22,7 @@ use crate::desktop::{
 use crate::engine::{Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::localization::Translations;
 use crate::settings::{
     EnergySaverRule, FullScreenRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings,
@@ -119,7 +119,7 @@ pub enum SettledWork {
 /// use typealike_core::desktop::{CopiedText, Desktop, Field, Surroundings};
 /// use typealike_core::engine::{AfterAccept, Reaction};
 /// use typealike_core::inference::{Completion, LogProbability, TokenCount};
-/// use typealike_core::key::Key;
+/// use typealike_core::key::{Key, Press};
 ///
 /// struct Editor;
 ///
@@ -130,7 +130,7 @@ pub enum SettledWork {
 /// }
 ///
 /// let mut app = App::new();
-/// app.on_key(Key::Char('B'), &Editor);
+/// app.on_key(Key::Char('B'), Press::First, &Editor);
 /// app.on_completion(Ok(Completion {
 ///     text: "est regards".to_owned(),
 ///     tokens: TokenCount(2),
@@ -141,11 +141,11 @@ pub enum SettledWork {
 /// }));
 ///
 /// assert_eq!(
-///     app.on_key(Key::Tab, &Editor),
+///     app.on_key(Key::Tab, Press::First, &Editor),
 ///     Reaction::Accept { text: "est".to_owned(), then: AfterAccept::Rest(" regards".to_owned()) }
 /// );
 /// assert!(matches!(
-///     app.on_key(Key::Tab, &Editor),
+///     app.on_key(Key::Tab, Press::First, &Editor),
 ///     Reaction::Accept { text, then: AfterAccept::Next(next) }
 ///         if text == " regards" && matches!(*next, Reaction::Request(_))
 /// ));
@@ -416,7 +416,8 @@ impl App {
     /// `desktop` again. When the field shows the text of the session and a new line, the session
     /// continues there, and it returns the suggestion for the new line. Else the session ends.
     /// Without Enter, the session takes the words that the app changed in the field, as an
-    /// autocorrect does.
+    /// autocorrect does. After a key that the OS repeated while the user held it, it then returns
+    /// the suggestion for the text of the session.
     /// In a text field of an app where the screen text is on, it then starts a read of the screen,
     /// unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
@@ -431,6 +432,9 @@ impl App {
             return Some(SettledWork::Suggest(reaction));
         }
         self.engine.follow_field(desktop);
+        if let Some(reaction) = self.engine.suggest_after_hold() {
+            return Some(SettledWork::Suggest(reaction));
+        }
         if self.reads_screen_in(desktop) {
             return self
                 .engine
@@ -539,7 +543,9 @@ impl App {
     /// Handles a key pressed in the focused field of `desktop`, before the key reaches the field.
     /// While suggestions are paused, the energy saver, a game or an app in full screen stops them,
     /// or they are off in the app or on the website of the field, the key gets no suggestion and starts no session.
-    pub fn on_key(&mut self, key: Key, desktop: &dyn Desktop) -> Reaction {
+    /// A key that the OS repeats while the user holds it gets no suggestion until the input
+    /// settles.
+    pub fn on_key(&mut self, key: Key, press: Press, desktop: &dyn Desktop) -> Reaction {
         let field = desktop.field();
         self.is_in_open_field = field == Field::Open;
         if field == Field::Excluded {
@@ -547,7 +553,7 @@ impl App {
             return self.engine.reset();
         }
         if self.offers_suggestions() && !self.engine.starts_session_with(key) {
-            return self.engine.on_key(key, desktop);
+            return self.engine.on_key(key, press, desktop);
         }
         let read_field = ReadField {
             desktop,
@@ -556,7 +562,7 @@ impl App {
         let place = FieldPlace::of(&read_field.surroundings);
         if self.offers_suggestions() && place.is_on_in(&self.suggestion_places) {
             self.idle_field_place = None;
-            return self.engine.on_key(key, &read_field);
+            return self.engine.on_key(key, press, &read_field);
         }
         self.idle_field_place = Some(place);
         Reaction::Hide

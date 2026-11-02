@@ -4,7 +4,7 @@ use super::fixtures::{MAIL, app_preparing_on_focus};
 use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayItem, TrayView};
 use crate::desktop::EnergySaver;
 use crate::engine::Reaction;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::localization::UiLanguage;
 use crate::settings::{EnergySaverRule, EnergySavingSettings, Settings};
 use crate::test_support::english;
@@ -42,7 +42,7 @@ fn app_in_energy_saver() -> App {
 fn key_in_energy_saver_asks_for_no_suggestion() {
     let mut app = app_in_energy_saver();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!((reaction, app.has_offer()), (Reaction::Hide, false));
 }
@@ -52,7 +52,7 @@ fn key_in_energy_saver_asks_for_a_suggestion_when_the_switch_is_off() {
     let mut app = app_keeping_suggestions_in_energy_saver();
     app.use_energy_saver(EnergySaver::On);
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -62,7 +62,7 @@ fn key_after_the_energy_saver_goes_off_asks_for_a_suggestion() {
     let mut app = app_in_energy_saver();
     app.use_energy_saver(EnergySaver::Off);
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -70,7 +70,7 @@ fn key_after_the_energy_saver_goes_off_asks_for_a_suggestion() {
 #[test]
 fn energy_saver_ends_the_session() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_energy_saver(EnergySaver::On);
 
@@ -81,7 +81,7 @@ fn energy_saver_ends_the_session() {
 fn turning_on_the_switch_in_energy_saver_ends_the_session() {
     let mut app = app_keeping_suggestions_in_energy_saver();
     app.use_energy_saver(EnergySaver::On);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&settings_with(EnergySaverRule::StopSuggestions));
 
@@ -102,7 +102,7 @@ fn settled_input_in_energy_saver_prepares_nothing() {
 fn typing_in_energy_saver_shows_the_energy_saver_badge() {
     let mut app = app_in_energy_saver();
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(app.badge_view(&english()), Some(energy_saver_badge()));
 }
@@ -112,7 +112,7 @@ fn paused_badge_shows_while_suggestions_are_paused_in_energy_saver() {
     let mut app = app_in_energy_saver();
     app.on_tray_command(TrayCommand::TogglePause);
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(
         app.badge_view(&english()).map(|badge| badge.label),
@@ -203,7 +203,7 @@ fn energy_saver_is_the_stop_reason_also_after_the_idle_timeout() {
 #[test]
 fn idle_timeout_ends_the_session_and_hides_the_badge() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let reaction = app.on_idle();
 
@@ -218,7 +218,7 @@ fn key_after_the_idle_timeout_asks_for_a_suggestion() {
     let mut app = App::new();
     app.on_idle();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }

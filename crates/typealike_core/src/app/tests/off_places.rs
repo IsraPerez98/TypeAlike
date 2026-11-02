@@ -8,7 +8,7 @@ use crate::app::{
 };
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, ScreenRead, ScreenText, Surroundings};
 use crate::engine::Reaction;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, PromptPreparation, ScreenTextSettings, Settings,
     SuggestionPlaces,
@@ -55,7 +55,7 @@ fn app_preparing_on_focus_with(places: SuggestionPlaces) -> App {
 fn key_in_an_off_app_asks_for_no_suggestion() {
     let mut app = app_with(mail_places(false));
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!((reaction, app.has_offer()), (Reaction::Hide, false));
 }
@@ -64,7 +64,7 @@ fn key_in_an_off_app_asks_for_no_suggestion() {
 fn key_on_an_off_website_asks_for_no_suggestion() {
     let mut app = app_with(webmail_places(true, false));
 
-    let reaction = app.on_key(Key::Char('H'), &WEBMAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     assert_eq!((reaction, app.has_offer()), (Reaction::Hide, false));
 }
@@ -73,7 +73,7 @@ fn key_on_an_off_website_asks_for_no_suggestion() {
 fn key_in_an_app_whose_switch_is_on_asks_for_a_suggestion() {
     let mut app = app_with(mail_places(true));
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -81,9 +81,9 @@ fn key_in_an_app_whose_switch_is_on_asks_for_a_suggestion() {
 #[test]
 fn tab_in_an_off_app_reaches_the_app() {
     let mut app = app_with(mail_places(false));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
-    let reaction = app.on_key(Key::Tab, &MAIL);
+    let reaction = app.on_key(Key::Tab, Press::First, &MAIL);
 
     assert_eq!(reaction, Reaction::Hide);
 }
@@ -141,7 +141,7 @@ fn screen_answer_after_the_app_turned_off_prepares_nothing() {
 #[test]
 fn turning_off_the_app_of_the_session_ends_the_session() {
     let mut app = app_with(mail_places(true));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&Settings {
         suggestion_places: mail_places(false),
@@ -154,7 +154,7 @@ fn turning_off_the_app_of_the_session_ends_the_session() {
 #[test]
 fn turning_off_the_app_of_the_session_shows_the_off_badge_and_keeps_the_app() {
     let mut app = app_with(mail_places(true));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&Settings {
         suggestion_places: mail_places(false),
@@ -173,7 +173,7 @@ fn turning_off_the_app_of_the_session_shows_the_off_badge_and_keeps_the_app() {
 #[test]
 fn adding_an_app_to_the_list_keeps_the_session() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&Settings {
         suggestion_places: mail_places(true),
@@ -186,13 +186,13 @@ fn adding_an_app_to_the_list_keeps_the_session() {
 #[test]
 fn key_in_an_app_turned_on_again_asks_for_a_suggestion() {
     let mut app = app_with(mail_places(false));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
     app.use_settings(&Settings {
         suggestion_places: mail_places(true),
         ..Settings::default()
     });
 
-    let reaction = app.on_key(Key::Char('i'), &MAIL);
+    let reaction = app.on_key(Key::Char('i'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -201,7 +201,7 @@ fn key_in_an_app_turned_on_again_asks_for_a_suggestion() {
 fn typing_in_an_off_app_shows_the_off_badge() {
     let mut app = app_with(mail_places(false));
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(app.badge_view(&english()), Some(off_badge()));
 }
@@ -209,9 +209,9 @@ fn typing_in_an_off_app_shows_the_off_badge() {
 #[test]
 fn other_keys_in_an_off_app_keep_the_off_badge() {
     let mut app = app_with(mail_places(false));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
-    app.on_key(Key::Other, &MAIL);
+    app.on_key(Key::Other, Press::First, &MAIL);
 
     assert_eq!(app.badge_view(&english()), Some(off_badge()));
 }
@@ -219,7 +219,7 @@ fn other_keys_in_an_off_app_keep_the_off_badge() {
 #[test]
 fn turning_the_app_on_again_shows_the_active_badge() {
     let mut app = app_with(mail_places(false));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&Settings {
         suggestion_places: mail_places(true),
@@ -234,7 +234,7 @@ fn paused_badge_shows_in_an_off_app_while_suggestions_are_paused() {
     let mut app = app_with(mail_places(false));
     app.on_tray_command(TrayCommand::TogglePause);
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(app.badge_view(&english()), Some(paused_badge()));
 }
@@ -242,9 +242,9 @@ fn paused_badge_shows_in_an_off_app_while_suggestions_are_paused() {
 #[test]
 fn excluded_field_in_an_off_app_shows_no_badge() {
     let mut app = app_with(mail_places(false));
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
-    app.on_key(Key::Char('x'), &FakeDesktop(Field::Excluded));
+    app.on_key(Key::Char('x'), Press::First, &FakeDesktop(Field::Excluded));
 
     assert_eq!((app.badge_view(&english()), app.typed_app()), (None, None));
 }
@@ -253,7 +253,7 @@ fn excluded_field_in_an_off_app_shows_no_badge() {
 fn typing_in_an_off_app_names_the_app_and_the_website() {
     let mut app = app_with(webmail_places(false, true));
 
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     assert_eq!(
         (
@@ -288,7 +288,7 @@ fn badge_menu_of(app: &App, places: &SuggestionPlaces) -> Option<BadgeMenu> {
 fn badge_menu_switches_the_suggestions_of_the_app_and_of_the_website() {
     let places = webmail_places(true, true);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     let menu = badge_menu_of(&app, &places);
 
@@ -321,7 +321,7 @@ fn badge_menu_switches_the_suggestions_of_the_app_and_of_the_website() {
 fn badge_menu_in_an_off_app_turns_its_suggestions_on_again() {
     let places = mail_places(false);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = badge_menu_of(&app, &places);
 
@@ -342,7 +342,7 @@ fn badge_menu_in_an_off_app_turns_its_suggestions_on_again() {
 fn badge_menu_leaves_out_a_website_that_the_list_does_not_have() {
     let places = mail_places(true);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     let menu = badge_menu_of(&app, &places);
 
@@ -386,7 +386,7 @@ fn first_key_reads_the_surroundings_one_time() {
     let mut app = app_with(mail_places(true));
     let field = CountingField::default();
 
-    app.on_key(Key::Char('H'), &field);
+    app.on_key(Key::Char('H'), Press::First, &field);
 
     assert_eq!(field.reads.get(), 1);
 }
@@ -396,7 +396,7 @@ fn key_that_starts_no_session_reads_no_surroundings() {
     let mut app = app_with(mail_places(true));
     let field = CountingField::default();
 
-    app.on_key(Key::Other, &field);
+    app.on_key(Key::Other, Press::First, &field);
 
     assert_eq!(field.reads.get(), 0);
 }
@@ -440,7 +440,7 @@ fn is_scope_menu_enabled(menu: &BadgeMenu) -> Option<bool> {
 fn badge_menu_in_an_off_app_dims_the_screen_text_and_the_earlier_writing_of_the_app() {
     let places = mail_places(false);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     let menu = app
         .badge_menu(
@@ -473,7 +473,7 @@ fn badge_menu_in_an_off_app_dims_the_screen_text_and_the_earlier_writing_of_the_
 fn badge_menu_on_an_off_website_dims_the_screen_text_and_the_earlier_writing_of_the_app() {
     let places = webmail_places(true, false);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     let menu = app
         .badge_menu(
@@ -507,7 +507,7 @@ fn badge_menu_on_an_off_website_dims_the_screen_text_and_the_earlier_writing_of_
 fn badge_menu_in_an_on_place_keeps_the_screen_text_and_the_earlier_writing_of_the_app() {
     let places = webmail_places(true, true);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     let menu = app
         .badge_menu(
@@ -543,7 +543,7 @@ fn menu_texts(menu: &BadgeMenu) -> Vec<UiText> {
 fn badge_menu_follows_the_writing_rules() {
     let places = webmail_places(true, true);
     let mut app = app_with(places.clone());
-    app.on_key(Key::Char('H'), &WEBMAIL);
+    app.on_key(Key::Char('H'), Press::First, &WEBMAIL);
 
     let menu = app
         .badge_menu(

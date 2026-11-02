@@ -12,6 +12,7 @@ mod games;
 mod harness;
 mod history;
 mod input_settle;
+mod key_repeat;
 mod screen_read;
 mod scroll;
 mod settings_window;

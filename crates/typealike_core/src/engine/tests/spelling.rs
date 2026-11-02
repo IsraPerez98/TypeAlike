@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::engine::{Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError};
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 use crate::test_support::{FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days};
 
@@ -59,7 +59,7 @@ fn unknown_word_that_the_preface_holds_stays() {
     let mut engine = engine_with(&settings);
     engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["Turjal"])));
     let desktop = FakeDesktop::with_field_text("").with_copy("Turjal Road 12", Some(Duration::from_secs(1)));
-    engine.on_key(Key::Char('I'), &desktop);
+    engine.on_key(Key::Char('I'), Press::First, &desktop);
 
     let reaction = engine.on_completion(completion(" live on Turjal Road"));
 
@@ -109,6 +109,7 @@ fn unknown_word_stays_only_when_the_word_choice_prefers_it() {
         engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["cachai"])));
         engine.on_key(
             Key::Char(' '),
+            Press::First,
             &FakeDesktop::with_field_text("Ok").in_app(CHAT_APP),
         );
         engine.on_completion(completion("cachai el plan"))

@@ -4,7 +4,7 @@ use super::fixtures::{MAIL, app_preparing_on_focus};
 use crate::app::{App, BadgeView, Status, StopReason, TrayCommand};
 use crate::desktop::{FullScreenActivity, GameActivity};
 use crate::engine::Reaction;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{EnergySavingSettings, FullScreenRule, Settings};
 use crate::test_support::english;
 
@@ -47,7 +47,7 @@ fn app_keeps_the_full_screen_activity() {
 fn key_in_full_screen_asks_for_no_suggestion() {
     let mut app = app_in_full_screen();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!((reaction, app.has_offer()), (Reaction::Hide, false));
 }
@@ -57,7 +57,7 @@ fn key_in_full_screen_asks_for_a_suggestion_when_the_switch_is_off() {
     let mut app = app_keeping_suggestions_in_full_screen();
     app.use_full_screen(FullScreenActivity::InFront);
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -66,7 +66,7 @@ fn key_in_full_screen_asks_for_a_suggestion_when_the_switch_is_off() {
 fn key_after_full_screen_asks_for_a_suggestion() {
     let mut app = app_after_full_screen();
 
-    let reaction = app.on_key(Key::Char('H'), &MAIL);
+    let reaction = app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert!(matches!(reaction, Reaction::Request(_)));
 }
@@ -74,7 +74,7 @@ fn key_after_full_screen_asks_for_a_suggestion() {
 #[test]
 fn full_screen_ends_the_session() {
     let mut app = App::new();
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_full_screen(FullScreenActivity::InFront);
 
@@ -85,7 +85,7 @@ fn full_screen_ends_the_session() {
 fn turning_on_the_switch_in_full_screen_ends_the_session() {
     let mut app = app_keeping_suggestions_in_full_screen();
     app.use_full_screen(FullScreenActivity::InFront);
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     app.use_settings(&settings_with(FullScreenRule::StopSuggestions));
 
@@ -106,7 +106,7 @@ fn settled_input_in_full_screen_prepares_nothing() {
 fn typing_in_full_screen_shows_the_full_screen_badge() {
     let mut app = app_in_full_screen();
 
-    app.on_key(Key::Char('H'), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
 
     assert_eq!(
         app.badge_view(&english()),

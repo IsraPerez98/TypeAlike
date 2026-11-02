@@ -1,10 +1,13 @@
 //! Builds the requests to the model runner, with the word bias and the phrases of the writer.
 
+use std::mem;
+
 use crate::desktop::Desktop;
 use crate::history::HistoryPool;
 use crate::inference::{
     InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck, WordBias,
 };
+use crate::key::Press;
 use crate::place::Place;
 use crate::prompt;
 
@@ -45,9 +48,29 @@ impl Engine {
         })
     }
 
+    /// Suggests after a key that changed the text. A key that the OS repeats while the user holds
+    /// it only hides the ghost text, and the suggestion waits for
+    /// [`suggest_after_hold`](Self::suggest_after_hold).
+    pub(super) fn suggest_after(&mut self, press: Press) -> Reaction {
+        match press {
+            Press::First => self.suggest(),
+            Press::Repeat => {
+                self.is_suggestion_due = true;
+                self.dismiss()
+            }
+        }
+    }
+
+    /// Suggests at the end of a held key, when the OS repeated it after the last suggestion.
+    /// `None` when no suggestion waits.
+    pub(crate) fn suggest_after_hold(&mut self) -> Option<Reaction> {
+        mem::take(&mut self.is_suggestion_due).then(|| self.suggest())
+    }
+
     /// Shows the rest of a suggestion that showed in the session, else the rest of a phrase that
     /// the writer repeats, else requests a completion. A paused field gets nothing.
     pub(super) fn suggest(&mut self) -> Reaction {
+        self.is_suggestion_due = false;
         if self.is_field_paused {
             return self.dismiss();
         }

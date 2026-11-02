@@ -3,7 +3,7 @@
 use crate::app::App;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, OcrAvailability, Surroundings};
 use crate::engine::Reaction;
-use crate::key::Key;
+use crate::key::{Key, Press};
 use crate::settings::{PromptPreparation, Settings, SuggestionDisplay};
 use crate::test_support::suggestion_request;
 
@@ -75,7 +75,7 @@ pub(super) fn request(text_before: &str) -> Reaction {
 }
 
 pub(super) fn type_key(app: &mut App, character: char) -> Reaction {
-    app.on_key(Key::Char(character), &FakeDesktop(Field::Open))
+    app.on_key(Key::Char(character), Press::First, &FakeDesktop(Field::Open))
 }
 
 pub(super) fn app_preparing_on_first_key() -> App {

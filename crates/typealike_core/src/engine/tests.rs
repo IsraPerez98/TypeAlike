@@ -6,6 +6,7 @@ mod completion;
 mod earlier_writing;
 mod field_pause;
 mod kept_completion;
+mod key_repeat;
 mod new_line;
 mod request;
 mod screen_read;
