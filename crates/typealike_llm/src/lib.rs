@@ -34,6 +34,20 @@ pub const DEFAULT_BACKEND: Backend = if cfg!(feature = "cuda") {
     BUILT_IN_BACKEND
 };
 
+/// Turns off the residency sets of the Metal backend of llama.cpp. With them, the whole model
+/// stays wired in memory while it is loaded, and a thread that keeps them resident wakes every
+/// 5 ms while the process runs. Without them, macOS can page out a model that is not in use, and
+/// the first completion after a pause takes some milliseconds more. Other backends do not change.
+///
+/// # Safety
+///
+/// It writes the environment of the process, so no other thread may run. Call it at the start of
+/// `main`, before llama.cpp starts.
+pub unsafe fn disable_metal_residency_sets() {
+    // SAFETY: the caller makes sure that no other thread reads or writes the environment.
+    unsafe { std::env::set_var("GGML_METAL_NO_RESIDENCY", "1") };
+}
+
 /// Runs one GGUF model at a time with llama.cpp, on the backend that each load request names.
 /// A GPU backend runs only when the build includes it (the `vulkan` and `cuda` features) and a
 /// GPU supports it, and only when the whole model fits in the free memory of that GPU.

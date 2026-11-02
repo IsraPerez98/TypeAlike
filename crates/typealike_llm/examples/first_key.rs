@@ -303,6 +303,8 @@ fn write_medians(
 }
 
 fn main() -> anyhow::Result<()> {
+    // SAFETY: no other thread runs yet.
+    unsafe { typealike_llm::disable_metal_residency_sets() };
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let Some(arguments) = Arguments::parse(&arguments) else {
         bail!("{USAGE}");

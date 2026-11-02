@@ -9,6 +9,8 @@ mod logging;
 mod platform;
 
 fn main() -> anyhow::Result<()> {
+    // SAFETY: no other thread runs yet.
+    unsafe { typealike_llm::disable_metal_residency_sets() };
     logging::start();
     platform::run()
 }
