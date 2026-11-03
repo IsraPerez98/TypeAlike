@@ -210,7 +210,8 @@ impl App {
     }
 
     /// Cuts each suggestion of the model before a word that `spell_checker` does not know and that
-    /// the user did not write.
+    /// the user did not write. Where the typo rule took typed letters that `spell_checker` knows
+    /// for a typo, asks again without the rule.
     pub fn use_spell_checker(&mut self, spell_checker: Box<dyn SpellChecker>) {
         self.engine.use_spell_checker(spell_checker);
     }

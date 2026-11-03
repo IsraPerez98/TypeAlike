@@ -1,7 +1,7 @@
 //! Tests of the looks at the caret, at once and later: the ghost text and the badge show only when
 //! the look comes, and the ghost text stays off a caret that did not move after a key.
 
-use super::harness::{Call, Harness, completed, field_around, fixed, ghost_at_caret};
+use super::harness::{Call, Harness, TYPO, completed, field_around, fixed, ghost_at_caret};
 use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, Timer};
 use crate::desktop::ScreenRect;
 use crate::key::Key;
@@ -205,7 +205,7 @@ fn rest_after_a_fix_of_the_same_length_shows_at_once_at_the_same_caret() {
     let mut harness = harness_with_later_looks();
     harness.shell.surroundings = field_around("Until te", "");
     harness.press(Key::Char('h'));
-    harness.answer(fixed("teh", "the", " end"));
+    harness.answer(fixed(TYPO, "the", " end"));
     harness.settle_caret();
     harness.answer_caret(look_at(OLD_CARET));
     harness.press(Key::Tab);

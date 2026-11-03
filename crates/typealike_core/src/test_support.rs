@@ -226,10 +226,12 @@ pub(crate) fn suggestion_site(host: &str, is_on: bool) -> SuggestionSite {
     }
 }
 
-/// A dictionary that knows each word but the `unknown` ones, and counts the words that it checks.
+/// A dictionary that knows each word but the `unknown` ones, and each start of a word but the
+/// `unknown_starts`. It counts the words and the starts that it checks.
 #[derive(Debug, Default)]
 pub(crate) struct FakeSpellChecker {
     pub(crate) unknown: Vec<&'static str>,
+    pub(crate) unknown_starts: Vec<&'static str>,
     pub(crate) checked_words: Rc<Cell<usize>>,
 }
 
@@ -246,5 +248,10 @@ impl SpellChecker for FakeSpellChecker {
     fn is_known_word(&self, word: &str) -> bool {
         self.checked_words.set(self.checked_words.get() + 1);
         !self.unknown.contains(&word)
+    }
+
+    fn is_word_start(&self, letters: &str) -> bool {
+        self.checked_words.set(self.checked_words.get() + 1);
+        !self.unknown_starts.contains(&letters)
     }
 }

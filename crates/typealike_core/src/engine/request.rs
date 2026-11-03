@@ -77,6 +77,11 @@ impl Engine {
         if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
             return self.show(rest);
         }
+        self.request_completion(self.typo_check)
+    }
+
+    /// Requests a completion of the text before the caret with `typo_check`.
+    pub(super) fn request_completion(&mut self, typo_check: TypoCheck) -> Reaction {
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
@@ -85,6 +90,7 @@ impl Engine {
             typed: String::new(),
             shown: String::new(),
             added: String::new(),
+            typo_check,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self
@@ -99,7 +105,7 @@ impl Engine {
             word_bias: self.session_word_bias(),
             next_word_bias: self.session_next_word_bias(),
             min_log_probability,
-            typo_check: self.typo_check,
+            typo_check,
             sentence_end: self.sentence_end,
             line_after,
         })

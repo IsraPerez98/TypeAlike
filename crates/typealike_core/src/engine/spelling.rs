@@ -1,5 +1,6 @@
 //! Cuts a suggestion before a word that the model made up: a word that the dictionary of the OS
-//! does not know and that the writer did not write.
+//! does not know and that the writer did not write. Also tells the typed letters that the typo
+//! rule must not take for a typo.
 
 use std::collections::HashMap;
 
@@ -21,19 +22,48 @@ const MAX_KEPT_ANSWERS: usize = 10_000;
 pub(super) struct Dictionary {
     spell_checker: Box<dyn SpellChecker>,
     answers: HashMap<String, bool>,
+    word_starts: HashMap<String, bool>,
 }
 
 impl Dictionary {
     fn knows(&mut self, word: &str) -> bool {
-        if self.answers.len() >= MAX_KEPT_ANSWERS {
-            self.answers.clear();
-        }
         let spell_checker = &self.spell_checker;
-        *self
-            .answers
-            .entry(word.to_owned())
-            .or_insert_with(|| spell_checker.is_known_word(word))
+        kept_answer(&mut self.answers, word, |word| spell_checker.is_known_word(word))
     }
+
+    fn knows_start(&mut self, letters: &str) -> bool {
+        let spell_checker = &self.spell_checker;
+        kept_answer(&mut self.word_starts, letters, |letters| {
+            spell_checker.is_word_start(letters)
+        })
+    }
+
+    /// Whether the dictionary checks the typed letters of the last word of `text_before` and knows
+    /// them as a word.
+    pub(super) fn knows_typed_word(&mut self, text_before: &str) -> bool {
+        typed_letters(text_before).is_some_and(|letters| self.knows(letters))
+    }
+
+    /// Whether the dictionary knows the typed letters of the last word of `text_before` as a word
+    /// or the start of a word. Letters that it does not check, such as a word with fewer than
+    /// [`MIN_CHECKED_LETTERS`] letters, count as known.
+    pub(super) fn knows_typed_start(&mut self, text_before: &str) -> bool {
+        typed_letters(text_before).is_none_or(|letters| self.knows_start(letters))
+    }
+}
+
+/// Returns the typed letters of the last word of `text_before` that the dictionary checks.
+fn typed_letters(text_before: &str) -> Option<&str> {
+    let run = text_before.rsplit(char::is_whitespace).next().unwrap_or_default();
+    checked_words(run).last()
+}
+
+/// Returns the answer in `answers` for `text`, else asks for it and keeps it.
+fn kept_answer(answers: &mut HashMap<String, bool>, text: &str, ask: impl FnOnce(&str) -> bool) -> bool {
+    if answers.len() >= MAX_KEPT_ANSWERS {
+        answers.clear();
+    }
+    *answers.entry(text.to_owned()).or_insert_with(|| ask(text))
 }
 
 /// The words that the writer wrote or prefers: the words of the prompt and of the text after the
@@ -62,11 +92,13 @@ impl WrittenWords<'_> {
 
 impl Engine {
     /// Cuts each suggestion of the model before a word that `spell_checker` does not know and that
-    /// the writer did not write.
+    /// the writer did not write. Where the typo rule took typed letters that `spell_checker` knows
+    /// for a typo, asks again without the rule.
     pub(crate) fn use_spell_checker(&mut self, spell_checker: Box<dyn SpellChecker>) {
         self.dictionary = Some(Dictionary {
             spell_checker,
             answers: HashMap::new(),
+            word_starts: HashMap::new(),
         });
     }
 }
@@ -134,7 +166,63 @@ fn checked_words(run: &str) -> impl Iterator<Item = &str> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use super::*;
+    use crate::test_support::FakeSpellChecker;
+
+    fn dictionary_of(spell_checker: FakeSpellChecker) -> Dictionary {
+        Dictionary {
+            spell_checker: Box::new(spell_checker),
+            answers: HashMap::new(),
+            word_starts: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn typed_start_is_the_last_checked_word_of_the_last_run() {
+        let mut dictionary = dictionary_of(FakeSpellChecker {
+            unknown_starts: vec!["kno", "Frid"],
+            ..FakeSpellChecker::default()
+        });
+        let texts = [
+            "a well-kno",
+            "on (Frid",
+            "on Friday?",
+            "the 15t",
+            "on Fr",
+            "a known-word",
+        ];
+
+        let answers = texts.map(|text| dictionary.knows_typed_start(text));
+
+        assert_eq!(answers, [false, false, true, true, true, true]);
+    }
+
+    #[test]
+    fn typed_word_is_known_only_when_the_dictionary_checks_it() {
+        let mut dictionary = dictionary_of(FakeSpellChecker::without(&["teh"]));
+        let texts = ["the ope", "the teh", "the B", "the 15t"];
+
+        let answers = texts.map(|text| dictionary.knows_typed_word(text));
+
+        assert_eq!(answers, [true, false, false, false]);
+    }
+
+    #[test]
+    fn dictionary_asks_about_the_same_start_once() {
+        let checked_words = Rc::new(Cell::new(0));
+        let mut dictionary = dictionary_of(FakeSpellChecker {
+            checked_words: Rc::clone(&checked_words),
+            ..FakeSpellChecker::default()
+        });
+        dictionary.knows_typed_start("before Frid");
+
+        dictionary.knows_typed_start("before Frid");
+
+        assert_eq!(checked_words.get(), 1);
+    }
 
     fn cut_without(unknown: &[&str], typed_letters: &str, suggestion: &str) -> String {
         before_unknown_word(typed_letters, suggestion, |word| !unknown.contains(&word)).to_owned()

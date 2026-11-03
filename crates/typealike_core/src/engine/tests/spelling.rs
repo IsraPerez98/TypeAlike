@@ -5,10 +5,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crate::engine::{Engine, Reaction, WordFix};
-use crate::inference::{Completion, Correction, InferenceError};
+use crate::inference::{Completion, Correction, InferenceError, LogProbability, TypoCheck};
 use crate::key::{Key, Press};
 use crate::settings::{ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
-use crate::test_support::{FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days};
+use crate::test_support::{
+    ExpectedRequest, FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days,
+};
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
@@ -145,9 +147,107 @@ fn correction(typed: &str, fixed: &str, text: &str) -> Result<Completion, Infere
     })
 }
 
+/// A completion that stopped for a typo: no text, and typed letters less likely than the cut of
+/// the typo rule.
+#[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
+fn typo_stop() -> Result<Completion, InferenceError> {
+    Ok(Completion {
+        typed_log_probability: LogProbability(-15.0),
+        ..completion("").expect("the completion has text")
+    })
+}
+
+/// The request for a suggestion after `text_before` without the typo rule.
+fn request_without_typo_rule(text_before: &str) -> Reaction {
+    ExpectedRequest {
+        typo_check: TypoCheck::Off,
+        ..ExpectedRequest::framed(&[], text_before)
+    }
+    .into()
+}
+
+#[test]
+fn typo_stop_in_the_start_of_a_known_word_asks_again_without_the_typo_rule() {
+    let mut engine = engine_typed(&Settings::default(), "before Frid", &[]);
+
+    let reaction = engine.on_completion(typo_stop());
+
+    assert_eq!(reaction, request_without_typo_rule("before Frid"));
+}
+
+#[test]
+fn typo_stop_in_letters_that_start_no_known_word_hides_the_suggestion() {
+    let mut engine = engine_waiting_for("the dlei");
+    engine.use_spell_checker(Box::new(FakeSpellChecker {
+        unknown_starts: vec!["dlei"],
+        ..FakeSpellChecker::default()
+    }));
+
+    let reaction = engine.on_completion(typo_stop());
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn typo_stop_in_fewer_than_three_letters_asks_again_without_the_typo_rule() {
+    let mut engine = engine_waiting_for("before Fr");
+    engine.use_spell_checker(Box::new(FakeSpellChecker {
+        unknown_starts: vec!["Fr"],
+        ..FakeSpellChecker::default()
+    }));
+
+    let reaction = engine.on_completion(typo_stop());
+
+    assert_eq!(reaction, request_without_typo_rule("before Fr"));
+}
+
+#[test]
+fn typo_stop_without_a_dictionary_hides_the_suggestion() {
+    let mut engine = engine_waiting_for("before Frid");
+
+    let reaction = engine.on_completion(typo_stop());
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn typo_stop_after_asking_without_the_typo_rule_hides_the_suggestion() {
+    let mut engine = engine_typed(&Settings::default(), "before Frid", &[]);
+    engine.on_completion(typo_stop());
+
+    let reaction = engine.on_completion(typo_stop());
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn fix_of_a_known_word_asks_again_without_the_typo_rule() {
+    let mut engine = engine_typed(&Settings::default(), "the ope", &[]);
+
+    let reaction = engine.on_completion(correction(" ope", " ove", "rall"));
+
+    assert_eq!(reaction, request_without_typo_rule("the ope"));
+}
+
+#[test]
+fn fix_of_letters_that_only_start_a_known_word_shows() {
+    let mut engine = engine_typed(&Settings::default(), "los premi", &["premi"]);
+
+    let reaction = engine.on_completion(correction(" premi", " permi", "sos"));
+
+    assert_eq!(
+        reaction,
+        Reaction::ShowFix(WordFix {
+            typo: "premi".to_owned(),
+            word: "permisos".to_owned(),
+            rest: String::new(),
+        })
+    );
+}
+
 #[test]
 fn rest_after_a_typo_fix_ends_before_an_unknown_word() {
-    let mut engine = engine_typed(&Settings::default(), "the dlei", &["zorbly"]);
+    let mut engine = engine_typed(&Settings::default(), "the dlei", &["dlei", "zorbly"]);
 
     let reaction = engine.on_completion(correction(" dlei", " deli", "very soon zorbly"));
 

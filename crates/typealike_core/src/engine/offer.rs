@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use crate::inference::{Completion, Correction, InferenceError};
+use crate::inference::{Completion, Correction, InferenceError, TypoCheck};
 use crate::settings::TypoFix;
 
 use super::spelling::{WrittenWords, known_start};
@@ -24,6 +24,8 @@ pub(super) enum Offer {
         /// The text that the completion added so far after the text of the request, also the
         /// text that the ghost text does not show yet.
         added: String,
+        /// The typo check of the request.
+        typo_check: TypoCheck,
     },
     Shown(String),
     /// The fix of a typo before the caret.
@@ -90,6 +92,12 @@ impl Engine {
         if self.unanswered_requests > 0 {
             return self.offer.reaction();
         }
+        if result
+            .as_ref()
+            .is_ok_and(|completion| self.has_typo_in_known_letters(completion))
+        {
+            return self.request_completion(TypoCheck::Off);
+        }
         let has_typed = matches!(&self.offer, Offer::Growing { typed, .. } if !typed.is_empty());
         let is_answered = result.is_ok();
         match result {
@@ -116,6 +124,29 @@ impl Engine {
             return self.suggest();
         }
         self.offer.reaction()
+    }
+
+    /// Whether the `completion` of the newest request, with nothing typed since, stopped for a typo
+    /// in typed letters that the dictionary knows as a word or the start of a word, or fixed a
+    /// known word.
+    fn has_typo_in_known_letters(&mut self, completion: &Completion) -> bool {
+        let Offer::Growing {
+            typed, typo_check, ..
+        } = &self.offer
+        else {
+            return false;
+        };
+        let Some(min) = typo_check.min_log_probability().filter(|_| typed.is_empty()) else {
+            return false;
+        };
+        let (Some(dictionary), Some(session)) = (self.dictionary.as_mut(), self.session.as_ref()) else {
+            return false;
+        };
+        let text_before = &session.text_before;
+        match completion.correction {
+            Some(_) => dictionary.knows_typed_word(text_before),
+            None => completion.typed_log_probability < min && dictionary.knows_typed_start(text_before),
+        }
     }
 
     /// Returns the fix that the `correction` and the added `text` of the newest request give, when

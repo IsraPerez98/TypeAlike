@@ -1,10 +1,11 @@
-//! Asks the spelling dictionary of macOS about the words of a suggestion.
+//! Asks the spelling dictionary of macOS about the words of a suggestion and the typed letters of
+//! a word.
 
 use std::ptr;
 
 use objc2::rc::Retained;
 use objc2_app_kit::NSSpellChecker;
-use objc2_foundation::{NSNotFound, NSString};
+use objc2_foundation::{NSNotFound, NSRange, NSString};
 use typealike_core::language::closest_languages;
 use typealike_core::spelling::SpellChecker;
 
@@ -64,6 +65,27 @@ impl SpellChecker for SpellingDictionary {
                     )
             };
             misspelled.location == not_found
+        })
+    }
+
+    fn is_word_start(&self, letters: &str) -> bool {
+        if self.languages.is_empty() {
+            return false;
+        }
+        if self.is_known_word(letters) {
+            return true;
+        }
+        let letters = NSString::from_str(letters);
+        let range = NSRange::new(0, letters.length());
+        self.languages.iter().any(|language| {
+            self.checker
+                .completionsForPartialWordRange_inString_language_inSpellDocumentWithTag(
+                    range,
+                    &letters,
+                    Some(language),
+                    0,
+                )
+                .is_some_and(|completions| completions.count() > 0)
         })
     }
 }

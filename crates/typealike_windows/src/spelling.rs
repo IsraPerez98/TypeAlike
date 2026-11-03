@@ -1,4 +1,5 @@
-//! Asks the spelling dictionaries of Windows about the words of a suggestion.
+//! Asks the spelling dictionaries of Windows about the words of a suggestion and the typed letters
+//! of a word.
 
 use typealike_core::language::closest_languages;
 use typealike_core::spelling::SpellChecker;
@@ -51,6 +52,11 @@ impl SpellChecker for SpellingDictionary {
     fn is_known_word(&self, word: &str) -> bool {
         let word = HSTRING::from(word);
         self.checkers.is_empty() || self.checkers.iter().any(|checker| has_no_error(checker, &word))
+    }
+
+    fn is_word_start(&self, letters: &str) -> bool {
+        // ISpellChecker gives no completions, so only letters that are a whole word count.
+        !self.checkers.is_empty() && self.is_known_word(letters)
     }
 }
 

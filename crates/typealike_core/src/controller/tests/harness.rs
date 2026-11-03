@@ -34,6 +34,8 @@ use crate::test_support::{self, FakeSpellChecker, completion, mail_history_app};
 const GHOST_CHAR_WIDTH: i32 = 10;
 /// A word that the dictionary of the harness does not know.
 pub(super) const MADE_UP_WORD: &str = "zorbly";
+/// A typo that the dictionary of the harness does not know.
+pub(super) const TYPO: &str = "teh";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Call {
@@ -355,7 +357,7 @@ impl Harness {
             settings_store: Box::new(FakeStore(Rc::clone(&recorder))),
             autostart: Box::new(FakeAutostart),
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
-            spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD])),
+            spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD, TYPO])),
         };
         Self {
             controller: Controller::new(settings, services, startup, &deliver),
