@@ -53,7 +53,7 @@ impl<'model> LoadedModel<'model> {
             setup,
             cache: None,
             word_tokens: None,
-            pieces: TokenPieces::new(model.tokens(false)),
+            pieces: TokenPieces::new(model.tokens(false), |token| model.vocab().is_eog(token)),
         }
     }
 
@@ -206,7 +206,7 @@ impl<'model> LoadedModel<'model> {
         if prompt_tokens.is_empty() {
             return Err(GenerateError::EmptyPrompt);
         }
-        if prompt_tokens.len().saturating_add(limits.max_added) > capacity {
+        if prompt_tokens.len().saturating_add(limits.most_added()) > capacity {
             return Err(GenerateError::PromptTooLong);
         }
         self.make_cache()?;

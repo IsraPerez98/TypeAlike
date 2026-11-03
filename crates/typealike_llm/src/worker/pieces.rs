@@ -2,23 +2,43 @@
 
 use llama_cpp_2::token::LlamaToken;
 
+use super::words::starts_phrase_end;
+
 /// The text of each token of a vocabulary, sorted by text, so that the tokens that agree with a
 /// text come without a scan of the whole vocabulary.
 #[derive(Debug)]
 pub(super) struct TokenPieces {
     sorted: Vec<(Vec<u8>, LlamaToken)>,
+    /// The tokens that end a phrase: a sign that ends a phrase, a line break or the end of the
+    /// text.
+    phrase_ends: Vec<LlamaToken>,
 }
 
 impl TokenPieces {
     /// Keeps each token with its text. It leaves out the tokens without text, which never agree.
-    pub(super) fn new(pieces: impl IntoIterator<Item = (LlamaToken, Vec<u8>)>) -> Self {
-        let mut sorted = pieces
-            .into_iter()
-            .filter(|(_, piece)| !piece.is_empty())
-            .map(|(token, piece)| (piece, token))
-            .collect::<Vec<_>>();
+    /// `ends_text` tells the tokens that end the text.
+    pub(super) fn new(
+        pieces: impl IntoIterator<Item = (LlamaToken, Vec<u8>)>,
+        ends_text: impl Fn(LlamaToken) -> bool,
+    ) -> Self {
+        let mut sorted = Vec::new();
+        let mut phrase_ends = Vec::new();
+        for (token, piece) in pieces {
+            if ends_text(token) || starts_phrase_end(&piece) {
+                phrase_ends.push(token);
+            }
+            if !piece.is_empty() {
+                sorted.push((piece, token));
+            }
+        }
         sorted.sort_unstable();
-        Self { sorted }
+        Self { sorted, phrase_ends }
+    }
+
+    /// Returns the tokens that end a phrase: a sign that ends a phrase, a line break or the end of
+    /// the text.
+    pub(super) fn phrase_ends(&self) -> impl Iterator<Item = LlamaToken> + '_ {
+        self.phrase_ends.iter().copied()
     }
 
     /// Returns the tokens that can write the start of `text`: their text is a start of `text`, or
@@ -99,6 +119,7 @@ impl TokenPieces {
                 .iter()
                 .zip(0..)
                 .map(|(text, id)| (LlamaToken(id), text.as_bytes().to_vec())),
+            |_| false,
         )
     }
 }
@@ -154,6 +175,22 @@ mod tests {
         agreeing.sort_unstable();
 
         assert_eq!(agreeing, [2, 3, 5].map(LlamaToken));
+    }
+
+    #[test]
+    fn signs_line_breaks_and_the_end_of_the_text_end_a_phrase() {
+        let texts = [" soon", ",", ".\n", "\n", "'s", " (", ""];
+        let pieces = TokenPieces::new(
+            texts
+                .iter()
+                .zip(0..)
+                .map(|(text, id)| (LlamaToken(id), text.as_bytes().to_vec())),
+            |token| token == LlamaToken(6),
+        );
+
+        let ends = pieces.phrase_ends().collect::<Vec<_>>();
+
+        assert_eq!(ends, [1, 2, 3, 6].map(LlamaToken));
     }
 
     #[test]

@@ -11,13 +11,20 @@ use typealike_core::inference::{Correction, LogProbability, SentenceEnd, TypoChe
 use super::correction::TypedLetters;
 use super::logits::{TokenBias, agreeing_log_probability, choose_token, typed_log_probability};
 use super::pieces::TokenPieces;
-use super::words::{WordLogProbabilities, ends_sentence, starts_next_sentence, starts_word};
+use super::words::{WordLogProbabilities, ends_phrase, ends_sentence, starts_next_sentence, starts_word};
 
 /// The most text at the end of a prompt that generation takes back and writes again.
 const MAX_HEALED_BYTES: usize = 24;
 /// The most text at the start of the line after the caret that a join step compares with the text
 /// of the tokens: more than a token holds.
 const MAX_JOINED_BYTES: usize = 64;
+/// The least likely that the model can find the end of a phrase next, after a word that ends a
+/// phrase: about 10 percent. After a word that needs a next word, such as "the" or "to", the
+/// model almost never finds it this likely.
+const MIN_PHRASE_END: LogProbability = LogProbability(-2.3);
+/// The tokens that a completion can add after the cut of the tail or the token limit, to reach the
+/// end of a phrase, in percent of the token limit.
+const PHRASE_END_TOKENS_PERCENT: usize = 40;
 
 /// Where a completion stops adding tokens.
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +38,41 @@ pub(super) struct Limits<'text> {
     pub(super) sentence_end: SentenceEnd,
     /// The text after the caret on its line, which the added text leads into, or empty.
     pub(super) line_after: &'text [u8],
+}
+
+impl Limits<'_> {
+    /// The most tokens that a completion adds, with the tokens that it can add to reach the end of
+    /// a phrase.
+    pub(super) fn most_added(&self) -> usize {
+        self.max_added + self.phrase_end_tokens()
+    }
+
+    /// The tokens that a completion can add after the cut of the tail or the token limit to reach
+    /// the end of a phrase. Inside a line, the end that fits the line after the caret ends the
+    /// added text instead.
+    fn phrase_end_tokens(&self) -> usize {
+        if self.line_after.is_empty() {
+            self.max_added * PHRASE_END_TOKENS_PERCENT / 100
+        } else {
+            0
+        }
+    }
+}
+
+/// A place where the added text can end: after its first `tokens` tokens and `words` words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextEnd {
+    tokens: usize,
+    words: usize,
+}
+
+/// A stop of the cut of the tail or the token limit after a word that ends no phrase. The
+/// completion goes on until the end of a phrase, and goes back to `fallback` when none comes before
+/// `max_tokens`.
+#[derive(Debug, Clone, Copy)]
+struct PendingStop {
+    fallback: TextEnd,
+    max_tokens: usize,
 }
 
 /// What a running completion asks and tells its job.
@@ -96,6 +138,9 @@ pub(super) struct Generation<'text> {
     /// The end of the added text where the model finds the added text and then the line after the
     /// caret most likely, if any.
     best_end: Option<JoinEnd>,
+    /// The last end after a word where the added text ends a phrase, if any.
+    phrase_end: Option<TextEnd>,
+    pending_stop: Option<PendingStop>,
 }
 
 /// A place where the added text can end before the line after the caret.
@@ -121,6 +166,8 @@ impl<'text> Generation<'text> {
             log_probability_before_sentence: 0.0,
             typed: TypedLetters::default(),
             best_end: None,
+            phrase_end: None,
+            pending_stop: None,
         }
     }
 
@@ -129,10 +176,92 @@ impl<'text> Generation<'text> {
         &self.tokens
     }
 
-    /// The tokens that show: the tokens up to the best end before the line after the caret, else
-    /// all the tokens.
+    /// Whether the completion can add another token within the `limits`.
+    pub(super) fn has_room(&self, limits: Limits<'_>) -> bool {
+        self.tokens.len() < limits.max_added || self.pending_stop.is_some()
+    }
+
+    /// The tokens that show while the completion runs: the tokens up to the best end before the
+    /// line after the caret, else all the tokens. When a stop waits for the end of a phrase, they
+    /// end at the place where that stop goes back to, else at the last end of a phrase, so that
+    /// the shown text never gets shorter. They keep the token after that place, which starts the
+    /// next word, because only the words before whitespace show.
     pub(super) fn shown_tokens(&self) -> &[LlamaToken] {
-        &self.tokens[..self.shown_counts().0]
+        let shown = self.shown_counts().0;
+        let held = self.pending_stop.map(|stop| stop.fallback).or(self.phrase_end);
+        let end = held.map_or(shown, |held| shown.min(held.tokens + 1));
+        &self.tokens[..end]
+    }
+
+    fn end_here(&self) -> TextEnd {
+        TextEnd {
+            tokens: self.tokens.len(),
+            words: self.words.count(),
+        }
+    }
+
+    /// Notes the end of the added text before a token that adds `text`, when that token starts a
+    /// word. Returns whether that end ends a phrase: the added text ends with a sign that ends a
+    /// phrase, or `logits` find the end of a phrase next at least as likely as [`MIN_PHRASE_END`].
+    fn note_word_end(&mut self, text: &[u8], logits: &[f32]) -> bool {
+        if !self.has_written_text() || !starts_word(text) {
+            return false;
+        }
+        let is_phrase_end = ends_phrase(&self.written)
+            || typed_log_probability(logits, self.pieces.phrase_ends()) >= MIN_PHRASE_END.0;
+        if is_phrase_end {
+            self.phrase_end = Some(self.end_here());
+        }
+        is_phrase_end
+    }
+
+    fn truncate_to(&mut self, end: TextEnd) {
+        self.tokens.truncate(end.tokens);
+        self.words.truncate(end.words);
+    }
+
+    /// Stops at `stop`, where the cut of the tail or the token limit ends the added text, when it
+    /// ends a phrase or the `limits` allow no tokens to reach the end of a phrase. Else the
+    /// completion goes on, and goes back to the last end of a phrase, or to `stop`, when no end of
+    /// a phrase comes.
+    fn stop_at(&mut self, stop: TextEnd, limits: Limits<'_>) -> Step {
+        let extra_tokens = limits.phrase_end_tokens();
+        if self.phrase_end == Some(stop) || extra_tokens == 0 {
+            self.truncate_to(stop);
+            return Step::Stop;
+        }
+        self.pending_stop = Some(PendingStop {
+            fallback: self.phrase_end.unwrap_or(stop),
+            max_tokens: self.tokens.len() + extra_tokens,
+        });
+        Step::Continue
+    }
+
+    /// Stops when the added text reaches the most tokens of `stop`, a stop that waits for the end
+    /// of a phrase. There, it goes back to the fallback of `stop`, unless the added text ends with a
+    /// sign that ends a phrase.
+    fn end_pending_stop(&mut self, stop: PendingStop) -> Step {
+        if self.tokens.len() < stop.max_tokens {
+            return Step::Continue;
+        }
+        if !ends_phrase(&self.written) {
+            self.truncate_to(stop.fallback);
+        }
+        Step::Stop
+    }
+
+    /// Stops at the token limit when the added text ends a sentence, else at the end without the
+    /// last word, as [`Generation::stop_at`] does.
+    fn stop_at_token_limit(&mut self, limits: Limits<'_>) -> Step {
+        if ends_sentence(self.healing.text, &self.written) {
+            return Step::Stop;
+        }
+        let dropped = self.words.last_word_tokens_to_drop();
+        let stop = TextEnd {
+            tokens: self.tokens.len() - dropped,
+            words: self.words.count() - usize::from(dropped > 0),
+        };
+        self.stop_at(stop, limits)
     }
 
     /// Adds a join step with `logits`, which follow the added text: it keeps the end of the added
@@ -198,11 +327,18 @@ impl<'text> Generation<'text> {
     /// applies to each sentence on its own. A cut inside a word leaves out that word. Stops after
     /// a line break, and at the token limit, where it leaves out the last word unless that word
     /// ends a sentence. It never leaves out the only word.
+    ///
+    /// Before a line, a stop of the cut or the token limit after a word that ends no phrase waits:
+    /// the completion goes on for a share of the token limit until a new word after the end of a
+    /// phrase, where it stops. `logits`, which come before `token`, tell whether the model finds
+    /// the end of a phrase next. When no end of a phrase comes, it goes back to the last end of a
+    /// phrase, else to the place of the stop.
     pub(super) fn add_token(
         &mut self,
         token: LlamaToken,
         piece: &[u8],
         log_probability: f32,
+        logits: &[f32],
         limits: Limits<'_>,
     ) -> Step {
         let text = added_after(piece, self.unwritten);
@@ -213,16 +349,14 @@ impl<'text> Generation<'text> {
         {
             return Step::Stop;
         }
+        let ends_phrase_here = limits.line_after.is_empty() && self.note_word_end(text, logits);
+        if self.pending_stop.is_some() && ends_phrase_here {
+            return Step::Stop;
+        }
         if starts_sentence {
             self.log_probability_before_sentence = self.words.total();
         }
-        let is_cut = limits.min_log_probability.is_some_and(|cut| {
-            let sentence_cut = LogProbability(cut.0 + self.log_probability_before_sentence);
-            !self.words.keeps(text, log_probability, sentence_cut)
-        });
-        if is_cut {
-            let dropped = self.words.end_before(text);
-            self.tokens.truncate(self.tokens.len().saturating_sub(dropped));
+        if self.is_cut(text, log_probability, limits) && self.stop_at_cut(text, limits) == Step::Stop {
             return Step::Stop;
         }
         let ends_line = writes_line_break(piece, self.unwritten);
@@ -230,17 +364,33 @@ impl<'text> Generation<'text> {
         self.written.extend_from_slice(text);
         self.unwritten = after_prefix(self.unwritten, piece);
         self.tokens.push(token);
-        if ends_line {
-            return Step::Stop;
+        match self.pending_stop {
+            _ if ends_line => Step::Stop,
+            Some(stop) => self.end_pending_stop(stop),
+            None if self.tokens.len() == limits.max_added => self.stop_at_token_limit(limits),
+            None => Step::Continue,
         }
-        if self.tokens.len() == limits.max_added {
-            if !ends_sentence(self.healing.text, &self.written) {
-                let dropped = self.words.drop_last_word();
-                self.tokens.truncate(self.tokens.len().saturating_sub(dropped));
-            }
-            return Step::Stop;
-        }
-        Step::Continue
+    }
+
+    /// Whether the minimum probability of the `limits` cuts a token that adds `text` with
+    /// `log_probability`. No cut applies while a stop waits for the end of a phrase.
+    fn is_cut(&self, text: &[u8], log_probability: f32, limits: Limits<'_>) -> bool {
+        self.pending_stop.is_none()
+            && limits.min_log_probability.is_some_and(|cut| {
+                let sentence_cut = LogProbability(cut.0 + self.log_probability_before_sentence);
+                !self.words.keeps(text, log_probability, sentence_cut)
+            })
+    }
+
+    /// Stops before a token that adds `text`, which the cut of the tail cuts, as
+    /// [`Generation::stop_at`] does. A cut inside a word stops before that word.
+    fn stop_at_cut(&mut self, text: &[u8], limits: Limits<'_>) -> Step {
+        let dropped = self.words.tokens_cut_before(text);
+        let stop = TextEnd {
+            tokens: self.tokens.len() - dropped,
+            words: self.words.count() - usize::from(dropped > 0),
+        };
+        self.stop_at(stop, limits)
     }
 
     /// Returns no tokens, after a healing step stopped for a typo.
@@ -520,20 +670,48 @@ mod tests {
         }
     }
 
-    /// Adds a token for each of `tokens`, with the ids from 1, after an empty healed text, until a
-    /// step stops. Returns the last step and the tokens that stay.
-    fn add_tokens(tokens: &[(&str, f32)], limits: Limits<'_>) -> (Step, Vec<LlamaToken>) {
-        let pieces = TokenPieces::from_texts(&[]);
-        let mut generation = Generation::new(&pieces, healing(b""));
-        let step = tokens
+    /// The text of the tokens that the logits of [`PHRASE_END_NEXT`] and [`WORD_NEXT`] give: a word
+    /// and a sign that ends a phrase.
+    const WORD_AND_PERIOD: [&str; 2] = [" x", "."];
+    /// Logits where the model finds the end of a phrase next half of the time.
+    const PHRASE_END_NEXT: [f32; 2] = [0.0, 0.0];
+    /// Logits where the model almost never finds the end of a phrase next.
+    const WORD_NEXT: [f32; 2] = [0.0, -20.0];
+
+    /// Adds a token for each of `steps`, with the ids from 1, after an empty healed text, until a
+    /// step stops. Each step has the text and the log probability of its token, and the logits
+    /// before it. Returns the generation and its last step.
+    fn generation_of<'pieces>(
+        pieces: &'pieces TokenPieces,
+        steps: &[(&str, f32, [f32; 2])],
+        limits: Limits<'_>,
+    ) -> (Generation<'pieces>, Step) {
+        let mut generation = Generation::new(pieces, healing(b""));
+        let step = steps
             .iter()
             .zip(1..)
-            .map(|(&(text, log_probability), id)| {
-                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, limits)
+            .map(|(&(text, log_probability, logits), id)| {
+                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, &logits, limits)
             })
             .find(|&step| step == Step::Stop)
             .unwrap_or(Step::Continue);
+        (generation, step)
+    }
+
+    /// As [`generation_of`], and returns the last step and the tokens that stay.
+    fn add_steps(steps: &[(&str, f32, [f32; 2])], limits: Limits<'_>) -> (Step, Vec<LlamaToken>) {
+        let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+        let (generation, step) = generation_of(&pieces, steps, limits);
         (step, generation.tokens().to_vec())
+    }
+
+    /// As [`add_steps`], where the model finds the end of a phrase after each word.
+    fn add_tokens(tokens: &[(&str, f32)], limits: Limits<'_>) -> (Step, Vec<LlamaToken>) {
+        let steps = tokens
+            .iter()
+            .map(|&(text, log_probability)| (text, log_probability, PHRASE_END_NEXT))
+            .collect::<Vec<_>>();
+        add_steps(&steps, limits)
     }
 
     #[test]
@@ -557,7 +735,7 @@ mod tests {
     fn typo_stop_drops_the_tokens_that_wrote_the_healed_text() {
         let pieces = TokenPieces::from_texts(&[" beaut", "i"]);
         let mut generation = Generation::new(&pieces, healing(b" beauti"));
-        generation.add_token(LlamaToken(0), b" beaut", -1.0, limits(16, None));
+        generation.add_token(LlamaToken(0), b" beaut", -1.0, &[], limits(16, None));
 
         let added = generation.into_typo_stop();
 
@@ -655,7 +833,7 @@ mod tests {
                 ..limits(16, None)
             };
             let mut generation = Generation::new(&pieces, healing(b""));
-            generation.add_token(LlamaToken(1), text.as_bytes(), -1.0, limits);
+            generation.add_token(LlamaToken(1), text.as_bytes(), -1.0, &[], limits);
             generation.continues_past_sentence_end(limits)
         });
 
@@ -688,6 +866,154 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tail_cut_after_a_word_that_ends_no_phrase_goes_on_to_the_end_of_a_phrase() {
+        let steps = [
+            ("Thanks", -0.5, WORD_NEXT),
+            (" for", -0.5, WORD_NEXT),
+            (" the", -3.0, WORD_NEXT),
+            (" help", -2.0, WORD_NEXT),
+            ("!", -0.5, WORD_NEXT),
+            (" See", -1.0, WORD_NEXT),
+        ];
+
+        let added = add_steps(&steps, limits(16, Some(-3.0)));
+
+        assert_eq!(added, (Step::Stop, [1, 2, 3, 4, 5].map(LlamaToken).to_vec()));
+    }
+
+    #[test]
+    fn token_limit_after_a_word_that_ends_no_phrase_goes_on_to_the_end_of_a_phrase() {
+        let steps = [
+            ("We", -0.1, WORD_NEXT),
+            (" will", -0.1, WORD_NEXT),
+            (" send", -0.1, WORD_NEXT),
+            (" the", -0.1, WORD_NEXT),
+            (" file", -0.1, WORD_NEXT),
+            (".", -0.1, WORD_NEXT),
+            (" Thanks", -0.1, WORD_NEXT),
+        ];
+
+        let added = add_steps(&steps, limits(5, None));
+
+        assert_eq!(added, (Step::Stop, [1, 2, 3, 4, 5, 6].map(LlamaToken).to_vec()));
+    }
+
+    /// Steps where the tail cut stops after "Sure thing, I", which ends no phrase, and the end of a
+    /// phrase after "Sure thing," comes before it.
+    const CUT_AFTER_A_PHRASE_END: [(&str, f32, [f32; 2]); 5] = [
+        ("Sure", -0.5, WORD_NEXT),
+        (" thing", -0.5, WORD_NEXT),
+        (",", -0.1, WORD_NEXT),
+        (" I", -0.5, WORD_NEXT),
+        (" will", -3.0, WORD_NEXT),
+    ];
+
+    #[test]
+    fn stop_without_the_end_of_a_phrase_in_reach_goes_back_to_the_last_end_of_a_phrase() {
+        let words_after = [
+            (" do", -0.1, WORD_NEXT),
+            (" it", -0.1, WORD_NEXT),
+            (" for", -0.1, WORD_NEXT),
+        ];
+
+        let added = add_steps(
+            &[&CUT_AFTER_A_PHRASE_END[..], &words_after].concat(),
+            limits(10, Some(-3.0)),
+        );
+
+        assert_eq!(added, (Step::Stop, [1, 2, 3].map(LlamaToken).to_vec()));
+    }
+
+    #[test]
+    fn stop_that_waits_for_the_end_of_a_phrase_shows_the_text_up_to_the_word_after_where_it_goes_back() {
+        let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+        let steps = [&CUT_AFTER_A_PHRASE_END[..], &[(" do", -0.1, WORD_NEXT)]].concat();
+
+        let (generation, step) = generation_of(&pieces, &steps, limits(10, Some(-3.0)));
+
+        assert_eq!(
+            (step, generation.shown_tokens()),
+            (Step::Continue, &[1, 2, 3, 4].map(LlamaToken)[..])
+        );
+    }
+
+    #[test]
+    fn shown_text_ends_at_the_word_after_the_last_end_of_a_phrase() {
+        let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+        let steps = [
+            ("Sure", -0.1, WORD_NEXT),
+            (",", -0.1, WORD_NEXT),
+            (" I", -0.1, WORD_NEXT),
+            (" will", -0.1, WORD_NEXT),
+        ];
+
+        let (generation, _) = generation_of(&pieces, &steps, limits(10, None));
+
+        assert_eq!(generation.shown_tokens(), [1, 2, 3].map(LlamaToken));
+    }
+
+    #[test]
+    fn stop_that_waits_for_the_end_of_a_phrase_has_room_past_the_token_limit() {
+        let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+        let limits = limits(5, None);
+        let steps = [
+            ("We", -0.1, WORD_NEXT),
+            (" will", -0.1, WORD_NEXT),
+            (" send", -0.1, WORD_NEXT),
+            (" the", -0.1, WORD_NEXT),
+            (" file", -0.1, WORD_NEXT),
+        ];
+
+        let (generation, step) = generation_of(&pieces, &steps, limits);
+
+        assert_eq!((step, generation.has_room(limits)), (Step::Continue, true));
+    }
+
+    #[test]
+    fn last_token_that_a_stop_waits_for_keeps_the_sign_that_it_writes() {
+        let steps = [
+            ("We", -0.1, WORD_NEXT),
+            (" will", -0.1, WORD_NEXT),
+            (" send", -0.1, WORD_NEXT),
+            (" the", -0.1, WORD_NEXT),
+            (" file", -0.1, WORD_NEXT),
+            (" now", -0.1, WORD_NEXT),
+            (".", -0.1, WORD_NEXT),
+        ];
+
+        let added = add_steps(&steps, limits(5, None));
+
+        assert_eq!(
+            added,
+            (Step::Stop, [1, 2, 3, 4, 5, 6, 7].map(LlamaToken).to_vec())
+        );
+    }
+
+    #[test]
+    fn only_a_completion_before_a_line_can_add_tokens_to_reach_the_end_of_a_phrase() {
+        let inside_a_line = Limits {
+            line_after: b" on Monday.",
+            ..limits(10, None)
+        };
+
+        let most_added = [limits(10, None).most_added(), inside_a_line.most_added()];
+
+        assert_eq!(most_added, [14, 10]);
+    }
+
+    #[test]
+    fn tail_cut_inside_a_line_stops_without_the_end_of_a_phrase() {
+        let limits = Limits {
+            line_after: b" on Monday.",
+            ..limits(10, Some(-3.0))
+        };
+
+        let added = add_steps(&CUT_AFTER_A_PHRASE_END, limits);
+
+        assert_eq!(added, (Step::Stop, [1, 2, 3, 4].map(LlamaToken).to_vec()));
+    }
+
     /// Log probabilities of the tokens " on" and " for", in that order.
     const LIKELY_ON: [f32; 2] = [-0.105, -2.303];
     const UNLIKELY_ON: [f32; 2] = [-4.605, -0.01];
@@ -708,7 +1034,7 @@ mod tests {
             .zip(1..)
             .map(|(&(logits, text, log_probability), id)| {
                 generation.add_join_step(&logits, line_after);
-                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, limits)
+                generation.add_token(LlamaToken(id), text.as_bytes(), log_probability, &[], limits)
             })
             .find(|&step| step == Step::Stop)
             .unwrap_or(Step::Continue);

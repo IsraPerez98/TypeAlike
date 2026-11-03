@@ -1,6 +1,4 @@
-//! The log probability of each added word, and the end of a sentence.
-
-use std::mem;
+//! The log probability of each added word, and the end of a sentence or of a phrase.
 
 use typealike_core::inference::LogProbability;
 
@@ -10,6 +8,12 @@ const SENTENCE_ENDS: [char; 6] = ['!', '?', '\u{2026}', '\u{3002}', '\u{ff01}', 
 /// word and its period.
 const CLOSING_QUOTES_AND_BRACKETS: [char; 11] = [
     '"', '\'', ')', ']', '}', '\u{201d}', '\u{2019}', '\u{bb}', '\u{300d}', '\u{300f}', '\u{ff09}',
+];
+/// The signs that end a phrase after a word: the signs that end a sentence or a part of it, and the
+/// closing quotes and brackets that are no apostrophe.
+const PHRASE_ENDS: [char; 23] = [
+    '.', ',', ';', ':', '!', '?', '\u{2026}', '\u{3002}', '\u{3001}', '\u{ff0c}', '\u{ff1b}', '\u{ff1a}',
+    '\u{ff01}', '\u{ff1f}', '"', ')', ']', '}', '\u{201d}', '\u{bb}', '\u{300d}', '\u{300f}', '\u{ff09}',
 ];
 /// The fewest letters of the word before a period that ends a sentence. A period after one letter
 /// often ends an initial or an abbreviation such as "e.g." or "a.m.".
@@ -69,23 +73,28 @@ impl WordLogProbabilities {
         self.words.len()
     }
 
-    /// Ends the words before a token that writes `text`: it drops the last word when the token
-    /// would continue it. Returns how many tokens the dropped word had.
-    pub(super) fn end_before(&mut self, text: &[u8]) -> usize {
+    /// The tokens that a stop before a token that writes `text` leaves out: the tokens of the last
+    /// word when the token would continue it, unless it is the only word.
+    pub(super) fn tokens_cut_before(&self, text: &[u8]) -> usize {
         if self.starts_new_word(text) {
-            return 0;
+            0
+        } else {
+            self.last_word_tokens_to_drop()
         }
-        self.drop_last_word()
     }
 
-    /// Drops the last word, unless it is the only word. Returns how many tokens the dropped word
-    /// had.
-    pub(super) fn drop_last_word(&mut self) -> usize {
+    /// The tokens of the last word, or none when it is the only word.
+    pub(super) fn last_word_tokens_to_drop(&self) -> usize {
         if self.words.len() <= 1 {
-            return 0;
+            0
+        } else {
+            self.last_word_tokens
         }
-        self.words.pop();
-        mem::take(&mut self.last_word_tokens)
+    }
+
+    /// Keeps only the first `count` words, when the added text stops there.
+    pub(super) fn truncate(&mut self, count: usize) {
+        self.words.truncate(count);
     }
 
     /// Whether a token that writes `text` starts a new word: it starts a word after added text that
@@ -97,6 +106,23 @@ impl WordLogProbabilities {
     pub(super) fn into_vec(self) -> Vec<LogProbability> {
         self.words
     }
+}
+
+/// Whether a token with `piece` as text ends a phrase: it starts with one of the [`PHRASE_ENDS`] or
+/// with a line break.
+pub(super) fn starts_phrase_end(piece: &[u8]) -> bool {
+    String::from_utf8_lossy(piece)
+        .chars()
+        .next()
+        .is_some_and(|first| PHRASE_ENDS.contains(&first) || matches!(first, '\n' | '\r'))
+}
+
+/// Whether `written` ends with one of the [`PHRASE_ENDS`].
+pub(super) fn ends_phrase(written: &[u8]) -> bool {
+    String::from_utf8_lossy(written)
+        .chars()
+        .next_back()
+        .is_some_and(|last| PHRASE_ENDS.contains(&last))
 }
 
 /// Whether a token with `piece` as text starts a word: the piece starts with ASCII whitespace.
@@ -192,42 +218,48 @@ mod tests {
     }
 
     #[test]
-    fn stop_before_a_new_word_keeps_all_words() {
-        let mut words = words_of(&[("very", -1.0), (" soon", -0.5)]);
+    fn stop_before_a_new_word_leaves_out_no_token() {
+        let words = words_of(&[("very", -1.0), (" soon", -0.5)]);
 
-        let dropped = words.end_before(b" thanks");
+        let dropped = words.tokens_cut_before(b" thanks");
 
-        assert_eq!(
-            (dropped, words.into_vec()),
-            (0, vec![LogProbability(-1.0), LogProbability(-0.5)])
-        );
+        assert_eq!(dropped, 0);
     }
 
     #[test]
-    fn stop_inside_a_word_drops_that_word() {
-        let mut words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
+    fn stop_inside_a_word_leaves_out_the_tokens_of_that_word() {
+        let words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
 
-        let dropped = words.end_before(b"ks");
+        let dropped = words.tokens_cut_before(b"ks");
 
-        assert_eq!((dropped, words.into_vec()), (2, vec![LogProbability(-1.0)]));
+        assert_eq!(dropped, 2);
     }
 
     #[test]
-    fn dropping_the_last_word_drops_its_tokens() {
-        let mut words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
+    fn last_word_to_drop_has_its_tokens() {
+        let words = words_of(&[("very", -1.0), (" th", -0.5), ("an", -0.5)]);
 
-        let dropped = words.drop_last_word();
+        let dropped = words.last_word_tokens_to_drop();
 
-        assert_eq!((dropped, words.into_vec()), (2, vec![LogProbability(-1.0)]));
+        assert_eq!(dropped, 2);
     }
 
     #[test]
     fn only_word_is_never_dropped() {
-        let mut words = words_of(&[("1Z", -1.0), ("999", -0.5)]);
+        let words = words_of(&[("1Z", -1.0), ("999", -0.5)]);
 
-        let dropped = words.drop_last_word();
+        let dropped = [words.last_word_tokens_to_drop(), words.tokens_cut_before(b"8")];
 
-        assert_eq!((dropped, words.into_vec()), (0, vec![LogProbability(-1.5)]));
+        assert_eq!(dropped, [0, 0]);
+    }
+
+    #[test]
+    fn truncated_words_keep_their_log_probabilities() {
+        let mut words = words_of(&[("very", -1.0), (" soon", -0.5), (",", -0.5), (" thanks", -2.0)]);
+
+        words.truncate(2);
+
+        assert_eq!(words.into_vec(), [LogProbability(-1.0), LogProbability(-1.0)]);
     }
 
     #[test]
@@ -342,6 +374,46 @@ mod tests {
         let starts = cases.map(|(written, text, _)| starts_next_sentence(b"", written, text));
 
         assert_eq!(starts, cases.map(|(_, _, starts)| starts));
+    }
+
+    #[test]
+    fn piece_that_starts_with_a_sign_of_a_phrase_end_or_has_a_line_break_ends_a_phrase() {
+        let cases = [
+            (&b"."[..], true),
+            (b",", true),
+            (b"!\n", true),
+            (b"\n\n", true),
+            (b"\r\n", true),
+            (b" soon\n", false),
+            ("\u{3002}".as_bytes(), true),
+            (b")", true),
+            (b" soon", false),
+            (b"'s", false),
+            (b"-", false),
+            (b" (", false),
+            (b"", false),
+        ];
+
+        let ends = cases.map(|(piece, _)| starts_phrase_end(piece));
+
+        assert_eq!(ends, cases.map(|(_, ends)| ends));
+    }
+
+    #[test]
+    fn written_text_that_ends_with_a_sign_of_a_phrase_end_ends_a_phrase() {
+        let cases = [
+            (&b" soon,"[..], true),
+            (b" soon.", true),
+            (b" (soon)", true),
+            ("\u{4f60}\u{597d}\u{ff0c}".as_bytes(), true),
+            (b" soon", false),
+            (b" Sam's", false),
+            (b"", false),
+        ];
+
+        let ends = cases.map(|(written, _)| ends_phrase(written));
+
+        assert_eq!(ends, cases.map(|(_, ends)| ends));
     }
 
     #[test]

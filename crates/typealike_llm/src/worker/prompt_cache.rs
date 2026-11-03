@@ -292,7 +292,7 @@ impl<'model> PromptCache<'model> {
         let mut logits = self.logits.as_slice();
         let mut biased = Vec::new();
         let mut generation = Generation::new(decoder.pieces, healing);
-        while generation.tokens().len() < limits.max_added {
+        while generation.has_room(limits) {
             if generation.add_healing_step(logits, limits.typo_check.min_log_probability()) == Step::Stop {
                 return Ok(generation.into_typo_stop());
             }
@@ -310,7 +310,7 @@ impl<'model> PromptCache<'model> {
                 break;
             }
             let piece = vocab.token_to_piece(token, false, None);
-            if generation.add_token(token, &piece, log_probability, limits) == Step::Stop {
+            if generation.add_token(token, &piece, log_probability, logits, limits) == Step::Stop {
                 break;
             }
             if (progress.is_outdated)() {
