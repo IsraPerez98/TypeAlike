@@ -10,8 +10,9 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSButton, NSCellImagePosition, NSControlSize, NSFont, NSSearchField, NSStackView, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSButton, NSCellImagePosition, NSControlSize, NSFont, NSLayoutConstraintOrientation,
+    NSLayoutPriorityDefaultHigh, NSSearchField, NSStackView, NSTextField, NSUserInterfaceLayoutOrientation,
+    NSView,
 };
 use objc2_core_foundation::CGFloat;
 use objc2_foundation::{NSEdgeInsets, NSString};
@@ -211,6 +212,10 @@ impl SectionView {
         let main_thread = binder.main_thread;
         let back = icon_button(binder.target, main_thread);
         back.setImagePosition(NSCellImagePosition::ImageLeading);
+        back.setContentHuggingPriority_forOrientation(
+            NSLayoutPriorityDefaultHigh,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
         let heading = heading(main_thread);
         let title_bar = stack(
             NSUserInterfaceLayoutOrientation::Horizontal,
