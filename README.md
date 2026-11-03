@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.svg" alt="" width="160"></p>
+
 # TypeAlike
 
 Inline suggestions as you type, in any app on Windows and macOS. The model runs on your computer.

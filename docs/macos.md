@@ -10,7 +10,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Overlay panel.
 - The mirror, for a field that gives no caret through AX (the editor of VS Code while its screen reader mode is off: an empty EditContext element).
 - CGEvent injection.
-- Menu bar extra.
+- Menu bar extra: the robot of the logo as a template image (`docs/icons.md`).
 - Settings window: a sidebar of the panes, each with its symbol on a colored tile, as in System Settings.
 - Setup window.
 - Spelling dictionary.

@@ -107,7 +107,7 @@ These words belong to the code and the docs. The UI uses the text of the second 
 - Voice: ASD-STE100 Simplified Technical English, for all the text that the user sees (`.claude/rules/ste100.md`). Short sentences, active voice, no contractions, no em dashes, no semicolons, no marketing words.
 - Sentence case for all UI text in core.
 - Personality: calm and quiet. TypeAlike is a guest, and its UI never competes with the content of the host app.
-- TypeAlike has no logo and no app icon yet. Do not make one without a request.
+- Logo: a robot with a visor and two happy eyes, next to a text cursor (`assets/logo.svg`). The app icons, the tray icon and the menu bar extra come from it (`docs/icons.md`). The settings window, the setup window, the overlay and the badge do not show it.
 
 ## Evidence on Hand
 

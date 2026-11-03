@@ -1,4 +1,4 @@
-//! The SF Symbols of TypeAlike, such as the symbol of its status in the menu bar and on the badge.
+//! The SF Symbols of TypeAlike, such as the symbol of its status on the badge.
 
 use objc2::rc::Retained;
 use objc2_app_kit::NSImage;

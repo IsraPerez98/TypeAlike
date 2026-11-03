@@ -36,6 +36,7 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName=TypeAlike
 UninstallDisplayIcon={app}\TypeAlike.exe
+SetupIconFile=..\..\crates\typealike\TypeAlike.ico
 
 [InstallDelete]
 ; Removes the DLLs of the other flavor, so llama.cpp does not load a backend of an older install.

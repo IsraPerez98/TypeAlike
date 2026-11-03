@@ -1,6 +1,8 @@
 //! Embeds the Windows application manifest. It selects version 6 of the common controls, so the
 //! tray menu and dialogs draw with the current visual styles. It also declares Windows 10 and 11
 //! support, so Windows runs TypeAlike without the compatibility mode for older apps.
+//! It also embeds the app icon (`TypeAlike.rc`), which File Explorer, the Start menu and the
+//! windows of TypeAlike show.
 //! With the `self-contained` feature, it also copies the Windows App Runtime next to the program
 //! and adds the manifest that tells windows-reactor to load that copy.
 
@@ -19,6 +21,11 @@ fn main() {
             "cargo::rustc-link-arg-bins=/MANIFESTINPUT:{}",
             compatibility.display()
         );
+        println!("cargo::rerun-if-changed=TypeAlike.rc");
+        println!("cargo::rerun-if-changed=TypeAlike.ico");
+        embed_resource::compile("TypeAlike.rc", embed_resource::NONE)
+            .manifest_required()
+            .expect("the resource compiler of the Windows SDK embeds the app icon");
         #[cfg(feature = "self-contained")]
         windows_reactor_setup::as_self_contained();
     }

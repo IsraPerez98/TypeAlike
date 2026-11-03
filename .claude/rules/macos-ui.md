@@ -46,11 +46,16 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 - No animation beyond a subtle fade. None when Reduce Motion is on. Hide instantly on caret move, focus change, Space switch, or secure input.
 
 ## Menu bar extra & menus
-- `NSStatusItem` icon: SF Symbol or vector template image (`isTemplate = true`), black and clear only. The system tints it for light/dark menu bar and selection. Menu bar height is 24 pt.
+- `NSStatusItem` icon: the robot of the logo as a template image (`isTemplate = true`), black and clear only, 16 pt with 1x and 2x pixels on the 16 px grid. The system tints it for light/dark menu bar and selection. Menu bar height is 24 pt.
 - State (paused, error) by glyph change, never color alone.
 - Click shows a menu, not a popover. Items: `Pause Suggestions` / `Resume Suggestions` (one item, label shows the action), separator, `Settings…` ⌘,, `Quit TypeAlike` ⌘Q.
 - The system can hide the extra (crowded menu bar, notch, user turns it off in System Settings > Menu Bar). Never rely on it.
 - Menu icons: sparingly. Give icons to all items in a group or to none. Show keyboard equivalents. Never repurpose standard shortcuts.
+
+## App icon
+- The logo on a dark rounded rectangle of the macOS icon grid: 824 px on a 1024 px canvas, continuous corners, a soft shadow. macOS 26+ puts an icon without this shape on a gray plate.
+- At 16 and 32 pt, only the head of the robot.
+- `docs/icons.md` lists the sources and the steps to rebuild the files.
 
 ## Windows (settings, onboarding)
 - Settings: like System Settings. A sidebar at the leading edge (`NSSplitViewItem` sidebar, source list `NSTableView`) with a row for each pane, and the selected pane at its right. Each row shows the SF Symbol of its pane in white on a rounded tile, then the pane name. The tile has a system color (`systemBlueColor` and others) that names the pane, never a state. Title = pane name, in a unified toolbar after the sidebar (`NSToolbarSidebarTrackingSeparatorItemIdentifier`). Minimize and zoom buttons dimmed. Restore the last pane. ⌘, opens, ⌘W closes.

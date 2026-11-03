@@ -74,6 +74,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 | `docs/windows.md` | `typealike_windows`: overlay, hooks, caret reader, UIA, screen text, watches, settings and setup windows, autostart |
 | `docs/macos.md` | `typealike_macos`: permissions, AX caret, overlay, mirror, injection, spelling, setup window, autostart |
 | `docs/llm.md` | `typealike_llm`: backends, warm-up, token healing, typo fixes, stops, phrase ends, cache |
+| `docs/icons.md` | Logo, app icons, tray icon and menu bar extra, `assets/build_icons.py` |
 
 When a commit changes a behavior, update the doc of its area in the same commit. Do not add behavior to `CLAUDE.md`. It keeps only commands, gotchas and pointers. Write each doc as short bullets under headings, in ASD-STE100.
 

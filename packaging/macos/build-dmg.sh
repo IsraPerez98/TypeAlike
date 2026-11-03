@@ -14,6 +14,7 @@ app="$staging/TypeAlike.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$program" "$app/Contents/MacOS/TypeAlike"
 cp "$packaging/../../LICENSE" "$app/Contents/Resources/LICENSE"
+cp "$packaging/TypeAlike.icns" "$app/Contents/Resources/TypeAlike.icns"
 sed "s/@VERSION@/$version/g" "$packaging/Info.plist" >"$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 

@@ -77,18 +77,23 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Exception: when text follows the caret on its line, inline ghost text would cover that text. The overlay then shows the end of the typed word and the ghost text on a card below the caret line: the fill and the border of the Fluent tooltip (as the badge), radius 4, a 1 DIP border, 8 x 4 DIPs padding, 4 DIPs below the line. The card goes above the line when it does not fit in the work area. The typed word is in the Fluent primary text color and semibold. The ghost text is regular, in the lightest Fluent text color with 4.5:1 on the card: secondary in light mode, tertiary in dark mode. The ghost text starts under the caret.
 
 ## Caret badge
-- A small button above the caret, on its left, where the ghost text never goes. A click opens the badge menu (`BadgeMenu`) below the badge. The glyph is the tray glyph of the status.
+- A small button above the caret, on its left, where the ghost text never goes. A click opens the badge menu (`BadgeMenu`) below the badge. The glyph is the icon-font glyph of the status (`status_glyph` in `badge.rs`).
 - 24 x 24 DIPs, 4 DIPs above the caret, radius 4, a 1 DIP border, a 14 DIP glyph. Scale with the DPI of the monitor at the caret.
 - Colors of the Fluent tooltip for the apps theme: the fill, the surface stroke and the secondary text. High contrast: `COLOR_WINDOW` fill, `COLOR_WINDOWTEXT` border and glyph.
 - Same window styles as the ghost text overlay. The mouse hook swallows a left click on the badge and posts it to the main window. The app under the badge never gets the click.
 - The badge menu is a native popup menu, as the tray menu, with a submenu and check marks. The window that had the focus gets it back after the menu closes.
 
 ## Tray & menus
-- Tray icon: theme-aware glyph (light variant on dark taskbar, dark on light), swap on theme change. Multi-resolution `.ico` (16/20/24/32 px), crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone.
+- Tray icon: the robot of the logo, white on a dark taskbar and black on a light one, swapped on theme change. A multi-resolution `.ico` for each status and color (16 to 64 px, `assets/tray`), drawn on the pixel grids of 16, 20 and 24 px, so it is crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone.
 - Left click = primary action/flyout. Right click = context menu. Tooltip names app + state.
 - Menus: native look: rounded 8 px, acrylic, dark-mode aware, Segoe Fluent Icons glyphs optional, sentence case, keyboard accelerators.
 - Dark menus: Win32 has no documented call. uxtheme exports `SetPreferredAppMode` (ordinal 135) and `FlushMenuThemes` (ordinal 136) since Windows 10 1903. Resolve them at run time with `GetProcAddress` and skip them when they are missing. Set force dark or force light from the apps theme at start and on each theme change.
 - A menu runs a message loop of its own. Show it outside any borrow of the runtime: post a message, then show it from the window procedure.
+
+## App icon
+- The logo without a plate, as the app icons of Windows 11, in `TypeAlike.exe` (`TypeAlike.rc`). 16, 20, 24, 32, 40, 48, 64 and 256 px. At 24 px and below, only the head of the robot.
+- Each window of TypeAlike shows it in the title bar and on the taskbar button (`settings/window_icon.rs`).
+- `docs/icons.md` lists the sources and the steps to rebuild the files.
 
 ## Windows (settings, dialogs)
 - Settings-app style: Mica base layer across the whole window and the title bar, the navigation at the left, content as cards.

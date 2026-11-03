@@ -15,6 +15,7 @@ There are two kinds of UI:
 ## Colors
 
 - No brand color. The accent color of the user shows only for the focus, the selection and the primary action.
+- The blues of the logo show only in the app icons.
 - Settings window: theme brushes on Windows (`ThemeBrush`), semantic `NSColor` values on macOS. Never a color literal.
 - Suggestion after the caret: the color of the text of the field at half opacity (`GHOST_TEXT_ALPHA`), as a placeholder. When TypeAlike cannot read that color, a neutral gray that shows on a light and on a dark background (`NEUTRAL_GRAY` on Windows, `systemGrayColor` on macOS).
 - Card below the caret and mirror: the typed word in the primary text color, the suggestion in a lighter text color with a contrast of at least 4.5:1.
@@ -56,7 +57,8 @@ There are two kinds of UI:
 - **Card below the caret.** The end of the typed word, then the suggestion, when text follows the caret on its line.
 - **Typo fix.** The typed letters with a red line through them, then the fixed word in green.
 - **Badge.** A small button above the caret with the glyph of the status. A click opens the badge menu, a native popup menu.
-- **Tray icon and menu bar extra.** A monochrome glyph that follows the theme of the taskbar or the menu bar. The status shows as a change of the glyph, never of the color only.
+- **App icon.** The logo. On macOS, on a dark rounded rectangle of the macOS icon grid. On Windows, without a plate, as the app icons of Windows 11. Small sizes show only the head of the robot (`docs/icons.md`).
+- **Tray icon and menu bar extra.** The robot of the logo as a one-color glyph that follows the theme of the taskbar or the menu bar. The status shows as a change of the face, never of the color only: happy eyes when active, an empty visor with a pause sign when paused.
 
 ## Do's and Don'ts
 

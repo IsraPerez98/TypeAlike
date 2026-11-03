@@ -1,4 +1,4 @@
-//! Text and glyphs in premultiplied-alpha bitmaps, and the glyph icons.
+//! Text and glyphs in premultiplied-alpha bitmaps.
 //!
 //! A bitmap can also be the whole content of a layered window.
 
@@ -7,22 +7,17 @@ use std::ops::Range;
 
 use windows::Win32::Foundation::{COLORREF, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, CreateBitmap, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE,
-    DT_VCENTER, DrawTextW, GdiFlush, GetTextExtentPoint32W, HBITMAP, HGDIOBJ, SetBkMode, SetTextColor,
-    TRANSPARENT, TextOutW,
+    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DrawTextW,
+    GdiFlush, GetTextExtentPoint32W, HGDIOBJ, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconIndirect, HICON, ICONINFO, ULW_ALPHA, UpdateLayeredWindow,
-};
-use windows::core::{Error, Owned, Result};
+use windows::Win32::UI::WindowsAndMessaging::{ULW_ALPHA, UpdateLayeredWindow};
+use windows::core::{Error, Result};
 
 use super::font::{Font, FontHeight, FontWeight};
 use super::memory::{MemoryContext, PixelSection};
 use crate::pixels::{Ink, Rgb, fill_band, lay_over, pad, strike_rows, tint_by_coverage, tint_spans};
 
 const ICON_FACES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
-const MONOCHROME_PLANES: u32 = 1;
-const MONOCHROME_BITS: u32 = 1;
 
 /// A part of a line of text in one font and one color, with an optional line through it.
 #[derive(Debug, Clone, Copy)]
@@ -154,11 +149,6 @@ impl TextBitmap {
         self.size
     }
 
-    /// Raw bitmap handle, valid while `self` lives.
-    fn handle(&self) -> HBITMAP {
-        *self.section.bitmap
-    }
-
     /// Makes this bitmap the whole content of the layered `window`, placing it at `origin`.
     pub(crate) fn present(&self, window: HWND, origin: POINT) -> Result<()> {
         let context = MemoryContext::new()?;
@@ -192,38 +182,6 @@ impl TextBitmap {
 pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
     let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side), FontWeight::Regular)?;
     TextBitmap::render_centered(glyph, &font, color.into(), side)
-}
-
-/// Renders `glyph` of the system icon font as a square icon of `side` pixels in `color`.
-pub(crate) fn glyph_icon(glyph: &str, side: i32, color: Rgb) -> Result<Owned<HICON>> {
-    let bitmap = glyph_bitmap(glyph, side, side, color)?;
-    let bitmap_size = bitmap.size();
-    // SAFETY: plain call; the bitmap is owned right after.
-    let ignored_mask = unsafe {
-        CreateBitmap(
-            bitmap_size.cx,
-            bitmap_size.cy,
-            MONOCHROME_PLANES,
-            MONOCHROME_BITS,
-            None,
-        )
-    };
-    if ignored_mask.is_invalid() {
-        return Err(Error::from_thread());
-    }
-    // SAFETY: CreateBitmap returned a valid bitmap that nothing else owns.
-    let ignored_mask = unsafe { Owned::new(ignored_mask) };
-    let icon_parts = ICONINFO {
-        fIcon: true.into(),
-        xHotspot: 0,
-        yHotspot: 0,
-        hbmMask: *ignored_mask,
-        hbmColor: bitmap.handle(),
-    };
-    // SAFETY: both bitmaps are alive and unselected; the system copies them into the icon.
-    let icon = unsafe { CreateIconIndirect(&raw const icon_parts) }?;
-    // SAFETY: CreateIconIndirect returned a valid icon that nothing else owns.
-    Ok(unsafe { Owned::new(icon) })
 }
 
 fn measure(context: &MemoryContext, units: &[u16]) -> Result<SIZE> {

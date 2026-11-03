@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+<mask id="eyes"><rect x="4" y="9" width="12" height="9" rx="2.5" fill="#fff"/><path d="M6.25 14.5a1.25 1.25 0 0 1 2.5 0M11.25 14.5a1.25 1.25 0 0 1 2.5 0" fill="none" stroke="#000" stroke-width="1.25" stroke-linecap="round"/></mask>
+<circle cx="10" cy="2" r="2"/>
+<rect x="9" y="3.5" width="2" height="3"/>
+<rect x="0" y="10" width="1" height="6"/>
+<rect x="19" y="10" width="1" height="6"/>
+<rect x="2.5" y="6.5" width="15" height="13" rx="4.5" fill="none" stroke="#000"/>
+<g id="active"><rect x="4" y="9" width="12" height="9" rx="2.5" mask="url(#eyes)"/></g>
+<g id="paused" display="none"><rect x="4.5" y="9.5" width="11" height="8" rx="2" fill="none" stroke="#000"/><rect x="8" y="11" width="1" height="5"/><rect x="11" y="11" width="1" height="5"/></g>
+</svg>

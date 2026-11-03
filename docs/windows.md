@@ -5,6 +5,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 ## Main thread
 
 - Hooks, overlay, badge at the caret, `SendInput`, tray (Win32, main thread).
+- The tray icon is the robot of the logo, from the icon files in `assets/tray` (`docs/icons.md`).
 
 ### Overlay
 
@@ -87,6 +88,7 @@ The caret reader runs on its own thread.
 
 - The settings window uses WinUI 3 through windows-reactor, on its own UI thread, as the Settings app.
 - It has a color icon of the Fluent UI System Icons for each page in the navigation (`assets/fluent`, the page symbol in high contrast), and a glyph of the icon font at the leading edge of each card of a setting.
+- The settings and setup windows show the app icon of `TypeAlike.exe` in the title bar and on the taskbar button (`settings/window_icon.rs`).
 - Each window keeps the edits that went to the controller (`TypedTexts`). A view text that is no such edit, while no edit waits, is a change of the controller, and the field shows it.
 
 ## Setup window

@@ -8,4 +8,4 @@ mod text_bitmap;
 
 pub(crate) use self::font::{Font, FontHeight, FontWeight};
 pub(crate) use self::memory::{BITS_PER_PIXEL, MemoryContext, top_down_bitmap_format};
-pub(crate) use self::text_bitmap::{TextBitmap, TextRun, glyph_bitmap, glyph_icon, line_width};
+pub(crate) use self::text_bitmap::{TextBitmap, TextRun, glyph_bitmap, line_width};

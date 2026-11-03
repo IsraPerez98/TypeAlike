@@ -1,5 +1,7 @@
 //! The notification-area icon and its menu.
 
+use std::ops::Range;
+
 use typealike_core::app::{Status, TrayCommand, TrayItem, TrayView};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
@@ -8,12 +10,12 @@ use windows::Win32::UI::Shell::{
     NINF_KEY, NOTIFY_ICON_MESSAGE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, NOTIFYICONDATAW_0,
     Shell_NotifyIconW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{HICON, SM_CXSMICON, WM_APP, WM_CONTEXTMENU};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateIconFromResourceEx, HICON, LR_DEFAULTCOLOR, SM_CXSMICON, WM_APP, WM_CONTEXTMENU,
+};
 use windows::core::{Owned, Result};
 
-use crate::gdi::glyph_icon;
 use crate::menu;
-use crate::pixels::Rgb;
 use crate::struct_size;
 use crate::system_theme::is_taskbar_light;
 use crate::window::{high_word, low_word};
@@ -22,8 +24,20 @@ use crate::window::{high_word, low_word};
 pub(crate) const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
 
 const ICON_ID: u32 = 1;
-const ACTIVE_GLYPH: &str = "\u{E70F}";
-const PAUSED_GLYPH: &str = "\u{E769}";
+
+/// The robot of the TypeAlike logo, black for a light taskbar and white for a dark one. The
+/// paused robot has an empty visor with a pause sign. `assets/build_icons.py` makes the files.
+const ACTIVE_BLACK: &[u8] = include_bytes!("../assets/tray/active-black.ico");
+const ACTIVE_WHITE: &[u8] = include_bytes!("../assets/tray/active-white.ico");
+const PAUSED_BLACK: &[u8] = include_bytes!("../assets/tray/paused-black.ico");
+const PAUSED_WHITE: &[u8] = include_bytes!("../assets/tray/paused-white.ico");
+
+/// The version of the icon format that `CreateIconFromResourceEx` reads.
+const ICON_FORMAT_VERSION: u32 = 0x0003_0000;
+const ICON_DIRECTORY_BYTES: usize = 6;
+const ICON_ENTRY_BYTES: usize = 16;
+/// The width of 256 pixels, which the one byte of an icon entry gives as zero.
+const LARGEST_SIDE: u32 = 256;
 
 /// A click on the tray icon that asks for the menu, anchored at this screen point.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -113,23 +127,58 @@ pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> R
     Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }
 
-/// The glyph of the system icon font that shows `status`.
-pub(crate) fn status_glyph(status: Status) -> &'static str {
-    match status {
-        Status::Active => ACTIVE_GLYPH,
-        Status::Paused => PAUSED_GLYPH,
-    }
-}
-
 fn render_icon(status: Status) -> Result<Owned<HICON>> {
     // SAFETY: the calls take no pointer and have no precondition.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
-    let color = if is_taskbar_light() {
-        Rgb::BLACK
-    } else {
-        Rgb::WHITE
+    let icon_file = match (status, is_taskbar_light()) {
+        (Status::Active, true) => ACTIVE_BLACK,
+        (Status::Active, false) => ACTIVE_WHITE,
+        (Status::Paused, true) => PAUSED_BLACK,
+        (Status::Paused, false) => PAUSED_WHITE,
     };
-    glyph_icon(status_glyph(status), side, color)
+    let image = best_image(icon_file, u32::try_from(side).unwrap_or(LARGEST_SIDE))
+        .expect("each tray icon file has a PNG image, as a test checks");
+    // SAFETY: the image is a PNG image of an icon file, and the call copies it into the new icon.
+    let icon =
+        unsafe { CreateIconFromResourceEx(image, true, ICON_FORMAT_VERSION, side, side, LR_DEFAULTCOLOR) }?;
+    // SAFETY: CreateIconFromResourceEx returned a valid icon that nothing else owns.
+    Ok(unsafe { Owned::new(icon) })
+}
+
+/// One image of an icon file: its width in pixels and the place of its bytes in the file.
+struct IconEntry {
+    side: u32,
+    bytes: Range<usize>,
+}
+
+/// The image of `icon_file` that Windows scales the least to `side` pixels: the smallest image at
+/// least `side` wide, else the largest one. `None` when the file is not a valid icon file.
+fn best_image(icon_file: &[u8], side: u32) -> Option<&[u8]> {
+    let count = u16::from_le_bytes(icon_file.get(4..ICON_DIRECTORY_BYTES)?.try_into().ok()?);
+    let entries = (0..usize::from(count))
+        .map(|index| icon_entry(icon_file, index))
+        .collect::<Option<Vec<_>>>()?;
+    let best = entries
+        .iter()
+        .filter(|entry| entry.side >= side)
+        .min_by_key(|entry| entry.side)
+        .or_else(|| entries.iter().max_by_key(|entry| entry.side))?;
+    icon_file.get(best.bytes.clone())
+}
+
+fn icon_entry(icon_file: &[u8], index: usize) -> Option<IconEntry> {
+    let start = ICON_DIRECTORY_BYTES + index * ICON_ENTRY_BYTES;
+    let entry: &[u8; ICON_ENTRY_BYTES] = icon_file.get(start..start + ICON_ENTRY_BYTES)?.try_into().ok()?;
+    let side = match entry[0] {
+        0 => LARGEST_SIDE,
+        width => u32::from(width),
+    };
+    let length = usize::try_from(u32::from_le_bytes([entry[8], entry[9], entry[10], entry[11]])).ok()?;
+    let offset = usize::try_from(u32::from_le_bytes([entry[12], entry[13], entry[14], entry[15]])).ok()?;
+    Some(IconEntry {
+        side,
+        bytes: offset..offset.checked_add(length)?,
+    })
 }
 
 fn fixed_units<const LENGTH: usize>(text: &str) -> [u16; LENGTH] {
@@ -201,5 +250,67 @@ mod tests {
         let units: [u16; 4] = fixed_units("TypeAlike");
 
         assert_eq!(units, [u16::from(b'T'), u16::from(b'y'), u16::from(b'p'), 0]);
+    }
+
+    /// An icon file with one image of each of `sides`, where the image is the one byte of its side.
+    fn icon_file(sides: &[u8]) -> Vec<u8> {
+        let count = u16::try_from(sides.len()).unwrap();
+        let mut file = [0, 1, count]
+            .iter()
+            .flat_map(|value: &u16| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        let first_image = 6 + 16 * sides.len();
+        for (index, &side) in sides.iter().enumerate() {
+            let offset = u32::try_from(first_image + index).unwrap();
+            file.extend_from_slice(&[side, side, 0, 0, 1, 0, 32, 0]);
+            file.extend_from_slice(&1_u32.to_le_bytes());
+            file.extend_from_slice(&offset.to_le_bytes());
+        }
+        file.extend_from_slice(sides);
+        file
+    }
+
+    #[test]
+    fn image_of_the_same_size_is_best() {
+        let file = icon_file(&[16, 24, 32]);
+
+        assert_eq!(best_image(&file, 24), Some(&[24][..]));
+    }
+
+    #[test]
+    fn next_larger_image_is_best_between_sizes() {
+        let file = icon_file(&[32, 16, 48]);
+
+        assert_eq!(best_image(&file, 28), Some(&[32][..]));
+    }
+
+    #[test]
+    fn largest_image_is_best_above_all_sizes() {
+        let file = icon_file(&[16, 64, 32]);
+
+        assert_eq!(best_image(&file, 96), Some(&[64][..]));
+    }
+
+    #[test]
+    fn side_zero_in_the_entry_is_256() {
+        let file = icon_file(&[0, 64]);
+
+        assert_eq!(best_image(&file, 128), Some(&[0][..]));
+    }
+
+    #[test]
+    fn cut_file_has_no_image() {
+        let file = icon_file(&[16, 32]);
+
+        assert_eq!(best_image(&file[..20], 16), None);
+    }
+
+    #[test]
+    fn each_tray_icon_has_a_png_image() {
+        let files = [ACTIVE_BLACK, ACTIVE_WHITE, PAUSED_BLACK, PAUSED_WHITE];
+
+        let signatures = files.map(|file| best_image(file, 16).and_then(|image| image.get(1..4)));
+
+        assert_eq!(signatures, [Some(&b"PNG"[..]); 4]);
     }
 }

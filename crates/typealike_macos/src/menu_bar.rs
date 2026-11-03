@@ -1,19 +1,24 @@
 //! The menu bar extra and its menu.
 
+use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
-use objc2_foundation::NSString;
-use typealike_core::app::{TrayCommand, TrayItem, TrayView};
+use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
+use objc2_foundation::{NSData, NSString};
+use typealike_core::app::{Status, TrayCommand, TrayItem, TrayView};
 use typealike_core::localization::UiLanguage;
 
 use crate::labels::menu_label;
-use crate::symbol::status_symbol;
 
 const SETTINGS_KEY_EQUIVALENT: &str = ",";
 const QUIT_KEY_EQUIVALENT: &str = "q";
 pub(crate) const NO_KEY_EQUIVALENT: &str = "";
+
+/// The robot of the TypeAlike logo, 16 points high, at 1x and 2x. The paused robot has an empty
+/// visor with a pause sign. `assets/build_icons.py` makes the files.
+const ACTIVE_GLYPH: &[u8] = include_bytes!("../assets/menu_bar/active.tiff");
+const PAUSED_GLYPH: &[u8] = include_bytes!("../assets/menu_bar/paused.tiff");
 
 /// The extra in the menu bar, removed on drop.
 #[derive(Debug)]
@@ -49,9 +54,9 @@ impl MenuBarItem {
     /// Re-renders the glyph, tooltip and menu for `view`.
     pub(crate) fn update(&self, view: &TrayView) {
         if let Some(button) = self.status_item.button(self.main_thread) {
-            let image = status_symbol(view.status, &view.tooltip);
+            let image = status_glyph(view.status, &view.tooltip);
             if image.is_none() {
-                tracing::warn!(status = ?view.status, "menu bar symbol is unavailable");
+                tracing::warn!(status = ?view.status, "menu bar glyph is unavailable");
             }
             button.setImage(image.as_deref());
             button.setToolTip(Some(&NSString::from_str(&view.tooltip)));
@@ -93,6 +98,19 @@ impl Drop for MenuBarItem {
     }
 }
 
+/// The template image that shows `status` in the menu bar, which assistive technology reads as
+/// `description`. macOS tints it for the menu bar and for the selection.
+fn status_glyph(status: Status, description: &str) -> Option<Retained<NSImage>> {
+    let tiff = match status {
+        Status::Active => ACTIVE_GLYPH,
+        Status::Paused => PAUSED_GLYPH,
+    };
+    let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(tiff))?;
+    image.setTemplate(true);
+    image.setAccessibilityDescription(Some(&NSString::from_str(description)));
+    Some(image)
+}
+
 /// Returns the command of the entry a menu item with `tag` was built for.
 pub(crate) fn command_for_tag(items: &[TrayItem], tag: isize) -> Option<TrayCommand> {
     let index = usize::try_from(tag).ok()?;
@@ -109,6 +127,8 @@ fn key_equivalent(command: TrayCommand) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use objc2_foundation::NSSize;
+
     use super::*;
 
     fn items() -> [TrayItem; 2] {
@@ -152,5 +172,15 @@ mod tests {
     #[test]
     fn pause_has_no_key_equivalent() {
         assert_eq!(key_equivalent(TrayCommand::TogglePause), "");
+    }
+
+    #[test]
+    fn each_status_glyph_is_a_template_image_of_menu_bar_size() {
+        let statuses = [Status::Active, Status::Paused];
+
+        let glyphs = statuses
+            .map(|status| status_glyph(status, "TypeAlike").map(|glyph| (glyph.isTemplate(), glyph.size())));
+
+        assert_eq!(glyphs, [Some((true, NSSize::new(16.0, 16.0))); 2]);
     }
 }

@@ -11,6 +11,7 @@ mod page;
 mod setup_page;
 mod text_area_box;
 mod typed_texts;
+mod window_icon;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -34,6 +35,7 @@ use crate::settings::icons::page_icon;
 use crate::settings::page::Renderer;
 use crate::settings::setup_page::{SetupMessage, SetupPage};
 use crate::settings::typed_texts::TypedTexts;
+use crate::settings::window_icon::show_app_icon;
 use crate::system_theme::{Contrast, SystemTheme};
 
 const THREAD_NAME: &str = "settings window";
@@ -384,6 +386,8 @@ enum PageMessage {
     SelectIndex(usize),
     /// A control of a row did something.
     Row(RowMessage),
+    /// The window got the app icon, or the load of the icon failed.
+    IconShown(Result<()>),
 }
 
 impl From<RowMessage> for PageMessage {
@@ -454,6 +458,9 @@ impl Component for SettingsPage {
         if let Some((view, _)) = opened {
             page.show(view);
         }
+        if !context.run_window(|window| PageMessage::IconShown(show_app_icon(&window))) {
+            tracing::warn!("failed to ask for the icon of the settings window");
+        }
         page
     }
 
@@ -473,6 +480,10 @@ impl Component for SettingsPage {
                 }
             }
             PageMessage::Row(message) => on_row_message(&mut self.typed, message),
+            PageMessage::IconShown(Ok(())) => {}
+            PageMessage::IconShown(Err(error)) => {
+                tracing::warn!(%error, "failed to show the app icon on the settings window");
+            }
         }
     }
 

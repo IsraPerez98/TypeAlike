@@ -8,6 +8,8 @@
 	<string>TypeAlike</string>
 	<key>CFBundleExecutable</key>
 	<string>TypeAlike</string>
+	<key>CFBundleIconFile</key>
+	<string>TypeAlike</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.israperez98.typealike</string>
 	<key>CFBundleInfoDictionaryVersion</key>

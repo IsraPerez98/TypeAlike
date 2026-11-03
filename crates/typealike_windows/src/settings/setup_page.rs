@@ -21,6 +21,7 @@ use super::icons::{setup_glyph, setup_picture};
 use super::layout::secondary_text;
 use super::page::Renderer;
 use super::typed_texts::TypedTexts;
+use super::window_icon::show_app_icon;
 use super::{RowMessage, on_row_message, setup_dropped, setup_opened};
 use crate::system_theme::{Contrast, SystemTheme, are_animations_on};
 
@@ -92,6 +93,8 @@ pub(super) enum SetupMessage {
     Turned,
     /// The window got its fixed size, or the change of its frame failed.
     Fixed(windows::core::Result<()>),
+    /// The window got the app icon, or the load of the icon failed.
+    IconShown(windows::core::Result<()>),
 }
 
 impl From<RowMessage> for SetupMessage {
@@ -578,6 +581,9 @@ impl Component for SetupPage {
         if !context.run_window(|window| SetupMessage::Fixed(fix_size(&window))) {
             tracing::warn!("failed to ask for the fixed size of the setup window");
         }
+        if !context.run_window(|window| SetupMessage::IconShown(show_app_icon(&window))) {
+            tracing::warn!("failed to ask for the icon of the setup window");
+        }
         page
     }
 
@@ -598,9 +604,12 @@ impl Component for SetupPage {
             SetupMessage::Row(message) if self.turn_timer.is_some() && is_press(&message) => {}
             SetupMessage::Row(message) => on_row_message(&mut self.typed, message),
             SetupMessage::Turned => self.turn_timer = None,
-            SetupMessage::Fixed(Ok(())) => {}
+            SetupMessage::Fixed(Ok(())) | SetupMessage::IconShown(Ok(())) => {}
             SetupMessage::Fixed(Err(error)) => {
                 tracing::warn!(%error, "failed to fix the size of the setup window");
+            }
+            SetupMessage::IconShown(Err(error)) => {
+                tracing::warn!(%error, "failed to show the app icon on the setup window");
             }
             SetupMessage::Enter => {
                 self.entrance = Entrance::Entered;
