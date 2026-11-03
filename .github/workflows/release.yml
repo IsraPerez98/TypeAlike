@@ -109,6 +109,8 @@ jobs:
           }
           "CUDA_PATH=$cuda" >> $env:GITHUB_ENV
           "CUDACXX=$cuda\bin\nvcc.exe" >> $env:GITHUB_ENV
+          # Only the GPUs of Windows desktops. For a data-center GPU, the driver compiles the Turing code.
+          "CMAKE_CUDA_ARCHITECTURES=75-virtual;86-real;89-real;120a-real" >> $env:GITHUB_ENV
           "$cuda\bin" >> $env:GITHUB_PATH
 
       - name: Build
