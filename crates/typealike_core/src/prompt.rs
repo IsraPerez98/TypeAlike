@@ -24,6 +24,8 @@ const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
 /// is often the message that the user answers, and its second copy gives it more weight than the
 /// older text of the preface.
 const LAST_LINE_LABEL: &str = "The last line above the field on my screen:";
+/// The start of the line that gives the name of the writer, before the name and a period.
+const NAME_LINE_START: &str = "My name is ";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 const PREFACE_TOKENS: TokenCount = TokenCount(2000);
@@ -111,7 +113,7 @@ fn budgeted_parts<'text>(
     let notes = budgeted_line(Some(writer.notes), NOTES_TOKENS)
         .map(|line| budget.take_start(&line, NOTES_TOKENS).to_owned());
     let name = budgeted_line(Some(writer.name), NAME_TOKENS).map(|name| {
-        let line = format!("My name is {name}.");
+        let line = format!("{NAME_LINE_START}{name}.");
         budget.spend(&line);
         line
     });
@@ -277,6 +279,15 @@ pub(crate) fn frame_lines(preface: &str) -> Vec<String> {
         .map(str::to_owned)
         .chain([TEXT_HEADING.to_owned()])
         .collect()
+}
+
+/// Returns the name of the writer that the frame of `preface` gives, if any.
+pub(crate) fn writer_name(preface: &str) -> Option<String> {
+    frame_lines(preface).into_iter().find_map(|line| {
+        line.strip_prefix(NAME_LINE_START)?
+            .strip_suffix('.')
+            .map(str::to_owned)
+    })
 }
 
 /// Where the user types, as one line of labeled parts. A window title that names the app stands

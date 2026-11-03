@@ -208,10 +208,41 @@ fn completion_that_shares_less_than_the_start_of_a_frame_line_shows() {
 }
 
 #[test]
+fn completion_that_greets_the_writer_by_name_hides() {
+    let cases = [
+        ("Querida ", "Sara,"),
+        ("Hi ", "Sara, we are having a party"),
+        ("Hola, ", "Novak."),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer(""), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn name_of_the_writer_shows_where_no_greeting_comes_before_it() {
+    let cases = [
+        ("Hi Tom, this is ", "Sara."),
+        ("S", "ara Novak"),
+        ("Querida S", "ara,"),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer(""), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, text)| show(text)));
+}
+
+#[test]
 fn completion_that_starts_as_a_line_that_the_prompt_does_not_have_shows() {
     let cases = [
         ("My ", "name is Sara Novak."),
         ("Below ", "the field on my screen:"),
+        ("Querida ", "Sara,"),
     ];
 
     let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));

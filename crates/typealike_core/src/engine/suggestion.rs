@@ -126,8 +126,9 @@ pub(super) fn suggestion_after_typed(
 
 /// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
 /// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
-/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, or a
-/// bracket after the end of a sentence, which opens a note about the text and not the text.
+/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, the name
+/// of the writer after a greeting, or a bracket after the end of a sentence, which opens a note
+/// about the text and not the text.
 pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str, preface: &str) -> bool {
     let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
     let closes_after_space =
@@ -139,7 +140,22 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
         || copies_last_words(&suggested, context)
         || repeats_a_pattern(&suggested)
         || copies_frame_line(&suggested, suggestion, context, preface)
+        || greets_the_writer(suggestion, context, preface)
         || opens_note_after_sentence(suggestion, context)
+}
+
+/// Whether `suggestion` after `context` makes a word of the name of the writer of `preface` the
+/// second word of the text, after a first word that is not a part of that name, as after "Hi". A
+/// greeting addresses the reader, who is not the writer. The suggestion must add that second word.
+fn greets_the_writer(suggestion: &str, context: &str, preface: &str) -> bool {
+    let Some(name) = prompt::writer_name(preface) else {
+        return false;
+    };
+    let name_words = words(&name).collect::<Vec<_>>();
+    let text_words = words(&format!("{context}{suggestion}")).collect::<Vec<_>>();
+    words(context).count() < 2
+        && text_words.first().is_some_and(|word| !name_words.contains(word))
+        && text_words.get(1).is_some_and(|word| name_words.contains(word))
 }
 
 fn opens_note_after_sentence(suggestion: &str, context: &str) -> bool {
