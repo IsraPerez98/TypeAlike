@@ -22,6 +22,9 @@ pub enum CaseKind {
     Typo,
     /// After an Enter that did not start a new line in the field: no suggestion must show.
     NoNewLine,
+    /// Anywhere: the suggestion must not show a text of the prompt that is no writing, such as a
+    /// label of the preface or the name of the writer in a greeting.
+    Leak,
 }
 
 impl CaseKind {
@@ -44,13 +47,23 @@ impl CaseKind {
 }
 
 /// Returns whether a case of `kind` with the ghost text `suggestion` matches. A typo case matches
-/// when no suggestion finishes the word with the typo, and a case without a new line when no
-/// suggestion shows. Another case matches when the first word of `accepted`, the text that the
-/// first Tab types, is the first word of `next`.
-pub fn is_match(kind: CaseKind, suggestion: Option<&str>, accepted: &str, next: &str) -> bool {
+/// when no suggestion finishes the word with the typo, a case without a new line when no
+/// suggestion shows, and a leak case when the suggestion holds none of the `leaks`. Another case
+/// matches when the first word of `accepted`, the text that the first Tab types, is the first word
+/// of `next`.
+pub fn is_match(
+    kind: CaseKind,
+    suggestion: Option<&str>,
+    accepted: &str,
+    next: &str,
+    leaks: &[String],
+) -> bool {
     match kind {
         CaseKind::Typo => !suggestion.is_some_and(|text| text.starts_with(char::is_alphanumeric)),
         CaseKind::NoNewLine => suggestion.is_none(),
+        CaseKind::Leak => {
+            !suggestion.is_some_and(|text| leaks.iter().any(|leak| text.contains(leak.as_str())))
+        }
         CaseKind::NextWord | CaseKind::PartialWord => is_next_word(accepted, next),
     }
 }
@@ -346,7 +359,8 @@ mod tests {
             (None, true),
         ];
 
-        let matches = cases.map(|(suggestion, _)| is_match(CaseKind::Typo, suggestion, "cia", "cia antes"));
+        let matches =
+            cases.map(|(suggestion, _)| is_match(CaseKind::Typo, suggestion, "cia", "cia antes", &[]));
 
         assert_eq!(matches, cases.map(|(_, is_right)| is_right));
     }
@@ -355,16 +369,32 @@ mod tests {
     fn case_without_a_new_line_matches_without_a_suggestion() {
         let suggestions = [None, Some(" Sara")];
 
-        let matches = suggestions.map(|suggestion| is_match(CaseKind::NoNewLine, suggestion, "", ""));
+        let matches = suggestions.map(|suggestion| is_match(CaseKind::NoNewLine, suggestion, "", "", &[]));
 
         assert_eq!(matches, [true, false]);
+    }
+
+    #[test]
+    fn leak_case_matches_when_the_suggestion_holds_none_of_its_leaks() {
+        let leaks = ["above the field".to_owned(), "Sara".to_owned()];
+        let cases = [
+            (Some("last line above the field on my screen:"), false),
+            (Some("Sara."), false),
+            (Some("meeting is moved"), true),
+            (None, true),
+        ];
+
+        let matches = cases.map(|(suggestion, _)| is_match(CaseKind::Leak, suggestion, "", "", &leaks));
+
+        assert_eq!(matches, cases.map(|(_, is_right)| is_right));
     }
 
     #[test]
     fn other_cases_match_when_the_accepted_word_is_the_next_word() {
         let kinds = [CaseKind::NextWord, CaseKind::PartialWord];
 
-        let matches = kinds.map(|kind| is_match(kind, Some(" meeting at"), " meeting", " meeting at noon"));
+        let matches =
+            kinds.map(|kind| is_match(kind, Some(" meeting at"), " meeting", " meeting at noon", &[]));
 
         assert_eq!(matches, [true, true]);
     }

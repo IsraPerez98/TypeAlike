@@ -270,6 +270,8 @@ pub struct Summary {
     pub typo: Score,
     /// The cases with an Enter that did not start a new line.
     pub no_new_line: Score,
+    /// The cases whose suggestion must not show a text of the prompt that is no writing.
+    pub leak: Score,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
     /// The milliseconds from the key to the ghost text.
@@ -318,6 +320,7 @@ impl Summary {
             partial_word: Score::of(outcomes, CaseKind::PartialWord),
             typo: Score::of(outcomes, CaseKind::Typo),
             no_new_line: Score::of(outcomes, CaseKind::NoNewLine),
+            leak: Score::of(outcomes, CaseKind::Leak),
             without_suggestion: outcomes
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
@@ -560,6 +563,29 @@ mod tests {
         assert_eq!(
             (summary.next_word, summary.no_new_line),
             (Score { matches: 1, cases: 1 }, Score { matches: 1, cases: 2 })
+        );
+    }
+
+    #[test]
+    fn summary_scores_the_leak_cases_apart_and_counts_no_words_for_them() {
+        let outcomes = [
+            Outcome {
+                words: WordCounts { right: 0, wrong: 3 },
+                ..outcome("a", CaseKind::Leak, false, 10)
+            },
+            outcome("b", CaseKind::Leak, true, 10),
+            outcome("c", CaseKind::NextWord, true, 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.next_word, summary.leak, summary.words),
+            (
+                Score { matches: 1, cases: 1 },
+                Score { matches: 1, cases: 2 },
+                WordCounts::default()
+            )
         );
     }
 

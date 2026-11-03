@@ -29,6 +29,9 @@ pub fn write_report(
     if summary.no_new_line.cases > 0 {
         writeln!(output, "no new line:   {}", summary.no_new_line)?;
     }
+    if summary.leak.cases > 0 {
+        writeln!(output, "no leak:       {}", summary.leak)?;
+    }
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {}", summary.time)?;
     if let Some(time) = summary.warm_time {

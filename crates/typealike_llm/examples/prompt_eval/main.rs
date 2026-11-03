@@ -59,7 +59,7 @@
 //! suggestion shows.
 //! The report gives the score of the cases with the caret between two words, the score of the
 //! cases with the caret inside a word, the score of the typo cases, the score of the cases without a
-//! new line, the median time from the key to the ghost text, and the median warm time. It also
+//! new line, the score of the leak cases, the median time from the key to the ghost text, and the median warm time. It also
 //! gives the median tokens of a prompt, and the time for each token of the prompt, which tells
 //! whether a change adds time through more tokens. Then it gives the median time of the cases by
 //! the tokens of their prompts: 1 to 128, 129 to 256, 257 to 512, and 513 or more. It also gives
@@ -122,6 +122,15 @@
 //! field. The writer is Sara Novak, and some chats show her own messages with her name. Run it
 //! with `--name "Sara Novak"` for a change to the screen text, the clipboard or the name of the
 //! writer.
+//!
+//! `cases/leaks.jsonl` has leak cases in a new `TextEdit` document, with the text that text
+//! recognition reads around an empty document, without it, and with earlier writing. The `label`
+//! cases start with one word that also starts a line of the prompt, and must not show a label of
+//! the prompt or the name of the writer. The `name` cases start with a greeting, and must not show
+//! the name of the writer. The `signed` ones have earlier emails that end with that name. The
+//! `note` cases end with a full sentence and a space, and must not show an opening parenthesis,
+//! as a note about the text or a translation. Run it with `--name "Sara Novak"` and
+//! `--word-choice medium` for a change to the prompt or to the filters of a suggestion.
 //!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.

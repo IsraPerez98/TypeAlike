@@ -54,6 +54,9 @@ pub struct Case {
     typo: bool,
     #[serde(default)]
     pub fixed: Option<String>,
+    /// The texts that no suggestion of a leak case shows. A case with leaks is a leak case.
+    #[serde(default)]
+    pub leaks: Vec<String>,
     /// The id of the case whose `next` a replay types up to this checkpoint, or `None` when the
     /// eval does not replay the case.
     #[serde(skip)]
@@ -62,7 +65,9 @@ pub struct Case {
 
 impl Case {
     pub fn kind(&self) -> CaseKind {
-        if self.typo {
+        if !self.leaks.is_empty() {
+            CaseKind::Leak
+        } else if self.typo {
             CaseKind::Typo
         } else if self.is_without_new_line() {
             CaseKind::NoNewLine
@@ -514,6 +519,16 @@ mod tests {
         });
 
         assert_eq!(wrong, cases.map(|(_, wrong)| wrong));
+    }
+
+    #[test]
+    fn case_with_leaks_is_a_leak_case_wherever_the_caret_is() {
+        let case = Case {
+            leaks: vec!["above the field".to_owned()],
+            ..case_before("- milk\n- ", Some("- milk"))
+        };
+
+        assert_eq!(case.kind(), CaseKind::Leak);
     }
 
     #[test]

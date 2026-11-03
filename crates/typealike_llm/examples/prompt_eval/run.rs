@@ -107,7 +107,7 @@ impl CaseRun {
             outcome: Outcome {
                 id: case.id.clone(),
                 kind,
-                is_match: is_match(kind, suggestion.as_deref(), accepted, &case.next),
+                is_match: is_match(kind, suggestion.as_deref(), accepted, &case.next, &case.leaks),
                 cumulative_log_probabilities: cumulative_log_probabilities(
                     &log_probabilities,
                     words(shown).len(),
