@@ -220,6 +220,33 @@ fn completion_that_starts_as_a_line_that_the_prompt_does_not_have_shows() {
 }
 
 #[test]
+fn completion_that_opens_a_parenthesis_after_the_end_of_a_sentence_hides() {
+    let cases = [
+        ("I can pick you up at seven. ", "(This is a casual message"),
+        ("Llamar al banco y pagar la luz. ", "(Call the bank and pay"),
+        ("Are you coming?", " (Just checking"),
+        ("明天见。", "（See you tomorrow"),
+    ];
+
+    let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_with_a_parenthesis_inside_a_sentence_shows() {
+    let cases = [
+        ("I bought a new", " sweater (it might be"),
+        ("The total is 40 euros", " (before tax)."),
+        ("See you at 5. ", "I will bring snacks (and drinks)."),
+    ];
+
+    let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(reactions, cases.map(|(_, text)| show(text)));
+}
+
+#[test]
 fn completion_close_to_a_bad_one_shows() {
     let cases = [
         ("Best", ", regards", ", regards"),

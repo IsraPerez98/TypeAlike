@@ -26,6 +26,10 @@ const FIX_KEEPING_SIGNS: [char; 5] = [',', ';', ':', '!', '?'];
 const FRAME_COPY_WORDS: usize = 5;
 /// The fewest words of a shorter frame line that count as a copy of it.
 const MIN_FRAME_COPY_WORDS: usize = 3;
+/// The signs that end a sentence.
+const SENTENCE_ENDS: [char; 7] = ['.', '!', '?', '…', '。', '！', '？'];
+/// The brackets that open a note about a text, such as its translation, after the end of a sentence.
+const NOTE_BRACKETS: [char; 2] = ['(', '（'];
 
 /// Returns the first line of `completion` up to a placeholder, and up to where it writes
 /// `text_after` again, as ghost text after `context`, or `None` when it has no text. Spaces that
@@ -122,7 +126,8 @@ pub(super) fn suggestion_after_typed(
 
 /// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
 /// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
-/// words of `context`, a loop of a few words, or a copy of a line of the frame of `preface`.
+/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, or a
+/// bracket after the end of a sentence, which opens a note about the text and not the text.
 pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str, preface: &str) -> bool {
     let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
     let closes_after_space =
@@ -134,6 +139,11 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
         || copies_last_words(&suggested, context)
         || repeats_a_pattern(&suggested)
         || copies_frame_line(&suggested, suggestion, context, preface)
+        || opens_note_after_sentence(suggestion, context)
+}
+
+fn opens_note_after_sentence(suggestion: &str, context: &str) -> bool {
+    context.trim_end().ends_with(SENTENCE_ENDS) && suggestion.trim_start().starts_with(NOTE_BRACKETS)
 }
 
 /// Whether `suggestion` after `context` copies a line of the frame of `preface`: it holds
