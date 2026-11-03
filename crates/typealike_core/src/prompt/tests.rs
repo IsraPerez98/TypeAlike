@@ -416,7 +416,7 @@ fn earlier_writing_goes_between_the_place_and_the_clipboard() {
     assert_eq!(
         preface,
         framed(
-            "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom”\n“See you soon!”\nText on my clipboard: “1Z999”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
+            "Where I am typing: App: Mail\nMy earlier writing:\n“Cheers,\nTom\n”\n“See you soon!\n”\nText on my clipboard: “1Z999”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
         )
     );
 }
@@ -438,7 +438,7 @@ fn example_tells_how_many_days_ago_the_writer_wrote_it() {
     assert_eq!(
         preface,
         framed(
-            "My earlier writing:\n(today) “See you soon!”\n(yesterday) “See you soon!”\n(4 days ago) “See you soon!”\n(2 weeks ago) “See you soon!”"
+            "My earlier writing:\n(today) “See you soon!\n”\n(yesterday) “See you soon!\n”\n(4 days ago) “See you soon!\n”\n(2 weeks ago) “See you soon!\n”"
         )
     );
 }
@@ -455,7 +455,7 @@ fn earlier_writing_drops_the_older_examples_that_do_not_fit() {
         None,
     );
 
-    assert_eq!(preface, framed(&format!("My earlier writing:\n“{newest}”")));
+    assert_eq!(preface, framed(&format!("My earlier writing:\n“{newest}\n”")));
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn earlier_writing_cuts_an_example_at_the_start_of_a_word() {
 
     assert_eq!(
         preface,
-        framed(&format!("My earlier writing:\n“the example”\n“{newest}”"))
+        framed(&format!("My earlier writing:\n“the example\n”\n“{newest}\n”"))
     );
 }
 
@@ -501,4 +501,25 @@ fn frame_lines_keep_the_label_of_the_place_without_the_place() {
     let lines = frame_lines(&preface);
 
     assert_eq!(lines, [FRAME, "Where I am typing:", TEXT_HEADING]);
+}
+
+#[test]
+fn earlier_text_ends_with_a_line_break_before_its_closing_quote() {
+    let preface = preface(&examples(&["Thanks,\nTom"]), &Surroundings::default(), None, None);
+
+    assert_eq!(preface, framed("My earlier writing:\n“Thanks,\nTom\n”"));
+}
+
+#[test]
+fn frame_lines_leave_out_the_earlier_texts() {
+    let preface = preface(
+        &examples(&["Hi Tom,\nthe report is ready for you now"]),
+        &Surroundings::default(),
+        None,
+        None,
+    );
+
+    let lines = frame_lines(&preface);
+
+    assert_eq!(lines, [FRAME, "My earlier writing:", TEXT_HEADING]);
 }

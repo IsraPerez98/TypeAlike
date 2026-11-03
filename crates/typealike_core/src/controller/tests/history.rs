@@ -208,7 +208,7 @@ fn earlier_writing_of_the_store_goes_into_the_prompt() {
         Some(suggestion_request(
             &[
                 "Where I am typing: Format: email; App: Mail",
-                "My earlier writing:\n“Cheers,\nTom”"
+                "My earlier writing:\n“Cheers,\nTom\n”"
             ],
             "H"
         ))

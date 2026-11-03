@@ -170,12 +170,13 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             .filter(|line| !line.is_empty())
             .map(|line| format!("{PLACE_LABEL} {line}")),
         (!parts.examples.is_empty()).then(|| {
+            // A quote just after an earlier text makes the model end the typed text with a quote.
             let quoted = parts
                 .examples
                 .iter()
                 .map(|&(text, days_ago)| match days_ago {
-                    Some(days_ago) => format!("({}) “{text}”", age_label(days_ago)),
-                    None => format!("“{text}”"),
+                    Some(days_ago) => format!("({}) “{text}\n”", age_label(days_ago)),
+                    None => format!("“{text}\n”"),
                 })
                 .collect::<Vec<_>>();
             format!("My earlier writing:\n{}", quoted.join("\n"))

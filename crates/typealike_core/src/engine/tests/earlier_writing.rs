@@ -26,7 +26,7 @@ fn earlier_writing_of_the_app_comes_before_the_text() {
         request_with(
             &[
                 "Where I am typing: Format: email",
-                "My earlier writing:\n“Cheers,\nTom”"
+                "My earlier writing:\n“Cheers,\nTom\n”"
             ],
             "h"
         )

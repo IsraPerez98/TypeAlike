@@ -364,7 +364,7 @@ fn answer_to_the_screen_read_prepares_a_place_with_earlier_writing_before_the_fi
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "My earlier writing:\n“Dear Ana, the report is ready.”"
+                "My earlier writing:\n“Dear Ana, the report is ready.\n”"
             ],
             ""
         )))
