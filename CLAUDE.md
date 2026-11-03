@@ -1,18 +1,18 @@
 # TypeAlike
 
-TypeAlike is an open-source clone of Cotypist (https://cotypist.app/), Windows first and also for macOS. It gives system-wide inline autocomplete: ghost text at the caret in any app, and Tab accepts it. Rust.
+TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any app, and Tab accepts it. Rust, Windows first, also macOS. Inspired by Cotypist (https://cotypist.app/) and Cotabby (https://github.com/FuJacob/cotabby).
 
 ## Commands
 
 - `cargo run`: the app (default member `crates/typealike`, bin `TypeAlike`).
 - `cargo run --features playground`: the settings window then shows the Playground pane last, where a developer tries the suggestion model. A release build has no Playground pane (`PlaygroundPage::of_build`).
 - One test: `cargo test -p typealike_core NAME`.
-- Before each commit, run the checks of CI. All must pass:
+- Before each commit, run the CI checks. All must pass:
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets` (`RUSTFLAGS=-D warnings`)
   - `cargo test --workspace`
-  - `cargo doc --workspace --no-deps`
-- To measure a change to the suggestions, or the time of the first key after a load, use the `prompt-eval` skill.
+  - `cargo doc --workspace --no-deps` (`RUSTDOCFLAGS=-D warnings`)
+- To measure a change to the suggestions, or the first-key time after a model load, use the `prompt-eval` skill.
 
 ## Build gotchas
 
@@ -24,7 +24,7 @@ TypeAlike is an open-source clone of Cotypist (https://cotypist.app/), Windows f
   - `CUDACXX`
   - a short target folder (the Vulkan shader build goes past `MAX_PATH`)
   - `CMAKE_CUDA_ARCHITECTURES` for the local GPU only (much faster CUDA build)
-- CMake configures llama.cpp only one time. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
+- CMake configures llama.cpp only once. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
 - The llama.cpp build needs CMake and libclang.
 - Windows settings window: WinUI 3 through `windows-reactor`, a git dependency on windows-rs `master` at a fixed commit (the release 0.100.0 has no `AppProxy` and no public `App::run_with`).
   - It is framework-dependent: running TypeAlike needs the Windows App Runtime 2 installed.
@@ -45,18 +45,18 @@ TypeAlike is an open-source clone of Cotypist (https://cotypist.app/), Windows f
 ## Debugging
 
 - Log file: `TypeAlike.log` in the temp folder (`%TEMP%` on Windows, `$TMPDIR` on macOS), next to the terminal output.
-  - Each start adds to it, so the log of a crash stays. A start moves a log above 10 MB to `TypeAlike.previous.log`.
+  - Each run appends to it, so a crash log stays. When TypeAlike starts, it moves a log above 10 MB to `TypeAlike.previous.log`.
   - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info`), for example `debug` or `info,typealike_llm=debug`.
   - The llama.cpp logs have the target `llama-cpp-2`.
   - A panic also goes to the log.
-  - The first line of each start gives the version and the GPU features of the build.
-- Settings file: `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS. The settings of the first start are in `docs/core/settings-window.md`.
-- Earlier writing: `history.bin` next to `settings.json`. To delete it and its key resets the history (`docs/core/earlier-writing.md`).
+  - The first log line of each run shows the version and the GPU features of the build.
+- Settings file: `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS. The default settings are in `docs/core/settings-window.md`.
+- Earlier writing: `history.bin` next to `settings.json`. To reset the history, delete it and its key (`docs/core/earlier-writing.md`).
 
 ## Architecture
 
 - `typealike_core` makes every decision and owns all UI state and text. It is pure Rust, so its tests run headless.
-- The platform crates only translate OS events into `Controller` calls, and do the OS effects that core asks for through the `Shell` trait.
+- The platform crates only translate OS events into `Controller` calls, and run the OS actions that core requests through the `Shell` trait.
 - The crate rules are in `.claude/rules/architecture.md`.
 
 ## Behavior docs
