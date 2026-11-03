@@ -489,3 +489,16 @@ fn prompt_puts_a_blank_line_and_a_heading_between_preface_and_text() {
 
     assert_eq!(prompts, cases.map(|(_, prompt)| Prompt(prompt.to_owned())));
 }
+
+#[test]
+fn frame_lines_keep_the_label_of_the_place_without_the_place() {
+    let place = surroundings(
+        Some("Safari"),
+        Some("Contact the landlord - 22 Baker Lane, Flat 4"),
+    );
+    let preface = preface(&Writer::default(), &place, None, None);
+
+    let lines = frame_lines(&preface);
+
+    assert_eq!(lines, [FRAME, "Where I am typing:", TEXT_HEADING]);
+}

@@ -26,6 +26,9 @@ const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
 const LAST_LINE_LABEL: &str = "The last line above the field on my screen:";
 /// The start of the line that gives the name of the writer, before the name and a period.
 const NAME_LINE_START: &str = "My name is ";
+/// The label of the line that tells where the user types, before the app, the window title and
+/// the labels of the field.
+const PLACE_LABEL: &str = "Where I am typing:";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 const PREFACE_TOKENS: TokenCount = TokenCount(2000);
@@ -165,7 +168,7 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
         parts
             .place
             .filter(|line| !line.is_empty())
-            .map(|line| format!("Where I am typing: {line}")),
+            .map(|line| format!("{PLACE_LABEL} {line}")),
         (!parts.examples.is_empty()).then(|| {
             let quoted = parts
                 .examples
@@ -262,7 +265,8 @@ pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
 
 /// Returns the lines that the prompt writes itself around the quoted texts of `preface`, such as
 /// the [`FRAME`] and the labels, and the [`TEXT_HEADING`]. A quoted text holds what the writer
-/// wrote or saw, so no line holds it.
+/// wrote or saw, so no line holds it. The place line keeps only its [`PLACE_LABEL`], because the
+/// window title and the labels of the field are text that the writer can type.
 pub(crate) fn frame_lines(preface: &str) -> Vec<String> {
     let mut depth = 0_usize;
     let mut unquoted = String::new();
@@ -276,6 +280,13 @@ pub(crate) fn frame_lines(preface: &str) -> Vec<String> {
     }
     unquoted
         .lines()
+        .map(|line| {
+            if line.starts_with(PLACE_LABEL) {
+                PLACE_LABEL
+            } else {
+                line
+            }
+        })
         .map(str::to_owned)
         .chain([TEXT_HEADING.to_owned()])
         .collect()
