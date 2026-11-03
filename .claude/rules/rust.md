@@ -30,6 +30,8 @@ paths:
 ## Visibility & modules
 - Private → `pub(crate)` → `pub`. One pub path per item. No glob re-exports, no preludes, no `use super::*` outside tests.
 - Module per concept; file per module when it grows.
+- A module with children is `foo.rs` plus `foo/` (never `mod.rs`, clippy `mod_module_files`).
+- A large module is a facade: its children are private and it re-exports their items with explicit `pub use`, so each item keeps one path. `settings_window` is different: it only groups the public pane modules and `view`.
 
 ## Data & safety
 - Redact secrets and user-typed text in `Debug`/logs.

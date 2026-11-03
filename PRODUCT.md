@@ -67,7 +67,7 @@ The user meets TypeAlike in the middle of a task in another app. Each part must 
 - Before the first model download, the General pane recommends one model for the computer, with a button that downloads it: Qwen3.5 0.8B on the processor, and on a graphics card the largest of Gemma 4 E4B, Gemma 4 E2B and Qwen3.5 2B that fits in its free memory. When TypeAlike cannot read the graphics card, it recommends Gemma 4 E2B with a warning. The first model that the user downloads becomes the suggestion model.
 - The setup shows when TypeAlike starts for the first time and after "Reset all settings", until the user finishes it. It is short, and the steps about the user come first: what TypeAlike does with a demo, the name and the notes with their examples, what suggestions can use (earlier writing, copied text, screen text), the Accessibility permission on macOS, the model download, and "Open at login". Each other setting keeps its default and shows where the user needs it.
 - The writing rules of the UI text have a test: `crates/typealike_core/src/test_support/writing_rules.rs`. The tests of the settings window, the Models and Playground panes and the badge menu use it.
-- The strings of the prompt (`crates/typealike_core/src/prompt.rs`) are text for the model, not UI text. A change to them needs a `prompt_eval` run (see `CLAUDE.md`).
+- The strings of the prompt (`crates/typealike_core/src/prompt.rs`) are text for the model, not UI text. A change to them needs a `prompt_eval` run (see `.claude/skills/prompt-eval/SKILL.md`).
 
 ### Terms
 

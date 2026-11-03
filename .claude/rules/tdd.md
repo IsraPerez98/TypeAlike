@@ -1,3 +1,7 @@
+---
+paths:
+  - "**/*.rs"
+---
 # Test-Driven Development
 
 - Red → green → refactor. No production code without a failing test demanding it. Run it, see it fail for the right reason.
@@ -6,10 +10,15 @@
 - Done = new behavior tested + full pre-commit suite green. Untested code is not mergeable.
 - Test behavior via public API, not internals. Refactors must not break tests.
 - One behavior per test. Name states behavior: `tab_accepts_full_suggestion`, `stale_result_is_dropped`. No `test1`.
-- Arrange / act / assert, blank-line separated. No logic (loops, branches) in tests; use table cases for variants.
+- Arrange / act / assert, blank-line separated. No logic (loops, branches) in tests. Use table cases for variants.
 - Deterministic: no sleeps, real clock, network, randomness, or desktop. Inject time/IO via traits.
 - Fakes (small hand-written trait impls) over mock frameworks. Builders/helpers for repetitive setup.
-- Unit tests in `#[cfg(test)] mod tests` beside code; cross-crate behavior in `crates/*/tests/`. Pub examples as doctests.
 - `typealike_core`: full coverage, every branch of state machine and matching.
-- `typealike_windows`: keep logic out of FFI so it's testable as pure fns; thin FFI wrappers checked manually, document manual steps in PR.
+- `typealike_windows`: keep logic out of FFI so it is testable as pure fns. Check thin FFI wrappers manually, and document the manual steps in the PR.
 - Tests are code: same naming/clean rules. `unwrap`/`expect` allowed.
+
+## Where tests go
+
+- Unit tests in `#[cfg(test)] mod tests` beside code. Cross-crate behavior in `crates/*/tests/`. Pub examples as doctests.
+- A large unit test suite is in `foo/tests.rs` (groups in `foo/tests/`).
+- The tests of several core modules share `test_support.rs`. `history` and the llm `worker` have their own `test_support.rs`.

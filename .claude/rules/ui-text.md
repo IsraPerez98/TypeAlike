@@ -65,7 +65,8 @@ Sources (checked 2026-10): Microsoft "Writing style" (learn.microsoft.com/window
 - Title case is a rule of English. macOS gives title case only to a language with `UiLanguage::has_title_case`.
 
 ## Check
-- `test_support/writing_rules.rs` checks the rules that a test can check. Add each new rule of this kind there, test first (`tdd.md`).
+- `test_support/writing_rules.rs` checks the rules that a test can check: no em dash, semicolon, contraction or marketing word, sentence case, at most 25 words in a sentence, and the terms of `PRODUCT.md`. Add each new rule of this kind there, test first (`tdd.md`).
+- A new view or menu text gets a test that uses the writing rules.
 - The test also rejects the code words of the table "Not in the UI" (`CODE_WORDS`). A quantization name such as Q4_K_M can show only in the Hugging Face search.
 - Tests make sure that each language has each message of English, with the same arguments.
 - Use `/impeccable clarify` to review a full flow, not one string at a time.
