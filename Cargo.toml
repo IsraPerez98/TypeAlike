@@ -7,7 +7,7 @@ default-members = ["crates/typealike"]
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.99"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/IsraPerez98/TypeAlike"
 publish = false
 

@@ -11,8 +11,9 @@ packaging=$(cd "$(dirname "$0")" && pwd)
 staging=$(mktemp -d)
 app="$staging/TypeAlike.app"
 
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$program" "$app/Contents/MacOS/TypeAlike"
+cp "$packaging/../../LICENSE" "$app/Contents/Resources/LICENSE"
 sed "s/@VERSION@/$version/g" "$packaging/Info.plist" >"$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 
