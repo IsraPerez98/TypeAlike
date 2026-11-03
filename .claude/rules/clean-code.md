@@ -20,7 +20,7 @@ paths:
 - Length scales with scope. Same concept = same word everywhere; rename on meaning change.
 
 ## Structure
-- Max 3 nesting levels. Flatten: early return, `?`, `let ... else`, guard clauses, extract fn, invert condition.
+- Keep nesting as low as possible. There is no fixed maximum. Flatten: early return, `?`, `let ... else`, guard clauses, extract fn, invert condition.
 - Fn does one thing at one abstraction level; fits on screen (~40 lines). >4 params → struct/builder.
 - No `bool` params; use enum (`Accept::Word`, not `accept(true)`).
 - Make illegal states unrepresentable: enums with data over flags + optionals.

@@ -49,8 +49,7 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 - `NSStatusItem` icon: SF Symbol or vector template image (`isTemplate = true`), black and clear only. The system tints it for light/dark menu bar and selection. Menu bar height is 24 pt.
 - State (paused, error) by glyph change, never color alone.
 - Click shows a menu, not a popover. Items: `Pause Suggestions` / `Resume Suggestions` (one item, label shows the action), separator, `Settings…` ⌘,, `Quit TypeAlike` ⌘Q.
-- The system can hide the extra (crowded menu bar, notch, user turns it off in System Settings > Menu Bar). Never rely on it. Reopen of the app (Finder, Spotlight) opens Settings via `applicationShouldHandleReopen`.
-- The user decides if the extra shows: a setting, also offered during setup.
+- The system can hide the extra (crowded menu bar, notch, user turns it off in System Settings > Menu Bar). Never rely on it.
 - Menu icons: sparingly. Give icons to all items in a group or to none. Show keyboard equivalents. Never repurpose standard shortcuts.
 
 ## Windows (settings, onboarding)
