@@ -2,6 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::Correction;
+use crate::prompt;
 
 use super::WordFix;
 
@@ -19,6 +20,12 @@ const SHARED_UNITS: usize = 2;
 const CLOSING_SIGNS: [char; 13] = [',', '.', ';', ':', '!', '?', '…', '"', '”', ')', ']', '}', '»'];
 /// The signs that can follow a word with a typo, before at most one space, and keep its fix.
 const FIX_KEEPING_SIGNS: [char; 5] = [',', ';', ':', '!', '?'];
+
+/// The words of a line of the prompt frame in a row that make a copy of the line. Fewer words are
+/// often writing, such as "The part of my".
+const FRAME_COPY_WORDS: usize = 5;
+/// The fewest words of a shorter frame line that count as a copy of it.
+const MIN_FRAME_COPY_WORDS: usize = 3;
 
 /// Returns the first line of `completion` up to a placeholder, and up to where it writes
 /// `text_after` again, as ghost text after `context`, or `None` when it has no text. Spaces that
@@ -95,16 +102,18 @@ fn before_placeholder(text: &str) -> &str {
 
 /// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
 /// bad suggestion, or `None` when it adds nothing after `typed`. `text_before`, the text before
-/// the caret, ends with `typed`, and the request continued the text before `typed`.
+/// the caret, ends with `typed`, and the request continued the text before `typed` after
+/// `preface`.
 pub(super) fn suggestion_after_typed(
     text_before: &str,
     text_after: &str,
     typed: &str,
     completion: &str,
+    preface: &str,
 ) -> Option<String> {
     let context = text_before.strip_suffix(typed)?;
     let suggestion = suggestion_after(context, completion, text_after)?;
-    if is_bad_suggestion(&suggestion, context, text_after) {
+    if is_bad_suggestion(&suggestion, context, text_after, preface) {
         return Some(String::new());
     }
     let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
@@ -113,8 +122,8 @@ pub(super) fn suggestion_after_typed(
 
 /// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
 /// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
-/// words of `context`, or a loop of a few words.
-pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str) -> bool {
+/// words of `context`, a loop of a few words, or a copy of a line of the frame of `preface`.
+pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str, preface: &str) -> bool {
     let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
     let closes_after_space =
         context.ends_with(char::is_whitespace) && suggestion.starts_with(CLOSING_PUNCTUATION);
@@ -124,6 +133,27 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
         || repeats_text_after(&suggested, text_after)
         || copies_last_words(&suggested, context)
         || repeats_a_pattern(&suggested)
+        || copies_frame_line(&suggested, suggestion, context, preface)
+}
+
+/// Whether `suggestion` after `context` copies a line of the frame of `preface`: it holds
+/// [`FRAME_COPY_WORDS`] words of the line in a row, or it starts the line of the caret as the line
+/// starts, with its first [`FRAME_COPY_WORDS`] words or with all the words of a shorter line of at
+/// least [`MIN_FRAME_COPY_WORDS`]. In the second case, the suggestion must add one of these words.
+fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, preface: &str) -> bool {
+    let caret_line = context.rsplit('\n').next().unwrap_or_default();
+    let typed_words = words(caret_line).count();
+    let line = words(&format!("{caret_line}{suggestion}")).collect::<Vec<_>>();
+    prompt::frame_lines(preface).iter().any(|frame_line| {
+        let frame_words = words(frame_line).collect::<Vec<_>>();
+        let start = frame_words.len().min(FRAME_COPY_WORDS);
+        let starts_as_frame_line =
+            start >= MIN_FRAME_COPY_WORDS && typed_words < start && line.starts_with(&frame_words[..start]);
+        starts_as_frame_line
+            || frame_words
+                .windows(FRAME_COPY_WORDS)
+                .any(|run| suggested.windows(FRAME_COPY_WORDS).any(|copy| copy == run))
+    })
 }
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.

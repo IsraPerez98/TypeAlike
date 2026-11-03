@@ -3,9 +3,10 @@
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
 use crate::key::{Key, Press};
+use crate::settings::{Settings, WriterName, WriterNotes};
 use crate::test_support::completion;
 
-use super::support::{FakeDesktop, accept, engine_waiting_for, press, request, show};
+use super::support::{FakeDesktop, accept, engine_waiting_for, engine_waiting_with, press, request, show};
 
 #[test]
 fn typing_requests_completion_of_context() {
@@ -148,6 +149,74 @@ fn completion_stops_before_a_placeholder() {
         cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
 
     assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+}
+
+fn named_writer(notes: &str) -> Settings {
+    Settings {
+        writer_name: WriterName("Sara Novak".to_owned()),
+        writer_notes: WriterNotes(notes.to_owned()),
+        ..Settings::default()
+    }
+}
+
+#[test]
+fn completion_that_starts_its_line_as_a_line_of_the_prompt_frame_hides() {
+    let cases = [
+        ("The ", "part of my writing that I am typing"),
+        ("My ", "name is Sara Novak."),
+        ("I ", "type the text below on my computer"),
+        ("N", "otes about me:"),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_holds_five_words_of_a_line_of_the_prompt_frame_in_a_row_hides() {
+    let cases = [
+        ("Ma the ", "text below on my computer, for example"),
+        ("Thanks. The ", "part of my writing that I"),
+        ("See you soon. ", "Best, Sara. The part of my writing that"),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_shares_less_than_the_start_of_a_frame_line_shows() {
+    let cases = [
+        ("The ", "part of my job is", "part of my job is"),
+        ("Thanks. The ", "part of my writing is", "part of my writing is"),
+        ("Hi, my ", "name is Sara Novak.", "name is Sara Novak."),
+        ("My name is Sara Novak", " and I", " and I"),
+        ("I ", "am a nurse.", "am a nurse."),
+    ];
+
+    let reactions = cases.map(|(context, text, _)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+}
+
+#[test]
+fn completion_that_starts_as_a_line_that_the_prompt_does_not_have_shows() {
+    let cases = [
+        ("My ", "name is Sara Novak."),
+        ("Below ", "the field on my screen:"),
+    ];
+
+    let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(reactions, cases.map(|(_, text)| show(text)));
 }
 
 #[test]

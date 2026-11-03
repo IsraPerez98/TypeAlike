@@ -163,7 +163,9 @@ impl Engine {
         let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
         let fixed_before = format!("{before_typo}{}", correction.fixed);
         let suggestion = suggestion_after(&fixed_before, text, &session.text_after).unwrap_or_default();
-        if !suggestion.is_empty() && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after) {
+        if !suggestion.is_empty()
+            && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after, &session.preface)
+        {
             return None;
         }
         let written = WrittenWords {
@@ -217,7 +219,7 @@ impl Engine {
         };
         suggestion_after(context, added, &session.text_after).is_some_and(|suggestion| {
             suggestion.starts_with(typed.as_str())
-                && !is_bad_suggestion(&suggestion, context, &session.text_after)
+                && !is_bad_suggestion(&suggestion, context, &session.text_after, &session.preface)
         })
     }
 
@@ -231,9 +233,13 @@ impl Engine {
         else {
             return false;
         };
-        let Some(suggestion) =
-            suggestion_after_typed(&session.text_before, &session.text_after, typed, completion)
-        else {
+        let Some(suggestion) = suggestion_after_typed(
+            &session.text_before,
+            &session.text_after,
+            typed,
+            completion,
+            &session.preface,
+        ) else {
             return false;
         };
         let written = WrittenWords {

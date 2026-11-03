@@ -258,6 +258,27 @@ pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
     Prompt(format!("{preface}\n\n{TEXT_HEADING}\n{text_before}"))
 }
 
+/// Returns the lines that the prompt writes itself around the quoted texts of `preface`, such as
+/// the [`FRAME`] and the labels, and the [`TEXT_HEADING`]. A quoted text holds what the writer
+/// wrote or saw, so no line holds it.
+pub(crate) fn frame_lines(preface: &str) -> Vec<String> {
+    let mut depth = 0_usize;
+    let mut unquoted = String::new();
+    for character in preface.chars() {
+        match character {
+            '“' => depth += 1,
+            '”' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => unquoted.push(character),
+            _ => {}
+        }
+    }
+    unquoted
+        .lines()
+        .map(str::to_owned)
+        .chain([TEXT_HEADING.to_owned()])
+        .collect()
+}
+
 /// Where the user types, as one line of labeled parts. A window title that names the app stands
 /// without the app. The first label of the field names it, and its other labels give a hint.
 fn place_line(surroundings: &Surroundings) -> Option<String> {
