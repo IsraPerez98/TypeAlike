@@ -21,6 +21,7 @@ use typealike_llm::LlamaCpp;
 
 use crate::arguments::{Arguments, TailCut, WordBiasUse};
 use crate::case::{Case, CaseField, CaseScreen};
+use crate::dictionary::FileDictionary;
 use crate::likelihood::{Continuation, Measured};
 use crate::score::{
     CaseKind, Outcome, cumulative_log_probabilities, fixed_word, intended_word, is_match, next_word, words,
@@ -159,6 +160,8 @@ pub struct CaseSetup<'case> {
     /// The earlier writing of the case.
     pub history: &'case [HistoryEntry],
     pub settings: &'case Settings,
+    /// The answers of the dictionary of the OS, or `None` for an app without a dictionary.
+    pub dictionary: Option<&'case FileDictionary>,
     /// The version of the word bias. Each case starts a new app, and the runner prepares each
     /// version one time.
     pub version: u64,
@@ -216,6 +219,7 @@ struct Typing<'case> {
     case: &'case Case,
     history: &'case [HistoryEntry],
     settings: &'case Settings,
+    dictionary: Option<&'case FileDictionary>,
     /// The field before the last key.
     field: CaseField,
     last_key: Key,
@@ -238,6 +242,9 @@ impl Typing<'_> {
         let mut app = App::new();
         app.use_settings(self.settings);
         app.use_history(self.history.to_vec());
+        if let Some(dictionary) = self.dictionary {
+            app.use_spell_checker(Box::new(dictionary.clone()));
+        }
         let opened = self.settle(model, &mut app, &self.field, preparation)?;
         let is_screen_allowed = self.settings.screen_text.access == ScreenTextAccess::Allowed;
         if self.case.screen.is_some() && is_screen_allowed && !opened.has_read_screen {
@@ -256,8 +263,9 @@ impl Typing<'_> {
         Ok((app, KeyRun { answer, millis }))
     }
 
-    /// Returns what the app does after the completion of the request of `reaction`. Returns
-    /// `reaction` itself when it has no request.
+    /// Returns what the app does after the completion of the request of `reaction`, also after the
+    /// completion of a request that the app makes again. Returns `reaction` itself when it has no
+    /// request.
     fn complete(
         &self,
         model: &mut ModelSession,
@@ -287,6 +295,9 @@ impl Typing<'_> {
             .ok()
             .map(|completion| completion.typed_log_probability);
         let reaction = app.on_completion(completion);
+        if matches!(reaction, Reaction::Request(_)) {
+            return self.complete(model, app, reaction);
+        }
         let fixed_word = match &reaction {
             Reaction::ShowFix(fix) => Some(fixed_word(&fix.word).to_owned()),
             _ => None,
@@ -381,6 +392,7 @@ pub fn run_case(
         case,
         history,
         settings,
+        dictionary,
         version,
     } = setup;
     let (before_key, last_key) = case.last_key()?;
@@ -388,6 +400,7 @@ pub fn run_case(
         case,
         history,
         settings,
+        dictionary,
         field: case.field(before_key),
         last_key,
         typed_field: case.field(case.before.clone()),

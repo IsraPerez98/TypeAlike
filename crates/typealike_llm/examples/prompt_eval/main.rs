@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p typealike_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-//!     [--prompts PROMPTS.jsonl] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
+//!     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
@@ -158,6 +158,13 @@
 //! word of `fixed` and `next` (`typo fixes`), and the fixes of the other cases (`other fixes`),
 //! which each change a word without a typo.
 //!
+//! `--dictionary` gives the app of each case the answers of the dictionary of the OS from a file.
+//! Each line has a text, a tab, and `word` when the dictionary knows the text as a word, `start`
+//! when it knows the text only as the start of a word, or `none`. A text that the file does not
+//! hold is a known word and no start of a word. With it, a stop for a typo in the start of a known
+//! word and a fix of a known word ask again without the rule, as in the app. Without it, the app of
+//! each case has no dictionary.
+//!
 //! `--sentence-stop on` stops each suggestion at the end of a sentence, as the app does with "Stop
 //! at the end of a sentence". `off` (the default, as in the app) lets a suggestion continue with
 //! the next sentence.
@@ -204,6 +211,7 @@
 
 mod arguments;
 mod case;
+mod dictionary;
 mod likelihood;
 mod report;
 mod run;
@@ -219,6 +227,7 @@ use serde::de::DeserializeOwned;
 
 use crate::arguments::{Arguments, USAGE};
 use crate::case::{Case, history_of, read_writers, settings_for_case};
+use crate::dictionary::FileDictionary;
 use crate::report::write_report;
 use crate::run::{CaseRun, CaseSetup, ModelSession, run_case, with_measures};
 use crate::score::{Comparison, Outcome, Summary};
@@ -277,6 +286,12 @@ fn main() -> anyhow::Result<()> {
         .map(read_json_lines::<Outcome>)
         .transpose()?;
 
+    let dictionary = arguments
+        .dictionary
+        .as_deref()
+        .map(FileDictionary::read)
+        .transpose()?;
+
     let settings = arguments.settings();
     let mut model = ModelSession::load(
         &arguments.model,
@@ -293,6 +308,7 @@ fn main() -> anyhow::Result<()> {
                 case: &checkpoint,
                 history: &history,
                 settings: &settings,
+                dictionary: dictionary.as_ref(),
                 version,
             };
             runs.push(run_case(&mut model, setup, &arguments)?);
