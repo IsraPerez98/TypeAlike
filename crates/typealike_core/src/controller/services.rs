@@ -8,7 +8,9 @@ use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
 use crate::localization::UiLanguage;
+use crate::release::{ReleaseFeed, ReleaseReadFailed, ReleaseTag};
 use crate::settings::{Autostart, SettingsStore};
+use crate::settings_window::about::Library;
 use crate::setup::TrayPlace;
 use crate::spelling::SpellChecker;
 
@@ -73,6 +75,8 @@ pub enum Delivery {
     Recommendation(InferenceEvent),
     /// The answer to a read of the screen that [`Shell::read_screen`](super::Shell::read_screen) started.
     Screen(ScreenRead),
+    /// The newest release, for the check for updates of the About pane.
+    Release(Result<ReleaseTag, ReleaseReadFailed>),
 }
 
 /// Takes a delivery from any thread to the thread that runs the controller, and gives it to
@@ -94,6 +98,10 @@ pub struct Services {
     /// Knows the words of the languages that the user writes, so that a suggestion stops before a
     /// word that the model made up.
     pub spell_checker: Box<dyn SpellChecker>,
+    /// Finds the newest release of TypeAlike when the user checks for updates in the About pane.
+    pub releases: Box<dyn ReleaseFeed>,
+    /// The third-party libraries of the build, which the About pane lists with their licenses.
+    pub libraries: &'static [Library],
 }
 
 impl fmt::Debug for Services {

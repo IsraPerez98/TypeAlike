@@ -1,5 +1,6 @@
 //! The settings window: the view that each platform shows, and the panes that make its pages.
 
+pub mod about;
 mod controls;
 pub mod energy_saving;
 pub mod general;

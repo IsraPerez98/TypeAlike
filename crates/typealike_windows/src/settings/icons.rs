@@ -12,6 +12,7 @@ use crate::system_theme::Contrast;
 
 const ROBOT_GLYPH: &str = "\u{E99A}";
 const LIGHTBULB_GLYPH: &str = "\u{EA80}";
+const INFO_GLYPH: &str = "\u{E946}";
 const EDIT_GLYPH: &str = "\u{E70F}";
 const PERMISSIONS_GLYPH: &str = "\u{E8D7}";
 const CONTACT_GLYPH: &str = "\u{E779}";
@@ -94,6 +95,7 @@ fn color_page_icon(icon: PageIcon) -> &'static [u8] {
         PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.png"),
         PageIcon::AppGrid => include_bytes!("../../assets/fluent/apps.png"),
         PageIcon::Lightbulb => include_bytes!("../../assets/fluent/lightbulb.png"),
+        PageIcon::Info => include_bytes!("../../assets/fluent/question_circle.png"),
     }
 }
 
@@ -107,6 +109,7 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
         PageIcon::AppGrid => Symbol::AllApps.into(),
         PageIcon::Lightbulb => Icon::font(LIGHTBULB_GLYPH),
         PageIcon::Hand => Symbol::Permissions.into(),
+        PageIcon::Info => Icon::font(INFO_GLYPH),
     }
 }
 
@@ -141,11 +144,12 @@ mod tests {
             PageIcon::PersonText,
             PageIcon::AppGrid,
             PageIcon::Lightbulb,
+            PageIcon::Info,
         ];
 
         let sizes = icons.map(|icon| bitmap_size(color_page_icon(icon)));
 
-        assert_eq!(sizes, [Some((32, 32)); 8]);
+        assert_eq!(sizes, [Some((32, 32)); 9]);
     }
 
     /// The width and the height of the PNG file `bytes`, from its header.

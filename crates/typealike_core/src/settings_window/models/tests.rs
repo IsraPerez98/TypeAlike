@@ -162,7 +162,7 @@ fn pane_explains_itself_above_the_search_field() {
         (
             "Models".to_owned(),
             PageIcon::Cube,
-            "A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. Only the search and the downloads of models use the internet."
+            "A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. The search and the downloads of models use the internet."
                 .to_owned(),
             Some(SearchField {
                 id: ControlId::new(SEARCH),

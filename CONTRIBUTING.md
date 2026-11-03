@@ -68,6 +68,7 @@ More build notes are in [CLAUDE.md](CLAUDE.md#build-gotchas).
 | `crates/typealike_llm` | Runs GGUF models with llama.cpp |
 | `crates/typealike_history` | The user's earlier writing, in one encrypted file |
 | `crates/typealike_settings` | The settings file and its format |
+| `crates/typealike_releases` | The newest release on GitHub, for the check for updates |
 
 `typealike_core` is pure Rust, so its tests run headless. The platform crates only translate OS events into
 `Controller` calls, and run the OS actions that core requests through the `Shell` trait. The rules for the crates

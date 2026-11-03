@@ -232,7 +232,8 @@ fn button_text(button: &Button) -> UiText {
 
 fn accessory_button(accessory: &Accessory) -> Option<&Button> {
     match accessory {
-        Accessory::Download(button)
+        Accessory::Action(button)
+        | Accessory::Download(button)
         | Accessory::Open(button)
         | Accessory::Downloading { cancel: button, .. }
         | Accessory::Installed { delete: button }

@@ -14,6 +14,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Settings window: a sidebar of the panes, each with its symbol on a colored tile, as in System Settings.
 - Setup window.
 - Spelling dictionary.
+- Web pages of the About pane: `NSWorkspace` opens them in the default browser.
 
 ## Permissions
 

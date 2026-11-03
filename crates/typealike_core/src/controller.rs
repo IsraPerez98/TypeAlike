@@ -34,7 +34,9 @@ use crate::hub::{HubEvent, HubEventSink, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
+use crate::release::{ReleaseFeed, ReleaseSink};
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp};
+use crate::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
 use crate::settings_window::general::{GeneralAction, GeneralPane, ResetPress, presses_reset};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
@@ -72,6 +74,7 @@ enum PaneAction {
     Models(ModelsAction),
     Playground(PlaygroundAction),
     Permissions(Permission),
+    About(AboutAction),
     Setup(SetupAction),
     ResetSettings,
 }
@@ -89,16 +92,19 @@ pub struct Controller {
     screen_text: ScreenTextPane,
     personalization: PersonalizationPane,
     energy_saving: EnergySavingPane,
+    about: AboutPane,
     hub: Box<dyn ModelHub>,
     runner: Box<dyn ModelRunner>,
     settings_store: Box<dyn SettingsStore>,
     history: Box<dyn WritingHistory>,
+    releases: Box<dyn ReleaseFeed>,
     /// Whether the app has the entries of `history`, which it reads only while the history is on.
     is_history_loaded: bool,
     hub_sink: HubEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
     recommendation_sink: InferenceEventSink,
+    release_sink: ReleaseSink,
     caret_wait: CaretWait,
     tab_hold: TabHold,
     /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
@@ -134,6 +140,8 @@ impl Controller {
             autostart,
             history,
             spell_checker,
+            releases,
+            libraries,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
@@ -167,15 +175,18 @@ impl Controller {
             screen_text,
             personalization,
             energy_saving,
+            about: AboutPane::new(libraries),
             hub,
             runner,
             settings_store,
             history,
+            releases,
             is_history_loaded: false,
             hub_sink: delivering_sink(deliver, Delivery::Hub),
             playground_sink: delivering_sink(deliver, Delivery::Playground),
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             recommendation_sink: delivering_sink(deliver, Delivery::Recommendation),
+            release_sink: delivering_sink(deliver, Delivery::Release),
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
             has_unsaved_app: false,
@@ -453,6 +464,11 @@ impl Controller {
                 }
             }
             Some(PaneAction::Permissions(permission)) => shell.ask_for_permission(permission),
+            Some(PaneAction::About(action)) => match self.about.on_action(action) {
+                Some(AboutRequest::ReadNewestRelease) => self.releases.read_newest(&self.release_sink),
+                Some(AboutRequest::OpenWebPage(url)) => shell.open_web_page(&url),
+                None => {}
+            },
             None => {}
         }
         self.render_settings(shell);
@@ -493,6 +509,7 @@ impl Controller {
                     .map(PaneAction::Models)
             })
             .or_else(|| permissions::action_for(input).map(PaneAction::Permissions))
+            .or_else(|| self.about.action_for(input).map(PaneAction::About))
     }
 
     /// Shows the panes in the settings window, and the setup in its window while it shows.
@@ -594,6 +611,10 @@ impl Controller {
             Delivery::Screen(read) => {
                 let work = self.app.on_screen_read(read, &*shell);
                 self.do_settled_work(work, shell);
+            }
+            Delivery::Release(release) => {
+                self.about.on_newest_release(release);
+                self.render_settings(shell);
             }
         }
     }
@@ -1010,6 +1031,7 @@ impl Controller {
                 .with_first_section(general.model_section(&self.playground, &installed, translations)),
         ];
         pages.extend(permissions::page(&desktop.permissions(), translations));
+        pages.push(self.about.page(translations));
         if self.playground_page == PlaygroundPage::Shown {
             pages.push(self.playground.page(&installed, recommended, translations));
         }

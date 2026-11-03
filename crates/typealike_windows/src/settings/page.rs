@@ -337,7 +337,8 @@ where
 
     fn accessory(&self, accessory: &Accessory) -> Option<View> {
         match accessory {
-            Accessory::Download(button)
+            Accessory::Action(button)
+            | Accessory::Download(button)
             | Accessory::Open(button)
             | Accessory::Installed { delete: button }
             | Accessory::Failed { retry: button } => Some(self.button(button, ButtonStyle::Default)),

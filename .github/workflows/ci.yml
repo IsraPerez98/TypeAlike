@@ -49,5 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -p typealike_core -p typealike_history -p typealike_models -p typealike_settings --all-targets --locked
-      - run: cargo test -p typealike_core -p typealike_history -p typealike_models -p typealike_settings --locked
+      - run: cargo clippy -p typealike_core -p typealike_history -p typealike_models -p typealike_settings -p typealike_releases --all-targets --locked
+      - run: cargo test -p typealike_core -p typealike_history -p typealike_models -p typealike_settings -p typealike_releases --locked
+      - name: Check the third-party licenses of the About pane
+        run: |
+          python3 packaging/build_licenses.py
+          git diff --exit-code -- crates/typealike/src/platform

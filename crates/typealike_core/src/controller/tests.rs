@@ -1,5 +1,6 @@
 //! Tests of the controller with a fake shell and fake services.
 
+mod about;
 mod badge;
 mod caret;
 mod caret_look;

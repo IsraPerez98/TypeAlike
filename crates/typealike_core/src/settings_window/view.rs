@@ -92,6 +92,8 @@ pub enum PageIcon {
     Lightbulb,
     /// A raised hand, for the permissions that the OS gives TypeAlike.
     Hand,
+    /// The letter i in a circle, for the version of TypeAlike and its licenses.
+    Info,
 }
 
 /// The picture before the label of a setting, such as the icon at the leading edge of a card of
@@ -427,6 +429,8 @@ pub struct Item {
 /// The control at the trailing edge of an item, which tells what the user can do with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Accessory {
+    /// A button that does something with the thing, such as a check for a newer version.
+    Action(Button),
     /// The thing can be downloaded.
     Download(Button),
     /// The item leads to a list of its own, such as the files of a repository.

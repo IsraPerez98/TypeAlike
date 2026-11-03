@@ -20,6 +20,7 @@ The page icons show in the 16 px icon box of the navigation. They are PNG files 
 | `edit.png` | `ic_fluent_edit_20_color` | `PageIcon::TextCursor` |
 | `apps.png` | `ic_fluent_apps_20_color` | `PageIcon::AppGrid` |
 | `lightbulb.png` | `ic_fluent_lightbulb_20_color` | `PageIcon::Lightbulb` |
+| `question_circle.png` | `ic_fluent_question_circle_20_color` | `PageIcon::Info` |
 
 The view box of each SVG is cut to the live area of the icon (`2 2 16 16`) before the render, so each icon fills the icon box. The teeth of the settings icon go 0.5 px past the live area, so its view box is `1.5 1.5 17 17`.
 

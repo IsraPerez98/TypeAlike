@@ -972,6 +972,7 @@ dependencies = [
  "typealike_llm",
  "typealike_macos",
  "typealike_models",
+ "typealike_releases",
  "typealike_settings",
  "typealike_windows",
  "windows-reactor-setup",
@@ -1035,6 +1036,18 @@ dependencies = [
 
 [[package]]
 name = "typealike_models"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+ "ureq",
+]
+
+[[package]]
+name = "typealike_releases"
 version = "0.3.0"
 dependencies = [
  "serde",

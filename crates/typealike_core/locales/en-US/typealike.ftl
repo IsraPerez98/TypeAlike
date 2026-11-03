@@ -102,7 +102,7 @@ playground-time = Written in { $seconds } seconds
 ## The Models pane of the settings window. $developer is the company that made a model, such as Google. $owner is the account on Hugging Face that shares a model. $query is the text that the user searched for.
 
 models-title = Models
-models-summary = A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. Only the search and the downloads of models use the internet.
+models-summary = A model on this computer writes the suggestions. The text that you type in other apps never leaves this computer. The search and the downloads of models use the internet.
 models-model-description = A smaller model is faster and needs less memory, but its suggestions are wrong more often.
 models-hardware = Run the model on
 models-hardware-description = A graphics card runs the model faster than the processor, but the whole model must fit in its memory.
@@ -246,6 +246,25 @@ permissions-granted = Allowed
 permissions-give-access = Give access
 permissions-footer = When System Settings asks you to quit and reopen TypeAlike, do it, so that TypeAlike can use the new permission.
 
+## The About pane of the settings window: the version of TypeAlike, the check for a newer version and the licenses of the third-party software. $version is a version number, such as 0.4.0.
+
+about-title = About
+about-summary = The version of TypeAlike and the licenses of the software that it contains.
+about-version = TypeAlike { $version }
+about-check-for-updates = Check for updates
+about-checking = Checking for updates…
+about-up-to-date = This is the newest version.
+about-update-available = Version { $version } is available.
+about-download = Download
+about-check-failed = TypeAlike cannot check for updates. Check your internet connection.
+about-try-again = Try again
+about-source-code = Show the source code
+about-footer = TypeAlike checks for a new version only when you ask. TypeAlike is free software under the GNU General Public License, version 3 or later.
+about-libraries-heading = Third-party software
+about-libraries-footer = TypeAlike contains this open-source software. Each library has its own license.
+about-show-license = Show license
+about-back-to-libraries = Back to the list
+
 ## The examples of the notes about the writer, in the menu “Start from an example” of the Personalization pane and of the setup. The text of each example goes into the notes, in the first person, and the model reads it.
 
 notes-example-own = Your own notes
@@ -286,7 +305,7 @@ setup-about-title = Tell TypeAlike about you
 setup-sources-title = What suggestions can use
 setup-history-description = TypeAlike saves what you write in an encrypted file on this computer. Suggestions then use your words and your style. You can delete this text on the Personalization page.
 setup-screen-text-description = TypeAlike reads the text near the field where you type, such as the last messages of a chat. With your earlier writing, it also saves some words of the messages that you answer.
-setup-sources-footer = TypeAlike uses the internet only to find and download models. It does not save the text of password fields.
+setup-sources-footer = TypeAlike uses the internet only to find and download models, and to check for updates when you ask. It does not save the text of password fields.
 setup-ready-title = TypeAlike is ready
 setup-ready-body = Try it now in any app, such as your email or a chat.
 setup-tray-notification-area = TypeAlike stays in the notification area of the taskbar. Use its icon to pause suggestions or to open the settings.

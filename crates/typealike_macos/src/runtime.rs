@@ -13,10 +13,10 @@ use dispatch2::DispatchQueue;
 use objc2::rc::Retained;
 use objc2::runtime::Sel;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu};
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu, NSWorkspace};
 use objc2_core_foundation::CGRect;
 use objc2_core_graphics::{CGEvent, CGEventTapProxy, CGEventType, CGKeyCode};
-use objc2_foundation::{NSPoint, NSTimeInterval, NSTimer};
+use objc2_foundation::{NSPoint, NSString, NSTimeInterval, NSTimer, NSURL};
 use typealike_core::app::{BadgeMenu, BadgeView, TrayView};
 use typealike_core::controller::{
     BackendChoice, CaretLook, CaretRead, Controller, Delivery, DeliverySink, FocusChange, Ghost,
@@ -619,6 +619,16 @@ impl Shell for AppKitShell {
 
     fn ask_for_permission(&mut self, permission: Permission) {
         permissions::ask(permission);
+    }
+
+    fn open_web_page(&mut self, url: &str) {
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
+            tracing::warn!("refused a malformed web address");
+            return;
+        };
+        if !NSWorkspace::sharedWorkspace().openURL(&url) {
+            tracing::warn!("failed to open a web page");
+        }
     }
 
     /// Ends the app from a timer, outside the borrow of the runtime that the end of the app drops.

@@ -401,7 +401,8 @@ fn panes_show_in_the_language_of_the_user() {
             "Texto copiado y de la pantalla",
             "Personalización",
             "Ahorro de energía",
-            "Modelos"
+            "Modelos",
+            "Acerca de"
         ]
     );
 }
@@ -458,7 +459,8 @@ fn panes_show_in_the_order_of_the_navigation() {
             "Copied and screen text",
             "Personalization",
             "Energy saving",
-            "Models"
+            "Models",
+            "About"
         ]
     );
 }
@@ -527,7 +529,8 @@ fn permissions_pane_shows_after_the_models_pane_when_the_os_asks_for_permissions
             PageIcon::PersonText,
             PageIcon::Lightbulb,
             PageIcon::Cube,
-            PageIcon::Hand
+            PageIcon::Hand,
+            PageIcon::Info
         ]
     );
 }

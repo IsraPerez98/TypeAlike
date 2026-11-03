@@ -16,6 +16,7 @@ pub mod language;
 pub mod localization;
 mod place;
 mod prompt;
+pub mod release;
 mod screen;
 pub mod settings;
 pub mod settings_window;

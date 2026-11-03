@@ -37,6 +37,7 @@ windows-reactor-setup = { workspace = true, optional = true }
 typealike_history.workspace = true
 typealike_llm.workspace = true
 typealike_models.workspace = true
+typealike_releases.workspace = true
 typealike_settings.workspace = true
 
 [target.'cfg(windows)'.dependencies]

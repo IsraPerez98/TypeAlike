@@ -1,5 +1,10 @@
 //! Selects the platform layer that runs TypeAlike on this OS.
 
+#[cfg(target_os = "macos")]
+mod macos_licenses;
+#[cfg(target_os = "windows")]
+mod windows_licenses;
+
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
 pub(crate) fn run() -> anyhow::Result<()> {
@@ -37,6 +42,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
             )),
         )),
         spell_checker: Box::new(typealike_windows::SpellingDictionary::new()),
+        releases: Box::new(typealike_releases::GitHubReleases::new()),
+        libraries: windows_licenses::LIBRARIES,
     };
     typealike_windows::run(settings, services).context("typealike stopped unexpectedly")
 }
@@ -75,6 +82,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
             Box::new(typealike_macos::Keychain),
         )),
         spell_checker: Box::new(typealike_macos::SpellingDictionary::new()),
+        releases: Box::new(typealike_releases::GitHubReleases::new()),
+        libraries: macos_licenses::LIBRARIES,
     };
     typealike_macos::run(settings, services).context("typealike stopped unexpectedly")
 }

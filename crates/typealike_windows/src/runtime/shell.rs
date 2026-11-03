@@ -257,6 +257,10 @@ impl Shell for Win32Shell {
     /// Windows asks for no permission, so core never asks for one.
     fn ask_for_permission(&mut self, _permission: Permission) {}
 
+    fn open_web_page(&mut self, url: &str) {
+        crate::web_page::open(url);
+    }
+
     fn quit(&mut self) {
         // SAFETY: the call takes no pointer and only posts a message to this thread.
         unsafe { PostQuitMessage(0) };

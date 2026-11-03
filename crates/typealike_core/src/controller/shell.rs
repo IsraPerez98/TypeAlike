@@ -133,6 +133,9 @@ pub trait Shell: Desktop {
     /// removes that grant first, so that the user can give the permission again.
     fn ask_for_permission(&mut self, permission: Permission);
 
+    /// Opens `url`, an HTTPS address, in the web browser of the user.
+    fn open_web_page(&mut self, url: &str);
+
     /// Ends TypeAlike after the event that the controller handles now.
     fn quit(&mut self);
 }

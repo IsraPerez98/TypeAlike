@@ -82,7 +82,7 @@ impl ItemRow {
 
     fn show_accessory(&self, accessory: &Accessory, subject: &str, binder: &mut Binder<'_>) {
         match accessory {
-            Accessory::Download(button) | Accessory::Failed { retry: button } => {
+            Accessory::Action(button) | Accessory::Download(button) | Accessory::Failed { retry: button } => {
                 show_push_button(&self.primary, button, Some(subject), binder);
             }
             Accessory::Open(button) => self.show_icon(OPEN_SYMBOL, button, subject, binder),

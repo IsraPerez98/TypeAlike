@@ -45,6 +45,7 @@ mod system_theme;
 mod tray;
 mod uia;
 mod utf16;
+mod web_page;
 mod window;
 
 use typealike_core::controller::Services;

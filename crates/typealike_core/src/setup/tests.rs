@@ -694,7 +694,7 @@ fn sources_step_tells_what_uses_the_internet() {
     assert_eq!(
         view.sections.last().and_then(|section| section.footer.as_deref()),
         Some(
-            "TypeAlike uses the internet only to find and download models. It does not save the text of password fields."
+            "TypeAlike uses the internet only to find and download models, and to check for updates when you ask. It does not save the text of password fields."
         )
     );
 }

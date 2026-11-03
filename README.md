@@ -39,7 +39,7 @@ A suggestion is the model's guess, and it can be wrong. A smaller model is faste
 ## Privacy
 
 - The model runs on your computer: on the processor or the graphics card on Windows, and with Metal on macOS.
-- TypeAlike uses the internet only to search for models and to download them from Hugging Face (`huggingface.co`).
+- TypeAlike uses the internet only to search for models and to download them from Hugging Face (`huggingface.co`), and to check for updates on GitHub (`api.github.com`) when you click "Check for updates" on the About page.
   It has no account, no telemetry and no update check. The text that you type never leaves your computer.
 - Earlier writing, copied text and screen text are on by default. You can turn each one off in the setup or in
   **Settings**.

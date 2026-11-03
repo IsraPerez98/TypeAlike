@@ -87,7 +87,7 @@ The caret reader runs on its own thread.
 ## Settings window
 
 - The settings window uses WinUI 3 through windows-reactor, on its own UI thread, as the Settings app.
-- It has a color icon of the Fluent UI System Icons for each page in the navigation (`assets/fluent`, the page symbol in high contrast), and a glyph of the icon font at the leading edge of each card of a setting.
+- It has a color icon of the Fluent UI System Icons for each page in the navigation (`assets/fluent`, the page symbol in high contrast), and a glyph of the icon font at the leading edge of each card of a setting. The About page has the question mark in a circle, because the Fluent icons have no color icon with the letter i.
 - The settings and setup windows show the app icon of `TypeAlike.exe` in the title bar and on the taskbar button (`settings/window_icon.rs`).
 - Each window keeps the edits that went to the controller (`TypedTexts`). A view text that is no such edit, while no edit waits, is a change of the controller, and the field shows it.
 
@@ -110,6 +110,7 @@ The caret reader runs on its own thread.
 
 - The physical cores of the CPU and their efficiency classes (`cpu_cores`).
 - The spelling dictionaries (`SpellingDictionary`): an `ISpellChecker` for each language of `GlobalizationPreferences::Languages`, on the main thread in the multithreaded COM apartment. `ISpellChecker` gives no completions, so only letters that are a whole word count as the start of a word.
+- A web page of the About pane opens in the default browser through `ShellExecuteW` (`web_page.rs`), on a thread of its own in the multithreaded COM apartment, so that the start of the browser never delays the hooks.
 
 ## Autostart
 

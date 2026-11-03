@@ -4,7 +4,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 ## Pages and rows
 
-- Core has the settings model, and the Models, Playground, General, Apps and websites, Copied and screen text, Personalization and Energy saving panes.
+- Core has the settings model, and the Models, Playground, General, Apps and websites, Copied and screen text, Personalization, Energy saving and About panes.
 - Each pane (`settings_window`) gives its page of the settings window as a tree of sections and rows (`settings_window::view`), with a stable id for each control.
 - Each row of a setting also has a picture before its label (`RowIcon`).
 - Each platform has one renderer for each kind of row and sends back what the user did with a control, so a new setting needs no platform code.
@@ -116,6 +116,31 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - Each row shows "Allowed" or a "Give access" button (`Shell::ask_for_permission`).
 - `Controller::on_missing_permission` opens the settings window at that pane (`Shell::show_settings` with the index of the page), and `Controller::on_permission_change` shows a new state.
 
+## About pane
+
+- The About pane (`settings_window::about`) is the page after the Permissions pane, before the Playground pane.
+- Its first row shows "TypeAlike" and the version of the build, with "Check for updates" at the trailing edge. A link below it opens the source code (`Cargo.toml`, `repository`) in the web browser (`Shell::open_web_page`).
+- The footer tells that TypeAlike checks for a new version only when the user asks, and that TypeAlike has the GNU General Public License, version 3 or later.
+
+### Check for updates
+
+- TypeAlike never checks for a new version by itself. Only a click on "Check for updates" asks the release feed for the newest release (`ReleaseFeed::read_newest`, `typealike_releases::GitHubReleases`). A second click while a check runs does nothing.
+- The feed reads the newest release of the GitHub API (`/releases/latest`), which skips drafts and pre-releases.
+- While the check runs, the row shows "Checking for updates…" and the button is dimmed.
+- A tag `vX.Y.Z` higher than the version of the build shows "Version X.Y.Z is available." and a "Download" button, which opens the page of the newest release in the web browser.
+- The same version or a lower one shows "This is the newest version."
+- A failed read, or a tag of another form, shows that TypeAlike cannot check for updates, with "Try again".
+- TypeAlike does not download or install the new version by itself.
+
+### Third-party software
+
+- The section "Third-party software" lists each third-party library of the build (`Services::libraries`), with its license and its version, and "Show license".
+- "Show license" replaces the list with the text of each license file of the library, and "Back to the list" shows the list again.
+- `packaging/build_licenses.py` writes the list of each build (`crates/typealike/src/platform/<os>_licenses.rs`) from `cargo metadata`: the normal dependencies of the bin for the target, without the build and the dev dependencies, and the license files of each package.
+  - A package without a license file gets the MIT license file of its repository from `packaging/licenses`.
+  - The llama.cpp in `llama-cpp-sys-2` adds its `LICENSE`, and the Windows build adds the license of the Fluent UI System Icons.
+- CI runs the script and fails when the files change. Thus a change of the dependencies needs the script.
+
 ## Setup
 
 - The setup (`setup`) is a window of its own that shows at each start while `Settings::setup` is `Setup::Needed` (`Controller::on_launch`).
@@ -131,7 +156,7 @@ In the order of `SetupStep`:
 
 1. Welcome: what TypeAlike does, a demo of a suggestion and the language menu.
 2. The name and the notes with their examples.
-3. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models.
+3. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, and to check for updates when the user asks.
 4. The permissions, only on an OS that asks for Accessibility: Accessibility, and Screen & System Audio Recording while the screen text switch is on.
 5. The model, from top to bottom:
    - the backend menu

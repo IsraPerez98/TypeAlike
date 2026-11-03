@@ -168,6 +168,7 @@ fn page_look(icon: PageIcon) -> (&'static str, Retained<NSColor>) {
         PageIcon::AppGrid => ("square.grid.2x2.fill", NSColor::systemIndigoColor()),
         PageIcon::Lightbulb => ("lightbulb.fill", NSColor::systemYellowColor()),
         PageIcon::Hand => ("hand.raised.fill", NSColor::systemBlueColor()),
+        PageIcon::Info => ("info.circle.fill", NSColor::systemGrayColor()),
     }
 }
 

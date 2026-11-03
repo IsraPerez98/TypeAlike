@@ -22,6 +22,7 @@ use crate::inference::{
 };
 use crate::key::{Disposition, Key, Press};
 use crate::localization::UiLanguage;
+use crate::release::{ReleaseFeed, ReleaseReadFailed, ReleaseSink, ReleaseTag};
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
     Settings, SettingsStore, Setup, WordChoice, WriterName,
@@ -58,6 +59,7 @@ pub(super) enum Call {
     UseClipboardAccess(ClipboardAccess),
     ReadScreen(ScreenReadId, ScreenSource),
     AskForPermission(Permission),
+    OpenWebPage(String),
     Quit,
 }
 
@@ -192,6 +194,10 @@ impl Shell for FakeShell {
         self.calls.push(Call::AskForPermission(permission));
     }
 
+    fn open_web_page(&mut self, url: &str) {
+        self.calls.push(Call::OpenWebPage(url.to_owned()));
+    }
+
     fn quit(&mut self) {
         self.calls.push(Call::Quit);
     }
@@ -206,6 +212,7 @@ struct Recorder {
     history_loads: usize,
     history_saves: Vec<Vec<HistoryEntry>>,
     history_deletes: usize,
+    release_reads: Vec<ReleaseSink>,
 }
 
 struct FakeRunner(Rc<RefCell<Recorder>>);
@@ -221,6 +228,14 @@ struct FakeHub(Rc<RefCell<Recorder>>);
 impl ModelHub for FakeHub {
     fn submit(&mut self, request: HubRequest, _sink: &HubEventSink) {
         self.0.borrow_mut().hub.push(request);
+    }
+}
+
+struct FakeReleases(Rc<RefCell<Recorder>>);
+
+impl ReleaseFeed for FakeReleases {
+    fn read_newest(&mut self, sink: &ReleaseSink) {
+        self.0.borrow_mut().release_reads.push(Arc::clone(sink));
     }
 }
 
@@ -358,6 +373,8 @@ impl Harness {
             autostart: Box::new(FakeAutostart),
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
             spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD, TYPO])),
+            releases: Box::new(FakeReleases(Rc::clone(&recorder))),
+            libraries: &[],
         };
         Self {
             controller: Controller::new(settings, services, startup, &deliver),
@@ -429,6 +446,24 @@ impl Harness {
     pub(super) fn answer(&mut self, event: InferenceEvent) {
         let sink = Arc::clone(&self.recorder.borrow().inference.last().expect("a request").1);
         sink(event);
+        self.deliver_answers();
+    }
+
+    /// Answers the last read of the newest release with `release`, through the sink of the read.
+    pub(super) fn answer_release_read(&mut self, release: Result<ReleaseTag, ReleaseReadFailed>) {
+        let sink = Arc::clone(
+            self.recorder
+                .borrow()
+                .release_reads
+                .last()
+                .expect("a release read"),
+        );
+        sink(release);
+        self.deliver_answers();
+    }
+
+    /// Gives the controller each delivery that the services sent since the last call.
+    fn deliver_answers(&mut self) {
         let deliveries = mem::take(
             &mut *self
                 .deliveries
@@ -462,6 +497,10 @@ impl Harness {
 
     pub(super) fn last_request(&self) -> Option<InferenceRequest> {
         self.requests().pop()
+    }
+
+    pub(super) fn release_reads(&self) -> usize {
+        self.recorder.borrow().release_reads.len()
     }
 
     pub(super) fn hub_requests(&self) -> Vec<HubRequest> {
