@@ -35,7 +35,8 @@ impl ModelFile {
     }
 
     /// Returns the file of the drafter of this model, if it has one: a small model that guesses the
-    /// next tokens, so that a suggestion takes fewer steps of this model.
+    /// next tokens, so that a suggestion takes fewer steps of this model. It downloads and deletes
+    /// with the model.
     #[must_use]
     pub fn drafter(&self) -> Option<ModelFile> {
         crate::settings_window::models::drafter_of(self)

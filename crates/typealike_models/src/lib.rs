@@ -3,7 +3,7 @@
 //! [`HuggingFace`] implements the core [`ModelHub`] seam. Network requests and the scan of the
 //! models directory run on their own threads and report through the caller's sink. Thus the
 //! network never blocks the caller's thread. A cancel and a delete finish at once on the caller's
-//! thread.
+//! thread. The drafter of a model ([`ModelFile::drafter`]) downloads and deletes with the model.
 
 mod api;
 mod store;
@@ -50,6 +50,9 @@ impl HuggingFace {
                 });
             };
             let result = api::download(&agent, &models_dir, &file, &cancel, report_progress);
+            if result.is_ok() {
+                download_drafter(&agent, &models_dir, &file, &cancel);
+            }
             sink(HubEvent::DownloadFinished {
                 result: to_hub_result(result, "download"),
                 file,
@@ -90,11 +93,27 @@ impl ModelHub for HuggingFace {
                 }
             }
             HubRequest::Delete { file } => {
-                if let Err(error) = store::delete(&self.models_dir, &file) {
+                if let Err(error) = store::delete_with_drafter(&self.models_dir, &file) {
                     tracing::warn!(%error, "failed to delete a model file");
                 }
             }
         }
+    }
+}
+
+/// Downloads the drafter of `model` into `models_dir`, when the model has one and it is not stored
+/// yet. The model runs without its drafter, so a failure only goes to the log.
+fn download_drafter(agent: &ureq::Agent, models_dir: &Path, model: &ModelFile, cancel: &AtomicBool) {
+    let Some(drafter) = model.drafter() else {
+        return;
+    };
+    if store::file_path(models_dir, &drafter).is_some_and(|path| path.is_file()) {
+        return;
+    }
+    if let Err(error) = api::download(agent, models_dir, &drafter, cancel, |_| {})
+        && !matches!(error, FetchError::Canceled)
+    {
+        tracing::warn!(?error, "failed to download the drafter of a model");
     }
 }
 

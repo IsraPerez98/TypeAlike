@@ -99,6 +99,27 @@ fn utf8_name(path: Option<&Path>) -> Option<&str> {
     path?.file_name()?.to_str()
 }
 
+/// Deletes the stored `file`, and its drafter when no other stored model of its repository uses
+/// that drafter. Deleting a file that is already gone succeeds.
+pub(crate) fn delete_with_drafter(models_dir: &Path, file: &ModelFile) -> io::Result<()> {
+    delete(models_dir, file)?;
+    let Some(drafter) = file.drafter() else {
+        return Ok(());
+    };
+    let Some(repo_dir) = file_path(models_dir, &drafter).and_then(|path| path.parent().map(Path::to_owned))
+    else {
+        return Ok(());
+    };
+    let is_used = installed_in_repo(&repo_dir)?
+        .iter()
+        .any(|stored| stored.file.drafter().as_ref() == Some(&drafter));
+    if is_used {
+        Ok(())
+    } else {
+        delete(models_dir, &drafter)
+    }
+}
+
 /// Deletes the stored `file`. Deleting a file that is already gone succeeds.
 pub(crate) fn delete(models_dir: &Path, file: &ModelFile) -> io::Result<()> {
     let path = file_path(models_dir, file).ok_or(io::ErrorKind::InvalidInput)?;
@@ -211,6 +232,32 @@ mod tests {
         delete(&dir.0, &model_file("owner/repo", "q4.gguf")).expect("file is deletable");
 
         assert!(!dir.0.join("owner/repo/q4.gguf").exists());
+    }
+
+    const GEMMA_REPO: &str = "unsloth/gemma-4-E4B-it-qat-GGUF";
+    const GEMMA_DRAFTER: &str = "unsloth/gemma-4-E4B-it-qat-GGUF/mtp-gemma-4-E4B-it.gguf";
+
+    #[test]
+    fn deleting_the_last_model_of_a_repository_deletes_its_drafter() {
+        let dir = TestDir::new("delete-drafter");
+        dir.write("unsloth/gemma-4-E4B-it-qat-GGUF/q4.gguf", b"GGUF");
+        dir.write(GEMMA_DRAFTER, b"GGUF");
+
+        delete_with_drafter(&dir.0, &model_file(GEMMA_REPO, "q4.gguf")).expect("files are deletable");
+
+        assert!(!dir.0.join(GEMMA_DRAFTER).exists());
+    }
+
+    #[test]
+    fn drafter_stays_while_another_model_of_its_repository_is_stored() {
+        let dir = TestDir::new("keep-drafter");
+        dir.write("unsloth/gemma-4-E4B-it-qat-GGUF/q4.gguf", b"GGUF");
+        dir.write("unsloth/gemma-4-E4B-it-qat-GGUF/q2.gguf", b"GGUF");
+        dir.write(GEMMA_DRAFTER, b"GGUF");
+
+        delete_with_drafter(&dir.0, &model_file(GEMMA_REPO, "q4.gguf")).expect("files are deletable");
+
+        assert!(dir.0.join(GEMMA_DRAFTER).exists());
     }
 
     #[test]

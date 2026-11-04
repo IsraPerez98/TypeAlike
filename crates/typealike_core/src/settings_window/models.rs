@@ -376,7 +376,7 @@ impl ModelsPane {
     fn on_installed(&mut self, installed: Vec<SizedFile>) {
         self.files
             .retain(|_, tracked| !matches!(tracked.state, FileState::Installed));
-        for SizedFile { file, size } in installed {
+        for SizedFile { file, size } in usable_model_files(installed) {
             let is_running = self.files.get(&file).is_some_and(|tracked| {
                 matches!(
                     tracked.state,

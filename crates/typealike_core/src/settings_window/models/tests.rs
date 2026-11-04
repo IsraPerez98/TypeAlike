@@ -809,6 +809,18 @@ fn only_complete_downloads_are_installed_files() {
     assert_eq!(installed, [file("a.gguf")]);
 }
 
+#[test]
+fn drafter_of_a_model_is_no_installed_model() {
+    let mut pane = ModelsPane::new();
+
+    pane.on_event(HubEvent::Installed(vec![
+        sized("model.gguf", 100),
+        sized("mtp-model.gguf", 10),
+    ]));
+
+    assert_eq!(pane.installed_files(), [file("model.gguf")]);
+}
+
 fn model_file(repo: &str, name: &str) -> ModelFile {
     ModelFile {
         repo: repo.to_owned(),

@@ -109,6 +109,15 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The Models pane marks the same model in its list.
 - When the first download finishes and no suggestion model is saved, that model loads as the suggestion model.
 
+## Drafters
+
+- Gemma 4 E2B and E4B have a drafter: a second file of their repository, of about 60 MB, that makes suggestions show sooner (`ModelFile::drafter`, `docs/llm.md`).
+- Each model file of such a repository uses that drafter, also a file from the Hugging Face search.
+- The hub downloads the drafter after its model, and the Models pane shows the download of the model only. A failed download of the drafter goes only to the log, because the model runs without it.
+- A delete of the last model of a repository also deletes its drafter.
+- The lists of the Models pane and the model menus show no drafter, vision projector or part of a split model.
+- A model that the user downloaded before TypeAlike had drafters has no drafter. It gets its drafter only with a new download of the model.
+
 ## Permissions pane
 
 - The Permissions pane (`settings_window::permissions`) shows each permission that the OS asks the user for (`Desktop::permissions`: Accessibility and Screen & System Audio Recording on macOS).
