@@ -40,7 +40,7 @@ const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
 /// More screen text is too slow to decode on the CPU: 1200 tokens add about 6 s with a 4B model.
 const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
-const HISTORY_TOKENS: TokenCount = TokenCount(200);
+const HISTORY_TOKENS: TokenCount = TokenCount(320);
 
 /// An earlier text of the writer that a prompt shows.
 #[derive(Clone)]
