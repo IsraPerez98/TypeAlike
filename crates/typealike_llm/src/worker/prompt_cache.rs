@@ -1,21 +1,22 @@
 //! The context that keeps the last prompt, and the decode loop that continues a copy of it.
 
-use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
 use llama_cpp_2::model::LlamaModel;
+use llama_cpp_2::speculative::MtpSpeculativeError;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 use typealike_core::inference::{Correction, InferenceError, TypoCheck};
 
 use super::correction::typo_fix;
+use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
     AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
 use super::logits::{log_probability_of, most_likely_tokens, with_bias};
-use super::model_params::{ContextSetup, context_params};
+use super::model_params::{ContextSetup, context_params, drafter_context_params};
 
 /// The sequence that keeps the last prompt between completions.
 const PROMPT_SEQUENCE: i32 = 1;
@@ -46,6 +47,8 @@ pub(super) enum GenerateError {
     Sequence(#[from] KvCacheConversionError),
     #[error("failed to save the state of a sequence")]
     Snapshot(#[from] StateSeqError),
+    #[error("the drafter failed")]
+    Drafter(#[from] MtpSpeculativeError),
     #[error("a newer completion waits")]
     Superseded,
 }
@@ -60,7 +63,8 @@ impl From<GenerateError> for InferenceError {
             | GenerateError::Batch(_)
             | GenerateError::Decode(_)
             | GenerateError::Sequence(_)
-            | GenerateError::Snapshot(_) => Self::Failed,
+            | GenerateError::Snapshot(_)
+            | GenerateError::Drafter(_) => Self::Failed,
         }
     }
 }
@@ -68,7 +72,7 @@ impl From<GenerateError> for InferenceError {
 /// A context that keeps the last prompt, so that a later prompt that starts with the same tokens
 /// decodes only the tokens that it adds.
 pub(super) struct PromptCache<'model> {
-    context: LlamaContext<'model>,
+    context: ModelContext<'model>,
     /// The tokens in the prompt sequence.
     tokens: Vec<LlamaToken>,
     /// The output of the model after the last of `tokens`.
@@ -93,12 +97,31 @@ impl<'model> PromptCache<'model> {
         context_tokens: u32,
         setup: ContextSetup,
     ) -> Result<Self, LlamaContextLoadError> {
-        Ok(Self {
-            context: model.new_context(llama, context_params(context_tokens, setup))?,
+        let context = model.new_context(llama, context_params(context_tokens, setup))?;
+        Ok(Self::of(model, ModelContext::Alone(context)))
+    }
+
+    /// Returns a cache as [`PromptCache::new`] does, whose completions also run `drafter`.
+    pub(super) fn with_drafter(
+        llama: &LlamaBackend,
+        model: &'model LlamaModel,
+        drafter: &'model LlamaModel,
+        context_tokens: u32,
+        setup: ContextSetup,
+    ) -> Result<Self, DrafterError> {
+        let context = model.new_context(llama, context_params(context_tokens, setup))?;
+        let drafter_params = drafter_context_params(context_tokens, setup);
+        let context = ModelContext::with_drafter(llama, context, drafter, drafter_params)?;
+        Ok(Self::of(model, context))
+    }
+
+    fn of(model: &LlamaModel, context: ModelContext<'model>) -> Self {
+        Self {
+            context,
             tokens: Vec::new(),
             logits: Vec::new(),
             snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
-        })
+        }
     }
 
     /// Makes the prompt sequence hold `prompt`. It first frees the cache of the last completion. It
@@ -113,7 +136,9 @@ impl<'model> PromptCache<'model> {
         last_word_start: usize,
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
-        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
+        self.context
+            .target_mut()
+            .kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
         self.keep_start_of(prompt);
         if self.snapshots.is_some() && self.tokens.len() <= last_word_start {
             self.decode_rest_of(&prompt[..last_word_start], is_outdated)?;
@@ -122,9 +147,10 @@ impl<'model> PromptCache<'model> {
         self.decode_rest_of(prompt, is_outdated)
     }
 
-    /// Decodes `prompt` and one added token as a completion does, and then forgets them. Thus the
-    /// backend prepares the kernels and the memory of these decodes before the first completion.
-    /// Before each decode, it stops when `is_outdated` tells so.
+    /// Decodes `prompt` and two added tokens as a completion does, and then forgets them. Thus the
+    /// backend prepares the kernels and the memory of these decodes before the first completion,
+    /// also the guess of a drafter and its check. Before each decode, it stops when `is_outdated`
+    /// tells so.
     pub(super) fn warm_up(
         &mut self,
         prompt: &[LlamaToken],
@@ -140,23 +166,35 @@ impl<'model> PromptCache<'model> {
         prompt: &[LlamaToken],
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
-        let Some(&added_token) = prompt.first() else {
+        if prompt.is_empty() {
             return Ok(());
-        };
+        }
         self.decode_prompt(prompt, prompt.len() - 1, is_outdated)?;
         if is_outdated() {
             return Err(GenerateError::Superseded);
         }
-        self.context
-            .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
-        let mut batch = LlamaBatch::new(1, 1);
-        decode_next(&mut self.context, &mut batch, added_token, position(prompt.len()))?;
+        self.start_completion()?;
+        let mut batch = LlamaBatch::new(1 + GUESSED_TOKENS, 1);
+        for (offset, &added_token) in prompt.iter().take(1 + GUESSED_TOKENS).enumerate() {
+            let token_position = position(prompt.len() + offset);
+            self.context
+                .decode_next(&mut batch, added_token, token_position, COMPLETION_SEQUENCE)?;
+        }
+        Ok(())
+    }
+
+    /// Makes the completion sequence a copy of the prompt sequence, for a new completion.
+    fn start_completion(&mut self) -> Result<(), GenerateError> {
+        let context = self.context.target_mut();
+        context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
+        context.copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
+        self.context.start_completion()?;
         Ok(())
     }
 
     /// Removes all the tokens and the saved states.
     fn forget(&mut self) {
-        self.context.clear_kv_cache();
+        self.context.target_mut().clear_kv_cache();
         self.tokens.clear();
         self.logits.clear();
         if let Some(snapshots) = &mut self.snapshots {
@@ -170,7 +208,7 @@ impl<'model> PromptCache<'model> {
         prompt: &[LlamaToken],
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
-        let batch_size = usize::try_from(self.context.n_batch()).expect("a u32 fits in usize");
+        let batch_size = usize::try_from(self.context.target().n_batch()).expect("a u32 fits in usize");
         for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
             if is_outdated() {
                 return Err(GenerateError::Superseded);
@@ -185,11 +223,11 @@ impl<'model> PromptCache<'model> {
                     is_last,
                 )?;
             }
-            self.context.decode(&mut batch)?;
+            self.context.target_mut().decode(&mut batch)?;
             self.tokens.extend_from_slice(batch_tokens);
             self.logits.clear();
             self.logits
-                .extend_from_slice(self.context.get_logits_ith(LAST_OUTPUT));
+                .extend_from_slice(self.context.target().get_logits_ith(LAST_OUTPUT));
         }
         Ok(())
     }
@@ -205,12 +243,13 @@ impl<'model> PromptCache<'model> {
         let start = u32::try_from(count).expect("a prompt position fits in u32");
         if self
             .context
+            .target_mut()
             .kv_cache_seq_rm(PROMPT_SEQUENCE, Some(start), None)
             .is_ok()
         {
             self.tokens.truncate(count);
         } else if !self.restore_snapshot(common_tokens(&self.tokens, prompt)) {
-            self.context.clear_kv_cache();
+            self.context.target_mut().clear_kv_cache();
             self.tokens.clear();
         }
         if let Some(snapshots) = &mut self.snapshots {
@@ -232,6 +271,7 @@ impl<'model> PromptCache<'model> {
         }
         let state = self
             .context
+            .target_mut()
             .state_seq_get(PROMPT_SEQUENCE, LlamaStateSeqFlags::PARTIAL_ONLY)?;
         if snapshots.len() == MAX_SNAPSHOTS {
             snapshots.remove(0);
@@ -259,10 +299,12 @@ impl<'model> PromptCache<'model> {
         let start = u32::try_from(snapshot.token_count).expect("a prompt position fits in u32");
         let is_restored = self
             .context
+            .target_mut()
             .state_seq_set(&snapshot.state, PROMPT_SEQUENCE)
             .is_ok()
             && self
                 .context
+                .target_mut()
                 .kv_cache_seq_rm(PROMPT_SEQUENCE, Some(start), None)
                 .is_ok();
         if is_restored {
@@ -284,11 +326,9 @@ impl<'model> PromptCache<'model> {
         healing: Healing<'_>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
-        self.context.kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
-        self.context
-            .copy_kv_cache_seq(PROMPT_SEQUENCE, COMPLETION_SEQUENCE, None, None)?;
+        self.start_completion()?;
         let Decoder { vocab, limits, .. } = *decoder;
-        let mut batch = LlamaBatch::new(1, 1);
+        let mut batch = LlamaBatch::new(1 + GUESSED_TOKENS, 1);
         let mut logits = self.logits.as_slice();
         let mut biased = Vec::new();
         let mut generation = Generation::new(decoder.pieces, healing);
@@ -320,7 +360,9 @@ impl<'model> PromptCache<'model> {
                 vocab.token_to_piece(token, false, None)
             }));
             let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
-            logits = decode_next(&mut self.context, &mut batch, token, token_position)?;
+            logits = self
+                .context
+                .decode_next(&mut batch, token, token_position, COMPLETION_SEQUENCE)?;
         }
         Ok(generation.into_added())
     }
@@ -412,20 +454,6 @@ fn common_tokens(cached: &[LlamaToken], prompt: &[LlamaToken]) -> usize {
         .zip(prompt)
         .take_while(|(cached, prompt)| cached == prompt)
         .count()
-}
-
-/// Decodes `token` at `token_position` of the completion sequence in `batch`, and returns the
-/// logits after it.
-fn decode_next<'context>(
-    context: &'context mut LlamaContext<'_>,
-    batch: &mut LlamaBatch<'_>,
-    token: LlamaToken,
-    token_position: i32,
-) -> Result<&'context [f32], GenerateError> {
-    batch.clear();
-    batch.add(token, token_position, &[COMPLETION_SEQUENCE], true)?;
-    context.decode(batch)?;
-    Ok(context.get_logits_ith(LAST_OUTPUT))
 }
 
 /// Returns the position of the token at `index` in a sequence.

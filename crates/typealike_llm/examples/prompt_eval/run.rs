@@ -19,7 +19,7 @@ use typealike_core::key::{Key, Press};
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
 use typealike_llm::LlamaCpp;
 
-use crate::arguments::{Arguments, TailCut, WordBiasUse};
+use crate::arguments::{Arguments, DrafterUse, TailCut, WordBiasUse};
 use crate::case::{Case, CaseField, CaseScreen};
 use crate::dictionary::FileDictionary;
 use crate::likelihood::{Continuation, Measured};
@@ -36,15 +36,22 @@ pub struct ModelSession {
 
 impl ModelSession {
     /// Loads the model at `path` on `backend`. Each prompt decode takes at most `batch` tokens, or
-    /// the batch of the backend.
+    /// the batch of the backend. As in the folder of the models of the app, the folder of the
+    /// model names its repository, and holds its drafter, which runs when `drafter` is on.
     pub fn load(
         path: &Path,
         backend: Backend,
         cpu_cores: Option<CpuCores>,
         batch: Option<NonZeroU32>,
+        drafter: DrafterUse,
     ) -> anyhow::Result<Self> {
-        let path = path.to_owned();
-        let locate_model = move |_: &ModelFile| Some(path.clone());
+        let file = model_file_at(path);
+        let model_path = path.to_owned();
+        let model_name = file.name.clone();
+        let locate_model = move |located: &ModelFile| {
+            let is_model = located.name == model_name;
+            (is_model || drafter == DrafterUse::On).then(|| model_path.with_file_name(&located.name))
+        };
         let runner = match batch {
             Some(tokens) => LlamaCpp::with_prompt_batch(locate_model, cpu_cores, tokens),
             None => LlamaCpp::new(locate_model, cpu_cores),
@@ -54,10 +61,6 @@ impl ModelSession {
             sender.send(event).ok();
         });
         let mut model = Self { runner, sink, events };
-        let file = ModelFile {
-            repo: "local/model".to_owned(),
-            name: "model.gguf".to_owned(),
-        };
         model
             .runner
             .submit(InferenceRequest::Load { file, backend }, &model.sink);
@@ -78,6 +81,25 @@ impl ModelSession {
                 }
             }
         }
+    }
+}
+
+/// Returns the model file at `path`, with the repository that the folder of the model and its
+/// parent folder name, as in the folder of the models of the app.
+fn model_file_at(path: &Path) -> ModelFile {
+    let name_of = |path: Option<&Path>| {
+        path.and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let repo_folder = path.parent();
+    ModelFile {
+        repo: format!(
+            "{}/{}",
+            name_of(repo_folder.and_then(Path::parent)),
+            name_of(repo_folder)
+        ),
+        name: name_of(Some(path)),
     }
 }
 

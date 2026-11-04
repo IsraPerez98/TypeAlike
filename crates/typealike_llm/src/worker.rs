@@ -1,6 +1,7 @@
 //! The thread that owns llama.cpp: the backend, the loaded model and each completion.
 
 mod correction;
+mod drafter;
 mod generation;
 mod loaded_model;
 mod logits;
@@ -11,9 +12,10 @@ mod prompt_cache;
 mod test_support;
 mod words;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -24,11 +26,12 @@ use typealike_core::inference::{
     Backend, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
 };
 
+use crate::worker::drafter::is_drafter_of;
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 pub(crate) use crate::worker::model_params::PromptBatch;
 use crate::worker::model_params::{
-    ContextSetup, WarmUp, free_gpu_memory, log_devices, model_params, threads_for,
+    ContextSetup, DrafterUse, WarmUp, drafter_params, free_gpu_memory, log_devices, model_params, threads_for,
 };
 
 /// The time without a request after which the worker frees the context of a model on a GPU: its
@@ -125,17 +128,24 @@ pub(crate) fn run(
                     "loading a model"
                 );
                 let started = Instant::now();
-                let loaded = load(&mut llama, locate_model(&file), backend, batch_tokens)
-                    .inspect(|_| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
-                    .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
+                let drafter_path = drafter_path(&file, backend, locate_model);
+                let loaded = load_with_drafter(
+                    &mut llama,
+                    locate_model(&file),
+                    drafter_path,
+                    backend,
+                    batch_tokens,
+                )
+                .inspect(|_| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
+                .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
                 match (loaded, &llama) {
-                    (Ok(model), Some(llama)) => {
+                    (Ok((model, drafter)), Some(llama)) => {
                         let setup = ContextSetup {
                             cpu_threads: threads_for(backend, cpu_cores),
                             batch_tokens,
                             warm_up: WarmUp::on(backend),
                         };
-                        let mut loaded_model = LoadedModel::new(llama, &model, setup);
+                        let mut loaded_model = LoadedModel::new(llama, &model, drafter.as_ref(), setup);
                         loaded_model.warm_up(&mut || queue.has_waiting_job());
                         sink(InferenceEvent::Loaded { file, result: Ok(()) });
                         serve(&mut loaded_model, &mut queue, context_idle_timeout(backend));
@@ -158,23 +168,79 @@ pub(crate) fn run(
     }
 }
 
-/// Loads the model at `path` on `backend`, for a context that decodes `batch_tokens` at a time. It
-/// starts llama.cpp in `llama` first, when it did not start before.
+/// Loads the model at `path` on `backend` without a drafter, as [`load_with_drafter`] does.
+#[cfg(test)]
 fn load(
     llama: &mut Option<LlamaBackend>,
     path: Option<PathBuf>,
     backend: Backend,
     batch_tokens: u32,
 ) -> Result<LlamaModel, InferenceError> {
+    load_with_drafter(llama, path, None, backend, batch_tokens).map(|(model, _)| model)
+}
+
+/// Loads the model at `path` on `backend`, for a context that decodes `batch_tokens` at a time. On
+/// another thread at the same time, it loads the drafter at `drafter_path`, so that the drafter
+/// adds little time to the load. It starts llama.cpp in `llama` first, when it did not start
+/// before. The model runs without the drafter when the drafter fails to load or does not fit it.
+fn load_with_drafter(
+    llama: &mut Option<LlamaBackend>,
+    path: Option<PathBuf>,
+    drafter_path: Option<PathBuf>,
+    backend: Backend,
+    batch_tokens: u32,
+) -> Result<(LlamaModel, Option<LlamaModel>), InferenceError> {
     let path = path
         .filter(|path| path.is_file())
         .ok_or(InferenceError::ModelMissing)?;
     let llama = start_backend(llama)?;
     let params = model_params(&path, backend, batch_tokens)?;
-    LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
-        tracing::warn!(%error, "failed to load a model");
-        InferenceError::ModelInvalid
+    thread::scope(|scope| {
+        let loading_drafter =
+            drafter_path.map(|drafter_path| scope.spawn(move || load_drafter(llama, &drafter_path, backend)));
+        let model =
+            LlamaModel::load_from_file(llama, &path, &params).map_err(|error: LlamaModelLoadError| {
+                tracing::warn!(%error, "failed to load a model");
+                InferenceError::ModelInvalid
+            })?;
+        let drafter = loading_drafter
+            .and_then(|loading| loading.join().ok().flatten())
+            .filter(|drafter| {
+                let fits = is_drafter_of(drafter, &model);
+                if !fits {
+                    tracing::warn!("the drafter does not fit the model, so the model runs without it");
+                }
+                fits
+            });
+        Ok((model, drafter))
     })
+}
+
+/// Returns the path of the drafter of the model of `file`, when the model runs with a drafter on
+/// `backend` and `locate_model` finds the file of the drafter.
+fn drafter_path(
+    file: &ModelFile,
+    backend: Backend,
+    locate_model: &dyn Fn(&ModelFile) -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    if DrafterUse::on(backend) == DrafterUse::Off {
+        return None;
+    }
+    locate_model(&file.drafter()?).filter(|path| path.is_file())
+}
+
+/// Loads the drafter at `path` on `backend`. Returns `None` when it fails to load, so that the
+/// model runs without it.
+fn load_drafter(llama: &LlamaBackend, path: &Path, backend: Backend) -> Option<LlamaModel> {
+    let params = drafter_params(backend).ok()?;
+    let started = Instant::now();
+    let drafter = LlamaModel::load_from_file(llama, path, &params)
+        .inspect_err(
+            |error| tracing::warn!(%error, "failed to load the drafter, so the model runs without it"),
+        )
+        .ok()?;
+    tracing::info!(duration = ?started.elapsed(), "loaded the drafter");
+    Some(drafter)
 }
 
 /// Reads the free memory of the GPU that runs `backend`. For a GPU backend, it starts llama.cpp in

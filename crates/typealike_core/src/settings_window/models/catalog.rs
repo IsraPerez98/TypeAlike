@@ -11,6 +11,9 @@ pub(super) struct SuggestedModel {
     file_name: &'static str,
     pub(super) size: ByteSize,
     pub(super) developer: &'static str,
+    /// The file in the same repository of the small model that guesses the next tokens of this
+    /// model, so that a suggestion takes fewer steps of this model, if any.
+    drafter_name: Option<&'static str>,
 }
 
 impl SuggestedModel {
@@ -23,6 +26,21 @@ impl SuggestedModel {
             size: self.size,
         }
     }
+}
+
+/// Returns the drafter of `model`: the drafter of the suggested model in the same repository, if it
+/// has one. The other model files of a repository hold the same model in another size, so the
+/// drafter also fits them.
+pub(crate) fn drafter_of(model: &ModelFile) -> Option<ModelFile> {
+    let drafter_name = SUGGESTED_MODELS
+        .iter()
+        .find(|suggested| suggested.repo == model.repo)?
+        .drafter_name
+        .filter(|&drafter_name| drafter_name != model.name)?;
+    Some(ModelFile {
+        repo: model.repo.clone(),
+        name: drafter_name.to_owned(),
+    })
 }
 
 /// The model that TypeAlike recommends when the models run on `backend`, with the
@@ -70,6 +88,7 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "Qwen3.5-0.8B-Base.i1-IQ4_NL.gguf",
         size: ByteSize(516_002_176),
         developer: "Alibaba",
+        drafter_name: None,
     },
     SuggestedModel {
         name: "Qwen3.5 2B",
@@ -77,6 +96,7 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "Qwen3.5-2B-Base.i1-Q4_K_S.gguf",
         size: ByteSize(1_212_055_936),
         developer: "Alibaba",
+        drafter_name: None,
     },
     SuggestedModel {
         name: "Gemma 4 E2B",
@@ -84,6 +104,7 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
         size: ByteSize(2_620_370_976),
         developer: "Google",
+        drafter_name: Some("mtp-gemma-4-E2B-it.gguf"),
     },
     SuggestedModel {
         name: "Qwen3.5 4B",
@@ -91,6 +112,7 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "Qwen3.5-4B-Base.i1-Q4_K_S.gguf",
         size: ByteSize(2_563_888_384),
         developer: "Alibaba",
+        drafter_name: None,
     },
     SuggestedModel {
         name: "Gemma 4 E4B",
@@ -98,6 +120,7 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
         size: ByteSize(4_215_695_776),
         developer: "Google",
+        drafter_name: Some("mtp-gemma-4-E4B-it.gguf"),
     },
     SuggestedModel {
         name: "Qwen3.5 9B",
@@ -105,5 +128,6 @@ pub(super) const SUGGESTED_MODELS: [SuggestedModel; 6] = [
         file_name: "Qwen3.5-9B-Base.i1-Q4_K_S.gguf",
         size: ByteSize(5_351_630_144),
         developer: "Alibaba",
+        drafter_name: None,
     },
 ];

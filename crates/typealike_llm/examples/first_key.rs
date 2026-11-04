@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p typealike_llm --example first_key -- \
 //!     MODEL.gguf [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-//!     [--loads N] [--first queued|after-load]
+//!     [--loads N] [--first queued|after-load] [--drafter on|off]
 //! ```
 //!
 //! The loads send their first request in two ways, in turns:
@@ -26,10 +26,14 @@
 //! The report gives each load, then the median of the loads after the first one for each way. The
 //! `load` time goes from the load request to the answer of the load, so with `after-load` it also
 //! holds the warm-up.
+//!
+//! As in the folder of the models of the app, the folder of `MODEL.gguf` and its parent folder
+//! name the repository of the model, and the folder holds the drafter of the model, which loads
+//! with the model. `--drafter off` loads the model without it (default: on, as in the app).
 
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -42,7 +46,7 @@ use typealike_core::inference::{
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
 const USAGE: &str = "usage: first_key MODEL.gguf [--backend cpu|vulkan|cuda|metal] \
-     [--cpu-cores PERFORMANCE,EFFICIENCY] [--loads N] [--first queued|after-load]";
+     [--cpu-cores PERFORMANCE,EFFICIENCY] [--loads N] [--first queued|after-load] [--drafter on|off]";
 const DEFAULT_LOADS: usize = 6;
 /// The token limit of the medium suggestion length.
 const MAX_TOKENS: TokenCount = TokenCount(10);
@@ -100,6 +104,13 @@ impl FirstRequest {
     }
 }
 
+/// Whether the model loads with its drafter, when the folder of the model holds the drafter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DrafterUse {
+    On,
+    Off,
+}
+
 #[derive(Debug)]
 struct Arguments {
     model: PathBuf,
@@ -107,6 +118,7 @@ struct Arguments {
     cpu_cores: Option<CpuCores>,
     loads: usize,
     first: FirstRequest,
+    drafter: DrafterUse,
 }
 
 impl Arguments {
@@ -120,6 +132,7 @@ impl Arguments {
             cpu_cores: None,
             loads: DEFAULT_LOADS,
             first: FirstRequest::Queued,
+            drafter: DrafterUse::On,
         };
         for option in options.chunks(2) {
             match option {
@@ -127,10 +140,19 @@ impl Arguments {
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, loads] if name == "--loads" => parsed.loads = loads.parse().ok()?,
                 [name, first] if name == "--first" => parsed.first = FirstRequest::named(first)?,
+                [name, drafter] if name == "--drafter" => parsed.drafter = drafter_named(drafter)?,
                 _ => return None,
             }
         }
         Some(parsed)
+    }
+}
+
+fn drafter_named(name: &str) -> Option<DrafterUse> {
+    match name {
+        "on" => Some(DrafterUse::On),
+        "off" => Some(DrafterUse::Off),
+        _ => None,
     }
 }
 
@@ -163,22 +185,54 @@ struct LoadTimes {
     other_next: Duration,
 }
 
-/// The runner and the events of its requests.
+/// Returns the model file at `path`, with the repository that the folder of the model and its
+/// parent folder name, as in the folder of the models of the app.
+fn model_file_at(path: &Path) -> ModelFile {
+    let name_of = |path: Option<&Path>| {
+        path.and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let repo_folder = path.parent();
+    ModelFile {
+        repo: format!(
+            "{}/{}",
+            name_of(repo_folder.and_then(Path::parent)),
+            name_of(repo_folder)
+        ),
+        name: name_of(Some(path)),
+    }
+}
+
+/// The runner, the model file that it loads, and the events of its requests.
 struct Session {
     runner: LlamaCpp,
+    file: ModelFile,
     sink: InferenceEventSink,
     events: mpsc::Receiver<InferenceEvent>,
 }
 
 impl Session {
     fn new(arguments: &Arguments) -> Self {
-        let path = arguments.model.clone();
-        let runner = LlamaCpp::new(move |_: &ModelFile| Some(path.clone()), arguments.cpu_cores);
+        let file = model_file_at(&arguments.model);
+        let model_path = arguments.model.clone();
+        let model_name = file.name.clone();
+        let drafter = arguments.drafter;
+        let locate_model = move |located: &ModelFile| {
+            let is_model = located.name == model_name;
+            (is_model || drafter == DrafterUse::On).then(|| model_path.with_file_name(&located.name))
+        };
+        let runner = LlamaCpp::new(locate_model, arguments.cpu_cores);
         let (sender, events) = mpsc::channel();
         let sink: InferenceEventSink = Arc::new(move |event| {
             sender.send(event).ok();
         });
-        Self { runner, sink, events }
+        Self {
+            runner,
+            file,
+            sink,
+            events,
+        }
     }
 
     fn submit(&mut self, request: InferenceRequest) {
@@ -223,10 +277,7 @@ impl Session {
 
     /// Loads the model, times the completions, and unloads the model.
     fn time_load(&mut self, backend: Backend, first: FirstRequest) -> anyhow::Result<LoadTimes> {
-        let file = ModelFile {
-            repo: "local/model".to_owned(),
-            name: "model.gguf".to_owned(),
-        };
+        let file = self.file.clone();
         let started = Instant::now();
         self.submit(InferenceRequest::Load { file, backend });
         if first == FirstRequest::Queued {

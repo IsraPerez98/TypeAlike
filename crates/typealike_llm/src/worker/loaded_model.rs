@@ -9,6 +9,7 @@ use typealike_core::inference::{
     CONTEXT_TOKENS, Completion, InferenceError, NextWordBias, Prompt, TokenCount, WordBias,
 };
 
+use super::drafter::GUESSED_TOKENS;
 use super::generation::{
     AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
 };
@@ -24,6 +25,8 @@ const WARM_UP_TEXT: &str = "The quick brown fox jumps over the lazy dog. ";
 pub(super) struct LoadedModel<'model> {
     llama: &'model LlamaBackend,
     model: &'model LlamaModel,
+    /// The model that guesses the next tokens of `model`, if any.
+    drafter: Option<&'model LlamaModel>,
     setup: ContextSetup,
     cache: Option<PromptCache<'model>>,
     /// The logits of the last word bias.
@@ -38,8 +41,14 @@ struct WordTokens {
 }
 
 impl<'model> LoadedModel<'model> {
-    /// Keeps `model` with an empty cache. Its context runs as `setup` tells.
-    pub(super) fn new(llama: &'model LlamaBackend, model: &'model LlamaModel, setup: ContextSetup) -> Self {
+    /// Keeps `model` with an empty cache. Its context runs as `setup` tells, and its completions
+    /// also run the `drafter`, if any.
+    pub(super) fn new(
+        llama: &'model LlamaBackend,
+        model: &'model LlamaModel,
+        drafter: Option<&'model LlamaModel>,
+        setup: ContextSetup,
+    ) -> Self {
         if let Some(threads) = setup.cpu_threads {
             tracing::info!(
                 prompt = threads.prompt,
@@ -50,6 +59,7 @@ impl<'model> LoadedModel<'model> {
         Self {
             llama,
             model,
+            drafter,
             setup,
             cache: None,
             word_tokens: None,
@@ -102,16 +112,31 @@ impl<'model> LoadedModel<'model> {
         }
     }
 
-    /// Makes the cache of the prompts, when it does not exist.
+    /// Makes the cache of the prompts, when it does not exist. When the drafter fails to start, it
+    /// makes the cache without the drafter, and forgets the drafter.
     fn make_cache(&mut self) -> Result<(), LlamaContextLoadError> {
-        if self.cache.is_none() {
-            self.cache = Some(PromptCache::new(
-                self.llama,
-                self.model,
-                self.context_tokens(),
-                self.setup,
-            )?);
+        if self.cache.is_some() {
+            return Ok(());
         }
+        let context_tokens = self.context_tokens();
+        if let Some(drafter) = self.drafter {
+            match PromptCache::with_drafter(self.llama, self.model, drafter, context_tokens, self.setup) {
+                Ok(cache) => {
+                    self.cache = Some(cache);
+                    return Ok(());
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to start the drafter, so the model runs without it");
+                    self.drafter = None;
+                }
+            }
+        }
+        self.cache = Some(PromptCache::new(
+            self.llama,
+            self.model,
+            context_tokens,
+            self.setup,
+        )?);
         Ok(())
     }
 
@@ -206,7 +231,11 @@ impl<'model> LoadedModel<'model> {
         if prompt_tokens.is_empty() {
             return Err(GenerateError::EmptyPrompt);
         }
-        if prompt_tokens.len().saturating_add(limits.most_added()) > capacity {
+        if prompt_tokens
+            .len()
+            .saturating_add(limits.most_added() + GUESSED_TOKENS)
+            > capacity
+        {
             return Err(GenerateError::PromptTooLong);
         }
         self.make_cache()?;
@@ -249,17 +278,19 @@ impl<'model> LoadedModel<'model> {
 mod tests {
     use std::path::PathBuf;
 
-    use typealike_core::inference::{Backend, SentenceEnd, TypoCheck};
+    use typealike_core::inference::{Backend, LogProbability, SentenceEnd, TypoCheck};
 
     use super::*;
     use crate::worker::load;
+    use crate::worker::model_params::drafter_params;
 
     const BATCH_TOKENS: u32 = 128;
+    const STORY: &str = "Once upon a time";
 
-    fn complete_story(loaded: &mut LoadedModel<'_>) -> String {
+    fn complete(loaded: &mut LoadedModel<'_>, prompt: &str) -> String {
         let limits = Limits {
-            max_added: 8,
-            min_log_probability: None,
+            max_added: 12,
+            min_log_probability: Some(LogProbability(-6.0)),
             typo_check: TypoCheck::Off,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
@@ -270,34 +301,72 @@ mod tests {
             send_partial: &mut |_| {},
         };
         loaded
-            .complete(
-                &Prompt("Once upon a time".to_owned()),
-                limits,
-                &token_bias,
-                &mut progress,
-            )
+            .complete(&Prompt(prompt.to_owned()), limits, &token_bias, &mut progress)
             .expect("the model completes the prompt")
             .text
+    }
+
+    fn setup() -> ContextSetup {
+        ContextSetup {
+            cpu_threads: None,
+            batch_tokens: BATCH_TOKENS,
+            warm_up: WarmUp::Off,
+        }
+    }
+
+    fn path_in(variable: &str) -> PathBuf {
+        PathBuf::from(std::env::var_os(variable).unwrap_or_else(|| panic!("{variable} is set")))
     }
 
     #[test]
     #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
     fn completion_after_freeing_the_context_gives_the_same_text() {
-        let path =
-            PathBuf::from(std::env::var_os("TYPEALIKE_TEST_MODEL").expect("TYPEALIKE_TEST_MODEL is set"));
         let mut llama = None;
-        let model = load(&mut llama, Some(path), Backend::Cpu, BATCH_TOKENS).expect("the model loads");
-        let setup = ContextSetup {
-            cpu_threads: None,
-            batch_tokens: BATCH_TOKENS,
-            warm_up: WarmUp::Off,
-        };
-        let mut loaded = LoadedModel::new(llama.as_ref().expect("the load starts llama.cpp"), &model, setup);
-        let before = complete_story(&mut loaded);
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let llama = llama.as_ref().expect("the load starts llama.cpp");
+        let mut loaded = LoadedModel::new(llama, &model, None, setup());
+        let before = complete(&mut loaded, STORY);
 
         loaded.free_context();
-        let after = complete_story(&mut loaded);
+        let after = complete(&mut loaded, STORY);
 
         assert_eq!(after, before);
+    }
+
+    #[test]
+    #[ignore = "needs the paths of a Gemma 4 model in TYPEALIKE_TEST_MODEL and of its drafter in \
+                TYPEALIKE_TEST_DRAFTER"]
+    fn completions_with_the_drafter_give_the_texts_without_it() {
+        let prompts = [
+            STORY,
+            "Once upon a time there was a",
+            "Hi Anna,\n\nThanks for the notes from the meeting. I think we",
+            "Dear Mr. Smith, I am writing to ask about the status of my ord",
+        ];
+        let mut llama = None;
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let llama = llama.as_ref().expect("the load starts llama.cpp");
+        let drafter_params = drafter_params(Backend::Cpu).expect("the CPU runs the drafter");
+        let drafter = LlamaModel::load_from_file(llama, path_in("TYPEALIKE_TEST_DRAFTER"), &drafter_params)
+            .expect("the drafter loads");
+        let mut plain = LoadedModel::new(llama, &model, None, setup());
+        let without_drafter = prompts.map(|prompt| complete(&mut plain, prompt));
+        let mut with_guesses = LoadedModel::new(llama, &model, Some(&drafter), setup());
+
+        let with_drafter = prompts.map(|prompt| complete(&mut with_guesses, prompt));
+
+        assert_eq!(with_drafter, without_drafter);
     }
 }

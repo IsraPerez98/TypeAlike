@@ -5,7 +5,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::pin::Pin;
 
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{LlamaContextParams, LlamaContextType};
 use llama_cpp_2::model::params::{FitError, LlamaModelParams};
 use llama_cpp_2::{LlamaBackendDevice, LlamaBackendDeviceType, list_llama_ggml_backend_devices, max_devices};
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
@@ -27,6 +27,10 @@ const MIN_PROMPT_THREADS: usize = 4;
 const MAX_GENERATION_THREADS: usize = 4;
 /// The sequences of a context: the prompt and its completion.
 const SEQUENCES: u32 = 2;
+/// The most tokens that one decode of a drafter takes. The drafter of Gemma decodes one token for
+/// each guess, but llama.cpp keeps room for an output of each sequence. The context keeps GPU
+/// memory for the outputs of a whole batch: 518 MiB for 256 tokens on Metal.
+const DRAFTER_BATCH_TOKENS: u32 = SEQUENCES;
 const BYTES_IN_MIB: usize = 1024 * 1024;
 
 /// The most prompt tokens that one decode takes. A newer request can stop a prompt decode only
@@ -82,6 +86,26 @@ impl WarmUp {
     }
 }
 
+/// Whether a load also loads the drafter of the model, when the model has one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DrafterUse {
+    /// A GPU decodes the added token and the guess of the drafter in about the time of one token,
+    /// so each right guess saves most of the time of a decode.
+    On,
+    /// On the CPU, the guesses saved no time, and the drafter takes memory and load time.
+    Off,
+}
+
+impl DrafterUse {
+    /// Returns the use of the drafter of a model on `backend`.
+    pub(super) fn on(backend: Backend) -> Self {
+        match backend {
+            Backend::Vulkan | Backend::Cuda | Backend::Metal => Self::On,
+            Backend::Cpu => Self::Off,
+        }
+    }
+}
+
 /// Logs each device that llama.cpp found. A release build of llama.cpp loads its GPU backends
 /// without a log, so a GPU backend that is not in this list failed to load.
 pub(super) fn log_devices() {
@@ -112,14 +136,7 @@ pub(super) fn model_params(
         Backend::Cpu => on_devices(&[]),
         Backend::Metal => Ok(LlamaModelParams::default()),
         gpu_backend @ (Backend::Vulkan | Backend::Cuda) => {
-            let devices = list_llama_ggml_backend_devices();
-            let device = gpu_device(&devices, gpu_backend).ok_or_else(|| {
-                tracing::warn!(
-                    backend = ?gpu_backend,
-                    "no GPU device for the backend: llama.cpp did not load it, or found no GPU for it"
-                );
-                InferenceError::BackendUnavailable
-            })?;
+            let device = gpu_device_of(gpu_backend)?;
             tracing::info!(
                 backend = ?gpu_backend,
                 device = %device.description,
@@ -131,6 +148,29 @@ pub(super) fn model_params(
             on_devices(&[device.index])
         }
     }
+}
+
+/// Returns the parameters that load the drafter of a model on `backend`, on the device of the
+/// model. A drafter cannot make a context of its own, so llama.cpp cannot check that it fits.
+pub(super) fn drafter_params(backend: Backend) -> Result<LlamaModelParams, InferenceError> {
+    match backend {
+        Backend::Cpu => on_devices(&[]),
+        Backend::Metal => Ok(LlamaModelParams::default()),
+        gpu_backend @ (Backend::Vulkan | Backend::Cuda) => on_devices(&[gpu_device_of(gpu_backend)?.index]),
+    }
+}
+
+/// Returns the device that runs the GPU `backend`, as [`gpu_device`] finds it.
+fn gpu_device_of(backend: Backend) -> Result<LlamaBackendDevice, InferenceError> {
+    gpu_device(&list_llama_ggml_backend_devices(), backend)
+        .cloned()
+        .ok_or_else(|| {
+            tracing::warn!(
+                ?backend,
+                "no GPU device for the backend: llama.cpp did not load it, or found no GPU for it"
+            );
+            InferenceError::BackendUnavailable
+        })
 }
 
 /// Returns the free memory of the GPU that runs `backend`, as a load on `backend` finds it.
@@ -232,6 +272,16 @@ pub(super) fn context_params(context_tokens: u32, setup: ContextSetup) -> LlamaC
             .with_n_threads_batch(threads.prompt),
         None => params,
     }
+}
+
+/// Returns the parameters of the context of a drafter, which runs on the threads of `setup`, next
+/// to the context of its model.
+pub(super) fn drafter_context_params(context_tokens: u32, setup: ContextSetup) -> LlamaContextParams {
+    let drafter_setup = ContextSetup {
+        batch_tokens: DRAFTER_BATCH_TOKENS,
+        ..setup
+    };
+    context_params(context_tokens, drafter_setup).with_context_type(LlamaContextType::Mtp)
 }
 
 /// The threads that run a model on the CPU.
@@ -445,6 +495,28 @@ mod tests {
         let params = context_params(CONTEXT_TOKENS.0, setup(None, 512));
 
         assert_eq!((params.n_batch(), params.n_ubatch()), (512, 512));
+    }
+
+    #[test]
+    fn only_a_model_on_a_gpu_backend_runs_its_drafter() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let uses = backends.map(DrafterUse::on);
+
+        assert_eq!(
+            uses,
+            [DrafterUse::Off, DrafterUse::On, DrafterUse::On, DrafterUse::On]
+        );
+    }
+
+    #[test]
+    fn drafter_context_decodes_a_token_of_each_sequence_next_to_its_model() {
+        let params = drafter_context_params(CONTEXT_TOKENS.0, setup(None, 256));
+
+        assert_eq!(
+            (params.n_batch(), params.n_ubatch(), params.context_type()),
+            (2, 2, LlamaContextType::Mtp)
+        );
     }
 
     #[test]

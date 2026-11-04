@@ -5,6 +5,7 @@
 //! cargo run --release -p typealike_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
 //!     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
+//!     [--drafter on|off] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
@@ -150,6 +151,13 @@
 //! that each batch helped or harmed against the run without `--batch`. Only a prompt with more
 //! tokens than the batch decodes in more than one batch, so the smaller sizes do not change.
 //!
+//! As in the folder of the models of the app, the folder of `MODEL.gguf` and its parent folder
+//! name the repository of the model, and the folder holds the drafter of the model, which guesses
+//! the next tokens. `--drafter off` runs the model without its drafter (default: on, as in the
+//! app). Use it to measure the drafter: the suggestions must stay the same, and only the times
+//! change. With `TYPEALIKE_LOG=typealike_llm=debug`, the eval logs the guesses of the drafter for
+//! each completion, and with `TYPEALIKE_LOG=info` the load of the drafter.
+//!
 //! `--word-choice` sets how much suggestions prefer the words of the writer: `off` (the default),
 //! `light`, `medium` or `strong`. The log probability does not use the word bias. With a word
 //! choice that is not off, a phrase that the writer repeats shows without the model, and its case
@@ -232,6 +240,9 @@ use std::path::Path;
 use anyhow::{Context, bail};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 
 use crate::arguments::{Arguments, USAGE};
 use crate::case::{Case, history_of, read_writers, settings_for_case};
@@ -239,6 +250,9 @@ use crate::dictionary::FileDictionary;
 use crate::report::write_report;
 use crate::run::{CaseRun, CaseSetup, ModelSession, run_case, with_measures};
 use crate::score::{Comparison, Outcome, Summary};
+
+/// The variable with the log levels, as in the app.
+const LEVELS_VARIABLE: &str = "TYPEALIKE_LOG";
 
 fn read_json_lines<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Vec<T>> {
     let text = fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
@@ -286,6 +300,19 @@ fn main() -> anyhow::Result<()> {
     let Some(arguments) = Arguments::parse(&arguments) else {
         bail!("{USAGE}");
     };
+    if let Some(levels) = std::env::var(LEVELS_VARIABLE)
+        .ok()
+        .and_then(|levels| levels.parse::<Targets>().ok())
+    {
+        tracing_subscriber::registry()
+            .with(levels)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(io::stderr),
+            )
+            .init();
+    }
     let cases = read_json_lines::<Case>(&arguments.cases)?;
     let writers = read_writers(arguments.cases.parent().unwrap_or(Path::new(".")), &cases)?;
     let baseline = arguments
@@ -306,6 +333,7 @@ fn main() -> anyhow::Result<()> {
         arguments.backend,
         arguments.cpu_cores,
         arguments.batch,
+        arguments.drafter,
     )?;
     let mut runs = Vec::new();
     for (case, version) in cases.iter().zip(1..) {

@@ -809,6 +809,51 @@ fn only_complete_downloads_are_installed_files() {
     assert_eq!(installed, [file("a.gguf")]);
 }
 
+fn model_file(repo: &str, name: &str) -> ModelFile {
+    ModelFile {
+        repo: repo.to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+#[test]
+fn each_file_of_a_gemma_repository_has_the_drafter_of_that_repository() {
+    let e4b = "unsloth/gemma-4-E4B-it-qat-GGUF";
+    let e2b = "unsloth/gemma-4-E2B-it-qat-GGUF";
+    let files = [
+        model_file(e4b, "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf"),
+        model_file(e4b, "gemma-4-E4B-it-qat-UD-Q2_K_XL.gguf"),
+        model_file(e2b, "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf"),
+    ];
+
+    let drafters = files.map(|file| file.drafter());
+
+    assert_eq!(
+        drafters,
+        [
+            Some(model_file(e4b, "mtp-gemma-4-E4B-it.gguf")),
+            Some(model_file(e4b, "mtp-gemma-4-E4B-it.gguf")),
+            Some(model_file(e2b, "mtp-gemma-4-E2B-it.gguf")),
+        ]
+    );
+}
+
+#[test]
+fn models_without_a_suggested_drafter_and_drafters_have_no_drafter() {
+    let files = [
+        model_file(
+            "mradermacher/Qwen3.5-0.8B-Base-i1-GGUF",
+            "Qwen3.5-0.8B-Base.i1-IQ4_NL.gguf",
+        ),
+        file("model.gguf"),
+        model_file("unsloth/gemma-4-E4B-it-qat-GGUF", "mtp-gemma-4-E4B-it.gguf"),
+    ];
+
+    let drafters = files.map(|file| file.drafter());
+
+    assert_eq!(drafters, [None, None, None]);
+}
+
 #[test]
 fn installed_list_forgets_files_deleted_elsewhere() {
     let mut pane = installed("a.gguf", 100);

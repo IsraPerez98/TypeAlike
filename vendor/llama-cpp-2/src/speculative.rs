@@ -51,8 +51,9 @@ pub enum MtpSpeculativeError {
 #[derive(Debug)]
 pub struct MtpSpeculative<'model> {
     raw: Ptr<llama_cpp_sys_2::llama_rs_mtp_speculative>,
-    target_context: LlamaContext<'model>,
+    // The draft context can share the memory of the target context, so it drops first.
     draft_context: LlamaContext<'model>,
+    target_context: LlamaContext<'model>,
     n_max: usize,
 }
 

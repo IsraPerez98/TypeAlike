@@ -3,6 +3,8 @@
 mod catalog;
 mod page;
 
+pub(crate) use catalog::drafter_of;
+
 use std::collections::BTreeMap;
 
 use crate::hub::{

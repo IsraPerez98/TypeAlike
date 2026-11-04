@@ -12,7 +12,7 @@ use typealike_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
      [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-     [--batch TOKENS] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
+     [--batch TOKENS] [--drafter on|off] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
      [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off]";
 
@@ -31,6 +31,7 @@ pub struct Arguments {
     pub cpu_cores: Option<CpuCores>,
     /// The most tokens of each prompt decode, or `None` for the batch of the backend.
     pub batch: Option<NonZeroU32>,
+    pub drafter: DrafterUse,
     pub word_choice: WordChoice,
     pub word_bias: WordBiasUse,
     pub shared_history: SharedHistory,
@@ -43,6 +44,13 @@ pub struct Arguments {
     pub clipboard: ClipboardAccess,
     pub history: HistoryAccess,
     pub reply_words: ReplyWords,
+}
+
+/// Whether the model runs with its drafter, when the folder of the model holds the drafter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrafterUse {
+    On,
+    Off,
 }
 
 /// Whether the apps of a case share their earlier writing.
@@ -95,6 +103,7 @@ impl Arguments {
             backend: BUILT_IN_BACKEND,
             cpu_cores: None,
             batch: None,
+            drafter: DrafterUse::On,
             word_choice: WordChoice::Off,
             word_bias: WordBiasUse::On,
             shared_history: SharedHistory::On,
@@ -119,6 +128,9 @@ impl Arguments {
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
                 [name, cores] if name == "--cpu-cores" => parsed.cpu_cores = Some(cpu_cores_of(cores)?),
                 [name, tokens] if name == "--batch" => parsed.batch = Some(tokens.parse().ok()?),
+                [name, drafter] if name == "--drafter" => {
+                    parsed.drafter = switch_named(drafter, DrafterUse::On, DrafterUse::Off)?;
+                }
                 [name, choice] if name == "--word-choice" => parsed.word_choice = word_choice_named(choice)?,
                 [name, bias] if name == "--word-bias" => {
                     parsed.word_bias = switch_named(bias, WordBiasUse::On, WordBiasUse::Off)?;
@@ -275,6 +287,7 @@ mod tests {
                 backend: BUILT_IN_BACKEND,
                 cpu_cores: None,
                 batch: None,
+                drafter: DrafterUse::On,
                 word_choice: WordChoice::Off,
                 word_bias: WordBiasUse::On,
                 shared_history: SharedHistory::On,
@@ -442,6 +455,17 @@ mod tests {
             arguments.map(|arguments| arguments.batch),
             Some(Some(NonZeroU32::new(512).unwrap()))
         );
+    }
+
+    #[test]
+    fn drafter_option_turns_the_drafter_of_the_model_on_or_off() {
+        let names = ["on", "off", "fast"];
+
+        let drafters = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--drafter", name]).map(|arguments| arguments.drafter)
+        });
+
+        assert_eq!(drafters, [Some(DrafterUse::On), Some(DrafterUse::Off), None]);
     }
 
     #[test]

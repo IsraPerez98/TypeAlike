@@ -33,6 +33,13 @@ impl ModelFile {
             .unwrap_or(&self.name)
             .to_owned()
     }
+
+    /// Returns the file of the drafter of this model, if it has one: a small model that guesses the
+    /// next tokens, so that a suggestion takes fewer steps of this model.
+    #[must_use]
+    pub fn drafter(&self) -> Option<ModelFile> {
+        crate::settings_window::models::drafter_of(self)
+    }
 }
 
 /// A model file and how big it is.

@@ -16,7 +16,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 ## Warm-up
 
-- On Vulkan, CUDA and Metal, each load warms up the backend before it answers (`WarmUp`): it makes the context, decodes a prompt of one batch and one added token, and then forgets them.
+- On Vulkan, CUDA and Metal, each load warms up the backend before it answers (`WarmUp`): it makes the context, decodes a prompt of one batch and two added tokens (with a drafter, also a guess and its check), and then forgets them.
 - Thus the first completion after a load does not prepare the kernels and the memory of the GPU.
 - A request that waits stops the warm-up.
 - The CPU does no warm-up, because it costs more CPU time than it saves.
@@ -84,6 +84,28 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - It decodes the new tokens of a prompt in batches of at most 256 tokens on Vulkan, CUDA and Metal, and 128 tokens on the CPU.
 - A newer request stops the decode between two batches.
 - For a recurrent model (Qwen3.5), it also saves the state before each of the last words, so a backspace across a word does not decode the full prompt again.
+
+## Drafter
+
+- A drafter is a small model that guesses the next token of its model. Gemma 4 E2B and E4B have one: a second file of their repository (`ModelFile::drafter`, `mtp-gemma-4-E2B-it.gguf` and `mtp-gemma-4-E4B-it.gguf`, about 60 MB).
+- On Vulkan, CUDA and Metal, when the folder of the model holds its drafter, the runner loads it on the same device (`DrafterUse`). It loads the drafter on a second thread while the model loads, because the drafter alone takes about 0.25 s to load.
+- Before each decode of an added token, the drafter guesses the token after it from the state of the model after the token before. The decode then reads the added token and the guess together.
+- When the model chooses the guess as the next token, that token needs no decode of its own. Thus a completion takes fewer decodes.
+- The model still chooses each token from its own logits, with the healing, the bias, the cut of the tail and each stop.
+- A decode of two tokens gives logits that differ in the last digits from a decode of one token. Thus a near tie can end a suggestion at another place: in 1 of 322 cases of the tuning set on Metal, a suggestion got a comma more.
+- The first added token of a completion decodes without a guess, because the drafter needs the state of the model after the token before.
+- The completion runs in sequence 0 and the prompt stays in sequence 1, because the drafter of llama.cpp reads only sequence 0.
+- The drafter of Gemma reads the memory of the context of the model, so it has no memory of its own. Its context decodes 2 tokens at most (`DRAFTER_BATCH_TOKENS`), because the outputs of a batch of 256 tokens take 518 MiB of GPU memory on Metal.
+- With a drafter, llama.cpp also keeps the last state of each token of a prompt decode.
+- When the drafter is missing, does not fit the model or fails to start, the model runs without it, and the log tells why.
+- With `TYPEALIKE_LOG=typealike_llm=debug`, the log gives the guesses and the right guesses of each completion.
+
+### Measured gain
+
+- On an M5 with Metal, the drafter makes the time of a suggestion after the prompt decode (the warm time of `prompt_eval`) 22 percent shorter for Gemma 4 E4B (245 to 190 ms) and 14 percent shorter for E2B (121 to 104 ms). The model chooses the guess 48 percent of the time.
+- On the CPU of an M5, Gemma 4 E2B with its drafter was not faster: the warm time of 20 cases went from 114 to 116 ms, with the short suggestions that the CPU allows. Thus the CPU loads no drafter.
+- Vulkan and CUDA were not measured. A GPU decodes two tokens in about the time of one, as on Metal, so each right guess saves most of a decode.
+- The drafter adds about 60 MiB of GPU memory. With Gemma 4 E4B on an M5, it adds about 70 ms to a load and about 100 ms to its warm-up (`first_key`), and the first completion after a load is about 35 ms shorter.
 
 ## Text of a completion
 
