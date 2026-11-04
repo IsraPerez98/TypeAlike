@@ -13,7 +13,7 @@ use typealike_core::history::{HistoryEntry, word_bias_of_counts};
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
     Backend, Completion, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
-    LogProbability, ModelRunner, WordBias,
+    LogProbability, ModelRunner, SentenceEnd, WordBias,
 };
 use typealike_core::key::{Key, Press};
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
@@ -228,6 +228,7 @@ struct Typing<'case> {
     version: u64,
     word_bias: WordBiasUse,
     tail_cut: TailCut,
+    sentence_end: SentenceEnd,
 }
 
 impl Typing<'_> {
@@ -285,7 +286,8 @@ impl Typing<'_> {
             InferenceRequest::Complete { prompt, .. } => Some(prompt.0.clone()),
             _ => None,
         };
-        let completion = model.complete(self.with_tail_cut(self.with_case_bias(request)))?;
+        let request = self.with_sentence_end(self.with_tail_cut(self.with_case_bias(request)));
+        let completion = model.complete(request)?;
         let word_log_probabilities = completion
             .as_ref()
             .map(|completion| completion.word_log_probabilities.clone())
@@ -379,6 +381,14 @@ impl Typing<'_> {
         }
         request
     }
+
+    /// Returns `request` with the sentence end of the arguments.
+    fn with_sentence_end(&self, mut request: InferenceRequest) -> InferenceRequest {
+        if let InferenceRequest::Complete { sentence_end, .. } = &mut request {
+            *sentence_end = self.sentence_end;
+        }
+        request
+    }
 }
 
 /// Runs the case of `setup` in a new app: presses its last key, then Tab, then the last key again
@@ -407,6 +417,7 @@ pub fn run_case(
         version,
         word_bias: arguments.word_bias,
         tail_cut: arguments.tail_cut,
+        sentence_end: arguments.sentence_end,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, Press::First, &typing.typed_field) {

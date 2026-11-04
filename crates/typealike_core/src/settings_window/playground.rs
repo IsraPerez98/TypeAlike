@@ -288,7 +288,7 @@ impl PlaygroundPane {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         })
     }

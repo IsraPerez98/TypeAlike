@@ -17,7 +17,7 @@ use std::fmt;
 use crate::desktop::{Desktop, Surroundings, Timestamp};
 use crate::excerpt::plain_spaces;
 use crate::history::{HistoryEntry, HistoryTables};
-use crate::inference::{SentenceEnd, TypoCheck};
+use crate::inference::TypoCheck;
 use crate::key::{Key, Press};
 use crate::settings::{
     ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TypoFix, WriterName,
@@ -45,7 +45,6 @@ pub(crate) struct Engine {
     suggestion_length: SuggestionLength,
     typo_check: TypoCheck,
     typo_fix: TypoFix,
-    sentence_end: SentenceEnd,
     /// The most texts of the history that match the topic of the field, which a prompt shows.
     matching_examples: usize,
     screen_reads: ScreenReads,
@@ -86,7 +85,6 @@ impl Default for Engine {
             suggestion_length: SuggestionLength::default(),
             typo_check: TypoCheck::Off,
             typo_fix: TypoFix::default(),
-            sentence_end: SentenceEnd::default(),
             matching_examples: 0,
             screen_reads: ScreenReads::default(),
             personalization: PersonalizationSettings::default(),
@@ -119,7 +117,7 @@ impl fmt::Debug for Engine {
 impl Engine {
     /// Uses the writer name, the writer notes, the clipboard access, the personalization and the
     /// number of matching examples of `settings` from the next session on. Uses its suggestion
-    /// length, its typo rule, its typo fix and its sentence end from the next request on.
+    /// length, its typo rule and its typo fix from the next request on.
     pub(crate) fn use_settings(&mut self, settings: &Settings) {
         let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
         self.writer_notes = settings.writer_notes.clone();
@@ -129,7 +127,6 @@ impl Engine {
         self.suggestion_length = settings.suggestion_length_in_use();
         self.typo_check = settings.typo_check();
         self.typo_fix = settings.typo_fix;
-        self.sentence_end = settings.sentence_end;
         self.matching_examples = settings.matching_examples();
         self.drop_reply_words_when_off();
         if needs_new_tables {

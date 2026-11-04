@@ -10,7 +10,7 @@ mod suggestion_places;
 use std::fmt;
 
 use crate::hub::ModelFile;
-use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
+use crate::inference::{Backend, LogProbability, TokenCount, TypoCheck};
 use crate::localization::UiLanguage;
 
 pub use energy_saving::{EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, IdleTimeout};
@@ -226,8 +226,6 @@ pub struct Settings {
     pub typo_rule: TypoRule,
     /// Whether a suggestion fixes the word before the caret when it looks misspelled.
     pub typo_fix: TypoFix,
-    /// Whether a suggestion stops at the end of a sentence.
-    pub sentence_end: SentenceEnd,
     /// The language of the UI, or `None` for the language that the OS gives
     /// ([`UiLanguage::for_preferred`]).
     pub ui_language: Option<UiLanguage>,

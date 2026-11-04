@@ -195,17 +195,6 @@ fn typo_fix_switch() -> Row {
     })
 }
 
-fn sentence_end_switch(is_on: bool, note: Option<Note>) -> Row {
-    Row::Switch(Switch {
-        id: ControlId::new(SENTENCE_END),
-        icon: RowIcon::StopButton,
-        label: "Stop at the end of a sentence".to_owned(),
-        description: "A suggestion ends after the first sentence that it finishes.".to_owned(),
-        is_on,
-        note,
-    })
-}
-
 fn default_writer_section() -> Section {
     Section::new(vec![
         Row::TextLine(TextLine {
@@ -328,7 +317,6 @@ fn page_shows_the_suggestion_settings() {
                     is_enabled: true,
                     note: None,
                 }),
-                sentence_end_switch(true, None),
                 Row::Switch(Switch {
                     id: ControlId::new(DISPLAY),
                     icon: RowIcon::Stopwatch,
@@ -767,8 +755,6 @@ fn each_switch_gives_its_on_and_off_action() {
         toggled(TYPO_RULE, false),
         toggled(TYPO_FIX, true),
         toggled(TYPO_FIX, false),
-        toggled(SENTENCE_END, true),
-        toggled(SENTENCE_END, false),
     ];
 
     let actions = inputs.map(|input| action_for(&pane, &input));
@@ -788,8 +774,6 @@ fn each_switch_gives_its_on_and_off_action() {
             GeneralAction::SwitchTypoRule(TypoRule::Suggest),
             GeneralAction::SwitchTypoFix(TypoFix::Offer),
             GeneralAction::SwitchTypoFix(TypoFix::Off),
-            GeneralAction::SwitchSentenceEnd(SentenceEnd::Stop),
-            GeneralAction::SwitchSentenceEnd(SentenceEnd::Continue),
         ]
         .map(Some)
     );
@@ -1603,62 +1587,6 @@ fn choosing_the_current_typo_rule_does_nothing() {
     );
 
     assert_eq!(outcome, GeneralOutcome::default());
-}
-
-#[test]
-fn stopping_at_the_end_of_a_sentence_keeps_it_and_turns_the_switch_on() {
-    let mut pane = GeneralPane::new(Settings {
-        sentence_end: SentenceEnd::Continue,
-        ..Settings::default()
-    });
-
-    let outcome = pane.on_action(
-        GeneralAction::SwitchSentenceEnd(SentenceEnd::Stop),
-        &mut PlaygroundPane::new(),
-    );
-
-    let shown = row(&default_page(&pane), SENTENCE_END);
-    assert_eq!(
-        (outcome, shown),
-        (
-            settings_outcome(Settings::default()),
-            sentence_end_switch(true, None)
-        )
-    );
-}
-
-#[test]
-fn continuing_after_a_sentence_keeps_it_and_turns_the_switch_off() {
-    let mut pane = GeneralPane::new(Settings::default());
-
-    let outcome = pane.on_action(
-        GeneralAction::SwitchSentenceEnd(SentenceEnd::Continue),
-        &mut PlaygroundPane::new(),
-    );
-
-    let is_on = switch(&default_page(&pane), SENTENCE_END).is_on;
-    let saved = Settings {
-        sentence_end: SentenceEnd::Continue,
-        ..Settings::default()
-    };
-    assert_eq!((outcome, is_on), (settings_outcome(saved), false));
-}
-
-#[test]
-fn sentence_end_switch_that_is_off_tells_that_suggestions_get_worse() {
-    let pane = GeneralPane::new(Settings {
-        sentence_end: SentenceEnd::Continue,
-        ..Settings::default()
-    });
-
-    let shown = row(&default_page(&pane), SENTENCE_END);
-
-    let note = Note {
-        text: "Suggestions are often wrong after the first sentence. Turn on this switch to stop them there."
-            .to_owned(),
-        tone: NoteTone::Warning,
-    };
-    assert_eq!(shown, sentence_end_switch(false, Some(note)));
 }
 
 #[test]

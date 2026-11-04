@@ -54,7 +54,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 
 - `--tail-cut off` turns off the cut of the app: use it to choose a cut.
 - `--length very_short|short|medium|long|very_long` sets the suggestion length, with its token limit and its cut (default: medium). The CPU backend allows at most short, so measure a longer length on a GPU backend.
-- `--sentence-stop on|off` stops each suggestion at the end of a sentence (default: on, as in the app).
+- `--sentence-stop on|off` stops each suggestion at the end of a sentence (default: off, as in the app).
 
 ### Replay
 

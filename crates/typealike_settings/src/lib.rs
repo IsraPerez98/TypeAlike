@@ -72,7 +72,7 @@ impl SettingsStore for SettingsFile {
 mod tests {
     use super::*;
     use typealike_core::hub::ModelFile;
-    use typealike_core::inference::{Backend, SentenceEnd};
+    use typealike_core::inference::Backend;
     use typealike_core::localization::UiLanguage;
     use typealike_core::settings::{
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess,
@@ -146,7 +146,6 @@ mod tests {
             suggestion_length: SuggestionLength::Long,
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
-            sentence_end: SentenceEnd::Stop,
             ui_language: Some(UiLanguage::Spanish),
             setup: Setup::Finished,
         };

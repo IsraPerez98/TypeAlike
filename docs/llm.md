@@ -51,7 +51,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 ### End of a sentence
 
 - When the request asks for it (`SentenceEnd::Stop`), it stops before a new word after the end of a sentence: a period, "!", "?", "…" or the CJK signs 。！？, also before closing quotes and brackets.
-- `SentenceEnd::Stop` is the switch "Stop at the end of a sentence" of the General pane, on by default, just below the suggestion length. While it is off, a warning below it (`NoteTone::Warning`: a warning sign, yellow text on macOS) tells that suggestions are often wrong after the first sentence.
+- The app and the Playground always send `SentenceEnd::Continue`, and no setting changes it. Only `prompt_eval --sentence-stop on` sends `SentenceEnd::Stop`.
 - Without that stop, the cut of the tail applies to each sentence on its own, and after the end of a sentence that it added, it takes the most likely token that keeps the text on its line (among the 64 most likely: not a line break, the end of the text or markup), because the model often ends the message there.
 - A period ends a sentence only after a word of at least 2 letters, because one letter is often an initial or the end of "e.g." or "a.m.".
 - The word must also not be one of the English and Spanish `ABBREVIATIONS`, such as "Mrs.", "Sra." or "pág.".

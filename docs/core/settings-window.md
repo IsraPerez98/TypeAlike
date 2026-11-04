@@ -25,7 +25,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The General pane (`GeneralPane`) keeps the settings that no other pane keeps.
 - Its page shows the language menu first, then the autostart switch and how suggestions show.
 - The sections of the General pane show the copied text switch on the Copied and screen text page, the name and the notes of the writer on the Personalization page, "Prepare suggestions early" on the Energy saving page, and the suggestion model and the backend menus at the top of the Models page.
-- The suggestion length, the rule for typos and "Stop at the end of a sentence" are in `docs/core/suggestions.md` and `docs/llm.md`.
+- The suggestion length and the rule for typos are in `docs/core/suggestions.md`. The end of a sentence is in `docs/llm.md`.
 
 ### Reset all settings
 
