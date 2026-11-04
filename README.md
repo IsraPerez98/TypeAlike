@@ -9,7 +9,7 @@ Inline suggestions as you type, in any app on Windows and macOS. The model runs 
 [Report a bug](https://github.com/IsraPerez98/TypeAlike/issues) ·
 [Contributing](CONTRIBUTING.md)
 
-**Status:** early release, version 0.3.0. Expect bugs. TypeAlike runs on Windows 10 or 11 (x64) and on macOS 15 or
+**Status:** early release, version 0.4.0. Expect bugs. TypeAlike runs on Windows 10 or 11 (x64) and on macOS 15 or
 later (Apple silicon). It is free and open source. Inspired by [Cotypist](https://cotypist.app/) and
 [Cotabby](https://github.com/FuJacob/cotabby).
 
