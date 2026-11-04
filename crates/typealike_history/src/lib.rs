@@ -47,6 +47,9 @@ struct StoredEntry {
     /// The words of the message that the text answers. An entry of an older file has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reply_to: Vec<String>,
+    /// The typing context of the text. An entry of an older file has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    typing_context: Option<String>,
 }
 
 /// The file that keeps the earlier writing of the user, locked with a key of the `vault`. A save
@@ -229,6 +232,7 @@ impl From<StoredEntry> for HistoryEntry {
             domain: stored.domain,
             written_at: stored.written_at.map(Timestamp),
             reply_to: stored.reply_to,
+            typing_context: stored.typing_context,
         }
     }
 }
@@ -241,6 +245,7 @@ impl From<&HistoryEntry> for StoredEntry {
             domain: entry.domain.clone(),
             written_at: entry.written_at.map(|written_at| written_at.0),
             reply_to: entry.reply_to.clone(),
+            typing_context: entry.typing_context.clone(),
         }
     }
 }
@@ -320,6 +325,7 @@ mod tests {
                 domain: None,
                 written_at: None,
                 reply_to: Vec::new(),
+                typing_context: None,
             },
             HistoryEntry {
                 text: "LGTM, ship it".to_owned(),
@@ -327,6 +333,7 @@ mod tests {
                 domain: Some("github.com".to_owned()),
                 written_at: Some(Timestamp(1_793_199_600)),
                 reply_to: vec!["merge".to_owned(), "review".to_owned()],
+                typing_context: Some("#team-web | acme".to_owned()),
             },
         ]
     }

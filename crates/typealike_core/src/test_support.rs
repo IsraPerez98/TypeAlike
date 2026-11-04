@@ -128,6 +128,7 @@ pub(crate) fn mail_entry(text: &str) -> HistoryEntry {
         domain: None,
         written_at: None,
         reply_to: Vec::new(),
+        typing_context: None,
     }
 }
 

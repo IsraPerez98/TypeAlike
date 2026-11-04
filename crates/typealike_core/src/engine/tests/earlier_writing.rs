@@ -105,6 +105,24 @@ fn kept_text_has_the_time_when_its_session_started() {
     );
 }
 
+#[test]
+fn kept_text_has_the_typing_context_of_its_window() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    let mut desktop = mail_desktop(GREETING);
+    desktop.surroundings.app_name = Some("Mail".to_owned());
+    desktop.surroundings.window_title = Some("Re: Garden party".to_owned());
+
+    let saved = finish_typing(&mut engine, &desktop, Suggestion::Ignored);
+
+    assert_eq!(
+        saved,
+        Some(vec![HistoryEntry {
+            typing_context: Some("garden party".to_owned()),
+            ..mail_entry(&format!("{EARLIER_TEXT}d"))
+        }])
+    );
+}
+
 const CHAT_APP: &str = "net.whatsapp.WhatsApp";
 
 fn screen_with(line: &str) -> ScreenText {

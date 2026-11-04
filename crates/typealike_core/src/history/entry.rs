@@ -37,6 +37,11 @@ pub struct HistoryEntry {
     ///
     /// [`reply_words_of`]: crate::history::reply_words_of
     pub reply_to: Vec<String>,
+    /// The typing context of the text, as [`typing_context`] gives it: the contact, channel or
+    /// document of the window. `None` when the window title names no context.
+    ///
+    /// [`typing_context`]: crate::history::typing_context
+    pub typing_context: Option<String>,
 }
 
 impl fmt::Debug for HistoryEntry {
@@ -72,6 +77,7 @@ impl HistoryEntry {
             domain: domain.map(str::to_owned),
             written_at,
             reply_to: Vec::new(),
+            typing_context: None,
         })
     }
 

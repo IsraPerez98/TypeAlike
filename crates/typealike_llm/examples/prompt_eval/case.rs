@@ -11,7 +11,7 @@ use typealike_core::desktop::{
     Confidence, CopiedText, Desktop, Field, FieldLabels, FieldText, ScreenLine, ScreenRect, ScreenText,
     Surroundings, Timestamp,
 };
-use typealike_core::history::{HistoryEntry, reply_words_of};
+use typealike_core::history::{HistoryEntry, reply_words_of, typing_context};
 use typealike_core::key::Key;
 use typealike_core::settings::{HistoryApp, HistoryScope, PersonalizationSettings, Settings};
 
@@ -229,6 +229,12 @@ pub struct CaseEntry {
     /// The message that the text answers, if any.
     #[serde(default)]
     reply_to: Option<String>,
+    /// The name of the app where the writer wrote the text, which the typing context leaves out.
+    #[serde(default)]
+    app: Option<String>,
+    /// The title of the window where the writer wrote the text, which gives its typing context.
+    #[serde(default)]
+    window_title: Option<String>,
 }
 
 impl CaseEntry {
@@ -239,6 +245,7 @@ impl CaseEntry {
             domain: self.domain.clone(),
             written_at: self.written_at.map(Timestamp),
             reply_to: self.reply_to.as_deref().map(reply_words_of).unwrap_or_default(),
+            typing_context: typing_context(self.app.as_deref(), self.window_title.as_deref()),
         }
     }
 
@@ -481,6 +488,8 @@ mod tests {
                 domain: None,
                 written_at: Some(written_at),
                 reply_to: None,
+                app: None,
+                window_title: None,
             })
             .collect()
     }

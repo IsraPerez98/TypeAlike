@@ -1,7 +1,8 @@
 //! The earlier texts that a prompt shows as examples: the texts that match the topic of the field.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use super::context::typing_context;
 use super::entry::HistoryEntry;
 use super::store::SessionTexts;
 use super::words::{is_distinctive_word, is_within_edits, small_count, words};
@@ -17,6 +18,9 @@ const RECENT_IN_PLACE: usize = 2;
 /// The most texts of a small place. In a larger place, the newest texts are seldom on the topic
 /// of the field, so only the matching texts show.
 const MAX_SMALL_PLACE_TEXTS: usize = 3;
+/// The newest texts of the typing context of the window that a prompt shows, when no text of the
+/// place matches. A text to a contact seldom holds the name of the contact.
+const RECENT_IN_CONTEXT: usize = 1;
 /// The newest texts of other places with the same format that a prompt shows, when the place has
 /// no text.
 const RECENT_IN_FORMAT: usize = 1;
@@ -41,17 +45,20 @@ const EXAMPLE_START_TOKENS: TokenCount = TokenCount(33);
 const EXAMPLE_END_TOKENS: TokenCount = TokenCount(EXAMPLE_TOKENS.0 - EXAMPLE_START_TOKENS.0);
 
 /// Returns the texts of `texts`, oldest first, that a prompt in `surroundings` shows as examples:
-/// the `matching_examples` best matching texts of the same place. In a place with at most
-/// [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to [`RECENT_IN_PLACE`].
-/// The best matching texts of other places with at least [`MIN_WIDE_WORDS`] topic words fill the
-/// rest of the `matching_examples`. A place without texts gets the newest texts of other places
-/// with the same format in the free examples. A text matches when it shares rare words with the
-/// text near the caret, the window, the labels of the field and the lines of the `screen` in the
-/// column of the field, or when the message that it answers shares such words. Each example keeps
-/// the start and the end of its text. A text that the field holds now is no example, and two
-/// examples never hold the same text or near copies of one text. Among texts that match the same,
-/// the text with more copies in its place comes first, so that the spelling that the writer uses
-/// most stays. Each example comes with the time of its text.
+/// the `matching_examples` best matching texts of the same place. When none matches, the newest
+/// texts of the typing context of the window fill up to [`RECENT_IN_CONTEXT`]. In a place with at
+/// most [`MAX_SMALL_PLACE_TEXTS`] texts, its newest texts fill the examples up to
+/// [`RECENT_IN_PLACE`]. The best matching texts of other places with at least [`MIN_WIDE_WORDS`]
+/// topic words fill the rest of the `matching_examples`. A place without texts gets the newest
+/// texts of other places with the same format in the free examples. A text matches when it shares
+/// rare words with the text near the caret, the window, the labels of the field and the lines of
+/// the `screen` in the column of the field, or when the message that it answers shares such words.
+/// Each example keeps the start and the end of its text. A word of the window title matches only a
+/// text of the same typing context or of none, because a text of another conversation that holds
+/// the name of a contact is about that contact, not to that contact. A text that the field holds
+/// now is no example, and two examples never hold the same text or near copies of one text. Among
+/// texts that match the same, the text with more copies in its place comes first, so that the
+/// spelling that the writer uses most stays. Each example comes with the time of its text.
 pub(crate) fn examples(
     texts: &SessionTexts<'_>,
     surroundings: &Surroundings,
@@ -70,6 +77,13 @@ pub(crate) fn examples(
     let topics = Topics::of(&pool, surroundings, screen);
     let mut picked = Vec::new();
     pick(&mut picked, &topics.best_first(&in_place, 1), matching_examples);
+    if picked.is_empty() {
+        pick(
+            &mut picked,
+            &topics.same_context_texts(&in_place),
+            RECENT_IN_CONTEXT.min(matching_examples),
+        );
+    }
     if in_place.len() <= MAX_SMALL_PLACE_TEXTS {
         let missing = RECENT_IN_PLACE.saturating_sub(picked.len());
         pick(&mut picked, &in_place, missing);
@@ -138,6 +152,10 @@ fn each_lowercase_word(text: &str, mut visit: impl FnMut(&str)) {
 struct Topics {
     entry_count: usize,
     holders_by_word: HashMap<String, u32>,
+    /// The topic words that only the window title gives.
+    title_words: HashSet<String>,
+    /// The typing context of the window.
+    context: Option<String>,
 }
 
 /// How well a text matches the topic words: the sum of the weights of the topic words that it
@@ -149,7 +167,7 @@ struct TopicMatch {
 
 impl Topics {
     fn of(entries: &[&HistoryEntry], surroundings: &Surroundings, screen: Option<&ScreenText>) -> Self {
-        let mut holders_by_word = query_words(surroundings, screen);
+        let (mut holders_by_word, title_words) = query_words(surroundings, screen);
         for entry in entries {
             for word in matched_words(&holders_by_word, entry) {
                 *holders_by_word.entry(word).or_default() += 1;
@@ -158,7 +176,36 @@ impl Topics {
         Self {
             entry_count: entries.len(),
             holders_by_word,
+            title_words,
+            context: typing_context(
+                surroundings.app_name.as_deref(),
+                surroundings.window_title.as_deref(),
+            ),
         }
+    }
+
+    /// Returns the `candidates` with the typing context of the window. It has none when the window
+    /// title names no typing context.
+    fn same_context_texts<'entries>(
+        &self,
+        candidates: &[(usize, &'entries HistoryEntry)],
+    ) -> Vec<(usize, &'entries HistoryEntry)> {
+        let Some(context) = &self.context else {
+            return Vec::new();
+        };
+        candidates
+            .iter()
+            .copied()
+            .filter(|(_, entry)| entry.typing_context.as_ref() == Some(context))
+            .collect()
+    }
+
+    /// Whether `entry` is a text of another typing context than the window.
+    fn is_other_context(&self, entry: &HistoryEntry) -> bool {
+        entry
+            .typing_context
+            .as_ref()
+            .is_some_and(|context| self.context.as_ref() != Some(context))
     }
 
     /// Returns the `candidates` that hold at least `min_words` query words, best match first. Among
@@ -190,7 +237,10 @@ impl Topics {
     /// many entries hold, but each word weighs something.
     fn score(&self, entry: &HistoryEntry) -> TopicMatch {
         let entry_count = small_count(self.entry_count);
-        let words = matched_words(&self.holders_by_word, entry);
+        let mut words = matched_words(&self.holders_by_word, entry);
+        if self.is_other_context(entry) {
+            words.retain(|word| !self.title_words.contains(word));
+        }
         let mut weight = 0.0;
         for &holders in words.iter().filter_map(|word| self.holders_by_word.get(word)) {
             weight += (entry_count / small_count(holders).max(1.0)).ln_1p();
@@ -208,14 +258,17 @@ fn copy_key(entry: &HistoryEntry) -> (Place<&str>, &str) {
 }
 
 /// Returns the topic words of the text near the caret, the window title, the labels of the field
-/// and the lines of the `screen` in the column of the field, each with no holders yet.
-fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> HashMap<String, u32> {
+/// and the lines of the `screen` in the column of the field, each with no holders yet, and the
+/// words of them that only the window title gives.
+fn query_words(
+    surroundings: &Surroundings,
+    screen: Option<&ScreenText>,
+) -> (HashMap<String, u32>, HashSet<String>) {
     let labels = place::field_labels(surroundings);
     let mut texts = vec![];
     if let Some(field) = &surroundings.field_text {
         texts.extend([field.before_caret.as_str(), field.after_caret.as_str()]);
     }
-    texts.extend(surroundings.window_title.as_deref());
     texts.extend(labels.iter().map(String::as_str));
     if let Some(screen) = screen {
         texts.extend(
@@ -233,7 +286,16 @@ fn query_words(surroundings: &Surroundings, screen: Option<&ScreenText>) -> Hash
     for text in texts {
         each_lowercase_word(text, &mut add_distinctive);
     }
-    query
+    let mut title_words = HashSet::new();
+    each_lowercase_word(surroundings.window_title.as_deref().unwrap_or_default(), |word| {
+        if is_distinctive_word(word) && !query.contains_key(word) {
+            title_words.insert(word.to_owned());
+        }
+    });
+    for word in &title_words {
+        query.insert(word.clone(), 0);
+    }
+    (query, title_words)
 }
 
 /// Returns the words of `query` that the text of `entry` or the message that it answers holds, each

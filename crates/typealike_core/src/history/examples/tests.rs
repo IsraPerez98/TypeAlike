@@ -114,6 +114,50 @@ fn newest_texts_of_a_small_place_fill_the_second_example() {
     );
 }
 
+const CHAT_APP: &str = "net.whatsapp.WhatsApp";
+
+fn chat_in(window_title: &str, text: &str) -> HistoryEntry {
+    HistoryEntry {
+        typing_context: Some(window_title.to_lowercase()),
+        ..entry(text, CHAT_APP, None)
+    }
+}
+
+fn family_chats() -> Vec<HistoryEntry> {
+    vec![
+        chat_in("Mamá", "Hola mami! Ya llegué a Lima, el hotel está lindo."),
+        chat_in("Nacho", "Wena hermanito, la mamá llega el sábado a almorzar."),
+        chat_in("Mamá", "Mami, el dentista me cambió la hora para el jueves."),
+        chat_in("Nacho", "Hermanito, ¿me ayudas con el camión de la mudanza?"),
+        entry("Wena, el camión está listo para el sábado.", CHAT_APP, None),
+    ]
+}
+
+fn chat_in_window(window_title: &str, before_caret: &str) -> Surroundings {
+    Surroundings {
+        app_name: Some("WhatsApp".to_owned()),
+        ..field_with_title(CHAT_APP, before_caret, Some(window_title))
+    }
+}
+
+#[test]
+fn title_word_does_not_match_a_text_of_another_typing_context() {
+    let surroundings = chat_in_window("Mamá", "Ok ");
+
+    let examples = examples_in(&family_chats(), &surroundings);
+
+    assert_eq!(examples, ["Mami, el dentista me cambió la hora para el jueves."]);
+}
+
+#[test]
+fn text_of_another_typing_context_matches_the_words_of_the_field() {
+    let surroundings = chat_in_window("Mamá", "La mamá llega el sábado a ");
+
+    let examples = examples_with(&family_chats(), &surroundings, None, 1);
+
+    assert_eq!(examples, ["Wena hermanito, la mamá llega el sábado a almorzar."]);
+}
+
 fn notes(text: &str) -> HistoryEntry {
     entry(text, "com.apple.Notes", None)
 }

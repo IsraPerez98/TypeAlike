@@ -348,6 +348,7 @@ fn app_with_earlier_writing(history: HistoryAccess, app_id: &str) -> App {
         domain: None,
         written_at: None,
         reply_to: Vec::new(),
+        typing_context: None,
     }]);
     app
 }

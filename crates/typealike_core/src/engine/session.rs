@@ -27,11 +27,17 @@ pub(super) struct SessionField {
     /// Whether the field hides the text on the line of the caret, so that text can follow the
     /// caret also when the field gives no text after the caret.
     is_caret_line_hidden: bool,
+    /// The typing context of the window, if its title names one.
+    pub(super) typing_context: Option<String>,
 }
 
 impl SessionField {
     fn of(surroundings: &Surroundings) -> Self {
         Self {
+            typing_context: crate::history::typing_context(
+                surroundings.app_name.as_deref(),
+                surroundings.window_title.as_deref(),
+            ),
             app: ScreenTextApp::of(surroundings),
             domain: surroundings.domain.clone(),
             is_text_field: surroundings.field_text.is_some(),

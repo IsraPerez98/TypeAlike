@@ -116,6 +116,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - The `shared` group of the stores files has cases where the next word comes from another app (`help`), where another app pushes a wrong word (`harm`), and where the place and another app give different next words (`priority`). Run them with `--word-choice medium` for a change to the scope of the history.
 - Each text of the stores has the time when the writer wrote it (`written_at`, 4 texts a day, the last day 4 days before 2026-10-28 15:00 UTC).
 - A case can give its time (`now`), and its history then leaves out the texts written later.
+- A text of a store or of `history` can give the name of its app (`app`) and its window title (`window_title`), which give its typing context. The texts of the sets of the repo have none, so a change of the typing context needs cases with window titles in their texts and in the case.
 - Without `now`, a case is at the time of the newest text of its history.
 
 ## First key

@@ -79,6 +79,7 @@ impl Engine {
         };
         let entry = HistoryEntry {
             reply_to: session.reply_to.clone(),
+            typing_context: session.field.typing_context.clone(),
             ..entry
         };
         history::add(&mut self.history, entry, finished.origin(), &self.personalization);

@@ -8,6 +8,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 - The place of a text is its web page in any browser, else its app.
 - A text that the user typed in full is a new text, also when an older text is the same, so a repeated message counts each time.
 - Each text keeps the time when the user started to write it (`HistoryEntry::written_at`, from `Desktop::now`).
+- Each text also keeps its typing context (`HistoryEntry::typing_context`, `history::typing_context`): the window title of its session in lowercase, without the parts that name the app, counts such as "(3)", reply marks such as "Re:" and file extensions. For example, "#team-web - Acme - Slack" gives "#team-web | acme", and "Re: Garden party" gives "garden party". Thus it names the contact, the channel, the thread or the document. A text of an older file has none.
 - The store keeps at most 1,000,000 characters of text and at most 10,000 texts. Above either limit, the oldest texts of the store go, in any place.
 - The core also has the `WritingHistory` and `KeyVault` traits.
 
@@ -20,6 +21,9 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## Examples of the prompt
 
 - The examples are the texts of the same place that match the topic of the field: one on the CPU, two on a GPU.
+- A word of the window title matches only a text of the same typing context or of none. A text to a contact seldom holds the name of the contact, but a text about that contact to another person does. Thus in a chat with "Mamá", a text to another contact that names "mamá" is no example for that word.
+- When no text of the place matches, the newest text of the typing context of the window is the example.
+- On 38 cases of chats and mail threads (Gemma 4 E4B), these two rules helped 3 cases and harmed none with two examples (Metal), and helped 4 and harmed none with one example (CPU). When all the texts of a place have one title, such as "Untitled", the second rule gives the newest text of the place: on 208 cases of the history sets with such a title, it helped 2 cases and harmed none.
 - In a place with at most 3 texts, its newest texts fill up to two examples.
 - The texts of other places of the pool that share at least 3 topic words with the field fill the free examples.
 - A place without texts gets the newest text of another place with the same format.
@@ -57,6 +61,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## File and key
 
 - The file is `history.bin` in the folder of `settings.json`, only while "Use earlier writing" is on.
+- It holds each text with its app, its web page, its time, the words of the message that it answers and its typing context.
 - It is sealed with ChaCha20-Poly1305.
 - The key is a generic password in the login keychain on macOS (service `io.github.israperez98.typealike`, account `history-key`), and `history.key` (locked with DPAPI) next to `history.bin` on Windows.
 - To delete both resets the history.

@@ -1,6 +1,7 @@
 //! The earlier writing of the user: the texts that TypeAlike saves, the secrets that it removes
 //! from them, and the texts that a prompt shows as examples.
 
+mod context;
 mod entry;
 mod examples;
 mod phrases;
@@ -16,6 +17,7 @@ mod words;
 use std::fmt;
 use std::io;
 
+pub use context::typing_context;
 pub use entry::HistoryEntry;
 pub(crate) use examples::examples;
 pub(crate) use reply::reply_words;
