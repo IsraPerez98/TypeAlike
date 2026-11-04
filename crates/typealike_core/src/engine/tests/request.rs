@@ -34,7 +34,7 @@ fn typo_fixes_off_asks_for_no_fixes() {
 }
 
 #[test]
-fn suggestion_continues_after_the_end_of_a_sentence() {
+fn suggestion_stops_at_the_end_of_a_sentence() {
     let mut engine = engine_with(&Settings::default());
 
     let reaction = press(&mut engine, Key::Char('h'));
@@ -43,7 +43,7 @@ fn suggestion_continues_after_the_end_of_a_sentence() {
         matches!(
             reaction,
             Reaction::Request(InferenceRequest::Complete {
-                sentence_end: SentenceEnd::Continue,
+                sentence_end: SentenceEnd::Stop,
                 ..
             })
         ),

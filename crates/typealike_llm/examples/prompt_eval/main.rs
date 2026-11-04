@@ -174,8 +174,8 @@
 //! word and a fix of a known word ask again without the rule, as in the app. Without it, the app of
 //! each case has no dictionary.
 //!
-//! `--sentence-stop on` stops each suggestion at the end of a sentence. `off` (the default, as in
-//! the app) lets a suggestion continue with the next sentence.
+//! `--sentence-stop on` (the default, as in the app) stops each suggestion at the end of a
+//! sentence. `off` lets a suggestion continue with the next sentence.
 //!
 //! `--length` sets the suggestion length: `very_short`, `short`, `medium` (the default), `long` or
 //! `very_long`. The length sets the token limit and the cut of the tail of each request. As in the

@@ -79,7 +79,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
             typo_check: expected.typo_check,
-            sentence_end: SentenceEnd::Continue,
+            sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
         }
     }
