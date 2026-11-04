@@ -1,7 +1,8 @@
-//! The ghost text: a click-through, never-focused layered window drawn right after the caret, or
-//! the mirror on a card below the caret when text follows the caret on its line.
+//! The ghost text: a click-through, never-focused layered window drawn right after the caret, with
+//! the lines that a long ghost text wraps onto below the line of the caret, or the mirror on a card
+//! below the caret when text follows the caret on its line.
 
-use typealike_core::controller::{Ghost, GhostPlacement, GhostView};
+use typealike_core::controller::{Ghost, GhostPlacement, GhostView, WrappedLines};
 use typealike_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use windows::Win32::Foundation::{POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOWTEXT};
@@ -113,14 +114,18 @@ impl Overlay {
         let theme = SystemTheme::read();
         match view.placement {
             GhostPlacement::AfterCaret => {
-                let (bitmap, caret_left) = render(
-                    no_typed_letters(&font),
-                    &view.ghost,
-                    &font,
-                    inline_colors(theme, caret.text_color),
-                )?;
+                let colors = inline_colors(theme, caret.text_color);
+                let (first_line, caret_left) = render(no_typed_letters(&font), &view.ghost, &font, colors)?;
+                let first_line_left = caret.origin.x - caret_left;
+                let (bitmap, left) = match &view.wrapped {
+                    Some(wrapped) => {
+                        let style = TextRun::new("", &font, colors.rest);
+                        with_wrapped_lines((first_line, first_line_left), wrapped, style, caret.height)?
+                    }
+                    None => (first_line, first_line_left),
+                };
                 let origin = POINT {
-                    x: caret.origin.x - caret_left,
+                    x: left,
                     y: caret.origin.y,
                 };
                 bitmap.present(self.window.handle(), origin)?;
@@ -190,6 +195,34 @@ fn render(
     colors: FixColors,
 ) -> Result<(TextBitmap, i32)> {
     with_line_runs(typed, ghost, font, colors, TextBitmap::render_line)
+}
+
+/// Puts the `wrapped` lines in the font and the ink of `style` below the bitmap of the first line,
+/// which starts at its left edge, each `line_height` pixels below the line above it. Returns the
+/// bitmap of all the lines and its left edge.
+fn with_wrapped_lines(
+    (first_line, first_line_left): (TextBitmap, i32),
+    wrapped: &WrappedLines,
+    style: TextRun<'_>,
+    line_height: i32,
+) -> Result<(TextBitmap, i32)> {
+    let left = first_line_left.min(wrapped.left);
+    let mut lines = vec![(
+        first_line,
+        POINT {
+            x: first_line_left - left,
+            y: 0,
+        },
+    )];
+    for (row, line) in (1..).zip(&wrapped.lines) {
+        let (bitmap, _) = TextBitmap::render_line(&[], &[TextRun { text: line, ..style }])?;
+        let at = POINT {
+            x: wrapped.left - left,
+            y: row * line_height,
+        };
+        lines.push((bitmap, at));
+    }
+    Ok((TextBitmap::stacked(lines)?, left))
 }
 
 /// Returns the width of `ghost` after `caret`, as [`Overlay::show`] draws it right after the caret.

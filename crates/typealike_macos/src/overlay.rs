@@ -1,4 +1,5 @@
-//! The ghost text: a click-through, never-focused panel drawn right after the caret.
+//! The ghost text: a click-through, never-focused panel drawn right after the caret, and a second
+//! one with the lines that a long ghost text wraps onto below the line of the caret.
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -14,7 +15,7 @@ use objc2_foundation::{
     NSAttributedString, NSAttributedStringKey, NSDictionary, NSMutableAttributedString, NSNumber, NSPoint,
     NSRect, NSString,
 };
-use typealike_core::controller::Ghost;
+use typealike_core::controller::{Ghost, WrappedLines};
 use typealike_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
 use typealike_core::engine::WordFix;
 
@@ -26,43 +27,52 @@ use crate::panel;
 pub(crate) struct Overlay {
     panel: Retained<NSPanel>,
     label: Retained<NSTextField>,
+    wrapped_panel: Retained<NSPanel>,
+    wrapped_label: Retained<NSTextField>,
     main_thread: MainThreadMarker,
 }
 
 impl Overlay {
     pub(crate) fn new(main_thread: MainThreadMarker) -> Self {
-        let label = NSTextField::labelWithString(&NSString::new(), main_thread);
-        label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        let panel = panel::floating_panel(main_thread);
-        panel.setContentView(Some(&label));
+        let (panel, label) = label_panel(main_thread);
+        let (wrapped_panel, wrapped_label) = label_panel(main_thread);
         Self {
             panel,
             label,
+            wrapped_panel,
+            wrapped_label,
             main_thread,
         }
     }
 
-    /// Shows `text` starting at `caret`, in the face of `style` at the size that fits the caret, and
-    /// in the colors for a field whose text has `style`.
-    pub(crate) fn show(&self, text: &str, caret: Caret, style: &TextStyle) {
+    /// Shows `text` starting at `caret`, then the `wrapped` lines below, in the face of `style` at
+    /// the size that fits the caret, and in the colors for a field whose text has `style`.
+    pub(crate) fn show(&self, text: &str, wrapped: Option<&WrappedLines>, caret: Caret, style: &TextStyle) {
         self.match_field(style.color);
-        let contrast = Contrast::read();
         let font = font_at(caret, style.face.as_ref());
+        let color = ghost_color(style.color, Contrast::read());
         self.label.setFont(Some(&font));
-        self.label.setTextColor(Some(&ghost_color(style.color, contrast)));
+        self.label.setTextColor(Some(&color));
         self.label.setStringValue(&NSString::from_str(text));
-        self.present(caret);
+        self.present(&self.panel, &self.label, caret, 0);
+        self.show_wrapped(wrapped, caret, &font, &color);
     }
 
     /// Shows `fix` at `caret` in the face of `style`, for a field whose text has `style`: a red line
     /// through the typed letters before the caret, then the fixed word in green and the rest of the
-    /// suggestion as ghost text. The line spans the width of the letters in the font of the
-    /// overlay. When the face of the app is not installed, the line can differ a little from the
-    /// letters of the app.
-    pub(crate) fn show_fix(&self, fix: &WordFix, caret: Caret, style: &TextStyle) {
+    /// suggestion as ghost text, then the `wrapped` lines below. The line spans the width of the
+    /// letters in the font of the overlay. When the face of the app is not installed, the line can
+    /// differ a little from the letters of the app.
+    pub(crate) fn show_fix(
+        &self,
+        fix: &WordFix,
+        wrapped: Option<&WrappedLines>,
+        caret: Caret,
+        style: &TextStyle,
+    ) {
         self.match_field(style.color);
-        let contrast = Contrast::read();
         let font = font_at(caret, style.face.as_ref());
+        let color = ghost_color(style.color, Contrast::read());
         let typo = attributed(
             &fix.typo,
             &font,
@@ -71,42 +81,75 @@ impl Overlay {
         );
         let text = NSMutableAttributedString::new();
         text.appendAttributedString(&typo);
-        append_fix_tail(&text, fix, &font, &ghost_color(style.color, contrast));
+        append_fix_tail(&text, fix, &font, &color);
         self.label.setAttributedStringValue(&text);
-        self.present(Caret {
+        let typo_start = Caret {
             left: caret.left - typo.size().width,
             ..caret
-        });
+        };
+        self.present(&self.panel, &self.label, typo_start, 0);
+        self.show_wrapped(wrapped, caret, &font, &color);
+    }
+
+    /// Shows the `wrapped` lines in `font` and `color` at their left edge, from the line below the
+    /// line of `caret`, one caret height apart. Hides them without wrapped lines.
+    fn show_wrapped(&self, wrapped: Option<&WrappedLines>, caret: Caret, font: &NSFont, color: &NSColor) {
+        let Some(wrapped) = wrapped else {
+            self.wrapped_panel.orderOut(None);
+            return;
+        };
+        let lines = wrapped.lines.join("\n");
+        self.wrapped_label
+            .setAttributedStringValue(&attributed(&lines, font, color, None));
+        let first_line = Caret {
+            left: CGFloat::from(wrapped.left),
+            top: caret.top + caret.height,
+            height: caret.height,
+        };
+        let lines_below = wrapped.lines.len().saturating_sub(1);
+        self.present(&self.wrapped_panel, &self.wrapped_label, first_line, lines_below);
     }
 
     /// Draws in the appearance for the background of a field with text in `text_color`, so that
-    /// the colors of a fix keep their contrast there. Without it, the panel follows the app.
+    /// the colors of a fix keep their contrast there. Without it, the panels follow the app.
     fn match_field(&self, text_color: Option<TextColor>) {
         let appearance =
             text_color.and_then(|color| NSAppearance::appearanceNamed(field_appearance_name(color)));
         self.panel.setAppearance(appearance.as_deref());
+        self.wrapped_panel.setAppearance(appearance.as_deref());
     }
 
-    /// Sizes the panel to the label and shows it with its left edge at `caret`.
-    fn present(&self, caret: Caret) {
+    /// Sizes `panel` to its `label` and shows it with its left edge at `caret`, its first line
+    /// centered on `caret`, and `lines_below` lines of the caret height below it.
+    fn present(&self, panel: &NSPanel, label: &NSTextField, caret: Caret, lines_below: usize) {
         let Some(primary_screen_height) = panel::primary_screen_height(self.main_thread) else {
             self.hide();
             return;
         };
-        self.label.sizeToFit();
-        let size = self.label.frame().size;
-        let origin = panel_origin(caret, primary_screen_height, size.height);
-        self.panel.setFrame_display(NSRect::new(origin, size), true);
-        self.panel.orderFrontRegardless();
+        label.sizeToFit();
+        let size = label.frame().size;
+        let origin = panel_origin(caret, lines_below, primary_screen_height, size.height);
+        panel.setFrame_display(NSRect::new(origin, size), true);
+        panel.orderFrontRegardless();
     }
 
     pub(crate) fn hide(&self) {
         self.panel.orderOut(None);
+        self.wrapped_panel.orderOut(None);
     }
 
     pub(crate) fn is_shown(&self) -> bool {
         self.panel.isVisible()
     }
+}
+
+/// Returns a floating panel with an empty label as its content.
+fn label_panel(main_thread: MainThreadMarker) -> (Retained<NSPanel>, Retained<NSTextField>) {
+    let label = NSTextField::labelWithString(&NSString::new(), main_thread);
+    label.setTextColor(Some(&NSColor::secondaryLabelColor()));
+    let panel = panel::floating_panel(main_thread);
+    panel.setContentView(Some(&label));
+    (panel, label)
 }
 
 /// Returns the width of `ghost` after `caret` in `face`, as the overlay draws it right after the
@@ -257,28 +300,45 @@ fn fitted_font_size(caret_height: CGFloat, line_height_at_caret_size: CGFloat) -
     caret_height * caret_height / line_height_at_caret_size
 }
 
-/// Centers a panel `panel_height` tall on `caret`, in AppKit's bottom-left screen coordinates.
-fn panel_origin(caret: Caret, primary_screen_height: CGFloat, panel_height: CGFloat) -> NSPoint {
+/// Puts a panel `panel_height` tall at `caret`, with its first line centered on `caret` and
+/// `lines_below` lines of the caret height below it, in AppKit's bottom-left screen coordinates.
+fn panel_origin(
+    caret: Caret,
+    lines_below: usize,
+    primary_screen_height: CGFloat,
+    panel_height: CGFloat,
+) -> NSPoint {
     let caret_middle_from_top = caret.top + caret.height / 2.0;
     let caret_middle_from_bottom = primary_screen_height - caret_middle_from_top;
-    NSPoint::new(caret.left, caret_middle_from_bottom - panel_height / 2.0)
+    let lines_below_height = CGFloat::from(u32::try_from(lines_below).unwrap_or(u32::MAX)) * caret.height;
+    NSPoint::new(
+        caret.left,
+        caret_middle_from_bottom - panel_height.midpoint(lines_below_height),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const CARET: Caret = Caret {
+        left: 300.0,
+        top: 100.0,
+        height: 20.0,
+    };
+
     #[test]
     fn panel_is_centered_on_caret_in_flipped_coordinates() {
-        let caret = Caret {
-            left: 300.0,
-            top: 100.0,
-            height: 20.0,
-        };
-
-        let origin = panel_origin(caret, 1000.0, 24.0);
+        let origin = panel_origin(CARET, 0, 1000.0, 24.0);
 
         assert_eq!(origin, NSPoint::new(300.0, 878.0));
+    }
+
+    #[test]
+    fn panel_of_several_lines_keeps_its_first_line_centered_on_the_caret() {
+        let origin = panel_origin(CARET, 2, 1000.0, 64.0);
+
+        assert_eq!(origin, NSPoint::new(300.0, 838.0));
     }
 
     const LIGHT_TEXT: TextColor = TextColor {

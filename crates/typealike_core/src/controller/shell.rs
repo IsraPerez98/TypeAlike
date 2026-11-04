@@ -68,12 +68,13 @@ pub trait Shell: Desktop {
     fn read_caret(&mut self) -> CaretLook;
 
     /// Returns the width of `ghost` after the caret, as the shell draws it right after the caret
-    /// of the read that it gave last to the controller, in the units of [`ScreenRect`]. Returns 0
+    /// of the read that it gave last to the controller, in the units of [`ScreenRect`]. A line
+    /// that the ghost text wraps onto has the width of its text as a [`Ghost::Text`]. Returns 0
     /// when the shell cannot measure it, so that the ghost text stays whole.
     fn ghost_width(&self, ghost: &Ghost) -> i32;
 
-    /// Shows the `ghost` text at its placement at the caret of the focused field and the `badge`
-    /// at the caret. The caret is the caret of the read that the shell gave last to the
+    /// Shows the `ghost` text at its placement at the caret of the focused field, with its wrapped
+    /// lines below the line of the caret, and the `badge` at the caret. The caret is the caret of the read that the shell gave last to the
     /// controller. Hides the ghost text for no `ghost` and the badge for no `badge`. When the caret
     /// is not known, it can show the badge at the start of the focused field and the mirror of
     /// `ghost` next to the field, else it hides them.

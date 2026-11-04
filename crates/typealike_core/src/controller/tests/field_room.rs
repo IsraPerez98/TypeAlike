@@ -1,21 +1,24 @@
-//! Tests of the ghost text after the caret that stays inside its field: the controller cuts it
-//! after the last whole Tab part that fits before the right edge of the field.
+//! Tests of the ghost text after the caret that stays inside its field: the controller wraps the
+//! rest that does not fit on the line of the caret onto the lines below, or shows the whole ghost
+//! text below the caret when the field has no room for those lines.
 
 use super::harness::{Call, Harness};
-use crate::controller::tab_hold::TAB_HOLD_DELAY;
-use crate::controller::{CaretLook, CaretRead, Ghost, GhostPlacement, Timer};
+use crate::controller::{CaretLook, CaretRead, Ghost, GhostPlacement, GhostView, WrappedLines};
 use crate::desktop::ScreenRect;
-use crate::key::{Disposition, Key};
+use crate::key::Key;
 use crate::settings::Settings;
 
-/// A field with room for 11 characters of ghost text after a caret at 100, less the gap of 4
-/// pixels before its right edge.
+/// A field with one line of 20 pixels below the line of the caret. A caret at 100 has room for
+/// 11 characters of ghost text, and the line below has room for 16, between the gaps of 4 pixels
+/// at the edges of the field.
 const FIELD: ScreenRect = ScreenRect {
     left: 50,
     top: 80,
     right: 220,
     bottom: 140,
 };
+/// A field with no room below the line of the caret.
+const SINGLE_LINE_FIELD: ScreenRect = ScreenRect { bottom: 120, ..FIELD };
 /// A suggestion after "B" with the Tab parts "est", " regards", " to" and " you".
 const SUGGESTION: &str = "est regards to you";
 
@@ -42,32 +45,36 @@ fn move_caret_to(harness: &mut Harness, left: i32, field: Option<ScreenRect>) {
     });
 }
 
-fn shown_ghost(harness: &Harness) -> Option<Ghost> {
-    harness.shell.ghost_view.as_ref().map(|view| view.ghost.clone())
+fn shown_view(harness: &Harness) -> GhostView {
+    harness.shell.ghost_view.clone().expect("a shown ghost text")
+}
+
+fn shown_lines(harness: &Harness) -> (Ghost, Option<WrappedLines>) {
+    let view = shown_view(harness);
+    (view.ghost, view.wrapped)
 }
 
 fn text(ghost: &str) -> Ghost {
     Ghost::Text(ghost.to_owned())
 }
 
-/// A harness after a Tab on the first part of [`SUGGESTION`], shown in [`FIELD`] up to " regards",
-/// and a quick Tab on " regards", which leaves " to you" that did not show.
-fn harness_after_the_last_shown_part() -> Harness {
-    let mut harness = harness_at(100, Some(FIELD));
-    harness.show(SUGGESTION);
-    harness.press(Key::Tab);
-    harness.press(Key::Tab);
-    harness.take_calls();
-    harness
+fn wrapped(line: &str) -> WrappedLines {
+    WrappedLines {
+        left: 54,
+        lines: vec![line.to_owned()],
+    }
 }
 
 #[test]
-fn ghost_text_that_runs_past_its_field_shows_its_parts_that_fit() {
+fn ghost_text_that_runs_past_its_field_wraps_onto_the_line_below() {
     let mut harness = harness_at(100, Some(FIELD));
 
     harness.show(SUGGESTION);
 
-    assert_eq!(shown_ghost(&harness), Some(text("est regards")));
+    assert_eq!(
+        shown_lines(&harness),
+        (text("est regards "), Some(wrapped("to you")))
+    );
 }
 
 #[test]
@@ -77,27 +84,27 @@ fn ghost_text_stays_whole_in_a_field_without_a_known_frame() {
     let ghosts = fields.map(|field| {
         let mut harness = harness_at(100, field);
         harness.show(SUGGESTION);
-        shown_ghost(&harness)
+        shown_lines(&harness)
     });
 
-    assert_eq!(ghosts, [Some(text(SUGGESTION)), Some(text(SUGGESTION))]);
+    assert_eq!(ghosts, [(text(SUGGESTION), None), (text(SUGGESTION), None)]);
 }
 
 #[test]
-fn ghost_text_whose_first_part_does_not_fit_shows_whole_below_the_caret() {
-    let mut harness = harness_at(200, Some(FIELD));
+fn ghost_text_that_does_not_fit_in_a_single_line_field_shows_whole_below_the_caret() {
+    let mut harness = harness_at(100, Some(SINGLE_LINE_FIELD));
 
     harness.show(SUGGESTION);
 
-    let view = harness.shell.ghost_view.expect("a shown ghost text");
+    let view = shown_view(&harness);
     assert_eq!(
-        (view.ghost, view.placement),
-        (Ghost::Text(SUGGESTION.to_owned()), GhostPlacement::BelowCaret)
+        (view.ghost, view.wrapped, view.placement),
+        (text(SUGGESTION), None, GhostPlacement::BelowCaret)
     );
 }
 
 #[test]
-fn rest_after_tab_shows_its_parts_that_fit_at_the_new_caret() {
+fn rest_after_tab_wraps_again_at_the_new_caret() {
     let mut harness = harness_at(100, Some(FIELD));
     harness.show(SUGGESTION);
     harness.press(Key::Tab);
@@ -105,7 +112,10 @@ fn rest_after_tab_shows_its_parts_that_fit_at_the_new_caret() {
 
     harness.settle_caret();
 
-    assert_eq!(shown_ghost(&harness), Some(text(" regards")));
+    assert_eq!(
+        shown_lines(&harness),
+        (text(" regards "), Some(wrapped("to you")))
+    );
 }
 
 #[test]
@@ -125,37 +135,12 @@ fn quick_tab_after_a_part_types_the_next_part_that_showed() {
 }
 
 #[test]
-fn quick_tab_after_the_last_shown_part_starts_the_tab_hold_timer() {
+fn quick_tab_types_the_part_that_showed_on_a_wrapped_line() {
     let mut harness = harness_at(100, Some(FIELD));
     harness.show(SUGGESTION);
     harness.press(Key::Tab);
-
     harness.press(Key::Tab);
-
-    assert!(
-        harness
-            .take_calls()
-            .contains(&Call::StartTimer(Timer::TabHold, TAB_HOLD_DELAY))
-    );
-}
-
-#[test]
-fn quick_tab_on_a_rest_that_did_not_show_is_held() {
-    let mut harness = harness_after_the_last_shown_part();
-
-    let disposition = harness.press(Key::Tab);
-
-    assert_eq!(
-        (disposition, harness.take_calls()),
-        (Disposition::Swallow, Vec::new())
-    );
-}
-
-#[test]
-fn tab_after_the_rest_shows_types_its_next_part() {
-    let mut harness = harness_after_the_last_shown_part();
-    move_caret_to(&mut harness, 160, Some(FIELD));
-    harness.settle_caret();
+    harness.take_calls();
 
     harness.press(Key::Tab);
 

@@ -1,11 +1,14 @@
 //! What the platform shows for a suggestion: the ghost text and the mirror of the typed word.
 
-use std::{fmt, iter};
+use std::fmt;
 
-use crate::engine::{WordFix, split_next_part};
+use crate::desktop::ScreenRect;
+use crate::engine::WordFix;
 
 /// The most characters of the word before the caret that the mirror shows.
 const MIRROR_WORD_CHARS: usize = 24;
+/// The room that the ghost text after the caret keeps free inside each side of its field.
+const FIELD_EDGE_GAP: i32 = 4;
 
 /// What the ghost text shows at the caret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,12 +29,27 @@ pub enum GhostPlacement {
     BelowCaret,
 }
 
+/// The lines below the line of the caret that a long ghost text after the caret wraps onto, as
+/// its field wraps the text when the user types it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrappedLines {
+    /// The left edge of each line, near the left edge of the field, in the units of
+    /// [`ScreenRect`].
+    pub left: i32,
+    /// The text of each line, top first. Each line shows one caret height below the line above
+    /// it, in the font and the color of the ghost text after the caret.
+    pub lines: Vec<String>,
+}
+
 /// What the platform shows for a suggestion: the ghost text at the caret or in the mirror below
 /// it, else, when it finds no caret, the mirror next to the focused field.
 #[derive(Clone, PartialEq, Eq)]
 pub struct GhostView {
-    /// The ghost text.
+    /// The ghost text, or with [`wrapped`](Self::wrapped) lines only its part on the line of the
+    /// caret.
     pub ghost: Ghost,
+    /// The rest of a ghost text after the caret that does not fit on the line of the caret.
+    pub wrapped: Option<WrappedLines>,
     /// The end of the word before the caret, without the typo of a fix. The mirror shows it
     /// before the ghost text, so that the user sees which part they typed.
     pub typed_word: String,
@@ -53,57 +71,124 @@ impl GhostView {
         Self {
             typed_word: mirrored_word(text_before_typo),
             ghost,
+            wrapped: None,
             placement,
         }
     }
 
-    /// Keeps the whole Tab parts of the ghost text that fit in `room` after the caret, as
-    /// `width_of` measures a ghost text after the caret. A fix keeps its word and cuts only its
-    /// rest. When not even the first part fits, the whole ghost text moves below the caret. A view
-    /// below the caret stays whole.
-    #[must_use]
-    pub fn fit_to(self, room: i32, width_of: impl Fn(&Ghost) -> i32) -> Self {
-        if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room {
+    /// Fits the ghost text after `caret` into `field`, as `width_of` measures a ghost text after
+    /// the caret. A ghost text that does not fit on the line of the caret wraps onto the lines
+    /// below. When the field has no room for those lines, the whole ghost text moves below the
+    /// caret. A view below the caret stays whole.
+    pub(super) fn fit_to(
+        self,
+        caret: ScreenRect,
+        field: ScreenRect,
+        width_of: impl Fn(&Ghost) -> i32,
+    ) -> Self {
+        let room = FieldRoom::after(caret, field);
+        if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room.caret_line {
             return self;
         }
-        let fitting = self
-            .ghost
-            .cuts()
-            .take_while(|ghost| width_of(ghost) <= room)
-            .last();
-        match fitting {
-            Some(ghost) => Self { ghost, ..self },
+        match room.wrap(&self.ghost, width_of) {
+            Some((ghost, lines)) => Self {
+                ghost,
+                wrapped: Some(WrappedLines {
+                    left: room.line_left,
+                    lines,
+                }),
+                ..self
+            },
             None => Self {
                 placement: GhostPlacement::BelowCaret,
                 ..self
             },
         }
     }
+}
 
-    /// Returns the characters at the end of `whole` that this view of it leaves out.
-    pub(super) fn left_out_chars(&self, whole: &Ghost) -> usize {
-        let shown_chars = self.ghost.cuttable_text().chars().count();
-        whole.cuttable_text().chars().count().saturating_sub(shown_chars)
+/// The room for a ghost text after the caret inside its field, between the gaps at its edges.
+struct FieldRoom {
+    /// The width between the caret and the right edge.
+    caret_line: i32,
+    /// The left edge of each line below the line of the caret.
+    line_left: i32,
+    /// The width of each line below the line of the caret.
+    line_width: i32,
+    /// How many lines of the height of the caret fit below the line of the caret.
+    lines_below: usize,
+}
+
+impl FieldRoom {
+    fn after(caret: ScreenRect, field: ScreenRect) -> Self {
+        let line_left = field.left.saturating_add(FIELD_EDGE_GAP);
+        let line_right = field.right.saturating_sub(FIELD_EDGE_GAP);
+        let lines_below = field
+            .bottom
+            .saturating_sub(caret.bottom)
+            .checked_div(caret.bottom.saturating_sub(caret.top))
+            .and_then(|lines| usize::try_from(lines).ok())
+            .unwrap_or(0);
+        Self {
+            caret_line: line_right.saturating_sub(caret.right),
+            line_left,
+            line_width: line_right.saturating_sub(line_left),
+            lines_below,
+        }
+    }
+
+    /// Splits `ghost` after the whitespace between its words into its part on the line of the
+    /// caret and the lines below, each as long as fits, as `width_of` measures each without the
+    /// whitespace at its end. `None` when a part or a line does not fit, or the lines do not fit
+    /// below the caret.
+    fn wrap(&self, ghost: &Ghost, width_of: impl Fn(&Ghost) -> i32) -> Option<(Ghost, Vec<String>)> {
+        let text = ghost.cuttable_text();
+        let breaks = line_breaks(text);
+        let first_end = longest_line(text, 0, &breaks, |end| {
+            width_of(&ghost.cut_at(end)) <= self.caret_line
+        })?;
+        let mut lines = Vec::new();
+        let mut start = first_end;
+        while start < text.len() {
+            let end = longest_line(text, start, &breaks, |end| {
+                width_of(&Ghost::Text(text[start..end].to_owned())) <= self.line_width
+            })?;
+            lines.push(text[start..end].to_owned());
+            start = end;
+        }
+        (lines.len() <= self.lines_below).then(|| (ghost.cut_at(first_end), lines))
     }
 }
 
+/// Returns the end of the longest line of `text` from `start` to one of `breaks` whose text up to
+/// the end of its last word `fits`. `None` when not even the first word fits.
+fn longest_line(text: &str, start: usize, breaks: &[usize], fits: impl Fn(usize) -> bool) -> Option<usize> {
+    breaks
+        .iter()
+        .copied()
+        .filter(|&end| end > start)
+        .take_while(|&end| fits(start + text[start..end].trim_end().len()))
+        .last()
+}
+
+/// Returns the byte index after each run of whitespace before a word of `text`, then the end of
+/// `text`: the places where a field wraps a line.
+fn line_breaks(text: &str) -> Vec<usize> {
+    text.char_indices()
+        .zip(text.chars().skip(1))
+        .filter(|&((_, character), next)| character.is_whitespace() && !next.is_whitespace())
+        .map(|((index, character), _)| index + character.len_utf8())
+        .chain([text.len()])
+        .collect()
+}
+
 impl Ghost {
-    /// The text that a cut can shorten: the whole ghost text, or the rest after the word of a fix.
+    /// The text that a wrap can split: the whole ghost text, or the rest after the word of a fix.
     fn cuttable_text(&self) -> &str {
         match self {
             Self::Text(text) => text,
             Self::Fix(fix) => &fix.rest,
         }
-    }
-
-    /// Returns each cut of this ghost text after a whole Tab part, shortest first. A ghost text
-    /// keeps at least its first part, and a fix keeps at least its word.
-    fn cuts(&self) -> impl Iterator<Item = Self> + '_ {
-        let word_only = matches!(self, Self::Fix(_)).then_some(0);
-        word_only
-            .into_iter()
-            .chain(part_ends(self.cuttable_text()))
-            .map(|end| self.cut_at(end))
     }
 
     /// Returns this ghost text with its cuttable text up to the byte index `end`.
@@ -118,24 +203,12 @@ impl Ghost {
     }
 }
 
-/// Returns the byte index after each Tab part of `text`, in order.
-fn part_ends(text: &str) -> impl Iterator<Item = usize> + '_ {
-    let mut end = 0;
-    iter::from_fn(move || {
-        let (part, _) = split_next_part(&text[end..]);
-        if part.is_empty() {
-            return None;
-        }
-        end += part.len();
-        Some(end)
-    })
-}
-
 impl fmt::Debug for GhostView {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GhostView")
             .field("ghost", &self.ghost)
+            .field("wrapped", &self.wrapped)
             .field(
                 "typed_word",
                 &format_args!("{} chars", self.typed_word.chars().count()),
@@ -195,6 +268,26 @@ mod tests {
         assert_eq!(view.typed_word, "(");
     }
 
+    /// A field with three lines of 20 pixels below a caret line at the top, and room for 19
+    /// characters on each line between the gaps at its edges.
+    const FIELD: ScreenRect = ScreenRect {
+        left: 0,
+        top: 0,
+        right: 204,
+        bottom: 80,
+    };
+
+    /// A caret of 20 pixels on the first line of [`FIELD`], with room for 10 characters after a
+    /// caret at 100.
+    fn caret_at(left: i32) -> ScreenRect {
+        ScreenRect {
+            left,
+            top: 0,
+            right: left,
+            bottom: 20,
+        }
+    }
+
     /// The width of `ghost` after the caret at 10 pixels for each character, with the space that
     /// the platforms draw before the word of a fix.
     fn width_of(ghost: &Ghost) -> i32 {
@@ -218,89 +311,121 @@ mod tests {
         GhostView::new(Ghost::Fix(fix), "Until teh", GhostPlacement::AfterCaret)
     }
 
+    fn fix_with_rest(rest: &str) -> Ghost {
+        inline_fix(rest).ghost
+    }
+
+    fn wrapped(lines: &[&str]) -> WrappedLines {
+        WrappedLines {
+            left: 4,
+            lines: lines.iter().copied().map(str::to_owned).collect(),
+        }
+    }
+
+    fn below_caret(view: GhostView) -> GhostView {
+        GhostView {
+            placement: GhostPlacement::BelowCaret,
+            ..view
+        }
+    }
+
     #[test]
     fn fit_keeps_a_ghost_text_that_fits_whole() {
-        let view = inline_text(" regards, Sam");
+        let view = inline_text(" regards");
 
-        let fitted = view.clone().fit_to(130, width_of);
+        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
 
         assert_eq!(fitted, view);
     }
 
     #[test]
-    fn fit_cuts_the_ghost_text_after_the_last_whole_part_that_fits() {
-        let rooms = [80, 129, 130, 169];
+    fn fit_wraps_the_rest_onto_the_lines_below_near_the_left_edge_of_the_field() {
+        let view = inline_text(" see you next week to discuss the findings");
 
-        let ghosts = rooms.map(|room| inline_text(" regards, Sam and Ana").fit_to(room, width_of).ghost);
+        let fitted = view.fit_to(caret_at(100), FIELD, width_of);
 
         assert_eq!(
-            ghosts,
-            [" regards", " regards,", " regards, Sam", " regards, Sam"]
-                .map(|text| Ghost::Text(text.to_owned()))
+            (fitted.ghost, fitted.wrapped),
+            (
+                Ghost::Text(" see you ".to_owned()),
+                Some(wrapped(&["next week to ", "discuss the ", "findings"]))
+            )
         );
     }
 
     #[test]
-    fn fit_moves_the_whole_ghost_text_below_the_caret_when_its_first_part_does_not_fit() {
-        let rooms = [79, 0, -40];
+    fn fit_puts_a_first_word_that_does_not_fit_on_the_next_line() {
+        let view = inline_text(" regards");
 
-        let views = rooms.map(|room| inline_text(" regards, Sam").fit_to(room, width_of));
-
-        let below = GhostView {
-            placement: GhostPlacement::BelowCaret,
-            ..inline_text(" regards, Sam")
-        };
-        assert_eq!(views, [below.clone(), below.clone(), below]);
-    }
-
-    #[test]
-    fn fit_keeps_the_word_of_a_fix_and_cuts_only_its_rest() {
-        let rooms = [40, 79, 80];
-
-        let ghosts = rooms.map(|room| inline_fix(" end of it").fit_to(room, width_of).ghost);
+        let fitted = view.fit_to(caret_at(170), FIELD, width_of);
 
         assert_eq!(
-            ghosts,
-            [inline_fix(""), inline_fix(""), inline_fix(" end")].map(|view| view.ghost)
+            (fitted.ghost, fitted.wrapped),
+            (Ghost::Text(" ".to_owned()), Some(wrapped(&["regards"])))
         );
     }
 
     #[test]
-    fn fit_moves_a_fix_below_the_caret_when_its_word_does_not_fit() {
-        let fitted = inline_fix(" end").fit_to(39, width_of);
+    fn fit_keeps_closing_signs_on_the_line_of_their_word() {
+        let view = inline_text(" regards, Sam");
+
+        let fitted = view.fit_to(caret_at(120), FIELD, width_of);
 
         assert_eq!(
-            fitted,
-            GhostView {
-                placement: GhostPlacement::BelowCaret,
-                ..inline_fix(" end")
-            }
+            (fitted.ghost, fitted.wrapped),
+            (Ghost::Text(" ".to_owned()), Some(wrapped(&["regards, Sam"])))
         );
+    }
+
+    #[test]
+    fn fit_keeps_the_word_of_a_fix_on_the_line_of_the_caret_and_wraps_its_rest() {
+        let view = inline_fix(" end of the story");
+
+        let fitted = view.fit_to(caret_at(100), FIELD, width_of);
+
+        assert_eq!(
+            (fitted.ghost, fitted.wrapped),
+            (fix_with_rest(" end "), Some(wrapped(&["of the story"])))
+        );
+    }
+
+    #[test]
+    fn fit_moves_the_whole_ghost_text_below_the_caret_when_the_field_has_no_room_for_its_lines() {
+        let fields = [20, 60].map(|bottom| ScreenRect { bottom, ..FIELD });
+        let view = inline_text(" see you next week to discuss the findings");
+
+        let fitted = fields.map(|field| view.clone().fit_to(caret_at(100), field, width_of));
+
+        assert_eq!(fitted, [below_caret(view.clone()), below_caret(view)]);
+    }
+
+    #[test]
+    fn fit_moves_the_whole_ghost_text_below_the_caret_when_its_first_word_does_not_fit() {
+        let views = [inline_text("ld of hope"), inline_fix(" end")];
+
+        let fitted = views
+            .clone()
+            .map(|view| view.fit_to(caret_at(190), FIELD, width_of));
+
+        assert_eq!(fitted, views.map(below_caret));
+    }
+
+    #[test]
+    fn fit_moves_the_whole_ghost_text_below_the_caret_when_a_word_is_wider_than_a_line() {
+        let view = inline_text(" supercalifragilisticexpialidocious");
+
+        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
+
+        assert_eq!(fitted, below_caret(view));
     }
 
     #[test]
     fn fit_leaves_a_ghost_text_below_the_caret_whole() {
-        let view = GhostView {
-            placement: GhostPlacement::BelowCaret,
-            ..inline_text(" regards, Sam")
-        };
+        let view = below_caret(inline_text(" see you next week to discuss the findings"));
 
-        let fitted = view.clone().fit_to(10, width_of);
+        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
 
         assert_eq!(fitted, view);
-    }
-
-    #[test]
-    fn fitted_view_tells_the_characters_that_it_leaves_out() {
-        let ghost = Ghost::Text(" regards, Sam and Ana".to_owned());
-
-        let left_out = [80, 130, 400].map(|room| {
-            inline_text(" regards, Sam and Ana")
-                .fit_to(room, width_of)
-                .left_out_chars(&ghost)
-        });
-
-        assert_eq!(left_out, [13, 8, 0]);
     }
 
     #[test]

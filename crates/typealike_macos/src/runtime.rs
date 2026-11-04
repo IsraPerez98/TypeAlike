@@ -393,9 +393,10 @@ impl AppKitShell {
         }
         self.mirror.hide();
         let style = self.caret_text_style();
+        let wrapped = view.wrapped.as_ref();
         match &view.ghost {
-            Ghost::Text(text) => self.overlay.show(text, caret, style),
-            Ghost::Fix(fix) => self.overlay.show_fix(fix, caret, style),
+            Ghost::Text(text) => self.overlay.show(text, wrapped, caret, style),
+            Ghost::Fix(fix) => self.overlay.show_fix(fix, wrapped, caret, style),
         }
     }
 

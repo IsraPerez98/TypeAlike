@@ -15,7 +15,9 @@ use windows::core::{Error, Result};
 
 use super::font::{Font, FontHeight, FontWeight};
 use super::memory::{MemoryContext, PixelSection};
-use crate::pixels::{Ink, Rgb, fill_band, lay_over, pad, strike_rows, tint_by_coverage, tint_spans};
+use crate::pixels::{
+    Ink, Rgb, fill_band, lay_over, lay_over_at, pad, strike_rows, tint_by_coverage, tint_spans,
+};
 
 const ICON_FACES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
 
@@ -135,6 +137,39 @@ impl TextBitmap {
         let mut section = PixelSection::new(size)?;
         // SAFETY: no device context has the new bitmap selected, so GDI does not draw into it.
         unsafe { section.pixels() }.copy_from_slice(&pixels);
+        Ok(Self { section, size })
+    }
+
+    /// Returns one bitmap that holds each bitmap of `parts` with its top-left corner at its point,
+    /// in pixels from the top-left corner of the new bitmap.
+    pub(crate) fn stacked(parts: Vec<(Self, POINT)>) -> Result<Self> {
+        let size = SIZE {
+            cx: parts
+                .iter()
+                .map(|(part, at)| at.x + part.size.cx)
+                .max()
+                .unwrap_or_default(),
+            cy: parts
+                .iter()
+                .map(|(part, at)| at.y + part.size.cy)
+                .max()
+                .unwrap_or_default(),
+        };
+        let mut section = PixelSection::new(size)?;
+        // SAFETY: no device context has the new bitmap selected, so GDI does not draw into it.
+        let pixels = unsafe { section.pixels() };
+        for (mut part, at) in parts {
+            // SAFETY: no device context has the bitmap of the part selected.
+            let part_pixels = unsafe { part.section.pixels() };
+            let top_left = (to_index(at.x), to_index(at.y));
+            lay_over_at(
+                pixels,
+                to_index(size.cx),
+                part_pixels,
+                to_index(part.size.cx),
+                top_left,
+            );
+        }
         Ok(Self { section, size })
     }
 

@@ -282,6 +282,25 @@ pub(crate) fn lay_over(front: &mut [u32], backdrop: &[u32]) {
     }
 }
 
+/// Lays `front`, in rows of `front_width`, over `backdrop`, in rows of `width`, with the top-left
+/// pixel of `front` at the column and the row of `top_left`. The pixels of `front` outside
+/// `backdrop` are left out.
+pub(crate) fn lay_over_at(
+    backdrop: &mut [u32],
+    width: usize,
+    front: &[u32],
+    front_width: usize,
+    top_left: (usize, usize),
+) {
+    let (left, top) = top_left;
+    let rows = backdrop.chunks_mut(width.max(1)).skip(top);
+    for (row, front_row) in rows.zip(front.chunks(front_width.max(1))) {
+        for (pixel, &front_pixel) in row.iter_mut().skip(left).zip(front_row) {
+            *pixel = over(front_pixel, *pixel);
+        }
+    }
+}
+
 fn over(front: u32, backdrop: u32) -> u32 {
     let front = front.to_le_bytes();
     let backdrop = backdrop.to_le_bytes();
@@ -453,6 +472,21 @@ mod tests {
         let padded = pad(&[0xFFFF_FFFF, 0x8080_8080], 2, 1, 1);
 
         assert_eq!(padded, [0, 0, 0, 0, 0, 0xFFFF_FFFF, 0x8080_8080, 0, 0, 0, 0, 0,]);
+    }
+
+    #[test]
+    fn front_goes_over_the_backdrop_at_its_place_and_is_cut_at_the_edges() {
+        let mut backdrop = [0; 6];
+
+        lay_over_at(
+            &mut backdrop,
+            3,
+            &[0xFF00_0001, 0xFF00_0002, 0xFF00_0003, 0xFF00_0004],
+            2,
+            (2, 1),
+        );
+
+        assert_eq!(backdrop, [0, 0, 0, 0, 0, 0xFF00_0001]);
     }
 
     #[test]

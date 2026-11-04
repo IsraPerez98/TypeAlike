@@ -12,6 +12,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - A fix shows a red line through the typed letters, as wide as the letters in the font of the overlay, and the fixed word in green (Fluent colors, or the colors of high contrast).
 - Without the color of the field text (also in a terminal of xterm.js), the ghost text after the caret is a neutral gray (`NEUTRAL_GRAY`, the same in light and dark mode, so it shows on a light and on a dark background). In high contrast, it is `COLOR_GRAYTEXT`.
 - The overlay draws in the face of the caret when it is installed, else in Segoe UI, always at the height of the caret.
+- The overlay draws each wrapped line of a ghost text in a bitmap of its own, then puts the lines in one bitmap: the first line at the caret, and each wrapped line at the left edge that core gives, one caret height below the line above it.
 
 ### Card below the caret
 

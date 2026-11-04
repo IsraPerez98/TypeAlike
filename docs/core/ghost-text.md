@@ -49,7 +49,12 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 
 ### Fit in the field
 
-- The ghost text after the caret keeps only the whole Tab parts that fit before the right edge of the frame of its field, less 4 px (`FIELD_EDGE_GAP`, `GhostView::fit_to`).
-- The platform measures each cut in the font of its overlay (`Shell::ghost_width`).
-- When not even the first part fits (for a fix, the fixed word), the whole ghost text goes below the caret.
-- Without a frame with an area, the ghost text stays whole.
+- The ghost text always shows whole. Core never cuts it, so Tab types only text that the user saw.
+- When the ghost text after the caret does not fit before the right edge of the frame of its field, less 4 px (`FIELD_EDGE_GAP`), the rest wraps onto the lines below the line of the caret (`GhostView::fit_to`, `WrappedLines`), as the field wraps the text when the user types it.
+- Each wrapped line starts 4 px inside the left edge of the frame, one caret height below the line above it.
+- A line breaks only after the whitespace between two words, so the closing punctuation stays with its word. The whitespace at the end of a line does not count in its width.
+- A first word that does not fit after the caret goes to the next line. The word of a fix always stays at the caret.
+- The platform measures each line in the font of its overlay (`Shell::ghost_width`).
+- The whole ghost text goes below the caret (`GhostPlacement::BelowCaret`) when the frame has no room below the caret for the wrapped lines (a field of one line, or the last line of a field), or when a word does not fit on a line.
+- Without a frame with an area, the ghost text stays whole on the line of the caret.
+- After each Tab, core wraps the rest again at the new caret.

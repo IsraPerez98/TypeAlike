@@ -72,6 +72,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - It draws in that face when it is installed, else in the system font, at the size whose line fits the caret.
 - A face name that does not belong to its family (Word gives "Helvetica" for each face) gives the family.
 - The shell reads the style at its first use after each look at the caret, so the measure and the drawing use the same font.
+- The wrapped lines of a ghost text are in a second panel, one line each, at the left edge that core gives, with the first one a caret height below the line of the caret.
+- One label with a paragraph indent for the first line does not work, because the label does not count the indent in its size and cuts the first line.
 - With Increase Contrast, the ghost text is `secondaryLabelColor`.
 - Without that color (also in a terminal of xterm.js), it is `systemGrayColor`, which is the same gray in the light and the dark appearance, so it shows on a light and on a dark background.
 

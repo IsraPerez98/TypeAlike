@@ -46,10 +46,6 @@ pub(super) struct CaretWait {
     /// Whether `ghost` is the rest of a suggestion that Tab took a part of. The rest counts as
     /// shown, so that a quick Tab types its next part and does not reach the app.
     is_rest: bool,
-    /// The characters at the end of the waiting ghost text that the last view of it left out,
-    /// because they did not fit in the field. A stop keeps them, because the rest that Tab leaves
-    /// has the same end.
-    unseen_chars: usize,
     looks: CaretLooks,
 }
 
@@ -61,7 +57,6 @@ impl fmt::Debug for CaretWait {
             .field("is_timer_pending", &self.is_timer_pending)
             .field("has_caret_settled", &self.has_caret_settled)
             .field("is_rest", &self.is_rest)
-            .field("unseen_chars", &self.unseen_chars)
             .field("looks", &self.looks)
             .finish()
     }
@@ -180,14 +175,11 @@ impl CaretWait {
     }
 
     /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles
-    /// after the part that Tab typed. Returns whether the user saw the start of `rest`, which then
-    /// counts as shown while it waits.
-    pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) -> bool {
-        let is_seen = rest.chars().count() > self.unseen_chars;
+    /// after the part that Tab typed. The user saw `rest`, so it counts as shown while it waits.
+    pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) {
         self.ghost = Some(Ghost::Text(rest));
         self.restart_timer(shell);
-        self.is_rest = is_seen;
-        is_seen
+        self.is_rest = true;
     }
 
     /// Shows `ghost` in place of the waiting ghost text, and does not make the wait longer.
@@ -236,18 +228,10 @@ impl CaretWait {
         self.is_rest &= self.is_timer_pending;
     }
 
-    /// Returns the view of the waiting ghost text after `text_before_caret`, at `placement`, as
-    /// `fit` cuts it to its field, and notes the characters that the cut leaves out.
-    pub(super) fn ghost_view(
-        &mut self,
-        text_before_caret: &str,
-        placement: GhostPlacement,
-        fit: impl FnOnce(GhostView) -> GhostView,
-    ) -> Option<GhostView> {
+    /// Returns the view of the waiting ghost text after `text_before_caret`, at `placement`.
+    pub(super) fn ghost_view(&self, text_before_caret: &str, placement: GhostPlacement) -> Option<GhostView> {
         let ghost = self.ghost.clone()?;
-        let view = fit(GhostView::new(ghost.clone(), text_before_caret, placement));
-        self.unseen_chars = view.left_out_chars(&ghost);
-        Some(view)
+        Some(GhostView::new(ghost, text_before_caret, placement))
     }
 
     /// Stops the wait and forgets the waiting ghost text. A look that waits goes on, so that the
