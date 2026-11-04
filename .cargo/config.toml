@@ -1,1 +1,5 @@
 include = [{ path = "config.local.toml", optional = true }]
+
+[env]
+# TypeAlike downloads nothing through llama.cpp. With OpenSSL, llama-common.dll needs OpenSSL DLLs that Windows does not have.
+CMAKE_DISABLE_FIND_PACKAGE_OpenSSL = "TRUE"

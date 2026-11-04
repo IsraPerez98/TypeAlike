@@ -26,7 +26,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - a short target folder (the Vulkan shader build goes past `MAX_PATH`)
   - `CMAKE_CUDA_ARCHITECTURES` for the local GPU only (much faster CUDA build)
 - CMake configures llama.cpp only once. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
-- The llama.cpp build needs CMake and libclang.
+- The llama.cpp build needs CMake and libclang. It does not use OpenSSL (`.cargo/config.toml`), because llama-common.dll then needs OpenSSL DLLs that Windows does not have.
 - Windows settings window: WinUI 3 through `windows-reactor`, a git dependency on windows-rs `master` at a fixed commit (the release 0.100.0 has no `AppProxy` and no public `App::run_with`).
   - It is framework-dependent: running TypeAlike needs the Windows App Runtime 2 installed.
   - The `self-contained` feature (`windows-reactor-setup` in `build.rs`) copies the runtime next to the program instead. It adds about 30 MB, and the Windows installers use it.
