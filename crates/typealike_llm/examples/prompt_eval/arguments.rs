@@ -109,7 +109,7 @@ impl Arguments {
             shared_history: SharedHistory::On,
             tail_cut: TailCut::On,
             typo_rule: TypoRule::default(),
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: SentenceEnd::default(),
             length: SuggestionLength::default(),
             replay: Replay::Off,
             screen: ScreenTextAccess::Allowed,
@@ -183,6 +183,7 @@ impl Arguments {
             writer_name: WriterName(self.name.clone()),
             prompt_preparation: PromptPreparation::OnFocus,
             typo_rule: self.typo_rule,
+            sentence_end: self.sentence_end,
             suggestion_length: self.length,
             personalization: PersonalizationSettings {
                 history: self.history,

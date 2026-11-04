@@ -5,7 +5,7 @@ use std::{fmt, iter};
 
 use crate::app::StopReason;
 use crate::hub::ModelFile;
-use crate::inference::{Backend, InferenceRequest};
+use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::localization::{Translations, UiLanguage};
 use crate::settings::{
     Autostart, ClipboardAccess, NotesExample, PromptPreparation, Settings, Setup, SuggestionDisplay,
@@ -49,6 +49,8 @@ pub enum GeneralAction {
     SwitchTypoFix(TypoFix),
     /// Picked this suggestion length.
     SelectSuggestionLength(SuggestionLength),
+    /// Turned on or off the switch that stops each suggestion at the end of a sentence.
+    SwitchSentenceEnd(SentenceEnd),
     /// Picked this downloaded model to suggest text.
     SelectSuggestionModel(ModelFile),
     /// Picked this language of the UI, or `None` for the language that the OS gives.
@@ -82,6 +84,7 @@ const DISPLAY: &str = "suggestion-display";
 const TYPO_RULE: &str = "typo-rule";
 const TYPO_FIX: &str = "typo-fix";
 const LENGTH: &str = "suggestion-length";
+const SENTENCE_END: &str = "sentence-end";
 pub(crate) const SUGGESTION_MODEL: &str = "suggestion-model";
 pub(crate) const BACKEND: &str = "backend";
 pub(crate) const WRITER_NAME: &str = "writer-name";
@@ -309,6 +312,9 @@ impl GeneralPane {
             GeneralAction::SwitchTypoFix(fix) => self.change_setting(fix, |settings| &mut settings.typo_fix),
             GeneralAction::SelectSuggestionLength(length) => {
                 self.change_setting(length, |settings| &mut settings.suggestion_length)
+            }
+            GeneralAction::SwitchSentenceEnd(end) => {
+                self.change_setting(end, |settings| &mut settings.sentence_end)
             }
             GeneralAction::SelectSuggestionModel(file) => GeneralOutcome {
                 settings: None,
@@ -566,6 +572,7 @@ impl GeneralPane {
     fn suggestion_section(&self, translations: &Translations) -> Section {
         let rows = [
             Row::Picker(self.suggestion_length_picker(translations)),
+            Row::Switch(self.sentence_end_switch(translations)),
             switch_row(
                 DISPLAY,
                 RowIcon::Stopwatch,
@@ -698,6 +705,21 @@ impl GeneralPane {
         }
     }
 
+    fn sentence_end_switch(&self, translations: &Translations) -> Switch {
+        let is_on = self.settings.sentence_end == SentenceEnd::Stop;
+        Switch {
+            id: ControlId::new(SENTENCE_END),
+            icon: RowIcon::StopButton,
+            label: translations.text("general-sentence-end"),
+            description: translations.text("general-sentence-end-description"),
+            is_on,
+            note: (!is_on).then(|| Note {
+                text: translations.text("general-sentence-end-off-note"),
+                tone: NoteTone::Warning,
+            }),
+        }
+    }
+
     fn backend_picker(&self, playground: &PlaygroundPane, translations: &Translations) -> Picker {
         let text = MenuText {
             id: BACKEND,
@@ -763,6 +785,10 @@ fn action_for_switch(id: &str, is_on: bool) -> Option<GeneralAction> {
         TYPO_FIX => (
             GeneralAction::SwitchTypoFix(TypoFix::Offer),
             GeneralAction::SwitchTypoFix(TypoFix::Off),
+        ),
+        SENTENCE_END => (
+            GeneralAction::SwitchSentenceEnd(SentenceEnd::Stop),
+            GeneralAction::SwitchSentenceEnd(SentenceEnd::Continue),
         ),
         _ => return None,
     };

@@ -7,7 +7,7 @@ use super::fixtures::{
 use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
-use crate::inference::{InferenceRequest, NextWordBias, SentenceEnd};
+use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::{Key, Press};
 use crate::prompt::prompt_with_notes;
 use crate::settings::{Settings, SuggestionDisplay, WriterNotes};
@@ -151,7 +151,7 @@ fn settings_give_the_writer_notes() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
             typo_check: Settings::default().typo_check(),
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: Settings::default().sentence_end,
             line_after: String::new(),
         })
     );

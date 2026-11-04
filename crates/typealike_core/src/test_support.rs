@@ -55,6 +55,7 @@ pub(crate) struct ExpectedRequest {
     pub(crate) max_tokens: TokenCount,
     pub(crate) min_log_probability: Option<LogProbability>,
     pub(crate) typo_check: TypoCheck,
+    pub(crate) sentence_end: SentenceEnd,
 }
 
 impl ExpectedRequest {
@@ -66,6 +67,7 @@ impl ExpectedRequest {
             max_tokens: settings.suggestion_length_in_use().max_tokens(),
             min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
             typo_check: settings.typo_check(),
+            sentence_end: settings.sentence_end,
         }
     }
 }
@@ -79,7 +81,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
             typo_check: expected.typo_check,
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: expected.sentence_end,
             line_after: String::new(),
         }
     }

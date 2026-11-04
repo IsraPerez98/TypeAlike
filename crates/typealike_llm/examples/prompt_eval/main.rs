@@ -183,7 +183,8 @@
 //! each case has no dictionary.
 //!
 //! `--sentence-stop on` (the default, as in the app) stops each suggestion at the end of a
-//! sentence. `off` lets a suggestion continue with the next sentence.
+//! sentence, as the app does with "Stop at the end of a sentence". `off` lets a suggestion
+//! continue with the next sentence.
 //!
 //! `--length` sets the suggestion length: `very_short`, `short`, `medium` (the default), `long` or
 //! `very_long`. The length sets the token limit and the cut of the tail of each request. As in the

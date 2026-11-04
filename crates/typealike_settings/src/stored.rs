@@ -7,7 +7,7 @@ mod suggestion_places;
 
 use serde::{Deserialize, Serialize};
 use typealike_core::hub::ModelFile;
-use typealike_core::inference::Backend;
+use typealike_core::inference::{Backend, SentenceEnd};
 use typealike_core::localization::UiLanguage;
 use typealike_core::settings::{
     ClipboardAccess, PromptPreparation, Settings, Setup, SuggestionDisplay, SuggestionLength, TypoFix,
@@ -44,6 +44,7 @@ struct StoredSettings {
     suggestion_length: StoredSuggestionLength,
     typo_rule: StoredTypoRule,
     typo_fix: StoredTypoFix,
+    sentence_end: StoredSentenceEnd,
     /// `None` follows the language of the OS.
     ui_language: Option<StoredUiLanguage>,
     /// A file of an older version has no setup, and counts as finished.
@@ -98,6 +99,13 @@ enum StoredTypoRule {
 enum StoredTypoFix {
     Offer,
     Off,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredSentenceEnd {
+    Continue,
+    Stop,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -173,6 +181,10 @@ impl From<Settings> for StoredSettings {
             TypoFix::Offer => StoredTypoFix::Offer,
             TypoFix::Off => StoredTypoFix::Off,
         };
+        let sentence_end = match settings.sentence_end {
+            SentenceEnd::Continue => StoredSentenceEnd::Continue,
+            SentenceEnd::Stop => StoredSentenceEnd::Stop,
+        };
         let ui_language = settings.ui_language.map(|language| match language {
             UiLanguage::English => StoredUiLanguage::English,
             UiLanguage::Spanish => StoredUiLanguage::Spanish,
@@ -201,6 +213,7 @@ impl From<Settings> for StoredSettings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            sentence_end,
             ui_language,
             setup,
         }
@@ -246,6 +259,10 @@ impl From<StoredSettings> for Settings {
             StoredTypoFix::Offer => TypoFix::Offer,
             StoredTypoFix::Off => TypoFix::Off,
         };
+        let sentence_end = match stored.sentence_end {
+            StoredSentenceEnd::Continue => SentenceEnd::Continue,
+            StoredSentenceEnd::Stop => SentenceEnd::Stop,
+        };
         let ui_language = stored.ui_language.map(|language| match language {
             StoredUiLanguage::English => UiLanguage::English,
             StoredUiLanguage::Spanish => UiLanguage::Spanish,
@@ -279,6 +296,7 @@ impl From<StoredSettings> for Settings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            sentence_end,
             ui_language,
             setup,
         }

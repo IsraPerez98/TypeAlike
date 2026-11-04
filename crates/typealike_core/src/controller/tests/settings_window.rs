@@ -4,7 +4,7 @@ use super::harness::{Call, Harness, completed, loaded, model_file, suggestion_se
 use crate::controller::Delivery;
 use crate::desktop::{EnergySaver, FullScreenActivity, Permission, PermissionState};
 use crate::hub::{ByteSize, HubEvent, HubRequest, ModelFile, SizedFile};
-use crate::inference::{Backend, InferenceRequest};
+use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
 use crate::localization::UiLanguage;
 use crate::settings::{
@@ -37,7 +37,11 @@ fn settings_window_follows_the_writing_rules() {
 
 #[test]
 fn settings_window_with_its_warnings_follows_the_writing_rules() {
-    let mut harness = Harness::with_energy_saver(Settings::default(), EnergySaver::On);
+    let settings = Settings {
+        sentence_end: SentenceEnd::Continue,
+        ..Settings::default()
+    };
+    let mut harness = Harness::with_energy_saver(settings, EnergySaver::On);
 
     let view = harness.shown_settings();
 

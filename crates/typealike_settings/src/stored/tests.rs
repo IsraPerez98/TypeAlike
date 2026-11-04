@@ -448,10 +448,22 @@ fn file_without_a_typo_rule_hides_suggestions_on_typos() {
 }
 
 #[test]
-fn sentence_end_of_an_older_version_does_not_change_the_settings() {
-    let settings = parse(r#"{ "sentence_end": "stop" }"#).ok();
+fn sentence_end_reads_from_its_name() {
+    let files = [
+        r#"{ "sentence_end": "continue" }"#,
+        r#"{ "sentence_end": "stop" }"#,
+    ];
 
-    assert_eq!(settings, Some(Settings::default()));
+    let ends = files.map(|json| parse(json).map(|settings| settings.sentence_end).ok());
+
+    assert_eq!(ends, [Some(SentenceEnd::Continue), Some(SentenceEnd::Stop)]);
+}
+
+#[test]
+fn file_without_a_sentence_end_stops_at_the_end_of_a_sentence() {
+    let end = parse("{}").map(|settings| settings.sentence_end).ok();
+
+    assert_eq!(end, Some(SentenceEnd::Stop));
 }
 
 #[test]

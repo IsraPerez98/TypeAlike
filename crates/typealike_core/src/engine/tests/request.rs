@@ -34,7 +34,7 @@ fn typo_fixes_off_asks_for_no_fixes() {
 }
 
 #[test]
-fn suggestion_stops_at_the_end_of_a_sentence() {
+fn default_settings_stop_a_suggestion_at_the_end_of_a_sentence() {
     let mut engine = engine_with(&Settings::default());
 
     let reaction = press(&mut engine, Key::Char('h'));
@@ -48,6 +48,24 @@ fn suggestion_stops_at_the_end_of_a_sentence() {
             })
         ),
         "unexpected {reaction:?}"
+    );
+}
+
+#[test]
+fn sentence_continue_asks_to_continue_after_the_end_of_a_sentence() {
+    let mut engine = engine_with(&Settings {
+        sentence_end: SentenceEnd::Continue,
+        ..Settings::default()
+    });
+
+    let reaction = press(&mut engine, Key::Char('h'));
+
+    assert_eq!(
+        reaction,
+        Reaction::from(ExpectedRequest {
+            sentence_end: SentenceEnd::Continue,
+            ..ExpectedRequest::framed(&[], "h")
+        })
     );
 }
 

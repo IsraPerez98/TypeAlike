@@ -106,7 +106,7 @@ impl Engine {
             next_word_bias: self.session_next_word_bias(),
             min_log_probability,
             typo_check,
-            sentence_end: SentenceEnd::Stop,
+            sentence_end: self.sentence_end,
             line_after,
         })
     }
