@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["vendor"]
 default-members = ["crates/typealike"]
 
 [workspace.package]
@@ -291,3 +292,7 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# A copy of llama-cpp-2 0.1.159 that exposes llama.cpp parameters the release does not have.
+[patch.crates-io]
+llama-cpp-2 = { path = "vendor/llama-cpp-2" }
