@@ -114,10 +114,10 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 ### Measured gain
 
-- On an M5 with Metal, the drafter makes the time of a suggestion after the prompt decode (the warm time of `prompt_eval`) 22 percent shorter for Gemma 4 E4B (245 to 190 ms) and 14 percent shorter for E2B (121 to 104 ms). The model chooses the guess 48 percent of the time.
+- On an idle M5 with Metal (tuning set, 2 runs on each side, with the sentence stop), the drafter makes the time of a suggestion after the prompt decode (the warm time of `prompt_eval`) 25 percent shorter for Gemma 4 E4B (144 to 108 ms) and 10 percent shorter for E2B (67 to 60 ms). The time on the first key goes from 251 to 230 ms (E4B) and from 144 to 128 ms (E2B). All 161 suggestions stay the same for each model, and the model chooses the guess about 52 percent of the time.
 - On the CPU of an M5, Gemma 4 E2B with its drafter was not faster: the warm time of 20 cases went from 114 to 116 ms, with the short suggestions that the CPU allows. Thus the CPU loads no drafter.
 - Vulkan and CUDA were not measured. A GPU decodes two tokens in about the time of one, as on Metal, so each right guess saves most of a decode.
-- The drafter adds about 60 MiB of GPU memory. With Gemma 4 E4B on an M5, it adds about 70 ms to a load and about 100 ms to its warm-up (`first_key`), and the first completion after a load is about 35 ms shorter.
+- The drafter adds about 60 MiB of GPU memory. With Gemma 4 E4B on an M5, it adds about 80 ms to a load and to its warm-up (`first_key`), the first completion after a load is about 40 ms shorter, and the next key about 40 ms shorter (196 to 157 ms).
 
 ## Text of a completion
 

@@ -71,10 +71,10 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 | `docs/core/typing.md` | Key rules, sessions, Enter, read of the field, held keys, shown suggestions, Escape, Tab, Tab hold |
 | `docs/core/suggestions.md` | Length, typo rule and fix, the stops and the filters of a suggestion |
 | `docs/core/ghost-text.md` | Caret looks, timing, scroll, `GhostView`, colors, mirror, placement |
-| `docs/core/settings-window.md` | Rows, settings file, panes, energy stops, apps and websites, badge menu, model recommendation, permissions, About pane, check for updates, third-party licenses, setup, UI languages |
+| `docs/core/settings-window.md` | Rows, settings file, panes, energy stops, apps and websites, badge menu, model recommendation, drafters, permissions, About pane, check for updates, third-party licenses, setup, UI languages |
 | `docs/windows.md` | `typealike_windows`: overlay, hooks, caret reader, UIA, screen text, watches, settings and setup windows, autostart |
 | `docs/macos.md` | `typealike_macos`: permissions, AX caret, overlay, mirror, injection, spelling, setup window, autostart |
-| `docs/llm.md` | `typealike_llm`: backends, warm-up, token healing, typo fixes, stops, phrase ends, cache |
+| `docs/llm.md` | `typealike_llm`: backends, warm-up, lazy reads, token healing, typo fixes, stops, phrase ends, cache, drafter |
 | `docs/icons.md` | Logo, app icons, tray icon and menu bar extra, `assets/build_icons.py` |
 
 When a commit changes a behavior, update the doc of its area in the same commit. Do not add behavior to `CLAUDE.md`. It keeps only commands, gotchas and pointers. Write each doc as short bullets under headings, in ASD-STE100.
