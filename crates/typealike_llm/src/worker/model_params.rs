@@ -6,7 +6,7 @@ use std::path::Path;
 use std::pin::Pin;
 
 use llama_cpp_2::context::params::{LlamaContextParams, LlamaContextType};
-use llama_cpp_2::model::params::{FitError, LlamaModelParams};
+use llama_cpp_2::model::params::{FitError, LlamaLazyMode, LlamaModelParams};
 use llama_cpp_2::{LlamaBackendDevice, LlamaBackendDeviceType, list_llama_ggml_backend_devices, max_devices};
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 use typealike_core::hub::ByteSize;
@@ -127,6 +127,10 @@ pub(super) fn log_devices() {
 /// time, and leaves `drafter_memory` free for a drafter that loads with it, because llama.cpp
 /// otherwise loads a part of it into slow shared memory, or fails at a later step. Metal keeps the
 /// parameters of llama.cpp, which put the whole model on the GPU of the Mac.
+///
+/// The CPU, Metal and a discrete GPU read only the rows of a marked tensor that a batch needs, from
+/// the mapped model file (`LlamaLazyMode::On`). In Gemma 4, the per-layer embeddings are marked, and
+/// llama.cpp keeps them in CPU memory on each backend.
 pub(super) fn model_params(
     path: &Path,
     backend: Backend,
@@ -134,8 +138,8 @@ pub(super) fn model_params(
     drafter_memory: ByteSize,
 ) -> Result<LlamaModelParams, InferenceError> {
     match backend {
-        Backend::Cpu => on_devices(&[]),
-        Backend::Metal => Ok(LlamaModelParams::default()),
+        Backend::Cpu => Ok(on_devices(&[])?.with_lazy_mode(LlamaLazyMode::On)),
+        Backend::Metal => Ok(LlamaModelParams::default().with_lazy_mode(LlamaLazyMode::On)),
         gpu_backend @ (Backend::Vulkan | Backend::Cuda) => {
             let device = gpu_device_of(gpu_backend)?;
             tracing::info!(
@@ -150,7 +154,7 @@ pub(super) fn model_params(
                 free_memory_of_load(drafter_memory),
                 batch_tokens,
             )?;
-            on_devices(&[device.index])
+            Ok(on_devices(&[device.index])?.with_lazy_mode(lazy_mode_for(device.device_type)))
         }
     }
 }
@@ -182,6 +186,16 @@ fn gpu_device_of(backend: Backend) -> Result<LlamaBackendDevice, InferenceError>
             );
             InferenceError::BackendUnavailable
         })
+}
+
+/// Returns when a load on a GPU of `device_type` reads the tensors that llama.cpp marks for lazy
+/// reads. An integrated GPU loads without mmap, and there lazy reads made prompts slower in
+/// llama.cpp. Thus it reads the whole tensors at load, as llama.cpp does by default.
+fn lazy_mode_for(device_type: LlamaBackendDeviceType) -> LlamaLazyMode {
+    match device_type {
+        LlamaBackendDeviceType::IntegratedGpu => LlamaLazyMode::Off,
+        _ => LlamaLazyMode::On,
+    }
 }
 
 /// Returns the free memory of the GPU that runs `backend`, as a load on `backend` finds it.
@@ -585,6 +599,27 @@ mod tests {
                 Err(InferenceError::ModelInvalid),
             ]
         );
+    }
+
+    #[test]
+    fn cpu_and_metal_loads_read_only_the_rows_of_marked_tensors_that_a_batch_needs() {
+        let backends = [Backend::Cpu, Backend::Metal];
+
+        let lazy_modes = backends.map(|backend| {
+            model_params(Path::new("model.gguf"), backend, BATCH_TOKENS, ByteSize(0))
+                .map(|params| params.lazy_mode())
+        });
+
+        assert_eq!(lazy_modes, [Ok(Some(LlamaLazyMode::On)); 2]);
+    }
+
+    #[test]
+    fn only_an_integrated_gpu_reads_marked_tensors_whole_at_load() {
+        let device_types = [LlamaBackendDeviceType::Gpu, LlamaBackendDeviceType::IntegratedGpu];
+
+        let lazy_modes = device_types.map(lazy_mode_for);
+
+        assert_eq!(lazy_modes, [LlamaLazyMode::On, LlamaLazyMode::Off]);
     }
 
     #[test]

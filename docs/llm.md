@@ -28,6 +28,17 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - With them, the whole model stays wired in memory while it is loaded, and a thread of llama.cpp wakes every 5 ms while the process runs.
 - Without them, the first completion after a pause takes about 65 ms more on an M5, and the next keys take the same time or less.
 
+## Lazy reads
+
+- Gemma 4 E2B and E4B have a table of per-layer embeddings (1872 MiB in E4B). llama.cpp keeps it in CPU memory on each backend, mapped from the model file, and each token needs only one row of it.
+- A load on the CPU, Metal or a discrete GPU reads only the rows that a batch needs (`LlamaLazyMode::On`). The default of llama.cpp does this only for a table above 4 GiB, and otherwise reads the whole table into memory at load.
+- llama.cpp marks only this table for lazy reads, so the setting does not change a Qwen3.5 model.
+- On Metal (M5), the most memory of a process (`/usr/bin/time -l`) goes from 4.7 GB to 3.1 GB with E4B, and from 3.0 GB to 1.7 GB with E2B. On the CPU, it goes from 7.3 GB to 5.7 GB with E4B. The suggestions and the times of the keys stay the same. Vulkan and CUDA are not measured.
+- The footprint in Activity Monitor (about 470 MB with E4B on Metal) does not change, because it does not count the pages of a mapped file. The gain is the file cache that the table no longer fills.
+- When the model file is not in the file cache, a load with its warm-up takes about the same time (1.7 s with E4B). A request that comes before the end of the load waits about 0.4 s more for its rows, but the load takes 0.4 s less.
+- An integrated GPU on Vulkan or CUDA reads the whole table at load (`LlamaLazyMode::Off`). It loads without mmap, and lazy reads made the prompts of another model 2 times slower on such a GPU (llama.cpp issue 28160).
+- `prompt_eval` also loads the model of its log probabilities with lazy reads, so that `/usr/bin/time -l` shows the memory of the app.
+
 ## Token healing and word probabilities
 
 - The runner heals the last word of each prompt (token healing), but never takes back a line break.
