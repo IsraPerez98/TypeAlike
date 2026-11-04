@@ -1,7 +1,7 @@
 //! Models TypeAlike suggests: GGUF files with fewer than 10B parameters that download without an account.
 
 use crate::hub::{ByteSize, ModelFile, SizedFile};
-use crate::inference::{Backend, GPU_MEMORY_MARGIN};
+use crate::inference::{Backend, DRAFTER_MEMORY, GPU_MEMORY_MARGIN};
 
 /// A model the Models pane recommends, with the one file to download for it.
 #[derive(Debug, PartialEq, Eq)]
@@ -63,10 +63,11 @@ pub(super) fn recommended_model(
     &SUGGESTED_MODELS[index]
 }
 
-/// Whether `model` fits in the `free` memory of a GPU with its context, and leaves the margin of a
-/// load free.
+/// Whether `model` fits in the `free` memory of a GPU with its context and its drafter, if any,
+/// and leaves the margin of a load free.
 fn fits(model: &SuggestedModel, free: ByteSize) -> bool {
-    model.size.0 + CONTEXT_MEMORY.0 + GPU_MEMORY_MARGIN.0 <= free.0
+    let drafter = model.drafter_name.map_or(0, |_| DRAFTER_MEMORY.0);
+    model.size.0 + CONTEXT_MEMORY.0 + drafter + GPU_MEMORY_MARGIN.0 <= free.0
 }
 
 /// The GPU memory that a suggested model takes besides its file: its context and the buffers of a

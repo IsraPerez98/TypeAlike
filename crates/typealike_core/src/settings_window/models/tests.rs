@@ -293,6 +293,18 @@ fn recommendation_for_a_graphics_card_fits_its_free_memory() {
 }
 
 #[test]
+fn recommended_model_with_a_drafter_also_fits_the_memory_of_its_drafter() {
+    const MEBIBYTE: u64 = 1024 * 1024;
+    let e4b_without_drafter = 4_215_695_776 + 512 * MEBIBYTE + GIBIBYTE;
+    let mut pane = ModelsPane::new();
+    pane.on_gpu_memory(Backend::Metal, Ok(ByteSize(e4b_without_drafter + MEBIBYTE)));
+
+    let title = recommended_title(&pane, Backend::Metal);
+
+    assert_eq!(title, "Gemma 4 E2B");
+}
+
+#[test]
 fn free_memory_of_another_backend_keeps_the_usual_recommendation() {
     let pane = with_free_gpu_memory(Backend::Cuda, 8);
 

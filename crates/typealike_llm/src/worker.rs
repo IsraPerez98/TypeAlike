@@ -20,10 +20,11 @@ use std::time::{Duration, Instant};
 
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
+use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::{LlamaCppError, LlamaModelLoadError, LogOptions, send_logs_to_tracing};
 use typealike_core::hub::{ByteSize, ModelFile};
 use typealike_core::inference::{
-    Backend, CpuCores, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
+    Backend, CpuCores, DRAFTER_MEMORY, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
 };
 
 use crate::worker::drafter::is_drafter_of;
@@ -194,7 +195,7 @@ fn load_with_drafter(
         .filter(|path| path.is_file())
         .ok_or(InferenceError::ModelMissing)?;
     let llama = start_backend(llama)?;
-    let params = model_params(&path, backend, batch_tokens)?;
+    let (params, drafter_path) = params_with_room_for(drafter_path, &path, backend, batch_tokens)?;
     thread::scope(|scope| {
         let loading_drafter =
             drafter_path.map(|drafter_path| scope.spawn(move || load_drafter(llama, &drafter_path, backend)));
@@ -214,6 +215,26 @@ fn load_with_drafter(
             });
         Ok((model, drafter))
     })
+}
+
+/// Returns the parameters that load the model at `path` on `backend` and leave GPU memory free for
+/// the drafter at `drafter_path`, with that path. When the model fits in the GPU only without the
+/// drafter, it returns no drafter path, so that the model loads without the drafter.
+fn params_with_room_for(
+    drafter_path: Option<PathBuf>,
+    path: &Path,
+    backend: Backend,
+    batch_tokens: u32,
+) -> Result<(LlamaModelParams, Option<PathBuf>), InferenceError> {
+    if drafter_path.is_some() {
+        match model_params(path, backend, batch_tokens, DRAFTER_MEMORY) {
+            Err(InferenceError::ModelTooLarge) => {
+                tracing::warn!("the model fits in the GPU only without its drafter, so it runs without it");
+            }
+            params => return Ok((params?, drafter_path)),
+        }
+    }
+    Ok((model_params(path, backend, batch_tokens, ByteSize(0))?, None))
 }
 
 /// Returns the path of the drafter of the model of `file`, when the model runs with a drafter on

@@ -12,6 +12,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 ## GPU memory
 
 - The runner refuses a GPU load when the whole model does not fit in free GPU memory.
+- With a drafter, the check also keeps 64 MiB free for the drafter (`DRAFTER_MEMORY`). When the model fits only without the drafter, it loads without the drafter.
 - A read of GPU memory gives the free memory of the device that a load on that backend uses (the Metal device on macOS), and keeps a loaded model.
 
 ## Warm-up

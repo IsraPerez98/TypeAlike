@@ -124,13 +124,14 @@ pub(super) fn log_devices() {
 
 /// Returns the parameters that load the model at `path` on `backend`. For Vulkan and CUDA, it first
 /// makes sure that the whole model fits in the GPU with a context that decodes `batch_tokens` at a
-/// time, because llama.cpp otherwise loads a part of it into slow shared memory, or fails at a
-/// later step. Metal keeps the parameters of llama.cpp, which put the whole model on the GPU of the
-/// Mac.
+/// time, and leaves `drafter_memory` free for a drafter that loads with it, because llama.cpp
+/// otherwise loads a part of it into slow shared memory, or fails at a later step. Metal keeps the
+/// parameters of llama.cpp, which put the whole model on the GPU of the Mac.
 pub(super) fn model_params(
     path: &Path,
     backend: Backend,
     batch_tokens: u32,
+    drafter_memory: ByteSize,
 ) -> Result<LlamaModelParams, InferenceError> {
     match backend {
         Backend::Cpu => on_devices(&[]),
@@ -143,11 +144,21 @@ pub(super) fn model_params(
                 free_mib = device.memory_free / BYTES_IN_MIB,
                 "loading the model on a GPU"
             );
-            let margin_bytes = usize::try_from(GPU_MEMORY_MARGIN.0).expect("the margin fits in usize");
-            check_fit(path, device.index, margin_bytes, batch_tokens)?;
+            check_fit(
+                path,
+                device.index,
+                free_memory_of_load(drafter_memory),
+                batch_tokens,
+            )?;
             on_devices(&[device.index])
         }
     }
+}
+
+/// Returns the GPU memory in bytes that a load leaves free: the margin of a load and the
+/// `drafter_memory` of a drafter that loads with the model.
+fn free_memory_of_load(drafter_memory: ByteSize) -> usize {
+    usize::try_from(GPU_MEMORY_MARGIN.0.saturating_add(drafter_memory.0)).expect("the margin fits in usize")
 }
 
 /// Returns the parameters that load the drafter of a model on `backend`, on the device of the
@@ -322,6 +333,8 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::path::PathBuf;
 
+    use typealike_core::inference::DRAFTER_MEMORY;
+
     use super::*;
     use crate::worker::start_backend;
 
@@ -495,6 +508,13 @@ mod tests {
         let params = context_params(CONTEXT_TOKENS.0, setup(None, 512));
 
         assert_eq!((params.n_batch(), params.n_ubatch()), (512, 512));
+    }
+
+    #[test]
+    fn load_with_a_drafter_also_leaves_the_memory_of_the_drafter_free() {
+        let margins = [ByteSize(0), DRAFTER_MEMORY].map(free_memory_of_load);
+
+        assert_eq!(margins, [1024 << 20, (1024 + 64) << 20]);
     }
 
     #[test]

@@ -19,6 +19,10 @@ pub const CONTEXT_TOKENS: TokenCount = TokenCount(4096);
 /// desktop and other apps keep working.
 pub const GPU_MEMORY_MARGIN: ByteSize = ByteSize(1024 * 1024 * 1024);
 
+/// The GPU memory that the drafter of a model takes with its context, besides the memory of the
+/// model: 61 MiB for the drafter of Gemma 4 E4B on Metal.
+pub const DRAFTER_MEMORY: ByteSize = ByteSize(64 * 1024 * 1024);
+
 /// The text the model continues: what it knows about the writing, then the text before the caret.
 /// `Debug` shows only its length, so logs never hold what the user wrote.
 ///
