@@ -3,7 +3,7 @@
 use super::harness::{Call, Harness, completed, loaded, model_file, suggestion_settings};
 use crate::controller::Delivery;
 use crate::desktop::{EnergySaver, FullScreenActivity, Permission, PermissionState};
-use crate::hub::{HubEvent, HubRequest};
+use crate::hub::{ByteSize, HubEvent, HubRequest, ModelFile, SizedFile};
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
 use crate::localization::UiLanguage;
@@ -218,6 +218,53 @@ fn hub_answer_renders_settings() {
         harness.take_calls().as_slice(),
         [Call::RenderSettings(_)]
     ));
+}
+
+fn gemma_file(name: &str) -> ModelFile {
+    ModelFile {
+        repo: "unsloth/gemma-4-E4B-it-qat-GGUF".to_owned(),
+        name: name.to_owned(),
+    }
+}
+
+#[test]
+fn downloaded_model_without_its_drafter_downloads_the_drafter() {
+    let mut harness = Harness::new(Settings::default());
+    let model = SizedFile {
+        file: gemma_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf"),
+        size: ByteSize(100),
+    };
+
+    harness.controller.on_delivery(
+        Delivery::Hub(HubEvent::Installed(vec![model])),
+        &mut harness.shell,
+    );
+
+    assert_eq!(
+        harness.hub_requests(),
+        vec![HubRequest::Download {
+            file: gemma_file("mtp-gemma-4-E4B-it.gguf"),
+        }]
+    );
+}
+
+#[test]
+fn start_with_a_suggestion_model_that_has_a_drafter_lists_the_downloaded_models() {
+    let settings = Settings {
+        suggestion_model: Some(gemma_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf")),
+        ..Settings::default()
+    };
+
+    let harness = Harness::new(settings);
+
+    assert_eq!(harness.hub_requests(), vec![HubRequest::ListInstalled]);
+}
+
+#[test]
+fn start_with_a_suggestion_model_without_a_drafter_asks_the_hub_nothing() {
+    let harness = Harness::new(suggestion_settings());
+
+    assert_eq!(harness.hub_requests(), Vec::new());
 }
 
 #[test]

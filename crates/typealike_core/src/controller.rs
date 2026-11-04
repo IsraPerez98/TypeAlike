@@ -30,7 +30,7 @@ use crate::desktop::{
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::ModelFile;
-use crate::hub::{HubEvent, HubEventSink, ModelHub};
+use crate::hub::{HubEvent, HubEventSink, HubRequest, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
@@ -192,9 +192,25 @@ impl Controller {
             tray: startup.tray,
         };
         controller.submit_model_request();
+        controller.list_models_for_drafter();
         controller.read_gpu_memory_for_recommendation();
         controller.load_history_when_on();
         controller
+    }
+
+    /// Asks the hub for the downloaded models when the suggestion model has a drafter, so that the
+    /// Models pane can ask for the drafter when it is missing.
+    fn list_models_for_drafter(&mut self) {
+        let has_drafter = self
+            .general
+            .settings()
+            .suggestion_model
+            .as_ref()
+            .and_then(ModelFile::drafter)
+            .is_some();
+        if has_drafter {
+            self.hub.submit(HubRequest::ListInstalled, &self.hub_sink);
+        }
     }
 
     /// Returns what the tray icon and its menu must show now.
@@ -864,8 +880,9 @@ impl Controller {
         }
     }
 
-    /// Gives `event` to the Models pane. When the first model download finishes and no suggestion
-    /// model is selected, the model becomes the suggestion model.
+    /// Gives `event` to the Models pane, and sends the downloads of missing drafters that it asks
+    /// for. When the first model download finishes and no suggestion model is selected, the model
+    /// becomes the suggestion model.
     fn on_hub_event(&mut self, event: HubEvent, shell: &mut dyn Shell) {
         let finished = match &event {
             HubEvent::DownloadFinished { file, result: Ok(_) } => Some(file.clone()),
@@ -873,7 +890,9 @@ impl Controller {
         };
         let is_first_model =
             self.models.installed_files().is_empty() && self.general.settings().suggestion_model.is_none();
-        self.models.on_event(event);
+        for request in self.models.on_event(event) {
+            self.hub.submit(request, &self.hub_sink);
+        }
         let first_model =
             finished.filter(|file| is_first_model && self.models.installed_files().contains(file));
         if let Some(file) = first_model {

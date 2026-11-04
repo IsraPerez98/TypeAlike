@@ -5,7 +5,7 @@ mod page;
 
 pub(crate) use catalog::drafter_of;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::hub::{
     ByteSize, HubError, HubEvent, HubRequest, ModelFile, RepoSummary, SizedFile, usable_model_files,
@@ -53,6 +53,8 @@ pub struct ModelsPane {
     search: Option<Search>,
     /// The last read of the free memory of the GPU that runs a backend.
     gpu_memory: GpuMemory,
+    /// The drafters that the pane asked the hub to download while TypeAlike runs.
+    requested_drafters: BTreeSet<ModelFile>,
 }
 
 /// The last read of the free memory of the GPU that runs a backend.
@@ -199,15 +201,18 @@ impl ModelsPane {
         }
     }
 
-    /// Handles the outcome of an earlier request.
-    pub fn on_event(&mut self, event: HubEvent) {
+    /// Handles the outcome of an earlier request. Returns the downloads of the drafters that the
+    /// downloaded models do not have ([`ModelFile::drafter`]). It asks for each drafter only one
+    /// time while TypeAlike runs, so a failed download does not start again and again.
+    pub fn on_event(&mut self, event: HubEvent) -> Vec<HubRequest> {
         match event {
-            HubEvent::Installed(files) => self.on_installed(files),
+            HubEvent::Installed(files) => return self.on_installed(files),
             HubEvent::SearchFinished { query, result } => self.on_search_finished(&query, result),
             HubEvent::FilesListed { repo, result } => self.on_files_listed(&repo, result),
             HubEvent::DownloadProgress { file, received } => self.on_download_progress(&file, received),
             HubEvent::DownloadFinished { file, result } => self.on_download_finished(file, result),
         }
+        Vec::new()
     }
 
     /// Keeps that a read of the free memory of the GPU that runs `backend` started. Until its
@@ -373,7 +378,11 @@ impl ModelsPane {
         Some(HubRequest::Delete { file })
     }
 
-    fn on_installed(&mut self, installed: Vec<SizedFile>) {
+    fn on_installed(&mut self, installed: Vec<SizedFile>) -> Vec<HubRequest> {
+        let stored = installed
+            .iter()
+            .map(|sized| sized.file.clone())
+            .collect::<BTreeSet<_>>();
         self.files
             .retain(|_, tracked| !matches!(tracked.state, FileState::Installed));
         for SizedFile { file, size } in usable_model_files(installed) {
@@ -393,6 +402,24 @@ impl ModelsPane {
                 );
             }
         }
+        self.missing_drafter_downloads(&stored)
+    }
+
+    /// Returns the downloads of the drafters of the downloaded models that are not among the
+    /// `stored` files, except the drafters that the pane asked for before. A model that downloads
+    /// now gets its drafter with its download.
+    fn missing_drafter_downloads(&mut self, stored: &BTreeSet<ModelFile>) -> Vec<HubRequest> {
+        let missing = self
+            .installed_files()
+            .iter()
+            .filter_map(ModelFile::drafter)
+            .filter(|drafter| !stored.contains(drafter))
+            .collect::<BTreeSet<_>>();
+        missing
+            .into_iter()
+            .filter(|drafter| self.requested_drafters.insert(drafter.clone()))
+            .map(|file| HubRequest::Download { file })
+            .collect()
     }
 
     fn on_search_finished(&mut self, query: &str, result: Result<Vec<RepoSummary>, HubError>) {

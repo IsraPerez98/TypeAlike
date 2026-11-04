@@ -866,6 +866,67 @@ fn models_without_a_suggested_drafter_and_drafters_have_no_drafter() {
     assert_eq!(drafters, [None, None, None]);
 }
 
+const E4B_REPO: &str = "unsloth/gemma-4-E4B-it-qat-GGUF";
+
+fn e4b_file(name: &str) -> SizedFile {
+    SizedFile {
+        file: model_file(E4B_REPO, name),
+        size: ByteSize(100),
+    }
+}
+
+fn e4b_drafter_download() -> HubRequest {
+    HubRequest::Download {
+        file: model_file(E4B_REPO, "mtp-gemma-4-E4B-it.gguf"),
+    }
+}
+
+#[test]
+fn installed_models_without_their_drafter_download_it_once() {
+    let mut pane = ModelsPane::new();
+
+    let requests = pane.on_event(HubEvent::Installed(vec![
+        e4b_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf"),
+        e4b_file("gemma-4-E4B-it-qat-UD-Q2_K_XL.gguf"),
+    ]));
+
+    assert_eq!(requests, [e4b_drafter_download()]);
+}
+
+#[test]
+fn installed_model_with_its_drafter_downloads_nothing() {
+    let mut pane = ModelsPane::new();
+
+    let requests = pane.on_event(HubEvent::Installed(vec![
+        e4b_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf"),
+        e4b_file("mtp-gemma-4-E4B-it.gguf"),
+    ]));
+
+    assert_eq!(requests, []);
+}
+
+#[test]
+fn missing_drafter_downloads_only_one_time_while_typealike_runs() {
+    let mut pane = ModelsPane::new();
+    let installed = vec![e4b_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf")];
+    pane.on_event(HubEvent::Installed(installed.clone()));
+
+    let requests = pane.on_event(HubEvent::Installed(installed));
+
+    assert_eq!(requests, []);
+}
+
+#[test]
+fn model_that_downloads_now_gets_its_drafter_with_its_download() {
+    let model = e4b_file("gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf");
+    let mut pane = ModelsPane::new();
+    pane.on_action(ModelsAction::Download(model.clone()));
+
+    let requests = pane.on_event(HubEvent::Installed(vec![model]));
+
+    assert_eq!(requests, []);
+}
+
 #[test]
 fn installed_list_forgets_files_deleted_elsewhere() {
     let mut pane = installed("a.gguf", 100);

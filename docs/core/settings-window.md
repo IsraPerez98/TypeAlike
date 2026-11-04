@@ -116,7 +116,10 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The hub downloads the drafter after its model, and the Models pane shows the download of the model only. A failed download of the drafter goes only to the log, because the model runs without it.
 - A delete of the last model of a repository also deletes its drafter.
 - The lists of the Models pane and the model menus show no drafter, vision projector or part of a split model.
-- A model that the user downloaded before TypeAlike had drafters has no drafter. It gets its drafter only with a new download of the model.
+- When the hub lists the downloaded models, the Models pane asks it to download each drafter that a downloaded model does not have (`ModelsPane::on_event`). This download shows no row and no progress.
+- The hub lists the downloaded models when TypeAlike starts with a suggestion model that has a drafter, and each time the settings window or the setup opens. Thus a model that the user downloaded before TypeAlike had drafters also gets its drafter.
+- The pane asks for each drafter only once while TypeAlike runs, so a failed download tries again only after TypeAlike starts again. A model that downloads at that time gets its drafter with its own download.
+- The runner uses a new drafter from the next load of its model.
 
 ## Permissions pane
 
