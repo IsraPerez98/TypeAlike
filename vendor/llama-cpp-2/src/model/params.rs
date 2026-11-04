@@ -136,6 +136,18 @@ impl Default for LlamaSplitMode {
     }
 }
 
+/// A rusty wrapper around `llama_lazy_mode`: when llama.cpp reads the tensors that the model
+/// architecture marks for lazy reads, such as the per-layer embeddings of Gemma 4.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LlamaLazyMode {
+    /// Read each whole tensor at load.
+    Off,
+    /// Read only the rows that a batch needs, for marked tensors larger than 4 GiB. Needs mmap.
+    Auto,
+    /// Read only the rows that a batch needs, for each marked tensor. Needs mmap.
+    On,
+}
+
 /// The maximum number of devices supported.
 ///
 /// The real maximum number of devices is the lesser one of this value and the value returned by
@@ -475,6 +487,18 @@ impl LlamaModelParams {
         )
     }
 
+    /// Returns when llama.cpp reads the tensors marked for lazy reads, or `None` for a mode that
+    /// this crate does not know.
+    #[must_use]
+    pub fn lazy_mode(&self) -> Option<LlamaLazyMode> {
+        match self.params.lazy_mode {
+            llama_cpp_sys_2::LLAMA_LAZY_MODE_OFF => Some(LlamaLazyMode::Off),
+            llama_cpp_sys_2::LLAMA_LAZY_MODE_AUTO => Some(LlamaLazyMode::Auto),
+            llama_cpp_sys_2::LLAMA_LAZY_MODE_ON => Some(LlamaLazyMode::On),
+            _ => None,
+        }
+    }
+
     /// get the split mode
     ///
     /// # Errors
@@ -550,6 +574,17 @@ impl LlamaModelParams {
     #[must_use]
     pub fn with_use_mlock(mut self, use_mlock: bool) -> Self {
         self.params.load_mode = load_mode_from_flags(self.use_mmap(), use_mlock);
+        self
+    }
+
+    /// Sets when llama.cpp reads the tensors marked for lazy reads.
+    #[must_use]
+    pub fn with_lazy_mode(mut self, lazy_mode: LlamaLazyMode) -> Self {
+        self.params.lazy_mode = match lazy_mode {
+            LlamaLazyMode::Off => llama_cpp_sys_2::LLAMA_LAZY_MODE_OFF,
+            LlamaLazyMode::Auto => llama_cpp_sys_2::LLAMA_LAZY_MODE_AUTO,
+            LlamaLazyMode::On => llama_cpp_sys_2::LLAMA_LAZY_MODE_ON,
+        };
         self
     }
 
