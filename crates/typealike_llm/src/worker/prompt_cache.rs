@@ -18,9 +18,9 @@ use super::logits::{log_probability_of, most_likely_tokens, with_bias};
 use super::model_params::{ContextSetup, context_params};
 
 /// The sequence that keeps the last prompt between completions.
-const PROMPT_SEQUENCE: i32 = 0;
-/// The sequence that continues a copy of the prompt.
-const COMPLETION_SEQUENCE: i32 = 1;
+const PROMPT_SEQUENCE: i32 = 1;
+/// The sequence that continues a copy of the prompt. The drafter of llama.cpp reads only sequence 0.
+const COMPLETION_SEQUENCE: i32 = 0;
 /// The index that llama.cpp gives to the output of the last token of a decode.
 const LAST_OUTPUT: i32 = -1;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
