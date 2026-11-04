@@ -110,13 +110,19 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `cases/register.jsonl` has cases from the chat and email texts of the stores, each with its text left out, where the next word is a word that the writer uses mostly in one kind of place (80 percent of its counts in chats or in emails).
   - In the `own` cases, the word is of the kind of the place of the case (for example a sign-off of an email), and in the `cross` cases, of the other kind.
   - Run it with `--word-choice medium` for a change to how the texts of one app help the suggestions in another app.
+- `cases/context.jsonl` has the store `writers/nora_context.jsonl`: chats with 4 contacts and 3 mail threads that talk about the same events, each text with its app and its window title (its typing context).
+  - Its groups: `greet` (the name that the writer uses for each person), `close` (sign-offs), `habit` (words of one contact) and `control` (the right word is only in a text of another conversation).
+  - Run it with `--word-choice medium`, also with `--backend cpu --length short` (one example), for a change to the typing context or to the pick of the examples.
+- `cases/new_words.jsonl` has 0, 1 or 2 texts of today (`c0`, `c1`, `c2`) with a word that the stores of the writers never hold, and then that word next (`next`), after its typed start (`start`) or in another app (`other`).
+  - Run it with `--word-choice medium --dictionary crates/typealike_llm/examples/prompt_eval/cases/new_words.dictionary.tsv`, the answers of the macOS dictionary for these words.
+- `cases/today_harm.jsonl` has the cases of `stores_tuning`, `stores_held_out`, `replies` and `drift`, each with one text of today that holds an invented word which does not come next. Run it with `new_words.jsonl` for a change that uses the texts of today: a line with the new word of today helped 9 cases of `new_words` and harmed none, but here it helped 3 and harmed 18, because the model wrote the invented word in place of the right word.
 
 ### Stores of the writers
 
 - The `shared` group of the stores files has cases where the next word comes from another app (`help`), where another app pushes a wrong word (`harm`), and where the place and another app give different next words (`priority`). Run them with `--word-choice medium` for a change to the scope of the history.
 - Each text of the stores has the time when the writer wrote it (`written_at`, 4 texts a day, the last day 4 days before 2026-10-28 15:00 UTC).
 - A case can give its time (`now`), and its history then leaves out the texts written later.
-- A text of a store or of `history` can give the name of its app (`app`) and its window title (`window_title`), which give its typing context. The texts of the sets of the repo have none, so a change of the typing context needs cases with window titles in their texts and in the case.
+- A text of a store or of `history` can give the name of its app (`app`) and its window title (`window_title`), which give its typing context. Only the texts of `context.jsonl` have them.
 - Without `now`, a case is at the time of the newest text of its history.
 
 ## First key
