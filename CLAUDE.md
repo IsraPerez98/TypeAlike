@@ -38,9 +38,9 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 - Push a tag `vX.Y.Z` equal to the workspace version.
 - `.github/workflows/release.yml` builds `TypeAlike-X.Y.Z-macos-arm64.dmg` (ad-hoc signature, no notarization) and two Windows installers, then makes a draft release.
   - `-windows-x64-vulkan-setup.exe` has Vulkan.
-  - `-windows-x64-cuda-setup.exe` has Vulkan and CUDA with the cuBLAS DLLs.
+  - `-windows-x64-cuda-setup.exe` has Vulkan and CUDA with the CUDA runtime and cuBLAS DLLs.
 - A manual run (`workflow_dispatch`) builds only the workflow artifacts.
-- The scripts are in `packaging/`: `macos/build-dmg.sh` (app bundle from `Info.plist`, disk image), `windows/stage.ps1` (the files from the release folder, the Visual C++ runtime, cuBLAS) and `windows/TypeAlike.iss` (Inno Setup, current user only, `%LOCALAPPDATA%\Programs\TypeAlike`).
+- The scripts are in `packaging/`: `macos/build-dmg.sh` (app bundle from `Info.plist`, disk image), `windows/stage.ps1` (the files from the release folder, the Visual C++ runtime, the CUDA runtime, cuBLAS, then a check that Windows or the folder has each DLL that the built files load) and `windows/TypeAlike.iss` (Inno Setup, current user only, `%LOCALAPPDATA%\Programs\TypeAlike`).
 - `release.yml` pins MSVC 14.44, CUDA, the Vulkan SDK and the CUDA GPU targets (`CMAKE_CUDA_ARCHITECTURES`).
 
 ## Debugging
