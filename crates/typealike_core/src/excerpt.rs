@@ -14,6 +14,13 @@ pub(crate) fn plain_spaces(text: &str) -> String {
     text.replace(['\u{a0}', '\u{202f}', '\u{2007}'], " ")
 }
 
+/// Returns `text` without its zero-width spaces and word joiners. A web editor such as CodeMirror
+/// puts them around a widget, such as the mark of a list item, never inside a typed word, so the
+/// Backspace keys of the replacement of a word still delete the right characters.
+pub(crate) fn without_zero_width_spaces(text: &str) -> String {
+    text.replace(['\u{200b}', '\u{2060}', '\u{feff}'], "")
+}
+
 /// Returns the last `count` characters of `text`.
 pub(crate) fn last_chars(text: &str, count: usize) -> &str {
     let excess = text.chars().count().saturating_sub(count);

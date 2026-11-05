@@ -151,6 +151,19 @@ fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
 }
 
 #[test]
+fn first_key_reads_the_field_text_without_zero_width_spaces() {
+    let mut engine = Engine::default();
+
+    let reaction = engine.on_key(
+        Key::Char('l'),
+        Press::First,
+        &FakeDesktop::with_field_text("\u{200b}-\u{200b} Hello\u{2060}\u{feff} wor"),
+    );
+
+    assert_eq!(reaction, request("- Hello worl"));
+}
+
+#[test]
 fn field_text_is_read_once_per_session() {
     let mut engine = Engine::default();
     let desktop = FakeDesktop::with_field_text("Hello ");

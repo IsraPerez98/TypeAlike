@@ -15,7 +15,7 @@ mod suggestion;
 use std::fmt;
 
 use crate::desktop::{Desktop, Surroundings, Timestamp};
-use crate::excerpt::plain_spaces;
+use crate::excerpt::{plain_spaces, without_zero_width_spaces};
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TypoCheck};
 use crate::key::{Key, Press};
@@ -337,13 +337,14 @@ fn is_typo_changed_in(desktop: &dyn Desktop, fix: &WordFix) -> bool {
             .is_some_and(|field_text| !ends_with_typo(&field_text.before_caret, fix))
 }
 
-/// Reads what surrounds the caret in `desktop`, with plain spaces in the field text. A web editor
-/// shows a space that the user typed at the end of a text as a no-break space.
+/// Reads what surrounds the caret in `desktop`, with plain spaces and no zero-width spaces in the
+/// field text. A web editor shows a space that the user typed at the end of a text as a no-break
+/// space.
 fn read_surroundings(desktop: &dyn Desktop) -> Surroundings {
     let mut surroundings = desktop.surroundings();
     if let Some(field_text) = &mut surroundings.field_text {
-        field_text.before_caret = plain_spaces(&field_text.before_caret);
-        field_text.after_caret = plain_spaces(&field_text.after_caret);
+        field_text.before_caret = without_zero_width_spaces(&plain_spaces(&field_text.before_caret));
+        field_text.after_caret = without_zero_width_spaces(&plain_spaces(&field_text.after_caret));
     }
     surroundings
 }
