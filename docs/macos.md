@@ -76,6 +76,15 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A Chromium contenteditable puts a line break between blocks in `AXValue`, but its range text joins the blocks. Thus the cut first moves the selection past the line breaks that the range text leaves out (`value_offset_after`).
 - When the two texts differ in more than these line breaks, the cut keeps the offsets of the range text.
 
+## CodeMirror
+
+- In a CodeMirror editor (the DOM class `cm-content`, as in Obsidian), the range text of Chromium has each line after the other with no line break, and one line break for each empty line.
+- macOS then reads the text of each child of the editor, which is one line (`AXStringForTextMarkerRange` of `AXTextMarkerRangeForUIElement`), and puts a line break between the lines (`focus/surroundings/code_mirror.rs`). A read of 37 lines takes about 5 ms.
+- A line gives U+FFFC for a widget and a line break for the `<br>` of an empty line. Both go.
+- At the start of a line after a line with text, the range text has the same offset for the end of the line before. The caret is on the line when the middle of the caret box is not above the top of the line.
+- When the lines do not give the range text before the caret, the range text stays.
+- CodeMirror holds only the lines that it draws, so the text before the caret starts at the first line that it draws.
+
 ## Event tap
 
 - The event tap also watches the scroll-wheel event and gives it only to `Controller::on_scroll`, with no AX read and no read of the pasteboard.

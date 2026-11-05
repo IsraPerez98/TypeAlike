@@ -9,10 +9,13 @@ use typealike_core::desktop::{
     FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET, is_line_break,
 };
 
+mod code_mirror;
+
 use crate::accessibility::{
     ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_element,
     copy_string, has_dom_class, parent, selected_range, string_for_range,
 };
+use crate::focus::surroundings::code_mirror::code_mirror_text;
 
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const TITLE_ATTRIBUTE: &str = "AXTitle";
@@ -81,13 +84,15 @@ fn url_host(element: &AXUIElement) -> Option<String> {
     url.host_name().map(|host| host.to_string())
 }
 
-/// Reads the text around the selection of `element`, by range, or from its whole value when it
-/// cannot read a range.
+/// Reads the text around the selection of `element`: from its lines in a CodeMirror editor, else
+/// by range, or from its whole value when it cannot read a range.
 pub(super) fn field_text(element: &AXUIElement) -> Option<FieldText> {
     let selection = selected_range(element)?;
     let text_length = character_count(element);
     let ranges = SurroundingRanges::new(selection, text_length)?;
-    field_text_by_range(element, &ranges).or_else(|| field_text_by_value(element, selection, text_length))
+    code_mirror_text(element, selection, ranges.before)
+        .or_else(|| field_text_by_range(element, &ranges))
+        .or_else(|| field_text_by_value(element, selection, text_length))
 }
 
 fn field_text_by_range(element: &AXUIElement, ranges: &SurroundingRanges) -> Option<FieldText> {
