@@ -13,8 +13,9 @@ use crate::settings::OcrLevel;
 /// the text drops its oldest characters when it reaches this many.
 pub const MAX_CHARS_BEFORE_CARET: usize = 4000;
 
-/// The most characters after the caret that a suggestion uses. A platform reads at most this many.
-pub const MAX_CHARS_AFTER_CARET: usize = 300;
+/// The most characters after the caret that a platform reads: enough text for the budget of the
+/// text after the caret in the prompt of an email.
+pub const MAX_CHARS_AFTER_CARET: usize = 900;
 
 /// Whether `character` ends a line in the text of a field. Word ends a line inside a paragraph
 /// with a vertical tab.

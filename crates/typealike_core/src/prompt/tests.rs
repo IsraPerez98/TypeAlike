@@ -1,7 +1,7 @@
 //! Tests of the prompt and its preface.
 
 use super::*;
-use crate::desktop::{Confidence, FieldLabels, FieldText, ScreenLine, ScreenRect};
+use crate::desktop::{Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, ScreenLine, ScreenRect};
 
 fn notes(text: &str) -> Writer<'_> {
     Writer {
@@ -303,6 +303,36 @@ fn long_parts_keep_their_start() {
             ascii_text('a', AFTER_CARET_TOKENS, 0)
         ))
     );
+}
+
+/// Returns the estimated tokens of the text after the caret in `preface`.
+fn tokens_after_caret(preface: &str) -> u32 {
+    let (_, after) = preface
+        .split_once("The text that comes right after the part that I am typing now: “")
+        .expect("the preface has text after the caret");
+    estimated_tokens(after.trim_end_matches('”')).0
+}
+
+#[test]
+fn text_after_the_caret_keeps_300_tokens_in_an_email_and_100_in_other_places() {
+    let places = ["com.apple.mail", "com.apple.notes"].map(|app_id| Surroundings {
+        app_id: Some(app_id.to_owned()),
+        ..with_text_after(&"a".repeat(1500))
+    });
+
+    let kept_tokens =
+        places.map(|place| tokens_after_caret(&preface(&Writer::default(), &place, None, None)));
+
+    assert_eq!(kept_tokens, [300, 100]);
+}
+
+#[test]
+fn platform_reads_the_text_after_the_caret_that_fills_the_budget_of_an_email() {
+    let read = "a".repeat(MAX_CHARS_AFTER_CARET);
+
+    let tokens = estimated_tokens(&read);
+
+    assert_eq!(tokens, TokenCount(300));
 }
 
 fn screen(lines: &[(&str, i32)]) -> ScreenText {

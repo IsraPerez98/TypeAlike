@@ -22,7 +22,7 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 - The frame.
 - The notes: 300.
 - The name: 20.
-- The text after the caret: 100.
+- The text after the caret: 300 in an email app or web mail, 100 in other places. In an email reply, the quoted message that the user answers is in the field after the caret. A platform reads at most 900 characters after the caret (`MAX_CHARS_AFTER_CARET`).
 - The place line: 40 for the window title, 40 for the name of the field and 40 for its hint.
 - The screen text: 300 on the CPU and 800 on a graphics card (`Settings::screen_tokens`). More screen text is too slow to decode on the CPU.
 - The last line above the field one more time, only when the whole line fits.

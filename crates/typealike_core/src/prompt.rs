@@ -37,6 +37,8 @@ const NAME_TOKENS: TokenCount = TokenCount(20);
 const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
 const FIELD_LABEL_TOKENS: TokenCount = TokenCount(40);
 const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
+/// In an email reply, the text after the caret holds the quoted message that the user answers.
+const EMAIL_AFTER_CARET_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 const HISTORY_TOKENS: TokenCount = TokenCount(320);
 
@@ -129,7 +131,7 @@ fn budgeted_parts<'text>(
     let after_caret = surroundings
         .field_text
         .as_ref()
-        .map(|field_text| budget.take_start(field_text.after_caret.trim(), AFTER_CARET_TOKENS));
+        .map(|field_text| budget.take_start(field_text.after_caret.trim(), after_caret_tokens(surroundings)));
     let place = place_line(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
     let nearby = screen
         .map(|screen| {
@@ -162,6 +164,15 @@ fn budgeted_parts<'text>(
         after_caret,
         above,
         last_line_above,
+    }
+}
+
+/// Returns the most estimated tokens of the text after the caret in the field of `surroundings`.
+fn after_caret_tokens(surroundings: &Surroundings) -> TokenCount {
+    if Format::of(surroundings) == Some(Format::Email) {
+        EMAIL_AFTER_CARET_TOKENS
+    } else {
+        AFTER_CARET_TOKENS
     }
 }
 

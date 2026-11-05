@@ -253,9 +253,11 @@ mod tests {
 
     #[test]
     fn text_of_unknown_length_reads_the_most_after_the_selection() {
+        let max_after = isize::try_from(MAX_CHARS_AFTER_CARET).unwrap();
+
         let ranges = SurroundingRanges::new(range(5, 2), None);
 
-        assert_eq!(ranges.map(|ranges| ranges.after), Some(range(7, 300)));
+        assert_eq!(ranges.map(|ranges| ranges.after), Some(range(7, max_after)));
     }
 
     fn value_offset(range_prefix: &str, value: &str) -> Option<usize> {
