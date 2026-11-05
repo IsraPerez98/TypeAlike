@@ -9,7 +9,8 @@ use objc2_foundation::{NSPoint, NSRect};
 use typealike_core::app::BadgeView;
 
 use crate::geometry::{self, Caret, appkit_origin};
-use crate::{panel, symbol};
+use crate::menu_bar::status_glyph;
+use crate::panel;
 
 const BADGE_SIZE: CGFloat = 24.0;
 const BADGE_PADDING: CGFloat = 4.0;
@@ -43,9 +44,9 @@ impl Badge {
             self.hide();
             return;
         };
-        let image = symbol::status_symbol(view.status, &view.label);
+        let image = status_glyph(view.status, &view.label);
         if image.is_none() {
-            tracing::warn!(status = ?view.status, "badge symbol is unavailable");
+            tracing::warn!(status = ?view.status, "badge glyph is unavailable");
         }
         self.glyph.setImage(image.as_deref());
         let frame = badge_frame(caret);

@@ -5,21 +5,19 @@
 use std::iter;
 use std::ops::Range;
 
-use windows::Win32::Foundation::{COLORREF, HWND, POINT, RECT, SIZE};
+use windows::Win32::Foundation::{COLORREF, HWND, POINT, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DrawTextW,
-    GdiFlush, GetTextExtentPoint32W, HGDIOBJ, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
+    AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION, GdiFlush, GetTextExtentPoint32W, HGDIOBJ, SetBkMode,
+    SetTextColor, TRANSPARENT, TextOutW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{ULW_ALPHA, UpdateLayeredWindow};
+use windows::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DrawIconEx, HICON, ULW_ALPHA, UpdateLayeredWindow};
 use windows::core::{Error, Result};
 
-use super::font::{Font, FontHeight, FontWeight};
+use super::font::Font;
 use super::memory::{MemoryContext, PixelSection};
 use crate::pixels::{
     Ink, Rgb, fill_band, lay_over, lay_over_at, pad, strike_rows, tint_by_coverage, tint_spans,
 };
-
-const ICON_FACES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
 
 /// A part of a line of text in one font and one color, with an optional line through it.
 #[derive(Debug, Clone, Copy)]
@@ -69,18 +67,37 @@ pub(crate) struct TextBitmap {
 }
 
 impl TextBitmap {
-    /// Renders `text` in `ink` in the middle of a new square bitmap of `square_side` pixels.
-    pub(crate) fn render_centered(text: &str, font: &Font, ink: Ink, square_side: i32) -> Result<Self> {
+    /// Draws `icon`, `icon_side` pixels wide, in `ink` in the middle of a new square bitmap of
+    /// `square_side` pixels. The icon must be white on transparency, so that its brightness is its
+    /// coverage.
+    pub(crate) fn render_icon_centered(
+        icon: HICON,
+        icon_side: i32,
+        ink: Ink,
+        square_side: i32,
+    ) -> Result<Self> {
         let context = MemoryContext::new()?;
-        let _font = context.select(HGDIOBJ(font.0.0));
-        let mut units = utf16(text);
         let size = SIZE {
             cx: square_side,
             cy: square_side,
         };
         let mut section = PixelSection::new(size)?;
         let _bitmap = context.select(HGDIOBJ(section.bitmap.0));
-        draw_centered(&context, &mut units, size)?;
+        let inset = (square_side - icon_side) / 2;
+        // SAFETY: the icon is alive, and the context has the bitmap selected.
+        unsafe {
+            DrawIconEx(
+                context.handle(),
+                inset,
+                inset,
+                icon,
+                icon_side,
+                icon_side,
+                0,
+                None,
+                DI_NORMAL,
+            )
+        }?;
         // SAFETY: the call takes no argument and has no precondition.
         unsafe { GdiFlush() }.ok()?;
         // SAFETY: the section is alive and GDI is done writing to it.
@@ -212,13 +229,6 @@ impl TextBitmap {
     }
 }
 
-/// Renders `glyph` of the system icon font in `color`, `glyph_side` pixels high, in the middle of
-/// a square of `side` pixels.
-pub(crate) fn glyph_bitmap(glyph: &str, glyph_side: i32, side: i32, color: Rgb) -> Result<TextBitmap> {
-    let font = Font::first_installed(&ICON_FACES, FontHeight::Em(glyph_side), FontWeight::Regular)?;
-    TextBitmap::render_centered(glyph, &font, color.into(), side)
-}
-
 fn measure(context: &MemoryContext, units: &[u16]) -> Result<SIZE> {
     let mut size = SIZE::default();
     // SAFETY: the text and the output size are valid for the call.
@@ -278,28 +288,6 @@ fn draw_at(context: &MemoryContext, units: &mut [u16], left: i32) -> Result<()> 
         Ok(())
     } else {
         Err(Error::from_thread())
-    }
-}
-
-/// Draws `units` in white in the middle of the transparent bitmap of `context`, which is `size`.
-fn draw_centered(context: &MemoryContext, units: &mut [u16], size: SIZE) -> Result<()> {
-    let mut bounds = RECT {
-        left: 0,
-        top: 0,
-        right: size.cx,
-        bottom: size.cy,
-    };
-    let format = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
-    // SAFETY: plain calls on a context this module owns; the text and rectangle outlive the call.
-    let text_height = unsafe {
-        SetTextColor(context.handle(), COLORREF(Rgb::WHITE.to_colorref()));
-        SetBkMode(context.handle(), TRANSPARENT);
-        DrawTextW(context.handle(), units, &raw mut bounds, format)
-    };
-    if text_height == 0 {
-        Err(Error::from_thread())
-    } else {
-        Ok(())
     }
 }
 

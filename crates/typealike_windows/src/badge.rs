@@ -1,24 +1,23 @@
 //! The badge above the caret: a small button that opens the menu of TypeAlike. The mouse hook
 //! takes its clicks, so its window lets clicks through and never takes focus.
 
-use typealike_core::app::{BadgeView, Status};
+use typealike_core::app::BadgeView;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::core::{Result, w};
 
 use crate::caret::Caret;
 use crate::display::{monitor_dpi, to_pixels};
-use crate::gdi::glyph_bitmap;
+use crate::gdi::TextBitmap;
 use crate::pixels::RoundedRectangle;
 use crate::system_theme::{SystemTheme, TooltipColors};
+use crate::tray::{RobotColor, robot_icon};
 use crate::window::{Window, WindowSpec};
 
 const BADGE_SIDE_DIPS: i32 = 24;
-const GLYPH_SIDE_DIPS: i32 = 14;
+const GLYPH_SIDE_DIPS: i32 = 16;
 const CORNER_RADIUS_DIPS: i32 = 4;
 const BORDER_WIDTH_DIPS: i32 = 1;
 const GAP_ABOVE_CARET_DIPS: i32 = 4;
-const ACTIVE_GLYPH: &str = "\u{E70F}";
-const PAUSED_GLYPH: &str = "\u{E769}";
 
 #[derive(Debug)]
 pub(crate) struct Badge {
@@ -48,7 +47,9 @@ impl Badge {
             fill: colors.fill,
             border: colors.border,
         };
-        let mut bitmap = glyph_bitmap(status_glyph(view.status), layout.glyph_side, side, colors.text)?;
+        let robot = robot_icon(view.status, RobotColor::White, layout.glyph_side)?;
+        let mut bitmap =
+            TextBitmap::render_icon_centered(*robot, layout.glyph_side, colors.text.into(), side)?;
         bitmap.lay_over(&plate.pixels());
         let top_left = POINT {
             x: layout.frame.left,
@@ -111,14 +112,6 @@ fn frame_contains(frame: RECT, point: POINT) -> bool {
     (frame.left..frame.right).contains(&point.x) && (frame.top..frame.bottom).contains(&point.y)
 }
 
-/// The glyph of the system icon font that shows `status`.
-fn status_glyph(status: Status) -> &'static str {
-    match status {
-        Status::Active => ACTIVE_GLYPH,
-        Status::Paused => PAUSED_GLYPH,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,7 +131,7 @@ mod tests {
                     right: 300,
                     bottom: 96,
                 },
-                glyph_side: 14,
+                glyph_side: 16,
                 corner_radius: 4,
                 border_width: 1,
             }
@@ -158,7 +151,7 @@ mod tests {
                     right: 300,
                     bottom: 94,
                 },
-                glyph_side: 21,
+                glyph_side: 24,
                 corner_radius: 6,
                 border_width: 2,
             }

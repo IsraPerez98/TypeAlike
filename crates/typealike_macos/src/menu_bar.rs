@@ -98,9 +98,9 @@ impl Drop for MenuBarItem {
     }
 }
 
-/// The template image that shows `status` in the menu bar, which assistive technology reads as
-/// `description`. macOS tints it for the menu bar and for the selection.
-fn status_glyph(status: Status, description: &str) -> Option<Retained<NSImage>> {
+/// The template image that shows `status` in the menu bar and on the badge, which assistive
+/// technology reads as `description`. macOS tints it for the menu bar and for the selection.
+pub(crate) fn status_glyph(status: Status, description: &str) -> Option<Retained<NSImage>> {
     let tiff = match status {
         Status::Active => ACTIVE_GLYPH,
         Status::Paused => PAUSED_GLYPH,

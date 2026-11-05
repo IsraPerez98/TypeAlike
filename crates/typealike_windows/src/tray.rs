@@ -25,8 +25,8 @@ pub(crate) const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
 
 const ICON_ID: u32 = 1;
 
-/// The robot of the TypeAlike logo, black for a light taskbar and white for a dark one. The
-/// paused robot has an empty visor with a pause sign. `assets/build_icons.py` makes the files.
+/// The robot of the TypeAlike logo, in black and in white. The paused robot has an empty visor
+/// with a pause sign. `assets/build_icons.py` makes the files.
 const ACTIVE_BLACK: &[u8] = include_bytes!("../assets/tray/active-black.ico");
 const ACTIVE_WHITE: &[u8] = include_bytes!("../assets/tray/active-white.ico");
 const PAUSED_BLACK: &[u8] = include_bytes!("../assets/tray/paused-black.ico");
@@ -130,14 +130,31 @@ pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> R
 fn render_icon(status: Status) -> Result<Owned<HICON>> {
     // SAFETY: the calls take no pointer and have no precondition.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
-    let icon_file = match (status, is_taskbar_light()) {
-        (Status::Active, true) => ACTIVE_BLACK,
-        (Status::Active, false) => ACTIVE_WHITE,
-        (Status::Paused, true) => PAUSED_BLACK,
-        (Status::Paused, false) => PAUSED_WHITE,
+    let color = if is_taskbar_light() {
+        RobotColor::Black
+    } else {
+        RobotColor::White
+    };
+    robot_icon(status, color, side)
+}
+
+/// The color of the robot icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RobotColor {
+    Black,
+    White,
+}
+
+/// The robot that shows `status`, in `color`, `side` pixels wide.
+pub(crate) fn robot_icon(status: Status, color: RobotColor, side: i32) -> Result<Owned<HICON>> {
+    let icon_file = match (status, color) {
+        (Status::Active, RobotColor::Black) => ACTIVE_BLACK,
+        (Status::Active, RobotColor::White) => ACTIVE_WHITE,
+        (Status::Paused, RobotColor::Black) => PAUSED_BLACK,
+        (Status::Paused, RobotColor::White) => PAUSED_WHITE,
     };
     let image = best_image(icon_file, u32::try_from(side).unwrap_or(LARGEST_SIDE))
-        .expect("each tray icon file has a PNG image, as a test checks");
+        .expect("each robot icon file has a PNG image, as a test checks");
     // SAFETY: the image is a PNG image of an icon file, and the call copies it into the new icon.
     let icon =
         unsafe { CreateIconFromResourceEx(image, true, ICON_FORMAT_VERSION, side, side, LR_DEFAULTCOLOR) }?;
@@ -306,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn each_tray_icon_has_a_png_image() {
+    fn each_robot_icon_has_a_png_image() {
         let files = [ACTIVE_BLACK, ACTIVE_WHITE, PAUSED_BLACK, PAUSED_WHITE];
 
         let signatures = files.map(|file| best_image(file, 16).and_then(|image| image.get(1..4)));

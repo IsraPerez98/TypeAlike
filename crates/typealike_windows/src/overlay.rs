@@ -10,7 +10,7 @@ use windows::core::{Result, w};
 
 use crate::caret::Caret;
 use crate::display::{monitor_dpi, to_pixels, work_area};
-use crate::gdi::{Font, FontHeight, FontWeight, TextBitmap, TextRun, line_width};
+use crate::gdi::{Font, FontWeight, TextBitmap, TextRun, line_width};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode, TooltipColors, system_color};
 use crate::window::{Window, WindowSpec};
@@ -280,7 +280,7 @@ fn no_typed_letters(font: &Font) -> TypedLetters<'_> {
 /// when it is installed, else the system UI font, sized to the caret.
 fn ghost_text_font(caret: &Caret, weight: FontWeight) -> Result<Font> {
     let faces = ghost_text_faces(caret.font_face.as_deref());
-    Font::first_installed(&faces, FontHeight::Cell(caret.height), weight)
+    Font::first_installed(&faces, caret.height, weight)
 }
 
 /// Where the card below the caret shows and how large its parts are, in physical pixels.

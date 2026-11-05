@@ -14,15 +14,6 @@ use crate::utf16::until_nul;
 
 const MAX_FACE_NAME_UNITS: usize = 32;
 
-/// How a font's pixel height is measured.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum FontHeight {
-    /// Height of the whole character cell, like a line of text or a caret.
-    Cell(i32),
-    /// Height of the em square, which icon fonts fill.
-    Em(i32),
-}
-
 /// How thick the letters of a font are.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FontWeight {
@@ -34,10 +25,11 @@ pub(crate) enum FontWeight {
 pub(crate) struct Font(pub(super) Owned<HFONT>);
 
 impl Font {
-    /// Creates an antialiased font of `weight` in the first of `faces` that is installed.
-    pub(crate) fn first_installed(faces: &[&str], height: FontHeight, weight: FontWeight) -> Result<Self> {
+    /// Creates an antialiased font of `weight` in the first of `faces` that is installed, with a
+    /// character cell `cell_height` pixels high, like a line of text or a caret.
+    pub(crate) fn first_installed(faces: &[&str], cell_height: i32, weight: FontWeight) -> Result<Self> {
         for face in faces {
-            let font = Self::create(face, height, weight)?;
+            let font = Self::create(face, cell_height, weight)?;
             if font.face_name()? == *face {
                 return Ok(font);
             }
@@ -45,11 +37,7 @@ impl Font {
         Err(Error::new(E_FAIL, "none of the font faces is installed"))
     }
 
-    fn create(face: &str, height: FontHeight, weight: FontWeight) -> Result<Self> {
-        let height = match height {
-            FontHeight::Cell(pixels) => pixels,
-            FontHeight::Em(pixels) => -pixels,
-        };
+    fn create(face: &str, cell_height: i32, weight: FontWeight) -> Result<Self> {
         let weight = match weight {
             FontWeight::Regular => FW_NORMAL,
             FontWeight::Semibold => FW_SEMIBOLD,
@@ -57,7 +45,7 @@ impl Font {
         // SAFETY: plain call; the face name outlives it.
         let font = unsafe {
             CreateFontW(
-                height,
+                cell_height,
                 0,
                 0,
                 0,
