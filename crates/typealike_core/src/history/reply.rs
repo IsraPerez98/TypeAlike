@@ -7,7 +7,7 @@ use super::words::{is_distinctive_word, words};
 use crate::desktop::{ScreenText, Surroundings};
 use crate::excerpt::one_line;
 use crate::place::Place;
-use crate::screen::{self, LineScope};
+use crate::screen::{self, FieldContent, LineScope};
 
 /// The most words of the message that a text answers. The words nearest the reply tell most
 /// about it.
@@ -56,7 +56,7 @@ pub(crate) fn reply_words(
         .filter(|entry| Some(entry.place()) == place)
         .map(|entry| one_line(&entry.text))
         .collect::<Vec<_>>();
-    let lines = screen::message_lines_above(screen, surroundings.field_text.as_ref());
+    let lines = screen::message_lines_above(screen, FieldContent::of(surroundings));
     let message_start = lines
         .iter()
         .rposition(|line| is_own_line(line, &own_texts))

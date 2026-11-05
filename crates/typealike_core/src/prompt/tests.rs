@@ -206,6 +206,37 @@ fn web_page_gives_the_format_of_the_place() {
 }
 
 #[test]
+fn field_that_hides_its_text_gives_no_labels() {
+    let surroundings = Surroundings {
+        field_labels: named_field("The editor is not accessible at this time."),
+        field_text: Some(FieldText::default()),
+        has_unreadable_text: true,
+        ..surroundings(None, Some("RELEASE.md - project"))
+    };
+
+    let preface = preface(&Writer::default(), &surroundings, None, None);
+
+    assert_eq!(preface, framed("Where I am typing: Title: RELEASE.md - project"));
+}
+
+#[test]
+fn field_with_unreadable_text_keeps_its_labels_while_it_gives_text() {
+    let surroundings = Surroundings {
+        field_labels: named_field("Editor content"),
+        field_text: Some(FieldText {
+            before_caret: "fn main() {".to_owned(),
+            after_caret: String::new(),
+        }),
+        has_unreadable_text: true,
+        ..surroundings(None, Some("main.rs"))
+    };
+
+    let preface = preface(&Writer::default(), &surroundings, None, None);
+
+    assert!(preface.contains("Field: Editor content"), "{preface}");
+}
+
+#[test]
 fn other_labels_of_the_field_give_a_hint() {
     let surroundings = Surroundings {
         field_labels: FieldLabels {

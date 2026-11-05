@@ -482,6 +482,29 @@ fn answer_with_enough_words_starts_no_ocr_read() {
 }
 
 #[test]
+fn answer_with_enough_words_starts_an_ocr_read_in_a_field_that_hides_its_text() {
+    let mut app = App::new();
+    let read = screen_read(&mut app);
+    let editor = TextField {
+        has_unreadable_text: true,
+        ..MAIL_WITH_OCR
+    };
+
+    let work = app.on_screen_read(answer_with(read, &"word ".repeat(40)), &editor);
+
+    assert!(
+        matches!(
+            work,
+            Some(SettledWork::ReadScreen {
+                source: ScreenSource::Ocr(_),
+                ..
+            })
+        ),
+        "{work:?}"
+    );
+}
+
+#[test]
 fn answer_of_the_ocr_without_lines_keeps_the_lines_of_the_tree() {
     let mut app = app_preparing_on_focus();
     let read = screen_read(&mut app);

@@ -164,8 +164,12 @@ pub(crate) fn is_address_or_subject_field(surroundings: &Surroundings) -> bool {
 
 /// The labels of the focused field that are not empty, each on one line and one time, from the
 /// most specific: the caption, the name, the placeholder and the help text. Two labels are the
-/// same when they differ only in case or in a colon at the end.
+/// same when they differ only in case or in a colon at the end. A field that hides its text has
+/// none, because its label then tells a screen reader how to read the text.
 pub(crate) fn field_labels(surroundings: &Surroundings) -> Vec<String> {
+    if surroundings.hides_field_text() {
+        return Vec::new();
+    }
     let labels = &surroundings.field_labels;
     let lines = [&labels.caption, &labels.name, &labels.placeholder, &labels.help]
         .into_iter()

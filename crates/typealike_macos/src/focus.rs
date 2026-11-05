@@ -16,7 +16,7 @@ use crate::accessibility::{
 };
 pub(crate) use crate::focus::caret::{FontFace, TextStyle};
 use crate::focus::caret::{caret_bounds, is_terminal_input, text_style};
-use crate::focus::surroundings::{field_labels, field_text, web_domain, window_title};
+use crate::focus::surroundings::{field_labels, field_text, has_unreadable_text, web_domain, window_title};
 use crate::geometry::{Caret, is_finite_frame};
 
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
@@ -141,6 +141,7 @@ impl FocusTracker {
             field_text: element.as_deref().and_then(field_text),
             is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
             is_search_field: element.as_deref().is_some_and(is_search_field),
+            has_unreadable_text: element.as_deref().is_some_and(has_unreadable_text),
         }
     }
 }

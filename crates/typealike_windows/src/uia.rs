@@ -26,6 +26,9 @@ use crate::display;
 
 /// The class of the hidden input box of a terminal of xterm.js, such as the terminal of VS Code.
 const XTERM_INPUT_CLASS: &str = "xterm-helper-textarea";
+/// The class of the editor of VS Code, an `EditContext` element. UIA gives its text only while the
+/// screen reader mode of VS Code is on.
+const EDIT_CONTEXT_CLASS: &str = "native-edit-context";
 /// The length that asks `GetText` for all the text of a range.
 const WHOLE_RANGE: i32 = -1;
 
@@ -88,6 +91,17 @@ impl Uia {
 fn is_terminal_input(element: &IUIAutomationElement) -> bool {
     // SAFETY: plain call on an interface of this thread.
     unsafe { element.CurrentClassName() }.is_ok_and(|class| class == XTERM_INPUT_CLASS)
+}
+
+/// Whether `element` is an editor whose UIA text can leave out its text, as the editor of VS Code.
+fn has_unreadable_text(element: &IUIAutomationElement) -> bool {
+    // SAFETY: plain call on an interface of this thread.
+    unsafe { element.CurrentClassName() }.is_ok_and(|class| {
+        class
+            .to_string()
+            .split_whitespace()
+            .any(|name| name == EDIT_CONTEXT_CLASS)
+    })
 }
 
 /// Reads the frame of `element` in physical screen pixels. `None` when it has no area.

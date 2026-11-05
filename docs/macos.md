@@ -38,6 +38,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Each look at the caret also gives the frame of the focused field.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
+- A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.
 
 ## Caret
 

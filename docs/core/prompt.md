@@ -32,6 +32,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - The scope of the lines (`LineScope`).
 - The noise: many signs, or a digit between two lowercase letters, as text recognition makes them. A code of capital letters and digits, such as a booking code, stays.
 - The copies: a line with the same text and frame as another line shows once, because the tree of an Electron app gives each line twice.
+- The lines without a letter beside the field, such as the line numbers of an editor.
 - The times of chat headers.
 - The distance to the caret.
 - The budget.
@@ -42,6 +43,13 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - In a chat or an email app, the scope is the column of the field: the span of the field from left to right, with each line that reaches into that span, such as a chat message that starts left of the input box.
 - A line wholly beside the column there is the list of the other conversations, so it goes and gives no topic words to the examples.
 - In other places, a panel beside the field, such as the help of a form, can tell what the field needs, so all the lines of the window stay, and the lines beside the field rank last.
+
+### Field that hides its text
+
+- A field with unreadable text whose read gives no text hides its text (`Surroundings::hides_field_text`), as the editor of VS Code does while its screen reader mode is off.
+- Its lines on the screen are its text, so they stay and count as above the caret. In VS Code, that is the line of the caret.
+- It gives no labels, because its label tells a screen reader how to read the text.
+- Its screen read always asks for an OCR, because the tree misses its text.
 
 ### Order of the lines
 

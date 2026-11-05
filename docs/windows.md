@@ -59,6 +59,7 @@ The caret reader runs on its own thread.
 - The shell keeps that read for the hook, because the hook must not wait for UIA.
 - A field that UIA marks as a password field (`IsPassword`) gets no suggestions.
 - A field with the ARIA role `searchbox` (UIA `AriaRole`: a web search box or an HTML `<input type="search">`) is a search field. A native search box gives no ARIA role.
+- A field with the class `native-edit-context` in UIA (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): UIA gives its text only while the screen reader mode of VS Code is on.
 - After a click or a focus move, the field also counts as a password field until a read of the new field tells that it shows its text.
 - A read that gives no focused element (`FieldAnswer::Unknown`: the request failed or did not finish in time) does not change whether the field counts as a password field.
 - The caret reader waits at most 500 ms for an element and 3 s for each request about an element (`Uia::limit_waits`), so that one app that does not answer cannot stop the reads in all apps.

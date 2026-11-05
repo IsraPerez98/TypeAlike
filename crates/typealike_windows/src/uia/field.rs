@@ -16,7 +16,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
-use super::{Uia, WHOLE_RANGE, caret_range, is_password, is_terminal_input, text_of};
+use super::{Uia, WHOLE_RANGE, caret_range, has_unreadable_text, is_password, is_terminal_input, text_of};
 use crate::utf16::whole_chars;
 
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
@@ -49,6 +49,8 @@ pub(crate) struct ShownField {
     pub(crate) is_caret_line_hidden: bool,
     /// Whether the ARIA role of the field marks it as a search box.
     pub(crate) is_search_field: bool,
+    /// Whether the field can show text that UIA does not give, as the editor of VS Code does.
+    pub(crate) has_unreadable_text: bool,
 }
 
 impl fmt::Debug for ShownField {
@@ -60,6 +62,7 @@ impl fmt::Debug for ShownField {
             .field("has_domain", &self.domain.is_some())
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
+            .field("has_unreadable_text", &self.has_unreadable_text)
             .finish()
     }
 }
@@ -79,6 +82,7 @@ impl Uia {
             domain: self.web_domain(&element),
             is_caret_line_hidden: is_terminal_input(&element),
             is_search_field: is_search_field(&element),
+            has_unreadable_text: has_unreadable_text(&element),
         }))
     }
 

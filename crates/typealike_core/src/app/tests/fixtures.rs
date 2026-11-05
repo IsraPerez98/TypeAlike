@@ -30,6 +30,7 @@ pub(super) struct TextField {
     pub(super) field: Field,
     pub(super) ocr: OcrAvailability,
     pub(super) has_readable_text: bool,
+    pub(super) has_unreadable_text: bool,
 }
 
 impl Desktop for TextField {
@@ -42,6 +43,7 @@ impl Desktop for TextField {
             app_id: Some(self.app_id.to_owned()),
             domain: self.domain.map(str::to_owned),
             field_text: self.has_readable_text.then(FieldText::default),
+            has_unreadable_text: self.has_unreadable_text,
             ..Surroundings::default()
         }
     }
@@ -61,6 +63,7 @@ pub(super) const MAIL: TextField = TextField {
     field: Field::Open,
     ocr: OcrAvailability::Unsupported,
     has_readable_text: true,
+    has_unreadable_text: false,
 };
 
 /// A text field of a browser, on a website.

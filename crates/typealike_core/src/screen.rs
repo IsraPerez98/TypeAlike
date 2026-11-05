@@ -35,6 +35,39 @@ const DAY_TIME_JOINS: [&str; 4] = ["at", "a", "las", "la"];
 /// editor of VS Code, often gives only the labels of the app.
 const MIN_TREE_WORDS: usize = 40;
 
+/// What the prompt knows of the text of the focused field, for the lines of the screen.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FieldContent<'text> {
+    /// The platform reads the text of the field, if the field has text.
+    Read(Option<&'text FieldText>),
+    /// The field hides its text from the platform, so its lines on the screen are its text, such as
+    /// the line of the caret in the editor of VS Code.
+    Hidden,
+}
+
+impl<'text> FieldContent<'text> {
+    /// Returns what the prompt knows of the text of the field of `surroundings`.
+    pub(crate) fn of(surroundings: &'text Surroundings) -> Self {
+        if surroundings.hides_field_text() {
+            Self::Hidden
+        } else {
+            Self::Read(surroundings.field_text.as_ref())
+        }
+    }
+
+    fn text(self) -> Option<&'text FieldText> {
+        match self {
+            Self::Read(text) => text,
+            Self::Hidden => None,
+        }
+    }
+
+    /// Whether a line at `frame`, inside `field` on the screen, holds text of the field.
+    fn holds(self, frame: ScreenRect, field: ScreenRect) -> bool {
+        matches!(self, Self::Hidden) && is_inside(frame, field)
+    }
+}
+
 /// A line of text that the prompt can show.
 struct Candidate {
     text: String,
@@ -140,15 +173,15 @@ impl Column {
 
 /// Returns the text of the lines of `screen` in `scope` that the prompt shows, above and below the
 /// caret: the nearest lines to the caret that fit in `budget`, without the noise and the lines that
-/// repeat `field_text`.
+/// repeat the text of `field`. The lines of a field that hides its text count as above the caret.
 pub(crate) fn nearby_lines(
     screen: &ScreenText,
-    field_text: Option<&FieldText>,
+    field: FieldContent<'_>,
     budget: TokenCount,
     scope: LineScope,
 ) -> NearbyLines {
     let caret = caret_of(screen);
-    let mut candidates = candidates(screen, field_text, scope);
+    let mut candidates = candidates(screen, field, scope);
     candidates.sort_by_key(|candidate| {
         (
             distance(candidate.frame, caret, screen.field),
@@ -158,9 +191,9 @@ pub(crate) fn nearby_lines(
     });
     let mut kept = within_budget(candidates, budget);
     kept.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
-    let (above, below) = kept
-        .into_iter()
-        .partition::<Vec<_>, _>(|candidate| is_above(candidate.frame, caret));
+    let (above, below) = kept.into_iter().partition::<Vec<_>, _>(|candidate| {
+        is_above(candidate.frame, caret) || field.holds(candidate.frame, screen.field)
+    });
     NearbyLines {
         above: above.into_iter().map(|candidate| candidate.text).collect(),
         below: below.into_iter().map(|candidate| candidate.text).collect(),
@@ -168,11 +201,11 @@ pub(crate) fn nearby_lines(
 }
 
 /// Returns the text of the lines of `screen` in the column of the field above the caret, in
-/// reading order, without the chat headers, the noise and the lines that repeat `field_text`: the
-/// messages above the input box of a chat.
-pub(crate) fn message_lines_above(screen: &ScreenText, field_text: Option<&FieldText>) -> Vec<String> {
+/// reading order, without the chat headers, the noise and the lines that repeat the text of
+/// `field`: the messages above the input box of a chat.
+pub(crate) fn message_lines_above(screen: &ScreenText, field: FieldContent<'_>) -> Vec<String> {
     let caret = caret_of(screen);
-    let mut messages = candidates(screen, field_text, LineScope::Column)
+    let mut messages = candidates(screen, field, LineScope::Column)
         .into_iter()
         .filter(|candidate| !candidate.is_header && is_above(candidate.frame, caret))
         .collect::<Vec<_>>();
@@ -181,11 +214,15 @@ pub(crate) fn message_lines_above(screen: &ScreenText, field_text: Option<&Field
 }
 
 /// Whether the lines of `screen` that the prompt can keep for the field of `surroundings` hold at
-/// least [`MIN_TREE_WORDS`] words with a letter.
+/// least [`MIN_TREE_WORDS`] words with a letter. A field that hides its text needs the lines of an
+/// OCR, which hold its text.
 pub(crate) fn has_enough_words(screen: &ScreenText, surroundings: &Surroundings) -> bool {
+    if surroundings.hides_field_text() {
+        return false;
+    }
     let candidates = candidates(
         screen,
-        surroundings.field_text.as_ref(),
+        FieldContent::of(surroundings),
         LineScope::of(surroundings),
     );
     let words = candidates
@@ -196,15 +233,18 @@ pub(crate) fn has_enough_words(screen: &ScreenText, surroundings: &Surroundings)
 }
 
 /// Returns the lines of `screen` in `scope` that the prompt can show: without the noise, the lines
-/// inside the field, the lines that repeat `field_text` and the second copy of a line with the
-/// same text and frame, which the tree of an Electron app gives. A chat header gives only its name.
-fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineScope) -> Vec<Candidate> {
-    let field = FieldLines::of(field_text);
+/// inside a field that gives its text, the lines that repeat the text of `field`, the lines without
+/// a letter beside the field, such as line numbers, and the second copy of a line with the same
+/// text and frame, which the tree of an Electron app gives. A chat header gives only its name.
+fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) -> Vec<Candidate> {
+    let field_lines = FieldLines::of(field.text());
     let mut seen = HashSet::new();
     scope
         .lines(screen)
         .filter(|line| seen.insert((line.text.as_str(), line.frame)))
-        .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
+        .filter(|line| line.confidence >= MIN_CONFIDENCE)
+        .filter(|line| field.holds(line.frame, screen.field) || !is_inside(line.frame, screen.field))
+        .filter(|line| !is_beside(line.frame, screen.field) || line.text.chars().any(char::is_alphabetic))
         .map(|line| {
             let text = one_line(&line.text);
             match header_name(&text) {
@@ -221,7 +261,7 @@ fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineSc
             }
         })
         .filter(|candidate| {
-            !candidate.text.is_empty() && !is_noise(&candidate.text) && !field.repeats(&candidate.text)
+            !candidate.text.is_empty() && !is_noise(&candidate.text) && !field_lines.repeats(&candidate.text)
         })
         .collect()
 }
@@ -284,9 +324,15 @@ fn distance(line: ScreenRect, caret: ScreenRect, field: ScreenRect) -> Distance 
         0
     };
     Distance {
-        is_beside_field: line.right <= field.left || field.right <= line.left,
+        is_beside_field: is_beside(line, field),
         vertical_gap,
     }
+}
+
+/// Whether `line` is wholly left or right of `field`, as a sidebar or the line numbers of an
+/// editor are.
+fn is_beside(line: ScreenRect, field: ScreenRect) -> bool {
+    line.right <= field.left || field.right <= line.left
 }
 
 /// Whether the middle of `line` is in `field`. Such a line is text of the field, such as its
@@ -420,7 +466,15 @@ mod tests {
 
     /// Returns the text that the prompt keeps of each line, one screen for each line.
     fn kept_texts<const COUNT: usize>(lines: [&str; COUNT]) -> [Vec<String>; COUNT] {
-        lines.map(|text| nearby_lines(&screen(vec![above(text, 1)]), None, BUDGET, LineScope::Window).above)
+        lines.map(|text| {
+            nearby_lines(
+                &screen(vec![above(text, 1)]),
+                FieldContent::Read(None),
+                BUDGET,
+                LineScope::Window,
+            )
+            .above
+        })
     }
 
     #[test]
@@ -443,7 +497,7 @@ mod tests {
             above("Dinner on Saturday", 2),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(
             lines,
@@ -459,7 +513,12 @@ mod tests {
             above(&"c".repeat(30), 1),
         ]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(15), LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(15),
+            LineScope::Window,
+        );
 
         assert_eq!(lines, above_the_field(&[&"c".repeat(30)]));
     }
@@ -468,7 +527,12 @@ mod tests {
     fn line_that_does_not_fit_leaves_room_for_a_shorter_line() {
         let screen = screen(vec![above(&"a".repeat(60), 1), above("See you at 7?", 2)]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(10), LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(10),
+            LineScope::Window,
+        );
 
         assert_eq!(lines, above_the_field(&["See you at 7?"]));
     }
@@ -478,7 +542,12 @@ mod tests {
         let below = line("> Priya wrote: the budget is final", rect(300, 980, 900, 1010));
         let screen = screen(vec![above("Older message", 2), below]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(15), LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(15),
+            LineScope::Window,
+        );
 
         assert_eq!(lines, below_the_field(&["> Priya wrote: the budget is final"]));
     }
@@ -488,7 +557,12 @@ mod tests {
         let sidebar = line("General channel", rect(0, 920, 250, 940));
         let screen = screen(vec![sidebar, above("Can you send the deck?", 5)]);
 
-        let lines = nearby_lines(&screen, None, TokenCount(10), LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(10),
+            LineScope::Window,
+        );
 
         assert_eq!(lines, above_the_field(&["Can you send the deck?"]));
     }
@@ -498,7 +572,7 @@ mod tests {
         let sidebar = line("General channel", rect(0, 920, 250, 940));
         let screen = screen(vec![sidebar, above("Can you send the deck?", 5)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
 
         assert_eq!(lines, above_the_field(&["Can you send the deck?"]));
     }
@@ -509,7 +583,7 @@ mod tests {
         let short = line("Thanks", rect(200, 820, 280, 850));
         let screen = screen(vec![long, short]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
 
         assert_eq!(
             lines,
@@ -553,7 +627,7 @@ mod tests {
             field: rect(300, 900, 300, 960),
         };
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Column);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
 
         assert_eq!(lines, above_the_field(&["General channel"]));
     }
@@ -569,7 +643,12 @@ mod tests {
             field: rect(300, 500, 1400, 600),
         };
 
-        let lines = nearby_lines(&screen, None, TokenCount(6), LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(6),
+            LineScope::Window,
+        );
 
         assert_eq!(lines, below_the_field(&["Below the field"]));
     }
@@ -578,7 +657,7 @@ mod tests {
     fn whitespace_runs_become_one_space_and_empty_lines_go() {
         let screen = screen(vec![above("  Sure,\n  see\tyou ", 1), above(" \n ", 2)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Sure, see you"]));
     }
@@ -591,7 +670,7 @@ mod tests {
             above("#@%& tags", 3),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, NearbyLines::default());
     }
@@ -600,7 +679,7 @@ mod tests {
     fn line_with_a_code_of_capital_letters_and_digits_stays() {
         let screen = screen(vec![above("Your booking code is KX7P2Q", 1)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Your booking code is KX7P2Q"]));
     }
@@ -618,7 +697,7 @@ mod tests {
             },
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["See you there"]));
     }
@@ -627,7 +706,7 @@ mod tests {
     fn line_that_the_platform_gives_twice_shows_once() {
         let screen = screen(vec![above("EXPLORER", 2), above("EXPLORER", 2), above("Fine", 1)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["EXPLORER", "Fine"]));
     }
@@ -636,9 +715,36 @@ mod tests {
     fn same_text_at_two_places_shows_twice() {
         let screen = screen(vec![above("Fine", 2), above("Fine", 1)]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Fine", "Fine"]));
+    }
+
+    #[test]
+    fn line_inside_a_field_that_hides_its_text_is_the_last_line_above() {
+        let screen = screen(vec![
+            above("41. Parking is free after six.", 1),
+            line("and QA signs off on", rect(320, 915, 600, 945)),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Hidden, BUDGET, LineScope::Window);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["41. Parking is free after six.", "and QA signs off on"])
+        );
+    }
+
+    #[test]
+    fn line_without_letters_beside_the_field_goes() {
+        let screen = screen(vec![
+            line("60", rect(250, 905, 290, 925)),
+            line("General channel", rect(0, 905, 250, 925)),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
+
+        assert_eq!(lines, above_the_field(&["General channel"]));
     }
 
     #[test]
@@ -648,7 +754,7 @@ mod tests {
             line("Write a message", rect(320, 915, 600, 945)),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["Dinner at 7?"]));
     }
@@ -662,7 +768,7 @@ mod tests {
             above("Apt 3B, 1458 Maple Avenue", 4),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(lines.above.len(), 4, "{lines:?}");
     }
@@ -675,7 +781,12 @@ mod tests {
         };
         let screen = screen(vec![above("Yes", 1)]);
 
-        let lines = nearby_lines(&screen, Some(&field_text), BUDGET, LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(Some(&field_text)),
+            BUDGET,
+            LineScope::Window,
+        );
 
         assert_eq!(lines, above_the_field(&["Yes"]));
     }
@@ -692,7 +803,12 @@ mod tests {
             above("Want to come over?", 3),
         ]);
 
-        let lines = nearby_lines(&screen, Some(&field_text), BUDGET, LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(Some(&field_text)),
+            BUDGET,
+            LineScope::Window,
+        );
 
         assert_eq!(lines, above_the_field(&["Want to come over?"]));
     }
@@ -706,7 +822,7 @@ mod tests {
             line("Ana", rect(0, 925, 250, 945)),
         ]);
 
-        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 
         assert_eq!(
             lines,
@@ -766,7 +882,7 @@ mod tests {
             line("Sent from my phone", rect(300, 980, 900, 1000)),
         ]);
 
-        let lines = message_lines_above(&screen, None);
+        let lines = message_lines_above(&screen, FieldContent::Read(None));
 
         assert_eq!(lines, texts(&["Standup in 5?", "same room as yesterday"]));
     }

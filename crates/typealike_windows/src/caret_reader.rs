@@ -463,6 +463,7 @@ mod tests {
             domain: Some("mail.google.com".to_owned()),
             is_caret_line_hidden: false,
             is_search_field: false,
+            has_unreadable_text: false,
         }
     }
 

@@ -11,7 +11,7 @@ use typealike_core::desktop::{
 
 use crate::accessibility::{
     ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_element,
-    copy_string, parent, selected_range, string_for_range,
+    copy_string, has_dom_class, parent, selected_range, string_for_range,
 };
 
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
@@ -24,6 +24,14 @@ const URL_ATTRIBUTE: &str = "AXURL";
 const WEB_AREA_ROLE: &str = "AXWebArea";
 /// The most elements that TypeAlike reads on the way up from the focused field to its web area.
 const MAX_WEB_AREA_DISTANCE: usize = 64;
+/// The DOM class of the editor of VS Code, an `EditContext` element. Its tree holds the text only
+/// while the screen reader mode of VS Code is on.
+const EDIT_CONTEXT_CLASS: &str = "native-edit-context";
+
+/// Whether `element` is an editor whose tree can leave out its text, as the editor of VS Code.
+pub(super) fn has_unreadable_text(element: &AXUIElement) -> bool {
+    has_dom_class(element, EDIT_CONTEXT_CLASS)
+}
 
 pub(super) fn window_title(element: &AXUIElement) -> Option<String> {
     let window = copy_element(element, WINDOW_ATTRIBUTE)?;

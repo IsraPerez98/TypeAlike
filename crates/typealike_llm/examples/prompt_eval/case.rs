@@ -175,6 +175,7 @@ impl Case {
                 }),
                 is_caret_line_hidden: false,
                 is_search_field: false,
+                has_unreadable_text: false,
             },
             clipboard: self.clipboard.clone(),
             now: self.now.map(Timestamp),

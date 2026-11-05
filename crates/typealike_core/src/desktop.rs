@@ -319,6 +319,22 @@ pub struct Surroundings {
     /// Whether the role of the focused field marks it as a search box, as the role of an HTML
     /// `<input type="search">` does. The platform tells it from the role, never from the labels.
     pub is_search_field: bool,
+    /// Whether the focused field can show text that the platform cannot read, as the editor of VS
+    /// Code (an `EditContext` element) does while its screen reader mode is off. Its `field_text`
+    /// then has no text.
+    pub has_unreadable_text: bool,
+}
+
+impl Surroundings {
+    /// Whether the focused field shows text that the platform cannot read: a field with unreadable
+    /// text whose read gave no text.
+    pub(crate) fn hides_field_text(&self) -> bool {
+        self.has_unreadable_text
+            && self
+                .field_text
+                .as_ref()
+                .is_none_or(|text| text.before_caret.is_empty() && text.after_caret.is_empty())
+    }
 }
 
 impl fmt::Debug for Surroundings {
@@ -334,6 +350,7 @@ impl fmt::Debug for Surroundings {
             .field("field_text", &self.field_text)
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
+            .field("has_unreadable_text", &self.has_unreadable_text)
             .finish()
     }
 }
@@ -439,6 +456,7 @@ mod tests {
             }),
             is_caret_line_hidden: false,
             is_search_field: false,
+            has_unreadable_text: false,
         };
 
         let debug = format!("{surroundings:?}");

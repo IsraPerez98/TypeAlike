@@ -10,7 +10,7 @@ use crate::desktop::{ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, one_line};
 use crate::inference::{Prompt, TokenCount};
 use crate::place::{self, Format};
-use crate::screen::{self, LineScope};
+use crate::screen::{self, FieldContent, LineScope};
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
 /// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
@@ -129,7 +129,7 @@ fn budgeted_parts<'text>(
         .map(|screen| {
             screen::nearby_lines(
                 screen,
-                surroundings.field_text.as_ref(),
+                FieldContent::of(surroundings),
                 budget.left(SCREEN_TOKENS),
                 LineScope::of(surroundings),
             )
