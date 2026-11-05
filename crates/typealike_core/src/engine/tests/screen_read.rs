@@ -236,7 +236,7 @@ fn ocr_read_starts_after_the_newest_read() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
 
-    let ocr = engine.start_ocr_after(read, OcrLevel::Fast);
+    let ocr = engine.start_ocr_after(read, None, OcrLevel::Fast);
 
     assert!(ocr.is_some());
 }
@@ -247,7 +247,7 @@ fn no_ocr_read_starts_after_an_older_read() {
     let older = engine.start_screen_read().expect("no session runs");
     engine.start_screen_read();
 
-    let ocr = engine.start_ocr_after(older, OcrLevel::Fast);
+    let ocr = engine.start_ocr_after(older, None, OcrLevel::Fast);
 
     assert_eq!(ocr, None);
 }
@@ -257,10 +257,10 @@ fn no_ocr_read_starts_after_an_ocr_read() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
     let ocr = engine
-        .start_ocr_after(read, OcrLevel::Fast)
+        .start_ocr_after(read, None, OcrLevel::Fast)
         .expect("the read is the newest");
 
-    let next = engine.start_ocr_after(ocr, OcrLevel::Fast);
+    let next = engine.start_ocr_after(ocr, None, OcrLevel::Fast);
 
     assert_eq!(next, None);
 }
@@ -269,7 +269,7 @@ fn no_ocr_read_starts_after_an_ocr_read() {
 fn answer_to_the_read_before_an_ocr_read_is_dropped() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
-    engine.start_ocr_after(read, OcrLevel::Fast);
+    engine.start_ocr_after(read, None, OcrLevel::Fast);
 
     let is_kept = answer_read(&mut engine, read, Some(screen_with("Dinner at 7?")));
 

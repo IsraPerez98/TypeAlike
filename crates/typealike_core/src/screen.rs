@@ -30,6 +30,10 @@ const HALVES_OF_DAY: [&str; 2] = ["am", "pm"];
 const DAY_WORDS: [&str; 4] = ["today", "yesterday", "hoy", "ayer"];
 /// The words between a day word and its time, as in "Today at 21:03" or "Hoy a las 21:03".
 const DAY_TIME_JOINS: [&str; 4] = ["at", "a", "las", "la"];
+/// The fewest words with a letter in the lines of a read of the accessibility tree that the prompt
+/// can keep, for a read without an OCR. The tree of an app that draws its text itself, such as the
+/// editor of VS Code, often gives only the labels of the app.
+const MIN_TREE_WORDS: usize = 40;
 
 /// A line of text that the prompt can show.
 struct Candidate {
@@ -174,6 +178,21 @@ pub(crate) fn message_lines_above(screen: &ScreenText, field_text: Option<&Field
         .collect::<Vec<_>>();
     messages.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
     messages.into_iter().map(|candidate| candidate.text).collect()
+}
+
+/// Whether the lines of `screen` that the prompt can keep for the field of `surroundings` hold at
+/// least [`MIN_TREE_WORDS`] words with a letter.
+pub(crate) fn has_enough_words(screen: &ScreenText, surroundings: &Surroundings) -> bool {
+    let candidates = candidates(
+        screen,
+        surroundings.field_text.as_ref(),
+        LineScope::of(surroundings),
+    );
+    let words = candidates
+        .iter()
+        .flat_map(|candidate| candidate.text.split_whitespace())
+        .filter(|word| word.chars().any(char::is_alphabetic));
+    words.take(MIN_TREE_WORDS).count() == MIN_TREE_WORDS
 }
 
 /// Returns the lines of `screen` in `scope` that the prompt can show: without the noise, the lines

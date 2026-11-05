@@ -18,8 +18,13 @@ enum Screen {
     #[default]
     Unknown,
     /// The platform reads the screen from `source`. A session that starts now gets the text when
-    /// the answer comes.
-    Reading { id: ScreenReadId, source: ScreenSource },
+    /// the answer comes. An OCR read keeps the text of the read of the tree that it replaces, for
+    /// an answer without lines.
+    Reading {
+        id: ScreenReadId,
+        source: ScreenSource,
+        tree_text: Option<ScreenText>,
+    },
     /// The newest read, for the next session.
     Read(ScreenText),
 }
@@ -42,26 +47,50 @@ impl ScreenReads {
         self.screen = Screen::Reading {
             id: self.newest,
             source,
+            tree_text: None,
         };
         self.newest
     }
 
     /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
-    /// the accessibility tree, and returns its id.
-    fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
+    /// the accessibility tree, and returns its id. `tree_text` is the answer of `read`.
+    fn start_ocr_after(
+        &mut self,
+        read: ScreenReadId,
+        tree_text: Option<ScreenText>,
+        level: OcrLevel,
+    ) -> Option<ScreenReadId> {
         let is_newest_tree_read = matches!(
             self.screen,
-            Screen::Reading { id, source: ScreenSource::Accessibility } if id == read
+            Screen::Reading { id, source: ScreenSource::Accessibility, .. } if id == read
         );
-        is_newest_tree_read.then(|| self.start(ScreenSource::Ocr(level)))
+        is_newest_tree_read.then(|| {
+            self.newest = self.newest.next();
+            self.screen = Screen::Reading {
+                id: self.newest,
+                source: ScreenSource::Ocr(level),
+                tree_text,
+            };
+            self.newest
+        })
     }
 
-    /// Keeps the text of `read` when it answers the newest read, and returns whether it does.
+    /// Keeps the text of `read` when it answers the newest read, and returns whether it does. An
+    /// OCR answer without lines keeps the text of the read of the tree before it.
     fn answer(&mut self, read: ScreenRead) -> bool {
-        if !matches!(self.screen, Screen::Reading { id, .. } if id == read.id) {
+        let Screen::Reading { id, tree_text, .. } = &mut self.screen else {
+            return false;
+        };
+        if *id != read.id {
             return false;
         }
-        self.screen = read.text.map_or(Screen::Unknown, Screen::Read);
+        let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
+        let text = if has_lines {
+            read.text
+        } else {
+            tree_text.take().or(read.text)
+        };
+        self.screen = text.map_or(Screen::Unknown, Screen::Read);
         true
     }
 
@@ -111,9 +140,15 @@ impl Engine {
     }
 
     /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
-    /// the accessibility tree, and returns its id.
-    pub(crate) fn start_ocr_after(&mut self, read: ScreenReadId, level: OcrLevel) -> Option<ScreenReadId> {
-        self.screen_reads.start_ocr_after(read, level)
+    /// the accessibility tree, and returns its id. When the OCR gives no lines, the screen text is
+    /// `tree_text`, the answer of `read`.
+    pub(crate) fn start_ocr_after(
+        &mut self,
+        read: ScreenReadId,
+        tree_text: Option<ScreenText>,
+        level: OcrLevel,
+    ) -> Option<ScreenReadId> {
+        self.screen_reads.start_ocr_after(read, tree_text, level)
     }
 
     /// Keeps the text of `read` when it answers the newest read, and returns whether it does. A

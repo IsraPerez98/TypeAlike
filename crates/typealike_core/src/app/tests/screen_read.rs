@@ -449,13 +449,61 @@ fn ocr_read_uses_the_level_of_the_settings() {
 }
 
 #[test]
-fn answer_with_lines_starts_no_ocr_read() {
-    let mut app = app_preparing_on_first_key();
+fn answer_with_few_words_starts_an_ocr_read() {
+    let mut app = App::new();
     let read = screen_read(&mut app);
 
-    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL_WITH_OCR);
+    let work = app.on_screen_read(
+        answer_with(read, "EXPLORER RELEASE.md 1 5 OUTLINE"),
+        &MAIL_WITH_OCR,
+    );
+
+    assert!(
+        matches!(
+            work,
+            Some(SettledWork::ReadScreen {
+                source: ScreenSource::Ocr(_),
+                ..
+            })
+        ),
+        "{work:?}"
+    );
+}
+
+#[test]
+fn answer_with_enough_words_starts_no_ocr_read() {
+    let mut app = app_preparing_on_first_key();
+    let read = screen_read(&mut app);
+    let message = "word ".repeat(40);
+
+    let work = app.on_screen_read(answer_with(read, &message), &MAIL_WITH_OCR);
 
     assert_eq!(work, None);
+}
+
+#[test]
+fn answer_of_the_ocr_without_lines_keeps_the_lines_of_the_tree() {
+    let mut app = app_preparing_on_focus();
+    let read = screen_read(&mut app);
+    let Some(SettledWork::ReadScreen { read: ocr, .. }) =
+        app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL_WITH_OCR)
+    else {
+        panic!("an answer with few words starts an OCR read");
+    };
+
+    let work = app.on_screen_read(answer(ocr), &MAIL_WITH_OCR);
+
+    assert_eq!(
+        work,
+        Some(SettledWork::Prepare(preparation_request(
+            &[
+                "Where I am typing: Format: email",
+                "Above the field on my screen: “Dinner at 7?”",
+                "The last line above the field on my screen: “Dinner at 7?”"
+            ],
+            ""
+        )))
+    );
 }
 
 #[test]

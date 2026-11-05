@@ -24,6 +24,7 @@ use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::{Key, Press};
 use crate::localization::Translations;
+use crate::screen;
 use crate::settings::{
     EnergySaverRule, FullScreenRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings,
     Settings, SuggestionDisplay, SuggestionPlaces,
@@ -451,8 +452,8 @@ impl App {
         self.prepare_on_focus(desktop).map(SettledWork::Prepare)
     }
 
-    /// Handles the answer to a read of the screen. When the accessibility tree gives no lines and
-    /// `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
+    /// Handles the answer to a read of the screen. When the lines of the accessibility tree that
+    /// the prompt can keep hold few words and `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
     /// session when the session has no final screen text, and into the next session. With
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, it then
     /// returns the request that prepares the prompt of the focused field of `desktop` with the new
@@ -461,10 +462,14 @@ impl App {
         let is_active = self.offers_suggestions()
             && desktop.field() == Field::Open
             && self.allows_suggestions_in(desktop);
-        let has_lines = read.text.as_ref().is_some_and(|text| !text.lines.is_empty());
-        let is_ocr_due = is_active && !has_lines && desktop.ocr_availability() == OcrAvailability::Ready;
+        let is_ocr_due = is_active
+            && desktop.ocr_availability() == OcrAvailability::Ready
+            && !read
+                .text
+                .as_ref()
+                .is_some_and(|text| screen::has_enough_words(text, &desktop.surroundings()));
         let level = self.screen_text.ocr_level;
-        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id, level) {
+        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id, read.text.clone(), level) {
             return Some(SettledWork::ReadScreen {
                 read: ocr,
                 source: ScreenSource::Ocr(level),
