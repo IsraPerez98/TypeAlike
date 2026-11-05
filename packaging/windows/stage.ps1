@@ -28,6 +28,8 @@ $cudaDlls = 'cudart64_*.dll', 'cublas64_*.dll', 'cublasLt64_*.dll'
 $checkedBinaries = @('TypeAlike.exe', 'llama*.dll', 'ggml*.dll') + $cudaDlls
 # The GPU driver installs these, and llama.cpp skips the backend DLL when the driver is not there.
 $driverDlls = 'nvcuda.dll', 'vulkan-1.dll'
+# Windows also installs propsys.dll, but its product name is Windows Search.
+$windowsProducts = '*Windows*Operating System*', 'Windows*Search'
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $visualStudio = & $vswhere -latest -products * -property installationPath
@@ -54,7 +56,10 @@ function Test-WindowsDll([string] $Name) {
         return $true
     }
     $dll = Get-Item (Join-Path "$env:SystemRoot\System32" $Name) -ErrorAction SilentlyContinue
-    return [bool]$dll -and $dll.VersionInfo.ProductName -like '*Windows*Operating System*'
+    if (-not $dll) {
+        return $false
+    }
+    return [bool]($windowsProducts | Where-Object { $dll.VersionInfo.ProductName -like $_ })
 }
 
 function Get-UnshippedDlls([System.IO.FileInfo] $Binary, [string] $Dumpbin) {
