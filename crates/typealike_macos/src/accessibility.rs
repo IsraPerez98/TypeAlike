@@ -21,6 +21,7 @@ const SEARCH_FIELD_SUBROLE: &str = "AXSearchField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
 const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
 pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
+pub(crate) const TITLE_ATTRIBUTE: &str = "AXTitle";
 const POSITION_ATTRIBUTE: &str = "AXPosition";
 const SIZE_ATTRIBUTE: &str = "AXSize";
 pub(crate) const ROLE_ATTRIBUTE: &str = "AXRole";

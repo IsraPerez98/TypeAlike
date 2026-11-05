@@ -12,13 +12,12 @@ use typealike_core::desktop::{
 mod code_mirror;
 
 use crate::accessibility::{
-    ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute, copy_element,
-    copy_string, has_dom_class, parent, selected_range, string_for_range,
+    ROLE_ATTRIBUTE, TITLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute,
+    copy_element, copy_string, has_dom_class, parent, selected_range, string_for_range,
 };
 use crate::focus::surroundings::code_mirror::code_mirror_text;
 
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
-const TITLE_ATTRIBUTE: &str = "AXTitle";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
 const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
 const HELP_ATTRIBUTE: &str = "AXHelp";

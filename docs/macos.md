@@ -46,6 +46,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A static text that does not show never joins. The static texts of a child element, for example a link, do not join the static texts around it.
 - The OCR uses the visible part of the field: the part of the field frame in the frame of its AX window. A text view that scrolled can have a frame taller than its window, for example in TextEdit.
 - The OCR captures the window of the app that holds the middle of the visible part. It reads a band from 600 pt above the visible part to 600 pt below it (`BAND_POINTS`).
+- Two windows of one app can have the same frame. Of the windows that hold that point, the OCR captures the window with the longest title that starts the title of the AX window, else the first one (`picked_window`). Chrome gives its name after the title of the page only in the AX title.
 - When the frame of the AX window is unknown, or the field has no part in it, the OCR uses the full frame of the field.
 
 ## Fields

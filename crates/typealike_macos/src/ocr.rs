@@ -2,6 +2,7 @@
 //! text: `ScreenCaptureKit` captures a band of the window around the focused field, and Vision
 //! recognizes the text in it. This needs the Screen & System Audio Recording permission.
 
+use std::cmp::Reverse;
 use std::hash::{DefaultHasher, Hasher};
 use std::ptr::NonNull;
 use std::sync::mpsc;
@@ -23,7 +24,7 @@ use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNR
 use typealike_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
 use typealike_core::settings::OcrLevel;
 
-use crate::accessibility::{self, WINDOW_ATTRIBUTE};
+use crate::accessibility::{self, TITLE_ATTRIBUTE, WINDOW_ATTRIBUTE};
 use crate::energy_saver;
 use crate::focus::{self, FocusedField};
 use crate::geometry::{contains, intersection, moved_by, screen_rect};
@@ -108,7 +109,7 @@ impl Ocr {
     pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
         let field = focus::focused_field(process)?;
         let started = Instant::now();
-        let capture = capture_band(process, visible_part(&field))?;
+        let capture = capture_band(process, FieldWindow::of(&field))?;
         let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
@@ -138,13 +139,30 @@ impl Ocr {
     }
 }
 
-/// The part of `field` in the frame of its window, or all of `field` when that frame is unknown
-/// or holds no part of it. A long text view that scrolled has a frame taller than its window.
-fn visible_part(field: &FocusedField) -> CGRect {
-    accessibility::copy_element(&field.element, WINDOW_ATTRIBUTE)
-        .and_then(|window| accessibility::frame(&window))
-        .and_then(|window| intersection(field.frame, window))
-        .unwrap_or(field.frame)
+/// What the AX window of the focused field tells about the window to capture.
+struct FieldWindow {
+    /// The part of the field in the frame of its window, or all of the field when that frame is
+    /// unknown or holds no part of it. A long text view that scrolled has a frame taller than its
+    /// window.
+    visible_part: CGRect,
+    /// The title of the window. Two windows of one app can have the same frame.
+    title: Option<String>,
+}
+
+impl FieldWindow {
+    fn of(field: &FocusedField) -> Self {
+        let window = accessibility::copy_element(&field.element, WINDOW_ATTRIBUTE);
+        Self {
+            visible_part: window
+                .as_deref()
+                .and_then(accessibility::frame)
+                .and_then(|window| intersection(field.frame, window))
+                .unwrap_or(field.frame),
+            title: window
+                .as_deref()
+                .and_then(|window| accessibility::copy_string(window, TITLE_ATTRIBUTE)),
+        }
+    }
 }
 
 fn screen_text_of<'a>(
@@ -165,16 +183,17 @@ fn screen_text_of<'a>(
     }
 }
 
-/// Captures the band of the window of `process` around `field`. `ScreenCaptureKit` answers on
-/// a queue of its own, so this waits for the answer.
-fn capture_band(process: i32, field: CGRect) -> Option<Capture> {
+/// Captures the band of the window of `process` around the field of `field_window`.
+/// `ScreenCaptureKit` answers on a queue of its own, so this waits for the answer.
+fn capture_band(process: i32, field_window: FieldWindow) -> Option<Capture> {
     let (sender, receiver) = mpsc::channel();
     let on_content = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
         // SAFETY: `ScreenCaptureKit` gives a valid error or null, which lives during the call.
         log_capture_error(unsafe { error.as_ref() }, "list the windows");
         // SAFETY: `ScreenCaptureKit` gives a valid object or null.
         let content = unsafe { Retained::retain(content) };
-        let is_started = content.is_some_and(|content| start_capture(&content, process, field, &sender));
+        let is_started =
+            content.is_some_and(|content| start_capture(&content, process, &field_window, &sender));
         if !is_started {
             send_capture(&sender, None);
         }
@@ -194,19 +213,27 @@ fn capture_band(process: i32, field: CGRect) -> Option<Capture> {
         .flatten()
 }
 
-/// Starts the capture of the band of the window of `process` around `field`, which goes to
-/// `sender`. Returns whether it started: the window can be off the screen.
+/// Starts the capture of the band of the window of `process` around the field of `field_window`,
+/// which goes to `sender`. Returns whether it started: the window can be off the screen.
 fn start_capture(
     content: &SCShareableContent,
     process: i32,
-    field: CGRect,
+    field_window: &FieldWindow,
     sender: &mpsc::Sender<Option<Capture>>,
 ) -> bool {
+    let field = field_window.visible_part;
     // SAFETY: plain call on a valid object.
     let windows = unsafe { content.windows() };
-    let Some(window) = windows
+    let holding = windows
         .iter()
-        .find(|window| is_window_of(window, process, field.mid()))
+        .filter(|window| is_window_of(window, process, field.mid()))
+        .collect::<Vec<_>>();
+    // SAFETY: plain calls on valid windows.
+    let titles = holding
+        .iter()
+        .map(|window| unsafe { window.title() }.map(|title| title.to_string()))
+        .collect::<Vec<_>>();
+    let Some(window) = picked_window(&titles, field_window.title.as_deref()).map(|index| &holding[index])
     else {
         return false;
     };
@@ -215,7 +242,7 @@ fn start_capture(
     let band = band_around(field, frame);
     // SAFETY: plain calls on valid objects.
     let filter =
-        unsafe { SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), &window) };
+        unsafe { SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), window) };
     // SAFETY: plain call on a valid filter.
     let scale = f64::from(unsafe { SCShareableContent::infoForFilter(&filter).pointPixelScale() });
     let configuration = band_configuration(band, frame.origin, scale);
@@ -255,6 +282,24 @@ fn send_capture(sender: &mpsc::Sender<Option<Capture>>, capture: Option<Capture>
     if sender.send(capture).is_err() {
         tracing::debug!("a capture came after the read stopped to wait for it");
     }
+}
+
+/// Returns the index of the window to capture among windows with `titles`: the window with the
+/// longest title that starts the title of the AX window, `title`, else the first window. Chrome
+/// gives its name after the title of the page only in the AX title.
+fn picked_window(titles: &[Option<String>], title: Option<&str>) -> Option<usize> {
+    let longest_start = titles
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            let candidate = candidate.as_deref().filter(|candidate| !candidate.is_empty())?;
+            title?
+                .starts_with(candidate)
+                .then_some((candidate.len(), Reverse(index)))
+        })
+        .max()
+        .map(|(_, Reverse(index))| index);
+    longest_start.or_else(|| (!titles.is_empty()).then_some(0))
 }
 
 /// Whether `window` is a normal window of `process` that holds `point`.
@@ -425,6 +470,26 @@ fn frame_in_band(bounds: CGRect, size: CGSize) -> CGRect {
 mod tests {
     use super::*;
     use crate::geometry::frame;
+
+    #[test]
+    fn window_with_the_title_of_the_field_window_is_picked() {
+        let titles = [
+            Some("Inbox".to_owned()),
+            Some("Spring Meetup".to_owned()),
+            Some("Spring".to_owned()),
+        ];
+        let cases = [
+            (&titles[..], Some("Spring Meetup - Google Chrome"), Some(1)),
+            (&titles[..], Some("Inbox"), Some(0)),
+            (&titles[..], Some("Other - Google Chrome"), Some(0)),
+            (&titles[..], None, Some(0)),
+            (&[][..], Some("Spring Meetup - Google Chrome"), None),
+        ];
+
+        let picks = cases.map(|(titles, title, _)| picked_window(titles, title));
+
+        assert_eq!(picks, cases.map(|(_, _, pick)| pick));
+    }
 
     /// An image of 4 × 3 pixels with 1 byte for each pixel and 2 bytes of padding in each row.
     const LAYOUT: PixelLayout = PixelLayout {
