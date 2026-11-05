@@ -116,6 +116,10 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `cases/new_words.jsonl` has 0, 1 or 2 texts of today (`c0`, `c1`, `c2`) with a word that the stores of the writers never hold, and then that word next (`next`), after its typed start (`start`) or in another app (`other`).
   - Run it with `--word-choice medium --dictionary crates/typealike_llm/examples/prompt_eval/cases/new_words.dictionary.tsv`, the answers of the macOS dictionary for these words.
 - `cases/today_harm.jsonl` has the cases of `stores_tuning`, `stores_held_out`, `replies` and `drift`, each with one text of today that holds an invented word which does not come next. Run it with `new_words.jsonl` for a change that uses the texts of today: a line with the new word of today helped 9 cases of `new_words` and harmed none, but here it helped 3 and harmed 18, because the model wrote the invented word in place of the right word.
+- `cases/conversation.jsonl` has chats and emails of real size: up to 866 estimated tokens of screen text, bubble chats with the messages of the writer on the right, app lines such as times and "Today", and quoted emails after the caret.
+  - Its groups: `far` (the fact is more than 300 tokens above the caret), `near` (the fact is near the caret), `turns` (the next word depends on who wrote each message), `answer` (the fact is in the first line of the last message), `live` (older texts of the same app pull another word), `header` (WhatsApp with the contact only in the chat header, store `writers/sara_conversation.jsonl`) and `email` (the fact is more than 100 tokens into the quoted message after the caret).
+  - Run it with `--name "Sara Novak" --word-choice medium`, also with `--backend cpu --length short` for a change to the budget of the screen text.
+  - `cases/conversation_gen.py` writes the set again, and `--check` makes sure of the distances of each group.
 
 ### Stores of the writers
 
