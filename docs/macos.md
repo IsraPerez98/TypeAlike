@@ -38,6 +38,12 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - The read of the AX tree looks at the siblings of the focused field first, then at the siblings of each parent, up to the window. It looks at 2000 elements at most (`MAX_ELEMENTS`).
 - An element that does not overlap the window does not show. An element without area can hold elements that show, so the read looks at its children.
 - A static text with a frame less than 2 pt high does not show (`MIN_TEXT_HEIGHT`). Chrome gives a static text that scrolled out of the view a frame 1 pt high at the top edge of the view.
+- Chromium gives each run of a paragraph as its own static text, for example a bold word. The runs carry their own spaces. A run that wraps has a frame from the top of its first row to the bottom of its last row, with the left edge of the block.
+- Two static texts of one element that follow each other join into one line when the second continues the first (`continues`):
+  - The second overlaps the row of the first.
+  - The left edge of the second is at most 2 pt right of the right edge of the first (`MAX_RUN_GAP`). A run that wraps starts left of that edge, so it continues too.
+- A line of joined texts has the texts as they are, with no added space, and the smallest frame that holds them.
+- A static text that does not show never joins. The static texts of a child element, for example a link, do not join the static texts around it.
 
 ## Fields
 

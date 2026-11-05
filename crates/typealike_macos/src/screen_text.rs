@@ -10,7 +10,9 @@ use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFRetained, CGFloat, CGRect, Type};
 use typealike_core::controller::{Delivery, DeliverySink};
-use typealike_core::desktop::{Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
+use typealike_core::desktop::{
+    Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText,
+};
 
 use crate::accessibility::{
     self, ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, children, is_same, parent,
@@ -25,6 +27,9 @@ const MAX_ELEMENTS: usize = 2000;
 /// The least height of a static text that shows, in points. Chrome gives a static text that
 /// scrolled out of the view a frame 1 pt high at the top edge of the view.
 const MIN_TEXT_HEIGHT: CGFloat = 2.0;
+/// The most space between two static texts of one row that continue each other, in points.
+/// Chromium gives each run of a paragraph as its own static text, and the runs of one row touch.
+const MAX_RUN_GAP: CGFloat = 2.0;
 
 /// Reads the screen text off the main thread, and gives each answer to the controller. Drop stops
 /// the reads after the current one and does not wait for it.
@@ -109,11 +114,7 @@ fn read_screen_text(process: i32) -> Option<ScreenText> {
 /// Collects the visible static texts of the window of `focused`, from the elements nearest to it
 /// in the tree outward, up to [`MAX_ELEMENTS`] elements.
 fn nearby_static_texts(focused: &AXUIElement, visible: CGRect) -> Vec<ScreenLine> {
-    let mut walk = Walk {
-        visible,
-        elements_left: MAX_ELEMENTS,
-        lines: Vec::new(),
-    };
+    let mut walk = Walk::new(visible);
     let mut child = focused.retain();
     while let Some(parent) = parent(&child) {
         for sibling in children(&parent)
@@ -136,13 +137,37 @@ struct Walk {
     visible: CGRect,
     elements_left: usize,
     lines: Vec<ScreenLine>,
+    parents: usize,
+    last_run: Option<LastRun>,
+}
+
+/// The number of an element whose children a walk looks at. Only the static texts of one parent
+/// join into one line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Parent(usize);
+
+/// The static text at the end of the last line of a walk.
+#[derive(Clone, Copy)]
+struct LastRun {
+    parent: Parent,
+    frame: CGRect,
 }
 
 impl Walk {
+    fn new(visible: CGRect) -> Self {
+        Self {
+            visible,
+            elements_left: MAX_ELEMENTS,
+            lines: Vec::new(),
+            parents: 0,
+            last_run: None,
+        }
+    }
+
     /// Collects the visible static texts of `root` and the elements below it.
     fn visit(&mut self, root: CFRetained<AXUIElement>) {
-        let mut pending = vec![root];
-        while let Some(element) = pending.pop() {
+        let mut pending = vec![(root, self.next_parent())];
+        while let Some((element, parent)) = pending.pop() {
             let Some(left) = self.elements_left.checked_sub(1) else {
                 return;
             };
@@ -152,24 +177,61 @@ impl Walk {
                 continue;
             }
             if accessibility::copy_string(&element, ROLE_ATTRIBUTE).as_deref() == Some(STATIC_TEXT_ROLE) {
-                let line = frame
-                    .filter(is_high_enough_to_show)
-                    .and_then(|frame| static_text_line(&element, frame));
-                self.lines.extend(line);
+                if let Some(frame) = frame.filter(is_high_enough_to_show)
+                    && let Some(text) = accessibility::copy_string(&element, VALUE_ATTRIBUTE)
+                {
+                    self.add_run(parent, text, frame);
+                }
                 continue;
             }
-            pending.extend(children(&element).into_iter().rev());
+            let parent = self.next_parent();
+            pending.extend(children(&element).into_iter().rev().map(|child| (child, parent)));
         }
+    }
+
+    /// Gives the number of the next element whose children the walk looks at.
+    fn next_parent(&mut self) -> Parent {
+        self.parents += 1;
+        Parent(self.parents)
+    }
+
+    /// Adds the static text `text` at `frame`, a child of `parent`. It joins the last line when it
+    /// [`continues`] the static text at the end of that line, of the same parent.
+    fn add_run(&mut self, parent: Parent, text: String, frame: CGRect) {
+        let is_continued = self
+            .last_run
+            .is_some_and(|last| last.parent == parent && continues(&last.frame, &frame));
+        self.last_run = Some(LastRun { parent, frame });
+        let frame = screen_rect(frame);
+        if let Some(line) = self.lines.last_mut().filter(|_| is_continued) {
+            line.text.push_str(&text);
+            line.frame = union(line.frame, frame);
+            return;
+        }
+        self.lines.push(ScreenLine {
+            text,
+            confidence: Confidence::CERTAIN,
+            frame,
+        });
     }
 }
 
-/// The line of the static text `element` at `frame`, when it has a value.
-fn static_text_line(element: &AXUIElement, frame: CGRect) -> Option<ScreenLine> {
-    Some(ScreenLine {
-        text: accessibility::copy_string(element, VALUE_ATTRIBUTE)?,
-        confidence: Confidence::CERTAIN,
-        frame: screen_rect(frame),
-    })
+/// Whether the static text at `next` continues the one at `previous`: it overlaps the row of
+/// `previous` and starts at most [`MAX_RUN_GAP`] right of its end. A run that wraps to the next
+/// rows has the left edge of its block, so it starts left of that end.
+fn continues(previous: &CGRect, next: &CGRect) -> bool {
+    let overlaps_row = next.min().y < previous.max().y && previous.min().y < next.max().y;
+    overlaps_row && next.min().x <= previous.max().x + MAX_RUN_GAP
+}
+
+/// The smallest rectangle that holds `first` and `second`.
+fn union(first: ScreenRect, second: ScreenRect) -> ScreenRect {
+    ScreenRect {
+        left: first.left.min(second.left),
+        top: first.top.min(second.top),
+        right: first.right.max(second.right),
+        bottom: first.bottom.max(second.bottom),
+    }
 }
 
 /// Whether a static text at `frame` is high enough to show, at least [`MIN_TEXT_HEIGHT`].
@@ -220,5 +282,63 @@ mod tests {
         let shown = frames.each_ref().map(is_high_enough_to_show);
 
         assert_eq!(shown, [false, false, true, true]);
+    }
+
+    #[test]
+    fn run_continues_a_run_of_its_row_that_it_touches() {
+        let previous = frame(376.0, 200.0, 80.0, 18.0);
+        let runs = [
+            frame(455.0, 200.0, 245.0, 18.0),
+            frame(458.0, 200.0, 100.0, 18.0),
+            frame(376.0, 200.0, 456.0, 54.0),
+            frame(459.0, 200.0, 100.0, 18.0),
+            frame(376.0, 218.0, 300.0, 18.0),
+            frame(380.0, 182.0, 100.0, 18.0),
+        ];
+
+        let continued = runs.each_ref().map(|run| continues(&previous, run));
+
+        assert_eq!(continued, [true, true, true, false, false, false]);
+    }
+
+    #[test]
+    fn runs_of_one_element_that_continue_each_other_join_into_one_line() {
+        let mut walk = Walk::new(frame(0.0, 0.0, 1000.0, 800.0));
+        let paragraph = walk.next_parent();
+
+        walk.add_run(paragraph, "Important:".into(), frame(376.0, 200.0, 80.0, 18.0));
+        walk.add_run(paragraph, " moved to ".into(), frame(455.0, 200.0, 245.0, 18.0));
+        walk.add_run(paragraph, "Harbor Hall".into(), frame(699.0, 200.0, 91.0, 18.0));
+        walk.add_run(
+            paragraph,
+            " (Pier 7). The date".into(),
+            frame(376.0, 200.0, 456.0, 54.0),
+        );
+
+        assert_eq!(
+            walk.lines,
+            [ScreenLine {
+                text: "Important: moved to Harbor Hall (Pier 7). The date".into(),
+                frame: ScreenRect {
+                    left: 376,
+                    top: 200,
+                    right: 832,
+                    bottom: 254,
+                },
+                confidence: Confidence::CERTAIN,
+            }]
+        );
+    }
+
+    #[test]
+    fn run_of_another_element_starts_its_own_line() {
+        let mut walk = Walk::new(frame(0.0, 0.0, 1000.0, 800.0));
+        let paragraph = walk.next_parent();
+        let link = walk.next_parent();
+
+        walk.add_run(paragraph, "Read ".into(), frame(376.0, 200.0, 40.0, 18.0));
+        walk.add_run(link, "the notes".into(), frame(416.0, 200.0, 70.0, 18.0));
+
+        assert_eq!(walk.lines.len(), 2);
     }
 }
