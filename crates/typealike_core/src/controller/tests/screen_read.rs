@@ -2,7 +2,7 @@
 
 use super::harness::{Call, Harness};
 use crate::controller::Delivery;
-use crate::desktop::{OcrAvailability, ScreenRead, ScreenSource, ScreenText};
+use crate::desktop::{OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextSettings, Settings};
 use crate::settings_window::view::{ControlId, SettingsInput};
@@ -98,4 +98,34 @@ fn app_switched_off_reads_no_screen() {
     harness.settle_input();
 
     assert_eq!(harness.take_calls(), Vec::new());
+}
+
+/// Presses `key` and returns the read of the screen that the key started, if any.
+fn key_read(harness: &mut Harness, key: Key) -> Option<ScreenReadId> {
+    harness.press(key);
+    harness.take_calls().into_iter().find_map(|call| match call {
+        Call::ReadScreen(read, _) => Some(read),
+        _ => None,
+    })
+}
+
+#[test]
+fn key_after_a_scroll_reads_the_screen_again() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    let read = key_read(&mut harness, Key::Char('H')).expect("the first key reads the screen");
+    harness.controller.on_delivery(
+        Delivery::Screen(ScreenRead {
+            id: read,
+            text: Some(ScreenText::default()),
+        }),
+        &mut harness.shell,
+    );
+    let read_without_scroll = key_read(&mut harness, Key::Char('i'));
+
+    harness.scroll();
+    let read_after_scroll = key_read(&mut harness, Key::Char('!'));
+
+    assert_eq!(read_without_scroll, None);
+    assert!(read_after_scroll.is_some());
 }

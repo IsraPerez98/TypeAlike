@@ -201,6 +201,13 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// Lets the session read the screen once more, for when a scroll moved the text on the screen.
+    pub(crate) fn read_screen_again(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.has_screen_read = false;
+        }
+    }
+
     /// Forgets the screen text and the read that runs, for when another field can have the focus.
     pub(crate) fn forget_screen(&mut self) {
         self.screen_reads.forget();

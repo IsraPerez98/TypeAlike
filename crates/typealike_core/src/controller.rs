@@ -282,8 +282,10 @@ impl Controller {
     /// Handles a scroll of the mouse wheel or the touchpad, which moves the caret on the screen but
     /// does not change the text. While the badge shows or waits for the caret, the ghost text and
     /// the badge hide, and show again with the same suggestion at the caret when the scroll stops.
-    /// A scroll does not end the session and does not count as input, so it reads no screen.
+    /// A scroll does not end the session and does not count as input, but it moves the text on the
+    /// screen, so the next key of the session reads the screen again.
     pub fn on_scroll(&mut self, shell: &mut dyn Shell) {
+        self.app.on_scroll();
         if !self.app.has_badge() {
             return;
         }

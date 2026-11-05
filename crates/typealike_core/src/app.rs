@@ -482,6 +482,12 @@ impl App {
         self.prepare_on_focus(desktop).map(SettledWork::Prepare)
     }
 
+    /// Handles a scroll, which moves the text on the screen: the session reads the screen again at
+    /// its next key.
+    pub fn on_scroll(&mut self) {
+        self.engine.read_screen_again();
+    }
+
     /// Starts a read of the screen for the session of the last key, when the session is in a text
     /// field of an app where the screen text is on. The session uses the stored screen text until
     /// the answer comes. A session that has its own screen text or waits for a read starts none.

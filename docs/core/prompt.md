@@ -60,6 +60,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - A screen read starts at the first key of a session and when the input settles, unless the session has its final screen text.
 - A session first uses the stored screen text. The answer of its own read replaces that text one time, when the text changed.
+- A scroll moves the text on the screen, so the next key of the session reads the screen again, and its answer replaces the text of the session one more time.
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
 - The level of the Copied and screen text pane (fast or accurate) shows only when the OCR of the platform has levels (`OcrLevels`).
