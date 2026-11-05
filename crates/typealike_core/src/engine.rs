@@ -31,6 +31,7 @@ use session::Session;
 use spelling::Dictionary;
 use suggestion::{ends_with_typo, fix_after_delimiter, kept_delimiter};
 
+pub(crate) use preface::ScreenAnswer;
 pub use reaction::{AfterAccept, Reaction, WordFix};
 pub(crate) use suggestion::split_next_part;
 
@@ -146,6 +147,9 @@ impl Engine {
     /// that the OS repeats changes the text, but asks for no suggestion until
     /// [`suggest_after_hold`](Self::suggest_after_hold).
     pub(crate) fn on_key(&mut self, key: Key, press: Press, desktop: &dyn Desktop) -> Reaction {
+        if let Some(session) = &mut self.session {
+            session.has_untouched_request = false;
+        }
         if key != Key::Enter {
             self.read_field_after_enter(desktop);
         }

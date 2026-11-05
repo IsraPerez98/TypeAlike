@@ -29,6 +29,18 @@ enum Screen {
     Read(ScreenText),
 }
 
+/// What the engine did with the answer to a read of the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScreenAnswer {
+    /// The answer is not for the newest read, so the engine dropped it.
+    Dropped,
+    /// The engine keeps the text of the answer.
+    Kept,
+    /// The engine keeps the text, which changed the preface of the session after the request of
+    /// the suggestion that runs or shows. The user pressed no key after that request.
+    ChangedSuggestionPrompt,
+}
+
 /// The reads of the screen that the engine starts, and the text of the newest answer.
 #[derive(Default)]
 pub(super) struct ScreenReads {
@@ -151,19 +163,29 @@ impl Engine {
         self.screen_reads.start_ocr_after(read, tree_text, level)
     }
 
-    /// Keeps the text of `read` when it answers the newest read, and returns whether it does. A
-    /// session without its final screen text gets the new text, with what else surrounds the caret
-    /// in `desktop` now, when its preface changes. The session then has its final screen text. The
-    /// next session also gets the new text.
-    pub(crate) fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> bool {
+    /// Keeps the text of `read` when it answers the newest read. A session without its final
+    /// screen text gets the new text, with what else surrounds the caret in `desktop` now, when its
+    /// preface changes. The session then has its final screen text. The next session also gets
+    /// the new text.
+    pub(crate) fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> ScreenAnswer {
         if !self.screen_reads.answer(read) {
-            return false;
+            return ScreenAnswer::Dropped;
         }
-        self.add_screen_to_session(desktop);
-        true
+        let is_preface_changed = self.add_screen_to_session(desktop);
+        let has_untouched_request = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.has_untouched_request);
+        if is_preface_changed && has_untouched_request && self.has_offer() {
+            ScreenAnswer::ChangedSuggestionPrompt
+        } else {
+            ScreenAnswer::Kept
+        }
     }
 
-    fn add_screen_to_session(&mut self, desktop: &dyn Desktop) {
+    /// Gives the screen text to a session without its final screen text, and returns whether the
+    /// preface of the session changed.
+    fn add_screen_to_session(&mut self, desktop: &dyn Desktop) -> bool {
         let is_waiting = self
             .session
             .as_ref()
@@ -177,16 +199,18 @@ impl Engine {
             )
         });
         let Some(session) = &mut self.session else {
-            return;
+            return false;
         };
         session.has_screen_read = true;
         let Some((preface, reply_to)) = update else {
-            return;
+            return false;
         };
         session.reply_to = reply_to;
-        if preface != session.preface {
+        let is_changed = preface != session.preface;
+        if is_changed {
             session.use_preface(preface);
         }
+        is_changed
     }
 
     /// Returns the words of the message that the user answers in the field of `surroundings`, from

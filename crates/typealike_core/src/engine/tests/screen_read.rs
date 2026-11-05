@@ -3,7 +3,7 @@
 use crate::desktop::{
     Confidence, MAX_CHARS_BEFORE_CARET, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenText,
 };
-use crate::engine::{Engine, Reaction};
+use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::excerpt::estimated_tokens;
 use crate::inference::{Backend, CONTEXT_TOKENS, InferenceRequest};
 use crate::key::{Key, Press};
@@ -71,7 +71,7 @@ fn screen_tokens_in(reaction: &Reaction) -> u32 {
     lines.lines().map(|line| estimated_tokens(line).0).sum()
 }
 
-fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> bool {
+fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> ScreenAnswer {
     engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default())
 }
 
@@ -178,9 +178,9 @@ fn answer_to_an_older_read_is_dropped() {
     let older = engine.start_screen_read().expect("no session runs");
     engine.start_screen_read();
 
-    let is_kept = answer_read(&mut engine, older, Some(screen_with("Dinner at 7?")));
+    let answer = answer_read(&mut engine, older, Some(screen_with("Dinner at 7?")));
 
-    assert!(!is_kept);
+    assert_eq!(answer, ScreenAnswer::Dropped);
 }
 
 #[test]
@@ -325,9 +325,9 @@ fn answer_to_the_read_before_an_ocr_read_is_dropped() {
     let read = engine.start_screen_read().expect("no session runs");
     engine.start_ocr_after(read, None, OcrLevel::Fast);
 
-    let is_kept = answer_read(&mut engine, read, Some(screen_with("Dinner at 7?")));
+    let answer = answer_read(&mut engine, read, Some(screen_with("Dinner at 7?")));
 
-    assert!(!is_kept);
+    assert_eq!(answer, ScreenAnswer::Dropped);
 }
 
 #[test]
@@ -359,9 +359,9 @@ fn answer_to_a_forgotten_read_is_dropped() {
     let id = engine.start_screen_read().expect("no session runs");
     engine.forget_screen();
 
-    let is_kept = answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
+    let answer = answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
 
-    assert!(!is_kept);
+    assert_eq!(answer, ScreenAnswer::Dropped);
 }
 
 #[test]

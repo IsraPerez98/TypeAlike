@@ -80,12 +80,21 @@ impl Engine {
         self.request_completion(self.typo_check)
     }
 
+    /// Requests the suggestion for the text before the caret again, for when the preface of the
+    /// session changed after the request of the suggestion that runs or shows.
+    pub(crate) fn request_again(&mut self) -> Reaction {
+        self.request_completion(self.typo_check)
+    }
+
     /// Requests a completion of the text before the caret with `typo_check`.
     pub(super) fn request_completion(&mut self, typo_check: TypoCheck) -> Reaction {
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
         };
+        if let Some(session) = &mut self.session {
+            session.has_untouched_request = true;
+        }
         self.offer = Offer::Growing {
             typed: String::new(),
             shown: String::new(),

@@ -19,7 +19,7 @@ use crate::desktop::{
     Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, ScreenRead, ScreenReadId,
     ScreenSource,
 };
-use crate::engine::{Engine, Reaction};
+use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::{Key, Press};
@@ -106,8 +106,8 @@ pub enum SettledWork {
     /// Decode the prompt of the focused field before the user types. Submit it as the request of
     /// a [`Reaction::Request`]. Its completion goes to [`App::on_completion`].
     Prepare(InferenceRequest),
-    /// Show the suggestion for the new line after Enter: do what the reaction asks, as after a
-    /// key.
+    /// Show a suggestion that no key asked for, such as the suggestion for the new line after
+    /// Enter: do what the reaction asks, as after a key.
     Suggest(Reaction),
 }
 
@@ -454,7 +454,9 @@ impl App {
 
     /// Handles the answer to a read of the screen. When the lines of the accessibility tree that
     /// the prompt can keep hold few words and `desktop` can do an OCR, it returns the OCR read. Else the screen text goes into the
-    /// session when the session has no final screen text, and into the next session. With
+    /// session when the session has no final screen text, and into the next session. When the new
+    /// text changes the prompt of the suggestion that runs or shows, and the user pressed no key
+    /// after its request, it returns the request for that suggestion again. Else, with
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, it then
     /// returns the request that prepares the prompt of the focused field of `desktop` with the new
     /// screen text. In a place where suggestions are off, it only keeps the screen text.
@@ -475,11 +477,12 @@ impl App {
                 source: ScreenSource::Ocr(level),
             });
         }
-        let is_newest = self.engine.on_screen_read(read, desktop);
-        if !is_newest || !is_active {
-            return None;
+        match self.engine.on_screen_read(read, desktop) {
+            ScreenAnswer::Dropped => None,
+            _ if !is_active => None,
+            ScreenAnswer::ChangedSuggestionPrompt => Some(SettledWork::Suggest(self.engine.request_again())),
+            ScreenAnswer::Kept => self.prepare_on_focus(desktop).map(SettledWork::Prepare),
         }
-        self.prepare_on_focus(desktop).map(SettledWork::Prepare)
     }
 
     /// Handles a scroll, which moves the text on the screen: the session reads the screen again at

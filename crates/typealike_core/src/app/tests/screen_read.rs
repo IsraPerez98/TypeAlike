@@ -6,13 +6,14 @@ use crate::desktop::{
     Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
     ScreenText,
 };
+use crate::engine::Reaction;
 use crate::history::HistoryEntry;
 use crate::key::{Key, Press};
 use crate::settings::{
     HistoryAccess, OcrLevel, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
     ScreenTextSettings, Settings,
 };
-use crate::test_support::{completion, mail_app, preparation_request};
+use crate::test_support::{completion, mail_app, preparation_request, suggestion_request};
 
 const MAIL_WITH_OCR: TextField = TextField {
     ocr: OcrAvailability::Ready,
@@ -295,15 +296,65 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
     );
 }
 
+/// The request for a suggestion after `text_before` in the mail field, with `line` above the field.
+fn suggestion_below(line: &str, text_before: &str) -> SettledWork {
+    let above = format!("Above the field on my screen: “{line}”");
+    let last_line = format!("The last line above the field on my screen: “{line}”");
+    SettledWork::Suggest(Reaction::Request(suggestion_request(
+        &["Where I am typing: Format: email", &above, &last_line],
+        text_before,
+    )))
+}
+
 #[test]
-fn answer_during_a_running_completion_prepares_nothing() {
-    let mut app = app_preparing_on_focus();
+fn answer_that_changes_the_prompt_of_a_running_suggestion_asks_for_it_again() {
+    let mut app = app_preparing_on_first_key();
+    let stored = screen_read(&mut app);
+    app.on_screen_read(answer_with(stored, "Lunch at 1?"), &MAIL);
     app.on_key(Key::Char('H'), Press::First, &MAIL);
-    let read = screen_read(&mut app);
+    let read = session_read(&mut app);
 
-    let request = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
 
-    assert_eq!(request, None);
+    assert_eq!(work, Some(suggestion_below("Dinner at 7?", "H")));
+}
+
+#[test]
+fn answer_that_changes_the_prompt_of_a_shown_suggestion_asks_for_it_again() {
+    let mut app = app_preparing_on_first_key();
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
+    app.on_completion(completion("ello"));
+    let read = session_read(&mut app);
+
+    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+    assert_eq!(work, Some(suggestion_below("Dinner at 7?", "H")));
+}
+
+#[test]
+fn answer_that_keeps_the_prompt_asks_for_no_suggestion_again() {
+    let mut app = app_preparing_on_first_key();
+    let stored = screen_read(&mut app);
+    app.on_screen_read(answer_with(stored, "Dinner at 7?"), &MAIL);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
+    let read = session_read(&mut app);
+
+    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+    assert_eq!(work, None);
+}
+
+#[test]
+fn answer_that_changes_the_prompt_after_a_key_that_took_the_suggestion_asks_for_no_suggestion_again() {
+    let mut app = app_preparing_on_first_key();
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
+    app.on_completion(completion("ello"));
+    app.on_key(Key::Char('e'), Press::First, &MAIL);
+    let read = session_read(&mut app);
+
+    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+    assert_eq!(work, None);
 }
 
 #[test]

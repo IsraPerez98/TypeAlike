@@ -79,6 +79,9 @@ pub(super) struct Session {
     pub(super) started_at: Option<Timestamp>,
     /// The words of the message that the user answers, from the screen text of the preface.
     pub(super) reply_to: Vec<String>,
+    /// Whether the session has a request for a suggestion, and the user pressed no key after the
+    /// newest one.
+    pub(super) has_untouched_request: bool,
 }
 
 impl Session {
@@ -111,6 +114,7 @@ impl Session {
             shown_suggestions: ShownSuggestions::default(),
             started_at,
             reply_to: Vec::new(),
+            has_untouched_request: false,
         }
     }
 
