@@ -505,6 +505,59 @@ fn answer_with_enough_words_starts_an_ocr_read_in_a_field_that_hides_its_text() 
 }
 
 #[test]
+fn ocr_line_of_the_caret_in_a_field_that_hides_its_text_goes_into_the_prompt() {
+    let mut app = app_preparing_on_focus();
+    let editor = TextField {
+        has_unreadable_text: true,
+        ..MAIL_WITH_OCR
+    };
+    let read = screen_read(&mut app);
+    let Some(SettledWork::ReadScreen { read: ocr, .. }) = app.on_screen_read(answer(read), &editor) else {
+        panic!("a field that hides its text reads the screen with an OCR");
+    };
+    let line = |text: &str, top: i32| ScreenLine {
+        text: text.to_owned(),
+        confidence: Confidence::CERTAIN,
+        frame: ScreenRect {
+            left: 0,
+            top,
+            right: 500,
+            bottom: top + 20,
+        },
+    };
+    let ocr_answer = ScreenRead {
+        id: ocr,
+        text: Some(ScreenText {
+            lines: vec![
+                line("49. Parking is free after six.", 170),
+                line("The build is 2.4.0-rc3, and QA signs off on", 210),
+            ],
+            caret: None,
+            field: ScreenRect {
+                left: 0,
+                top: 200,
+                right: 500,
+                bottom: 240,
+            },
+        }),
+    };
+
+    let work = app.on_screen_read(ocr_answer, &editor);
+
+    assert_eq!(
+        work,
+        Some(SettledWork::Prepare(preparation_request(
+            &[
+                "Where I am typing: Format: email",
+                "Above the field on my screen: “49. Parking is free after six.\nThe build is 2.4.0-rc3, and QA signs off on”",
+                "The last line above the field on my screen: “The build is 2.4.0-rc3, and QA signs off on”"
+            ],
+            ""
+        )))
+    );
+}
+
+#[test]
 fn answer_of_the_ocr_without_lines_keeps_the_lines_of_the_tree() {
     let mut app = app_preparing_on_focus();
     let read = screen_read(&mut app);

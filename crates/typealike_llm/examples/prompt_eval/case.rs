@@ -37,6 +37,10 @@ pub struct Case {
     after: String,
     clipboard: Option<String>,
     pub screen: Option<CaseScreen>,
+    /// Whether the field can show text that the platform cannot read, as the editor of VS Code
+    /// does while its screen reader mode is off.
+    #[serde(default)]
+    has_unreadable_text: bool,
     #[serde(default)]
     writer: Option<String>,
     #[serde(default)]
@@ -175,7 +179,7 @@ impl Case {
                 }),
                 is_caret_line_hidden: false,
                 is_search_field: false,
-                has_unreadable_text: false,
+                has_unreadable_text: self.has_unreadable_text,
             },
             clipboard: self.clipboard.clone(),
             now: self.now.map(Timestamp),

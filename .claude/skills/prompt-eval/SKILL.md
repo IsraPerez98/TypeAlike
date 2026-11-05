@@ -124,6 +124,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - A case can give its time (`now`), and its history then leaves out the texts written later.
 - A text of a store or of `history` can give the name of its app (`app`) and its window title (`window_title`), which give its typing context. Only the texts of `context.jsonl` have them.
 - Without `now`, a case is at the time of the newest text of its history.
+- A case with `"has_unreadable_text": true` has a field that hides its text when `before` and `after` are empty, as the editor of VS Code does while its screen reader mode is off. Its screen lines inside the field are then its text.
 
 ## First key
 
