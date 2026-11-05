@@ -81,6 +81,19 @@ pub(crate) fn contains(frame: CGRect, point: CGPoint) -> bool {
     horizontal.contains(&point.x) && vertical.contains(&point.y)
 }
 
+/// The part of `first` that `second` also holds, or `None` when they have no area in common.
+pub(crate) fn intersection(first: CGRect, second: CGRect) -> Option<CGRect> {
+    let min = CGPoint::new(
+        first.min().x.max(second.min().x),
+        first.min().y.max(second.min().y),
+    );
+    let max = CGPoint::new(
+        first.max().x.min(second.max().x),
+        first.max().y.min(second.max().y),
+    );
+    (min.x < max.x && min.y < max.y).then(|| CGRect::new(min, CGSize::new(max.x - min.x, max.y - min.y)))
+}
+
 pub(crate) fn moved_by(frame: CGRect, origin: CGPoint) -> CGRect {
     CGRect::new(
         CGPoint::new(frame.origin.x + origin.x, frame.origin.y + origin.y),
@@ -243,6 +256,20 @@ mod tests {
                 bottom: 59,
             }
         );
+    }
+
+    #[test]
+    fn intersection_is_the_part_that_both_frames_hold() {
+        let window = frame(152.0, 73.0, 656.0, 422.0);
+        let fields = [
+            frame(152.0, -681.0, 656.0, 1170.0),
+            frame(152.0, 495.0, 656.0, 100.0),
+            frame(900.0, 100.0, 50.0, 50.0),
+        ];
+
+        let parts = fields.map(|field| intersection(field, window));
+
+        assert_eq!(parts, [Some(frame(152.0, 73.0, 656.0, 416.0)), None, None]);
     }
 
     #[test]

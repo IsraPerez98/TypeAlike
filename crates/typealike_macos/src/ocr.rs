@@ -23,9 +23,10 @@ use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNR
 use typealike_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
 use typealike_core::settings::OcrLevel;
 
+use crate::accessibility::{self, WINDOW_ATTRIBUTE};
 use crate::energy_saver;
 use crate::focus::{self, FocusedField};
-use crate::geometry::{contains, moved_by, screen_rect};
+use crate::geometry::{contains, intersection, moved_by, screen_rect};
 
 /// The height of the window above and below the field that the OCR reads, in points. Core keeps
 /// only the lines nearest to the caret, so an OCR of the lines farther away is wasted work.
@@ -107,7 +108,7 @@ impl Ocr {
     pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
         let field = focus::focused_field(process)?;
         let started = Instant::now();
-        let capture = capture_band(process, field.frame)?;
+        let capture = capture_band(process, visible_part(&field))?;
         let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
@@ -135,6 +136,15 @@ impl Ocr {
         let lines = self.last.as_ref()?.lines.iter();
         Some(screen_text_of(lines, capture.band.origin, &field))
     }
+}
+
+/// The part of `field` in the frame of its window, or all of `field` when that frame is unknown
+/// or holds no part of it. A long text view that scrolled has a frame taller than its window.
+fn visible_part(field: &FocusedField) -> CGRect {
+    accessibility::copy_element(&field.element, WINDOW_ATTRIBUTE)
+        .and_then(|window| accessibility::frame(&window))
+        .and_then(|window| intersection(field.frame, window))
+        .unwrap_or(field.frame)
 }
 
 fn screen_text_of<'a>(

@@ -44,6 +44,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - The left edge of the second is at most 2 pt right of the right edge of the first (`MAX_RUN_GAP`). A run that wraps starts left of that edge, so it continues too.
 - A line of joined texts has the texts as they are, with no added space, and the smallest frame that holds them.
 - A static text that does not show never joins. The static texts of a child element, for example a link, do not join the static texts around it.
+- The OCR uses the visible part of the field: the part of the field frame in the frame of its AX window. A text view that scrolled can have a frame taller than its window, for example in TextEdit.
+- The OCR captures the window of the app that holds the middle of the visible part. It reads a band from 600 pt above the visible part to 600 pt below it (`BAND_POINTS`).
+- When the frame of the AX window is unknown, or the field has no part in it, the OCR uses the full frame of the field.
 
 ## Fields
 
