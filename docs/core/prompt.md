@@ -17,7 +17,17 @@ The prompt is in the first person. It has these sections:
 - The screen text.
 - A heading just before the text before the caret.
 
-Each section has a budget of estimated tokens.
+Each section has a budget of estimated tokens. The whole preface has at most 2000 (`PREFACE_TOKENS`), and the text before the caret can use the rest of the context. The sections take the budget in this order, each up to its own cap:
+
+- The frame.
+- The notes: 300.
+- The name: 20.
+- The text after the caret: 100.
+- The place line: 40 for the window title, 40 for the name of the field and 40 for its hint.
+- The screen text: 300 on the CPU and 800 on a graphics card (`Settings::screen_tokens`). More screen text is too slow to decode on the CPU.
+- The last line above the field one more time, only when the whole line fits.
+- The earlier writing: 320.
+- The clipboard: 170.
 
 The examples of the earlier writing are in `docs/core/earlier-writing.md`. The frame lines (the lines that a suggestion must not copy) are in `docs/core/suggestions.md`, "Suggestions that do not show".
 

@@ -252,6 +252,16 @@ impl Settings {
         if self.backend == Backend::Cpu { 1 } else { 2 }
     }
 
+    /// The most estimated tokens of the screen text in a prompt. The CPU keeps fewer, because more
+    /// screen text is too slow to decode there: 1200 tokens add about 6 s with a 4B model.
+    pub(crate) fn screen_tokens(&self) -> TokenCount {
+        if self.backend == Backend::Cpu {
+            TokenCount(300)
+        } else {
+            TokenCount(800)
+        }
+    }
+
     /// The length of each suggestion: the selected length, at most the longest length that the
     /// backend allows.
     pub(crate) fn suggestion_length_in_use(&self) -> SuggestionLength {

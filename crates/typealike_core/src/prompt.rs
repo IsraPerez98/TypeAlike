@@ -37,8 +37,6 @@ const NAME_TOKENS: TokenCount = TokenCount(20);
 const WINDOW_TITLE_TOKENS: TokenCount = TokenCount(40);
 const FIELD_LABEL_TOKENS: TokenCount = TokenCount(40);
 const AFTER_CARET_TOKENS: TokenCount = TokenCount(100);
-/// More screen text is too slow to decode on the CPU: 1200 tokens add about 6 s with a 4B model.
-const SCREEN_TOKENS: TokenCount = TokenCount(300);
 const CLIPBOARD_TOKENS: TokenCount = TokenCount(170);
 const HISTORY_TOKENS: TokenCount = TokenCount(320);
 
@@ -73,6 +71,14 @@ impl fmt::Debug for Writer<'_> {
     }
 }
 
+/// The text near the field on the screen that a preface shows, and the most estimated tokens that
+/// it can use.
+#[derive(Clone, Copy)]
+pub(crate) struct ScreenPart<'text> {
+    pub(crate) text: &'text ScreenText,
+    pub(crate) max_tokens: TokenCount,
+}
+
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
 /// line, the place where the user types, the earlier texts of the `writer` with their age, the
 /// `clipboard` text, the text below the field on the `screen`, the text above the field, its last
@@ -85,7 +91,7 @@ pub(crate) fn preface(
     writer: &Writer<'_>,
     surroundings: &Surroundings,
     clipboard: Option<&str>,
-    screen: Option<&ScreenText>,
+    screen: Option<ScreenPart<'_>>,
 ) -> String {
     preface_lines(budgeted_parts(writer, surroundings, clipboard, screen))
 }
@@ -109,7 +115,7 @@ fn budgeted_parts<'text>(
     writer: &'text Writer<'_>,
     surroundings: &'text Surroundings,
     clipboard: Option<&'text str>,
-    screen: Option<&ScreenText>,
+    screen: Option<ScreenPart<'_>>,
 ) -> PrefaceParts<'text> {
     let mut budget = Budget(PREFACE_TOKENS);
     budget.spend(FRAME);
@@ -128,9 +134,9 @@ fn budgeted_parts<'text>(
     let nearby = screen
         .map(|screen| {
             screen::nearby_lines(
-                screen,
+                screen.text,
                 FieldContent::of(surroundings),
-                budget.left(SCREEN_TOKENS),
+                budget.left(screen.max_tokens),
                 LineScope::of(surroundings),
             )
         })

@@ -5,12 +5,12 @@ use crate::desktop::{
 };
 use crate::engine::{Engine, Reaction};
 use crate::excerpt::estimated_tokens;
-use crate::inference::{CONTEXT_TOKENS, InferenceRequest};
+use crate::inference::{Backend, CONTEXT_TOKENS, InferenceRequest};
 use crate::key::{Key, Press};
-use crate::settings::{OcrLevel, SuggestionLength};
+use crate::settings::{OcrLevel, Settings, SuggestionLength};
 use crate::test_support::completion;
 
-use super::support::{FakeDesktop, engine_waiting_for, press, request, request_with};
+use super::support::{FakeDesktop, engine_waiting_for, engine_with, press, request, request_with};
 
 fn screen_with(line: &str) -> ScreenText {
     ScreenText {
@@ -32,6 +32,43 @@ fn screen_with(line: &str) -> ScreenText {
             bottom: 240,
         },
     }
+}
+
+/// Returns a screen with `count` lines of 10 estimated tokens each, all above the field.
+fn screen_with_lines(count: i32) -> ScreenText {
+    let line = |index: i32| ScreenLine {
+        text: "See you at the lake on Friday.".to_owned(),
+        confidence: Confidence::CERTAIN,
+        frame: ScreenRect {
+            left: 0,
+            top: 20 * index,
+            right: 500,
+            bottom: 20 * index + 18,
+        },
+    };
+    ScreenText {
+        lines: (0..count).map(line).collect(),
+        caret: None,
+        field: ScreenRect {
+            left: 0,
+            top: 20 * count + 100,
+            right: 500,
+            bottom: 20 * count + 140,
+        },
+    }
+}
+
+/// Returns the estimated tokens of the lines above the field in the prompt of `reaction`.
+fn screen_tokens_in(reaction: &Reaction) -> u32 {
+    let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
+        panic!("a key requests a completion: {reaction:?}");
+    };
+    let (_, above) = prompt
+        .0
+        .split_once("Above the field on my screen: “")
+        .expect("the prompt has screen text");
+    let (lines, _) = above.split_once('”').expect("the screen text ends with a quote");
+    lines.lines().map(|line| estimated_tokens(line).0).sum()
 }
 
 fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> bool {
@@ -61,6 +98,23 @@ fn session_shows_the_screen_text_of_the_read_before_it() {
             "S"
         )
     );
+}
+
+#[test]
+fn long_screen_text_keeps_300_tokens_on_the_cpu_and_800_on_a_graphics_card() {
+    let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+    let kept_tokens = backends.map(|backend| {
+        let mut engine = engine_with(&Settings {
+            backend,
+            ..Settings::default()
+        });
+        let id = engine.start_screen_read().expect("no session runs");
+        answer_read(&mut engine, id, Some(screen_with_lines(100)));
+        screen_tokens_in(&press(&mut engine, Key::Char('S')))
+    });
+
+    assert_eq!(kept_tokens, [300, 800, 800, 800]);
 }
 
 #[test]

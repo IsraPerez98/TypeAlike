@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings};
 use crate::history;
-use crate::prompt::{self, Example, Writer};
+use crate::prompt::{self, Example, ScreenPart, Writer};
 use crate::settings::{ClipboardAccess, OcrLevel, ReplyWords, ScreenTextSettings};
 
 use super::{Engine, read_surroundings};
@@ -242,7 +242,10 @@ impl Engine {
             &writer,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
-            screen,
+            screen.map(|text| ScreenPart {
+                text,
+                max_tokens: self.screen_tokens,
+            }),
         )
     }
 }
