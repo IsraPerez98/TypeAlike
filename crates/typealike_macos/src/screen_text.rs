@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use objc2_application_services::AXUIElement;
-use objc2_core_foundation::{CFRetained, CGRect, Type};
+use objc2_core_foundation::{CFRetained, CGFloat, CGRect, Type};
 use typealike_core::controller::{Delivery, DeliverySink};
 use typealike_core::desktop::{Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
 
@@ -22,6 +22,9 @@ use crate::ocr::Ocr;
 const STATIC_TEXT_ROLE: &str = "AXStaticText";
 /// The most elements that one read looks at, so that the read of a large window ends soon.
 const MAX_ELEMENTS: usize = 2000;
+/// The least height of a static text that shows, in points. Chrome gives a static text that
+/// scrolled out of the view a frame 1 pt high at the top edge of the view.
+const MIN_TEXT_HEIGHT: CGFloat = 2.0;
 
 /// Reads the screen text off the main thread, and gives each answer to the controller. Drop stops
 /// the reads after the current one and does not wait for it.
@@ -149,7 +152,10 @@ impl Walk {
                 continue;
             }
             if accessibility::copy_string(&element, ROLE_ATTRIBUTE).as_deref() == Some(STATIC_TEXT_ROLE) {
-                self.lines.extend(static_text_line(&element, frame));
+                let line = frame
+                    .filter(is_high_enough_to_show)
+                    .and_then(|frame| static_text_line(&element, frame));
+                self.lines.extend(line);
                 continue;
             }
             pending.extend(children(&element).into_iter().rev());
@@ -157,13 +163,18 @@ impl Walk {
     }
 }
 
-/// The line of the static text `element` at `frame`, when it has a value and a frame.
-fn static_text_line(element: &AXUIElement, frame: Option<CGRect>) -> Option<ScreenLine> {
+/// The line of the static text `element` at `frame`, when it has a value.
+fn static_text_line(element: &AXUIElement, frame: CGRect) -> Option<ScreenLine> {
     Some(ScreenLine {
         text: accessibility::copy_string(element, VALUE_ATTRIBUTE)?,
         confidence: Confidence::CERTAIN,
-        frame: screen_rect(frame?),
+        frame: screen_rect(frame),
     })
+}
+
+/// Whether a static text at `frame` is high enough to show, at least [`MIN_TEXT_HEIGHT`].
+fn is_high_enough_to_show(frame: &CGRect) -> bool {
+    frame.size.height >= MIN_TEXT_HEIGHT
 }
 
 /// Whether an element at `frame` shows in `visible`. An element without area can hold visible
@@ -195,5 +206,19 @@ mod tests {
         let visible = elements.map(|element| is_visible(element, window));
 
         assert_eq!(visible, [true, true, false, true]);
+    }
+
+    #[test]
+    fn static_text_less_than_two_points_high_does_not_show() {
+        let frames = [
+            frame(376.0, 154.0, 456.0, 1.0),
+            frame(376.0, 154.0, 456.0, 0.0),
+            frame(376.0, 154.0, 456.0, 2.0),
+            frame(376.0, 180.0, 456.0, 17.0),
+        ];
+
+        let shown = frames.each_ref().map(is_high_enough_to_show);
+
+        assert_eq!(shown, [false, false, true, true]);
     }
 }

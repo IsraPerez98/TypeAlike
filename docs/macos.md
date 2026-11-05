@@ -33,6 +33,12 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - At the start, at each activation of an app and at each change of the space, the runtime reads whether the app in front shows in full screen (`full_screen`): the presentation options of the active app (`currentSystemPresentationOptions`) have `FullScreen` or `HideMenuBar`.
 - At the start and at each activation of an app, the runtime reads whether the app in front is a game (`game`): its `Info.plist` has `public.app-category.games` or a genre that ends with `-games` in `LSApplicationCategoryType`, the key that Game Mode uses.
 
+## Screen text
+
+- The read of the AX tree looks at the siblings of the focused field first, then at the siblings of each parent, up to the window. It looks at 2000 elements at most (`MAX_ELEMENTS`).
+- An element that does not overlap the window does not show. An element without area can hold elements that show, so the read looks at its children.
+- A static text with a frame less than 2 pt high does not show (`MIN_TEXT_HEIGHT`). Chrome gives a static text that scrolled out of the view a frame 1 pt high at the top edge of the view.
+
 ## Fields
 
 - Each look at the caret also gives the frame of the focused field.
