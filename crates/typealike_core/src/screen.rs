@@ -177,11 +177,14 @@ pub(crate) fn message_lines_above(screen: &ScreenText, field_text: Option<&Field
 }
 
 /// Returns the lines of `screen` in `scope` that the prompt can show: without the noise, the lines
-/// inside the field and the lines that repeat `field_text`. A chat header gives only its name.
+/// inside the field, the lines that repeat `field_text` and the second copy of a line with the
+/// same text and frame, which the tree of an Electron app gives. A chat header gives only its name.
 fn candidates(screen: &ScreenText, field_text: Option<&FieldText>, scope: LineScope) -> Vec<Candidate> {
     let field = FieldLines::of(field_text);
+    let mut seen = HashSet::new();
     scope
         .lines(screen)
+        .filter(|line| seen.insert((line.text.as_str(), line.frame)))
         .filter(|line| line.confidence >= MIN_CONFIDENCE && !is_inside(line.frame, screen.field))
         .map(|line| {
             let text = one_line(&line.text);
@@ -599,6 +602,24 @@ mod tests {
         let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
 
         assert_eq!(lines, above_the_field(&["See you there"]));
+    }
+
+    #[test]
+    fn line_that_the_platform_gives_twice_shows_once() {
+        let screen = screen(vec![above("EXPLORER", 2), above("EXPLORER", 2), above("Fine", 1)]);
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+
+        assert_eq!(lines, above_the_field(&["EXPLORER", "Fine"]));
+    }
+
+    #[test]
+    fn same_text_at_two_places_shows_twice() {
+        let screen = screen(vec![above("Fine", 2), above("Fine", 1)]);
+
+        let lines = nearby_lines(&screen, None, BUDGET, LineScope::Window);
+
+        assert_eq!(lines, above_the_field(&["Fine", "Fine"]));
     }
 
     #[test]

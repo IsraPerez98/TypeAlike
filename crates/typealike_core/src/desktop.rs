@@ -89,7 +89,7 @@ impl fmt::Debug for CopiedText {
 /// A rectangle on the screen, with the origin at the top left of the main display and y down: in
 /// physical pixels on Windows and in points on macOS. Core compares only the rectangles of one
 /// read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ScreenRect {
     /// The left edge.
     pub left: i32,

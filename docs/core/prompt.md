@@ -31,6 +31,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - The scope of the lines (`LineScope`).
 - The noise: many signs, or a digit between two lowercase letters, as text recognition makes them. A code of capital letters and digits, such as a booking code, stays.
+- The copies: a line with the same text and frame as another line shows once, because the tree of an Electron app gives each line twice.
 - The times of chat headers.
 - The distance to the caret.
 - The budget.
