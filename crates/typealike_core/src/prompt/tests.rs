@@ -362,6 +362,7 @@ fn screen_part(text: &ScreenText) -> ScreenPart<'_> {
     ScreenPart {
         text,
         max_tokens: TokenCount(300),
+        shown_above: &[],
     }
 }
 

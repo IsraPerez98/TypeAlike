@@ -24,7 +24,7 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 - The name: 20.
 - The text after the caret: 300 in an email app or web mail, 100 in other places. In an email reply, the quoted message that the user answers is in the field after the caret. A platform reads at most 900 characters after the caret (`MAX_CHARS_AFTER_CARET`).
 - The place line: 40 for the window title, 40 for the name of the field and 40 for its hint.
-- The screen text: 800 on a graphics card (`Settings::screen_tokens`). On the CPU, 500 when TypeAlike prepares the prompt before the first key (the switch "Prepare suggestions early" on), else 300. More screen text is too slow to decode on the CPU at the first key.
+- The screen text: 800 on a graphics card (`Settings::screen_tokens`). On the CPU, 500 when TypeAlike prepares the prompt before the first key (the switch "Prepare suggestions early" on), else 300. More screen text is too slow to decode on the CPU at the first key. In a chat or an email app, the lines of the last prompt can use 25 percent more ("Order of the lines").
 - The last line above the field one more time, only when the whole line fits.
 - The earlier writing: 320.
 - The clipboard: 170.
@@ -46,6 +46,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - The times of chat headers.
 - The distance to the caret.
 - The budget.
+- The lines of the last prompt in a chat or an email app.
 - The lines above and below the caret.
 
 ### Scope of the lines
@@ -65,6 +66,12 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - The lines below come first, then the lines above, then the last line above the field one more time (`LAST_LINE_LABEL`), because that line is often the message that the user answers.
 - The text after the caret comes last, next to the heading, so that the model writes text that leads into it.
+- In a chat or an email app, the prompt keeps the lines above the field of the last prompt in the field at the start. It keeps them while each of them is still on the screen in the same order. The nearest lines after them come next.
+- Thus a new message at the bottom does not change the start of the prompt, and the model decodes only the new text again (`docs/llm.md`, "Cache and context").
+- A line counts as the same line when it has the same text, because the lines of a chat move when it scrolls.
+- The lines of the last prompt and the new lines can use 25 percent more than the budget of the screen text (`KEPT_LINES_SLACK_PERCENT`). When they need more, the prompt chooses the nearest lines again, as at a first read.
+- The prompt also chooses the nearest lines again when the lines of the last prompt leave out a near line. Examples are a new message between them, or an older line that fits after a scroll. A near line is a line that the nearest lines keep before their first line that does not fit.
+- The engine forgets the lines of the last prompt when the focus moves to another field or window. In other places, the prompt chooses the nearest lines at each read.
 
 ## Screen reads
 

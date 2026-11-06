@@ -71,6 +71,91 @@ fn screen_tokens_in(reaction: &Reaction) -> u32 {
     lines.lines().map(|line| estimated_tokens(line).0).sum()
 }
 
+const CHAT_APP: &str = "com.tinyspeck.slackmacgap";
+const CHAT_FIELD_TOP: i32 = 3000;
+
+/// Returns a chat with `count` messages of about 14 estimated tokens each, the newest just above
+/// the field. Each message of a chat with one more message is one line higher.
+fn chat_screen(count: i32) -> ScreenText {
+    let message = |index: i32| {
+        let top = CHAT_FIELD_TOP - 20 * (count - index);
+        ScreenLine {
+            text: format!("Message {index}: see you at the lake on Friday."),
+            confidence: Confidence::CERTAIN,
+            frame: ScreenRect {
+                left: 0,
+                top,
+                right: 500,
+                bottom: top + 18,
+            },
+        }
+    };
+    ScreenText {
+        lines: (0..count).map(message).collect(),
+        caret: None,
+        field: ScreenRect {
+            left: 0,
+            top: CHAT_FIELD_TOP,
+            right: 500,
+            bottom: CHAT_FIELD_TOP + 40,
+        },
+    }
+}
+
+fn chat_field() -> FakeDesktop {
+    FakeDesktop::default().in_app(CHAT_APP)
+}
+
+fn graphics_card() -> Settings {
+    Settings {
+        backend: Backend::Metal,
+        ..Settings::default()
+    }
+}
+
+fn prompt_of(reaction: Reaction) -> String {
+    let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
+        panic!("a key requests a completion: {reaction:?}");
+    };
+    prompt.0
+}
+
+fn read_screen(engine: &mut Engine, desktop: &FakeDesktop, screen: ScreenText) {
+    let id = engine
+        .start_screen_read()
+        .expect("the engine can read the screen");
+    engine.on_screen_read(
+        ScreenRead {
+            id,
+            text: Some(screen),
+        },
+        desktop,
+    );
+}
+
+/// Returns the prompts of the keys `S` and `u` in `desktop`. A read of `first` comes before `S`,
+/// and a read of `second` comes between the keys.
+fn prompts_around_a_read(desktop: &FakeDesktop, first: ScreenText, second: ScreenText) -> (String, String) {
+    let mut engine = engine_with(&graphics_card());
+    read_screen(&mut engine, desktop, first);
+    let before = prompt_of(engine.on_key(Key::Char('S'), Press::First, desktop));
+    read_screen(&mut engine, desktop, second);
+    let after = prompt_of(engine.on_key(Key::Char('u'), Press::First, desktop));
+    (before, after)
+}
+
+/// Returns the prompt of the keys of `typed` in `desktop` after one read of `screen`.
+fn prompt_after_one_read(desktop: &FakeDesktop, screen: ScreenText, typed: &str) -> String {
+    let mut engine = engine_with(&graphics_card());
+    read_screen(&mut engine, desktop, screen);
+    let reaction = typed
+        .chars()
+        .map(|character| engine.on_key(Key::Char(character), Press::First, desktop))
+        .last()
+        .expect("the text is not empty");
+    prompt_of(reaction)
+}
+
 fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> ScreenAnswer {
     engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default())
 }
@@ -370,6 +455,40 @@ fn answer_to_a_forgotten_read_is_dropped() {
     let answer = answer_read(&mut engine, id, Some(screen_with("Dinner at 7?")));
 
     assert_eq!(answer, ScreenAnswer::Dropped);
+}
+
+#[test]
+fn new_chat_message_keeps_the_start_of_the_screen_text() {
+    let (before, after) = prompts_around_a_read(&chat_field(), chat_screen(80), chat_screen(81));
+
+    let (old_lines, _) = before
+        .split_once("”\nThe last line above the field")
+        .expect("the prompt has screen text above the field");
+    assert!(after.starts_with(old_lines), "{before}\n\n{after}");
+}
+
+#[test]
+fn chat_in_another_field_chooses_the_nearest_lines_again() {
+    let desktop = chat_field();
+    let mut engine = engine_with(&graphics_card());
+    read_screen(&mut engine, &desktop, chat_screen(80));
+    engine.on_key(Key::Char('S'), Press::First, &desktop);
+    engine.discard_session();
+    engine.forget_screen();
+    read_screen(&mut engine, &desktop, chat_screen(81));
+
+    let prompt = prompt_of(engine.on_key(Key::Char('S'), Press::First, &desktop));
+
+    assert_eq!(prompt, prompt_after_one_read(&desktop, chat_screen(81), "S"));
+}
+
+#[test]
+fn screen_text_outside_a_chat_or_an_email_app_chooses_the_nearest_lines_at_each_read() {
+    let desktop = FakeDesktop::default();
+
+    let (_, after) = prompts_around_a_read(&desktop, chat_screen(80), chat_screen(81));
+
+    assert_eq!(after, prompt_after_one_read(&desktop, chat_screen(81), "Su"));
 }
 
 #[test]

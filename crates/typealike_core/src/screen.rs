@@ -34,6 +34,9 @@ const DAY_TIME_JOINS: [&str; 4] = ["at", "a", "las", "la"];
 /// can keep, for a read without an OCR. The tree of an app that draws its text itself, such as the
 /// editor of VS Code, often gives only the labels of the app.
 const MIN_TREE_WORDS: usize = 40;
+/// The tokens that the lines of the last prompt in a chat can use above the budget, in percent of
+/// the budget. Thus new messages do not change the start of the prompt at each read.
+const KEPT_LINES_SLACK_PERCENT: u32 = 25;
 
 /// What the prompt knows of the text of the focused field, for the lines of the screen.
 #[derive(Debug, Clone, Copy)]
@@ -180,24 +183,32 @@ pub(crate) fn nearby_lines(
     budget: TokenCount,
     scope: LineScope,
 ) -> NearbyLines {
-    let caret = caret_of(screen);
-    let mut candidates = candidates(screen, field, scope);
-    candidates.sort_by_key(|candidate| {
-        (
-            distance(candidate.frame, caret, screen.field),
-            candidate.frame.top,
-            candidate.frame.left,
-        )
-    });
-    let mut kept = within_budget(candidates, budget);
-    kept.sort_by_key(|candidate| (candidate.frame.top, candidate.frame.left));
-    let (above, below) = kept.into_iter().partition::<Vec<_>, _>(|candidate| {
-        is_above(candidate.frame, caret) || field.holds(candidate.frame, screen.field)
-    });
-    NearbyLines {
-        above: above.into_iter().map(|candidate| candidate.text).collect(),
-        below: below.into_iter().map(|candidate| candidate.text).collect(),
-    }
+    let lines = in_reading_order(screen, candidates(screen, field, scope));
+    let nearest = within_budget(&lines, &by_distance(screen, &lines), budget);
+    split_at_caret(screen, field, lines, &nearest)
+}
+
+/// Returns the text of the lines of `screen` in the column of the field that the prompt shows,
+/// after a prompt in the same field that showed `shown_above`. These lines stay first while they
+/// are still on the screen in the same order, and the lines of [`nearby_lines`] after them follow.
+/// Thus a new chat message does not change the start of the prompt. The lines of
+/// [`nearby_lines`] come again when these lines need more than [`KEPT_LINES_SLACK_PERCENT`] above
+/// `budget`. They also come again when these lines leave out a line that [`nearby_lines`] keeps
+/// before its first line that does not fit.
+pub(crate) fn nearby_lines_from(
+    shown_above: &[String],
+    screen: &ScreenText,
+    field: FieldContent<'_>,
+    budget: TokenCount,
+) -> NearbyLines {
+    let lines = in_reading_order(screen, candidates(screen, field, LineScope::Column));
+    let ranked = by_distance(screen, &lines);
+    let nearest = within_budget(&lines, &ranked, budget);
+    let kept = shown_and_newer(shown_above, &lines, &nearest)
+        .filter(|kept| tokens_of(&lines, kept) <= with_slack(budget))
+        .filter(|kept| first_fitting(&lines, &ranked, budget).is_subset(kept))
+        .unwrap_or(nearest);
+    split_at_caret(screen, field, lines, &kept)
 }
 
 /// Returns the text of the lines of `screen` in the column of the field above the caret, in
@@ -276,19 +287,112 @@ fn is_above(line: ScreenRect, caret: ScreenRect) -> bool {
     line.top.midpoint(line.bottom) < caret.top.midpoint(caret.bottom)
 }
 
-/// Returns the `candidates` whose tokens fit in what is left of `budget`, in their order.
-fn within_budget(candidates: Vec<Candidate>, budget: TokenCount) -> Vec<Candidate> {
+/// Returns `lines` from top to bottom, then from left to right, then the nearest to the caret of
+/// `screen` first.
+fn in_reading_order(screen: &ScreenText, mut lines: Vec<Candidate>) -> Vec<Candidate> {
+    let caret = caret_of(screen);
+    lines.sort_by_key(|line| {
+        (
+            line.frame.top,
+            line.frame.left,
+            distance(line.frame, caret, screen.field),
+        )
+    });
+    lines
+}
+
+/// Returns the positions of `lines`, the nearest to the caret of `screen` first. Lines at the same
+/// distance keep their order.
+fn by_distance(screen: &ScreenText, lines: &[Candidate]) -> Vec<usize> {
+    let caret = caret_of(screen);
+    let mut ranked = (0..lines.len()).collect::<Vec<_>>();
+    ranked.sort_by_key(|&position| distance(lines[position].frame, caret, screen.field));
+    ranked
+}
+
+/// Returns the positions of `ranked` whose lines fit in what is left of `budget`, each in turn.
+fn within_budget(lines: &[Candidate], ranked: &[usize], budget: TokenCount) -> HashSet<usize> {
     let mut left = budget.0;
-    candidates
-        .into_iter()
-        .filter(|candidate| {
-            let Some(rest) = left.checked_sub(estimated_tokens(&candidate.text).0) else {
+    ranked
+        .iter()
+        .copied()
+        .filter(|&position| {
+            let Some(rest) = left.checked_sub(estimated_tokens(&lines[position].text).0) else {
                 return false;
             };
             left = rest;
             true
         })
         .collect()
+}
+
+/// Returns the first positions of `ranked` whose lines fit in `budget`, up to the first line that
+/// does not fit.
+fn first_fitting(lines: &[Candidate], ranked: &[usize], budget: TokenCount) -> HashSet<usize> {
+    let mut left = budget.0;
+    ranked
+        .iter()
+        .copied()
+        .map_while(|position| {
+            left = left.checked_sub(estimated_tokens(&lines[position].text).0)?;
+            Some(position)
+        })
+        .collect()
+}
+
+/// Returns the positions of the `lines` that show `shown` again in the same order, and of the
+/// `nearest` lines after them. Each line of `shown` takes the last line with its text before the
+/// line that `shown` has after it. `None` when `shown` is empty or a line of it is not in `lines`.
+fn shown_and_newer(
+    shown: &[String],
+    lines: &[Candidate],
+    nearest: &HashSet<usize>,
+) -> Option<HashSet<usize>> {
+    let mut end = lines.len();
+    let shown_again = shown
+        .iter()
+        .rev()
+        .map(|text| {
+            end = lines[..end].iter().rposition(|line| line.text == *text)?;
+            Some(end)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let &last_shown = shown_again.first()?;
+    let newer = nearest.iter().copied().filter(|&position| position > last_shown);
+    Some(shown_again.into_iter().chain(newer).collect())
+}
+
+fn tokens_of(lines: &[Candidate], kept: &HashSet<usize>) -> u32 {
+    kept.iter()
+        .map(|&position| estimated_tokens(&lines[position].text).0)
+        .fold(0, u32::saturating_add)
+}
+
+/// Returns `budget` with [`KEPT_LINES_SLACK_PERCENT`] more.
+fn with_slack(budget: TokenCount) -> u32 {
+    budget
+        .0
+        .saturating_add(budget.0.saturating_mul(KEPT_LINES_SLACK_PERCENT) / 100)
+}
+
+/// Returns the text of the `kept` positions of `lines`, each side of the caret of `screen` in
+/// reading order. The lines of a field that hides its text count as above the caret.
+fn split_at_caret(
+    screen: &ScreenText,
+    field: FieldContent<'_>,
+    lines: Vec<Candidate>,
+    kept: &HashSet<usize>,
+) -> NearbyLines {
+    let caret = caret_of(screen);
+    let (above, below) = lines
+        .into_iter()
+        .enumerate()
+        .filter_map(|(position, line)| kept.contains(&position).then_some(line))
+        .partition::<Vec<_>, _>(|line| is_above(line.frame, caret) || field.holds(line.frame, screen.field));
+    NearbyLines {
+        above: above.into_iter().map(|line| line.text).collect(),
+        below: below.into_iter().map(|line| line.text).collect(),
+    }
 }
 
 /// The text of the focused field, to find the screen lines that repeat it.
@@ -415,6 +519,16 @@ mod tests {
     const BUDGET: TokenCount = TokenCount(1200);
     const FIELD: ScreenRect = rect(300, 900, 1400, 960);
     const CARET: ScreenRect = rect(320, 920, 321, 940);
+    /// The budget of four chat messages.
+    const CHAT_BUDGET: TokenCount = TokenCount(40);
+    /// Chat messages of 10 estimated tokens each, oldest first.
+    const CABIN: &str = "Did you book the cabin by now?";
+    const FRIDAY: &str = "Yes, it is ours from Friday on";
+    const KAYAKS: &str = "Great, I can bring the kayaks.";
+    const COOLER: &str = "Bring the big cooler too, okay";
+    const DRIVER: &str = "Sure, who drives us on Friday?";
+    const SIX: &str = "I can drive, I leave at six pm";
+    const SEE_YOU: &str = "Perfect, see you all at six pm";
 
     const fn rect(left: i32, top: i32, right: i32, bottom: i32) -> ScreenRect {
         ScreenRect {
@@ -462,6 +576,18 @@ mod tests {
             above: Vec::new(),
             below: texts(lines),
         }
+    }
+
+    /// Returns the lines that a chat shows with [`CHAT_BUDGET`] after a prompt that showed
+    /// `shown_above`, each line of `messages` `rows` lines above the field.
+    fn chat_lines_after(shown_above: &[&str], messages: &[(&str, i32)]) -> NearbyLines {
+        let lines = messages.iter().map(|&(text, rows)| above(text, rows)).collect();
+        nearby_lines_from(
+            &texts(shown_above),
+            &screen(lines),
+            FieldContent::Read(None),
+            CHAT_BUDGET,
+        )
     }
 
     /// Returns the text that the prompt keeps of each line, one screen for each line.
@@ -885,5 +1011,116 @@ mod tests {
         let lines = message_lines_above(&screen, FieldContent::Read(None));
 
         assert_eq!(lines, texts(&["Standup in 5?", "same room as yesterday"]));
+    }
+
+    #[test]
+    fn lines_of_the_last_prompt_stay_first_and_the_new_message_comes_after_them() {
+        let messages = [
+            (CABIN, 6),
+            (FRIDAY, 5),
+            (KAYAKS, 4),
+            (COOLER, 3),
+            (DRIVER, 2),
+            (SIX, 1),
+        ];
+
+        let lines = chat_lines_after(&[FRIDAY, KAYAKS, COOLER, DRIVER], &messages);
+
+        assert_eq!(lines, above_the_field(&[FRIDAY, KAYAKS, COOLER, DRIVER, SIX]));
+    }
+
+    #[test]
+    fn lines_of_the_last_prompt_go_when_they_need_more_than_the_slack() {
+        let messages = [
+            (CABIN, 7),
+            (FRIDAY, 6),
+            (KAYAKS, 5),
+            (COOLER, 4),
+            (DRIVER, 3),
+            (SIX, 2),
+            (SEE_YOU, 1),
+        ];
+
+        let lines = chat_lines_after(&[FRIDAY, KAYAKS, COOLER, DRIVER], &messages);
+
+        assert_eq!(lines, above_the_field(&[COOLER, DRIVER, SIX, SEE_YOU]));
+    }
+
+    #[test]
+    fn lines_of_the_last_prompt_go_when_their_first_line_left_the_screen() {
+        let messages = [(FRIDAY, 5), (KAYAKS, 4), (COOLER, 3), (DRIVER, 2), (SIX, 1)];
+
+        let lines = chat_lines_after(&[CABIN, FRIDAY, KAYAKS, COOLER], &messages);
+
+        assert_eq!(lines, above_the_field(&[KAYAKS, COOLER, DRIVER, SIX]));
+    }
+
+    #[test]
+    fn lines_of_the_last_prompt_go_when_a_new_message_comes_between_them() {
+        let messages = [
+            (CABIN, 6),
+            (FRIDAY, 5),
+            (KAYAKS, 4),
+            (COOLER, 3),
+            (DRIVER, 2),
+            ("Seen", 1),
+        ];
+
+        let lines = chat_lines_after(&[FRIDAY, KAYAKS, COOLER, "Seen"], &messages);
+
+        assert_eq!(lines, above_the_field(&[KAYAKS, COOLER, DRIVER, "Seen"]));
+    }
+
+    #[test]
+    fn short_lines_of_the_last_prompt_far_from_the_caret_stay() {
+        let messages = [
+            ("Ana", 7),
+            (CABIN, 6),
+            ("Ana", 5),
+            (FRIDAY, 4),
+            (KAYAKS, 3),
+            (COOLER, 2),
+            (DRIVER, 1),
+        ];
+
+        let lines = chat_lines_after(&["Ana", "Ana", FRIDAY, KAYAKS, COOLER], &messages);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["Ana", "Ana", FRIDAY, KAYAKS, COOLER, DRIVER])
+        );
+    }
+
+    #[test]
+    fn older_lines_that_fit_the_budget_come_back_before_the_lines_of_the_last_prompt() {
+        let messages = [(CABIN, 4), (FRIDAY, 3), (KAYAKS, 2), (COOLER, 1)];
+
+        let lines = chat_lines_after(&[KAYAKS, COOLER], &messages);
+
+        assert_eq!(lines, above_the_field(&[CABIN, FRIDAY, KAYAKS, COOLER]));
+    }
+
+    #[test]
+    fn same_screen_shows_the_lines_of_the_last_prompt_again() {
+        let screen = screen(vec![
+            above(CABIN, 5),
+            above(FRIDAY, 4),
+            above(KAYAKS, 3),
+            above(COOLER, 2),
+            above(DRIVER, 1),
+            line("Sent", rect(300, 980, 900, 1010)),
+            line(SEE_YOU, rect(300, 1100, 900, 1130)),
+        ]);
+        let shown = nearby_lines(&screen, FieldContent::Read(None), CHAT_BUDGET, LineScope::Column);
+
+        let lines = nearby_lines_from(&shown.above, &screen, FieldContent::Read(None), CHAT_BUDGET);
+
+        assert_eq!(
+            lines,
+            NearbyLines {
+                above: texts(&[KAYAKS, COOLER, DRIVER]),
+                below: texts(&["Sent"]),
+            }
+        );
     }
 }

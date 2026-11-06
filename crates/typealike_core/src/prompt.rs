@@ -10,7 +10,7 @@ use crate::desktop::{ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, one_line};
 use crate::inference::{Prompt, TokenCount};
 use crate::place::{self, Format};
-use crate::screen::{self, FieldContent, LineScope};
+use crate::screen::{self, FieldContent, LineScope, NearbyLines};
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
 /// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
@@ -79,6 +79,16 @@ impl fmt::Debug for Writer<'_> {
 pub(crate) struct ScreenPart<'text> {
     pub(crate) text: &'text ScreenText,
     pub(crate) max_tokens: TokenCount,
+    /// The lines above the field that the last preface in the field showed, in reading order.
+    pub(crate) shown_above: &'text [String],
+}
+
+/// What the model reads before the text, and the lines above the field on the screen that it
+/// shows.
+pub(crate) struct Preface {
+    pub(crate) text: String,
+    /// The lines above the field on the screen that `text` shows, in reading order.
+    pub(crate) screen_lines_above: Vec<String>,
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
@@ -95,7 +105,22 @@ pub(crate) fn preface(
     clipboard: Option<&str>,
     screen: Option<ScreenPart<'_>>,
 ) -> String {
-    preface_lines(budgeted_parts(writer, surroundings, clipboard, screen))
+    preface_with_screen_lines(writer, surroundings, clipboard, screen).text
+}
+
+/// Returns the [`preface`] and the lines above the field on the screen that it shows.
+pub(crate) fn preface_with_screen_lines(
+    writer: &Writer<'_>,
+    surroundings: &Surroundings,
+    clipboard: Option<&str>,
+    screen: Option<ScreenPart<'_>>,
+) -> Preface {
+    let parts = budgeted_parts(writer, surroundings, clipboard, screen);
+    let screen_lines_above = parts.above.clone();
+    Preface {
+        text: preface_lines(parts),
+        screen_lines_above,
+    }
 }
 
 /// The parts of a preface after their cut to the budget, before their layout.
@@ -107,7 +132,7 @@ struct PrefaceParts<'text> {
     clipboard: Option<&'text str>,
     below: String,
     after_caret: Option<&'text str>,
-    above: String,
+    above: Vec<String>,
     last_line_above: Option<String>,
 }
 
@@ -134,18 +159,10 @@ fn budgeted_parts<'text>(
         .map(|field_text| budget.take_start(field_text.after_caret.trim(), after_caret_tokens(surroundings)));
     let place = place_line(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
     let nearby = screen
-        .map(|screen| {
-            screen::nearby_lines(
-                screen.text,
-                FieldContent::of(surroundings),
-                budget.left(screen.max_tokens),
-                LineScope::of(surroundings),
-            )
-        })
+        .map(|screen| nearby_lines(screen, surroundings, budget.left(screen.max_tokens)))
         .unwrap_or_default();
-    let above = nearby.above.join("\n");
     let below = nearby.below.join("\n");
-    budget.spend(&above);
+    budget.spend(&nearby.above.join("\n"));
     budget.spend(&below);
     let last_line_above = nearby
         .above
@@ -162,8 +179,19 @@ fn budgeted_parts<'text>(
         clipboard,
         below,
         after_caret,
-        above,
+        above: nearby.above,
         last_line_above,
+    }
+}
+
+/// Returns the lines of the `screen` part around the field of `surroundings` that fit in `budget`.
+/// In a chat or an email app, the lines that the last preface in the field showed above it stay
+/// first while they can.
+fn nearby_lines(screen: ScreenPart<'_>, surroundings: &Surroundings, budget: TokenCount) -> NearbyLines {
+    let field = FieldContent::of(surroundings);
+    match LineScope::of(surroundings) {
+        LineScope::Column => screen::nearby_lines_from(screen.shown_above, screen.text, field, budget),
+        LineScope::Window => screen::nearby_lines(screen.text, field, budget, LineScope::Window),
     }
 }
 
@@ -203,7 +231,7 @@ fn preface_lines(parts: PrefaceParts<'_>) -> String {
             .and_then(non_empty)
             .map(|text| format!("Text on my clipboard: “{text}”")),
         non_empty(&parts.below).map(|text| format!("Below the field on my screen: “{text}”")),
-        non_empty(&parts.above).map(|text| format!("Above the field on my screen: “{text}”")),
+        non_empty(&parts.above.join("\n")).map(|text| format!("Above the field on my screen: “{text}”")),
         parts
             .last_line_above
             .map(|line| format!("{LAST_LINE_LABEL} “{line}”")),

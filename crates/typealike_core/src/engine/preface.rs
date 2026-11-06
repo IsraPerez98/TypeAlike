@@ -47,6 +47,9 @@ pub(super) struct ScreenReads {
     screen: Screen,
     /// The id of the newest read that the engine started.
     newest: ScreenReadId,
+    /// The lines above the field that the newest preface with screen text showed. The next preface
+    /// in the field keeps them first while they are on the screen.
+    shown_above: Vec<String>,
 }
 
 impl ScreenReads {
@@ -116,6 +119,7 @@ impl ScreenReads {
 
     fn forget(&mut self) {
         self.screen = Screen::Unknown;
+        self.shown_above.clear();
     }
 }
 
@@ -232,13 +236,15 @@ impl Engine {
         }
     }
 
-    /// Forgets the screen text and the read that runs, for when another field can have the focus.
+    /// Forgets the screen text, the read that runs and the screen lines of the last preface, for
+    /// when another field can have the focus.
     pub(crate) fn forget_screen(&mut self) {
         self.screen_reads.forget();
     }
 
-    /// Returns what the model reads before the text of the field in `surroundings`.
-    pub(super) fn build_preface(&self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
+    /// Returns what the model reads before the text of the field in `surroundings`. The engine
+    /// keeps the lines above the field that a preface with screen text shows, for the next preface.
+    pub(super) fn build_preface(&mut self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
         let recent_copy = match self.clipboard_access {
             ClipboardAccess::Allowed => desktop
                 .copied_text()
@@ -262,14 +268,19 @@ impl Engine {
             name: &self.writer_name.0,
             examples,
         };
-        prompt::preface(
+        let preface = prompt::preface_with_screen_lines(
             &writer,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
             screen.map(|text| ScreenPart {
                 text,
                 max_tokens: self.screen_tokens,
+                shown_above: &self.screen_reads.shown_above,
             }),
-        )
+        );
+        if self.screen_reads.text().is_some() {
+            self.screen_reads.shown_above = preface.screen_lines_above;
+        }
+        preface.text
     }
 }
