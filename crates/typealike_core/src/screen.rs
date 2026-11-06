@@ -330,8 +330,14 @@ fn is_above(line: ScreenRect, caret: ScreenRect) -> bool {
     line.top.midpoint(line.bottom) < caret.top.midpoint(caret.bottom)
 }
 
+/// Whether the middle of `line` is below the row of `caret`.
+fn is_below_row(line: ScreenRect, caret: ScreenRect) -> bool {
+    line.top.midpoint(line.bottom) >= caret.bottom
+}
+
 /// Returns `lines` from top to bottom, then from left to right, then the nearest to the caret of
-/// `screen` first.
+/// `screen` first. The lines of a field that hides its text come after the other lines, so that
+/// they lead to the caret, also when a panel beside the field has lines nearer to the caret row.
 fn in_reading_order(
     screen: &ScreenText,
     field: FieldContent<'_>,
@@ -340,6 +346,7 @@ fn in_reading_order(
     let caret = caret_of(screen, field);
     lines.sort_by_key(|line| {
         (
+            field.holds(line.frame, screen.field),
             line.frame.top,
             line.frame.left,
             distance(line.frame, caret, screen.field),
@@ -423,8 +430,8 @@ fn with_slack(budget: TokenCount) -> u32 {
 }
 
 /// Returns the text of the `kept` positions of `lines`, each side of the caret of `screen` in
-/// reading order. The lines of a field that hides its text count as above the caret, unless a
-/// line of the field shows the typed text: the lines after that line are below the caret.
+/// reading order. The lines of a field that hides its text count as above the caret, also on the
+/// row of the caret, but the lines of the field below that row are below the caret.
 fn split_at_caret(
     screen: &ScreenText,
     field: FieldContent<'_>,
@@ -432,13 +439,13 @@ fn split_at_caret(
     kept: &HashSet<usize>,
 ) -> NearbyLines {
     let caret = caret_of(screen, field);
-    let has_typed_line = field.typed_line(screen).is_some();
     let (above, below) = lines
         .into_iter()
         .enumerate()
         .filter_map(|(position, line)| kept.contains(&position).then_some(line))
         .partition::<Vec<_>, _>(|line| {
-            is_above(line.frame, caret) || (!has_typed_line && field.holds(line.frame, screen.field))
+            is_above(line.frame, caret)
+                || (field.holds(line.frame, screen.field) && !is_below_row(line.frame, caret))
         });
     NearbyLines {
         above: above.into_iter().map(|line| line.text).collect(),
@@ -1026,6 +1033,60 @@ mod tests {
                 above: texts(&["I changed login.rs and the tests pass."]),
                 below: texts(&["auto mode on"]),
             }
+        );
+    }
+
+    #[test]
+    fn rows_of_a_hidden_field_below_a_known_caret_are_below_it() {
+        let screen = ScreenText {
+            caret: Some(rect(200, 20, 200, 36)),
+            ..terminal(vec![
+                terminal_row("I changed login.rs and the tests pass.", 0),
+                terminal_row("❯ fix the login bug in the auth", 1),
+                terminal_row("auto mode on", 3),
+            ])
+        };
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: "module" },
+            BUDGET,
+            LineScope::Window,
+        );
+
+        assert_eq!(
+            lines,
+            NearbyLines {
+                above: texts(&[
+                    "I changed login.rs and the tests pass.",
+                    "❯ fix the login bug in the auth"
+                ]),
+                below: texts(&["auto mode on"]),
+            }
+        );
+    }
+
+    #[test]
+    fn rows_of_a_hidden_field_come_after_the_other_lines_above_the_caret() {
+        let screen = ScreenText {
+            lines: vec![
+                line("I changed login.rs and the tests pass.", rect(310, 100, 990, 116)),
+                line("chore: release 0.5.0", rect(0, 140, 290, 156)),
+            ],
+            caret: Some(rect(320, 180, 320, 196)),
+            field: rect(300, 0, 1000, 800),
+        };
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: TYPED_PROMPT },
+            BUDGET,
+            LineScope::Window,
+        );
+
+        assert_eq!(
+            lines,
+            above_the_field(&["chore: release 0.5.0", "I changed login.rs and the tests pass."])
         );
     }
 
