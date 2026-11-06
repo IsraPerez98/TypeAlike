@@ -1,6 +1,6 @@
 //! The text near the caret on the screen, as the prompt shows it: the lines of its scope, without
-//! noise and without the times of chat headers, the nearest lines first, up to a budget of tokens,
-//! above and below the caret.
+//! noise and without the times of chat headers and messages, the nearest lines first, up to a
+//! budget of tokens, above and below the caret.
 
 mod conversation;
 
@@ -254,14 +254,18 @@ pub(crate) fn has_enough_words(screen: &ScreenText, surroundings: &Surroundings)
 fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) -> Vec<Candidate> {
     let field_lines = FieldLines::of(field.text());
     let mut seen = HashSet::new();
-    scope
+    let lines = scope
         .lines(screen)
         .filter(|line| seen.insert((line.text.as_str(), line.frame)))
         .filter(|line| line.confidence >= MIN_CONFIDENCE)
         .filter(|line| field.holds(line.frame, screen.field) || !is_inside(line.frame, screen.field))
         .filter(|line| !is_beside(line.frame, screen.field) || line.text.chars().any(char::is_alphabetic))
+        .collect::<Vec<_>>();
+    let message_times = MessageTimes::of(&lines, scope);
+    lines
+        .into_iter()
         .map(|line| {
-            let text = one_line(&line.text);
+            let text = message_times.without_time_of_message(one_line(&line.text), line.frame);
             match header_name(&text) {
                 Some(name) => Candidate {
                     text: name,
@@ -495,6 +499,50 @@ fn header_name(line: &str) -> Option<String> {
     (words.len() <= MAX_HEADER_NAME_WORDS).then(|| words.join(" "))
 }
 
+/// The frames of the lines of a chat or an email app that hold only a time. Such lines show that
+/// the app gives the time of each message at the end of its bubble, as chats on a phone do.
+/// Text recognition reads that time as a line of its own when a gap divides it from the message,
+/// else as the end of the last line of the message.
+struct MessageTimes(Vec<ScreenRect>);
+
+impl MessageTimes {
+    fn of(lines: &[&ScreenLine], scope: LineScope) -> Self {
+        let frames = match scope {
+            LineScope::Window => Vec::new(),
+            LineScope::Column => lines
+                .iter()
+                .filter(|line| without_time_at_end(&one_line(&line.text)).is_some_and(|rest| rest.is_empty()))
+                .map(|line| line.frame)
+                .collect(),
+        };
+        Self(frames)
+    }
+
+    /// Returns `text` of the line at `frame` without the time of its message at its end. The line
+    /// keeps its time when the app shows no times of messages, or when the time of its message is
+    /// a line of its own on the same row: then the time at its end is a part of the message.
+    fn without_time_of_message(&self, text: String, frame: ScreenRect) -> String {
+        if self.0.is_empty() || self.0.iter().any(|&time| is_on_the_row_of(time, frame)) {
+            return text;
+        }
+        without_time_at_end(&text).unwrap_or(text)
+    }
+}
+
+/// Returns `line` without the time at its end, as "9:57 PM" or "21:57". `None` when `line` does
+/// not end with a time.
+fn without_time_at_end(line: &str) -> Option<String> {
+    let mut words = line.split(' ').collect::<Vec<_>>();
+    words.pop_if(|word| is_any_of(word, &HALVES_OF_DAY));
+    words.pop_if(|word| is_time(word))?;
+    Some(words.join(" ").trim_end().to_owned())
+}
+
+/// Whether the middle of `line` is between the top and the bottom of `row`.
+fn is_on_the_row_of(line: ScreenRect, row: ScreenRect) -> bool {
+    (row.top..row.bottom).contains(&line.top.midpoint(line.bottom))
+}
+
 /// Whether `word` is a time such as "9:05" or "21:03".
 fn is_time(word: &str) -> bool {
     word.split_once(':').is_some_and(|(hours, minutes)| {
@@ -554,6 +602,12 @@ mod tests {
     /// A line in the column of the field, `rows` lines of 40 pixels above the field.
     fn above(text: &str, rows: i32) -> ScreenLine {
         line(text, rect(300, 900 - 40 * rows, 900, 930 - 40 * rows))
+    }
+
+    /// The time of a chat message in a line of its own, at the right end of the bubble `rows`
+    /// lines above the field, as text recognition reads it when a gap divides it from the message.
+    fn message_time(text: &str, rows: i32) -> ScreenLine {
+        line(text, rect(1000, 902 - 40 * rows, 1060, 928 - 40 * rows))
     }
 
     fn screen(lines: Vec<ScreenLine>) -> ScreenText {
@@ -1000,6 +1054,44 @@ mod tests {
         let kept = kept_texts(messages);
 
         assert_eq!(kept, messages.map(|message| texts(&[message])));
+    }
+
+    #[test]
+    fn message_loses_the_time_that_the_chat_shows_at_its_end() {
+        let screen = screen(vec![
+            above("Did you book the cabin by now?", 3),
+            message_time("9:41 PM", 2),
+            above("Yes, it is ours from Friday on 9:57 PM", 1),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["Did you book the cabin by now?", "Yes, it is ours from Friday on"])
+        );
+    }
+
+    #[test]
+    fn message_keeps_the_time_at_its_end_in_a_chat_that_shows_no_message_times() {
+        let messages = ["AF 1288, lands at 18:05", "mine is AF 1240, it lands at 17:40"];
+        let screen = screen(vec![above(messages[0], 2), above(messages[1], 1)]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
+
+        assert_eq!(lines, above_the_field(&messages));
+    }
+
+    #[test]
+    fn message_keeps_the_time_at_its_end_when_its_own_time_is_beside_it() {
+        let screen = screen(vec![
+            above("nos vemos en la plaza a las 21:30", 1),
+            message_time("21:52", 1),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
+
+        assert_eq!(lines, above_the_field(&["nos vemos en la plaza a las 21:30"]));
     }
 
     #[test]

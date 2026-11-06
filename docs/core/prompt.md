@@ -53,7 +53,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - The noise: many signs, or a digit between two lowercase letters, as text recognition makes them. A code of capital letters and digits, such as a booking code, stays.
 - The copies: a line with the same text and frame as another line shows once, because the tree of an Electron app gives each line twice.
 - The lines without a letter beside the field, such as the line numbers of an editor.
-- The times of chat headers.
+- The times of chat headers and of chat messages.
 - The distance to the caret.
 - The budget.
 - The lines of the last prompt in a chat or an email app.
@@ -64,6 +64,16 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - In a chat or an email app, the scope is the column of the field: the span of the field from left to right, with each line that reaches into that span, such as a chat message that starts left of the input box.
 - A line wholly beside the column there is the list of the other conversations, so it goes and gives no topic words to the examples.
 - In other places, a panel beside the field, such as the help of a form, can tell what the field needs, so all the lines of the window stay, and the lines beside the field rank last.
+
+### Times of chat messages
+
+- A chat header loses its time ("Laura Méndez 11:02" gives "Laura Méndez"). A line with only a time goes.
+- Some chats show the time of each message at the end of its bubble, as Telegram and WhatsApp do. Text recognition reads that time as a line of its own when a gap divides it from the message, else as the end of the last line of the message.
+- In a chat or an email app, a line with only a time shows that the app gives these times. Then a time at the end of another line is the time of its message, and it goes. Thus the model does not copy these times into a suggestion.
+- A line keeps the time at its end when a line with only a time is on its row. That line is the time of the message, so the time at the end is a part of the message, as in "see you at 8:40".
+- When the last line of a message fills its bubble, the time of the app is on the row below. Thus a message that ends with a time there loses its own time.
+- Without a line with only a time, each message keeps its times, because a time is often what a message tells.
+- The model can still write a time, for example a time that a message tells.
 
 ### Field that hides its text
 
