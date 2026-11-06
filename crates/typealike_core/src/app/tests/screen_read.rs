@@ -78,6 +78,32 @@ fn settled_field_without_text_reads_no_screen() {
     assert_eq!(work, None);
 }
 
+/// A field that shows its text only on the screen, as a terminal does.
+const TERMINAL: TextField = TextField {
+    has_readable_text: false,
+    has_unreadable_text: true,
+    ..MAIL_WITH_OCR
+};
+
+#[test]
+fn settled_field_that_shows_its_text_only_on_the_screen_reads_the_screen() {
+    let mut app = app_preparing_on_first_key();
+
+    let work = app.on_input_settled(&TERMINAL);
+
+    assert!(matches!(work, Some(SettledWork::ReadScreen { .. })), "{work:?}");
+}
+
+#[test]
+fn session_in_a_field_that_shows_its_text_only_on_the_screen_reads_at_the_first_key() {
+    let mut app = App::new();
+    app.on_key(Key::Char('H'), Press::First, &TERMINAL);
+
+    let work = app.start_session_screen_read();
+
+    assert!(matches!(work, Some(SettledWork::ReadScreen { .. })), "{work:?}");
+}
+
 #[test]
 fn settled_password_field_reads_no_screen() {
     let mut app = App::new();

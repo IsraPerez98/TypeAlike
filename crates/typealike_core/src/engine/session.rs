@@ -15,8 +15,8 @@ pub(super) struct SessionField {
     pub(super) app: Option<ScreenTextApp>,
     /// The host of the web page where the user types, if any.
     pub(super) domain: Option<String>,
-    /// Whether the platform reads the text of the field.
-    pub(super) is_text_field: bool,
+    /// What the platform reads of the text of the field.
+    pub(super) text: FieldTextAccess,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     pub(super) is_excluded: bool,
     /// Whether the field hides the text on the line of the caret, so that text can follow the
@@ -35,10 +35,46 @@ impl SessionField {
             ),
             app: ScreenTextApp::of(surroundings),
             domain: surroundings.domain.clone(),
-            is_text_field: surroundings.field_text.is_some(),
+            text: FieldTextAccess::of(surroundings),
             is_excluded: surroundings.is_search_field || place::is_address_or_subject_field(surroundings),
             is_caret_line_hidden: surroundings.is_caret_line_hidden,
         }
+    }
+}
+
+/// What the platform reads of the text of a field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FieldTextAccess {
+    /// The platform reads the text of the field.
+    Readable,
+    /// The field shows text that the platform cannot read, as a terminal that shows its text only
+    /// on the screen.
+    Unreadable,
+    /// The field holds no text, as far as the platform can tell.
+    NoText,
+}
+
+impl FieldTextAccess {
+    fn of(surroundings: &Surroundings) -> Self {
+        if surroundings.field_text.is_some() {
+            Self::Readable
+        } else if surroundings.has_unreadable_text {
+            Self::Unreadable
+        } else {
+            Self::NoText
+        }
+    }
+}
+
+impl SessionField {
+    /// Whether the platform reads the text of the field.
+    pub(super) fn is_text_field(&self) -> bool {
+        self.text == FieldTextAccess::Readable
+    }
+
+    /// Whether the field holds text, also when the platform cannot read it.
+    pub(super) fn holds_text(&self) -> bool {
+        self.text != FieldTextAccess::NoText
     }
 }
 
@@ -124,7 +160,7 @@ impl Session {
     /// Whether a read of the field shows the text before the caret of the session: the platform
     /// reads the field, the field shows the line of the caret, and no read after Enter waits.
     pub(super) fn can_follow_field(&self) -> bool {
-        self.field.is_text_field && !self.field.is_caret_line_hidden && self.field_at_enter.is_none()
+        self.field.is_text_field() && !self.field.is_caret_line_hidden && self.field_at_enter.is_none()
     }
 
     pub(super) fn is_caret_at_line_end(&self) -> bool {

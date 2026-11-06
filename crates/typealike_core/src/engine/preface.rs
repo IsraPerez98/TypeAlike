@@ -169,7 +169,7 @@ impl Engine {
             .app
             .as_ref()
             .is_some_and(|app| screen_text.allows(&app.app_id));
-        if !session.field.is_text_field || !is_allowed {
+        if !session.field.holds_text() || !is_allowed {
             return None;
         }
         self.start_screen_read()

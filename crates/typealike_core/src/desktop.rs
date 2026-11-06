@@ -328,6 +328,12 @@ pub struct Surroundings {
 }
 
 impl Surroundings {
+    /// Whether the focused field holds text: the platform reads its text, or the field shows text
+    /// that the platform cannot read.
+    pub(crate) fn holds_text(&self) -> bool {
+        self.field_text.is_some() || self.has_unreadable_text
+    }
+
     /// Whether the focused field shows text that the platform cannot read: a field with unreadable
     /// text whose read gave no text.
     pub(crate) fn hides_field_text(&self) -> bool {

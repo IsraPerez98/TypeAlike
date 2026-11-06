@@ -558,8 +558,7 @@ impl App {
 
     fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
         let surroundings = desktop.surroundings();
-        let is_text_field = surroundings.field_text.is_some();
-        is_text_field
+        surroundings.holds_text()
             && surroundings
                 .app_id
                 .is_some_and(|app_id| self.screen_text.allows(&app_id))
