@@ -39,8 +39,9 @@ A suggestion is the model's guess, and it can be wrong. A smaller model is faste
 ## Privacy
 
 - The model runs on your computer: on the processor or the graphics card on Windows, and with Metal on macOS.
-- TypeAlike uses the internet only to search for models and to download them from Hugging Face (`huggingface.co`), and to check for updates on GitHub (`api.github.com`) when you click "Check for updates" on the About page.
-  It has no account, no telemetry and no update check. The text that you type never leaves your computer.
+- TypeAlike uses the internet only to search for models and to download them from Hugging Face (`huggingface.co`), and to get its new versions from GitHub (`api.github.com`, `github.com`).
+  It checks for a new version once a day, installs it and starts again. To stop this, turn off **Keep TypeAlike up to date** on the About page.
+  It has no account and no telemetry. The text that you type never leaves your computer.
 - Earlier writing, copied text and screen text are on by default. You can turn each one off in the setup or in
   **Settings**.
 - TypeAlike keeps the earlier writing in `history.bin`, encrypted with ChaCha20-Poly1305. The key is in the login
@@ -78,8 +79,8 @@ TypeAlike needs Windows 11.
    TypeAlike, the only fix is to turn off Smart App Control (**Windows Security** > **App & browser control** >
    **Smart App Control settings**).
 
-On Windows, TypeAlike needs no permissions. To update, run the new installer. It keeps your settings, models and
-earlier writing. To switch between Vulkan and CUDA, run the other installer.
+On Windows, TypeAlike needs no permissions. It installs each new version by itself. To update by hand, run the new
+installer. It keeps your settings, models and earlier writing. To switch between Vulkan and CUDA, run the other installer.
 
 ### macOS
 
@@ -91,8 +92,8 @@ You need macOS 15 or later on a Mac with Apple silicon. Intel Macs are not suppo
 4. Confirm in the next window. On macOS 15 and later, Control-click > **Open** does not skip this check.
 5. Give the permissions when the setup asks for them.
 
-To update, quit TypeAlike and replace the app in Applications. If macOS blocks it again, repeat steps 2 to 4. Then
-give the permissions again (see below).
+TypeAlike installs each new version by itself and starts again. Then give the permissions again (see below). To
+update by hand, quit TypeAlike and replace the app in Applications. If macOS blocks it again, repeat steps 2 to 4.
 
 ## Permissions on macOS
 

@@ -165,6 +165,12 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(updateCheckDidCome:))]
+        fn update_check_did_come(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_update_check_time);
+        }
+
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
             let replacement = with_runtime(|runtime| runtime.shell.pending_injections.pop_front()).flatten();

@@ -710,3 +710,33 @@ fn ui_language_survives_a_save_and_a_load() {
 
     assert_eq!(loaded, Some(Some(UiLanguage::Spanish)));
 }
+
+#[test]
+fn updates_read_from_their_name() {
+    let files = [r#"{ "updates": "automatic" }"#, r#"{ "updates": "manual" }"#];
+
+    let updates = files.map(|json| parse(json).map(|settings| settings.updates).ok());
+
+    assert_eq!(updates, [Some(Updates::Automatic), Some(Updates::Manual)]);
+}
+
+#[test]
+fn file_of_an_older_version_has_automatic_updates() {
+    let updates = parse(r#"{ "backend": "cpu" }"#)
+        .map(|settings| settings.updates)
+        .ok();
+
+    assert_eq!(updates, Some(Updates::Automatic));
+}
+
+#[test]
+fn manual_updates_survive_a_save_and_a_load() {
+    let settings = Settings {
+        updates: Updates::Manual,
+        ..Settings::default()
+    };
+
+    let loaded = parse(&to_json(&settings)).map(|loaded| loaded.updates).ok();
+
+    assert_eq!(loaded, Some(Updates::Manual));
+}

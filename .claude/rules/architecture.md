@@ -17,7 +17,7 @@ Virtual workspace, flat `crates/`. Never nest crates in `src/`.
 - `typealike_history`: the earlier writing in one encrypted file (`WritingHistory`), with `ring` for the cipher and the random key. It reads the key from the `KeyVault` of the platform (`typealike_macos::Keychain`, `typealike_windows::ProtectedKeyFile`) only at the first read or write. File IO, no FFI, no network.
 - `typealike_settings`: the settings file (`SettingsFile`, the `SettingsStore` of core): the serde format of the settings and the migrations of old fields (`stored`). File IO, no FFI.
 - `typealike_llm`: runs GGUF models with llama.cpp (`docs/llm.md`).
-- `typealike_releases`: the newest release of TypeAlike from the GitHub API (`GitHubReleases`, the `ReleaseFeed` of core), for the check for updates of the About pane. HTTPS, no FFI.
+- `typealike_releases`: the newest release of TypeAlike from the GitHub API (`GitHubReleases`, the `ReleaseFeed` of core): the check for updates of the About pane, and the download and the install of a new version. HTTPS and the processes of the installers (`hdiutil`, the Inno Setup installer), no FFI. Only its `install` module selects the OS.
 - `typealike`: thin bin. Wiring, data folders, settings load, logging, event loop. No business logic.
 - New crate only for a clear boundary, own deps, or compile time. Name it `typealike_<area>`.
 

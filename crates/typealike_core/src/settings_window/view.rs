@@ -152,6 +152,8 @@ pub enum RowIcon {
     Globe,
     /// Two speech bubbles, for the messages that the user answers.
     ChatBubbles,
+    /// Two arrows in a circle, for the new versions of TypeAlike.
+    CircleArrows,
 }
 
 /// A field that searches for the text that the user submits.

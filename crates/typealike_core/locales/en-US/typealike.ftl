@@ -246,7 +246,7 @@ permissions-granted = Allowed
 permissions-give-access = Give access
 permissions-footer = When System Settings asks you to quit and reopen TypeAlike, do it, so that TypeAlike can use the new permission.
 
-## The About pane of the settings window: the version of TypeAlike, the check for a newer version and the licenses of the third-party software. $version is a version number, such as 0.4.0.
+## The About pane of the settings window: the version of TypeAlike, the check for a newer version, its install and the licenses of the third-party software. $version is a version number, such as 0.4.0.
 
 about-title = About
 about-summary = The version of TypeAlike and the licenses of the software that it contains.
@@ -258,8 +258,14 @@ about-update-available = Version { $version } is available.
 about-download = Download
 about-check-failed = TypeAlike cannot check for updates. Check your internet connection.
 about-try-again = Try again
+about-keep-up-to-date = Keep TypeAlike up to date
+about-keep-up-to-date-description = TypeAlike checks for a new version once a day. It installs the new version and starts again.
+about-downloading = Downloading version { $version }…
+about-install-waiting = Version { $version } installs when the model download ends.
+about-installing = Installing version { $version }…
+about-install-failed = TypeAlike cannot install version { $version }.
 about-source-code = Show the source code
-about-footer = TypeAlike checks for a new version only when you ask. TypeAlike is free software under the GNU General Public License, version 3 or later.
+about-footer = TypeAlike is free software under the GNU General Public License, version 3 or later.
 about-libraries-heading = Third-party software
 about-libraries-footer = TypeAlike contains this open-source software. Each library has its own license.
 about-show-license = Show license
@@ -305,7 +311,7 @@ setup-about-title = Tell TypeAlike about you
 setup-sources-title = What suggestions can use
 setup-history-description = TypeAlike saves what you write in an encrypted file on this computer. Suggestions then use your words and your style. You can delete this text on the Personalization page.
 setup-screen-text-description = TypeAlike reads the text near the field where you type, such as the last messages of a chat. With your earlier writing, it also saves some words of the messages that you answer.
-setup-sources-footer = TypeAlike uses the internet only to find and download models, and to check for updates when you ask. It does not save the text of password fields.
+setup-sources-footer = TypeAlike uses the internet only to find and download models, and to get new versions of TypeAlike. It does not save the text of password fields.
 setup-ready-title = TypeAlike is ready
 setup-ready-body = Try it now in any app, such as your email or a chat.
 setup-tray-notification-area = TypeAlike stays in the notification area of the taskbar. Use its icon to pause suggestions or to open the settings.

@@ -10,7 +10,7 @@ use crate::settings_window::general::BACKEND;
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::view::{Accessory, ControlId, Item, Page, Row, SettingsInput};
 
-fn processor_model() -> ModelFile {
+pub(super) fn processor_model() -> ModelFile {
     ModelFile {
         repo: "mradermacher/Qwen3.5-0.8B-Base-i1-GGUF".to_owned(),
         name: "Qwen3.5-0.8B-Base.i1-IQ4_NL.gguf".to_owned(),
@@ -51,14 +51,14 @@ fn download_button(harness: &mut Harness) -> ControlId {
     }
 }
 
-fn download_recommended_model(harness: &mut Harness) {
+pub(super) fn download_recommended_model(harness: &mut Harness) {
     let button = download_button(harness);
     harness
         .controller
         .on_settings_input(&SettingsInput::Pressed(button), &mut harness.shell);
 }
 
-fn finish_download(harness: &mut Harness, file: ModelFile) {
+pub(super) fn finish_download(harness: &mut Harness, file: ModelFile) {
     let finished = HubEvent::DownloadFinished {
         file,
         result: Ok(ByteSize(1)),

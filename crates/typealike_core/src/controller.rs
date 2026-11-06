@@ -34,7 +34,7 @@ use crate::hub::{HubEvent, HubEventSink, HubRequest, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
-use crate::release::{ReleaseFeed, ReleaseSink};
+use crate::release::{DownloadSink, ReleaseFeed, ReleaseSink};
 use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp};
 use crate::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
@@ -62,6 +62,11 @@ const MAX_CARET_MOVE_CHECKS: u8 = 20;
 const FIELD_PAUSE_DELAY: Duration = Duration::from_secs(10);
 /// The time without a scroll event after which a scroll stopped.
 const SCROLL_SETTLE_DELAY: Duration = Duration::from_millis(300);
+/// The time from the launch to the first check for a new version, so that the check does not
+/// slow the load of the model.
+const FIRST_UPDATE_CHECK_DELAY: Duration = Duration::from_secs(60);
+/// The time between two checks for a new version.
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_hours(24);
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +110,7 @@ pub struct Controller {
     suggestion_sink: InferenceEventSink,
     recommendation_sink: InferenceEventSink,
     release_sink: ReleaseSink,
+    download_sink: DownloadSink,
     caret_wait: CaretWait,
     tab_hold: TabHold,
     /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
@@ -152,6 +158,7 @@ impl Controller {
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
+        let about = AboutPane::new(libraries, settings.updates, releases.self_update());
         let general = match startup.backend_choice {
             BackendChoice::User => GeneralPane::new(settings),
             BackendChoice::Platform(backend) => GeneralPane::new(settings).with_platform_backend(backend),
@@ -175,7 +182,7 @@ impl Controller {
             screen_text,
             personalization,
             energy_saving,
-            about: AboutPane::new(libraries),
+            about,
             hub,
             runner,
             settings_store,
@@ -187,6 +194,7 @@ impl Controller {
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             recommendation_sink: delivering_sink(deliver, Delivery::Recommendation),
             release_sink: delivering_sink(deliver, Delivery::Release),
+            download_sink: delivering_sink(deliver, Delivery::ReleaseDownload),
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
             has_unsaved_app: false,
@@ -221,9 +229,11 @@ impl Controller {
         self.app.tray_view(&self.translations)
     }
 
-    /// Shows the setup when TypeAlike starts, until the user finishes it. The platform calls this
-    /// one time, after it can show windows.
+    /// Shows the setup when TypeAlike starts, until the user finishes it, and starts the wait for
+    /// the first check for a new version. The platform calls this one time, after it can show
+    /// windows.
     pub fn on_launch(&mut self, shell: &mut dyn Shell) {
+        shell.start_timer(Timer::UpdateCheck, FIRST_UPDATE_CHECK_DELAY);
         if self.needs_setup() {
             self.open_setup(shell);
         }
@@ -307,7 +317,16 @@ impl Controller {
             Timer::Idle => self.on_idle(shell),
             Timer::FieldPause => self.app.end_field_pause(),
             Timer::ScrollSettle => self.on_scroll_settled(shell),
+            Timer::UpdateCheck => self.on_update_check_time(shell),
         }
+    }
+
+    /// Starts the check for a new version of the day, and the wait for the next one.
+    fn on_update_check_time(&mut self, shell: &mut dyn Shell) {
+        shell.start_timer(Timer::UpdateCheck, UPDATE_CHECK_INTERVAL);
+        let request = self.about.on_scheduled_check();
+        self.on_about_request(request, shell);
+        self.render_settings(shell);
     }
 
     /// Handles a change of the energy saver of the computer. While the energy saver is on and the
@@ -424,11 +443,13 @@ impl Controller {
             TrayOutcome::Paused | TrayOutcome::Resumed => self.on_stop_change(shell),
             TrayOutcome::OpenSettings if self.needs_setup() => self.open_setup(shell),
             TrayOutcome::OpenSettings => self.open_settings(None, shell),
-            TrayOutcome::Quit => {
-                self.save_history();
-                shell.quit();
-            }
+            TrayOutcome::Quit => self.quit(shell),
         }
+    }
+
+    fn quit(&mut self, shell: &mut dyn Shell) {
+        self.save_history();
+        shell.quit();
     }
 
     /// Opens the settings window at the Permissions pane, because TypeAlike lacks a permission that
@@ -485,14 +506,39 @@ impl Controller {
                 }
             }
             Some(PaneAction::Permissions(permission)) => shell.ask_for_permission(permission),
-            Some(PaneAction::About(action)) => match self.about.on_action(action) {
-                Some(AboutRequest::ReadNewestRelease) => self.releases.read_newest(&self.release_sink),
-                Some(AboutRequest::OpenWebPage(url)) => shell.open_web_page(&url),
-                None => {}
-            },
+            Some(PaneAction::About(action)) => {
+                let request = self.about.on_action(action);
+                self.on_about_request(request, shell);
+            }
             None => {}
         }
         self.render_settings(shell);
+    }
+
+    fn on_about_request(&mut self, request: Option<AboutRequest>, shell: &mut dyn Shell) {
+        match request {
+            Some(AboutRequest::ReadNewestRelease) => self.releases.read_newest(&self.release_sink),
+            Some(AboutRequest::DownloadRelease(tag)) => self.releases.download(&tag, &self.download_sink),
+            Some(AboutRequest::OpenWebPage(url)) => shell.open_web_page(&url),
+            Some(AboutRequest::SaveSettings) => self.keep_pane_settings(),
+            None => {}
+        }
+    }
+
+    /// Installs the release that the About pane downloaded, then quits so that the new version
+    /// starts. A model download that runs must end first, because the quit stops it.
+    fn install_downloaded_release(&mut self, shell: &mut dyn Shell) {
+        if self.models.has_running_download() {
+            return;
+        }
+        let Some(release) = self.about.release_to_install().cloned() else {
+            return;
+        };
+        let install = self.releases.install(&release);
+        self.about.on_install(install);
+        if install.is_ok() {
+            self.quit(shell);
+        }
     }
 
     /// The action of the pane that owns the control of `input`, if the input does something.
@@ -607,6 +653,8 @@ impl Controller {
         self.screen_text = ScreenTextPane::new(first_start.screen_text);
         self.personalization = PersonalizationPane::new(first_start.personalization);
         self.energy_saving = EnergySavingPane::new(first_start.energy_saving);
+        self.about
+            .on_action(AboutAction::SwitchUpdates(first_start.updates));
         let settings = self.save_settings(self.general.settings().clone());
         self.app.use_settings(&settings);
         self.playground.use_settings(&settings);
@@ -634,7 +682,13 @@ impl Controller {
                 self.do_settled_work(work, shell);
             }
             Delivery::Release(release) => {
-                self.about.on_newest_release(release);
+                let request = self.about.on_newest_release(release);
+                self.on_about_request(request, shell);
+                self.render_settings(shell);
+            }
+            Delivery::ReleaseDownload(release) => {
+                self.about.on_release_downloaded(release);
+                self.install_downloaded_release(shell);
                 self.render_settings(shell);
             }
         }
@@ -719,13 +773,15 @@ impl Controller {
     }
 
     /// Saves `general`, the settings of the General pane, with the settings of the Apps and
-    /// websites, Copied and screen text, Personalization and Energy saving panes, and returns them all.
+    /// websites, Copied and screen text, Personalization, Energy saving and About panes, and
+    /// returns them all.
     fn save_settings(&mut self, general: Settings) -> Settings {
         let settings = Settings {
             suggestion_places: self.suggestion_places.settings().clone(),
             screen_text: self.screen_text.settings().clone(),
             personalization: self.personalization.settings().clone(),
             energy_saving: *self.energy_saving.settings(),
+            updates: self.about.updates(),
             ..general
         };
         self.settings_store.save(&settings);
@@ -911,6 +967,7 @@ impl Controller {
         if let Some(file) = first_model {
             self.on_general_action(GeneralAction::SelectSuggestionModel(file), shell);
         }
+        self.install_downloaded_release(shell);
         self.render_settings(shell);
     }
 

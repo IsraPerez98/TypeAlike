@@ -12,13 +12,13 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ## Settings file
 
 - The settings file is `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS.
-- The General, Apps and websites, Copied and screen text, Personalization, Energy saving and Models panes and the setup write it through `typealike_settings::SettingsFile`.
+- The General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models and About panes and the setup write it through `typealike_settings::SettingsFile`.
 - Without a settings file, the bin gives the settings of the first start (`SettingsFile::new`):
   - The name of the writer is the full name of the user account (`account_name` of each platform crate).
   - The notes are the default notes in the language of the UI (`WriterNotes::default_for`, `ui_language` of each platform crate).
   - The setup is to do (`Setup::Needed`).
   - On Windows, the backend is the GPU backend of the build (`typealike_llm::DEFAULT_BACKEND`: CUDA, else Vulkan, else the CPU). A build without `vulkan` and `cuda` thus starts on the CPU and recommends the model for the CPU.
-- A file of an older version without `setup` counts as finished.
+- A file of an older version without `setup` counts as finished, and a file without `updates` has automatic updates.
 
 ## General pane
 
@@ -131,18 +131,39 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ## About pane
 
 - The About pane (`settings_window::about`) is the page after the Permissions pane, before the Playground pane.
-- Its first row shows "TypeAlike" and the version of the build, with "Check for updates" at the trailing edge. A link below it opens the source code (`Cargo.toml`, `repository`) in the web browser (`Shell::open_web_page`).
-- The footer tells that TypeAlike checks for a new version only when the user asks, and that TypeAlike has the GNU General Public License, version 3 or later.
+- Its first row shows "TypeAlike" and the version of the build, with "Check for updates" at the trailing edge.
+- In an installed copy, the switch "Keep TypeAlike up to date" (`Settings::updates`, on by default) follows. A build from the source code has no switch.
+- A link below them opens the source code (`Cargo.toml`, `repository`) in the web browser (`Shell::open_web_page`).
+- The footer tells that TypeAlike has the GNU General Public License, version 3 or later.
 
 ### Check for updates
 
-- TypeAlike never checks for a new version by itself. Only a click on "Check for updates" asks the release feed for the newest release (`ReleaseFeed::read_newest`, `typealike_releases::GitHubReleases`). A second click while a check runs does nothing.
+- A click on "Check for updates" asks the release feed for the newest release (`ReleaseFeed::read_newest`, `typealike_releases::GitHubReleases`). A second click while a check, a download or an install runs does nothing.
 - The feed reads the newest release of the GitHub API (`/releases/latest`), which skips drafts and pre-releases.
 - While the check runs, the row shows "Checking for updates…" and the button is dimmed.
-- A tag `vX.Y.Z` higher than the version of the build shows "Version X.Y.Z is available." and a "Download" button, which opens the page of the newest release in the web browser.
+- A tag `vX.Y.Z` higher than the version of the build:
+  - While the switch is on, the download starts at once (see "Updates").
+  - Else the row shows "Version X.Y.Z is available." and a "Download" button, which opens the page of the newest release in the web browser.
 - The same version or a lower one shows "This is the newest version."
 - A failed read, or a tag of another form, shows that TypeAlike cannot check for updates, with "Try again".
-- TypeAlike does not download or install the new version by itself.
+
+### Updates
+
+- `Controller::on_launch` starts `Timer::UpdateCheck`. The first check comes 1 minute after the launch (`FIRST_UPDATE_CHECK_DELAY`), so that it does not slow the load of the model. Then a check comes each 24 hours (`UPDATE_CHECK_INTERVAL`).
+- A check of the timer runs only while the switch is on, the copy is installed (`ReleaseFeed::self_update`) and no other check, download or install runs (`AboutPane::on_scheduled_check`).
+- The feed downloads the file of the release for this build (`ReleaseFeed::download`): the release file whose name ends with the suffix that the bin gives (`-macos-arm64.dmg`, `-windows-x64-vulkan-setup.exe`, `-windows-x64-cuda-setup.exe` with the `cuda` feature).
+  - It reads the release of the tag (`/releases/tags/vX.Y.Z`) and stops when the file has no SHA-256 `digest`.
+  - The file goes to `TypeAlike-update` in the temporary folder. A download with another SHA-256 digest fails.
+  - On macOS, the feed then copies `TypeAlike.app` out of the disk image (`hdiutil attach`, `ditto`).
+  - The row shows "Downloading version X.Y.Z…".
+- After the download, the controller installs the release (`ReleaseFeed::install`) and quits (`Shell::quit`, after a save of the earlier writing).
+  - While a model download runs, the install waits until it ends, because the quit stops it. The row then shows that the version installs when the model download ends.
+  - On macOS, the new app replaces the bundle that runs, and the old bundle goes to `TypeAlike-update`. A shell in its own process group waits until TypeAlike quits, then opens the new app. launchd stops the process group of a launch agent when it quits.
+  - On Windows, the installer runs with `/VERYSILENT`. It waits up to 30 s until TypeAlike quits (`InitializeSetup`, `AppMutex`), and starts the new version after the install (`[Run]`, `skipifnotsilent`).
+- A failed download or install shows that TypeAlike cannot install the version, with "Try again", which checks again.
+- When the user turns the switch off during the download, the version does not install, and the row shows that it is available.
+- Each start of TypeAlike removes `TypeAlike-update`. A file that the installer still holds stays until the next start.
+- On macOS, each release has another ad-hoc signature, so the permissions do not stay after an update. Without the Accessibility permission, the new version opens the Permissions pane.
 
 ### Third-party software
 
@@ -168,7 +189,7 @@ In the order of `SetupStep`:
 
 1. Welcome: what TypeAlike does, a demo of a suggestion and the language menu.
 2. The name and the notes with their examples.
-3. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, and to check for updates when the user asks.
+3. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, and to get new versions of TypeAlike.
 4. The permissions, only on an OS that asks for Accessibility: Accessibility, and Screen & System Audio Recording while the screen text switch is on.
 5. The model, from top to bottom:
    - the backend menu

@@ -42,10 +42,20 @@ pub(crate) fn run() -> anyhow::Result<()> {
             )),
         )),
         spell_checker: Box::new(typealike_windows::SpellingDictionary::new()),
-        releases: Box::new(typealike_releases::GitHubReleases::new()),
+        releases: Box::new(typealike_releases::GitHubReleases::new(installer_suffix())),
         libraries: windows_licenses::LIBRARIES,
     };
     typealike_windows::run(settings, services).context("typealike stopped unexpectedly")
+}
+
+/// The end of the name of the installer of the release with the GPU backends of this build.
+#[cfg(target_os = "windows")]
+const fn installer_suffix() -> &'static str {
+    if cfg!(feature = "cuda") {
+        "-windows-x64-cuda-setup.exe"
+    } else {
+        "-windows-x64-vulkan-setup.exe"
+    }
 }
 
 /// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
@@ -82,7 +92,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             Box::new(typealike_macos::Keychain),
         )),
         spell_checker: Box::new(typealike_macos::SpellingDictionary::new()),
-        releases: Box::new(typealike_releases::GitHubReleases::new()),
+        releases: Box::new(typealike_releases::GitHubReleases::new("-macos-arm64.dmg")),
         libraries: macos_licenses::LIBRARIES,
     };
     typealike_macos::run(settings, services).context("typealike stopped unexpectedly")

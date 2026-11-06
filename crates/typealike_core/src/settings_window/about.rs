@@ -1,14 +1,19 @@
-//! The About pane of the settings window: the version of TypeAlike, the check for a newer version,
-//! and the licenses of the third-party software of the build.
+//! The About pane of the settings window: the version of TypeAlike, the check for a newer version
+//! and its install, and the licenses of the third-party software of the build.
 
 use crate::localization::{MessageArgument, Translations};
-use crate::release::{ReleaseReadFailed, ReleaseTag, Version};
+use crate::release::{
+    DownloadedRelease, ReleaseDownloadFailed, ReleaseInstallFailed, ReleaseReadFailed, ReleaseTag,
+    SelfUpdate, Version,
+};
+use crate::settings::Updates;
 use crate::settings_window::view::{
-    Accessory, Button, ControlId, Item, Output, Page, PageIcon, Row, Section, SettingsInput,
+    Accessory, Button, ControlId, Item, Output, Page, PageIcon, Row, RowIcon, Section, SettingsInput, Switch,
 };
 
 pub(crate) const CHECK_FOR_UPDATES: &str = "about-check-for-updates";
 pub(crate) const DOWNLOAD_UPDATE: &str = "about-download-update";
+pub(crate) const KEEP_UP_TO_DATE: &str = "about-keep-up-to-date";
 const SOURCE_CODE: &str = "about-source-code";
 const BACK_TO_LIBRARIES: &str = "about-back-to-libraries";
 const LICENSE_PREFIX: &str = "about-license-";
@@ -41,6 +46,8 @@ pub enum AboutAction {
     ShowLicense(usize),
     /// Clicked the button that goes back from a license to the list of the libraries.
     BackToLibraries,
+    /// Turned the switch that keeps TypeAlike up to date on or off.
+    SwitchUpdates(Updates),
 }
 
 /// What the controller does for an action of the About pane.
@@ -48,26 +55,48 @@ pub enum AboutAction {
 pub enum AboutRequest {
     /// Reads the newest release, and gives it to [`AboutPane::on_newest_release`].
     ReadNewestRelease,
+    /// Downloads the release of this tag, and gives it to [`AboutPane::on_release_downloaded`].
+    DownloadRelease(ReleaseTag),
     /// Opens this address in the web browser.
     OpenWebPage(String),
+    /// Saves the settings with the [`Updates`] of the pane.
+    SaveSettings,
 }
 
-/// How far the check for a newer version got.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How far the check for a newer version, and its install, got.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum UpdateCheck {
     NotStarted,
     Running,
     UpToDate,
     Available(Version),
-    Failed,
+    Downloading(Version),
+    /// Waits until the install can start.
+    Downloaded(Version, DownloadedRelease),
+    Installing(Version),
+    CheckFailed,
+    InstallFailed(Version),
 }
 
-/// State of the About pane: the check for a newer version, and the license that the pane shows.
+impl UpdateCheck {
+    /// Whether a check, a download or an install runs, so that no other check can start.
+    fn is_running(&self) -> bool {
+        matches!(
+            self,
+            Self::Running | Self::Downloading(_) | Self::Downloaded(..) | Self::Installing(_)
+        )
+    }
+}
+
+/// State of the About pane: the check for a newer version and its install, and the license that
+/// the pane shows.
 ///
 /// ```
+/// use typealike_core::release::SelfUpdate;
+/// use typealike_core::settings::Updates;
 /// use typealike_core::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 ///
-/// let mut pane = AboutPane::new(&[]);
+/// let mut pane = AboutPane::new(&[], Updates::Automatic, SelfUpdate::Supported);
 ///
 /// let request = pane.on_action(AboutAction::CheckForUpdates);
 ///
@@ -76,26 +105,51 @@ enum UpdateCheck {
 #[derive(Debug)]
 pub struct AboutPane {
     libraries: &'static [Library],
+    updates: Updates,
+    self_update: SelfUpdate,
     update_check: UpdateCheck,
     shown_license: Option<usize>,
 }
 
 impl AboutPane {
     /// Creates a pane that lists `libraries` in their order, before a check for a newer version.
+    /// With `updates` and a copy of TypeAlike that `self_update` supports, the pane installs each
+    /// newer version that a check finds.
     #[must_use]
-    pub fn new(libraries: &'static [Library]) -> Self {
+    pub fn new(libraries: &'static [Library], updates: Updates, self_update: SelfUpdate) -> Self {
         Self {
             libraries,
+            updates,
+            self_update,
             update_check: UpdateCheck::NotStarted,
             shown_license: None,
         }
     }
 
+    /// Whether TypeAlike installs each new version by itself, as the switch of the pane shows.
+    #[must_use]
+    pub fn updates(&self) -> Updates {
+        self.updates
+    }
+
+    fn installs_updates(&self) -> bool {
+        self.updates == Updates::Automatic && self.self_update == SelfUpdate::Supported
+    }
+
     /// Returns the action of `input`, when `input` is for a control of the pane.
     #[must_use]
     pub fn action_for(&self, input: &SettingsInput) -> Option<AboutAction> {
-        let SettingsInput::Pressed(id) = input else {
-            return None;
+        let id = match input {
+            SettingsInput::Toggled { id, is_on } if id.as_str() == KEEP_UP_TO_DATE => {
+                let updates = if *is_on {
+                    Updates::Automatic
+                } else {
+                    Updates::Manual
+                };
+                return Some(AboutAction::SwitchUpdates(updates));
+            }
+            SettingsInput::Pressed(id) => id,
+            _ => return None,
         };
         match id.as_str() {
             CHECK_FOR_UPDATES => Some(AboutAction::CheckForUpdates),
@@ -110,11 +164,12 @@ impl AboutPane {
         }
     }
 
-    /// Handles a user action. Returns what the controller must do for it. A check that runs
-    /// already does not start again.
+    /// Handles a user action. Returns what the controller must do for it. A check, a download or
+    /// an install that runs already blocks another check. When the user turns off the switch, a
+    /// running download does not install.
     pub fn on_action(&mut self, action: AboutAction) -> Option<AboutRequest> {
         match action {
-            AboutAction::CheckForUpdates if self.update_check == UpdateCheck::Running => None,
+            AboutAction::CheckForUpdates if self.update_check.is_running() => None,
             AboutAction::CheckForUpdates => {
                 self.update_check = UpdateCheck::Running;
                 Some(AboutRequest::ReadNewestRelease)
@@ -130,20 +185,83 @@ impl AboutPane {
                 self.shown_license = None;
                 None
             }
+            AboutAction::SwitchUpdates(updates) => {
+                self.updates = updates;
+                if let (
+                    Updates::Manual,
+                    UpdateCheck::Downloading(newest) | UpdateCheck::Downloaded(newest, _),
+                ) = (updates, &self.update_check)
+                {
+                    self.update_check = UpdateCheck::Available(*newest);
+                }
+                Some(AboutRequest::SaveSettings)
+            }
         }
     }
 
+    /// Starts the check of the day, while TypeAlike installs new versions by itself and no other
+    /// check runs.
+    pub fn on_scheduled_check(&mut self) -> Option<AboutRequest> {
+        if !self.installs_updates() || self.update_check.is_running() {
+            return None;
+        }
+        self.update_check = UpdateCheck::Running;
+        Some(AboutRequest::ReadNewestRelease)
+    }
+
     /// Ends the running check with `release`, the answer to [`AboutRequest::ReadNewestRelease`].
-    /// A tag that is not a version counts as a failed read.
-    pub fn on_newest_release(&mut self, release: Result<ReleaseTag, ReleaseReadFailed>) {
+    /// A tag that is not a version counts as a failed read. While TypeAlike installs new versions
+    /// by itself, it asks for the download of a newer version.
+    pub fn on_newest_release(
+        &mut self,
+        release: Result<ReleaseTag, ReleaseReadFailed>,
+    ) -> Option<AboutRequest> {
         if self.update_check != UpdateCheck::Running {
-            return;
+            return None;
         }
         let newest = release.ok().and_then(|tag| Version::parse(&tag.0));
-        self.update_check = match newest {
-            Some(newest) if newest > Version::of_build() => UpdateCheck::Available(newest),
-            Some(_) => UpdateCheck::UpToDate,
-            None => UpdateCheck::Failed,
+        let (update_check, request) = match newest {
+            Some(newest) if newest > Version::of_build() && self.installs_updates() => (
+                UpdateCheck::Downloading(newest),
+                Some(AboutRequest::DownloadRelease(newest.tag())),
+            ),
+            Some(newest) if newest > Version::of_build() => (UpdateCheck::Available(newest), None),
+            Some(_) => (UpdateCheck::UpToDate, None),
+            None => (UpdateCheck::CheckFailed, None),
+        };
+        self.update_check = update_check;
+        request
+    }
+
+    /// Ends the running download with `release`, the answer to [`AboutRequest::DownloadRelease`].
+    /// The release then waits for [`Self::release_to_install`].
+    pub fn on_release_downloaded(&mut self, release: Result<DownloadedRelease, ReleaseDownloadFailed>) {
+        let UpdateCheck::Downloading(newest) = self.update_check else {
+            return;
+        };
+        self.update_check = match release {
+            Ok(release) => UpdateCheck::Downloaded(newest, release),
+            Err(ReleaseDownloadFailed) => UpdateCheck::InstallFailed(newest),
+        };
+    }
+
+    /// The downloaded release that waits for its install.
+    #[must_use]
+    pub fn release_to_install(&self) -> Option<&DownloadedRelease> {
+        match &self.update_check {
+            UpdateCheck::Downloaded(_, release) => Some(release),
+            _ => None,
+        }
+    }
+
+    /// Ends the wait of the downloaded release with `install`, the start of its install.
+    pub fn on_install(&mut self, install: Result<(), ReleaseInstallFailed>) {
+        let UpdateCheck::Downloaded(newest, _) = self.update_check else {
+            return;
+        };
+        self.update_check = match install {
+            Ok(()) => UpdateCheck::Installing(newest),
+            Err(ReleaseInstallFailed) => UpdateCheck::InstallFailed(newest),
         };
     }
 
@@ -173,41 +291,56 @@ impl AboutPane {
             detail: String::new(),
             accessory,
         };
+        let switch = (self.self_update == SelfUpdate::Supported).then(|| {
+            Row::Switch(Switch {
+                id: ControlId::new(KEEP_UP_TO_DATE),
+                icon: RowIcon::CircleArrows,
+                label: translations.text("about-keep-up-to-date"),
+                description: translations.text("about-keep-up-to-date-description"),
+                is_on: self.updates == Updates::Automatic,
+                note: None,
+            })
+        });
+        let mut rows = vec![Row::Item(version_item)];
+        rows.extend(switch);
+        rows.push(Row::Link(button(SOURCE_CODE, "about-source-code", translations)));
         Section {
             footer: Some(translations.text("about-footer")),
-            ..Section::new(vec![
-                Row::Item(version_item),
-                Row::Link(button(SOURCE_CODE, "about-source-code", translations)),
-            ])
+            ..Section::new(rows)
         }
     }
 
     /// The line below the version and the button after it, for the state of the check.
     fn update_status(&self, translations: &Translations) -> (String, Accessory) {
         let check = button(CHECK_FOR_UPDATES, "about-check-for-updates", translations);
+        let dimmed_check = Accessory::Action(Button {
+            is_enabled: false,
+            ..check.clone()
+        });
+        let retry = Accessory::Failed {
+            retry: button(CHECK_FOR_UPDATES, "about-try-again", translations),
+        };
+        let with_version = |message: &str, version: Version| {
+            translations.text_with(
+                message,
+                &[("version", MessageArgument::Text(&version.to_string()))],
+            )
+        };
         match self.update_check {
             UpdateCheck::NotStarted => (String::new(), Accessory::Action(check)),
-            UpdateCheck::Running => (
-                translations.text("about-checking"),
-                Accessory::Action(Button {
-                    is_enabled: false,
-                    ..check
-                }),
-            ),
+            UpdateCheck::Running => (translations.text("about-checking"), dimmed_check),
             UpdateCheck::UpToDate => (translations.text("about-up-to-date"), Accessory::Action(check)),
             UpdateCheck::Available(newest) => (
-                translations.text_with(
-                    "about-update-available",
-                    &[("version", MessageArgument::Text(&newest.to_string()))],
-                ),
+                with_version("about-update-available", newest),
                 Accessory::Download(button(DOWNLOAD_UPDATE, "about-download", translations)),
             ),
-            UpdateCheck::Failed => (
-                translations.text("about-check-failed"),
-                Accessory::Failed {
-                    retry: button(CHECK_FOR_UPDATES, "about-try-again", translations),
-                },
-            ),
+            UpdateCheck::Downloading(newest) => (with_version("about-downloading", newest), dimmed_check),
+            UpdateCheck::Downloaded(newest, _) => {
+                (with_version("about-install-waiting", newest), dimmed_check)
+            }
+            UpdateCheck::Installing(newest) => (with_version("about-installing", newest), dimmed_check),
+            UpdateCheck::CheckFailed => (translations.text("about-check-failed"), retry),
+            UpdateCheck::InstallFailed(newest) => (with_version("about-install-failed", newest), retry),
         }
     }
 

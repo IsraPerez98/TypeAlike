@@ -256,7 +256,7 @@ permissions-granted = Permitido
 permissions-give-access = Dar acesso
 permissions-footer = Quando os Ajustes do Sistema pedirem para você sair do TypeAlike e abri-lo de novo, faça isso para que o TypeAlike possa usar a nova permissão.
 
-## The About pane of the settings window: the version of TypeAlike, the check for a newer version and the licenses of the third-party software. $version is a version number, such as 0.4.0.
+## The About pane of the settings window: the version of TypeAlike, the check for a newer version, its install and the licenses of the third-party software. $version is a version number, such as 0.4.0.
 
 about-title = Sobre
 about-summary = A versão do TypeAlike e as licenças do software que ele contém.
@@ -268,8 +268,14 @@ about-update-available = A versão { $version } está disponível.
 about-download = Baixar
 about-check-failed = O TypeAlike não consegue verificar atualizações. Verifique sua conexão com a internet.
 about-try-again = Tentar de novo
+about-keep-up-to-date = Manter o TypeAlike atualizado
+about-keep-up-to-date-description = O TypeAlike procura uma nova versão uma vez por dia. Ele instala a nova versão e reinicia.
+about-downloading = Baixando a versão { $version }…
+about-install-waiting = A versão { $version } será instalada quando o download do modelo terminar.
+about-installing = Instalando a versão { $version }…
+about-install-failed = O TypeAlike não consegue instalar a versão { $version }.
 about-source-code = Ver o código-fonte
-about-footer = O TypeAlike procura uma nova versão só quando você pede. O TypeAlike é software livre sob a Licença Pública Geral GNU, versão 3 ou posterior.
+about-footer = O TypeAlike é software livre sob a Licença Pública Geral GNU, versão 3 ou posterior.
 about-libraries-heading = Software de terceiros
 about-libraries-footer = O TypeAlike contém este software de código aberto. Cada biblioteca tem a própria licença.
 about-show-license = Ver licença
@@ -315,7 +321,7 @@ setup-about-title = Conte ao TypeAlike sobre você
 setup-sources-title = O que as sugestões podem usar
 setup-history-description = O TypeAlike salva o que você escreve em um arquivo criptografado neste computador. Assim, as sugestões usam suas palavras e seu estilo. Você pode excluir esse texto na página Personalização.
 setup-screen-text-description = O TypeAlike lê o texto perto do campo onde você digita, como as últimas mensagens de um chat. Junto com seus textos anteriores, ele também salva algumas palavras das mensagens que você responde.
-setup-sources-footer = O TypeAlike usa a internet só para encontrar e baixar modelos, e para verificar atualizações quando você pede. Ele não salva o texto de campos de senha.
+setup-sources-footer = O TypeAlike usa a internet só para encontrar e baixar modelos, e para baixar as novas versões dele. Ele não salva o texto de campos de senha.
 setup-ready-title = O TypeAlike está pronto
 setup-ready-body = Experimente agora em qualquer app, como seu e-mail ou um chat.
 setup-tray-notification-area = O TypeAlike fica na área de notificação da barra de tarefas. Use o ícone dele para pausar as sugestões ou abrir os ajustes.

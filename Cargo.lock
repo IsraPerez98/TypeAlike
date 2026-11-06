@@ -1049,6 +1049,7 @@ dependencies = [
 name = "typealike_releases"
 version = "0.6.0"
 dependencies = [
+ "ring",
  "serde",
  "serde_json",
  "thiserror",

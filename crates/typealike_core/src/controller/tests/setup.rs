@@ -3,7 +3,7 @@
 
 use super::harness::{Call, Harness, first_start_settings, loaded, model_file};
 use crate::app::TrayCommand;
-use crate::controller::Delivery;
+use crate::controller::{Delivery, FIRST_UPDATE_CHECK_DELAY, Timer};
 use crate::desktop::{Permission, PermissionState};
 use crate::hub::HubRequest;
 use crate::inference::{Backend, InferenceError, InferenceEvent};
@@ -38,13 +38,16 @@ fn launch_shows_the_setup_until_the_user_finishes_it() {
 }
 
 #[test]
-fn launch_after_the_setup_shows_nothing() {
+fn launch_after_the_setup_only_waits_for_the_check_for_a_new_version() {
     let mut harness = Harness::new(Settings::default());
     harness.take_calls();
 
     harness.controller.on_launch(&mut harness.shell);
 
-    assert_eq!(harness.take_calls(), Vec::new());
+    assert_eq!(
+        harness.take_calls(),
+        [Call::StartTimer(Timer::UpdateCheck, FIRST_UPDATE_CHECK_DELAY)]
+    );
 }
 
 #[test]

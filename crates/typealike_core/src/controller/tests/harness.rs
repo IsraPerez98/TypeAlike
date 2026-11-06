@@ -22,7 +22,10 @@ use crate::inference::{
 };
 use crate::key::{Disposition, Key, Press};
 use crate::localization::UiLanguage;
-use crate::release::{ReleaseFeed, ReleaseReadFailed, ReleaseSink, ReleaseTag};
+use crate::release::{
+    DownloadSink, DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed, ReleaseInstallFailed,
+    ReleaseReadFailed, ReleaseSink, ReleaseTag, SelfUpdate,
+};
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
     Settings, SettingsStore, Setup, WordChoice, WriterName,
@@ -213,6 +216,9 @@ struct Recorder {
     history_saves: Vec<Vec<HistoryEntry>>,
     history_deletes: usize,
     release_reads: Vec<ReleaseSink>,
+    release_downloads: Vec<(ReleaseTag, DownloadSink)>,
+    installs: Vec<DownloadedRelease>,
+    install_result: Option<Result<(), ReleaseInstallFailed>>,
 }
 
 struct FakeRunner(Rc<RefCell<Recorder>>);
@@ -231,11 +237,31 @@ impl ModelHub for FakeHub {
     }
 }
 
-struct FakeReleases(Rc<RefCell<Recorder>>);
+struct FakeReleases {
+    recorder: Rc<RefCell<Recorder>>,
+    self_update: SelfUpdate,
+}
 
 impl ReleaseFeed for FakeReleases {
     fn read_newest(&mut self, sink: &ReleaseSink) {
-        self.0.borrow_mut().release_reads.push(Arc::clone(sink));
+        self.recorder.borrow_mut().release_reads.push(Arc::clone(sink));
+    }
+
+    fn self_update(&self) -> SelfUpdate {
+        self.self_update
+    }
+
+    fn download(&mut self, tag: &ReleaseTag, sink: &DownloadSink) {
+        self.recorder
+            .borrow_mut()
+            .release_downloads
+            .push((tag.clone(), Arc::clone(sink)));
+    }
+
+    fn install(&mut self, release: &DownloadedRelease) -> Result<(), ReleaseInstallFailed> {
+        let mut recorder = self.recorder.borrow_mut();
+        recorder.installs.push(release.clone());
+        recorder.install_result.unwrap_or(Ok(()))
     }
 }
 
@@ -299,6 +325,21 @@ pub(super) struct Harness {
     deliveries: Arc<Mutex<Vec<Delivery>>>,
 }
 
+/// The services of a harness that differ between the tests.
+struct FakeServices {
+    kept_history: Vec<HistoryEntry>,
+    self_update: SelfUpdate,
+}
+
+impl Default for FakeServices {
+    fn default() -> Self {
+        Self {
+            kept_history: Vec::new(),
+            self_update: SelfUpdate::Unsupported,
+        }
+    }
+}
+
 /// The start of a release build in English on a computer that does not save energy.
 fn default_startup() -> Startup {
     Startup {
@@ -320,7 +361,7 @@ impl Harness {
             backend_choice,
             ..default_startup()
         };
-        Self::start(settings, startup, Vec::new())
+        Self::start(settings, startup, FakeServices::default())
     }
 
     pub(super) fn with_energy_saver(settings: Settings, energy_saver: EnergySaver) -> Self {
@@ -328,7 +369,7 @@ impl Harness {
             energy_saver,
             ..default_startup()
         };
-        Self::start(settings, startup, Vec::new())
+        Self::start(settings, startup, FakeServices::default())
     }
 
     pub(super) fn with_ui_language(settings: Settings, ui_language: UiLanguage) -> Self {
@@ -336,7 +377,7 @@ impl Harness {
             ui_language,
             ..default_startup()
         };
-        Self::start(settings, startup, Vec::new())
+        Self::start(settings, startup, FakeServices::default())
     }
 
     pub(super) fn with_playground_page(settings: Settings) -> Self {
@@ -344,18 +385,31 @@ impl Harness {
             playground: PlaygroundPage::Shown,
             ..default_startup()
         };
-        Self::start(settings, startup, Vec::new())
+        Self::start(settings, startup, FakeServices::default())
     }
 
     pub(super) fn with_kept_history(settings: Settings, kept_history: Vec<HistoryEntry>) -> Self {
-        Self::start(settings, default_startup(), kept_history)
+        let services = FakeServices {
+            kept_history,
+            ..FakeServices::default()
+        };
+        Self::start(settings, default_startup(), services)
     }
 
-    /// Starts the controller with the saved `settings` and the state of the platform at
-    /// `startup`, and a history store that holds `kept_history`.
-    fn start(settings: Settings, startup: Startup, kept_history: Vec<HistoryEntry>) -> Self {
+    /// Starts an installed copy of TypeAlike, which can install a new release by itself.
+    pub(super) fn installed(settings: Settings) -> Self {
+        let services = FakeServices {
+            self_update: SelfUpdate::Supported,
+            ..FakeServices::default()
+        };
+        Self::start(settings, default_startup(), services)
+    }
+
+    /// Starts the controller with the saved `settings`, the state of the platform at `startup`,
+    /// and the fake `services`.
+    fn start(settings: Settings, startup: Startup, services: FakeServices) -> Self {
         let recorder = Rc::new(RefCell::new(Recorder {
-            kept_history,
+            kept_history: services.kept_history,
             ..Recorder::default()
         }));
         let deliveries = Arc::new(Mutex::new(Vec::new()));
@@ -373,7 +427,10 @@ impl Harness {
             autostart: Box::new(FakeAutostart),
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
             spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD, TYPO])),
-            releases: Box::new(FakeReleases(Rc::clone(&recorder))),
+            releases: Box::new(FakeReleases {
+                recorder: Rc::clone(&recorder),
+                self_update: services.self_update,
+            }),
             libraries: &[],
         };
         Self {
@@ -460,6 +517,44 @@ impl Harness {
         );
         sink(release);
         self.deliver_answers();
+    }
+
+    /// Answers the last download of a release with `release`, through the sink of the download.
+    pub(super) fn answer_release_download(
+        &mut self,
+        release: Result<DownloadedRelease, ReleaseDownloadFailed>,
+    ) {
+        let sink = Arc::clone(
+            &self
+                .recorder
+                .borrow()
+                .release_downloads
+                .last()
+                .expect("a release download")
+                .1,
+        );
+        sink(release);
+        self.deliver_answers();
+    }
+
+    /// Makes each later install of a release fail.
+    pub(super) fn fail_installs(&mut self) {
+        self.recorder.borrow_mut().install_result = Some(Err(ReleaseInstallFailed));
+    }
+
+    /// The tags of the releases that the controller downloaded.
+    pub(super) fn release_downloads(&self) -> Vec<ReleaseTag> {
+        self.recorder
+            .borrow()
+            .release_downloads
+            .iter()
+            .map(|(tag, _)| tag.clone())
+            .collect()
+    }
+
+    /// The releases that the controller installed.
+    pub(super) fn installs(&self) -> Vec<DownloadedRelease> {
+        self.recorder.borrow().installs.clone()
     }
 
     /// Gives the controller each delivery that the services sent since the last call.

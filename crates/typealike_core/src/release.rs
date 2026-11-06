@@ -1,6 +1,7 @@
-//! The seam to the service that finds the newest release of TypeAlike.
+//! The seam to the service that finds, downloads and installs the newest release of TypeAlike.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The tag of a release, such as `v0.4.0`.
@@ -15,10 +16,51 @@ pub struct ReleaseReadFailed;
 /// any thread.
 pub type ReleaseSink = Arc<dyn Fn(Result<ReleaseTag, ReleaseReadFailed>) + Send + Sync>;
 
-/// Finds the newest release of TypeAlike without blocking the caller.
+/// A release that the feed downloaded for this build, ready to install.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadedRelease(pub PathBuf);
+
+/// The download of a release failed. The service logs why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReleaseDownloadFailed;
+
+/// The install of a release failed. The service logs why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReleaseInstallFailed;
+
+/// Receives the downloaded release, or the failure of the download. The feed may call it from any
+/// thread.
+pub type DownloadSink = Arc<dyn Fn(Result<DownloadedRelease, ReleaseDownloadFailed>) + Send + Sync>;
+
+/// Whether this copy of TypeAlike can install a new release by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfUpdate {
+    /// A copy from an installer of a release.
+    Supported,
+    /// A build from the source code, or a copy that the feed cannot replace.
+    Unsupported,
+}
+
+/// Finds, downloads and installs the newest release of TypeAlike without blocking the caller.
 pub trait ReleaseFeed {
     /// Starts to read the newest release and returns at once. The answer reaches `sink` once.
     fn read_newest(&mut self, sink: &ReleaseSink);
+
+    /// Whether this copy of TypeAlike can install a new release by itself.
+    fn self_update(&self) -> SelfUpdate;
+
+    /// Starts to download the release of `tag` for this build and returns at once. The answer
+    /// reaches `sink` once.
+    fn download(&mut self, tag: &ReleaseTag, sink: &DownloadSink);
+
+    /// Starts the install of `release`, which replaces this copy of TypeAlike and then starts the
+    /// new version. After `Ok`, TypeAlike must quit at once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReleaseInstallFailed`] when the install cannot start. This copy then stays as it
+    /// is.
+    fn install(&mut self, release: &DownloadedRelease) -> Result<(), ReleaseInstallFailed>;
 }
 
 /// A version of TypeAlike: major, minor and patch numbers.
@@ -49,6 +91,11 @@ impl Version {
             patch: numbers.next()??,
         };
         numbers.next().is_none().then_some(version)
+    }
+
+    /// The tag of the release of this version, such as `v0.4.0`.
+    pub(crate) fn tag(self) -> ReleaseTag {
+        ReleaseTag(format!("v{self}"))
     }
 }
 
@@ -95,6 +142,13 @@ mod tests {
         let are_newer = pairs.map(|(older, newer)| Version::parse(newer) > Version::parse(older));
 
         assert_eq!(are_newer, [true; 4]);
+    }
+
+    #[test]
+    fn tag_is_the_version_after_a_v() {
+        let version = Version::parse("1.12.3").expect("valid version");
+
+        assert_eq!(version.tag(), ReleaseTag("v1.12.3".to_owned()));
     }
 
     #[test]

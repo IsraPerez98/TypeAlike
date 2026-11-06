@@ -1,6 +1,6 @@
 [package]
 name = "typealike_releases"
-description = "The newest release of TypeAlike on GitHub, for the check for updates"
+description = "The newest release of TypeAlike on GitHub: the check for updates, the download and the install"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 typealike_core.workspace = true
+ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

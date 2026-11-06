@@ -27,6 +27,8 @@ pub enum Timer {
     /// Waits until a scroll stopped, so that a chat or an email app reads the screen that the
     /// scroll showed.
     ScrollSettle,
+    /// Waits until the next check for a new version of TypeAlike.
+    UpdateCheck,
 }
 
 /// Whether another window or app has the focus since the shell looked last.

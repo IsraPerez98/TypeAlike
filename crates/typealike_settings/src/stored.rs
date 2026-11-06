@@ -11,7 +11,7 @@ use typealike_core::inference::{Backend, SentenceEnd};
 use typealike_core::localization::UiLanguage;
 use typealike_core::settings::{
     ClipboardAccess, PromptPreparation, Settings, Setup, SuggestionDisplay, SuggestionLength, TypoFix,
-    TypoRule, WriterName, WriterNotes,
+    TypoRule, Updates, WriterName, WriterNotes,
 };
 
 use energy_saving::StoredEnergySaving;
@@ -49,6 +49,7 @@ struct StoredSettings {
     ui_language: Option<StoredUiLanguage>,
     /// A file of an older version has no setup, and counts as finished.
     setup: StoredSetup,
+    updates: StoredUpdates,
 }
 
 impl Default for StoredSettings {
@@ -128,6 +129,13 @@ enum StoredSetup {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+enum StoredUpdates {
+    Automatic,
+    Manual,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum StoredSuggestionLength {
     VeryShort,
     Short,
@@ -197,6 +205,10 @@ impl From<Settings> for StoredSettings {
             Setup::Needed => StoredSetup::Needed,
             Setup::Finished => StoredSetup::Finished,
         };
+        let updates = match settings.updates {
+            Updates::Automatic => StoredUpdates::Automatic,
+            Updates::Manual => StoredUpdates::Manual,
+        };
         Self {
             backend,
             suggestion_model,
@@ -216,6 +228,7 @@ impl From<Settings> for StoredSettings {
             sentence_end,
             ui_language,
             setup,
+            updates,
         }
     }
 }
@@ -275,6 +288,10 @@ impl From<StoredSettings> for Settings {
             StoredSetup::Needed => Setup::Needed,
             StoredSetup::Finished => Setup::Finished,
         };
+        let updates = match stored.updates {
+            StoredUpdates::Automatic => Updates::Automatic,
+            StoredUpdates::Manual => Updates::Manual,
+        };
         let writer_notes = match (stored.writer_notes, stored.system_prompt) {
             (Some(notes), _) if !notes.is_empty() => WriterNotes(notes),
             (_, Some(system_prompt)) => WriterNotes(system_prompt),
@@ -299,6 +316,7 @@ impl From<StoredSettings> for Settings {
             sentence_end,
             ui_language,
             setup,
+            updates,
         }
     }
 }

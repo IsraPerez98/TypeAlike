@@ -118,7 +118,7 @@ These words belong to the code and the docs. The UI uses the text of the second 
 ## Product Principles
 
 1. **A guest in other apps.** TypeAlike never takes the focus and never covers the text of the user. Its UI stays small and quiet.
-2. **The text stays on the computer.** Models run on the computer. Only model search, model downloads and the check for updates that the user starts use the network. No cloud AI provider, no telemetry.
+2. **The text stays on the computer.** Models run on the computer. Only model search, model downloads and the updates of TypeAlike use the network. The user can turn off the automatic updates. No cloud AI provider, no telemetry.
 3. **Native on each OS.** Each part looks and acts as a part of Windows or macOS. TypeAlike uses no brand colors, custom fonts or custom controls.
 4. **Plain words.** Each text tells what happens and what the user can do, in Simplified Technical English, with one term for one thing. It names what the user gets, and does not explain how TypeAlike works inside.
 5. **Few settings, good defaults.** Add a setting only when users need different values. Never copy a setting of the OS.

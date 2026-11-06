@@ -78,8 +78,8 @@ mod tests {
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess,
         HistoryApp, HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings,
         PromptPreparation, ReplyWords, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup,
-        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, WordChoice,
-        WriterName, WriterNotes,
+        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, Updates,
+        WordChoice, WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -149,6 +149,7 @@ mod tests {
             sentence_end: SentenceEnd::Stop,
             ui_language: Some(UiLanguage::Spanish),
             setup: Setup::Finished,
+            updates: Updates::Manual,
         };
 
         file.save(&settings);

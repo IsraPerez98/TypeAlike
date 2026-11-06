@@ -74,6 +74,16 @@ pub enum ClipboardAccess {
     Allowed,
 }
 
+/// Whether TypeAlike installs each new version by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Updates {
+    /// TypeAlike checks for a new version once a day, installs it and starts again.
+    #[default]
+    Automatic,
+    /// TypeAlike checks for a new version only when the user asks.
+    Manual,
+}
+
 /// When TypeAlike gives the text around the caret to the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PromptPreparation {
@@ -247,6 +257,8 @@ pub struct Settings {
     pub ui_language: Option<UiLanguage>,
     /// Whether the user finished the setup.
     pub setup: Setup,
+    /// Whether TypeAlike installs each new version by itself.
+    pub updates: Updates,
 }
 
 impl Settings {
