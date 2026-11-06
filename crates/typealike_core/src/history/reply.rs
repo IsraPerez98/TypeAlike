@@ -56,7 +56,7 @@ pub(crate) fn reply_words(
         .filter(|entry| Some(entry.place()) == place)
         .map(|entry| one_line(&entry.text))
         .collect::<Vec<_>>();
-    let lines = screen::message_lines_above(screen, FieldContent::of(surroundings));
+    let lines = screen::message_lines_above(screen, FieldContent::of(surroundings, ""));
     let message_start = lines
         .iter()
         .rposition(|line| is_own_line(line, &own_texts))

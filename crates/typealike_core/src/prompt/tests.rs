@@ -365,6 +365,7 @@ fn screen_part(text: &ScreenText) -> ScreenPart<'_> {
         text,
         max_tokens: TokenCount(300),
         shown_above: &[],
+        typed: "",
     }
 }
 
@@ -649,6 +650,7 @@ fn full_preface() -> String {
         text: &screen,
         max_tokens: TokenCount(800),
         shown_above: &[],
+        typed: "",
     };
     let clipboard = ascii_text('c', CLIPBOARD_TOKENS, 1);
     preface(&writer, &surroundings, Some(&clipboard), Some(screen_part))

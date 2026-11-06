@@ -77,8 +77,11 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 ### Field that hides its text
 
-- A field with unreadable text whose read gives no text hides its text (`Surroundings::hides_field_text`), as the editor of VS Code does while its screen reader mode is off.
+- A field with unreadable text whose read gives no text hides its text (`Surroundings::hides_field_text`), as the editor of VS Code does while its screen reader mode is off, or a terminal that gives no caret.
 - Its lines on the screen are its text, so they stay and count as above the caret. In VS Code, that is the line of the caret.
+- A line of such a field that shows a part of the text that the user typed in the session goes, because the prompt has that text already (`FieldContent::shows_typed_text`). The signs at the start of the line do not count, such as the prompt mark of an agent in a terminal ("❯ ").
+- When the platform does not know the caret, the last such line is the line of the caret. The lines of the field after it, such as the status lines of an agent, are below the caret, and the lines nearest to it fill the budget first.
+- On 12 synthetic prompts to coding agents in a terminal (Gemma 4 E4B), these two rules gave the right next word in 11 cases, against 6 with the whole screen after the caret and 6 with all the lines above the caret. With all the lines above, the model copied the status lines.
 - It gives no labels, because its label tells a screen reader how to read the text.
 - Its screen read always asks for an OCR, because the tree misses its text.
 

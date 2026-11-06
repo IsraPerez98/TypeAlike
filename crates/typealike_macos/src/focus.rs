@@ -30,6 +30,7 @@ const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
     "com.vivaldi.vivaldi",
     "com.operasoftware.opera",
 ];
+const GHOSTTY_BUNDLE_PREFIX: &str = "com.mitchellh.ghostty";
 
 /// Follows the frontmost app and classifies whether TypeAlike may observe and type into it.
 #[derive(Debug)]
@@ -131,17 +132,25 @@ impl FocusTracker {
 
     pub(crate) fn surroundings(&self) -> Surroundings {
         let element = self.focused_element();
+        let app_id = self.frontmost.as_ref().and_then(|app| app.app_id.clone());
+        let hides_caret_in_text = gives_mouse_selection_only(app_id.as_deref())
+            && element
+                .as_deref()
+                .is_none_or(|element| caret_bounds(element).is_none());
         Surroundings {
             app_name: self.frontmost.as_ref().and_then(|app| app.name.clone()),
-            app_id: self.frontmost.as_ref().and_then(|app| app.app_id.clone()),
+            app_id,
             app_path: None,
             window_title: element.as_deref().and_then(window_title),
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
             domain: element.as_deref().and_then(web_domain),
-            field_text: element.as_deref().and_then(field_text),
+            field_text: element
+                .as_deref()
+                .filter(|_| !hides_caret_in_text)
+                .and_then(field_text),
             is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
             is_search_field: element.as_deref().is_some_and(is_search_field),
-            has_unreadable_text: element.as_deref().is_some_and(has_unreadable_text),
+            has_unreadable_text: hides_caret_in_text || element.as_deref().is_some_and(has_unreadable_text),
         }
     }
 }
@@ -179,6 +188,14 @@ fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str 
     } else {
         MANUAL_ACCESSIBILITY_ATTRIBUTE
     }
+}
+
+/// Whether the app with `bundle_identifier` gives the mouse selection of its focused field through
+/// Accessibility, never its caret, as the terminal of Ghostty does. Without a caret, the text of
+/// such a field does not tell where the caret is, so TypeAlike reads it from the screen.
+fn gives_mouse_selection_only(bundle_identifier: Option<&str>) -> bool {
+    bundle_identifier
+        .is_some_and(|identifier| identifier.to_ascii_lowercase().starts_with(GHOSTTY_BUNDLE_PREFIX))
 }
 
 fn is_own_process(process: i32) -> bool {
@@ -239,6 +256,24 @@ mod tests {
         let attributes = bundle_identifiers.map(web_accessibility_attribute);
 
         assert_eq!(attributes, [MANUAL_ACCESSIBILITY_ATTRIBUTE; 4]);
+    }
+
+    #[test]
+    fn ghostty_gives_only_its_mouse_selection() {
+        let bundle_identifiers = [Some("com.mitchellh.ghostty"), Some("com.mitchellh.ghostty.debug")];
+
+        let answers = bundle_identifiers.map(gives_mouse_selection_only);
+
+        assert_eq!(answers, [true; 2]);
+    }
+
+    #[test]
+    fn other_apps_give_their_caret_as_the_selection() {
+        let bundle_identifiers = [Some("com.apple.Terminal"), Some("com.microsoft.VSCode"), None];
+
+        let answers = bundle_identifiers.map(gives_mouse_selection_only);
+
+        assert_eq!(answers, [false; 3]);
     }
 
     #[test]

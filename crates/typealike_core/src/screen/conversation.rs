@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::desktop::{ScreenLine, ScreenRect, ScreenText, Timestamp};
 
-use super::{LineScope, caret_of, is_above, is_inside};
+use super::{FieldContent, LineScope, caret_of, is_above, is_inside};
 
 /// The time that a line stays after the newest read that showed it.
 const MAX_LINE_AGE: Duration = Duration::from_mins(10);
@@ -102,7 +102,7 @@ impl ConversationLines {
 /// Returns the lines of `screen` in the column of its field above the caret and outside the field,
 /// in reading order, without the second copy of a line with the same text and frame.
 fn lines_above_caret(screen: &ScreenText) -> Vec<&ScreenLine> {
-    let caret = caret_of(screen);
+    let caret = caret_of(screen, FieldContent::Read(None));
     let mut copies = HashSet::new();
     let mut lines = LineScope::Column
         .lines(screen)

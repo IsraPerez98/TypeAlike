@@ -289,6 +289,10 @@ impl Engine {
             examples,
         };
         let prompt_screen = self.screen_reads.prompt_text(LineScope::of(surroundings), now);
+        let typed = self
+            .session
+            .as_ref()
+            .map_or("", |session| session.text_before.as_str());
         let preface = prompt::preface_with_screen_lines(
             &writer,
             surroundings,
@@ -297,6 +301,7 @@ impl Engine {
                 text,
                 max_tokens: self.screen_tokens,
                 shown_above: &self.screen_reads.shown_above,
+                typed,
             }),
         );
         if self.screen_reads.text().is_some() {

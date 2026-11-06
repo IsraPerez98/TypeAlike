@@ -48,15 +48,19 @@ pub(crate) enum FieldContent<'text> {
     /// The platform reads the text of the field, if the field has text.
     Read(Option<&'text FieldText>),
     /// The field hides its text from the platform, so its lines on the screen are its text, such as
-    /// the line of the caret in the editor of VS Code.
-    Hidden,
+    /// the line of the caret in the editor of VS Code, or the screen of a terminal without a caret.
+    Hidden {
+        /// The text that the user typed before the caret, which a line of the field can show again.
+        typed: &'text str,
+    },
 }
 
 impl<'text> FieldContent<'text> {
-    /// Returns what the prompt knows of the text of the field of `surroundings`.
-    pub(crate) fn of(surroundings: &'text Surroundings) -> Self {
+    /// Returns what the prompt knows of the text of the field of `surroundings`, where the user
+    /// typed `typed` before the caret.
+    pub(crate) fn of(surroundings: &'text Surroundings, typed: &'text str) -> Self {
         if surroundings.hides_field_text() {
-            Self::Hidden
+            Self::Hidden { typed }
         } else {
             Self::Read(surroundings.field_text.as_ref())
         }
@@ -65,13 +69,37 @@ impl<'text> FieldContent<'text> {
     fn text(self) -> Option<&'text FieldText> {
         match self {
             Self::Read(text) => text,
-            Self::Hidden => None,
+            Self::Hidden { .. } => None,
         }
     }
 
     /// Whether a line at `frame`, inside `field` on the screen, holds text of the field.
     fn holds(self, frame: ScreenRect, field: ScreenRect) -> bool {
-        matches!(self, Self::Hidden) && is_inside(frame, field)
+        matches!(self, Self::Hidden { .. }) && is_inside(frame, field)
+    }
+
+    /// Whether the line `text` at `frame`, inside `field` on the screen, shows a part of the typed
+    /// text of a field that hides its text. The signs at its start, such as the prompt mark of a
+    /// terminal, do not count.
+    fn shows_typed_text(self, text: &str, frame: ScreenRect, field: ScreenRect) -> bool {
+        let Self::Hidden { typed } = self else {
+            return false;
+        };
+        let words = text
+            .trim_start_matches(|character: char| !character.is_alphanumeric())
+            .trim_end();
+        !words.is_empty() && is_inside(frame, field) && one_line(typed).contains(words)
+    }
+
+    /// Returns the frame of the last line of `screen` that shows the typed text of a field that
+    /// hides its text, which is the line of the caret when the platform does not know the caret.
+    fn typed_line(self, screen: &ScreenText) -> Option<ScreenRect> {
+        screen
+            .lines
+            .iter()
+            .filter(|line| self.shows_typed_text(&one_line(&line.text), line.frame, screen.field))
+            .map(|line| line.frame)
+            .max_by_key(|frame| (frame.top, frame.left))
     }
 }
 
@@ -187,8 +215,8 @@ pub(crate) fn nearby_lines(
     budget: TokenCount,
     scope: LineScope,
 ) -> NearbyLines {
-    let lines = in_reading_order(screen, candidates(screen, field, scope));
-    let nearest = within_budget(&lines, &by_distance(screen, &lines), budget);
+    let lines = in_reading_order(screen, field, candidates(screen, field, scope));
+    let nearest = within_budget(&lines, &by_distance(screen, field, &lines), budget);
     split_at_caret(screen, field, lines, &nearest)
 }
 
@@ -205,8 +233,8 @@ pub(crate) fn nearby_lines_from(
     field: FieldContent<'_>,
     budget: TokenCount,
 ) -> NearbyLines {
-    let lines = in_reading_order(screen, candidates(screen, field, LineScope::Column));
-    let ranked = by_distance(screen, &lines);
+    let lines = in_reading_order(screen, field, candidates(screen, field, LineScope::Column));
+    let ranked = by_distance(screen, field, &lines);
     let nearest = within_budget(&lines, &ranked, budget);
     let kept = shown_and_newer(shown_above, &lines, &nearest)
         .filter(|kept| tokens_of(&lines, kept) <= with_slack(budget))
@@ -219,7 +247,7 @@ pub(crate) fn nearby_lines_from(
 /// reading order, without the chat headers, the noise and the lines that repeat the text of
 /// `field`: the messages above the input box of a chat.
 pub(crate) fn message_lines_above(screen: &ScreenText, field: FieldContent<'_>) -> Vec<String> {
-    let caret = caret_of(screen);
+    let caret = caret_of(screen, field);
     let mut messages = candidates(screen, field, LineScope::Column)
         .into_iter()
         .filter(|candidate| !candidate.is_header && is_above(candidate.frame, caret))
@@ -237,7 +265,7 @@ pub(crate) fn has_enough_words(screen: &ScreenText, surroundings: &Surroundings)
     }
     let candidates = candidates(
         screen,
-        FieldContent::of(surroundings),
+        FieldContent::of(surroundings, ""),
         LineScope::of(surroundings),
     );
     let words = candidates
@@ -280,14 +308,21 @@ fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) ->
             }
         })
         .filter(|candidate| {
-            !candidate.text.is_empty() && !is_noise(&candidate.text) && !field_lines.repeats(&candidate.text)
+            !candidate.text.is_empty()
+                && !is_noise(&candidate.text)
+                && !field_lines.repeats(&candidate.text)
+                && !field.shows_typed_text(&candidate.text, candidate.frame, screen.field)
         })
         .collect()
 }
 
-/// Returns the caret of `screen`, or the frame of its field when the caret is not known.
-fn caret_of(screen: &ScreenText) -> ScreenRect {
-    screen.caret.unwrap_or(screen.field)
+/// Returns the caret of `screen`, else the line that shows the typed text of a field that hides
+/// its text, else the frame of the field.
+fn caret_of(screen: &ScreenText, field: FieldContent<'_>) -> ScreenRect {
+    screen
+        .caret
+        .or_else(|| field.typed_line(screen))
+        .unwrap_or(screen.field)
 }
 
 /// Whether the middle of `line` is above the middle of `caret`.
@@ -297,8 +332,12 @@ fn is_above(line: ScreenRect, caret: ScreenRect) -> bool {
 
 /// Returns `lines` from top to bottom, then from left to right, then the nearest to the caret of
 /// `screen` first.
-fn in_reading_order(screen: &ScreenText, mut lines: Vec<Candidate>) -> Vec<Candidate> {
-    let caret = caret_of(screen);
+fn in_reading_order(
+    screen: &ScreenText,
+    field: FieldContent<'_>,
+    mut lines: Vec<Candidate>,
+) -> Vec<Candidate> {
+    let caret = caret_of(screen, field);
     lines.sort_by_key(|line| {
         (
             line.frame.top,
@@ -311,8 +350,8 @@ fn in_reading_order(screen: &ScreenText, mut lines: Vec<Candidate>) -> Vec<Candi
 
 /// Returns the positions of `lines`, the nearest to the caret of `screen` first. Lines at the same
 /// distance keep their order.
-fn by_distance(screen: &ScreenText, lines: &[Candidate]) -> Vec<usize> {
-    let caret = caret_of(screen);
+fn by_distance(screen: &ScreenText, field: FieldContent<'_>, lines: &[Candidate]) -> Vec<usize> {
+    let caret = caret_of(screen, field);
     let mut ranked = (0..lines.len()).collect::<Vec<_>>();
     ranked.sort_by_key(|&position| distance(lines[position].frame, caret, screen.field));
     ranked
@@ -384,19 +423,23 @@ fn with_slack(budget: TokenCount) -> u32 {
 }
 
 /// Returns the text of the `kept` positions of `lines`, each side of the caret of `screen` in
-/// reading order. The lines of a field that hides its text count as above the caret.
+/// reading order. The lines of a field that hides its text count as above the caret, unless a
+/// line of the field shows the typed text: the lines after that line are below the caret.
 fn split_at_caret(
     screen: &ScreenText,
     field: FieldContent<'_>,
     lines: Vec<Candidate>,
     kept: &HashSet<usize>,
 ) -> NearbyLines {
-    let caret = caret_of(screen);
+    let caret = caret_of(screen, field);
+    let has_typed_line = field.typed_line(screen).is_some();
     let (above, below) = lines
         .into_iter()
         .enumerate()
         .filter_map(|(position, line)| kept.contains(&position).then_some(line))
-        .partition::<Vec<_>, _>(|line| is_above(line.frame, caret) || field.holds(line.frame, screen.field));
+        .partition::<Vec<_>, _>(|line| {
+            is_above(line.frame, caret) || (!has_typed_line && field.holds(line.frame, screen.field))
+        });
     NearbyLines {
         above: above.into_iter().map(|line| line.text).collect(),
         below: below.into_iter().map(|line| line.text).collect(),
@@ -911,11 +954,100 @@ mod tests {
             line("and QA signs off on", rect(320, 915, 600, 945)),
         ]);
 
-        let lines = nearby_lines(&screen, FieldContent::Hidden, BUDGET, LineScope::Window);
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: "" },
+            BUDGET,
+            LineScope::Window,
+        );
 
         assert_eq!(
             lines,
             above_the_field(&["41. Parking is free after six.", "and QA signs off on"])
+        );
+    }
+
+    const TERMINAL: ScreenRect = rect(0, 0, 1000, 800);
+    const TYPED_PROMPT: &str = "fix the login bug in the auth module and then add a test for it ";
+
+    /// A row of a terminal whose whole screen is a field without a caret, `index` rows from the top.
+    fn terminal_row(text: &str, index: i32) -> ScreenLine {
+        line(text, rect(10, 20 * index, 990, 20 * index + 16))
+    }
+
+    fn terminal(lines: Vec<ScreenLine>) -> ScreenText {
+        ScreenText {
+            lines,
+            caret: None,
+            field: TERMINAL,
+        }
+    }
+
+    #[test]
+    fn rows_of_a_hidden_field_that_show_the_typed_text_after_a_marker_go() {
+        let screen = terminal(vec![
+            terminal_row("I changed login.rs and the tests pass.", 0),
+            terminal_row("❯ fix the login bug in the auth module and then", 1),
+            terminal_row("add a test for it", 2),
+        ]);
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: TYPED_PROMPT },
+            BUDGET,
+            LineScope::Window,
+        );
+
+        assert_eq!(
+            lines,
+            above_the_field(&["I changed login.rs and the tests pass."])
+        );
+    }
+
+    #[test]
+    fn rows_after_the_typed_text_of_a_hidden_field_are_below_the_caret() {
+        let screen = terminal(vec![
+            terminal_row("I changed login.rs and the tests pass.", 0),
+            terminal_row("❯ fix the login bug in the auth module and then", 1),
+            terminal_row("add a test for it", 2),
+            terminal_row("auto mode on", 3),
+        ]);
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: TYPED_PROMPT },
+            BUDGET,
+            LineScope::Window,
+        );
+
+        assert_eq!(
+            lines,
+            NearbyLines {
+                above: texts(&["I changed login.rs and the tests pass."]),
+                below: texts(&["auto mode on"]),
+            }
+        );
+    }
+
+    #[test]
+    fn rows_nearest_the_typed_text_of_a_hidden_field_fit_first() {
+        let screen = terminal(vec![
+            terminal_row("The first answer is far above the prompt.", 0),
+            terminal_row("The newest answer is just above the prompt.", 1),
+            terminal_row("❯ fix the login bug in the auth module and then", 2),
+        ]);
+        let one_line = estimated_tokens("The newest answer is just above the prompt.");
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Hidden { typed: TYPED_PROMPT },
+            one_line,
+            LineScope::Window,
+        );
+
+        assert_eq!(
+            lines,
+            above_the_field(&["The newest answer is just above the prompt."])
         );
     }
 

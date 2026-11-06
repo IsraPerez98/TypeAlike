@@ -81,6 +81,9 @@ pub(crate) struct ScreenPart<'text> {
     pub(crate) max_tokens: TokenCount,
     /// The lines above the field that the last preface in the field showed, in reading order.
     pub(crate) shown_above: &'text [String],
+    /// The text that the user typed before the caret, which the lines of a field that hides its
+    /// text can show again.
+    pub(crate) typed: &'text str,
 }
 
 /// What the model reads before the text, and the lines above the field on the screen that it
@@ -188,7 +191,7 @@ fn budgeted_parts<'text>(
 /// In a chat or an email app, the lines that the last preface in the field showed above it stay
 /// first while they can.
 fn nearby_lines(screen: ScreenPart<'_>, surroundings: &Surroundings, budget: TokenCount) -> NearbyLines {
-    let field = FieldContent::of(surroundings);
+    let field = FieldContent::of(surroundings, screen.typed);
     match LineScope::of(surroundings) {
         LineScope::Column => screen::nearby_lines_from(screen.shown_above, screen.text, field, budget),
         LineScope::Window => screen::nearby_lines(screen.text, field, budget, LineScope::Window),

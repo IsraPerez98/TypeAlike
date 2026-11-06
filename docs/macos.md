@@ -55,6 +55,10 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
 - A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.
+- The terminal of Ghostty gives its mouse selection as its selection, never its cursor, and gives no caret (`gives_mouse_selection_only`).
+  - Its text then does not tell where the caret is. The value would put the whole screen after the caret.
+  - Thus a field of Ghostty without a caret gives no field text and has unreadable text, and core reads its text from the OCR of the screen (`docs/core/prompt.md`, "Field that hides its text").
+  - When Ghostty gives a caret, its field text counts again.
 
 ## Caret
 
