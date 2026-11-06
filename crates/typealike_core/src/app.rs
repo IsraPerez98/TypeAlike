@@ -24,7 +24,7 @@ use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::{Key, Press};
 use crate::localization::Translations;
-use crate::screen;
+use crate::screen::{self, LineScope};
 use crate::settings::{
     EnergySaverRule, FullScreenRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings,
     Settings, SuggestionDisplay, SuggestionPlaces,
@@ -489,6 +489,28 @@ impl App {
     /// its next key.
     pub fn on_scroll(&mut self) {
         self.engine.read_screen_again();
+    }
+
+    /// Handles the stop of a scroll. In a text field of a chat or an email app where the screen
+    /// text is on, it returns the read of the accessibility tree, so that the screen text also
+    /// gets the lines that the scroll showed. Give the answer to [`App::on_screen_read`].
+    pub fn on_scroll_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
+        let field = ReadField {
+            desktop,
+            surroundings: desktop.surroundings(),
+        };
+        let is_active =
+            self.offers_suggestions() && desktop.field() == Field::Open && self.allows_suggestions_in(&field);
+        let is_conversation = LineScope::of(&field.surroundings) == LineScope::Column;
+        if !is_active || !is_conversation || !self.reads_screen_in(&field) {
+            return None;
+        }
+        self.engine
+            .start_screen_read()
+            .map(|read| SettledWork::ReadScreen {
+                read,
+                source: ScreenSource::Accessibility,
+            })
     }
 
     /// Starts a read of the screen for the session of the last key, when the session is in a text

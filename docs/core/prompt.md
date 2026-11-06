@@ -89,6 +89,10 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - A session first uses the stored screen text. The answer of its own read replaces that text one time, when the text changed.
 - When that answer changes the prompt of the suggestion that runs or shows, and the user pressed no key after its request, TypeAlike asks for the suggestion again with the new prompt. Thus the first suggestion of a reply also uses a chat message that came while the field was idle. When no suggestion runs or shows, TypeAlike asks for none.
 - A scroll moves the text on the screen, so the next key of the session reads the screen again, and its answer replaces the text of the session one more time.
+- In a text field of a chat or an email app where the screen text is on, the stop of a scroll also reads the screen:
+  - A scroll stops 300 ms after its last scroll event (`Timer::ScrollSettle`, `SCROLL_SETTLE_DELAY`). Each stop starts at most one read.
+  - The read uses the accessibility tree, and an OCR only when the tree gives too few words, as at a key.
+  - Its answer goes into the session, so the next key does not read the screen again. Thus the kept chat lines also get the view that the user scrolled to and read.
 - In a chat or an email app, the prompt also shows the chat lines that the user scrolled past (`ConversationLines`):
   - TypeAlike keeps the lines above the caret of each read in memory, never on disk, for 10 minutes after the newest read that showed them.
   - A new read continues the conversation when it shares at least 2 lines of 20 or more characters with the kept lines. The window title does not count, because WhatsApp shows only "WhatsApp" for each chat.

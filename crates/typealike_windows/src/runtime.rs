@@ -56,6 +56,7 @@ const FIELD_TIMER_ID: usize = 3;
 const TAB_HOLD_TIMER_ID: usize = 4;
 const IDLE_TIMER_ID: usize = 5;
 const FIELD_PAUSE_TIMER_ID: usize = 6;
+const SCROLL_TIMER_ID: usize = 7;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -347,6 +348,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == TAB_HOLD_TIMER_ID => self.on_timer(Timer::TabHold),
             WM_TIMER if wparam.0 == IDLE_TIMER_ID => self.on_timer(Timer::Idle),
             WM_TIMER if wparam.0 == FIELD_PAUSE_TIMER_ID => self.on_timer(Timer::FieldPause),
+            WM_TIMER if wparam.0 == SCROLL_TIMER_ID => self.on_timer(Timer::ScrollSettle),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }

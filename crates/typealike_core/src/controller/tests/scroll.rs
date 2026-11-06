@@ -5,7 +5,7 @@ use super::caret_look::{
     FAR_CARET, OLD_CARET, harness_showing_at_the_old_caret, harness_waiting_for_the_look, look_at,
 };
 use super::harness::{Call, Harness, completed, ghost_at_caret};
-use crate::controller::{CARET_SETTLE_DELAY, Timer};
+use crate::controller::{CARET_SETTLE_DELAY, SCROLL_SETTLE_DELAY, Timer};
 use crate::key::Key;
 use crate::settings::Settings;
 use crate::test_support::active_badge;
@@ -20,6 +20,7 @@ fn scroll_while_the_ghost_shows_hides_the_ghost_and_the_badge_until_the_caret_se
     assert_eq!(
         harness.take_calls(),
         vec![
+            Call::StartTimer(Timer::ScrollSettle, SCROLL_SETTLE_DELAY),
             Call::HideGhost,
             Call::HideBadge,
             Call::StartTimer(Timer::CaretSettle, CARET_SETTLE_DELAY),
@@ -111,16 +112,19 @@ fn tab_after_a_scroll_types_the_kept_suggestion() {
 }
 
 #[test]
-fn scroll_outside_a_watched_field_does_nothing() {
+fn scroll_outside_a_watched_field_only_waits_for_its_stop() {
     let mut harness = Harness::new(Settings::default());
 
     harness.scroll();
 
-    assert_eq!(harness.take_calls(), Vec::new());
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::StartTimer(Timer::ScrollSettle, SCROLL_SETTLE_DELAY)]
+    );
 }
 
 #[test]
-fn scroll_after_a_click_does_nothing() {
+fn scroll_after_a_click_only_waits_for_its_stop() {
     let mut harness = Harness::new(Settings::default());
     harness.show("est");
     harness.controller.on_context_lost(&mut harness.shell);
@@ -128,5 +132,8 @@ fn scroll_after_a_click_does_nothing() {
 
     harness.scroll();
 
-    assert_eq!(harness.take_calls(), Vec::new());
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::StartTimer(Timer::ScrollSettle, SCROLL_SETTLE_DELAY)]
+    );
 }

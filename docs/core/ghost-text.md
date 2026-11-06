@@ -23,7 +23,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - They show again at the caret 40 ms after the last scroll event (`CARET_SETTLE_DELAY`).
 - The look at the caret that waits ends, because its caret can be stale.
 - A scroll does not change the text, so the ghost text also shows again at a caret that did not move.
-- A scroll does not end the session and starts no input settle. The next key of the session reads the screen again (`docs/core/prompt.md`, "Screen reads").
+- A scroll does not end the session and starts no input settle. The next key of the session reads the screen again, and in a chat or an email app the stop of the scroll also reads it (`docs/core/prompt.md`, "Screen reads").
 
 ## View
 

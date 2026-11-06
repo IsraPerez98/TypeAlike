@@ -24,6 +24,9 @@ pub enum Timer {
     /// Ends the pause of the suggestions in the field after Escape rejected the suggestion that
     /// showed.
     FieldPause,
+    /// Waits until a scroll stopped, so that a chat or an email app reads the screen that the
+    /// scroll showed.
+    ScrollSettle,
 }
 
 /// Whether another window or app has the focus since the shell looked last.

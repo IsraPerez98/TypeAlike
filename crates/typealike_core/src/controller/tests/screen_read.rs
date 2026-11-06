@@ -1,7 +1,7 @@
 //! Tests of the screen reads that the controller starts.
 
 use super::harness::{Call, Harness};
-use crate::controller::Delivery;
+use crate::controller::{Delivery, SCROLL_SETTLE_DELAY, Timer};
 use crate::desktop::{OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextSettings, Settings};
@@ -128,4 +128,107 @@ fn key_after_a_scroll_reads_the_screen_again() {
 
     assert_eq!(read_without_scroll, None);
     assert!(read_after_scroll.is_some());
+}
+
+/// Scrolls in the focused field, stops the scroll, and returns the reads of the screen that the
+/// stop started.
+fn scroll_stop_reads(harness: &mut Harness) -> Vec<(ScreenReadId, ScreenSource)> {
+    harness.scroll();
+    harness.take_calls();
+    harness
+        .controller
+        .on_timer(Timer::ScrollSettle, &mut harness.shell);
+    harness
+        .take_calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            Call::ReadScreen(read, source) => Some((read, source)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn scroll_starts_the_timer_of_its_stop_again() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.tinyspeck.slackmacgap", "Slack");
+    harness.scroll();
+    harness.take_calls();
+
+    harness.scroll();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::StartTimer(Timer::ScrollSettle, SCROLL_SETTLE_DELAY)]
+    );
+}
+
+#[test]
+fn stop_of_a_scroll_in_a_chat_or_an_email_app_reads_the_tree_once() {
+    let places = [("com.tinyspeck.slackmacgap", "Slack"), ("com.apple.mail", "Mail")];
+
+    let sources = places.map(|(app_id, app_name)| {
+        let mut harness = Harness::new(Settings::default());
+        harness.focus_text_field_of(app_id, app_name);
+        scroll_stop_reads(&mut harness)
+            .into_iter()
+            .map(|(_, source)| source)
+            .collect::<Vec<_>>()
+    });
+
+    assert_eq!(
+        sources,
+        [[ScreenSource::Accessibility], [ScreenSource::Accessibility]]
+    );
+}
+
+#[test]
+fn stop_of_a_scroll_reads_no_screen_in_another_place_or_where_the_screen_text_is_off() {
+    let mail_off = Settings {
+        screen_text: ScreenTextSettings {
+            apps: vec![mail_app(false)],
+            ..ScreenTextSettings::default()
+        },
+        ..Settings::default()
+    };
+    let places = [
+        (Settings::default(), "com.apple.TextEdit", "TextEdit"),
+        (mail_off, "com.apple.mail", "Mail"),
+    ];
+
+    let reads = places.map(|(settings, app_id, app_name)| {
+        let mut harness = Harness::new(settings);
+        harness.focus_text_field_of(app_id, app_name);
+        scroll_stop_reads(&mut harness)
+    });
+
+    assert_eq!(reads, [Vec::new(), Vec::new()]);
+}
+
+#[test]
+fn key_after_the_read_of_a_scroll_stop_reads_the_screen_no_more() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.apple.mail", "Mail");
+    let read = key_read(&mut harness, Key::Char('H')).expect("the first key reads the screen");
+    harness.controller.on_delivery(
+        Delivery::Screen(ScreenRead {
+            id: read,
+            text: Some(ScreenText::default()),
+        }),
+        &mut harness.shell,
+    );
+    let [(stop_read, _)] = scroll_stop_reads(&mut harness)[..] else {
+        panic!("the stop of the scroll reads the screen");
+    };
+    harness.controller.on_delivery(
+        Delivery::Screen(ScreenRead {
+            id: stop_read,
+            text: Some(ScreenText::default()),
+        }),
+        &mut harness.shell,
+    );
+
+    let read_after_stop = key_read(&mut harness, Key::Char('i'));
+
+    assert_eq!(read_after_stop, None);
 }

@@ -60,6 +60,8 @@ const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
 /// How long the suggestions in a field pause after Escape rejects the suggestion that shows.
 const FIELD_PAUSE_DELAY: Duration = Duration::from_secs(10);
+/// The time without a scroll event after which a scroll stopped.
+const SCROLL_SETTLE_DELAY: Duration = Duration::from_millis(300);
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,9 +285,11 @@ impl Controller {
     /// does not change the text. While the badge shows or waits for the caret, the ghost text and
     /// the badge hide, and show again with the same suggestion at the caret when the scroll stops.
     /// A scroll does not end the session and does not count as input, but it moves the text on the
-    /// screen, so the next key of the session reads the screen again.
+    /// screen, so the next key of the session reads the screen again. In a chat or an email app,
+    /// the stop of the scroll also reads it.
     pub fn on_scroll(&mut self, shell: &mut dyn Shell) {
         self.app.on_scroll();
+        shell.start_timer(Timer::ScrollSettle, SCROLL_SETTLE_DELAY);
         if !self.app.has_badge() {
             return;
         }
@@ -302,6 +306,7 @@ impl Controller {
             Timer::TabHold => self.tab_hold.on_timer(),
             Timer::Idle => self.on_idle(shell),
             Timer::FieldPause => self.app.end_field_pause(),
+            Timer::ScrollSettle => self.on_scroll_settled(shell),
         }
     }
 
@@ -670,6 +675,12 @@ impl Controller {
         }
         self.save_history();
         let work = self.app.on_input_settled(&*shell);
+        self.do_settled_work(work, shell);
+    }
+
+    fn on_scroll_settled(&mut self, shell: &mut dyn Shell) {
+        self.refresh_focus(shell);
+        let work = self.app.on_scroll_settled(&*shell);
         self.do_settled_work(work, shell);
     }
 

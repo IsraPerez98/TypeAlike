@@ -159,6 +159,12 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(scrollDidSettle:))]
+        fn scroll_did_settle(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_scroll_settled);
+        }
+
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(injectPendingText:))]
         fn inject_pending_text(&self, _timer: &NSTimer) {
             let replacement = with_runtime(|runtime| runtime.shell.pending_injections.pop_front()).flatten();
