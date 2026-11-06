@@ -113,7 +113,10 @@ impl Ocr {
         let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
-            pixels_hash: pixels_hash(&capture, field.frame)?,
+            pixels_hash: pixels_hash(
+                &capture,
+                (!field.shows_text_only_on_screen).then_some(field.frame),
+            )?,
             level,
         };
         let hashed = Instant::now();
@@ -352,9 +355,10 @@ fn to_pixels(points: f64, scale: f64) -> usize {
     (points * scale).round() as usize
 }
 
-/// Hashes the pixels of `capture` outside of `field`, so that the typed text and the caret in the
-/// field do not change the hash.
-fn pixels_hash(capture: &Capture, field: CGRect) -> Option<u64> {
+/// Hashes the pixels of `capture` outside of `typing_area`, so that the typed text and the caret in
+/// a field do not change the hash. A field that shows its text only on the screen has no typing
+/// area, because the OCR reads its text.
+fn pixels_hash(capture: &Capture, typing_area: Option<CGRect>) -> Option<u64> {
     let image = &*capture.image;
     let data = CGDataProvider::data(CGImage::data_provider(Some(image)).as_deref())?;
     let layout = PixelLayout {
@@ -363,13 +367,7 @@ fn pixels_hash(capture: &Capture, field: CGRect) -> Option<u64> {
         bytes_per_row: CGImage::bytes_per_row(Some(image)),
         bytes_per_pixel: CGImage::bits_per_pixel(Some(image)) / 8,
     };
-    let origin = capture.band.origin;
-    let mask = PixelRect {
-        left: to_pixels(field.min().x - origin.x, capture.scale),
-        top: to_pixels(field.min().y - origin.y, capture.scale),
-        right: to_pixels(field.max().x - origin.x, capture.scale),
-        bottom: to_pixels(field.max().y - origin.y, capture.scale),
-    };
+    let mask = PixelRect::of_typing_area(typing_area, capture.band.origin, capture.scale);
     // SAFETY: `data` is a copy of the pixels that nothing changes.
     let pixels = unsafe { data.as_bytes_unchecked() };
     Some(masked_hash(pixels, &layout, &mask))
@@ -384,11 +382,25 @@ struct PixelLayout {
 }
 
 /// The columns `left..right` of the rows `top..bottom` of an image.
+#[derive(Default)]
 struct PixelRect {
     left: usize,
     top: usize,
     right: usize,
     bottom: usize,
+}
+
+impl PixelRect {
+    /// The pixels of `typing_area` in a band at `band_origin` with `scale` pixels for each point,
+    /// or no pixel without a typing area.
+    fn of_typing_area(typing_area: Option<CGRect>, band_origin: CGPoint, scale: f64) -> Self {
+        typing_area.map_or_else(Self::default, |area| Self {
+            left: to_pixels(area.min().x - band_origin.x, scale),
+            top: to_pixels(area.min().y - band_origin.y, scale),
+            right: to_pixels(area.max().x - band_origin.x, scale),
+            bottom: to_pixels(area.max().y - band_origin.y, scale),
+        })
+    }
 }
 
 /// Hashes `pixels` outside of `mask`. The padding at the end of each row does not count.
@@ -519,6 +531,27 @@ mod tests {
         let changed = [hash_with(7, 99), hash_with(8, 99), hash_with(4, 99)];
 
         assert_eq!(changed, [hash; 3]);
+    }
+
+    #[test]
+    fn change_in_a_field_that_shows_its_text_only_on_the_screen_changes_the_hash() {
+        let mask = PixelRect::of_typing_area(None, CGPoint::new(0.0, 0.0), 1.0);
+        let hash = masked_hash(&PIXELS, &LAYOUT, &mask);
+        let mut pixels = PIXELS;
+        pixels[7] = 99;
+
+        let changed = masked_hash(&pixels, &LAYOUT, &mask);
+
+        assert_ne!(changed, hash);
+    }
+
+    #[test]
+    fn typing_area_masks_the_pixels_of_the_field_in_the_band() {
+        let field = CGRect::new(CGPoint::new(110.0, 61.0), CGSize::new(20.0, 10.0));
+
+        let mask = PixelRect::of_typing_area(Some(field), CGPoint::new(100.0, 60.0), 2.0);
+
+        assert_eq!([mask.left, mask.top, mask.right, mask.bottom], [20, 2, 60, 22]);
     }
 
     #[test]

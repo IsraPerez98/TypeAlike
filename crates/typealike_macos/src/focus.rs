@@ -133,10 +133,9 @@ impl FocusTracker {
     pub(crate) fn surroundings(&self) -> Surroundings {
         let element = self.focused_element();
         let app_id = self.frontmost.as_ref().and_then(|app| app.app_id.clone());
-        let hides_caret_in_text = gives_mouse_selection_only(app_id.as_deref())
-            && element
-                .as_deref()
-                .is_none_or(|element| caret_bounds(element).is_none());
+        let shows_text_only_on_screen = element
+            .as_deref()
+            .is_some_and(|element| shows_text_only_on_screen(element, app_id.as_deref()));
         Surroundings {
             app_name: self.frontmost.as_ref().and_then(|app| app.name.clone()),
             app_id,
@@ -146,11 +145,12 @@ impl FocusTracker {
             domain: element.as_deref().and_then(web_domain),
             field_text: element
                 .as_deref()
-                .filter(|_| !hides_caret_in_text)
+                .filter(|_| !shows_text_only_on_screen)
                 .and_then(field_text),
             is_caret_line_hidden: element.as_deref().is_some_and(is_terminal_input),
             is_search_field: element.as_deref().is_some_and(is_search_field),
-            has_unreadable_text: hides_caret_in_text || element.as_deref().is_some_and(has_unreadable_text),
+            has_unreadable_text: shows_text_only_on_screen
+                || element.as_deref().is_some_and(has_unreadable_text),
         }
     }
 }
@@ -190,6 +190,12 @@ fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str 
     }
 }
 
+/// Whether `element`, the focused field of the app `app_id`, shows its text only on the screen: the
+/// text of a field that gives its mouse selection and no caret does not tell where the caret is.
+fn shows_text_only_on_screen(element: &AXUIElement, app_id: Option<&str>) -> bool {
+    gives_mouse_selection_only(app_id) && caret_bounds(element).is_none()
+}
+
 /// Whether the app with `bundle_identifier` gives the mouse selection of its focused field through
 /// Accessibility, never its caret, as the terminal of Ghostty does. Without a caret, the text of
 /// such a field does not tell where the caret is, so TypeAlike reads it from the screen.
@@ -207,6 +213,9 @@ pub(crate) struct FocusedField {
     pub(crate) element: CFRetained<AXUIElement>,
     pub(crate) frame: CGRect,
     pub(crate) caret: Option<CGRect>,
+    /// Whether the field shows its text only on the screen, as a terminal does. Its lines on the
+    /// screen are then its text.
+    pub(crate) shows_text_only_on_screen: bool,
 }
 
 /// Returns the focused field of the app of `process`, or `None` for a password field.
@@ -218,9 +227,13 @@ pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
     if is_secure_text(&element) {
         return None;
     }
+    let app_id = NSRunningApplication::runningApplicationWithProcessIdentifier(process)
+        .and_then(|application| application.bundleIdentifier())
+        .map(|identifier| identifier.to_string());
     Some(FocusedField {
         frame: frame(&element)?,
         caret: caret_bounds(&element),
+        shows_text_only_on_screen: shows_text_only_on_screen(&element, app_id.as_deref()),
         element,
     })
 }
