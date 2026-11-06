@@ -89,6 +89,13 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - A session first uses the stored screen text. The answer of its own read replaces that text one time, when the text changed.
 - When that answer changes the prompt of the suggestion that runs or shows, and the user pressed no key after its request, TypeAlike asks for the suggestion again with the new prompt. Thus the first suggestion of a reply also uses a chat message that came while the field was idle. When no suggestion runs or shows, TypeAlike asks for none.
 - A scroll moves the text on the screen, so the next key of the session reads the screen again, and its answer replaces the text of the session one more time.
+- In a chat or an email app, the prompt also shows the chat lines that the user scrolled past (`ConversationLines`):
+  - TypeAlike keeps the lines above the caret of each read in memory, never on disk, for 10 minutes after the newest read that showed them.
+  - A new read continues the conversation when it shares at least 2 lines of 20 or more characters with the kept lines. The window title does not count, because WhatsApp shows only "WhatsApp" for each chat.
+  - A read that shares fewer lines shows another conversation, so the kept lines go. A short line such as "ok" or "Today" shows in many chats.
+  - A focus change drops the kept lines, as it drops the screen text. Without a clock, TypeAlike keeps no lines.
+  - The kept lines that the newest read does not show go above all its lines, in their old order, as if the chat were taller. They are farther from the caret, so they fill the budget of the screen text after the lines on the screen.
+  - After a single read, the prompt shows only the lines of that read. In other places, it shows only the newest read.
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
 - The level of the Copied and screen text pane (fast or accurate) shows only when the OCR of the platform has levels (`OcrLevels`).

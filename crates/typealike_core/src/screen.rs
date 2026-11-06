@@ -2,6 +2,10 @@
 //! noise and without the times of chat headers, the nearest lines first, up to a budget of tokens,
 //! above and below the caret.
 
+mod conversation;
+
+pub(crate) use conversation::ConversationLines;
+
 use std::collections::HashSet;
 use std::fmt;
 

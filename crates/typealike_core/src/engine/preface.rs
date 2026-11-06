@@ -1,10 +1,12 @@
 //! Builds what the model reads before the text, with the screen text and the recent copy.
 
+use std::borrow::Cow;
 use std::time::Duration;
 
-use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings};
+use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings, Timestamp};
 use crate::history;
 use crate::prompt::{self, Example, ScreenPart, Writer};
+use crate::screen::{ConversationLines, LineScope};
 use crate::settings::{ClipboardAccess, OcrLevel, ReplyWords, ScreenTextSettings};
 
 use super::{Engine, read_surroundings};
@@ -50,6 +52,8 @@ pub(super) struct ScreenReads {
     /// The lines above the field that the newest preface with screen text showed. The next preface
     /// in the field keeps them first while they are on the screen.
     shown_above: Vec<String>,
+    /// The lines of the reads of the conversation of the newest answer.
+    conversation: ConversationLines,
 }
 
 impl ScreenReads {
@@ -90,9 +94,9 @@ impl ScreenReads {
         })
     }
 
-    /// Keeps the text of `read` when it answers the newest read, and returns whether it does. An
-    /// OCR answer without lines keeps the text of the read of the tree before it.
-    fn answer(&mut self, read: ScreenRead) -> bool {
+    /// Keeps the text of `read` when it answers the newest read at `now`, and returns whether it
+    /// does. An OCR answer without lines keeps the text of the read of the tree before it.
+    fn answer(&mut self, read: ScreenRead, now: Option<Timestamp>) -> bool {
         let Screen::Reading { id, tree_text, .. } = &mut self.screen else {
             return false;
         };
@@ -105,6 +109,9 @@ impl ScreenReads {
         } else {
             tree_text.take().or(read.text)
         };
+        if let Some(text) = &text {
+            self.conversation.add_read(text, now);
+        }
         self.screen = text.map_or(Screen::Unknown, Screen::Read);
         true
     }
@@ -117,9 +124,22 @@ impl ScreenReads {
         }
     }
 
+    /// The text of the newest answer for a prompt in `scope` at `now`. In the column of a chat or
+    /// an email app, the lines that earlier reads of the conversation showed and the newest read
+    /// does not show are above its lines.
+    fn prompt_text(&self, scope: LineScope, now: Option<Timestamp>) -> Option<Cow<'_, ScreenText>> {
+        let text = self.text()?;
+        let taller = match scope {
+            LineScope::Column => self.conversation.taller_screen(text, now),
+            LineScope::Window => None,
+        };
+        Some(taller.map_or(Cow::Borrowed(text), Cow::Owned))
+    }
+
     fn forget(&mut self) {
         self.screen = Screen::Unknown;
         self.shown_above.clear();
+        self.conversation = ConversationLines::default();
     }
 }
 
@@ -172,7 +192,7 @@ impl Engine {
     /// preface changes. The session then has its final screen text. The next session also gets
     /// the new text.
     pub(crate) fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> ScreenAnswer {
-        if !self.screen_reads.answer(read) {
+        if !self.screen_reads.answer(read, desktop.now()) {
             return ScreenAnswer::Dropped;
         }
         let is_preface_changed = self.add_screen_to_session(desktop);
@@ -268,11 +288,12 @@ impl Engine {
             name: &self.writer_name.0,
             examples,
         };
+        let prompt_screen = self.screen_reads.prompt_text(LineScope::of(surroundings), now);
         let preface = prompt::preface_with_screen_lines(
             &writer,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
-            screen.map(|text| ScreenPart {
+            prompt_screen.as_deref().map(|text| ScreenPart {
                 text,
                 max_tokens: self.screen_tokens,
                 shown_above: &self.screen_reads.shown_above,

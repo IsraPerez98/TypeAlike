@@ -2,6 +2,7 @@
 
 use crate::desktop::{
     Confidence, MAX_CHARS_BEFORE_CARET, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenText,
+    Timestamp,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::excerpt::estimated_tokens;
@@ -11,6 +12,17 @@ use crate::settings::{OcrLevel, PromptPreparation, Settings, SuggestionLength};
 use crate::test_support::completion;
 
 use super::support::{FakeDesktop, engine_waiting_for, engine_with, press, request, request_with};
+
+const CHAT_APP: &str = "com.tinyspeck.slackmacgap";
+const MINUTE: u64 = 60;
+const BOOKING: &str = "The table is booked for 8:30 at Casa Lupa.";
+const CAKE: &str = "Bring the cake from the bakery on Elm Street.";
+const FLOWERS: &str = "Ana will pick up the flowers in the morning.";
+const KIDS: &str = "Leo drives the kids to the party at noon.";
+const QUESTION: &str = "What time was the dinner again?";
+const DEADLINE: &str = "Tell me before six, please.";
+const TRAIN: &str = "The train to Halden leaves at 7:40.";
+const PLATFORM: &str = "It leaves from platform 4, not 6.";
 
 fn screen_with(line: &str) -> ScreenText {
     ScreenText {
@@ -58,8 +70,63 @@ fn screen_with_lines(count: i32) -> ScreenText {
     }
 }
 
-/// Returns the estimated tokens of the lines above the field in the prompt of `reaction`.
-fn screen_tokens_in(reaction: &Reaction) -> u32 {
+/// Returns a screen of a chat with a line for each text and top of `rows`, all above the field.
+fn chat_with(rows: &[(&str, i32)]) -> ScreenText {
+    ScreenText {
+        lines: rows
+            .iter()
+            .map(|&(text, top)| ScreenLine {
+                text: text.to_owned(),
+                confidence: Confidence::CERTAIN,
+                frame: ScreenRect {
+                    left: 0,
+                    top,
+                    right: 500,
+                    bottom: top + 20,
+                },
+            })
+            .collect(),
+        caret: None,
+        field: ScreenRect {
+            left: 0,
+            top: 200,
+            right: 500,
+            bottom: 240,
+        },
+    }
+}
+
+fn scrolled_up() -> ScreenText {
+    chat_with(&[(BOOKING, 40), (CAKE, 80), (FLOWERS, 120), (KIDS, 160)])
+}
+
+/// The chat of [`scrolled_up`] after a scroll of two lines down.
+fn scrolled_down() -> ScreenText {
+    chat_with(&[(FLOWERS, 40), (KIDS, 80), (QUESTION, 120), (DEADLINE, 160)])
+}
+
+/// A field of a chat app at `seconds` after a fixed moment.
+fn chat_at(seconds: u64) -> FakeDesktop {
+    FakeDesktop::default()
+        .in_app(CHAT_APP)
+        .at(Timestamp(1_793_890_800 + seconds))
+}
+
+/// Gives each text of `reads` to the engine as the answer to a new read, with its desktop.
+fn read_screens<const COUNT: usize>(engine: &mut Engine, reads: [(ScreenText, FakeDesktop); COUNT]) {
+    for (text, desktop) in reads {
+        let id = engine.start_screen_read().expect("no session runs");
+        engine.on_screen_read(ScreenRead { id, text: Some(text) }, &desktop);
+    }
+}
+
+/// Returns the lines above the field that the prompt shows after the key `S` in `desktop`.
+fn lines_above_after_key(engine: &mut Engine, desktop: &FakeDesktop) -> Vec<String> {
+    lines_above_in(&engine.on_key(Key::Char('S'), Press::First, desktop))
+}
+
+/// Returns the lines above the field in the prompt of `reaction`.
+fn lines_above_in(reaction: &Reaction) -> Vec<String> {
     let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
         panic!("a key requests a completion: {reaction:?}");
     };
@@ -68,10 +135,17 @@ fn screen_tokens_in(reaction: &Reaction) -> u32 {
         .split_once("Above the field on my screen: “")
         .expect("the prompt has screen text");
     let (lines, _) = above.split_once('”').expect("the screen text ends with a quote");
-    lines.lines().map(|line| estimated_tokens(line).0).sum()
+    lines.lines().map(str::to_owned).collect()
 }
 
-const CHAT_APP: &str = "com.tinyspeck.slackmacgap";
+/// Returns the estimated tokens of the lines above the field in the prompt of `reaction`.
+fn screen_tokens_in(reaction: &Reaction) -> u32 {
+    lines_above_in(reaction)
+        .iter()
+        .map(|line| estimated_tokens(line).0)
+        .sum()
+}
+
 const CHAT_FIELD_TOP: i32 = 3000;
 
 /// Returns a chat with `count` messages of about 14 estimated tokens each, the newest just above
@@ -519,4 +593,147 @@ fn text_with_few_characters_for_each_token_keeps_room_for_the_completion_on_each
     });
 
     assert_eq!(fits, [true, true]);
+}
+
+fn texts(lines: &[&str]) -> Vec<String> {
+    lines.iter().map(|&line| line.to_owned()).collect()
+}
+
+fn lines_of_scrolled_down() -> Vec<String> {
+    texts(&[FLOWERS, KIDS, QUESTION, DEADLINE])
+}
+
+#[test]
+fn scroll_keeps_the_lines_that_left_the_screen_above_the_new_lines() {
+    let mut engine = Engine::default();
+    read_screens(
+        &mut engine,
+        [(scrolled_up(), chat_at(0)), (scrolled_down(), chat_at(MINUTE))],
+    );
+
+    let lines = lines_above_after_key(&mut engine, &chat_at(MINUTE));
+
+    assert_eq!(lines, texts(&[BOOKING, CAKE, FLOWERS, KIDS, QUESTION, DEADLINE]));
+}
+
+#[test]
+fn read_that_shares_fewer_than_two_long_lines_starts_a_new_conversation() {
+    let short_lines = chat_with(&[("Sounds good", 40), ("See you then", 80), (BOOKING, 120)]);
+    let reads = [
+        (scrolled_up(), chat_with(&[(TRAIN, 120), (PLATFORM, 160)])),
+        (
+            scrolled_up(),
+            chat_with(&[(FLOWERS, 40), (TRAIN, 120), (PLATFORM, 160)]),
+        ),
+        (
+            short_lines,
+            chat_with(&[
+                ("Sounds good", 40),
+                ("See you then", 80),
+                (TRAIN, 120),
+                (PLATFORM, 160),
+            ]),
+        ),
+    ];
+
+    let lines = reads.map(|(earlier, newer)| {
+        let mut engine = Engine::default();
+        read_screens(&mut engine, [(earlier, chat_at(0)), (newer, chat_at(MINUTE))]);
+        lines_above_after_key(&mut engine, &chat_at(MINUTE))
+    });
+
+    assert_eq!(
+        lines,
+        [
+            texts(&[TRAIN, PLATFORM]),
+            texts(&[FLOWERS, TRAIN, PLATFORM]),
+            texts(&["Sounds good", "See you then", TRAIN, PLATFORM]),
+        ]
+    );
+}
+
+#[test]
+fn lines_that_left_the_screen_go_ten_minutes_after_the_read_that_showed_them() {
+    let read_and_key_times = [(11 * MINUTE, 11 * MINUTE), (MINUTE, 11 * MINUTE)];
+
+    let lines = read_and_key_times.map(|(read_at, key_at)| {
+        let mut engine = Engine::default();
+        read_screens(
+            &mut engine,
+            [(scrolled_up(), chat_at(0)), (scrolled_down(), chat_at(read_at))],
+        );
+        lines_above_after_key(&mut engine, &chat_at(key_at))
+    });
+
+    assert_eq!(lines, [lines_of_scrolled_down(), lines_of_scrolled_down()]);
+}
+
+#[test]
+fn desktop_without_a_clock_keeps_no_lines_that_left_the_screen() {
+    let mut engine = Engine::default();
+    let desktop = FakeDesktop::default().in_app(CHAT_APP);
+    read_screens(
+        &mut engine,
+        [
+            (scrolled_up(), FakeDesktop::default().in_app(CHAT_APP)),
+            (scrolled_down(), FakeDesktop::default().in_app(CHAT_APP)),
+        ],
+    );
+
+    let lines = lines_above_after_key(&mut engine, &desktop);
+
+    assert_eq!(lines, lines_of_scrolled_down());
+}
+
+#[test]
+fn another_field_drops_the_lines_that_left_the_screen() {
+    let mut engine = Engine::default();
+    read_screens(&mut engine, [(scrolled_up(), chat_at(0))]);
+    engine.forget_screen();
+    read_screens(&mut engine, [(scrolled_down(), chat_at(MINUTE))]);
+
+    let lines = lines_above_after_key(&mut engine, &chat_at(MINUTE));
+
+    assert_eq!(lines, lines_of_scrolled_down());
+}
+
+#[test]
+fn place_outside_a_chat_or_an_email_app_shows_only_the_newest_read() {
+    let mut engine = Engine::default();
+    let document_at = |seconds| FakeDesktop::default().at(Timestamp(1_793_890_800 + seconds));
+    read_screens(
+        &mut engine,
+        [
+            (scrolled_up(), document_at(0)),
+            (scrolled_down(), document_at(MINUTE)),
+        ],
+    );
+
+    let lines = lines_above_after_key(&mut engine, &document_at(MINUTE));
+
+    assert_eq!(lines, lines_of_scrolled_down());
+}
+
+#[test]
+fn lines_on_the_screen_fill_the_budget_before_the_lines_that_left_it() {
+    let mut engine = engine_with(&Settings {
+        backend: Backend::Cpu,
+        prompt_preparation: PromptPreparation::OnFirstKey,
+        ..Settings::default()
+    });
+    let long_line = "word ".repeat(174);
+    read_screens(
+        &mut engine,
+        [
+            (
+                chat_with(&[(FLOWERS, 40), (KIDS, 80), (&long_line, 160)]),
+                chat_at(0),
+            ),
+            (scrolled_down(), chat_at(MINUTE)),
+        ],
+    );
+
+    let lines = lines_above_after_key(&mut engine, &chat_at(MINUTE));
+
+    assert_eq!(lines, lines_of_scrolled_down());
 }
