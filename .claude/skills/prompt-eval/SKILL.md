@@ -127,6 +127,10 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
   - Its groups: `scrolled` (an earlier read showed the fact, and the last read shows the bottom of the chat without it, with at least 2 long lines in common), `switched` (the earlier read is another chat of the same app with a conflicting fact), `stale` (as `scrolled`, but 15 minutes before the last read) and `visible` (control, the fact is in the last read).
   - Run it with `--name "Sara Novak"` on a graphics card for a change to the screen reads or to the chat lines that the user scrolled past.
   - `cases/scrolled_gen.py` writes the set again, and `--check` makes sure of the reads of each group.
+- `cases/message_times.jsonl` has the Telegram and WhatsApp chats of `conversation.jsonl` and `scrolled.jsonl`, where text recognition joins the time of a message to the end of its last line ("see you there 9:57"), as macOS does when a small gap divides them.
+  - Its groups: `joined` (the same caret and next word, for the harm of a change) and `end` (the caret after the whole message, a leak case whose leaks are the joined times).
+  - Run it with `--name "Sara Novak" --word-choice medium` for a change to the screen lines of a chat or to the times of messages.
+  - `cases/message_times_gen.py` writes the set again from the two source sets, and `--check` makes sure that the set is the same as the sets give.
 
 ### Stores of the writers
 
