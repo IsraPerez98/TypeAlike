@@ -14,7 +14,7 @@ pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline R
      [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--drafter on|off] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
-     [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off]";
+     [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off] [--preparation on-focus|first-key]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -44,6 +44,7 @@ pub struct Arguments {
     pub clipboard: ClipboardAccess,
     pub history: HistoryAccess,
     pub reply_words: ReplyWords,
+    pub preparation: PromptPreparation,
 }
 
 /// Whether the model runs with its drafter, when the folder of the model holds the drafter.
@@ -116,6 +117,7 @@ impl Arguments {
             clipboard: ClipboardAccess::Allowed,
             history: HistoryAccess::On,
             reply_words: ReplyWords::On,
+            preparation: PromptPreparation::default(),
         };
         for option in options.chunks(2) {
             match option {
@@ -163,6 +165,9 @@ impl Arguments {
                 [name, reply_words] if name == "--reply-words" => {
                     parsed.reply_words = switch_named(reply_words, ReplyWords::On, ReplyWords::Off)?;
                 }
+                [name, preparation] if name == "--preparation" => {
+                    parsed.preparation = preparation_named(preparation)?;
+                }
                 _ => return None,
             }
         }
@@ -170,7 +175,7 @@ impl Arguments {
     }
 
     /// Returns the settings of each case before its earlier writing: the default settings with the
-    /// options of the arguments, and the prompt prepared on focus.
+    /// options of the arguments.
     pub fn settings(&self) -> Settings {
         Settings {
             backend: self.backend,
@@ -181,7 +186,7 @@ impl Arguments {
             },
             writer_notes: WriterNotes(self.notes.clone()),
             writer_name: WriterName(self.name.clone()),
-            prompt_preparation: PromptPreparation::OnFocus,
+            prompt_preparation: self.preparation,
             typo_rule: self.typo_rule,
             sentence_end: self.sentence_end,
             suggestion_length: self.length,
@@ -225,6 +230,15 @@ fn length_named(name: &str) -> Option<SuggestionLength> {
         "medium" => Some(SuggestionLength::Medium),
         "long" => Some(SuggestionLength::Long),
         "very_long" => Some(SuggestionLength::VeryLong),
+        _ => None,
+    }
+}
+
+/// Returns the prompt preparation with `name` in [`USAGE`], or `None` for another name.
+fn preparation_named(name: &str) -> Option<PromptPreparation> {
+    match name {
+        "on-focus" => Some(PromptPreparation::OnFocus),
+        "first-key" => Some(PromptPreparation::OnFirstKey),
         _ => None,
     }
 }
@@ -301,6 +315,7 @@ mod tests {
                 clipboard: ClipboardAccess::Allowed,
                 history: HistoryAccess::On,
                 reply_words: ReplyWords::On,
+                preparation: PromptPreparation::OnFocus,
             })
         );
     }
@@ -526,6 +541,25 @@ mod tests {
         });
 
         assert_eq!(switches, [Some(ReplyWords::On), Some(ReplyWords::Off), None]);
+    }
+
+    #[test]
+    fn preparation_option_prepares_the_prompt_on_focus_or_at_the_first_key() {
+        let names = ["on-focus", "first-key", "on"];
+
+        let preparations = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--preparation", name])
+                .map(|arguments| arguments.settings().prompt_preparation)
+        });
+
+        assert_eq!(
+            preparations,
+            [
+                Some(PromptPreparation::OnFocus),
+                Some(PromptPreparation::OnFirstKey),
+                None
+            ]
+        );
     }
 
     #[test]

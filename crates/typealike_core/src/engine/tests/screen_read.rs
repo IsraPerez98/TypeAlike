@@ -7,7 +7,7 @@ use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::excerpt::estimated_tokens;
 use crate::inference::{Backend, CONTEXT_TOKENS, InferenceRequest};
 use crate::key::{Key, Press};
-use crate::settings::{OcrLevel, Settings, SuggestionLength};
+use crate::settings::{OcrLevel, PromptPreparation, Settings, SuggestionLength};
 use crate::test_support::completion;
 
 use super::support::{FakeDesktop, engine_waiting_for, engine_with, press, request, request_with};
@@ -101,12 +101,20 @@ fn session_shows_the_screen_text_of_the_read_before_it() {
 }
 
 #[test]
-fn long_screen_text_keeps_300_tokens_on_the_cpu_and_800_on_a_graphics_card() {
-    let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+fn long_screen_text_keeps_more_tokens_on_a_graphics_card_or_when_the_prompt_is_prepared_early() {
+    let cases = [
+        (Backend::Cpu, PromptPreparation::OnFirstKey, 300),
+        (Backend::Cpu, PromptPreparation::OnFocus, 500),
+        (Backend::Vulkan, PromptPreparation::OnFirstKey, 800),
+        (Backend::Cuda, PromptPreparation::OnFocus, 800),
+        (Backend::Metal, PromptPreparation::OnFirstKey, 800),
+        (Backend::Metal, PromptPreparation::OnFocus, 800),
+    ];
 
-    let kept_tokens = backends.map(|backend| {
+    let kept_tokens = cases.map(|(backend, prompt_preparation, _)| {
         let mut engine = engine_with(&Settings {
             backend,
+            prompt_preparation,
             ..Settings::default()
         });
         let id = engine.start_screen_read().expect("no session runs");
@@ -114,7 +122,7 @@ fn long_screen_text_keeps_300_tokens_on_the_cpu_and_800_on_a_graphics_card() {
         screen_tokens_in(&press(&mut engine, Key::Char('S')))
     });
 
-    assert_eq!(kept_tokens, [300, 800, 800, 800]);
+    assert_eq!(kept_tokens, cases.map(|(_, _, tokens)| tokens));
 }
 
 #[test]

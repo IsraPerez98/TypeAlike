@@ -9,7 +9,8 @@
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
 //!     [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] \
-//!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off] //!     [--reply-words on|off]
+//!     [--replay off|word|character] [--screen on|off] [--clipboard on|off] [--history on|off] \
+//!     [--reply-words on|off] [--preparation on-focus|first-key]
 //! ```
 //!
 //! Each line of the case file is one JSON object with these keys:
@@ -206,6 +207,12 @@
 //! such section, and `words` and `history` give no word bias. Each is `on` by default. Compare a
 //! run with one of them off against the run with all on (`--baseline`) to measure the gain of
 //! that section.
+//!
+//! `--preparation` sets when the app prepares the prompt: `on-focus` (the default, as in the app)
+//! or `first-key`, as with the switch "Prepare suggestions early" off. On the CPU, it also sets the
+//! budget of the screen text. With `first-key`, the app prepares no prompt when the input settles,
+//! except in a place where the earlier writing has a text. Thus the warm time is then mostly the
+//! time of a first key.
 //!
 //! `--reply-words off` turns off "Learn from the messages that you answer" in the settings, as the
 //! switch of the app does. The earlier writing then has no words of the messages that its texts

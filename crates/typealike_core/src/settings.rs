@@ -253,12 +253,14 @@ impl Settings {
     }
 
     /// The most estimated tokens of the screen text in a prompt. The CPU keeps fewer, because more
-    /// screen text is too slow to decode there: 1200 tokens add about 6 s with a 4B model.
+    /// screen text is too slow to decode there: 1200 tokens add about 6 s with a 4B model. With
+    /// [`PromptPreparation::OnFocus`], the CPU keeps more, because that decode often ends before
+    /// the first key.
     pub(crate) fn screen_tokens(&self) -> TokenCount {
-        if self.backend == Backend::Cpu {
-            TokenCount(300)
-        } else {
-            TokenCount(800)
+        match (self.backend, self.prompt_preparation) {
+            (Backend::Cpu, PromptPreparation::OnFirstKey) => TokenCount(300),
+            (Backend::Cpu, PromptPreparation::OnFocus) => TokenCount(500),
+            _ => TokenCount(800),
         }
     }
 

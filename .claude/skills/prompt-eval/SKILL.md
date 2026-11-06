@@ -43,6 +43,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `--cpu-cores 4,6` gives the performance and efficiency cores, so that the CPU backend uses the threads of the app on Windows.
 - `--batch TOKENS` sets the most tokens that one decode of a prompt takes on any backend (default: the batch of the backend, as in the app). Use it to measure another batch, and compare the median time of each prompt size.
 - `--drafter on|off` runs the model with or without its drafter (default: on, as in the app). As in the models folder of the app, the folder of the model and its parent folder name the repository (for example `unsloth/gemma-4-E4B-it-qat-GGUF/`), and the drafter file must be in the folder of the model. Run the same cases with each value and `--save`: each suggestion must stay the same, and only the times change.
+- `--preparation on-focus|first-key` sets when the app prepares the prompt (default: on-focus, as in the app). `first-key` is the switch "Prepare suggestions early" off. On the CPU, the screen text then gets 300 estimated tokens, not 500. With `first-key`, the warm time is mostly the time of a first key, because the app prepares no prompt when the input settles, except in a place where the earlier writing has a text.
 - `TYPEALIKE_LOG=typealike_llm=debug` logs the guesses of the drafter for each completion to stderr (`guesses`, `right_guesses`).
 
 ### Earlier writing
