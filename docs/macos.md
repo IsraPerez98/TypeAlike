@@ -61,6 +61,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - Its text then does not tell where the caret is. The value would put the whole screen after the caret.
   - Thus a field of Ghostty without a caret gives no field text and has unreadable text, and core reads its text from the OCR of the screen (`docs/core/prompt.md`, "Field that hides its text").
   - When Ghostty gives a caret, its field text counts again.
+- The hidden input box of a terminal of xterm.js (the terminal of VS Code) never holds the text of the terminal. Thus it also gives no field text and has unreadable text, and core reads the terminal from the OCR.
+  - For a screen read, its field frame is the frame of the terminal screen (`xterm-screen`), so that the lines of the terminal are the lines of the field.
+  - The tree of VS Code holds the text of the terminal only while its screen reader mode is on. Without the OCR, the prompt got only the side bar and the status bar.
 
 ## Caret
 
@@ -76,6 +79,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - In a terminal of xterm.js (the class `xterm-helper-textarea` in `AXDOMClassList`), the caret is the left edge of that hidden input box, moved up to the row of the terminal screen that holds it.
 - The text in the box does not give the caret, because xterm.js keeps the text that TypeAlike types there until Enter.
+- The text in the box is not the field text either (see "Fields").
 
 ## Text after the caret
 

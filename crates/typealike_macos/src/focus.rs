@@ -15,7 +15,7 @@ use crate::accessibility::{
     is_search_field, is_secure_text, selected_range,
 };
 pub(crate) use crate::focus::caret::{FontFace, TextStyle};
-use crate::focus::caret::{caret_bounds, is_terminal_input, text_style};
+use crate::focus::caret::{caret_bounds, is_terminal_input, terminal_screen_frame, text_style};
 use crate::focus::surroundings::{field_labels, field_text, has_unreadable_text, web_domain, window_title};
 use crate::geometry::{Caret, is_finite_frame};
 
@@ -190,10 +190,11 @@ fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str 
     }
 }
 
-/// Whether `element`, the focused field of the app `app_id`, shows its text only on the screen: the
-/// text of a field that gives its mouse selection and no caret does not tell where the caret is.
+/// Whether `element`, the focused field of the app `app_id`, shows its text only on the screen. The
+/// input box of a terminal of xterm.js never holds the text of the terminal, and the text of a
+/// field that gives its mouse selection and no caret does not tell where the caret is.
 fn shows_text_only_on_screen(element: &AXUIElement, app_id: Option<&str>) -> bool {
-    gives_mouse_selection_only(app_id) && caret_bounds(element).is_none()
+    is_terminal_input(element) || (gives_mouse_selection_only(app_id) && caret_bounds(element).is_none())
 }
 
 /// Whether the app with `bundle_identifier` gives the mouse selection of its focused field through
@@ -211,6 +212,8 @@ fn is_own_process(process: i32) -> bool {
 /// The focused field of an app, which does not hide its text.
 pub(crate) struct FocusedField {
     pub(crate) element: CFRetained<AXUIElement>,
+    /// The frame of the field. For the input box of a terminal of xterm.js, the frame of the
+    /// terminal screen, which shows the text of that box.
     pub(crate) frame: CGRect,
     pub(crate) caret: Option<CGRect>,
     /// Whether the field shows its text only on the screen, as a terminal does. Its lines on the
@@ -231,7 +234,7 @@ pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
         .and_then(|application| application.bundleIdentifier())
         .map(|identifier| identifier.to_string());
     Some(FocusedField {
-        frame: frame(&element)?,
+        frame: terminal_screen_frame(&element).or_else(|| frame(&element))?,
         caret: caret_bounds(&element),
         shows_text_only_on_screen: shows_text_only_on_screen(&element, app_id.as_deref()),
         element,

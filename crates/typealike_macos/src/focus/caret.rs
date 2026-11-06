@@ -329,13 +329,26 @@ pub(super) fn is_terminal_input(element: &AXUIElement) -> bool {
 
 /// Reads the input box of a terminal of xterm.js, `element`, and the top of its screen.
 fn terminal_input(element: &AXUIElement) -> Option<TerminalInput> {
-    let screen = iter::successors(parent(element), |current| parent(current))
-        .take(MAX_TERMINAL_SCREEN_DISTANCE)
-        .find(|ancestor| has_dom_class(ancestor, XTERM_SCREEN_CLASS))?;
     Some(TerminalInput {
         frame: frame(element)?,
-        screen_top: frame(&screen)?.origin.y,
+        screen_top: frame(&*terminal_screen(element)?)?.origin.y,
     })
+}
+
+/// Reads the frame of the screen of the terminal of xterm.js whose input box is `element`, which
+/// shows the text of that box. `None` for any other element.
+pub(super) fn terminal_screen_frame(element: &AXUIElement) -> Option<CGRect> {
+    if !is_terminal_input(element) {
+        return None;
+    }
+    frame(&*terminal_screen(element)?)
+}
+
+/// Finds the screen of the terminal of xterm.js that holds `element`, its input box.
+fn terminal_screen(element: &AXUIElement) -> Option<CFRetained<AXUIElement>> {
+    iter::successors(parent(element), |current| parent(current))
+        .take(MAX_TERMINAL_SCREEN_DISTANCE)
+        .find(|ancestor| has_dom_class(ancestor, XTERM_SCREEN_CLASS))
 }
 
 fn previous_unit_range(caret_index: isize) -> Option<CFRange> {
