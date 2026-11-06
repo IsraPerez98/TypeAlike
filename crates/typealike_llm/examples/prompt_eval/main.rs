@@ -29,6 +29,12 @@
 //! - `screen`: the text near the field on the screen, or `null`: `field` and `caret` (or `null`)
 //!   are the frames of the field and the caret, and each of `lines` has a `text` outside of the
 //!   field and its `frame`. A frame is `[left, top, right, bottom]` in pixels of the window.
+//! - `earlier_screens`: the reads of the screen of the same window before `screen`, oldest first,
+//!   in the format of `screen`. The input settles once for each of them before it settles for
+//!   `screen`, and a scroll follows each of them, so that the session reads the screen again. It
+//!   can be left out.
+//! - `screen_gap_seconds`: the seconds between two reads of the screen (default: 20). The clock of
+//!   each earlier read is that much before the next read. It can be left out.
 //! - `writer`: the name of a store of earlier texts, or `null`. The store is the file
 //!   `writers/NAME.jsonl` next to the case file. Each line is one earlier text with its `text`,
 //!   `app_id` and `domain`, oldest first, and maybe `written_at` and `reply_to`: the message that

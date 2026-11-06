@@ -253,7 +253,8 @@ struct Typing<'case> {
 }
 
 impl Typing<'_> {
-    /// Opens the field in a new app, lets the input settle with the `preparation`, presses the last
+    /// Opens the field in a new app, lets the input settle once for each earlier screen of the case,
+    /// each followed by a scroll, and once more with the `preparation`. Then it presses the last
     /// key and waits for the ghost text. After Enter, the input settles again before the ghost
     /// text. Returns the app, for the keys after it.
     fn press_last_key(
@@ -267,7 +268,12 @@ impl Typing<'_> {
         if let Some(dictionary) = self.dictionary {
             app.use_spell_checker(Box::new(dictionary.clone()));
         }
-        let opened = self.settle(model, &mut app, &self.field, preparation)?;
+        for (screen, field) in self.case.earlier_reads(&self.field) {
+            Self::settle(model, &mut app, &field, Some(screen), Preparation::Skip)?;
+            app.on_scroll();
+        }
+        let screen = self.case.screen.as_ref();
+        let opened = Self::settle(model, &mut app, &self.field, screen, preparation)?;
         let is_screen_allowed = self.settings.screen_text.access == ScreenTextAccess::Allowed;
         if self.case.screen.is_some() && is_screen_allowed && !opened.has_read_screen {
             bail!("case {} reads no screen text", self.case.id);
@@ -276,7 +282,7 @@ impl Typing<'_> {
         let reaction = app.on_key(self.last_key, Press::First, &self.field);
         let mut answer = self.complete(model, &mut app, reaction)?;
         if self.last_key == Key::Enter {
-            let settled = self.settle(model, &mut app, &self.typed_field, Preparation::Skip)?;
+            let settled = Self::settle(model, &mut app, &self.typed_field, screen, Preparation::Skip)?;
             if let Some(suggestion) = settled.suggestion {
                 answer = self.complete(model, &mut app, suggestion)?;
             }
@@ -333,13 +339,13 @@ impl Typing<'_> {
         })
     }
 
-    /// Lets the input settle in `app` with the focus in `field`: gives the screen of the case to
-    /// each read of the screen, and does the `preparation` with each prompt that the app prepares.
+    /// Lets the input settle in `app` with the focus in `field`: gives `screen` to each read of the
+    /// screen, and does the `preparation` with each prompt that the app prepares.
     fn settle(
-        &self,
         model: &mut ModelSession,
         app: &mut App,
         field: &CaseField,
+        screen: Option<&CaseScreen>,
         preparation: Preparation,
     ) -> anyhow::Result<Settled> {
         let mut settled = Settled {
@@ -351,7 +357,7 @@ impl Typing<'_> {
             work = match next {
                 SettledWork::ReadScreen { read, .. } => {
                     settled.has_read_screen = true;
-                    let text = self.case.screen.as_ref().map(CaseScreen::to_screen_text);
+                    let text = screen.map(CaseScreen::to_screen_text);
                     app.on_screen_read(ScreenRead { id: read, text }, field)
                 }
                 SettledWork::Prepare(request) => {

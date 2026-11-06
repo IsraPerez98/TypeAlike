@@ -19,6 +19,9 @@ use crate::arguments::{Replay, SharedHistory};
 use crate::read_json_lines;
 use crate::score::{CaseKind, WordCounts};
 
+/// The seconds between two reads of the screen of a case that does not give them.
+const SCREEN_GAP_SECONDS: u64 = 20;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Case {
@@ -37,6 +40,13 @@ pub struct Case {
     after: String,
     clipboard: Option<String>,
     pub screen: Option<CaseScreen>,
+    /// The reads of the screen of the same window before `screen`, oldest first.
+    #[serde(default)]
+    earlier_screens: Vec<CaseScreen>,
+    /// The seconds between two reads of the screen, [`SCREEN_GAP_SECONDS`] when the case does not
+    /// give them.
+    #[serde(default)]
+    screen_gap_seconds: Option<u64>,
     /// Whether the field can show text that the platform cannot read, as the editor of VS Code
     /// does while its screen reader mode is off.
     #[serde(default)]
@@ -184,6 +194,21 @@ impl Case {
             clipboard: self.clipboard.clone(),
             now: self.now.map(Timestamp),
         }
+    }
+
+    /// Returns each earlier screen of the case, oldest first, with `field` at the time of its read.
+    /// The reads come one gap of the case apart, and the newest one comes one gap before `field`.
+    pub fn earlier_reads(&self, field: &CaseField) -> Vec<(&CaseScreen, CaseField)> {
+        let gap = self.screen_gap_seconds.unwrap_or(SCREEN_GAP_SECONDS);
+        let mut reads = self
+            .earlier_screens
+            .iter()
+            .rev()
+            .zip(1..)
+            .map(|(screen, reads_back)| (screen, field.earlier_by(gap.saturating_mul(reads_back))))
+            .collect::<Vec<_>>();
+        reads.reverse();
+        reads
     }
 }
 
@@ -378,11 +403,20 @@ fn screen_rect([left, top, right, bottom]: CaseFrame) -> ScreenRect {
 }
 
 /// The focused field of a case.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CaseField {
     surroundings: Surroundings,
     clipboard: Option<String>,
     now: Option<Timestamp>,
+}
+
+impl CaseField {
+    fn earlier_by(&self, seconds: u64) -> Self {
+        Self {
+            now: self.now.map(|now| Timestamp(now.0.saturating_sub(seconds))),
+            ..self.clone()
+        }
+    }
 }
 
 impl Desktop for CaseField {
@@ -497,6 +531,52 @@ mod tests {
                 window_title: None,
             })
             .collect()
+    }
+
+    fn case_with_earlier_screens(gap: Option<u64>) -> Case {
+        let screen = |text: &str| {
+            format!(
+                r#"{{"field": [0, 200, 500, 240], "caret": null,
+                    "lines": [{{"text": "{text}", "frame": [0, 100, 500, 120]}}]}}"#
+            )
+        };
+        let gap = gap.map_or(String::new(), |seconds| {
+            format!(r#""screen_gap_seconds": {seconds},"#)
+        });
+        serde_json::from_str(&format!(
+            r#"{{"id": "case", "app": null, "app_id": null, "window_title": null, "domain": null,
+                "before": "a", "after": "", "clipboard": null, "screen": null, "now": 10000, {gap}
+                "earlier_screens": [{}, {}], "history": [], "next": "b"}}"#,
+            screen("older"),
+            screen("newer")
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn earlier_screens_are_read_oldest_first_before_the_case_with_the_gap_of_the_case() {
+        let cases = [None, Some(900)].map(case_with_earlier_screens);
+
+        let reads = cases.each_ref().map(|case| {
+            case.earlier_reads(&case.field(String::new()))
+                .into_iter()
+                .map(|(screen, field)| (screen.lines[0].text.as_str(), field.now))
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            reads,
+            [
+                vec![
+                    ("older", Some(Timestamp(9_960))),
+                    ("newer", Some(Timestamp(9_980)))
+                ],
+                vec![
+                    ("older", Some(Timestamp(8_200))),
+                    ("newer", Some(Timestamp(9_100)))
+                ],
+            ]
+        );
     }
 
     #[test]

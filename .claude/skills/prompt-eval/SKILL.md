@@ -121,6 +121,12 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
   - Its groups: `far` (the fact is more than 300 tokens above the caret), `near` (the fact is near the caret), `turns` (the next word depends on who wrote each message), `answer` (the fact is in the first line of the last message), `live` (older texts of the same app pull another word), `header` (WhatsApp with the contact only in the chat header, store `writers/sara_conversation.jsonl`) and `email` (the fact is more than 100 tokens into the quoted message after the caret).
   - Run it with `--name "Sara Novak" --word-choice medium`, also with `--backend cpu --length short` for a change to the budget of the screen text.
   - `cases/conversation_gen.py` writes the set again, and `--check` makes sure of the distances of each group.
+- `cases/scrolled.jsonl` has chats in a laptop window with a short chat area, where the app read the screen before the last read.
+  - The optional field `earlier_screens` of a case holds those reads of the same window, oldest first, in the format of `screen`. The input settles once for each of them before it settles for `screen`, and a scroll follows each of them, so that the session reads the screen again.
+  - The reads are 20 seconds apart, or `screen_gap_seconds` apart when the case gives it. A case without `earlier_screens` runs as before.
+  - Its groups: `scrolled` (an earlier read showed the fact, and the last read shows the bottom of the chat without it, with at least 2 long lines in common), `switched` (the earlier read is another chat of the same app with a conflicting fact), `stale` (as `scrolled`, but 15 minutes before the last read) and `visible` (control, the fact is in the last read).
+  - Run it with `--name "Sara Novak"` on a graphics card for a change to the screen reads or to the chat lines that the user scrolled past.
+  - `cases/scrolled_gen.py` writes the set again, and `--check` makes sure of the reads of each group.
 
 ### Stores of the writers
 
