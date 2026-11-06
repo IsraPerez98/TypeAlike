@@ -36,7 +36,10 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 ## Release
 
 - Push a tag `vX.Y.Z` equal to the workspace version.
-- `.github/workflows/release.yml` builds `TypeAlike-X.Y.Z-macos-arm64.dmg` (ad-hoc signature, no notarization) and two Windows installers, then makes a draft release.
+- `.github/workflows/release.yml` builds `TypeAlike-X.Y.Z-macos-arm64.dmg` (self-signed certificate, no notarization) and two Windows installers, then makes a draft release.
+  - The macOS job of a tag runs in the `release` environment: only `v*` tags, after the approval of the owner. Its secrets `MACOS_SIGNING_P12` (base64) and `MACOS_SIGNING_P12_PASSWORD` hold the certificate.
+  - Never change the certificate (`release_certificate` in `build-dmg.sh`). macOS keeps the permissions of the app only while each release has the same certificate. A manual run and a local `build-dmg.sh` use an ad-hoc signature.
+  - Each action in the workflows is pinned to a commit. The repository allows only actions of GitHub and `Swatinem/rust-cache`.
   - `-windows-x64-vulkan-setup.exe` has Vulkan.
   - `-windows-x64-cuda-setup.exe` has Vulkan and CUDA with the CUDA runtime and cuBLAS DLLs.
 - A manual run (`workflow_dispatch`) builds only the workflow artifacts.

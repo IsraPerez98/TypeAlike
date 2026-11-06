@@ -19,7 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: version
         name: Read the version
         run: |
@@ -34,17 +34,43 @@ jobs:
     needs: version
     # The macOS 26 SDK gives the AppKit controls the Liquid Glass look.
     runs-on: macos-26
+    # Only a tag gets the signing certificate, after an approval of the release environment.
+    environment: ${{ github.ref_type == 'tag' && 'release' || '' }}
     env:
       # With an older target, the @available(macOS 15.0) checks of llama.cpp need the clang runtime,
       # which the Rust link does not include.
       MACOSX_DEPLOYMENT_TARGET: '15.0'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build
         run: cargo build --release --locked
+      # After the build, so that no build script runs while the private key is on the runner.
+      - name: Import the signing certificate
+        if: github.ref_type == 'tag'
+        env:
+          SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: |
+          if [ -z "$SIGNING_P12" ] || [ -z "$SIGNING_P12_PASSWORD" ]; then
+            echo "::error::The release environment has no MACOS_SIGNING_P12 or MACOS_SIGNING_P12_PASSWORD."
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 32)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Build the disk image
         run: sh packaging/macos/build-dmg.sh "${{ needs.version.outputs.version }}" target/release/TypeAlike dist
-      - uses: actions/upload-artifact@v7
+      - name: Remove the signing certificate
+        if: always() && github.ref_type == 'tag'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos
           path: dist/*.dmg
@@ -71,7 +97,7 @@ jobs:
       CUDA_VERSION: 13.2.2
       VULKAN_VERSION: 1.4.363.0
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select the MSVC 14.44 toolset
         run: |
@@ -128,7 +154,7 @@ jobs:
           "/O$PWD\dist"
           packaging\windows\TypeAlike.iss
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-${{ matrix.flavor }}
           path: dist/*.exe
@@ -142,7 +168,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true

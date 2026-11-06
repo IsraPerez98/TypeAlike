@@ -163,7 +163,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - A failed download or install shows that TypeAlike cannot install the version, with "Try again", which checks again.
 - When the user turns the switch off during the download, the version does not install, and the row shows that it is available.
 - Each start of TypeAlike removes `TypeAlike-update`. A file that the installer still holds stays until the next start.
-- On macOS, each release has another ad-hoc signature, so the permissions do not stay after an update. Without the Accessibility permission, the new version opens the Permissions pane.
+- On macOS, each release has the same self-signed certificate (`packaging/macos/build-dmg.sh`), so the permissions stay after an update. After an update from a release with an ad-hoc signature, the new version opens the Permissions pane.
 
 ### Third-party software
 

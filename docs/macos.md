@@ -20,7 +20,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - TypeAlike needs Accessibility access (`cargo run` from a terminal: grant it to the terminal app).
 - Without it, TypeAlike starts without the event tap, shows no prompt of macOS, opens the Permissions pane, and reads the permission every second (`AXIsProcessTrusted`). It starts the tap when the user gives the permission, with no restart.
-- "Give access" first runs `tccutil reset Accessibility|ScreenCapture <bundle id>` (`permissions::ask`), because each release has another ad-hoc signature, and macOS refuses the grant of an older build while System Settings shows it on. Then the prompt of macOS adds TypeAlike to the list again.
+- "Give access" first runs `tccutil reset Accessibility|ScreenCapture <bundle id>` (`permissions::ask`), because a build with an ad-hoc signature (a release before 0.7.0, a build from the source code) changes its signature, and macOS refuses the grant of an older build while System Settings shows it on. Then the prompt of macOS adds TypeAlike to the list again.
 - A program without a bundle (`cargo run`) skips the reset.
 - Each activation of TypeAlike reads the permissions again.
 - The OCR also needs Screen & System Audio Recording, which `cargo run` also takes from the terminal app.

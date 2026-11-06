@@ -92,8 +92,8 @@ You need macOS 15 or later on a Mac with Apple silicon. Intel Macs are not suppo
 4. Confirm in the next window. On macOS 15 and later, Control-click > **Open** does not skip this check.
 5. Give the permissions when the setup asks for them.
 
-TypeAlike installs each new version by itself and starts again. Then give the permissions again (see below). To
-update by hand, quit TypeAlike and replace the app in Applications. If macOS blocks it again, repeat steps 2 to 4.
+TypeAlike installs each new version by itself and starts again. To update by hand, quit TypeAlike and replace the app
+in Applications. If macOS blocks it again, repeat steps 2 to 4.
 
 ## Permissions on macOS
 
@@ -102,8 +102,9 @@ update by hand, quit TypeAlike and replace the app in Applications. If macOS blo
 | Accessibility | To read the text and the caret where you type, and to type a suggestion when you press **Tab**. | Required |
 | Screen & System Audio Recording | To read the text of an app that does not give it, from an image of the window. | Optional |
 
-Each build has a different ad-hoc signature, so macOS does not keep the permissions after an update. To give them
-again:
+Each release has the same signing certificate, so macOS keeps the permissions after an update. Releases before 0.7.0
+had an ad-hoc signature, so the first update from them needs the permissions once more. Builds from the source code
+also have an ad-hoc signature. To give the permissions again:
 
 1. Open TypeAlike. Without the Accessibility permission, it opens **Settings** > **Permissions**.
 2. Click **Give access** for each permission. TypeAlike removes the old entry, and macOS asks again.

@@ -113,7 +113,7 @@ These words belong to the code and the docs. The UI uses the text of the second 
 
 - `README.md`: features, privacy, install steps, permissions and uninstall. The status is "early release".
 - No user numbers, no testimonials, no benchmarks for marketing, no press. Do not invent them.
-- The release builds have no Developer ID signature and no Authenticode signature yet.
+- The release builds have no Developer ID signature and no Authenticode signature yet. The macOS release builds have a self-signed certificate, so that macOS keeps the permissions after an update.
 
 ## Product Principles
 
