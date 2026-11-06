@@ -13,7 +13,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::{LlamaLazyMode, LlamaModelParams};
 use llama_cpp_2::token::LlamaToken;
-use typealike_core::inference::CONTEXT_TOKENS;
+use typealike_core::inference::TokenCount;
 
 const BATCH_TOKENS: u32 = 512;
 const LAST_OUTPUT: i32 = -1;
@@ -37,19 +37,20 @@ pub struct Measured {
     pub log_probability: Option<f64>,
 }
 
-/// Measures each continuation with the model at `model_path`, or gives `None` for no
-/// continuation. Call it only when no other model runner is alive, because llama.cpp starts once
-/// for each process. It loads the model with the lazy reads of the app, so that the most memory of
-/// a run (`/usr/bin/time -l`) stays the memory of the app.
+/// Measures each continuation with the model at `model_path` in a context of `context_tokens`, or
+/// gives `None` for no continuation. Call it only when no other model runner is alive, because
+/// llama.cpp starts once for each process. It loads the model with the lazy reads of the app, so
+/// that the most memory of a run (`/usr/bin/time -l`) stays the memory of the app.
 pub fn measure(
     model_path: &Path,
+    context_tokens: TokenCount,
     continuations: &[Option<&Continuation>],
 ) -> anyhow::Result<Vec<Option<Measured>>> {
     let llama = LlamaBackend::init()?;
     let model_params = LlamaModelParams::default().with_lazy_mode(LlamaLazyMode::On);
     let model = LlamaModel::load_from_file(&llama, model_path, &model_params)?;
     let params = LlamaContextParams::default()
-        .with_n_ctx(NonZeroU32::new(CONTEXT_TOKENS.0))
+        .with_n_ctx(NonZeroU32::new(context_tokens.0))
         .with_n_batch(BATCH_TOKENS)
         .with_n_ubatch(BATCH_TOKENS);
     let mut context = model.new_context(&llama, params)?;

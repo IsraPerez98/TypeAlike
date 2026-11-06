@@ -1,7 +1,5 @@
 //! Tests the requests that the settings and the preparation give.
 
-use crate::desktop::MAX_CHARS_BEFORE_CARET;
-use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
 use crate::inference::{
     Backend, InferenceError, InferenceRequest, LogProbability, SentenceEnd, TokenCount, TypoCheck,
@@ -10,7 +8,9 @@ use crate::key::{Key, Press};
 use crate::settings::{Settings, SuggestionLength, TypoFix, TypoRule};
 use crate::test_support::{ExpectedRequest, completion, preparation_request};
 
-use super::support::{FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, show};
+use super::support::{
+    FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request, show,
+};
 
 #[test]
 fn typo_fixes_off_asks_for_no_fixes() {
@@ -204,8 +204,8 @@ fn first_key_after_preparing_continues_the_prepared_session() {
 #[test]
 fn first_key_after_preparing_a_long_field_continues_the_prepared_text() {
     let mut engine = Engine::default();
-    let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
-    let recent_text = "y".repeat(TRIMMED_CHARS_BEFORE_CARET);
+    let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(cpu_text_limits().max_chars - 1)));
+    let recent_text = "y".repeat(cpu_text_limits().trimmed_chars);
     let prepared = engine.prepare(&desktop);
 
     let reaction = engine.on_key(Key::Char('z'), Press::First, &desktop);

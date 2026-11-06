@@ -366,7 +366,11 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .map(|run| run.continuation.as_ref())
         .collect::<Vec<_>>();
-    let measures = likelihood::measure(&arguments.model, &continuations)?;
+    let measures = likelihood::measure(
+        &arguments.model,
+        arguments.backend.context_tokens(),
+        &continuations,
+    )?;
     let outcomes = with_measures(runs, measures);
 
     if let Some(path) = &arguments.save {

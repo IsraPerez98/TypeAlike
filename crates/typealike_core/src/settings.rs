@@ -9,6 +9,7 @@ mod suggestion_places;
 
 use std::fmt;
 
+use crate::desktop::MAX_CHARS_BEFORE_CARET;
 use crate::hub::ModelFile;
 use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoCheck};
 use crate::localization::UiLanguage;
@@ -188,6 +189,19 @@ pub enum Setup {
     Finished,
 }
 
+/// How much text before the caret a session keeps, and the context that holds its prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TextLimits {
+    /// The characters before the caret at which the text drops its oldest characters.
+    pub(crate) max_chars: usize,
+    /// The last characters that the text keeps when it drops its oldest characters. The text drops
+    /// them in large steps, so that the start of the prompt stays the same for many keys and the
+    /// model runner can reuse its work.
+    pub(crate) trimmed_chars: usize,
+    /// The tokens of the context of the model runner, which hold the prompt and its completion.
+    pub(crate) context_tokens: TokenCount,
+}
+
 /// Everything that TypeAlike keeps between runs.
 ///
 /// ```
@@ -261,6 +275,26 @@ impl Settings {
             (Backend::Cpu, PromptPreparation::OnFirstKey) => TokenCount(300),
             (Backend::Cpu, PromptPreparation::OnFocus) => TokenCount(500),
             _ => TokenCount(800),
+        }
+    }
+
+    /// The text before the caret that a session keeps. A GPU keeps more than twice the text of
+    /// the CPU, so that a fact further back in a long text can reach the prompt. The CPU keeps
+    /// less, because each token of a new prompt takes about 6 ms there.
+    pub(crate) fn text_limits(&self) -> TextLimits {
+        let context_tokens = self.backend.context_tokens();
+        if self.backend == Backend::Cpu {
+            TextLimits {
+                max_chars: 4000,
+                trimmed_chars: 3000,
+                context_tokens,
+            }
+        } else {
+            TextLimits {
+                max_chars: MAX_CHARS_BEFORE_CARET,
+                trimmed_chars: 7000,
+                context_tokens,
+            }
         }
     }
 
@@ -357,6 +391,46 @@ mod tests {
         });
 
         assert_eq!(counts, [1, 2, 2, 2]);
+    }
+
+    #[test]
+    fn graphics_card_keeps_more_text_before_the_caret_in_a_larger_context() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let limits = backends.map(|backend| {
+            Settings {
+                backend,
+                ..Settings::default()
+            }
+            .text_limits()
+        });
+
+        assert_eq!(
+            limits,
+            [
+                (4000, 3000, 4096),
+                (9000, 7000, 8192),
+                (9000, 7000, 8192),
+                (9000, 7000, 8192)
+            ]
+            .map(|(max_chars, trimmed_chars, context_tokens)| TextLimits {
+                max_chars,
+                trimmed_chars,
+                context_tokens: TokenCount(context_tokens),
+            })
+        );
+    }
+
+    #[test]
+    fn platform_reads_the_text_that_the_largest_limit_keeps() {
+        let metal = Settings {
+            backend: Backend::Metal,
+            ..Settings::default()
+        };
+
+        let max_chars = metal.text_limits().max_chars;
+
+        assert_eq!(max_chars, MAX_CHARS_BEFORE_CARET);
     }
 
     #[test]

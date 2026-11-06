@@ -11,7 +11,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 ## GPU memory
 
-- The runner refuses a GPU load when the whole model does not fit in free GPU memory.
+- The runner refuses a GPU load when the whole model does not fit in free GPU memory with the context of the backend (8192 tokens).
 - With a drafter, the check also keeps 64 MiB free for the drafter (`DRAFTER_MEMORY`). When the model fits only without the drafter, it loads without the drafter.
 - A read of GPU memory gives the free memory of the device that a load on that backend uses (the Metal device on macOS), and keeps a loaded model.
 
@@ -89,6 +89,9 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 ## Cache and context
 
+- The context holds 4096 tokens on the CPU and 8192 tokens on Vulkan, CUDA and Metal (`Backend::context_tokens`), or fewer when the model learned fewer (`n_ctx_train`).
+- 8192 tokens hold the longest preface (about 2150 estimated tokens), 9000 characters of text before the caret and the longest suggestion. They also hold 9000 Chinese characters, because Gemma has about 1.7 Chinese characters in each token.
+- Each 2048 tokens of context take about 118 MB for Gemma 4 E4B. Thus the context of a graphics card takes about 240 MB more than 4096 tokens (not measured).
 - The runner keeps the last prompt in the llama.cpp cache, so the next prompt decodes only the tokens that it adds.
 - On Vulkan, CUDA and Metal, after 1 minute without a request (`CONTEXT_IDLE_TIMEOUT`), it frees the context: the cache of the last prompt and the buffers of the backend (for Gemma 4 E4B on Metal, the footprint goes from about 420 MB to 170 MB).
 - The next request makes the context again and decodes its whole prompt.

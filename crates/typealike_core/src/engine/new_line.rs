@@ -29,7 +29,11 @@ impl Engine {
             let text = field_text
                 .as_ref()
                 .map_or(session.text_before.as_str(), |field_text| {
-                    recent_text(&field_text.before_caret, session.max_tokens_before)
+                    recent_text(
+                        &field_text.before_caret,
+                        session.limits,
+                        session.max_tokens_before,
+                    )
                 });
             session.field_at_enter = Some(text.to_owned());
         }

@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::desktop::{Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, ScreenLine, ScreenRect};
+use crate::inference::Backend;
+use crate::settings::{Settings, SuggestionLength};
 
 fn notes(text: &str) -> Writer<'_> {
     Writer {
@@ -616,4 +618,53 @@ fn frame_lines_leave_out_the_earlier_texts() {
     let lines = frame_lines(&preface);
 
     assert_eq!(lines, [FRAME, "My earlier writing:", TEXT_HEADING]);
+}
+
+/// Returns a preface with each part at its cap, until the parts fill [`PREFACE_TOKENS`].
+fn full_preface() -> String {
+    let notes = ascii_text('n', NOTES_TOKENS, 1);
+    let name = ascii_text('m', NAME_TOKENS, 1);
+    let earlier_text = "See you soon. ".repeat(100);
+    let writer = Writer {
+        notes: &notes,
+        name: &name,
+        examples: vec![example(&earlier_text), example(&earlier_text)],
+    };
+    let surroundings = Surroundings {
+        app_id: Some("com.apple.mail".to_owned()),
+        window_title: Some(ascii_text('t', WINDOW_TITLE_TOKENS, 1)),
+        field_labels: FieldLabels {
+            name: Some(ascii_text('l', FIELD_LABEL_TOKENS, 1)),
+            placeholder: Some(ascii_text('h', FIELD_LABEL_TOKENS, 1)),
+            ..FieldLabels::default()
+        },
+        ..with_text_after(&"a".repeat(MAX_CHARS_AFTER_CARET))
+    };
+    let line = "See you at the lake on Friday, and bring the red tent. ".repeat(4);
+    let lines = (0..24)
+        .map(|index| (line.as_str(), 20 * index))
+        .collect::<Vec<_>>();
+    let screen = screen(&lines);
+    let screen_part = ScreenPart {
+        text: &screen,
+        max_tokens: TokenCount(800),
+        shown_above: &[],
+    };
+    let clipboard = ascii_text('c', CLIPBOARD_TOKENS, 1);
+    preface(&writer, &surroundings, Some(&clipboard), Some(screen_part))
+}
+
+#[test]
+fn graphics_card_context_holds_a_full_preface_the_longest_text_and_the_longest_suggestion() {
+    let limits = Settings {
+        backend: Backend::Metal,
+        ..Settings::default()
+    }
+    .text_limits();
+    let longest_text = "a".repeat(limits.max_chars);
+
+    let prompt_tokens = estimated_tokens(&prompt(&full_preface(), &longest_text).0);
+
+    let room = limits.context_tokens.0 - SuggestionLength::VeryLong.max_tokens().0;
+    assert!(prompt_tokens.0 <= room, "{prompt_tokens:?} in {room}");
 }

@@ -11,10 +11,6 @@ use crate::hub::{ByteSize, ModelFile};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TokenCount(pub u32);
 
-/// The tokens of one prompt and its completion that the model runner keeps. Core keeps each
-/// prompt in this room with the longest completion.
-pub const CONTEXT_TOKENS: TokenCount = TokenCount(4096);
-
 /// The GPU memory that a model must leave free, as llama.cpp leaves by default, so that the
 /// desktop and other apps keep working.
 pub const GPU_MEMORY_MARGIN: ByteSize = ByteSize(1024 * 1024 * 1024);
@@ -52,6 +48,25 @@ pub enum Backend {
     Cuda,
     /// The GPU of a Mac through Metal.
     Metal,
+}
+
+impl Backend {
+    /// The tokens of one prompt and its completion that the model runner keeps on this backend.
+    /// Core keeps each prompt in this room with the longest completion. A GPU keeps more, so that
+    /// its longer text before the caret fits after the longest preface.
+    ///
+    /// ```
+    /// use typealike_core::inference::{Backend, TokenCount};
+    ///
+    /// assert_eq!(Backend::Cpu.context_tokens(), TokenCount(4096));
+    /// ```
+    #[must_use]
+    pub fn context_tokens(self) -> TokenCount {
+        match self {
+            Self::Cpu => TokenCount(4096),
+            Self::Vulkan | Self::Cuda | Self::Metal => TokenCount(8192),
+        }
+    }
 }
 
 /// The physical cores of the CPU of this computer. A core with two threads counts one time.

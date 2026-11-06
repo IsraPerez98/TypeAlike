@@ -5,9 +5,7 @@ use std::time::Instant;
 use llama_cpp_2::LlamaContextLoadError;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::LlamaModel;
-use typealike_core::inference::{
-    CONTEXT_TOKENS, Completion, InferenceError, NextWordBias, Prompt, TokenCount, WordBias,
-};
+use typealike_core::inference::{Completion, InferenceError, NextWordBias, Prompt, TokenCount, WordBias};
 
 use super::drafter::GUESSED_TOKENS;
 use super::generation::{
@@ -140,9 +138,9 @@ impl<'model> LoadedModel<'model> {
         Ok(())
     }
 
-    /// Returns the tokens of the context: those of the app, or fewer when the model learned fewer.
+    /// Returns the tokens of the context: those of the setup, or fewer when the model learned fewer.
     fn context_tokens(&self) -> u32 {
-        CONTEXT_TOKENS.0.min(self.model.n_ctx_train())
+        self.setup.context_tokens.min(self.model.n_ctx_train())
     }
 
     /// Completes `prompt`, and sends the text to `progress` while it grows. It stops early when
@@ -311,6 +309,7 @@ mod tests {
             cpu_threads: None,
             batch_tokens: BATCH_TOKENS,
             warm_up: WarmUp::Off,
+            context_tokens: 4096,
         }
     }
 

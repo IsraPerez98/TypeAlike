@@ -9,9 +9,10 @@ use std::time::Duration;
 
 use crate::settings::OcrLevel;
 
-/// The most characters before the caret that a platform reads. A suggestion uses fewer, because
-/// the text drops its oldest characters when it reaches this many.
-pub const MAX_CHARS_BEFORE_CARET: usize = 4000;
+/// The most characters before the caret that a platform reads: the most that a session keeps on
+/// any backend. A suggestion uses fewer, because the text drops its oldest characters when it
+/// reaches the limit of the backend.
+pub const MAX_CHARS_BEFORE_CARET: usize = 9000;
 
 /// The most characters after the caret that a platform reads: enough text for the budget of the
 /// text after the caret in the prompt of an email.

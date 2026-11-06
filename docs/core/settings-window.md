@@ -102,7 +102,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - Until a model is downloaded, the General pane shows first the row of the model that TypeAlike recommends for the backend, and the Playground pane shows it below its model menu (`ModelsPane::recommended_row`).
 - On the CPU, it is Qwen3.5 0.8B.
-- On a GPU, it is the first of Gemma 4 E4B, Gemma 4 E2B and Qwen3.5 2B whose file, 512 MiB of context (`CONTEXT_MEMORY`, Gemma 4 E4B takes 480 MiB on Metal), 64 MiB for a drafter (`DRAFTER_MEMORY`, only Gemma 4) and the margin of a load (`GPU_MEMORY_MARGIN`, 1 GiB) fit in the free memory of the GPU, else Qwen3.5 0.8B.
+- On a GPU, it is the first of Gemma 4 E4B, Gemma 4 E2B and Qwen3.5 2B whose file, 768 MiB of context (`CONTEXT_MEMORY`, Gemma 4 E4B takes 480 MiB on Metal with 4096 tokens, thus about 700 MiB with the 8192 tokens of a GPU), 64 MiB for a drafter (`DRAFTER_MEMORY`, only Gemma 4) and the margin of a load (`GPU_MEMORY_MARGIN`, 1 GiB) fit in the free memory of the GPU, else Qwen3.5 0.8B.
 - While no suggestion model is selected, the controller asks the runner for the free memory of the GPU of the backend (`InferenceRequest::ReadGpuMemory`) at the start and at each change of the backend.
 - Until the answer comes, or when the read fails, a GPU gets Gemma 4 E2B.
 - After a failed read, a warning above the row tells that TypeAlike cannot read the graphics card (`ModelsPane::recommendation_warning`).

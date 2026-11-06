@@ -32,7 +32,7 @@ use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 pub(crate) use crate::worker::model_params::PromptBatch;
 use crate::worker::model_params::{
-    ContextSetup, DrafterUse, WarmUp, drafter_params, free_gpu_memory, log_devices, model_params, threads_for,
+    ContextSetup, DrafterUse, drafter_params, free_gpu_memory, log_devices, model_params,
 };
 
 /// The time without a request after which the worker frees the context of a model on a GPU: its
@@ -141,11 +141,7 @@ pub(crate) fn run(
                 .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
                 match (loaded, &llama) {
                     (Ok((model, drafter)), Some(llama)) => {
-                        let setup = ContextSetup {
-                            cpu_threads: threads_for(backend, cpu_cores),
-                            batch_tokens,
-                            warm_up: WarmUp::on(backend),
-                        };
+                        let setup = ContextSetup::on(backend, cpu_cores, batch_tokens);
                         let mut loaded_model = LoadedModel::new(llama, &model, drafter.as_ref(), setup);
                         loaded_model.warm_up(&mut || queue.has_waiting_job());
                         sink(InferenceEvent::Loaded { file, result: Ok(()) });

@@ -10,7 +10,7 @@ use llama_cpp_2::model::params::{FitError, LlamaLazyMode, LlamaModelParams};
 use llama_cpp_2::{LlamaBackendDevice, LlamaBackendDeviceType, list_llama_ggml_backend_devices, max_devices};
 use llama_cpp_sys_2::GGML_LOG_LEVEL_WARN;
 use typealike_core::hub::ByteSize;
-use typealike_core::inference::{Backend, CONTEXT_TOKENS, CpuCores, GPU_MEMORY_MARGIN, InferenceError};
+use typealike_core::inference::{Backend, CpuCores, GPU_MEMORY_MARGIN, InferenceError};
 
 /// The most prompt tokens that one decode takes on the CPU. No larger batch was faster.
 const BATCH_TOKENS: u32 = 128;
@@ -63,6 +63,22 @@ pub(super) struct ContextSetup {
     pub(super) batch_tokens: u32,
     /// Whether a load warms up the backend before it answers.
     pub(super) warm_up: WarmUp,
+    /// The tokens of the context on the backend. A model that learned fewer tokens gets a smaller
+    /// context.
+    pub(super) context_tokens: u32,
+}
+
+impl ContextSetup {
+    /// Returns how each context of a model on `backend` runs: on the threads for `cpu_cores`, with
+    /// prompt decodes of at most `batch_tokens`.
+    pub(super) fn on(backend: Backend, cpu_cores: Option<CpuCores>, batch_tokens: u32) -> Self {
+        Self {
+            cpu_threads: threads_for(backend, cpu_cores),
+            batch_tokens,
+            warm_up: WarmUp::on(backend),
+            context_tokens: backend.context_tokens().0,
+        }
+    }
 }
 
 /// Whether a load makes the context and runs the first decodes before it answers.
@@ -78,7 +94,7 @@ pub(super) enum WarmUp {
 
 impl WarmUp {
     /// Returns the warm-up of a load on `backend`.
-    pub(super) fn on(backend: Backend) -> Self {
+    fn on(backend: Backend) -> Self {
         match backend {
             Backend::Vulkan | Backend::Cuda | Backend::Metal => Self::AtLoad,
             Backend::Cpu => Self::Off,
@@ -152,7 +168,7 @@ pub(super) fn model_params(
                 path,
                 device.index,
                 free_memory_of_load(drafter_memory),
-                batch_tokens,
+                ContextSetup::on(gpu_backend, None, batch_tokens),
             )?;
             Ok(on_devices(&[device.index])?.with_lazy_mode(lazy_mode_for(device.device_type)))
         }
@@ -234,14 +250,13 @@ fn on_devices(devices: &[usize]) -> Result<LlamaModelParams, InferenceError> {
         })
 }
 
-/// Makes sure that the model at `path`, with all its layers and a context that decodes
-/// `batch_tokens` at a time, fits in the free memory of `device` and leaves `margin_bytes` free. It
-/// reads the model but does not load it.
+/// Makes sure that the model at `path`, with all its layers and a context of `setup`, fits in the
+/// free memory of `device` and leaves `margin_bytes` free. It reads the model but does not load it.
 fn check_fit(
     path: &Path,
     device: usize,
     margin_bytes: usize,
-    batch_tokens: u32,
+    setup: ContextSetup,
 ) -> Result<(), InferenceError> {
     let model_path = path
         .to_str()
@@ -249,18 +264,13 @@ fn check_fit(
         .ok_or(InferenceError::ModelInvalid)?;
     let mut params = on_devices(&[device])?;
     let all_layers = params.n_gpu_layers();
-    let setup = ContextSetup {
-        cpu_threads: None,
-        batch_tokens,
-        warm_up: WarmUp::Off,
-    };
-    let mut context = context_params(CONTEXT_TOKENS.0, setup);
+    let mut context = context_params(setup.context_tokens, setup);
     let mut margins = vec![margin_bytes; max_devices()];
     let fitted = Pin::new(&mut params).fit_params(
         &model_path,
         &mut context,
         &mut margins,
-        CONTEXT_TOKENS.0,
+        setup.context_tokens,
         GGML_LOG_LEVEL_WARN,
     );
     let gpu_layers = params.n_gpu_layers();
@@ -335,7 +345,7 @@ impl CpuThreads {
 
 /// Returns the threads for a model on `backend` with the `cpu_cores` of this computer. Returns
 /// `None` to keep the threads of llama.cpp: on a GPU backend, and when the cores are unknown.
-pub(super) fn threads_for(backend: Backend, cpu_cores: Option<CpuCores>) -> Option<CpuThreads> {
+fn threads_for(backend: Backend, cpu_cores: Option<CpuCores>) -> Option<CpuThreads> {
     match backend {
         Backend::Cpu => cpu_cores.map(CpuThreads::for_cores),
         Backend::Vulkan | Backend::Cuda | Backend::Metal => None,
@@ -490,7 +500,17 @@ mod tests {
             cpu_threads,
             batch_tokens,
             warm_up: WarmUp::Off,
+            context_tokens: 4096,
         }
+    }
+
+    #[test]
+    fn context_on_a_gpu_backend_holds_more_tokens() {
+        let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
+
+        let tokens = backends.map(|backend| ContextSetup::on(backend, None, 128).context_tokens);
+
+        assert_eq!(tokens, [4096, 8192, 8192, 8192]);
     }
 
     #[test]
@@ -500,7 +520,7 @@ mod tests {
             generation: 4,
         };
 
-        let params = context_params(CONTEXT_TOKENS.0, setup(Some(threads), 128));
+        let params = context_params(4096, setup(Some(threads), 128));
 
         assert_eq!((params.n_threads_batch(), params.n_threads()), (8, 4));
     }
@@ -509,7 +529,7 @@ mod tests {
     fn context_without_cpu_threads_keeps_the_threads_of_llama_cpp() {
         let defaults = LlamaContextParams::default();
 
-        let params = context_params(CONTEXT_TOKENS.0, setup(None, 128));
+        let params = context_params(4096, setup(None, 128));
 
         assert_eq!(
             (params.n_threads_batch(), params.n_threads()),
@@ -519,7 +539,7 @@ mod tests {
 
     #[test]
     fn context_decodes_a_prompt_in_batches_of_its_setup() {
-        let params = context_params(CONTEXT_TOKENS.0, setup(None, 512));
+        let params = context_params(4096, setup(None, 512));
 
         assert_eq!((params.n_batch(), params.n_ubatch()), (512, 512));
     }
@@ -545,7 +565,7 @@ mod tests {
 
     #[test]
     fn drafter_context_decodes_a_token_of_each_sequence_next_to_its_model() {
-        let params = drafter_context_params(CONTEXT_TOKENS.0, setup(None, 256));
+        let params = drafter_context_params(4096, setup(None, 256));
 
         assert_eq!(
             (params.n_batch(), params.n_ubatch(), params.context_type()),
@@ -635,7 +655,7 @@ mod tests {
             .or_else(|| gpu_device(&devices, Backend::Cuda))
             .expect("the build has a GPU backend and the computer has a GPU");
 
-        let verdict = check_fit(&path, device.index, ALL_MEMORY_BYTES, BATCH_TOKENS);
+        let verdict = check_fit(&path, device.index, ALL_MEMORY_BYTES, setup(None, BATCH_TOKENS));
 
         assert_eq!(verdict, Err(InferenceError::ModelTooLarge));
     }

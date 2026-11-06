@@ -2,17 +2,18 @@
 
 use std::time::Duration;
 
-use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings};
+use crate::desktop::Surroundings;
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
-use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
+use crate::inference::{Backend, InferenceRequest};
 use crate::key::{Key, Press};
 use crate::prompt;
 use crate::settings::{ClipboardAccess, Settings, WriterName, WriterNotes};
 use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
 use super::support::{
-    FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, request_with,
+    FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request,
+    request_with,
 };
 
 #[test]
@@ -100,24 +101,24 @@ fn completion_from_before_a_reset_is_dropped_after_a_new_request() {
 
 #[test]
 fn context_that_reaches_the_limit_drops_old_characters_in_one_step() {
-    let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)));
+    let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(cpu_text_limits().max_chars - 2)));
     engine.on_completion(completion(""));
 
     let reaction = press(&mut engine, Key::Char('y'));
 
-    assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET)));
+    assert_eq!(reaction, request(&"y".repeat(cpu_text_limits().trimmed_chars)));
 }
 
 #[test]
 fn context_below_the_limit_keeps_its_start() {
-    let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 3)));
+    let mut engine = engine_waiting_for(&format!("x{}", "y".repeat(cpu_text_limits().max_chars - 3)));
     engine.on_completion(completion(""));
 
     let reaction = press(&mut engine, Key::Char('y'));
 
     assert_eq!(
         reaction,
-        request(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 2)))
+        request(&format!("x{}", "y".repeat(cpu_text_limits().max_chars - 2)))
     );
 }
 
@@ -214,7 +215,7 @@ fn backspace_deletes_from_the_field_text() {
 #[test]
 fn long_field_text_keeps_its_end() {
     let mut engine = Engine::default();
-    let before_caret = format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1));
+    let before_caret = format!("x{}", "y".repeat(cpu_text_limits().max_chars - 1));
 
     let reaction = engine.on_key(
         Key::Char('y'),
@@ -222,7 +223,55 @@ fn long_field_text_keeps_its_end() {
         &FakeDesktop::with_field_text(&before_caret),
     );
 
-    assert_eq!(reaction, request(&"y".repeat(TRIMMED_CHARS_BEFORE_CARET + 1)));
+    assert_eq!(
+        reaction,
+        request(&"y".repeat(cpu_text_limits().trimmed_chars + 1))
+    );
+}
+
+/// Returns the last line of the prompt of `reaction`: the text before the caret, when it has no
+/// line break.
+fn last_prompt_line(reaction: &Reaction) -> &str {
+    let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
+        panic!("a key requests a completion: {reaction:?}");
+    };
+    prompt.0.rsplit_once('\n').map_or("", |(_, line)| line)
+}
+
+#[test]
+fn graphics_card_keeps_more_of_a_long_field_text_than_the_cpu() {
+    let cases = [
+        (Backend::Cpu, 8000),
+        (Backend::Metal, 8000),
+        (Backend::Metal, 9500),
+    ];
+
+    let kept_chars = cases.map(|(backend, field_chars)| {
+        let mut engine = engine_with(&Settings {
+            backend,
+            ..Settings::default()
+        });
+        let desktop = FakeDesktop::with_field_text(&"y".repeat(field_chars));
+        let reaction = engine.on_key(Key::Char('y'), Press::First, &desktop);
+        last_prompt_line(&reaction).chars().count()
+    });
+
+    assert_eq!(kept_chars, [3001, 8001, 7001]);
+}
+
+#[test]
+fn text_on_a_graphics_card_that_reaches_the_limit_drops_old_characters_in_one_step() {
+    let mut engine = engine_with(&Settings {
+        backend: Backend::Metal,
+        ..Settings::default()
+    });
+    let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(8997)));
+    engine.on_key(Key::Char('y'), Press::First, &desktop);
+    engine.on_completion(completion(""));
+
+    let reaction = press(&mut engine, Key::Char('y'));
+
+    assert_eq!(last_prompt_line(&reaction), "y".repeat(7000));
 }
 
 #[test]

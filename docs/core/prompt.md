@@ -31,6 +31,16 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 
 The examples of the earlier writing are in `docs/core/earlier-writing.md`. The frame lines (the lines that a suggestion must not copy) are in `docs/core/suggestions.md`, "Suggestions that do not show".
 
+## Text before the caret
+
+- A platform reads at most 9000 characters before the caret (`MAX_CHARS_BEFORE_CARET`). The backend sets how much of that text a session keeps (`Settings::text_limits`).
+- On the CPU, a session keeps up to 4000 characters. At 4000, it drops the oldest characters and keeps the last 3000.
+- On a graphics card (Vulkan, CUDA, Metal), a session keeps up to 9000 characters, and then the last 7000. Thus a fact further back in a long document or email can reach the prompt.
+- The text drops its oldest characters in large steps, so that the start of the prompt stays the same for many keys and the model runner can reuse its decode.
+- The text must also fit in the context of the backend (`Backend::context_tokens`) after the preface, with room for the longest suggestion. Else the session keeps the end that fits in three quarters of that room.
+- The estimate counts one token for each Chinese or Japanese character. Thus a graphics card keeps about 4500 to 6000 of these characters after a full preface.
+- A new prompt of 9000 characters takes about 2 s to decode with Gemma 4 E4B on Metal (M5), and the next keys reuse its start. The CPU keeps less text, because each token of a new prompt takes about 6 ms there.
+
 ## Place
 
 - `place` holds the format of known apps and web pages.

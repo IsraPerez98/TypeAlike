@@ -7,7 +7,7 @@ use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings, Timest
 use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::key::{Key, Press};
-use crate::settings::{HistoryAccess, HistoryApp, PersonalizationSettings, Settings, WordChoice};
+use crate::settings::{HistoryAccess, HistoryApp, PersonalizationSettings, Settings, TextLimits, WordChoice};
 use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
 #[derive(Default)]
@@ -93,6 +93,11 @@ impl Desktop for FakeDesktop {
 
 pub(super) fn press(engine: &mut Engine, key: Key) -> Reaction {
     engine.on_key(key, Press::First, &FakeDesktop::default())
+}
+
+/// Returns the limits of the text before the caret with the default settings, on the CPU.
+pub(super) fn cpu_text_limits() -> TextLimits {
+    Settings::default().text_limits()
 }
 
 pub(super) fn engine_with(settings: &Settings) -> Engine {

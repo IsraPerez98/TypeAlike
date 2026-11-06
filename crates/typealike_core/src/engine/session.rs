@@ -1,18 +1,13 @@
 //! Holds the text of a typing session and keeps it in the token budget of the prompt.
 
-use crate::desktop::{MAX_CHARS_BEFORE_CARET, Surroundings, Timestamp};
+use crate::desktop::{Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
-use crate::inference::{CONTEXT_TOKENS, TokenCount};
+use crate::inference::TokenCount;
 use crate::place;
 use crate::prompt;
-use crate::settings::{ScreenTextApp, SuggestionLength};
+use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 
 use super::shown_suggestions::ShownSuggestions;
-
-/// The characters before the caret that a session keeps when its text reaches
-/// [`MAX_CHARS_BEFORE_CARET`]. The text drops its oldest characters in large steps, so that the
-/// start of the prompt stays the same for many keys and the model runner can reuse its work.
-pub(super) const TRIMMED_CHARS_BEFORE_CARET: usize = 3000;
 
 /// The facts of the field where a session types, which stay the same for the whole session.
 pub(super) struct SessionField {
@@ -59,6 +54,8 @@ pub(super) struct Session {
     /// the word at the caret of that read. The app can still change the text after them, as an
     /// autocorrect does when the user finishes a word.
     pub(super) read_chars: usize,
+    /// How much of `text_before` the session keeps on the backend of the model.
+    pub(super) limits: TextLimits,
     /// The most estimated tokens of `text_before`, so that the prompt fits in the context.
     pub(super) max_tokens_before: TokenCount,
     pub(super) text_after: String,
@@ -87,15 +84,20 @@ pub(super) struct Session {
 impl Session {
     /// Starts a session at `started_at` in the field of `surroundings`, where the model reads
     /// `preface` before the text. The session keeps the end of the field text before the caret
-    /// that fits after it.
-    pub(super) fn new(preface: String, surroundings: &Surroundings, started_at: Option<Timestamp>) -> Self {
-        let max_tokens_before = tokens_before_caret(&preface);
+    /// that fits after it and in `limits`.
+    pub(super) fn new(
+        preface: String,
+        surroundings: &Surroundings,
+        started_at: Option<Timestamp>,
+        limits: TextLimits,
+    ) -> Self {
+        let max_tokens_before = tokens_before_caret(&preface, limits.context_tokens);
         let (text_before, text_after) = surroundings
             .field_text
             .as_ref()
             .map(|field_text| {
                 (
-                    recent_text(&field_text.before_caret, max_tokens_before).to_owned(),
+                    recent_text(&field_text.before_caret, limits, max_tokens_before).to_owned(),
                     field_text.after_caret.clone(),
                 )
             })
@@ -105,6 +107,7 @@ impl Session {
             field_chars: text_before.chars().count(),
             read_chars: finished_chars(&text_before),
             text_before,
+            limits,
             max_tokens_before,
             text_after,
             field: SessionField::of(surroundings),
@@ -138,7 +141,7 @@ impl Session {
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the
     /// caret that does not fit after it.
     pub(super) fn use_preface(&mut self, preface: String) {
-        self.max_tokens_before = tokens_before_caret(&preface);
+        self.max_tokens_before = tokens_before_caret(&preface, self.limits.context_tokens);
         self.preface = preface;
         self.keep_recent_text();
     }
@@ -150,7 +153,7 @@ impl Session {
     }
 
     pub(super) fn keep_recent_text(&mut self) {
-        let kept = recent_text(&self.text_before, self.max_tokens_before).len();
+        let kept = recent_text(&self.text_before, self.limits, self.max_tokens_before).len();
         let dropped_chars = self
             .text_before
             .drain(..self.text_before.len() - kept)
@@ -201,22 +204,22 @@ fn finished_chars(text: &str) -> usize {
 }
 
 /// Returns the most estimated tokens of the text before the caret in a prompt with `preface`, so
-/// that the prompt leaves room for the longest completion.
-fn tokens_before_caret(preface: &str) -> TokenCount {
-    let room = CONTEXT_TOKENS
+/// that the prompt leaves room for the longest completion in a context of `context_tokens`.
+fn tokens_before_caret(preface: &str, context_tokens: TokenCount) -> TokenCount {
+    let room = context_tokens
         .0
         .saturating_sub(SuggestionLength::VeryLong.max_tokens().0);
     let prompt_without_text = prompt::prompt(preface, "");
     TokenCount(room.saturating_sub(estimated_tokens(&prompt_without_text.0).0))
 }
 
-/// Returns the end of `text` that a session keeps: all of it while it is shorter than
-/// [`MAX_CHARS_BEFORE_CARET`] and `max_tokens`, else its last [`TRIMMED_CHARS_BEFORE_CARET`]
-/// characters, within three quarters of `max_tokens`.
-pub(super) fn recent_text(text: &str, max_tokens: TokenCount) -> &str {
-    if text.chars().count() < MAX_CHARS_BEFORE_CARET && estimated_tokens(text) < max_tokens {
+/// Returns the end of `text` that a session keeps: all of it while it is shorter than the
+/// `max_chars` of `limits` and `max_tokens`, else its last `trimmed_chars`, within three quarters
+/// of `max_tokens`.
+pub(super) fn recent_text(text: &str, limits: TextLimits, max_tokens: TokenCount) -> &str {
+    if text.chars().count() < limits.max_chars && estimated_tokens(text) < max_tokens {
         return text;
     }
     let trimmed_tokens = TokenCount(max_tokens.0 / 4 * 3);
-    last_tokens(last_chars(text, TRIMMED_CHARS_BEFORE_CARET), trimmed_tokens)
+    last_tokens(last_chars(text, limits.trimmed_chars), trimmed_tokens)
 }

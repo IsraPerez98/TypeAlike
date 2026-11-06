@@ -2,15 +2,14 @@
 
 use std::time::Duration;
 
-use crate::desktop::MAX_CHARS_BEFORE_CARET;
-use crate::engine::session::TRIMMED_CHARS_BEFORE_CARET;
 use crate::engine::{Engine, Reaction};
 use crate::key::{Key, Press};
 use crate::settings::{ClipboardAccess, Settings};
 use crate::test_support::{MAIL_APP, completion};
 
 use super::support::{
-    FakeDesktop, engine_showing, engine_waiting_for, engine_with, press, request, request_with,
+    FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request,
+    request_with,
 };
 
 /// A field with `before_caret` and a recent copy, which a new session puts into its preface.
@@ -248,11 +247,11 @@ fn enter_ends_a_session_in_a_subject_field() {
 #[test]
 fn new_line_after_a_trimmed_text_continues_its_end() {
     let mut engine = Engine::default();
-    let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(MAX_CHARS_BEFORE_CARET - 1)));
+    let desktop = FakeDesktop::with_field_text(&format!("x{}", "y".repeat(cpu_text_limits().max_chars - 1)));
     engine.on_key(Key::Char('y'), Press::First, &desktop);
     engine.on_completion(completion(""));
     engine.on_key(Key::Enter, Press::First, &desktop);
-    let field = format!("{}\n", "y".repeat(MAX_CHARS_BEFORE_CARET - 1));
+    let field = format!("{}\n", "y".repeat(cpu_text_limits().max_chars - 1));
 
     let reaction = engine.suggest_on_new_line(&FakeDesktop::with_field_text(&field));
 
@@ -260,7 +259,7 @@ fn new_line_after_a_trimmed_text_continues_its_end() {
         reaction,
         Some(request(&format!(
             "{}\n",
-            "y".repeat(TRIMMED_CHARS_BEFORE_CARET + 1)
+            "y".repeat(cpu_text_limits().trimmed_chars + 1)
         )))
     );
 }

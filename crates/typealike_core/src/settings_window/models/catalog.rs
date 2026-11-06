@@ -71,8 +71,9 @@ fn fits(model: &SuggestedModel, free: ByteSize) -> bool {
 }
 
 /// The GPU memory that a suggested model takes besides its file: its context and the buffers of a
-/// decode. Gemma 4 E4B takes the most, 480 MiB on Metal.
-const CONTEXT_MEMORY: ByteSize = ByteSize(512 * 1024 * 1024);
+/// decode. Gemma 4 E4B takes the most: 480 MiB on Metal with 4096 tokens, and about 110 MiB more
+/// for each 2048 tokens, so about 700 MiB with the context of a GPU.
+const CONTEXT_MEMORY: ByteSize = ByteSize(768 * 1024 * 1024);
 /// The index of the model for the processor in [`SUGGESTED_MODELS`]: Qwen3.5 0.8B.
 const PROCESSOR_MODEL: usize = 0;
 /// The index in [`SUGGESTED_MODELS`] of the model for a graphics card with unknown free memory:

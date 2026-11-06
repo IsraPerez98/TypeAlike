@@ -5,7 +5,7 @@ use crate::desktop::{
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::excerpt::estimated_tokens;
-use crate::inference::{Backend, CONTEXT_TOKENS, InferenceRequest};
+use crate::inference::{Backend, InferenceRequest};
 use crate::key::{Key, Press};
 use crate::settings::{OcrLevel, PromptPreparation, Settings, SuggestionLength};
 use crate::test_support::completion;
@@ -261,7 +261,7 @@ fn screen_text_that_comes_during_a_session_keeps_room_for_the_completion() {
     let Some(InferenceRequest::Complete { prompt, .. }) = request else {
         panic!("an idle session prepares its prompt: {request:?}");
     };
-    let room = CONTEXT_TOKENS.0 - SuggestionLength::VeryLong.max_tokens().0;
+    let room = Backend::Cpu.context_tokens().0 - SuggestionLength::VeryLong.max_tokens().0;
     assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
 }
 
@@ -491,16 +491,32 @@ fn screen_text_outside_a_chat_or_an_email_app_chooses_the_nearest_lines_at_each_
     assert_eq!(after, prompt_after_one_read(&desktop, chat_screen(81), "Su"));
 }
 
-#[test]
-fn text_with_few_characters_for_each_token_keeps_room_for_the_completion() {
-    let mut engine = engine_that_read(&"屏".repeat(1100));
-    let desktop = FakeDesktop::with_field_text(&"字".repeat(MAX_CHARS_BEFORE_CARET - 1));
-
+/// Returns the estimated tokens of the prompt after a key in a field of `before_caret` on
+/// `backend`, after a read of a screen with `line`.
+fn prompt_tokens_on(backend: Backend, line: &str, before_caret: &str) -> u32 {
+    let mut engine = engine_with(&Settings {
+        backend,
+        ..Settings::default()
+    });
+    let id = engine.start_screen_read().expect("no session runs");
+    answer_read(&mut engine, id, Some(screen_with(line)));
+    let desktop = FakeDesktop::with_field_text(before_caret);
     let reaction = engine.on_key(Key::Char('字'), Press::First, &desktop);
-
     let Reaction::Request(InferenceRequest::Complete { prompt, .. }) = reaction else {
         panic!("a key in an open field requests a completion: {reaction:?}");
     };
-    let room = CONTEXT_TOKENS.0 - SuggestionLength::VeryLong.max_tokens().0;
-    assert!(estimated_tokens(&prompt.0).0 <= room, "{prompt:?}");
+    estimated_tokens(&prompt.0).0
+}
+
+#[test]
+fn text_with_few_characters_for_each_token_keeps_room_for_the_completion_on_each_backend() {
+    let backends = [Backend::Cpu, Backend::Metal];
+    let longest_field = "字".repeat(MAX_CHARS_BEFORE_CARET - 1);
+
+    let fits = backends.map(|backend| {
+        let room = backend.context_tokens().0 - SuggestionLength::VeryLong.max_tokens().0;
+        prompt_tokens_on(backend, &"屏".repeat(1100), &longest_field) <= room
+    });
+
+    assert_eq!(fits, [true, true]);
 }
