@@ -7,6 +7,7 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
+use objc2::rc::autoreleasepool;
 use objc2_application_services::AXUIElement;
 use objc2_core_foundation::{CFRetained, CGFloat, CGRect, Type};
 use typealike_core::controller::{Delivery, DeliverySink};
@@ -73,15 +74,18 @@ impl ScreenTextReader {
 }
 
 /// Answers the reads until the reader drops. Of the reads that wait together, only the newest
-/// gets an answer, because core uses only the newest.
+/// gets an answer, because core uses only the newest. The queue block never returns, so each read
+/// drains its own autorelease pool.
 fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink) {
     let mut ocr = Ocr::default();
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
-        let text = newest.process.and_then(|process| match newest.source {
-            ScreenSource::Accessibility => read_screen_text(process),
-            ScreenSource::Ocr(level) => ocr.read(process, level),
+        let text = autoreleasepool(|_| {
+            newest.process.and_then(|process| match newest.source {
+                ScreenSource::Accessibility => read_screen_text(process),
+                ScreenSource::Ocr(level) => ocr.read(process, level),
+            })
         });
         tracing::debug!(
             read = ?newest.read,

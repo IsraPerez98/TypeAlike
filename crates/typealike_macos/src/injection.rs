@@ -1,7 +1,9 @@
 //! Types accepted text into the focused app.
 
 use std::fmt;
+use std::iter;
 
+use objc2_core_foundation::CFRetained;
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGKeyCode};
 
 use crate::keys::DELETE_KEY_CODE;
@@ -38,12 +40,20 @@ impl fmt::Debug for Replacement {
 }
 
 /// Posts a delete key press for each deleted character, then the text as Unicode key presses, to
-/// whatever has keyboard focus.
+/// whatever has keyboard focus. It creates all the events before it posts the first, so a failure
+/// posts nothing.
 pub(crate) fn replace_text(replacement: &Replacement) -> Result<(), InjectionError> {
-    (0..replacement.deleted).try_for_each(|_| post_key(DELETE_KEY_CODE, &[]))?;
-    utf16_chunks(&replacement.text)
-        .iter()
-        .try_for_each(|chunk| post_key(UNUSED_KEY_CODE, chunk))
+    let chunks = utf16_chunks(&replacement.text);
+    let deletions = iter::repeat_n((DELETE_KEY_CODE, &[][..]), replacement.deleted);
+    let typing = chunks.iter().map(|chunk| (UNUSED_KEY_CODE, chunk.as_slice()));
+    let presses = deletions
+        .chain(typing)
+        .map(|(key_code, units)| key_press(key_code, units))
+        .collect::<Result<Vec<_>, _>>()?;
+    for event in presses.iter().flatten() {
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(event));
+    }
+    Ok(())
 }
 
 /// Whether TypeAlike posted `event`.
@@ -51,10 +61,10 @@ pub(crate) fn is_injected(event: &CGEvent) -> bool {
     CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == INJECTION_TAG
 }
 
-/// Posts a press and a release of `key_code`, which types `units` when they are not empty.
-fn post_key(key_code: CGKeyCode, units: &[u16]) -> Result<(), InjectionError> {
+/// Creates a press and a release of `key_code`, which type `units` when they are not empty.
+fn key_press(key_code: CGKeyCode, units: &[u16]) -> Result<[CFRetained<CGEvent>; 2], InjectionError> {
     let unit_count = units.len().try_into().expect("chunk length fits in UniCharCount");
-    for is_key_down in [true, false] {
+    let key_event = |is_key_down| {
         let event = CGEvent::new_keyboard_event(None, key_code, is_key_down).ok_or(InjectionError)?;
         CGEvent::set_flags(Some(&event), CGEventFlags::empty());
         CGEvent::set_integer_value_field(Some(&event), CGEventField::EventSourceUserData, INJECTION_TAG);
@@ -62,9 +72,9 @@ fn post_key(key_code: CGKeyCode, units: &[u16]) -> Result<(), InjectionError> {
             // SAFETY: `units` is valid for the length passed.
             unsafe { CGEvent::keyboard_set_unicode_string(Some(&event), unit_count, units.as_ptr()) };
         }
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&event));
-    }
-    Ok(())
+        Ok(event)
+    };
+    Ok([key_event(true)?, key_event(false)?])
 }
 
 fn utf16_chunks(text: &str) -> Vec<Vec<u16>> {

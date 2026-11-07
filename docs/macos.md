@@ -29,6 +29,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Screen reads and watches
 
 - The screen reads run one at a time on a dispatch queue with a low priority.
+- The block of that queue never returns, so each read drains its own autorelease pool.
 - An observer of Low Power Mode (`EnergySaverObserver`: `NSProcessInfoPowerStateDidChangeNotification` on the main queue) gives each change to the runtime.
 - At the start, at each activation of an app and at each change of the space, the runtime reads whether the app in front shows in full screen (`full_screen`): the presentation options of the active app (`currentSystemPresentationOptions`) have `FullScreen` or `HideMenuBar`.
 - At the start and at each activation of an app, the runtime reads whether the app in front is a game (`game`): its `Info.plist` has `public.app-category.games` or a genre that ends with `-games` in `LSApplicationCategoryType`, the key that Game Mode uses.
@@ -86,6 +87,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - When the read of the text after the caret fails, macOS cuts the text from `AXValue`.
 - A Chromium contenteditable puts a line break between blocks in `AXValue`, but its range text joins the blocks. Thus the cut first moves the selection past the line breaks that the range text leaves out (`value_offset_after`).
 - When the two texts differ in more than these line breaks, the cut keeps the offsets of the range text.
+- A cut never splits a character. When a limit of the text around the caret falls in an emoji, the half of the emoji goes.
 
 ## CodeMirror
 
@@ -95,11 +97,14 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - At the start of a line after a line with text, the range text has the same offset for the end of the line before. The caret is on the line when the middle of the caret box is not above the top of the line.
 - When the lines do not give the range text before the caret, the range text stays.
 - CodeMirror holds only the lines that it draws, so the text before the caret starts at the first line that it draws.
+- The text of the lines also loses the half of a character at each end of its cut.
 
 ## Event tap
 
 - The event tap also watches the scroll-wheel event and gives it only to `Controller::on_scroll`, with no AX read and no read of the pasteboard.
 - A key-down event with the field `CGEventField::KeyboardEventAutorepeat` is a repeat.
+- macOS turns the tap off after a slow callback (`TapDisabledByTimeout`) or for user input (`TapDisabledByUserInput`). The tap then turns itself on again at once, without the state of the runtime.
+- When the tap cannot join the main run loop, TypeAlike invalidates its port.
 
 ## Overlay
 
@@ -122,6 +127,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Injection
 
 - A replacement posts a delete key for each deleted character first.
+- TypeAlike creates all the key events of a replacement before it posts the first. When it cannot create one, it posts none.
 - The shell queues the replacements, and each inject pass types the oldest one.
 
 ## Spelling dictionary
@@ -147,3 +153,4 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Autostart
 
 - The General pane writes the launchd agent `~/Library/LaunchAgents/io.github.israperez98.typealike.plist` (`typealike_macos::LaunchAgent`). It starts the program that wrote it.
+- The autostart switch is on only when the agent starts the program that runs now, and that program is still at its path. An agent from a moved copy or from `cargo run` counts as off.

@@ -8,6 +8,7 @@ use typealike_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, is_line_break};
 
 use crate::accessibility::{children, copy_attribute_for_parameter, frame, has_dom_class, string_for_range};
 use crate::focus::caret::caret_bounds;
+use crate::focus::surroundings::whole_characters;
 
 /// The DOM class of the content of a CodeMirror editor. Each of its children is one line.
 const CONTENT_CLASS: &str = "cm-content";
@@ -103,12 +104,7 @@ fn text_around(
     } else {
         *lines.offsets.get(selection.end)?
     };
-    let text_slice = |start: usize, end: usize| {
-        lines
-            .text
-            .get(start..end.max(start))
-            .map(String::from_utf16_lossy)
-    };
+    let text_slice = |start: usize, end: usize| lines.text.get(start..end.max(start)).map(whole_characters);
     Some(FieldText {
         before_caret: text_slice(lines.offsets[before_start], caret)?,
         after_caret: text_slice(after_start, *lines.offsets.get(after_end)?)?,
@@ -258,5 +254,18 @@ mod tests {
         let text = text_around(&texts(&NOTE), &range[start..caret], caret_at(caret), |_| true);
 
         assert_eq!(text, Some(field_text("Flight at ", "07:45.\n- Day one")));
+    }
+
+    #[test]
+    fn text_after_the_caret_never_ends_in_half_an_emoji() {
+        let line = format!("{}👋", "c".repeat(MAX_CHARS_AFTER_CARET - 1));
+
+        let text =
+            text_around(&texts(&[&line]), "", caret_at(0), |_| true).expect("the lines give the range text");
+
+        assert!(
+            !text.after_caret.contains('\u{fffd}'),
+            "the text after the caret ends in U+FFFD"
+        );
     }
 }

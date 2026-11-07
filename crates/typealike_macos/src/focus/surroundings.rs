@@ -161,13 +161,21 @@ impl SurroundingRanges {
         let slice = |start: isize, length: isize| {
             let start = usize::try_from(start).ok()?;
             let end = start.checked_add(usize::try_from(length).ok()?)?.min(units.len());
-            units.get(start..end).map(String::from_utf16_lossy)
+            units.get(start..end).map(whole_characters)
         };
         Some(FieldText {
             before_caret: slice(self.before.location, self.before.length)?,
             after_caret: slice(self.after.location, self.after.length).unwrap_or_default(),
         })
     }
+}
+
+/// The text of `units`, a UTF-16 cut of a text, without the half of a character that the cut
+/// splits at either end.
+fn whole_characters(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .filter_map(Result::ok)
+        .collect()
 }
 
 /// Moves `selection` from the UTF-16 offsets of the range text to the UTF-16 offsets of `value`.
@@ -351,6 +359,27 @@ mod tests {
                 before_caret: "abc\ndef\ng".to_owned(),
                 after_caret: "hi".to_owned(),
             })
+        );
+    }
+
+    #[test]
+    fn cut_never_splits_an_emoji_at_the_limits() {
+        let before = format!("a👋{}", "b".repeat(MAX_CHARS_BEFORE_CARET - 1));
+        let after = format!("{}👋", "c".repeat(MAX_CHARS_AFTER_CARET - 1));
+        let caret = isize::try_from(before.encode_utf16().count()).unwrap();
+        let ranges = SurroundingRanges::new(range(caret, 0), None).expect("the selection is valid");
+
+        let field_text = ranges
+            .cut(&format!("{before}{after}"))
+            .expect("the ranges are in the value");
+
+        assert_eq!(
+            (
+                field_text.before_caret.contains('\u{fffd}'),
+                field_text.after_caret.contains('\u{fffd}'),
+            ),
+            (false, false),
+            "(before, after) holds U+FFFD"
         );
     }
 

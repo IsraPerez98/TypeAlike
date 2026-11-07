@@ -67,8 +67,8 @@ pub enum RunError {
 ///
 /// # Errors
 ///
-/// Returns [`RunError`] when called off the main thread, when the instance lock can't be checked,
-/// or when macOS denies the keyboard event tap.
+/// Returns [`RunError`] when called off the main thread, or when the instance lock cannot be
+/// checked. Without the Accessibility permission, TypeAlike runs and waits for it.
 pub fn run(settings: Settings, services: Services) -> Result<(), RunError> {
     let Some(_instance_lock) = single_instance::acquire().map_err(RunError::InstanceCheck)? else {
         tracing::info!("another instance is already running");

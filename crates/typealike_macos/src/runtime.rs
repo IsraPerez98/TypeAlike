@@ -4,8 +4,6 @@ mod target;
 
 use std::cell::{OnceCell, RefCell};
 use std::collections::VecDeque;
-use std::ffi::c_void;
-use std::ptr::{self, NonNull};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +13,7 @@ use objc2::runtime::Sel;
 use objc2::{MainThreadMarker, MainThreadOnly, sel};
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSMenu, NSWorkspace};
 use objc2_core_foundation::CGRect;
-use objc2_core_graphics::{CGEvent, CGEventTapProxy, CGEventType, CGKeyCode};
+use objc2_core_graphics::{CGEvent, CGEventType, CGKeyCode};
 use objc2_foundation::{NSPoint, NSString, NSTimeInterval, NSTimer, NSURL};
 use typealike_core::app::{BadgeMenu, BadgeView, TrayView};
 use typealike_core::controller::{
@@ -70,7 +68,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let main_thread = MainThreadMarker::new().ok_or(RunError::NotMainThread)?;
     let application = NSApplication::sharedApplication(main_thread);
     application.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
-    let tap = EventTap::install(Some(tap_callback));
+    let tap = EventTap::install(on_tap_event);
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
     let energy_saver_observer = EnergySaverObserver::start(on_energy_saver_change);
@@ -282,7 +280,7 @@ impl Runtime {
     /// Starts the event tap when the user gave the Accessibility permission, else looks again later.
     fn on_accessibility_check(&mut self) {
         if accessibility::is_trusted() {
-            self.tap = EventTap::install(Some(tap_callback));
+            self.tap = EventTap::install(on_tap_event);
         }
         if self.tap.is_none() {
             self.shell
@@ -656,20 +654,6 @@ impl Shell for AppKitShell {
     }
 }
 
-extern "C-unwind" fn tap_callback(
-    _proxy: CGEventTapProxy,
-    kind: CGEventType,
-    event: NonNull<CGEvent>,
-    _user_info: *mut c_void,
-) -> *mut CGEvent {
-    if kind == CGEventType::TapDisabledByTimeout {
-        with_runtime(|runtime| runtime.tap.as_ref().map(EventTap::enable));
-        return event.as_ptr();
-    }
-    // SAFETY: the tap passes an event that stays valid for the whole callback.
-    let event_ref = unsafe { event.as_ref() };
-    match with_runtime(|runtime| runtime.on_event(kind, event_ref)) {
-        Some(Disposition::Swallow) => ptr::null_mut(),
-        Some(Disposition::Pass) | None => event.as_ptr(),
-    }
+fn on_tap_event(kind: CGEventType, event: &CGEvent) -> Disposition {
+    with_runtime(|runtime| runtime.on_event(kind, event)).unwrap_or(Disposition::Pass)
 }

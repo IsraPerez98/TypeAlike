@@ -41,8 +41,10 @@ impl LaunchAgent {
 }
 
 impl Autostart for LaunchAgent {
+    /// The agent counts only when it starts this program, and the program is still at its path.
     fn is_enabled(&self) -> bool {
-        self.file.is_file()
+        self.program.is_file()
+            && fs::read_to_string(&self.file).is_ok_and(|written| written == property_list(&self.program))
     }
 
     fn enable(&mut self) {
@@ -99,6 +101,13 @@ mod tests {
         folder.join("io.github.israperez98.typealike.plist")
     }
 
+    fn existing_program(folder: &Path, name: &str) -> PathBuf {
+        let program = folder.join(name);
+        fs::create_dir_all(folder).expect("the temp folder is writable");
+        fs::write(&program, "").expect("the temp folder is writable");
+        program
+    }
+
     #[test]
     fn enabling_writes_an_agent_that_starts_the_program_at_login() {
         let folder = agents_folder("enable");
@@ -106,15 +115,12 @@ mod tests {
 
         agent.enable();
 
-        let is_enabled = agent.is_enabled();
         let written = fs::read_to_string(agent_file(&folder)).ok();
         fs::remove_dir_all(&folder).ok();
         assert_eq!(
-            (is_enabled, written.as_deref()),
-            (
-                true,
-                Some(
-                    r#"<?xml version="1.0" encoding="UTF-8"?>
+            written.as_deref(),
+            Some(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -129,9 +135,32 @@ mod tests {
 </dict>
 </plist>
 "#
-                ),
             )
         );
+    }
+
+    #[test]
+    fn agent_of_the_running_program_is_enabled() {
+        let folder = agents_folder("running-program");
+        let mut agent = LaunchAgent::new(&folder, &existing_program(&folder, "TypeAlike"));
+        agent.enable();
+
+        let is_enabled = agent.is_enabled();
+
+        fs::remove_dir_all(&folder).ok();
+        assert!(is_enabled);
+    }
+
+    #[test]
+    fn agent_that_starts_another_program_is_not_enabled() {
+        let folder = agents_folder("other-program");
+        LaunchAgent::new(&folder, &existing_program(&folder, "Other")).enable();
+        let agent = LaunchAgent::new(&folder, &existing_program(&folder, "TypeAlike"));
+
+        let is_enabled = agent.is_enabled();
+
+        fs::remove_dir_all(&folder).ok();
+        assert!(!is_enabled);
     }
 
     #[test]
@@ -154,6 +183,21 @@ mod tests {
         agent.disable();
 
         assert!(!agent.is_enabled());
+    }
+
+    #[test]
+    fn agent_of_a_missing_program_is_not_enabled() {
+        let folder = agents_folder("missing-program");
+        let mut agent = LaunchAgent::new(&folder, &folder.join("TypeAlike"));
+        agent.enable();
+
+        let is_enabled = agent.is_enabled();
+
+        fs::remove_dir_all(&folder).ok();
+        assert!(
+            !is_enabled,
+            "the agent counts as enabled while its program is missing"
+        );
     }
 
     #[test]
