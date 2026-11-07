@@ -111,7 +111,8 @@ pub enum HubRequest {
         /// The file to download.
         file: ModelFile,
     },
-    /// Stops a running download of `file`, which then finishes with [`HubError::Canceled`].
+    /// Stops a running download of `file`, which then finishes with [`HubError::Canceled`]. A file
+    /// that is complete before the cancel stays, and its download finishes with its size.
     CancelDownload {
         /// The file being downloaded.
         file: ModelFile,

@@ -113,11 +113,21 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The Models pane marks the same model in its list.
 - When the first download finishes and no suggestion model is saved, that model loads as the suggestion model.
 
+## Model downloads
+
+- The hub (`typealike_models::HuggingFace`) keeps each model in `<owner>/<repository>/<file>` in the models folder. A download writes to `<file>.part` until it is complete.
+- A download stays only when it has the size and the SHA-256 digest that the file list of the repository gives. Else it fails with "Hugging Face sent an incorrect response." A file without a digest in the list gets only the size check.
+- A download of a file that already downloads does not start.
+- The list of the downloaded models has only the files whose folder and file names have only letters, digits, `.`, `_` and `-`. The hub can load and delete only these files.
+- An entry of the models folder that the hub cannot read, such as a link to a disconnected drive, only goes to the log. The list keeps the other models.
+
 ## Drafters
 
 - Gemma 4 E2B and E4B have a drafter: a second file of their repository, of about 60 MB, that makes suggestions show sooner (`ModelFile::drafter`, `docs/llm.md`).
 - Each model file of such a repository uses that drafter, also a file from the Hugging Face search.
 - The hub downloads the drafter after its model, and the Models pane shows the download of the model only. A failed download of the drafter goes only to the log, because the model runs without it.
+- A cancel after the model file is complete stops only the download of the drafter. The model stays, and the Models pane shows it as downloaded.
+- When two models of one repository download at the same time, their drafter downloads only once.
 - A delete of the last model of a repository also deletes its drafter.
 - The lists of the Models pane and the model menus show no drafter, vision projector or part of a split model.
 - When the hub lists the downloaded models, the Models pane asks it to download each drafter that a downloaded model does not have (`ModelsPane::on_event`). This download shows no row and no progress.
@@ -157,7 +167,8 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - A check of the timer runs only while the switch is on, the copy is installed (`ReleaseFeed::self_update`) and no other check, download or install runs (`AboutPane::on_scheduled_check`).
 - The feed downloads the file of the release for this build (`ReleaseFeed::download`): the release file whose name ends with the suffix that the bin gives (`-macos-arm64.dmg`, `-windows-x64-vulkan-setup.exe`, `-windows-x64-cuda-setup.exe` with the `cuda` feature).
   - It reads the release of the tag (`/releases/tags/vX.Y.Z`) and stops when the file has no SHA-256 `digest`.
-  - The file goes to `TypeAlike-update` in the temporary folder. A download with another SHA-256 digest fails.
+  - When no file or more than one file of the release ends with the suffix, the download fails.
+  - The file goes to `TypeAlike-update` in the temporary folder. A download with another SHA-256 digest fails. A download that grows past the `size` of the file in the release stops and fails. A failed download leaves no file.
   - On macOS, the feed then copies `TypeAlike.app` out of the disk image (`hdiutil attach`, `ditto`).
   - The row shows "Downloading version X.Y.Z…".
 - After the download, the controller installs the release (`ReleaseFeed::install`) and quits (`Shell::quit`, after a save of the earlier writing).

@@ -9,7 +9,7 @@ mod install;
 
 use std::fmt::Write as _;
 use std::fs::{self, File};
-use std::io::{self, Read as _, Write as _};
+use std::io::{self, Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -52,6 +52,8 @@ enum DownloadError {
     Release(#[from] FetchError),
     #[error("the release has no file that ends with {0}")]
     MissingAsset(&'static str),
+    #[error("the release has more than one file that ends with {0}")]
+    SeveralAssets(&'static str),
     #[error("the file of the release has no sha-256 digest")]
     MissingDigest,
     #[error("download failed")]
@@ -60,6 +62,8 @@ enum DownloadError {
     Read(#[source] io::Error),
     #[error("failed to store the download")]
     Storage(#[source] io::Error),
+    #[error("the download is larger than the file of the release")]
+    TooLarge,
     #[error("the sha-256 digest of the download differs from the digest of the release")]
     DigestMismatch,
     #[error("failed to prepare the install")]
@@ -81,6 +85,8 @@ struct Asset {
     browser_download_url: String,
     /// `sha256:` and the digest in hex.
     digest: Option<String>,
+    /// The size in bytes.
+    size: Option<u64>,
 }
 
 /// Reads the newest release of TypeAlike from the GitHub API, and downloads and installs it. Drafts
@@ -192,11 +198,7 @@ fn download_release(
     folder: &Path,
 ) -> Result<PathBuf, DownloadError> {
     let release = fetch_release(agent, &format!("{RELEASES_URL}/tags/{}", tag.0))?;
-    let asset = release
-        .assets
-        .into_iter()
-        .find(|asset| asset.name.ends_with(asset_suffix))
-        .ok_or(DownloadError::MissingAsset(asset_suffix))?;
+    let asset = release_asset(release.assets, asset_suffix)?;
     let expected_digest = asset
         .digest
         .as_deref()
@@ -205,24 +207,69 @@ fn download_release(
     remove_folder(folder);
     fs::create_dir_all(folder).map_err(DownloadError::Storage)?;
     let download = folder.join(format!("TypeAlike{asset_suffix}"));
-    let digest = stream_to_file(agent, &asset.browser_download_url, &download)?;
-    if !digest.eq_ignore_ascii_case(expected_digest) {
-        return Err(DownloadError::DigestMismatch);
-    }
+    let mut response = agent
+        .get(&asset.browser_download_url)
+        .call()
+        .map_err(DownloadError::Network)?;
+    store_download(
+        response.body_mut().as_reader(),
+        &download,
+        expected_digest,
+        asset.size,
+    )?;
     install::prepare(&download, folder).map_err(DownloadError::Prepare)
 }
 
-/// Writes the body of `url` to `path`, and returns its SHA-256 digest in hex.
-fn stream_to_file(agent: &Agent, url: &str, path: &Path) -> Result<String, DownloadError> {
-    let mut response = agent.get(url).call().map_err(DownloadError::Network)?;
+/// The only file of `assets` whose name ends with `asset_suffix`.
+fn release_asset(assets: Vec<Asset>, asset_suffix: &'static str) -> Result<Asset, DownloadError> {
+    let mut matching = assets
+        .into_iter()
+        .filter(|asset| asset.name.ends_with(asset_suffix));
+    let asset = matching.next().ok_or(DownloadError::MissingAsset(asset_suffix))?;
+    match matching.next() {
+        Some(_) => Err(DownloadError::SeveralAssets(asset_suffix)),
+        None => Ok(asset),
+    }
+}
+
+/// Writes `body` to `path` when it has the `expected_digest`, and stops when it grows past `size`.
+/// A download that fails leaves no file behind.
+fn store_download(
+    body: impl Read,
+    path: &Path,
+    expected_digest: &str,
+    size: Option<u64>,
+) -> Result<(), DownloadError> {
+    let result = write_body(body, path, size).and_then(|digest| {
+        if digest.eq_ignore_ascii_case(expected_digest) {
+            Ok(())
+        } else {
+            Err(DownloadError::DigestMismatch)
+        }
+    });
+    if result.is_err()
+        && let Err(error) = fs::remove_file(path)
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        tracing::warn!(%error, "failed to remove a failed download of a release");
+    }
+    result
+}
+
+/// Writes `body` to `path`, and returns its SHA-256 digest in hex.
+fn write_body(mut body: impl Read, path: &Path, size: Option<u64>) -> Result<String, DownloadError> {
     let mut output = File::create(path).map_err(DownloadError::Storage)?;
-    let mut reader = response.body_mut().as_reader();
     let mut digest = Context::new(&SHA256);
     let mut buffer = vec![0; DOWNLOAD_CHUNK_BYTES];
+    let mut received = 0_u64;
     loop {
-        let count = reader.read(&mut buffer).map_err(DownloadError::Read)?;
+        let count = body.read(&mut buffer).map_err(DownloadError::Read)?;
         if count == 0 {
             break;
+        }
+        received = received.saturating_add(u64::try_from(count).expect("a read never exceeds u64"));
+        if size.is_some_and(|size| received > size) {
+            return Err(DownloadError::TooLarge);
         }
         let chunk = &buffer[..count];
         output.write_all(chunk).map_err(DownloadError::Storage)?;
@@ -304,6 +351,85 @@ mod tests {
         let release = parse_json::<Release>(r#"{"message":"Not Found"}"#);
 
         assert!(release.is_err());
+    }
+
+    #[test]
+    fn release_with_one_file_for_this_build_gives_that_file() {
+        let release: Release = parse_json(RELEASE_JSON).expect("valid json");
+
+        let asset = release_asset(release.assets, "-macos-arm64.dmg");
+
+        assert_eq!(
+            asset.map(|asset| asset.name).ok(),
+            Some("TypeAlike-0.7.0-macos-arm64.dmg".to_owned())
+        );
+    }
+
+    #[test]
+    fn release_with_two_files_for_this_build_gives_no_file() {
+        let release: Release = parse_json(
+            r#"{"tag_name":"v0.7.0","assets":[
+                {"name":"TypeAlike-0.7.0-macos-arm64.dmg","browser_download_url":"https://example.com/a.dmg"},
+                {"name":"Copy-TypeAlike-0.7.0-macos-arm64.dmg","browser_download_url":"https://example.com/b.dmg"}
+            ]}"#,
+        )
+        .expect("valid json");
+
+        let asset = release_asset(release.assets, "-macos-arm64.dmg");
+
+        assert!(matches!(
+            asset,
+            Err(DownloadError::SeveralAssets("-macos-arm64.dmg"))
+        ));
+    }
+
+    const TEST_SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+    fn download_path(test_name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("typealike-releases-{}-{test_name}", std::process::id()))
+    }
+
+    #[test]
+    fn download_with_the_digest_of_the_release_is_kept() {
+        let path = download_path("kept");
+
+        let stored = store_download(&b"test"[..], &path, TEST_SHA256, Some(4));
+
+        let contents = fs::read(&path).ok();
+        fs::remove_file(&path).ok();
+        assert_eq!((stored.is_ok(), contents), (true, Some(b"test".to_vec())));
+    }
+
+    #[test]
+    fn download_with_another_digest_leaves_no_file() {
+        let path = download_path("other-digest");
+
+        let stored = store_download(&b"other"[..], &path, TEST_SHA256, None);
+
+        assert_eq!(
+            (
+                matches!(stored, Err(DownloadError::DigestMismatch)),
+                path.exists()
+            ),
+            (true, false)
+        );
+    }
+
+    #[test]
+    fn download_stops_when_it_grows_past_the_size_of_the_file() {
+        let path = download_path("too-large");
+        let mut body = io::Read::take(io::repeat(0), 1_000_000);
+
+        let stored = store_download(&mut body, &path, TEST_SHA256, Some(4));
+
+        assert_eq!(
+            (
+                matches!(stored, Err(DownloadError::TooLarge)),
+                body.limit() > 0,
+                path.exists()
+            ),
+            (true, true, false)
+        );
     }
 
     #[test]

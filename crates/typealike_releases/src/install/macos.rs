@@ -54,11 +54,7 @@ pub(crate) fn start_install(prepared: &Path, installed: &Path, folder: &Path) ->
     if let Some(old_folder) = old.parent() {
         fs::create_dir_all(old_folder)?;
     }
-    fs::rename(installed, &old)?;
-    if let Err(error) = fs::rename(prepared, installed) {
-        fs::rename(&old, installed)?;
-        return Err(error);
-    }
+    replace_app(prepared, installed, &old, |from, to| fs::rename(from, to))?;
     // launchd ends the process group of a launch agent when it quits, so the shell needs its own.
     Command::new("/bin/sh")
         .arg("-c")
@@ -71,6 +67,24 @@ pub(crate) fn start_install(prepared: &Path, installed: &Path, folder: &Path) ->
         .process_group(0)
         .spawn()?;
     Ok(())
+}
+
+/// Moves the `installed` app to `old` and the `prepared` app to its place. When the second move
+/// fails, the old app goes back, and the error of that second move returns.
+fn replace_app(
+    prepared: &Path,
+    installed: &Path,
+    old: &Path,
+    rename: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    rename(installed, old)?;
+    let Err(error) = rename(prepared, installed) else {
+        return Ok(());
+    };
+    if let Err(rollback_error) = rename(old, installed) {
+        tracing::error!(%rollback_error, "failed to put the running app back after a failed install");
+    }
+    Err(error)
 }
 
 /// Runs `command` to its end, and fails with its error output when it fails.
@@ -113,5 +127,26 @@ mod tests {
         let bundles = programs.map(|program| bundle_of(Path::new(program)));
 
         assert_eq!(bundles, [None, None, None]);
+    }
+
+    #[test]
+    fn failed_replace_gives_its_own_error_when_the_old_app_cannot_go_back() {
+        let rename = |from: &Path, _: &Path| match from.to_str() {
+            Some("installed") => Ok(()),
+            Some("prepared") => Err(io::Error::from(io::ErrorKind::StorageFull)),
+            _ => Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+        };
+
+        let replaced = replace_app(
+            Path::new("prepared"),
+            Path::new("installed"),
+            Path::new("old"),
+            rename,
+        );
+
+        assert_eq!(
+            replaced.map_err(|error| error.kind()),
+            Err(io::ErrorKind::StorageFull)
+        );
     }
 }

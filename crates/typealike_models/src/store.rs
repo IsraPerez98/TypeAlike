@@ -41,7 +41,8 @@ fn split_repo_id(repo: &str) -> Option<(&str, &str)> {
         .filter(|(owner, name)| is_safe_name(owner) && is_safe_name(name))
 }
 
-/// Lists every complete model file under `models_dir`.
+/// Lists every complete model file under `models_dir` that the store can load and delete. An entry
+/// that cannot be read only goes to the log.
 pub(crate) fn installed_files(models_dir: &Path) -> io::Result<Vec<SizedFile>> {
     let mut installed = Vec::new();
     for owner_dir in subdirectories(models_dir)? {
@@ -53,21 +54,25 @@ pub(crate) fn installed_files(models_dir: &Path) -> io::Result<Vec<SizedFile>> {
 }
 
 fn installed_in_repo(repo_dir: &Path) -> io::Result<Vec<SizedFile>> {
-    fs::read_dir(repo_dir)?
-        .map(|entry| installed_file(&entry?.path()))
-        .filter_map(Result::transpose)
-        .collect()
+    let installed = entries(repo_dir)?.into_iter().filter_map(|path| {
+        installed_file(&path).unwrap_or_else(|error| {
+            tracing::warn!(%error, path = %path.display(), "skipped an unreadable entry of the models folder");
+            None
+        })
+    });
+    Ok(installed.collect())
 }
 
 fn subdirectories(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    Ok(entries(dir)?.into_iter().filter(|path| path.is_dir()).collect())
+}
+
+fn entries(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(dir) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         entries => entries?,
     };
-    let paths = entries
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<io::Result<Vec<_>>>()?;
-    Ok(paths.into_iter().filter(|path| path.is_dir()).collect())
+    entries.map(|entry| entry.map(|entry| entry.path())).collect()
 }
 
 fn installed_file(path: &Path) -> io::Result<Option<SizedFile>> {
@@ -78,9 +83,9 @@ fn installed_file(path: &Path) -> io::Result<Option<SizedFile>> {
     let owner_dir = repo_dir.and_then(Path::parent);
     let (true, Some(name), Some(repo), Some(owner)) = (
         is_model,
-        utf8_name(Some(path)),
-        utf8_name(repo_dir),
-        utf8_name(owner_dir),
+        safe_name(Some(path)),
+        safe_name(repo_dir),
+        safe_name(owner_dir),
     ) else {
         return Ok(None);
     };
@@ -95,8 +100,8 @@ fn installed_file(path: &Path) -> io::Result<Option<SizedFile>> {
     }))
 }
 
-fn utf8_name(path: Option<&Path>) -> Option<&str> {
-    path?.file_name()?.to_str()
+fn safe_name(path: Option<&Path>) -> Option<&str> {
+    path?.file_name()?.to_str().filter(|name| is_safe_name(name))
 }
 
 /// Deletes the stored `file`, and its drafter when no other stored model of its repository uses
@@ -224,6 +229,58 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_entry_does_not_hide_the_other_files() {
+        let dir = TestDir::new("dangling-link");
+        dir.write("owner/repo/q4.gguf", b"GGUF");
+        std::os::unix::fs::symlink(dir.0.join("absent.gguf"), dir.0.join("owner/repo/external.gguf"))
+            .expect("temp dir is writable");
+
+        let installed = installed_files(&dir.0);
+
+        assert_eq!(
+            installed.map_err(|error| error.kind()),
+            Ok(vec![SizedFile {
+                file: model_file("owner/repo", "q4.gguf"),
+                size: ByteSize(4),
+            }])
+        );
+    }
+
+    #[test]
+    fn each_listed_file_is_deletable() {
+        let dir = TestDir::new("delete-listed");
+        dir.write("owner/repo/my model.gguf", b"GGUF");
+        let listed = installed_files(&dir.0).expect("dir is readable");
+
+        let failures: Vec<_> = listed
+            .iter()
+            .filter_map(|sized| delete(&dir.0, &sized.file).err())
+            .map(|error| error.kind())
+            .collect();
+
+        assert_eq!(failures, []);
+    }
+
+    #[test]
+    fn each_listed_entry_is_another_file_on_disk() {
+        let dir = TestDir::new("repo-case");
+        dir.write("Owner/Repo/q4.gguf", b"GGUF");
+        dir.write("owner/repo/q4.gguf", b"GGUF");
+        let listed = installed_files(&dir.0).expect("dir is readable");
+
+        let stored: std::collections::BTreeSet<_> = listed
+            .iter()
+            .map(|sized| {
+                let path = file_path(&dir.0, &sized.file).expect("listed names are safe");
+                fs::canonicalize(path).expect("listed files exist")
+            })
+            .collect();
+
+        assert_eq!(stored.len(), listed.len());
+    }
+
     #[test]
     fn delete_removes_the_file() {
         let dir = TestDir::new("delete");
@@ -258,6 +315,39 @@ mod tests {
         delete_with_drafter(&dir.0, &model_file(GEMMA_REPO, "q4.gguf")).expect("files are deletable");
 
         assert!(dir.0.join(GEMMA_DRAFTER).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_link_beside_the_last_model_does_not_keep_its_drafter() {
+        let dir = TestDir::new("delete-drafter-dangling-link");
+        dir.write("unsloth/gemma-4-E4B-it-qat-GGUF/q4.gguf", b"GGUF");
+        dir.write(GEMMA_DRAFTER, b"GGUF");
+        std::os::unix::fs::symlink(
+            dir.0.join("absent.gguf"),
+            dir.0.join("unsloth/gemma-4-E4B-it-qat-GGUF/external.gguf"),
+        )
+        .expect("temp dir is writable");
+
+        let result = delete_with_drafter(&dir.0, &model_file(GEMMA_REPO, "q4.gguf"));
+
+        assert_eq!(
+            (
+                result.map_err(|error| error.kind()),
+                dir.0.join("unsloth/gemma-4-E4B-it-qat-GGUF/q4.gguf").exists(),
+                dir.0.join(GEMMA_DRAFTER).exists(),
+            ),
+            (Ok(()), false, false)
+        );
+    }
+
+    #[test]
+    fn deleting_a_missing_model_that_has_a_drafter_succeeds() {
+        let dir = TestDir::new("delete-missing-with-drafter");
+
+        let result = delete_with_drafter(&dir.0, &model_file(GEMMA_REPO, "q4.gguf"));
+
+        assert_eq!(result.map_err(|error| error.kind()), Ok(()));
     }
 
     #[test]
