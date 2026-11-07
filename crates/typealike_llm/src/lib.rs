@@ -118,12 +118,8 @@ impl Drop for LlamaCpp {
 
 impl ModelRunner for LlamaCpp {
     fn submit(&mut self, request: InferenceRequest, sink: &InferenceEventSink) {
-        let job = Job {
-            request,
-            sink: Arc::clone(sink),
-        };
-        if self.jobs.send(job).is_err() {
-            tracing::warn!("the model worker stopped");
+        if self.jobs.send(Job::new(request, Arc::clone(sink))).is_err() {
+            tracing::warn!("the model worker stopped, so the request fails");
         }
     }
 }
@@ -265,6 +261,37 @@ mod tests {
         assert_eq!(
             (worker_signals.try_recv(), worker_signals.try_recv()),
             (Ok(()), Err(mpsc::TryRecvError::Disconnected))
+        );
+    }
+
+    #[test]
+    fn request_whose_worker_panics_gets_an_answer() {
+        let runner = LlamaCpp::new(|_| panic!("the worker stops"), None);
+
+        let event = first_event(runner, load_request());
+
+        assert!(
+            matches!(event, InferenceEvent::Loaded { result: Err(_), .. }),
+            "unexpected {event:?}"
+        );
+    }
+
+    #[test]
+    fn request_after_a_panic_of_the_worker_gets_an_answer() {
+        let mut runner = LlamaCpp::new(|_| panic!("the worker stops"), None);
+        let sink: InferenceEventSink = Arc::new(|_| {});
+        runner.submit(load_request(), &sink);
+
+        let event = first_event(
+            runner,
+            InferenceRequest::ReadGpuMemory {
+                backend: Backend::Cpu,
+            },
+        );
+
+        assert!(
+            matches!(event, InferenceEvent::GpuMemory { result: Err(_), .. }),
+            "unexpected {event:?}"
         );
     }
 

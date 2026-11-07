@@ -58,10 +58,12 @@ pub(crate) fn start() {
 }
 
 /// Opens the log at `path` to append to it, so a start after a crash keeps the log of the crash.
-/// A log above `MAX_LOG_BYTES` first replaces the previous log.
+/// A log above `MAX_LOG_BYTES` first replaces the previous log. When that move fails, the run
+/// appends to the large log.
 fn open_log_file(path: &Path) -> io::Result<File> {
     if fs::metadata(path).is_ok_and(|metadata| metadata.len() > MAX_LOG_BYTES) {
-        fs::rename(path, path.with_file_name(PREVIOUS_LOG_FILE))?;
+        // Another run can move the log first, and a log in the large file is better than none.
+        let _ = fs::rename(path, path.with_file_name(PREVIOUS_LOG_FILE));
     }
     OpenOptions::new().create(true).append(true).open(path)
 }
@@ -108,5 +110,20 @@ mod tests {
 
         fs::remove_dir_all(&folder).ok();
         assert_eq!(sizes, [Some(0), Some(MAX_LOG_BYTES + 1)]);
+    }
+
+    #[test]
+    fn large_log_opens_when_the_move_to_the_previous_log_fails() {
+        let folder = temporary_folder("blocked");
+        let path = folder.join(LOG_FILE);
+        File::create(&path)
+            .and_then(|file| file.set_len(MAX_LOG_BYTES + 1))
+            .expect("temp dir is writable");
+        fs::create_dir(folder.join(PREVIOUS_LOG_FILE)).expect("temp dir is writable");
+
+        let opened = open_log_file(&path).map(drop).map_err(|error| error.kind());
+
+        fs::remove_dir_all(&folder).ok();
+        assert_eq!(opened, Ok(()));
     }
 }

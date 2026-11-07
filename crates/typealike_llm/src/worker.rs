@@ -41,8 +41,59 @@ const CONTEXT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// A request and where its event goes.
 pub(crate) struct Job {
-    pub(crate) request: InferenceRequest,
-    pub(crate) sink: InferenceEventSink,
+    request: InferenceRequest,
+    reply: Reply,
+}
+
+impl Job {
+    /// Makes the job of `request`, whose events go to `sink`.
+    pub(crate) fn new(request: InferenceRequest, sink: InferenceEventSink) -> Self {
+        let reply = Reply {
+            failure: failure_answer(&request).map(Box::new),
+            sink,
+        };
+        Self { request, reply }
+    }
+}
+
+/// Where the events of a request go. A request that gets no answer before its reply drops, such as
+/// a request that runs or waits in the queue when the worker panics, gets a failure as its answer.
+struct Reply {
+    sink: InferenceEventSink,
+    /// The answer that the drop sends, until the request gets its answer.
+    failure: Option<Box<InferenceEvent>>,
+}
+
+impl Reply {
+    fn answer(&mut self, event: InferenceEvent) {
+        self.failure = None;
+        (self.sink)(event);
+    }
+}
+
+impl Drop for Reply {
+    fn drop(&mut self) {
+        if let Some(failure) = self.failure.take() {
+            (self.sink)(*failure);
+        }
+    }
+}
+
+/// The answer to `request` when the worker fails before it answers, or `None` for a request that
+/// gets no answer.
+fn failure_answer(request: &InferenceRequest) -> Option<InferenceEvent> {
+    match request {
+        InferenceRequest::Load { file, .. } => Some(InferenceEvent::Loaded {
+            file: file.clone(),
+            result: Err(InferenceError::Failed),
+        }),
+        InferenceRequest::Complete { .. } => Some(InferenceEvent::Completed(Err(InferenceError::Failed))),
+        InferenceRequest::ReadGpuMemory { backend } => Some(InferenceEvent::GpuMemory {
+            backend: *backend,
+            result: Err(InferenceError::Failed),
+        }),
+        InferenceRequest::Unload => None,
+    }
 }
 
 /// What a wait for the next job with a time limit gives.
@@ -101,7 +152,7 @@ impl<'jobs> JobQueue<'jobs> {
     fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
         self.has_waiting_job()
             && self.next_job.as_ref().is_some_and(|job| {
-                matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.sink, sink)
+                matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.reply.sink, sink)
             })
     }
 }
@@ -117,7 +168,7 @@ pub(crate) fn run(
 ) {
     let mut queue = JobQueue::new(jobs);
     let mut llama = None;
-    while let Some(Job { request, sink }) = queue.next() {
+    while let Some(Job { request, mut reply }) = queue.next() {
         match request {
             InferenceRequest::Load { file, backend } => {
                 let batch_tokens = prompt_batch.tokens_on(backend);
@@ -144,22 +195,22 @@ pub(crate) fn run(
                         let setup = ContextSetup::on(backend, cpu_cores, batch_tokens);
                         let mut loaded_model = LoadedModel::new(llama, &model, drafter.as_ref(), setup);
                         loaded_model.warm_up(&mut || queue.has_waiting_job());
-                        sink(InferenceEvent::Loaded { file, result: Ok(()) });
+                        reply.answer(InferenceEvent::Loaded { file, result: Ok(()) });
                         serve(&mut loaded_model, &mut queue, context_idle_timeout(backend));
                     }
-                    (loaded, _) => sink(InferenceEvent::Loaded {
+                    (loaded, _) => reply.answer(InferenceEvent::Loaded {
                         file,
                         result: loaded.map(drop),
                     }),
                 }
             }
             InferenceRequest::Complete { .. } => {
-                sink(InferenceEvent::Completed(Err(InferenceError::NoModel)));
+                reply.answer(InferenceEvent::Completed(Err(InferenceError::NoModel)));
             }
             InferenceRequest::Unload => {}
             InferenceRequest::ReadGpuMemory { backend } => {
                 let result = read_gpu_memory(&mut llama, backend);
-                sink(InferenceEvent::GpuMemory { backend, result });
+                reply.answer(InferenceEvent::GpuMemory { backend, result });
             }
         }
     }
@@ -287,7 +338,7 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Infe
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
 /// before the next model loads. It frees the context when no job comes for `idle_timeout`.
 fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: Option<Duration>) {
-    while let Some(job) = next_job_for(loaded, queue, idle_timeout) {
+    while let Some(mut job) = next_job_for(loaded, queue, idle_timeout) {
         let InferenceRequest::Complete {
             prompt,
             max_tokens,
@@ -301,15 +352,16 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         else {
             if let InferenceRequest::ReadGpuMemory { backend } = job.request {
                 let result = free_gpu_memory(backend);
-                (job.sink)(InferenceEvent::GpuMemory { backend, result });
+                job.reply.answer(InferenceEvent::GpuMemory { backend, result });
                 continue;
             }
             queue.give_back(job);
             return;
         };
+        let sink = &job.reply.sink;
         let mut progress = Progress {
-            is_outdated: &mut || queue.has_newer_completion(&job.sink),
-            send_partial: &mut |text| (job.sink)(InferenceEvent::Partial(text)),
+            is_outdated: &mut || queue.has_newer_completion(sink),
+            send_partial: &mut |text| sink(InferenceEvent::Partial(text)),
         };
         let limits = Limits {
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
@@ -320,7 +372,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
-        (job.sink)(InferenceEvent::Completed(result));
+        job.reply.answer(InferenceEvent::Completed(result));
     }
 }
 
@@ -386,10 +438,7 @@ mod tests {
     ) -> bool {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: waiting,
-                sink: Arc::clone(waiting_sink),
-            })
+            .send(Job::new(waiting, Arc::clone(waiting_sink)))
             .expect("the queue receives jobs");
         JobQueue::new(&jobs).has_newer_completion(running_sink)
     }
@@ -441,10 +490,7 @@ mod tests {
     fn job_that_was_looked_at_comes_next() {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: complete_request(),
-                sink: sink(),
-            })
+            .send(Job::new(complete_request(), sink()))
             .expect("the queue receives jobs");
         let mut queue = JobQueue::new(&jobs);
         queue.has_newer_completion(&sink());
@@ -458,10 +504,7 @@ mod tests {
     fn any_job_in_the_queue_waits() {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: InferenceRequest::Unload,
-                sink: sink(),
-            })
+            .send(Job::new(InferenceRequest::Unload, sink()))
             .expect("the queue receives jobs");
 
         let waits = JobQueue::new(&jobs).has_waiting_job();
@@ -473,10 +516,7 @@ mod tests {
     fn job_in_the_queue_comes_within_the_limit() {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: complete_request(),
-                sink: sink(),
-            })
+            .send(Job::new(complete_request(), sink()))
             .expect("the queue receives jobs");
 
         let waited = JobQueue::new(&jobs).next_within(Duration::ZERO);
@@ -494,10 +534,7 @@ mod tests {
     fn job_that_was_looked_at_comes_within_the_limit() {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: InferenceRequest::Unload,
-                sink: sink(),
-            })
+            .send(Job::new(InferenceRequest::Unload, sink()))
             .expect("the queue receives jobs");
         let mut queue = JobQueue::new(&jobs);
         queue.has_waiting_job();
@@ -545,10 +582,7 @@ mod tests {
     fn waiting_job_comes_next() {
         let (sender, jobs) = mpsc::channel();
         sender
-            .send(Job {
-                request: complete_request(),
-                sink: sink(),
-            })
+            .send(Job::new(complete_request(), sink()))
             .expect("the queue receives jobs");
         let mut queue = JobQueue::new(&jobs);
         queue.has_waiting_job();

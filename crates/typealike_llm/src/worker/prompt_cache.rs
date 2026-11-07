@@ -347,6 +347,7 @@ impl<'model> PromptCache<'model> {
                     chosen
                 };
             if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
+                generation.add_end_step(logits);
                 break;
             }
             let piece = vocab.token_to_piece(token, false, None);

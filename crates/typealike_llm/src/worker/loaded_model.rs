@@ -274,6 +274,7 @@ impl<'model> LoadedModel<'model> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
 
     use typealike_core::inference::{Backend, LogProbability, SentenceEnd, TypoCheck};
@@ -336,6 +337,29 @@ mod tests {
         let after = complete(&mut loaded, STORY);
 
         assert_eq!(after, before);
+    }
+
+    #[test]
+    #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+    fn each_byte_of_a_healed_text_has_a_token_of_its_own() {
+        let mut llama = None;
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let one_byte_texts = model
+            .tokens(false)
+            .filter_map(|(_, piece)| <[u8; 1]>::try_from(piece).ok())
+            .collect::<HashSet<_>>();
+
+        let bytes_without_a_token = (0..=u8::MAX)
+            .filter(|&byte| !one_byte_texts.contains(&[byte]))
+            .collect::<Vec<_>>();
+
+        assert_eq!(bytes_without_a_token, []);
     }
 
     #[test]
