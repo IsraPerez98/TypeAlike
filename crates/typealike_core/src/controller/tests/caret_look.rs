@@ -2,7 +2,7 @@
 //! the look comes, and the ghost text stays off a caret that did not move after a key.
 
 use super::harness::{Call, Harness, TYPO, completed, field_around, fixed, ghost_at_caret};
-use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, Timer};
+use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, FocusChange, Timer};
 use crate::desktop::ScreenRect;
 use crate::key::Key;
 use crate::settings::Settings;
@@ -217,6 +217,23 @@ fn rest_after_a_fix_of_the_same_length_shows_at_once_at_the_same_caret() {
     assert_eq!(
         harness.take_calls(),
         vec![ghost_at_caret(Some(" end"), Some(active_badge()))]
+    );
+}
+
+#[test]
+fn first_look_in_a_new_field_shows_the_ghost_at_the_caret_of_the_last_look() {
+    let mut harness = harness_showing_at_the_old_caret("est");
+    harness.shell.focus_change = FocusChange::Changed;
+    harness.press(Key::Char('B'));
+    harness.answer(completed("ook"));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(look_at(OLD_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("ook"), Some(active_badge()))]
     );
 }
 

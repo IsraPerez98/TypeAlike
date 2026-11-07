@@ -223,6 +223,15 @@ fn completion_that_greets_the_writer_by_name_hides() {
 }
 
 #[test]
+fn completion_that_greets_the_writer_by_name_hides_after_notes_with_an_open_quote() {
+    let mut engine = engine_waiting_with(&named_writer("I own the shop “Bloom"), "Hi ");
+
+    let reaction = engine.on_completion(completion("Sara, we are having a party"));
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
 fn name_of_the_writer_shows_where_no_greeting_comes_before_it() {
     let cases = [
         ("Hi Tom, this is ", "Sara."),

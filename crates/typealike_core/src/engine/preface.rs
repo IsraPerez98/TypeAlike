@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings, Timestamp};
 use crate::history;
-use crate::prompt::{self, Example, ScreenPart, Writer};
+use crate::prompt::{self, Example, Preface, ScreenPart, Writer};
 use crate::screen::{ConversationLines, LineScope};
 use crate::settings::{ClipboardAccess, OcrLevel, ReplyWords, ScreenTextSettings};
 
@@ -264,7 +264,7 @@ impl Engine {
 
     /// Returns what the model reads before the text of the field in `surroundings`. The engine
     /// keeps the lines above the field that a preface with screen text shows, for the next preface.
-    pub(super) fn build_preface(&mut self, surroundings: &Surroundings, desktop: &dyn Desktop) -> String {
+    pub(super) fn build_preface(&mut self, surroundings: &Surroundings, desktop: &dyn Desktop) -> Preface {
         let recent_copy = match self.clipboard_access {
             ClipboardAccess::Allowed => desktop
                 .copied_text()
@@ -293,7 +293,7 @@ impl Engine {
             .session
             .as_ref()
             .map_or("", |session| session.text_before.as_str());
-        let preface = prompt::preface_with_screen_lines(
+        let (preface, screen_lines_above) = prompt::preface_with_screen_lines(
             &writer,
             surroundings,
             recent_copy.map(|copied| copied.text).as_deref(),
@@ -305,8 +305,8 @@ impl Engine {
             }),
         );
         if self.screen_reads.text().is_some() {
-            self.screen_reads.shown_above = preface.screen_lines_above;
+            self.screen_reads.shown_above = screen_lines_above;
         }
-        preface.text
+        preface
     }
 }

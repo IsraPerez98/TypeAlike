@@ -451,3 +451,26 @@ fn tab_on_a_fix_without_a_kept_delimiter_does_not_read_the_field() {
 
     assert_eq!(desktop.surroundings_reads.get(), 0);
 }
+
+#[test]
+fn tab_on_a_fix_after_the_app_changed_the_typo_keeps_one_word_in_the_session() {
+    let mut engine = engine_with(&Settings::default());
+    engine.prepare(&FakeDesktop::with_field_text("the dle"));
+    engine.on_completion(completion(""));
+    engine.on_key(
+        Key::Char('i'),
+        Press::First,
+        &FakeDesktop::with_field_text("the dle"),
+    );
+    engine.on_completion(correction(" dlei", " deli", "very soon"));
+    engine.on_key(
+        Key::Char(' '),
+        Press::First,
+        &FakeDesktop::with_field_text("the dlei"),
+    );
+    engine.follow_field(&FakeDesktop::with_field_text("the deli "));
+
+    engine.on_key(Key::Tab, Press::First, &FakeDesktop::default());
+
+    assert_eq!(engine.text_before_caret(), "the delivery ");
+}

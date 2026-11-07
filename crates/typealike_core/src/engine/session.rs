@@ -4,7 +4,7 @@ use crate::desktop::{Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::TokenCount;
 use crate::place;
-use crate::prompt;
+use crate::prompt::{self, Preface};
 use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 
 use super::shown_suggestions::ShownSuggestions;
@@ -82,7 +82,7 @@ impl SessionField {
 /// It starts at the first key after a reset, when the key has not reached the app yet, or at a
 /// preparation.
 pub(super) struct Session {
-    pub(super) preface: String,
+    pub(super) preface: Preface,
     pub(super) text_before: String,
     /// The characters at the start of `text_before` that the field held when the session started.
     pub(super) field_chars: usize,
@@ -122,12 +122,12 @@ impl Session {
     /// `preface` before the text. The session keeps the end of the field text before the caret
     /// that fits after it and in `limits`.
     pub(super) fn new(
-        preface: String,
+        preface: Preface,
         surroundings: &Surroundings,
         started_at: Option<Timestamp>,
         limits: TextLimits,
     ) -> Self {
-        let max_tokens_before = tokens_before_caret(&preface, limits.context_tokens);
+        let max_tokens_before = tokens_before_caret(&preface.text, limits.context_tokens);
         let (text_before, text_after) = surroundings
             .field_text
             .as_ref()
@@ -176,8 +176,8 @@ impl Session {
 
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the
     /// caret that does not fit after it.
-    pub(super) fn use_preface(&mut self, preface: String) {
-        self.max_tokens_before = tokens_before_caret(&preface, self.limits.context_tokens);
+    pub(super) fn use_preface(&mut self, preface: Preface) {
+        self.max_tokens_before = tokens_before_caret(&preface.text, self.limits.context_tokens);
         self.preface = preface;
         self.keep_recent_text();
     }
@@ -205,12 +205,11 @@ impl Session {
         self.keep_counts_inside_text();
     }
 
-    /// Replaces `typo` at the end of the text before the caret with `word`, and drops the oldest
-    /// text before the caret that does not fit.
+    /// Deletes as many characters as `typo` has from the end of the text before the caret, as the
+    /// app does, then adds `word` and drops the oldest text before the caret that does not fit.
     pub(super) fn replace_end(&mut self, typo: &str, word: &str) {
-        if let Some(kept) = self.text_before.strip_suffix(typo).map(str::len) {
-            self.text_before.truncate(kept);
-        }
+        let deleted = last_chars(&self.text_before, typo.chars().count()).len();
+        self.text_before.truncate(self.text_before.len() - deleted);
         self.keep_counts_inside_text();
         self.append_text(word);
     }

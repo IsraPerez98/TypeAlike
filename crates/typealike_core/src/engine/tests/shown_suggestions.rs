@@ -175,3 +175,16 @@ fn new_session_does_not_show_the_suggestions_of_the_session_before() {
 
     assert_eq!(reaction, request("hell"));
 }
+
+#[test]
+fn escape_at_the_end_of_a_typed_out_suggestion_keeps_it_for_a_backspace() {
+    let mut engine = engine_showing("hel", "lo world");
+    type_text(&mut engine, "lo world");
+    engine.on_completion(completion(", my friend"));
+    press(&mut engine, Key::Escape);
+    engine.end_field_pause();
+
+    let reaction = press(&mut engine, Key::Backspace);
+
+    assert_eq!(reaction, show("d"));
+}

@@ -136,6 +136,12 @@ impl CaretWait {
         self.looks.on_key();
     }
 
+    /// Forgets the caret of the last look, because the caret is now in another field or at an
+    /// unknown place.
+    pub(super) fn on_context_lost(&mut self) {
+        self.looks.last_caret = None;
+    }
+
     /// Waits for the caret to settle again after a scroll. The look that waits ends, because its
     /// caret can be stale. A scroll does not change the text, so the ghost text can show again at
     /// a caret that did not move.

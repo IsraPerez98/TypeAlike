@@ -86,12 +86,24 @@ pub(crate) struct ScreenPart<'text> {
     pub(crate) typed: &'text str,
 }
 
-/// What the model reads before the text, and the lines above the field on the screen that it
-/// shows.
+/// What the model reads before the text.
+#[derive(PartialEq, Eq)]
 pub(crate) struct Preface {
     pub(crate) text: String,
-    /// The lines above the field on the screen that `text` shows, in reading order.
-    pub(crate) screen_lines_above: Vec<String>,
+    /// The lines that the prompt writes itself around the quoted texts of `text`, such as the
+    /// [`FRAME`] and the labels, then the [`TEXT_HEADING`]. A quoted text holds what the writer
+    /// wrote or saw, so no line holds it. The place line keeps only its [`PLACE_LABEL`], because
+    /// the window title and the labels of the field are text that the writer can type.
+    pub(crate) frame_lines: Vec<String>,
+}
+
+impl Preface {
+    /// Returns the name of the writer that the frame gives, if any.
+    pub(crate) fn writer_name(&self) -> Option<&str> {
+        self.frame_lines
+            .iter()
+            .find_map(|line| line.strip_prefix(NAME_LINE_START)?.strip_suffix('.'))
+    }
 }
 
 /// Returns what the model reads before the text: the [`FRAME`], the notes of the `writer` on one
@@ -108,22 +120,22 @@ pub(crate) fn preface(
     clipboard: Option<&str>,
     screen: Option<ScreenPart<'_>>,
 ) -> String {
-    preface_with_screen_lines(writer, surroundings, clipboard, screen).text
+    preface_with_screen_lines(writer, surroundings, clipboard, screen)
+        .0
+        .text
 }
 
-/// Returns the [`preface`] and the lines above the field on the screen that it shows.
+/// Returns the [`preface`] with its frame lines, and the lines above the field on the screen that
+/// it shows, in reading order.
 pub(crate) fn preface_with_screen_lines(
     writer: &Writer<'_>,
     surroundings: &Surroundings,
     clipboard: Option<&str>,
     screen: Option<ScreenPart<'_>>,
-) -> Preface {
+) -> (Preface, Vec<String>) {
     let parts = budgeted_parts(writer, surroundings, clipboard, screen);
     let screen_lines_above = parts.above.clone();
-    Preface {
-        text: preface_lines(parts),
-        screen_lines_above,
-    }
+    (preface_of(parts), screen_lines_above)
 }
 
 /// The parts of a preface after their cut to the budget, before their layout.
@@ -207,43 +219,59 @@ fn after_caret_tokens(surroundings: &Surroundings) -> TokenCount {
     }
 }
 
-/// Returns the lines of the `parts` in reading order after the [`FRAME`], without the empty parts.
-fn preface_lines(parts: PrefaceParts<'_>) -> String {
-    let lines = [
-        Some(FRAME.to_owned()),
-        parts.notes.map(|text| format!("Notes about me: “{text}”")),
-        parts.name,
-        parts
-            .place
-            .filter(|line| !line.is_empty())
-            .map(|line| format!("{PLACE_LABEL} {line}")),
-        (!parts.examples.is_empty()).then(|| {
-            // A quote just after an earlier text makes the model end the typed text with a quote.
-            let quoted = parts
-                .examples
-                .iter()
-                .map(|&(text, days_ago)| match days_ago {
-                    Some(days_ago) => format!("({}) “{text}\n”", age_label(days_ago)),
-                    None => format!("“{text}\n”"),
-                })
-                .collect::<Vec<_>>();
-            format!("My earlier writing:\n{}", quoted.join("\n"))
-        }),
-        parts
-            .clipboard
-            .and_then(non_empty)
-            .map(|text| format!("Text on my clipboard: “{text}”")),
-        non_empty(&parts.below).map(|text| format!("Below the field on my screen: “{text}”")),
-        non_empty(&parts.above.join("\n")).map(|text| format!("Above the field on my screen: “{text}”")),
-        parts
-            .last_line_above
-            .map(|line| format!("{LAST_LINE_LABEL} “{line}”")),
-        parts
-            .after_caret
-            .and_then(non_empty)
-            .map(|text| format!("The text that comes right after the part that I am typing now: “{text}”")),
-    ];
-    lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
+/// Returns the preface of the `parts` in reading order after the [`FRAME`], without the empty
+/// parts. Each line starts with the part that the prompt writes itself, its frame line.
+fn preface_of(parts: PrefaceParts<'_>) -> Preface {
+    let quoted = |label: &str, text: &str| (label.to_owned(), format!("“{text}”"));
+    // A quote just after an earlier text makes the model end the typed text with a quote.
+    let examples = parts.examples.iter().map(|&(text, days_ago)| {
+        let age = days_ago.map_or_else(String::new, |days_ago| format!("({}) ", age_label(days_ago)));
+        (age, format!("“{text}\n”"))
+    });
+    let lines = [(FRAME.to_owned(), String::new())]
+        .into_iter()
+        .chain(parts.notes.map(|text| quoted("Notes about me: ", &text)))
+        .chain(parts.name.map(|line| (line, String::new())))
+        .chain(
+            parts
+                .place
+                .filter(|line| !line.is_empty())
+                .map(|line| (PLACE_LABEL.to_owned(), format!(" {line}"))),
+        )
+        .chain((!parts.examples.is_empty()).then(|| ("My earlier writing:".to_owned(), String::new())))
+        .chain(examples)
+        .chain(
+            parts
+                .clipboard
+                .and_then(non_empty)
+                .map(|text| quoted("Text on my clipboard: ", text)),
+        )
+        .chain(non_empty(&parts.below).map(|text| quoted("Below the field on my screen: ", text)))
+        .chain(non_empty(&parts.above.join("\n")).map(|text| quoted("Above the field on my screen: ", text)))
+        .chain(
+            parts
+                .last_line_above
+                .map(|line| quoted(&format!("{LAST_LINE_LABEL} "), &line)),
+        )
+        .chain(parts.after_caret.and_then(non_empty).map(|text| {
+            quoted(
+                "The text that comes right after the part that I am typing now: ",
+                text,
+            )
+        }))
+        .collect::<Vec<_>>();
+    let text = lines
+        .iter()
+        .map(|(frame, rest)| format!("{frame}{rest}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let frame_lines = lines
+        .into_iter()
+        .map(|(frame, _)| frame)
+        .filter(|frame| !frame.is_empty())
+        .chain([TEXT_HEADING.to_owned()])
+        .collect();
+    Preface { text, frame_lines }
 }
 
 /// Returns how long ago a text of `days_ago` days is, in words.
@@ -310,44 +338,6 @@ impl Budget {
 /// [`TEXT_HEADING`] between them.
 pub(crate) fn prompt(preface: &str, text_before: &str) -> Prompt {
     Prompt(format!("{preface}\n\n{TEXT_HEADING}\n{text_before}"))
-}
-
-/// Returns the lines that the prompt writes itself around the quoted texts of `preface`, such as
-/// the [`FRAME`] and the labels, and the [`TEXT_HEADING`]. A quoted text holds what the writer
-/// wrote or saw, so no line holds it. The place line keeps only its [`PLACE_LABEL`], because the
-/// window title and the labels of the field are text that the writer can type.
-pub(crate) fn frame_lines(preface: &str) -> Vec<String> {
-    let mut depth = 0_usize;
-    let mut unquoted = String::new();
-    for character in preface.chars() {
-        match character {
-            '“' => depth += 1,
-            '”' => depth = depth.saturating_sub(1),
-            _ if depth == 0 => unquoted.push(character),
-            _ => {}
-        }
-    }
-    unquoted
-        .lines()
-        .map(|line| {
-            if line.starts_with(PLACE_LABEL) {
-                PLACE_LABEL
-            } else {
-                line
-            }
-        })
-        .map(str::to_owned)
-        .chain([TEXT_HEADING.to_owned()])
-        .collect()
-}
-
-/// Returns the name of the writer that the frame of `preface` gives, if any.
-pub(crate) fn writer_name(preface: &str) -> Option<String> {
-    frame_lines(preface).into_iter().find_map(|line| {
-        line.strip_prefix(NAME_LINE_START)?
-            .strip_suffix('.')
-            .map(str::to_owned)
-    })
 }
 
 /// Where the user types, as one line of labeled parts. A window title that names the app stands

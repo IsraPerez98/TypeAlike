@@ -358,6 +358,19 @@ fn answer_that_changes_the_prompt_of_a_shown_suggestion_asks_for_it_again() {
 }
 
 #[test]
+fn answer_that_changes_the_prompt_in_a_paused_field_asks_for_no_suggestion() {
+    let mut app = app_preparing_on_first_key();
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
+    let read = session_read(&mut app);
+    app.on_completion(completion("ello"));
+    app.on_key(Key::Escape, Press::First, &MAIL);
+
+    let work = app.on_screen_read(answer_with(read, "Dinner at 7?"), &MAIL);
+
+    assert_eq!(work, None);
+}
+
+#[test]
 fn answer_that_keeps_the_prompt_asks_for_no_suggestion_again() {
     let mut app = app_preparing_on_first_key();
     let stored = screen_read(&mut app);

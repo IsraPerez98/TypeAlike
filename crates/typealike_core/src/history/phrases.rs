@@ -141,7 +141,7 @@ fn repeated_follower(counts: &[(String, u32)]) -> Option<&str> {
 /// Returns the words of `counts` after `typed` with their share of `strength`, most common first.
 /// A word needs a space before it and no line break.
 fn preferred_words(counts: &[(String, u32)], typed: &str, strength: f32) -> Vec<(String, f32)> {
-    let total = small_count(counts.iter().map(|(_, count)| count).sum::<u32>());
+    let total = counts.iter().map(|(_, count)| count).sum::<u32>();
     let mut words = counts
         .iter()
         .filter(|(follower, _)| follower.starts_with(typed))
@@ -156,8 +156,15 @@ fn preferred_words(counts: &[(String, u32)], typed: &str, strength: f32) -> Vec<
     words
         .into_iter()
         .take(MAX_NEXT_WORDS)
-        .map(|(word, count)| (word.to_owned(), strength * small_count(count) / total))
+        .map(|(word, count)| (word.to_owned(), strength * share(count, total)))
         .collect()
+}
+
+/// Returns the share of `count` in `total`. Both shrink by the same factor until `total` fits in
+/// a [`small_count`], so the shares of the counts of one total add up to at most 1.
+fn share(count: u32, total: u32) -> f32 {
+    let divisor = total.div_ceil(u32::from(u16::MAX)).max(1);
+    small_count(count / divisor) / small_count(total / divisor)
 }
 
 /// Returns the phrases of `entries` for `choice` at the time `now`. They have none when the
@@ -484,6 +491,26 @@ mod tests {
         let next = next_words_in(&entries, WordChoice::Medium, "Can you let me know ");
 
         assert_eq!(next, [word("if", 0.5), word("when", 0.5)]);
+    }
+
+    #[test]
+    fn shares_of_the_next_words_add_up_to_the_strength_past_the_largest_small_count() {
+        let entries = mail_on_days(
+            "I am here. I am here. I am there. I am there. I am near. I am near. I am far. I am far.",
+            10_000,
+        );
+
+        let next = next_words_in(&entries, WordChoice::Medium, "So I am ");
+
+        assert_eq!(
+            next,
+            [
+                word("far", 0.25),
+                word("here", 0.25),
+                word("near", 0.25),
+                word("there", 0.25)
+            ]
+        );
     }
 
     #[test]

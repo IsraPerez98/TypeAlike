@@ -2,7 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::Correction;
-use crate::prompt;
+use crate::prompt::Preface;
 
 use super::WordFix;
 
@@ -113,7 +113,7 @@ pub(super) fn suggestion_after_typed(
     text_after: &str,
     typed: &str,
     completion: &str,
-    preface: &str,
+    preface: &Preface,
 ) -> Option<String> {
     let context = text_before.strip_suffix(typed)?;
     let suggestion = suggestion_after(context, completion, text_after)?;
@@ -129,7 +129,12 @@ pub(super) fn suggestion_after_typed(
 /// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, the name
 /// of the writer after a greeting, or a bracket after the end of a sentence, which opens a note
 /// about the text and not the text.
-pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &str, preface: &str) -> bool {
+pub(super) fn is_bad_suggestion(
+    suggestion: &str,
+    context: &str,
+    text_after: &str,
+    preface: &Preface,
+) -> bool {
     let has_no_word = !suggestion.chars().any(char::is_alphanumeric);
     let closes_after_space =
         context.ends_with(char::is_whitespace) && suggestion.starts_with(CLOSING_PUNCTUATION);
@@ -139,7 +144,7 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
         || repeats_text_after(&suggested, text_after)
         || copies_last_words(&suggested, context)
         || repeats_a_pattern(&suggested)
-        || copies_frame_line(&suggested, suggestion, context, preface)
+        || copies_frame_line(&suggested, suggestion, context, &preface.frame_lines)
         || greets_the_writer(suggestion, context, preface)
         || opens_note_after_sentence(suggestion, context)
 }
@@ -147,11 +152,11 @@ pub(super) fn is_bad_suggestion(suggestion: &str, context: &str, text_after: &st
 /// Whether `suggestion` after `context` makes a word of the name of the writer of `preface` the
 /// second word of the text, after a first word that is not a part of that name, as after "Hi". A
 /// greeting addresses the reader, who is not the writer. The suggestion must add that second word.
-fn greets_the_writer(suggestion: &str, context: &str, preface: &str) -> bool {
-    let Some(name) = prompt::writer_name(preface) else {
+fn greets_the_writer(suggestion: &str, context: &str, preface: &Preface) -> bool {
+    let Some(name) = preface.writer_name() else {
         return false;
     };
-    let name_words = words(&name).collect::<Vec<_>>();
+    let name_words = words(name).collect::<Vec<_>>();
     let text_words = words(&format!("{context}{suggestion}")).collect::<Vec<_>>();
     words(context).count() < 2
         && text_words.first().is_some_and(|word| !name_words.contains(word))
@@ -162,15 +167,15 @@ fn opens_note_after_sentence(suggestion: &str, context: &str) -> bool {
     context.trim_end().ends_with(SENTENCE_ENDS) && suggestion.trim_start().starts_with(NOTE_BRACKETS)
 }
 
-/// Whether `suggestion` after `context` copies a line of the frame of `preface`: it holds
+/// Whether `suggestion` after `context` copies one of the `frame_lines` of the preface: it holds
 /// [`FRAME_COPY_WORDS`] words of the line in a row, or it starts the line of the caret as the line
 /// starts, with its first [`FRAME_COPY_WORDS`] words or with all the words of a shorter line of at
 /// least [`MIN_FRAME_COPY_WORDS`]. In the second case, the suggestion must add one of these words.
-fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, preface: &str) -> bool {
+fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, frame_lines: &[String]) -> bool {
     let caret_line = context.rsplit('\n').next().unwrap_or_default();
     let typed_words = words(caret_line).count();
     let line = words(&format!("{caret_line}{suggestion}")).collect::<Vec<_>>();
-    prompt::frame_lines(preface).iter().any(|frame_line| {
+    frame_lines.iter().any(|frame_line| {
         let frame_words = words(frame_line).collect::<Vec<_>>();
         let start = frame_words.len().min(FRAME_COPY_WORDS);
         let starts_as_frame_line =

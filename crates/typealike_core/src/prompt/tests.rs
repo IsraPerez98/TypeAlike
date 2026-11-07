@@ -593,9 +593,8 @@ fn frame_lines_keep_the_label_of_the_place_without_the_place() {
         Some("Safari"),
         Some("Contact the landlord - 22 Baker Lane, Flat 4"),
     );
-    let preface = preface(&Writer::default(), &place, None, None);
 
-    let lines = frame_lines(&preface);
+    let lines = frame_lines(&Writer::default(), &place, None);
 
     assert_eq!(lines, [FRAME, "Where I am typing:", TEXT_HEADING]);
 }
@@ -609,16 +608,51 @@ fn earlier_text_ends_with_a_line_break_before_its_closing_quote() {
 
 #[test]
 fn frame_lines_leave_out_the_earlier_texts() {
-    let preface = preface(
-        &examples(&["Hi Tom,\nthe report is ready for you now"]),
-        &Surroundings::default(),
-        None,
-        None,
-    );
+    let writer = examples(&["Hi Tom,\nthe report is ready for you now"]);
 
-    let lines = frame_lines(&preface);
+    let lines = frame_lines(&writer, &Surroundings::default(), None);
 
     assert_eq!(lines, [FRAME, "My earlier writing:", TEXT_HEADING]);
+}
+
+#[test]
+fn frame_lines_keep_the_labels_after_a_clipboard_text_with_an_open_quote() {
+    let field = Surroundings {
+        field_text: Some(FieldText {
+            before_caret: String::new(),
+            after_caret: "See you then.".to_owned(),
+        }),
+        ..Surroundings::default()
+    };
+
+    let lines = frame_lines(&Writer::default(), &field, Some("He said “hi"));
+
+    assert_eq!(
+        lines,
+        [
+            FRAME,
+            "Text on my clipboard: ",
+            "The text that comes right after the part that I am typing now: ",
+            TEXT_HEADING
+        ]
+    );
+}
+
+#[test]
+fn frame_lines_leave_out_a_clipboard_text_with_a_closing_quote_alone() {
+    let clipboard = "the size” of the new office plan";
+
+    let lines = frame_lines(&Writer::default(), &Surroundings::default(), Some(clipboard));
+
+    assert_eq!(lines, [FRAME, "Text on my clipboard: ", TEXT_HEADING]);
+}
+
+/// Returns the frame lines of the preface for the `writer`, the `surroundings` and the
+/// `clipboard` text.
+fn frame_lines(writer: &Writer<'_>, surroundings: &Surroundings, clipboard: Option<&str>) -> Vec<String> {
+    preface_with_screen_lines(writer, surroundings, clipboard, None)
+        .0
+        .frame_lines
 }
 
 /// Returns a preface with each part at its cap, until the parts fill [`PREFACE_TOKENS`].

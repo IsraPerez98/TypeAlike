@@ -78,7 +78,7 @@ impl WrittenWords<'_> {
     fn holds(&self, word: &str) -> bool {
         let lowercase = word.to_lowercase();
         let session = self.session;
-        let is_in_session = [&session.preface, &session.text_before, &session.text_after]
+        let is_in_session = [&session.preface.text, &session.text_before, &session.text_after]
             .into_iter()
             .any(|text| words(text).any(|written| written == lowercase));
         is_in_session

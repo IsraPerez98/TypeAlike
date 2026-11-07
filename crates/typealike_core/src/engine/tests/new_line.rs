@@ -202,6 +202,15 @@ fn session_ends_when_enter_starts_no_new_line() {
 }
 
 #[test]
+fn session_ends_when_the_field_shows_neither_text_and_the_read_at_enter_was_empty() {
+    let mut engine = engine_after_enter_in("¿Que tal?", "");
+
+    let reaction = engine.suggest_on_new_line(&field_with_copy("¿Qué tal?\n"));
+
+    assert_eq!((reaction, engine.has_session()), (None, false));
+}
+
+#[test]
 fn key_after_enter_without_a_new_line_starts_a_new_session() {
     let mut engine = engine_after_enter("See you at 8");
 

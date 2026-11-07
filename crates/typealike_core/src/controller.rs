@@ -286,6 +286,7 @@ impl Controller {
     /// clicked, or the screen changed.
     pub fn on_context_lost(&mut self, shell: &mut dyn Shell) {
         self.tab_hold.end(shell);
+        self.caret_wait.on_context_lost();
         let reaction = self.app.on_context_lost();
         self.apply(reaction, shell);
         shell.hide_badge();

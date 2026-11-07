@@ -75,7 +75,8 @@ fn text_after_enter(typed: &str, field_at_enter: &str, field_text: &str) -> Opti
 
 /// Returns what Enter added after `text` in `field_text`, the text before the caret after Enter:
 /// line breaks, then signs without letters, such as an indent or a bullet. `None` when
-/// `field_text` is not `text` with such an addition.
+/// `field_text` is not `text` with such an addition. The field can show more text before a
+/// `text` that is the end of a longer text, but not before an empty `text`.
 fn text_on_new_line<'field>(text: &str, field_text: &'field str) -> Option<&'field str> {
     let line_start = field_text
         .trim_end_matches(|character| !is_line_break(character))
@@ -85,7 +86,7 @@ fn text_on_new_line<'field>(text: &str, field_text: &'field str) -> Option<&'fie
         .char_indices()
         .filter(|&(_, character)| is_line_break(character))
         .map(|(offset, _)| breaks_start + offset)
-        .find(|&end| field_text[..end].ends_with(text))?;
+        .find(|&end| field_text[..end].ends_with(text) && (end == 0 || !text.is_empty()))?;
     let new_line = &field_text[line_start..];
     (!new_line.contains(char::is_alphabetic)).then(|| &field_text[added_start..])
 }

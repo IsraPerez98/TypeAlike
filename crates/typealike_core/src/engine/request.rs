@@ -33,7 +33,7 @@ impl Engine {
         if session.field.is_excluded {
             return None;
         }
-        let prompt = prompt::prompt(&session.preface, &session.text_before);
+        let prompt = prompt::prompt(&session.preface.text, &session.text_before);
         let line_after = session.line_after().to_owned();
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         Some(InferenceRequest::Complete {
@@ -198,6 +198,6 @@ impl Engine {
             .as_ref()
             .filter(|session| !session.field.is_excluded)?;
         let has_words = !session.text_before.trim().is_empty();
-        has_words.then(|| prompt::prompt(&session.preface, &session.text_before))
+        has_words.then(|| prompt::prompt(&session.preface.text, &session.text_before))
     }
 }

@@ -8,6 +8,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - A shell that reads the caret off its thread (`CaretLook::Later`, Windows) gives each read (`CaretRead`: the caret and the frame of the focused field) to `Controller::on_caret_read`.
 - A shell that reads the caret at once (`CaretLook::Now`, macOS) gives the read as its answer.
 - Core compares the caret with the caret of the last look that found a caret that moved, and a caret that did not move gets only the badge.
+- A focus change, a click and a screen change forget that caret (`Controller::on_context_lost`), so the first look in another field shows the ghost text also at the same place on the screen.
 - A caret more than 4 caret heights outside the frame of its field counts as no caret, and core hides the ghost text and the badge.
 
 ## Timing
