@@ -2,20 +2,26 @@
 
 mod stored;
 
-use std::fs;
-use std::io;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::{self, Write as _};
+use std::path::{Path, PathBuf};
 
 use typealike_core::settings::{Settings, SettingsStore};
 
 use stored::{parse, to_json};
 
+/// The extension of the copy of a file that a load could not use.
+const BACKUP_EXTENSION: &str = "json.backup";
+
 /// The settings file: it gives the saved settings at start, and keeps each change. Without a
-/// file, it gives the settings of the first start on this computer.
+/// file, it gives the settings of the first start on this computer. Before the first save replaces
+/// a file that the load could not use, it keeps a copy of the file next to it, with the extension
+/// `json.backup`.
 #[derive(Debug)]
 pub struct SettingsFile {
     path: PathBuf,
     first_start: Settings,
+    is_backup_due: bool,
 }
 
 impl SettingsFile {
@@ -23,37 +29,58 @@ impl SettingsFile {
     /// computer.
     #[must_use]
     pub fn new(path: PathBuf, first_start: Settings) -> Self {
-        Self { path, first_start }
+        Self {
+            path,
+            first_start,
+            is_backup_due: false,
+        }
     }
 
     /// Reads the saved settings. Gives the settings of the first start when there is no file, or
     /// when the file is damaged.
     #[must_use]
-    pub fn load(&self) -> Settings {
+    pub fn load(&mut self) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return self.first_start.clone(),
             Err(error) => {
                 tracing::warn!(%error, "failed to read the settings file, using the default settings");
+                self.is_backup_due = true;
                 return self.first_start.clone();
             }
         };
-        parse(&json).unwrap_or_else(|error| {
+        let json = json.strip_prefix('\u{feff}').unwrap_or(&json);
+        parse(json).unwrap_or_else(|error| {
             tracing::warn!(%error, "the settings file is damaged, using the default settings");
+            self.is_backup_due = true;
             self.first_start.clone()
         })
     }
 
     /// Writes a new file next to the old one, then replaces the old one with it, so that a failed
     /// write never leaves a damaged file.
-    fn write(&self, settings: &Settings) -> io::Result<()> {
+    fn write(&mut self, settings: &Settings) -> io::Result<()> {
         if let Some(folder) = self.path.parent() {
             fs::create_dir_all(folder)?;
         }
+        if self.is_backup_due {
+            write_synced(
+                &self.path.with_extension(BACKUP_EXTENSION),
+                &fs::read(&self.path)?,
+            )?;
+            self.is_backup_due = false;
+        }
         let staged = self.path.with_extension("json.new");
-        fs::write(&staged, to_json(settings))?;
+        write_synced(&staged, to_json(settings).as_bytes())?;
         fs::rename(&staged, &self.path)
     }
+}
+
+/// Writes `bytes` to the file at `path`, and returns only after they are on the disk.
+fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 impl SettingsStore for SettingsFile {
@@ -170,7 +197,7 @@ mod tests {
 
     #[test]
     fn missing_file_gives_the_first_start_settings() {
-        let file = SettingsFile::new(temporary_file("missing.json"), first_start_settings());
+        let mut file = SettingsFile::new(temporary_file("missing.json"), first_start_settings());
 
         assert_eq!(file.load(), first_start_settings());
     }
@@ -192,5 +219,75 @@ mod tests {
 
         fs::remove_file(&path).ok();
         assert_eq!(loaded, first_start_settings());
+    }
+
+    #[test]
+    fn damaged_file_survives_a_save() {
+        let folder = temporary_file("damaged-then-saved");
+        let path = folder.join("settings.json");
+        fs::create_dir_all(&folder).expect("temp dir is writable");
+        fs::write(&path, "not json").expect("temp dir is writable");
+        let mut file = SettingsFile::new(path, first_start_settings());
+        let loaded = file.load();
+
+        file.save(&loaded);
+
+        let kept_texts: Vec<String> = fs::read_dir(&folder)
+            .expect("the folder exists")
+            .map(|entry| fs::read_to_string(entry.expect("the folder can be read").path()))
+            .collect::<io::Result<_>>()
+            .expect("each file can be read");
+        fs::remove_dir_all(&folder).ok();
+        assert!(
+            kept_texts.contains(&"not json".to_owned()),
+            "no file in the folder has the damaged text, file count: {}",
+            kept_texts.len()
+        );
+    }
+
+    #[test]
+    fn readable_file_gets_no_backup_copy() {
+        let path = temporary_file("readable.json");
+        SettingsFile::new(path.clone(), first_start_settings()).save(&first_start_settings());
+        let mut file = SettingsFile::new(path.clone(), first_start_settings());
+        let loaded = file.load();
+
+        file.save(&loaded);
+
+        let backup = path.with_extension(BACKUP_EXTENSION);
+        let has_backup = backup.exists();
+        fs::remove_file(&path).ok();
+        fs::remove_file(&backup).ok();
+        assert!(!has_backup);
+    }
+
+    #[test]
+    fn backup_copy_survives_later_saves() {
+        let path = temporary_file("later-saves.json");
+        fs::create_dir_all(path.parent().expect("the path has a folder")).expect("temp dir is writable");
+        fs::write(&path, "not json").expect("temp dir is writable");
+        let mut file = SettingsFile::new(path.clone(), first_start_settings());
+        let loaded = file.load();
+        file.save(&loaded);
+
+        file.save(&loaded);
+
+        let backup = path.with_extension(BACKUP_EXTENSION);
+        let kept_text = fs::read_to_string(&backup);
+        fs::remove_file(&path).ok();
+        fs::remove_file(&backup).ok();
+        assert_eq!(kept_text.expect("the copy exists"), "not json");
+    }
+
+    #[test]
+    fn file_with_a_byte_order_mark_gives_its_settings() {
+        let path = temporary_file("byte-order-mark.json");
+        fs::create_dir_all(path.parent().expect("the path has a folder")).expect("temp dir is writable");
+        fs::write(&path, "\u{feff}{ \"backend\": \"cpu\" }").expect("temp dir is writable");
+
+        let loaded = SettingsFile::new(path.clone(), first_start_settings()).load();
+
+        fs::remove_file(&path).ok();
+        assert_eq!(loaded.backend, Backend::Cpu);
     }
 }

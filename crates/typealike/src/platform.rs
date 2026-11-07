@@ -22,7 +22,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
         setup: Setup::Needed,
         ..Settings::default()
     };
-    let settings_file = typealike_settings::SettingsFile::new(data_dir.join("settings.json"), first_start);
+    let mut settings_file =
+        typealike_settings::SettingsFile::new(data_dir.join("settings.json"), first_start);
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
     let hub = typealike_models::HuggingFace::new(models_dir.clone());
@@ -75,7 +76,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
         setup: Setup::Needed,
         ..Settings::default()
     };
-    let settings_file = typealike_settings::SettingsFile::new(data_dir.join("settings.json"), first_start);
+    let mut settings_file =
+        typealike_settings::SettingsFile::new(data_dir.join("settings.json"), first_start);
     let settings = settings_file.load();
     let program = std::env::current_exe().context("no path to the running program")?;
     let launch_agent = typealike_macos::LaunchAgent::new(&home_dir.join(LAUNCH_AGENTS_DIR), &program);

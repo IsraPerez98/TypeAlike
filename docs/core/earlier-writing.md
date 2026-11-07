@@ -65,3 +65,8 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 - It is sealed with ChaCha20-Poly1305.
 - The key is a generic password in the login keychain on macOS (service `io.github.israperez98.typealike`, account `history-key`), and `history.key` (locked with DPAPI) next to `history.bin` on Windows.
 - To delete both resets the history.
+- The read skips a line that is not an entry, for example a line of a newer version, and keeps the other entries.
+- When the read cannot use all of `history.bin` (a skipped line, a missing key, another key or a damaged file), the next save first copies the file to `history.bin.backup`.
+  - A save after that keeps the copy. A newer copy replaces an older one.
+  - "Delete all earlier writing" also deletes `history.bin.backup`.
+- Each save writes `history.bin.new`, waits until its bytes are on the disk, then replaces `history.bin` with it. Thus a power loss cannot leave an empty file.

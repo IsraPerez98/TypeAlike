@@ -19,6 +19,10 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
   - The setup is to do (`Setup::Needed`).
   - On Windows, the backend is the GPU backend of the build (`typealike_llm::DEFAULT_BACKEND`: CUDA, else Vulkan, else the CPU). A build without `vulkan` and `cuda` thus starts on the CPU and recommends the model for the CPU.
 - A file of an older version without `setup` counts as finished, and a file without `updates` has automatic updates.
+- A damaged settings file, or a file that TypeAlike cannot read, also gives the settings of the first start.
+  - The next save first copies the file to `settings.json.backup`. A save after that keeps the copy. A newer copy replaces an older one.
+- A settings file that starts with a UTF-8 byte order mark (BOM) loads as the same file without the BOM.
+- Each save writes `settings.json.new`, waits until its bytes are on the disk, then replaces `settings.json` with it. Thus a power loss cannot leave an empty file.
 
 ## General pane
 

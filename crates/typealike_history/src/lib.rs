@@ -5,9 +5,9 @@
 //! [`KeyVault`] of the OS, and the file reads it only when it first reads or writes the entries.
 //! Nothing here uses the network.
 
-use std::fs;
-use std::io;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::{self, Write as _};
+use std::path::{Path, PathBuf};
 
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -17,6 +17,9 @@ use typealike_core::history::{HistoryEntry, HistoryKey, KeyVault, WritingHistory
 
 /// The start of the file, which names its format.
 const FORMAT: &[u8] = b"GTH1";
+
+/// The extension of the copy of a file that a read could not use in full.
+const BACKUP_EXTENSION: &str = "bin.backup";
 
 /// Why the entries could not be read or written. No error holds the text of an entry.
 #[derive(Debug, thiserror::Error)]
@@ -52,16 +55,33 @@ struct StoredEntry {
     typing_context: Option<String>,
 }
 
+/// What a save can do with the file after the last read.
+#[derive(Clone, Copy)]
+enum Replace {
+    /// No read got the file, so a save keeps it as it is.
+    Refused,
+    Allowed,
+    /// The read could not use all of the file, so a save first keeps a copy of it.
+    AfterBackup,
+}
+
+/// The entries of a file, and the count of its lines that are not an entry.
+struct Decoded {
+    entries: Vec<HistoryEntry>,
+    skipped_lines: usize,
+}
+
 /// The file that keeps the earlier writing of the user, locked with a key of the `vault`. A save
 /// changes the file only after a read that got the entries of the file or found the file unusable,
-/// so that a vault that fails one time never makes it lose the entries. Only a delete removes the
-/// file without such a read.
+/// so that a vault that fails one time never makes it lose the entries. Before the first save
+/// replaces a file that the read could not use in full, it keeps a copy of the file next to it,
+/// with the extension `bin.backup`. Only a delete removes the file and its copy without such a read.
 pub struct HistoryFile {
     path: PathBuf,
     vault: Box<dyn KeyVault>,
     key: Option<LessSafeKey>,
     random: SystemRandom,
-    is_replace_allowed: bool,
+    replace: Replace,
 }
 
 impl std::fmt::Debug for HistoryFile {
@@ -84,14 +104,19 @@ impl HistoryFile {
             vault,
             key: None,
             random: SystemRandom::new(),
-            is_replace_allowed: false,
+            replace: Replace::Refused,
         }
     }
 
-    fn read(&mut self) -> Result<Vec<HistoryEntry>, HistoryError> {
+    fn read(&mut self) -> Result<Decoded, HistoryError> {
         let sealed = match fs::read(&self.path) {
             Ok(sealed) => sealed,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(Decoded {
+                    entries: Vec::new(),
+                    skipped_lines: 0,
+                });
+            }
             Err(error) => return Err(error.into()),
         };
         open(self.key()?, &sealed)
@@ -99,22 +124,23 @@ impl HistoryFile {
             .ok_or(HistoryError::Locked)
     }
 
-    /// Removes the file, also when no read came before. A missing file is not an error.
-    fn remove(&self) -> Result<(), HistoryError> {
-        match fs::remove_file(&self.path) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
-            _ => Ok(()),
-        }
+    fn backup_path(&self) -> PathBuf {
+        self.path.with_extension(BACKUP_EXTENSION)
     }
 
     /// Replaces the file with `entries`, or removes it when there are none. It changes the file only
     /// after a read that got the entries of the file or found the file unusable.
     fn replace(&mut self, entries: &[HistoryEntry]) -> Result<(), HistoryError> {
-        if !self.is_replace_allowed {
-            return Err(HistoryError::Unread);
+        match self.replace {
+            Replace::Refused => return Err(HistoryError::Unread),
+            Replace::AfterBackup => {
+                write_synced(&self.backup_path(), &fs::read(&self.path)?)?;
+                self.replace = Replace::Allowed;
+            }
+            Replace::Allowed => {}
         }
         if entries.is_empty() {
-            self.remove()
+            remove(&self.path)
         } else {
             self.write(entries)
         }
@@ -137,7 +163,7 @@ impl HistoryFile {
             fs::create_dir_all(folder)?;
         }
         let staged = self.path.with_extension("bin.new");
-        fs::write(&staged, sealed)?;
+        write_synced(&staged, &sealed)?;
         fs::rename(&staged, &self.path)?;
         Ok(())
     }
@@ -169,12 +195,32 @@ impl HistoryFile {
 
 impl WritingHistory for HistoryFile {
     fn load(&mut self) -> Vec<HistoryEntry> {
-        let entries = self.read();
-        self.is_replace_allowed = matches!(entries, Ok(_) | Err(HistoryError::Locked));
-        entries.unwrap_or_else(|error| {
-            tracing::warn!(%error, "failed to read the earlier writing, starting with none");
-            Vec::new()
-        })
+        let (entries, replace) = match self.read() {
+            Ok(Decoded {
+                entries,
+                skipped_lines: 0,
+            }) => (entries, Replace::Allowed),
+            Ok(Decoded {
+                entries,
+                skipped_lines,
+            }) => {
+                tracing::warn!(
+                    skipped_lines,
+                    "skipped the lines of the earlier writing that are not entries"
+                );
+                (entries, Replace::AfterBackup)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to read the earlier writing, starting with none");
+                let replace = match error {
+                    HistoryError::Locked => Replace::AfterBackup,
+                    _ => Replace::Refused,
+                };
+                (Vec::new(), replace)
+            }
+        };
+        self.replace = replace;
+        entries
     }
 
     fn save(&mut self, entries: &[HistoryEntry]) {
@@ -184,10 +230,27 @@ impl WritingHistory for HistoryFile {
     }
 
     fn delete(&mut self) {
-        if let Err(error) = self.remove() {
-            tracing::warn!(%error, "failed to delete the earlier writing");
+        for path in [self.path.clone(), self.backup_path()] {
+            if let Err(error) = remove(&path) {
+                tracing::warn!(%error, "failed to delete the earlier writing");
+            }
         }
     }
+}
+
+/// Removes the file at `path`. A missing file is not an error.
+fn remove(path: &Path) -> Result<(), HistoryError> {
+    match fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
+    }
+}
+
+/// Writes `bytes` to the file at `path`, and returns only after they are on the disk.
+fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// Returns the file that holds `plain`, sealed with `key` and `nonce`.
@@ -212,16 +275,17 @@ fn open(key: &LessSafeKey, sealed: &[u8]) -> Option<Vec<u8>> {
     Some(cipher)
 }
 
-/// Returns the entries in the JSON lines of `plain`, or `None` when a line is not an entry.
-fn decode(plain: Vec<u8>) -> Option<Vec<HistoryEntry>> {
+/// Returns the entries in the JSON lines of `plain`, without the lines that are not an entry, or
+/// `None` when `plain` is not UTF-8.
+fn decode(plain: Vec<u8>) -> Option<Decoded> {
     let text = String::from_utf8(plain).ok()?;
-    text.lines()
-        .map(|line| {
-            serde_json::from_str::<StoredEntry>(line)
-                .ok()
-                .map(HistoryEntry::from)
-        })
-        .collect()
+    let stored: Vec<Option<StoredEntry>> = text.lines().map(|line| serde_json::from_str(line).ok()).collect();
+    let skipped_lines = stored.iter().filter(|entry| entry.is_none()).count();
+    let entries = stored.into_iter().flatten().map(HistoryEntry::from).collect();
+    Some(Decoded {
+        entries,
+        skipped_lines,
+    })
 }
 
 impl From<StoredEntry> for HistoryEntry {
@@ -253,7 +317,6 @@ impl From<&HistoryEntry> for StoredEntry {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::path::Path;
     use std::rc::Rc;
 
     use super::*;
@@ -314,8 +377,26 @@ mod tests {
         fs::create_dir_all(&folder).expect("the temporary folder can be made");
         let path = folder.join(name);
         fs::remove_file(&path).ok();
+        fs::remove_file(path.with_extension(BACKUP_EXTENSION)).ok();
         path
     }
+
+    /// Writes the JSON `lines`, sealed with the key of `vault`, to the file at `path`, and returns
+    /// the bytes of the file.
+    fn write_lines(path: &Path, vault: &FakeVault, lines: &str) -> Vec<u8> {
+        let mut writer = HistoryFile::new(path.to_owned(), Box::new(vault.clone()));
+        let key = writer.key().expect("the vault gives a key");
+        let sealed = seal(key, [0; NONCE_LEN], lines.as_bytes().to_vec()).expect("the lines can be sealed");
+        fs::write(path, &sealed).expect("the file can be written");
+        sealed
+    }
+
+    const LINES_WITH_AN_UNKNOWN_SHAPE: &str = concat!(
+        r#"{"text":"Cheers,\nTom","app_id":"com.apple.mail"}"#,
+        "\n",
+        r#"{"text":"LGTM","app_id":"com.google.Chrome","written_at":"2026-11-07"}"#,
+        "\n",
+    );
 
     fn entries() -> Vec<HistoryEntry> {
         vec![
@@ -388,6 +469,80 @@ mod tests {
         history.save(&[]);
 
         assert_eq!(HistoryFile::new(path, Box::new(vault)).load(), entries());
+    }
+
+    #[test]
+    fn missing_key_keeps_a_copy_of_the_history_file() {
+        let path = temporary_file("missing-key.bin");
+        read_history(&path, Box::new(FakeVault::default())).save(&entries());
+        let saved = fs::read(&path).expect("the file exists");
+        let mut history = read_history(&path, Box::new(FakeVault::default()));
+
+        history.save(&entries()[..1]);
+
+        let backup = fs::read(path.with_extension(BACKUP_EXTENSION)).expect("the copy exists");
+        assert_eq!(backup, saved);
+    }
+
+    #[test]
+    fn entry_of_an_unknown_shape_keeps_a_copy_of_the_history_file() {
+        let path = temporary_file("unknown-shape.bin");
+        let vault = FakeVault::default();
+        let sealed = write_lines(&path, &vault, LINES_WITH_AN_UNKNOWN_SHAPE);
+        let mut history = read_history(&path, Box::new(vault));
+
+        history.save(&entries()[..1]);
+
+        let backup = fs::read(path.with_extension(BACKUP_EXTENSION)).expect("the copy exists");
+        assert_eq!(backup, sealed);
+    }
+
+    #[test]
+    fn entry_of_an_unknown_shape_is_skipped() {
+        let path = temporary_file("skipped-shape.bin");
+        let vault = FakeVault::default();
+        write_lines(&path, &vault, LINES_WITH_AN_UNKNOWN_SHAPE);
+
+        let loaded = HistoryFile::new(path, Box::new(vault)).load();
+
+        assert_eq!(loaded, entries()[..1]);
+    }
+
+    #[test]
+    fn readable_file_gets_no_backup_copy() {
+        let path = temporary_file("readable.bin");
+        let vault = FakeVault::default();
+        read_history(&path, Box::new(vault.clone())).save(&entries());
+        let mut history = read_history(&path, Box::new(vault));
+
+        history.save(&entries()[..1]);
+
+        assert!(!path.with_extension(BACKUP_EXTENSION).exists());
+    }
+
+    #[test]
+    fn backup_copy_survives_later_saves() {
+        let path = temporary_file("later-saves.bin");
+        fs::write(&path, b"damaged").expect("the file can be written");
+        let mut history = read_history(&path, Box::new(FakeVault::default()));
+        history.save(&entries());
+
+        history.save(&entries()[..1]);
+
+        let backup = fs::read(path.with_extension(BACKUP_EXTENSION)).expect("the copy exists");
+        assert_eq!(backup, b"damaged");
+    }
+
+    #[test]
+    fn delete_removes_the_backup_copy() {
+        let path = temporary_file("deleted-backup.bin");
+        fs::write(&path, b"damaged").expect("the file can be written");
+        let mut history = read_history(&path, Box::new(FakeVault::default()));
+        history.save(&entries());
+
+        history.delete();
+
+        assert!(!path.with_extension(BACKUP_EXTENSION).exists());
     }
 
     #[test]
