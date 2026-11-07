@@ -228,7 +228,7 @@ pub(crate) fn foreground_thread_state() -> Option<GUITHREADINFO> {
         cbSize: struct_size::<GUITHREADINFO>(),
         ..GUITHREADINFO::default()
     };
-    // SAFETY: `thread_state` is a local with its size set, and thread 0 only makes the call fail.
+    // SAFETY: `thread_state` is a local with its size set, and thread 0 reads the foreground thread.
     unsafe { GetGUIThreadInfo(thread, &raw mut thread_state) }.ok()?;
     Some(thread_state)
 }

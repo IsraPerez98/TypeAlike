@@ -158,7 +158,7 @@ impl Overlay {
             left: text_left,
             top: caret.origin.y,
             right: text_left,
-            bottom: caret.origin.y + caret.height,
+            bottom: caret.origin.y.saturating_add(caret.height),
         };
         let layout = CardLayout::new(
             line,
@@ -304,21 +304,26 @@ impl CardLayout {
         let gap = to_pixels(GAP_TO_CARET_LINE_DIPS, dpi);
         let width = text_size.cx + 2 * padding.cx;
         let height = text_size.cy + 2 * padding.cy;
-        let below = line.bottom + gap;
-        let top = if below + height <= work_area.bottom {
+        let below = line.bottom.saturating_add(gap);
+        let top = if below.saturating_add(height) <= work_area.bottom {
             below
         } else {
-            (line.top - gap - height).max(work_area.top)
+            line.top
+                .saturating_sub(gap)
+                .saturating_sub(height)
+                .max(work_area.top)
         };
-        let left = (line.left - padding.cx)
-            .min(work_area.right - width)
+        let left = line
+            .left
+            .saturating_sub(padding.cx)
+            .min(work_area.right.saturating_sub(width))
             .max(work_area.left);
         Self {
             frame: RECT {
                 left,
                 top,
-                right: left + width,
-                bottom: top + height,
+                right: left.saturating_add(width),
+                bottom: top.saturating_add(height),
             },
             padding,
             corner_radius: to_pixels(CARD_CORNER_RADIUS_DIPS, dpi),
@@ -460,6 +465,21 @@ mod tests {
         let layout = CardLayout::new(caret_line(1900, 200), TEXT_SIZE, WORK_AREA, 96);
 
         assert_eq!(layout.frame.right, 1920);
+    }
+
+    #[test]
+    fn card_of_a_caret_line_at_the_end_of_the_coordinates_shows_above_the_line() {
+        let layout = CardLayout::new(caret_line(600, i32::MAX - 20), TEXT_SIZE, WORK_AREA, 96);
+
+        assert_eq!(
+            layout.frame,
+            RECT {
+                left: 592,
+                top: i32::MAX - 52,
+                right: 728,
+                bottom: i32::MAX - 24,
+            }
+        );
     }
 
     #[test]

@@ -42,7 +42,7 @@ pub(crate) struct Uia {
 
 impl Uia {
     /// Joins the multithreaded COM apartment on this thread and connects to UIA.
-    pub(crate) fn connect() -> Result<Self> {
+    fn connect() -> Result<Self> {
         let apartment = ComApartment::join()?;
         // SAFETY: plain call; COM is initialized on this thread.
         let automation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }?;
@@ -55,7 +55,7 @@ impl Uia {
     /// Makes each request to an app fail after `connection` without an answer to the connection,
     /// or after `transaction` without the answer to the request, so that a busy app does not
     /// hold this thread.
-    pub(crate) fn limit_waits(&self, connection: Duration, transaction: Duration) {
+    fn limit_waits(&self, connection: Duration, transaction: Duration) {
         let to_ms = |wait: Duration| u32::try_from(wait.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: plain calls on interfaces of this thread.
         let limited = self
@@ -85,6 +85,50 @@ impl Uia {
             }
             Some(cache)
         }
+    }
+}
+
+/// A connection to UIA on this thread that connects again at a later use after a connect fails.
+#[derive(Debug)]
+pub(crate) struct UiaConnection {
+    uia: Option<Uia>,
+    connection_timeout: Duration,
+    transaction_timeout: Duration,
+    has_failed: bool,
+}
+
+impl UiaConnection {
+    /// Connects on this thread. Each request to an app then fails after `connection` without an
+    /// answer to the connection, or after `transaction` without the answer to the request.
+    pub(crate) fn connect(connection: Duration, transaction: Duration) -> Self {
+        let mut uia = Self {
+            uia: None,
+            connection_timeout: connection,
+            transaction_timeout: transaction,
+            has_failed: false,
+        };
+        uia.connected();
+        uia
+    }
+
+    /// The connection, or `None` when UIA is unavailable now.
+    pub(crate) fn connected(&mut self) -> Option<&Uia> {
+        if self.uia.is_none() {
+            match Uia::connect() {
+                Ok(uia) => {
+                    uia.limit_waits(self.connection_timeout, self.transaction_timeout);
+                    self.uia = Some(uia);
+                }
+                Err(error) if self.has_failed => {
+                    tracing::debug!(%error, "UI Automation is still unavailable");
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "UI Automation is unavailable");
+                    self.has_failed = true;
+                }
+            }
+        }
+        self.uia.as_ref()
     }
 }
 

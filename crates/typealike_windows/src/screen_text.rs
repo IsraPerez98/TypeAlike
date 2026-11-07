@@ -13,7 +13,7 @@ use windows::core::Result;
 
 use crate::mailbox::Mailbox;
 use crate::ocr::Ocr;
-use crate::uia::Uia;
+use crate::uia::UiaConnection;
 
 const THREAD_NAME: &str = "screen text reader";
 const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
@@ -74,17 +74,12 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
     if let Err(error) = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) } {
         tracing::warn!(%error, "failed to lower the priority of the screen text reader");
     }
-    let uia = Uia::connect()
-        .inspect_err(|error| tracing::warn!(%error, "UI Automation is unavailable"))
-        .ok();
-    if let Some(uia) = &uia {
-        uia.limit_waits(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT);
-    }
+    let mut connection = UiaConnection::connect(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT);
     let mut ocr = Ocr::default();
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
-        let text = uia.as_ref().and_then(|uia| match newest.source {
+        let text = connection.connected().and_then(|uia| match newest.source {
             ScreenSource::Accessibility => uia.screen_text(),
             ScreenSource::Ocr(_) => ocr.read(uia),
         });

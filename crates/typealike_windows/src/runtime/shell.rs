@@ -108,6 +108,7 @@ impl Win32Shell {
         };
         if let Err(error) = self.overlay.show(ghost, caret) {
             tracing::warn!(%error, "failed to show ghost text");
+            self.overlay.hide();
         }
     }
 

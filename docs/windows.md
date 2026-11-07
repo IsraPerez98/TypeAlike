@@ -13,6 +13,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - Without the color of the field text (also in a terminal of xterm.js), the ghost text after the caret is a neutral gray (`NEUTRAL_GRAY`, the same in light and dark mode, so it shows on a light and on a dark background). In high contrast, it is `COLOR_GRAYTEXT`.
 - The overlay draws in the face of the caret when it is installed, else in Segoe UI, always at the height of the caret.
 - The overlay draws each wrapped line of a ghost text in a bitmap of its own, then puts the lines in one bitmap: the first line at the caret, and each wrapped line at the left edge that core gives, one caret height below the line above it.
+- When the overlay cannot show a ghost text, it hides the old ghost text, so that Tab never types a suggestion that the user did not see.
 
 ### Card below the caret
 
@@ -31,7 +32,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 
 ## Caret reader
 
-The caret reader runs on its own thread.
+The caret reader runs on its own thread. When it cannot connect to UIA, it tries again at each later read.
 
 ### Sources of the caret
 
@@ -69,6 +70,13 @@ The caret reader runs on its own thread.
 - The screen text reader runs on its own thread with a low priority: the UIA text elements of the foreground window, else the OCR of a band of the window around the field (`Windows.Graphics.Capture` and `Windows.Media.Ocr`).
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - It stops while energy saver is on.
+- When it cannot connect to UIA, it tries again at each later read.
+
+## Clipboard reader
+
+- The clipboard reader reads the copied text on its own thread, so that the thread of the hooks never waits for it. A read can wait for the app that copied the text (delayed rendering, `WM_RENDERFORMAT`). Windows removes a keyboard hook that does not answer in time, and gives no notice.
+- The main window gets `WM_CLIPBOARDUPDATE` after each copy and asks the reader for a read. The main thread keeps only the answer to the newest read (`ClipboardWatch`).
+- A copy or a change of the clipboard access after a read makes its answer stale. From a copy until its answer, the controller gets no copied text.
 
 ## Watches
 

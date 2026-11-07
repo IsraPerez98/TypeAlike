@@ -23,7 +23,7 @@ use windows::core::Result;
 
 use crate::caret::{self, Caret};
 use crate::mailbox::Mailbox;
-use crate::uia::{FocusedCaret, ShownField, Uia, UiaField};
+use crate::uia::{FocusedCaret, ShownField, Uia, UiaConnection, UiaField};
 use crate::window::WindowId;
 use crate::{display, focus};
 
@@ -159,18 +159,16 @@ fn answer_reads(
     carets: &Mailbox<CaretAnswer>,
     field_texts: &Mailbox<FieldRead>,
 ) {
-    let uia = Uia::connect()
-        .inspect(|uia| uia.limit_waits(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT))
-        .inspect_err(|error| tracing::warn!(%error, "UI Automation is unavailable"))
-        .ok();
+    let mut connection = UiaConnection::connect(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT);
     while let Ok(oldest) = requests.recv() {
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
+        let uia = connection.connected();
         if let Some(id) = newest.caret {
-            carets.send(read_caret(id, uia.as_ref()));
+            carets.send(read_caret(id, uia));
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
-            let field = read_field(uia.as_ref());
+            let field = read_field(uia);
             field_texts.send(FieldRead { id, window, field });
         }
     }

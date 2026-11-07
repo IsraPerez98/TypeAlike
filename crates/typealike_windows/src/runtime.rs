@@ -33,7 +33,7 @@ use self::shell::Win32Shell;
 use crate::RunError;
 use crate::badge::Badge;
 use crate::caret_reader::{CaretAnswer, CaretReader, FieldRead, KeptFieldText, NewestCaret};
-use crate::clipboard::ClipboardWatch;
+use crate::clipboard::{ClipboardRead, ClipboardWatch};
 use crate::energy_saver::{self, EnergySaverWatch};
 use crate::focus::FocusTracker;
 use crate::front_app_watch::{FrontApp, FrontAppWatch};
@@ -67,6 +67,7 @@ const FIELD_READ_MESSAGE: u32 = WM_APP + 7;
 const SCREEN_READ_MESSAGE: u32 = WM_APP + 8;
 const ENERGY_SAVER_MESSAGE: u32 = WM_APP + 9;
 const FRONT_APP_MESSAGE: u32 = WM_APP + 10;
+const CLIPBOARD_READ_MESSAGE: u32 = WM_APP + 11;
 const SWALLOW_EVENT: LRESULT = LRESULT(1);
 const HANDLED: LRESULT = LRESULT(0);
 const QUIT_RECEIVED: i32 = 0;
@@ -111,7 +112,9 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let (settings_mailbox, settings_inputs) = Mailbox::new(window.handle(), SETTINGS_INPUT_MESSAGE);
     let settings_thread =
         SettingsThread::start(settings_mailbox).map_err(RunError::during("start the settings window"))?;
-    let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access);
+    let (clipboard_mailbox, clipboard_reads) = Mailbox::new(window.handle(), CLIPBOARD_READ_MESSAGE);
+    let clipboard = ClipboardWatch::start(window.handle(), settings.clipboard_access, clipboard_mailbox)
+        .map_err(RunError::during("start the clipboard reader"))?;
     let (energy_saver_mailbox, energy_saver_changes) = Mailbox::new(window.handle(), ENERGY_SAVER_MESSAGE);
     let energy_saver_watch = EnergySaverWatch::start(energy_saver_mailbox)
         .inspect_err(|error| tracing::warn!(%error, "failed to watch the energy saver"))
@@ -131,12 +134,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let controller = Controller::new(settings, services, startup, &delivery_mailbox.into_sink());
     let tray =
         Tray::add(window.handle(), &controller.tray_view()).map_err(RunError::during("add the tray icon"))?;
-    // SAFETY: plain call with a static, nul-terminated name.
-    let taskbar_created_message =
-        Some(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }).filter(|&id| id != 0);
-    if taskbar_created_message.is_none() {
-        tracing::warn!(error = %Error::from_thread(), "failed to register the taskbar message");
-    }
+    let taskbar_created_message = register_taskbar_created_message();
     let keyboard_hook = install_hook(WH_KEYBOARD_LL, Some(keyboard_procedure))
         .map_err(RunError::during("install the keyboard hook"))?;
     let mouse_hook = install_hook(WH_MOUSE_LL, Some(mouse_procedure))
@@ -171,6 +169,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             caret_reads,
             field_reads,
             screen_reads,
+            clipboard_reads,
             energy_saver_changes,
             front_app_changes,
         }))
@@ -189,6 +188,17 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     ));
     STATE.with(|state| state.runtime.take());
     run_outcome
+}
+
+/// The message that comes when the taskbar starts again, or `None` when Windows does not register
+/// it.
+fn register_taskbar_created_message() -> Option<u32> {
+    // SAFETY: plain call with a static, nul-terminated name.
+    let message = Some(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }).filter(|&id| id != 0);
+    if message.is_none() {
+        tracing::warn!(error = %Error::from_thread(), "failed to register the taskbar message");
+    }
+    message
 }
 
 fn install_hook(kind: WINDOWS_HOOK_ID, procedure: HOOKPROC) -> windows::core::Result<Owned<HHOOK>> {
@@ -259,6 +269,7 @@ struct Runtime {
     caret_reads: mpsc::Receiver<CaretAnswer>,
     field_reads: mpsc::Receiver<FieldRead>,
     screen_reads: mpsc::Receiver<ScreenAnswer>,
+    clipboard_reads: mpsc::Receiver<ClipboardRead>,
     energy_saver_changes: mpsc::Receiver<EnergySaver>,
     front_app_changes: mpsc::Receiver<FrontApp>,
 }
@@ -359,6 +370,7 @@ impl Runtime {
             CARET_READ_MESSAGE => self.take_caret_reads(),
             FIELD_READ_MESSAGE => self.take_field_reads(),
             SCREEN_READ_MESSAGE => self.take_screen_reads(),
+            CLIPBOARD_READ_MESSAGE => self.take_clipboard_reads(),
             ENERGY_SAVER_MESSAGE => self.take_energy_saver_changes(),
             FRONT_APP_MESSAGE => self.take_front_app_changes(),
             WM_CLIPBOARDUPDATE => self.shell.clipboard.on_update(),
@@ -417,6 +429,12 @@ impl Runtime {
             tracing::debug!(read = ?answer.read.id, trip = ?answer.sent.elapsed(), "screen read reached the main thread");
             self.controller
                 .on_delivery(Delivery::Screen(answer.read), &mut self.shell);
+        }
+    }
+
+    fn take_clipboard_reads(&mut self) {
+        for read in self.clipboard_reads.try_iter() {
+            self.shell.clipboard.keep(read);
         }
     }
 

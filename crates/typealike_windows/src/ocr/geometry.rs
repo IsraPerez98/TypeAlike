@@ -80,7 +80,9 @@ pub(super) fn band_in_frame(
         x: field.left.midpoint(field.right),
         y: field.top.midpoint(field.bottom),
     };
-    let has_field = rows.start < rows.end && (columns.start..columns.end).contains(&middle.x);
+    let overlaps_rows = field.top < frame.Height && field.bottom > 0;
+    let has_field =
+        overlaps_rows && rows.start < rows.end && (columns.start..columns.end).contains(&middle.x);
     if !has_field {
         return None;
     }
@@ -140,6 +142,16 @@ mod tests {
         let bands = [
             band_in_frame(rect(1200, 1000, 1300, 1030), FRAME, 600, 5000),
             band_in_frame(rect(100, 2700, 500, 2730), FRAME, 600, 5000),
+        ];
+
+        assert_eq!(bands, [None, None]);
+    }
+
+    #[test]
+    fn field_just_above_or_below_the_frame_gives_no_band() {
+        let bands = [
+            band_in_frame(rect(100, -100, 500, -70), FRAME, 600, 5000),
+            band_in_frame(rect(100, 2070, 500, 2100), FRAME, 600, 5000),
         ];
 
         assert_eq!(bands, [None, None]);

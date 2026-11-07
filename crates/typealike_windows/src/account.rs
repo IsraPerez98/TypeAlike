@@ -58,3 +58,18 @@ fn local_full_name() -> Option<String> {
     unsafe { NetApiBufferFree(Some(info.cast_const().cast())) };
     full_name
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_name_ends_at_the_written_length() {
+        let buffers: [&[u16]; 2] = [&[0x53, 0x61, 0x72, 0x61, 0], &[0x53, 0x61, 0x72, 0x61]];
+        let written = 4;
+
+        let names = buffers.map(|buffer| whole_chars(&buffer[..written]));
+
+        assert_eq!(names, ["Sara", "Sara"]);
+    }
+}
