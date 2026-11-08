@@ -1,4 +1,5 @@
-//! The removal of secrets from a text: private keys, API tokens, long mixed tokens and card numbers.
+//! The removal of secrets from a text: private keys, passwords of web addresses, credentials of an
+//! authorization header, API tokens, long mixed tokens and card numbers.
 
 use std::ops::Range;
 
@@ -25,10 +26,13 @@ const MIN_MIXED_TOKEN_CHARS: usize = 20;
 /// The digits of a card number.
 const CARD_DIGITS: Range<usize> = 13..20;
 
-/// Returns `text` with each secret replaced by [`REDACTED`]: private keys, API tokens, long tokens
-/// that mix letters and digits, and card numbers.
+/// Returns `text` with each secret replaced by [`REDACTED`]: private keys, passwords of web
+/// addresses, credentials of an authorization header, API tokens, long tokens that mix letters and
+/// digits, and card numbers.
 pub(super) fn redacted(text: &str) -> String {
     let text = replaced(text, &private_key_spans(text));
+    let text = replaced(&text, &web_address_password_spans(&text));
+    let text = replaced(&text, &authorization_spans(&text));
     let secret_tokens = runs_of(&text, is_token_character)
         .into_iter()
         .filter(|span| is_secret_token(&text[span.clone()]))
@@ -82,6 +86,72 @@ fn private_key_spans(text: &str) -> Vec<Range<usize>> {
         from = end;
     }
     spans
+}
+
+/// The spans of the passwords in web addresses, as in `postgres://admin:password@host`.
+fn web_address_password_spans(text: &str) -> Vec<Range<usize>> {
+    const SCHEME_END: &str = "://";
+    let mut spans = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(SCHEME_END) {
+        let authority_start = from + offset + SCHEME_END.len();
+        let authority_end = text[authority_start..]
+            .find(|character: char| {
+                character.is_whitespace() || matches!(character, '/' | '?' | '#' | '"' | '\'')
+            })
+            .map_or(text.len(), |offset| authority_start + offset);
+        from = authority_end;
+        let authority = &text[authority_start..authority_end];
+        let Some(user_end) = authority.rfind('@') else {
+            continue;
+        };
+        let Some(password_start) = authority[..user_end].find(':').map(|colon| colon + 1) else {
+            continue;
+        };
+        if password_start < user_end {
+            spans.push(authority_start + password_start..authority_start + user_end);
+        }
+    }
+    spans
+}
+
+/// The spans of the credentials after "Authorization:", as in an HTTP header with "Basic" or
+/// "Bearer" and a token.
+fn authorization_spans(text: &str) -> Vec<Range<usize>> {
+    const HEADER: &str = "authorization:";
+    let lowercase = text.to_ascii_lowercase();
+    let mut spans = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = lowercase[from..].find(HEADER) {
+        from += offset + HEADER.len();
+        let Some(first) = next_word(text, from) else {
+            continue;
+        };
+        let is_scheme = text[first.clone()]
+            .chars()
+            .all(|character| character.is_ascii_alphabetic());
+        let credential = if is_scheme {
+            next_word(text, first.end)
+        } else {
+            Some(first)
+        };
+        if let Some(credential) = credential {
+            from = credential.end;
+            spans.push(credential);
+        }
+    }
+    spans
+}
+
+/// The span of the next word of `text` after `from`: the characters up to a space or a quote.
+fn next_word(text: &str, from: usize) -> Option<Range<usize>> {
+    let start = text[from..]
+        .find(|character: char| !character.is_whitespace())
+        .map(|offset| from + offset)?;
+    let end = text[start..]
+        .find(|character: char| character.is_whitespace() || matches!(character, '"' | '\''))
+        .map_or(text.len(), |offset| start + offset);
+    (end > start).then_some(start..end)
 }
 
 fn is_token_character(character: char) -> bool {
@@ -190,6 +260,46 @@ mod tests {
             ("order 1Z999AA10123456 shipped", "order 1Z999AA10123456 shipped"),
             ("file Informe_Gestion_2024.docx", "file Informe_Gestion_2024.docx"),
             ("key abc123-def456-ghi789-jkl0", "key [redacted]"),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_the_passwords_of_web_addresses() {
+        let cases = [
+            (
+                "db postgres://admin:S3cretPass@db.local:5432/app",
+                "db postgres://admin:[redacted]@db.local:5432/app",
+            ),
+            (
+                "redis://:hunter2@cache:6379 ok",
+                "redis://:[redacted]@cache:6379 ok",
+            ),
+            ("https://ana@example.com/a", "https://ana@example.com/a"),
+            ("https://example.com/a:b@c", "https://example.com/a:b@c"),
+            ("mail ana@example.com: hi", "mail ana@example.com: hi"),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_the_credentials_of_an_authorization_header() {
+        let cases = [
+            (
+                "Authorization: Basic YWRtaW46czNjcmV0",
+                "Authorization: Basic [redacted]",
+            ),
+            (
+                "-H 'authorization: Bearer abc.def' -X",
+                "-H 'authorization: Bearer [redacted]' -X",
+            ),
+            ("the basic idea works", "the basic idea works"),
         ];
 
         let redactions = cases.map(|(text, _)| redacted(text));

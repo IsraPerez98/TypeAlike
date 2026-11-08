@@ -5,7 +5,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## Texts
 
 - The store keeps the texts of finished sessions without their secrets and without the text that the user did not write.
-- The secrets are private keys, API tokens with a known start (`sk-`, `ghp_`, `AKIA` and others), runs of 20 or more letters and digits, and card numbers (`redaction`). A run whose parts between dashes and underscores each have only letters or only digits is a name, such as the file name "Informe_Gestion_2024", not a secret.
+- The secrets are private keys, the passwords of web addresses (`postgres://user:password@host`), the credentials after "Authorization:", API tokens with a known start (`sk-`, `ghp_`, `AKIA` and others), runs of 20 or more letters and digits, and card numbers (`redaction`). A run whose parts between dashes and underscores each have only letters or only digits is a name, such as the file name "Informe_Gestion_2024", not a secret.
 - The store keeps no text of a field that the platform cannot find (`SessionField::can_keep_text`). The keys can then go to any other place, for example a remote desktop, or an app that draws its own text, such as Zed.
 - The store also keeps no text of a terminal panel in an app, such as the terminal of VS Code. A terminal can ask for a password that it does not show, and the keys still get to TypeAlike.
 - The place of a text is its web page in any browser, else its app.
