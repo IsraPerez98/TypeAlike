@@ -84,7 +84,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
         let text = autoreleasepool(|_| {
             newest.process.and_then(|process| match newest.source {
                 ScreenSource::Accessibility => read_screen_text(process),
-                ScreenSource::Ocr(level) => ocr.read(process, level),
+                ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),
             })
         });
         tracing::debug!(

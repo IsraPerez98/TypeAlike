@@ -159,8 +159,28 @@ impl Confidence {
 pub enum ScreenSource {
     /// The accessibility tree of the window: the text that the app gives as text.
     Accessibility,
-    /// Optical character recognition (OCR) of a capture of the window, at this level.
-    Ocr(OcrLevel),
+    /// Optical character recognition (OCR) of a capture of the window.
+    Ocr(OcrRead),
+}
+
+/// How the platform reads the screen with OCR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OcrRead {
+    /// The level of the OCR.
+    pub level: OcrLevel,
+    /// The part of the window that the OCR reads.
+    pub area: OcrArea,
+}
+
+/// The part of the window around the focused field that an OCR reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcrArea {
+    /// The whole window.
+    Window,
+    /// The content that holds the field when the platform can find it, such as the web page in a
+    /// browser or the pane of the window: not the tabs, the address bar, the bookmarks bar or a
+    /// sidebar. Else the whole window.
+    Content,
 }
 
 /// Whether the platform can read the screen with OCR now.

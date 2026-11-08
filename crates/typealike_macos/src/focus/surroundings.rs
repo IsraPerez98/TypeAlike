@@ -13,8 +13,8 @@ mod code_mirror;
 mod text_markers;
 
 use crate::accessibility::{
-    ROLE_ATTRIBUTE, TITLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute,
-    copy_element, copy_string, has_dom_class, parent, selected_range, string_for_range,
+    ROLE_ATTRIBUTE, TITLE_ATTRIBUTE, VALUE_ATTRIBUTE, WEB_AREA_ROLE, WINDOW_ATTRIBUTE, WINDOW_ROLE,
+    copy_attribute, copy_element, copy_string, has_dom_class, parent, selected_range, string_for_range,
 };
 use crate::focus::surroundings::code_mirror::code_mirror_text;
 use crate::focus::surroundings::text_markers::field_text_by_markers;
@@ -26,7 +26,6 @@ const HELP_ATTRIBUTE: &str = "AXHelp";
 const TITLE_UI_ELEMENT_ATTRIBUTE: &str = "AXTitleUIElement";
 const URL_ATTRIBUTE: &str = "AXURL";
 const FOCUSED_WINDOW_ATTRIBUTE: &str = "AXFocusedWindow";
-const WEB_AREA_ROLE: &str = "AXWebArea";
 /// The most elements that TypeAlike reads on the way up from the focused field to its web area.
 const MAX_WEB_AREA_DISTANCE: usize = 64;
 /// The DOM class of the editor of VS Code, an `EditContext` element. Its tree holds the text only

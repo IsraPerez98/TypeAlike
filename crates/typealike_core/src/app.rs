@@ -16,8 +16,8 @@ use badge::place_entries;
 use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
-    Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, ScreenRead, ScreenReadId,
-    ScreenSource,
+    Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrRead, ScreenRead,
+    ScreenReadId, ScreenSource,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
@@ -485,11 +485,16 @@ impl App {
                 .text
                 .as_ref()
                 .is_some_and(|text| screen::has_enough_words(text, &desktop.surroundings()));
-        let level = self.screen_text.ocr_level;
-        if is_ocr_due && let Some(ocr) = self.engine.start_ocr_after(read.id, read.text.clone(), level) {
+        let ocr = is_ocr_due.then(|| OcrRead {
+            level: self.screen_text.ocr_level,
+            area: screen::ocr_area(&desktop.surroundings()),
+        });
+        if let Some(ocr) = ocr
+            && let Some(ocr_read) = self.engine.start_ocr_after(read.id, read.text.clone(), ocr)
+        {
             return Some(SettledWork::ReadScreen {
-                read: ocr,
-                source: ScreenSource::Ocr(level),
+                read: ocr_read,
+                source: ScreenSource::Ocr(ocr),
             });
         }
         match self.engine.on_screen_read(read, desktop) {

@@ -70,6 +70,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - The screen text reader runs on its own thread with a low priority: the UIA text elements of the foreground window, else the OCR of a band of the window around the field (`Windows.Graphics.Capture` and `Windows.Media.Ocr`).
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
+- The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
 - It stops while energy saver is on.
 - When it cannot connect to UIA, it tries again at each later read.
 

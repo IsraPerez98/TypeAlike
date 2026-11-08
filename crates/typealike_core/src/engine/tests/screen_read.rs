@@ -1,8 +1,8 @@
 //! Tests the reads of the screen text and how a session uses them.
 
 use crate::desktop::{
-    Confidence, MAX_CHARS_BEFORE_CARET, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenText,
-    Timestamp,
+    Confidence, MAX_CHARS_BEFORE_CARET, OcrArea, OcrRead, ScreenLine, ScreenRead, ScreenReadId, ScreenRect,
+    ScreenText, Timestamp,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::excerpt::estimated_tokens;
@@ -14,6 +14,10 @@ use crate::test_support::completion;
 use super::support::{FakeDesktop, engine_waiting_for, engine_with, press, request, request_with};
 
 const CHAT_APP: &str = "com.tinyspeck.slackmacgap";
+const FAST_OCR: OcrRead = OcrRead {
+    level: OcrLevel::Fast,
+    area: OcrArea::Window,
+};
 const MINUTE: u64 = 60;
 const BOOKING: &str = "The table is booked for 8:30 at Casa Lupa.";
 const CAKE: &str = "Bring the cake from the bakery on Elm Street.";
@@ -457,7 +461,7 @@ fn ocr_read_starts_after_the_newest_read() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
 
-    let ocr = engine.start_ocr_after(read, None, OcrLevel::Fast);
+    let ocr = engine.start_ocr_after(read, None, FAST_OCR);
 
     assert!(ocr.is_some());
 }
@@ -468,7 +472,7 @@ fn no_ocr_read_starts_after_an_older_read() {
     let older = engine.start_screen_read().expect("no session runs");
     engine.start_screen_read();
 
-    let ocr = engine.start_ocr_after(older, None, OcrLevel::Fast);
+    let ocr = engine.start_ocr_after(older, None, FAST_OCR);
 
     assert_eq!(ocr, None);
 }
@@ -478,10 +482,10 @@ fn no_ocr_read_starts_after_an_ocr_read() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
     let ocr = engine
-        .start_ocr_after(read, None, OcrLevel::Fast)
+        .start_ocr_after(read, None, FAST_OCR)
         .expect("the read is the newest");
 
-    let next = engine.start_ocr_after(ocr, None, OcrLevel::Fast);
+    let next = engine.start_ocr_after(ocr, None, FAST_OCR);
 
     assert_eq!(next, None);
 }
@@ -490,7 +494,7 @@ fn no_ocr_read_starts_after_an_ocr_read() {
 fn answer_to_the_read_before_an_ocr_read_is_dropped() {
     let mut engine = Engine::default();
     let read = engine.start_screen_read().expect("no session runs");
-    engine.start_ocr_after(read, None, OcrLevel::Fast);
+    engine.start_ocr_after(read, None, FAST_OCR);
 
     let answer = answer_read(&mut engine, read, Some(screen_with("Dinner at 7?")));
 

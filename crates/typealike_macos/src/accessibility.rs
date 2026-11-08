@@ -31,6 +31,7 @@ pub(crate) const ROLE_ATTRIBUTE: &str = "AXRole";
 const PARENT_ATTRIBUTE: &str = "AXParent";
 pub(crate) const VALUE_ATTRIBUTE: &str = "AXValue";
 pub(crate) const WINDOW_ROLE: &str = "AXWindow";
+pub(crate) const WEB_AREA_ROLE: &str = "AXWebArea";
 const DOM_CLASS_LIST_ATTRIBUTE: &str = "AXDOMClassList";
 const CHILDREN_ATTRIBUTE: &str = "AXChildren";
 const QUERY_TIMEOUT_SECONDS: f32 = 0.1;

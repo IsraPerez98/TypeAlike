@@ -9,7 +9,7 @@ pub(crate) use conversation::ConversationLines;
 use std::collections::HashSet;
 use std::fmt;
 
-use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
+use crate::desktop::{Confidence, FieldText, OcrArea, ScreenLine, ScreenRect, ScreenText, Surroundings};
 use crate::excerpt::{estimated_tokens, one_line};
 use crate::inference::TokenCount;
 use crate::place::Format;
@@ -171,6 +171,19 @@ impl LineScope {
             .lines
             .iter()
             .filter(move |line| column.is_none_or(|column| column.holds(line.frame)))
+    }
+}
+
+/// Returns the part of the window that an OCR reads for the field of `surroundings`. A browser
+/// shows its tabs, its address bar and its bookmarks around the page, so the OCR reads the content
+/// of the field there, and also outside of a chat or an email app. In a chat or an email app, the
+/// name in the header of a chat or the address of an email can be outside of that content.
+pub(crate) fn ocr_area(surroundings: &Surroundings) -> OcrArea {
+    let is_browser = Format::of_place(surroundings.app_id.as_deref(), None) == Some(Format::WebPage);
+    if is_browser || LineScope::of(surroundings) == LineScope::Window {
+        OcrArea::Content
+    } else {
+        OcrArea::Window
     }
 }
 

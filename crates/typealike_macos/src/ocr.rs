@@ -23,10 +23,12 @@ use objc2_screen_capture_kit::{
     SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration, SCWindow,
 };
 use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel};
-use typealike_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
+use typealike_core::desktop::{
+    Confidence, EnergySaver, OcrArea, OcrAvailability, OcrRead, ScreenLine, ScreenText,
+};
 use typealike_core::settings::OcrLevel;
 
-use crate::accessibility::{self, WINDOW_ATTRIBUTE};
+use crate::accessibility::{self, ROLE_ATTRIBUTE, WEB_AREA_ROLE, WINDOW_ATTRIBUTE, WINDOW_ROLE};
 use crate::energy_saver;
 use crate::focus::{self, FocusedField};
 use crate::geometry::{contains, intersection, moved_by, screen_rect};
@@ -34,6 +36,9 @@ use crate::geometry::{contains, intersection, moved_by, screen_rect};
 /// The height of the window above and below the field that the OCR reads, in points. Core keeps
 /// only the lines nearest to the caret, so an OCR of the lines farther away is wasted work.
 const BAND_POINTS: f64 = 600.0;
+/// The most elements that the OCR reads on the way up from the focused field to its window.
+const MAX_CONTENT_DEPTH: usize = 64;
+const SPLIT_GROUP_ROLE: &str = "AXSplitGroup";
 /// `ScreenCaptureKit` answers in about 100 ms. A longer wait means that the capture failed.
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(3);
 const SCREEN_RECORDING_SETTINGS: &str =
@@ -138,12 +143,14 @@ struct Capture {
 }
 
 impl Ocr {
-    /// Reads the text near the focused field of the app of `process` from a capture of its window,
-    /// at `level`. `None` for a password field, or when the capture or the OCR fails.
-    pub(crate) fn read(&mut self, process: i32, level: OcrLevel) -> Option<ScreenText> {
+    /// Reads the text near the focused field of the app of `process` from a capture of the area
+    /// of `ocr` in its window, at the level of `ocr`. `None` for a password field, or when the
+    /// capture or the OCR fails.
+    pub(crate) fn read(&mut self, process: i32, ocr: OcrRead) -> Option<ScreenText> {
+        let OcrRead { level, area } = ocr;
         let field = focus::focused_field(process)?;
         let started = Instant::now();
-        let capture = capture_band(process, FieldWindow::of(&field))?;
+        let capture = capture_band(process, FieldWindow::of(&field, area))?;
         let captured = Instant::now();
         let input = RecognitionInput {
             window: capture.window,
@@ -169,6 +176,7 @@ impl Ocr {
             width = CGImage::width(Some(&capture.image)),
             height = CGImage::height(Some(&capture.image)),
             ?level,
+            ?area,
             "OCR read"
         );
         let lines = self.last.as_ref()?.lines.iter();
@@ -258,10 +266,12 @@ struct FieldWindow {
     visible_part: CGRect,
     /// The title of the window. Two windows of one app can have the same frame.
     title: Option<String>,
+    /// The frame of the content that holds the field, for an OCR of [`OcrArea::Content`].
+    content: Option<CGRect>,
 }
 
 impl FieldWindow {
-    fn of(field: &FocusedField) -> Self {
+    fn of(field: &FocusedField, area: OcrArea) -> Self {
         let window = accessibility::copy_element(&field.element, WINDOW_ATTRIBUTE);
         Self {
             visible_part: window
@@ -270,8 +280,57 @@ impl FieldWindow {
                 .and_then(|window| intersection(field.frame, window))
                 .unwrap_or(field.frame),
             title: field.window_title.clone(),
+            content: match area {
+                OcrArea::Window => None,
+                OcrArea::Content => content_frame(field),
+            },
         }
     }
+}
+
+/// Reads the frame of the content that holds `field`: the element at [`content_position`] on the
+/// way up from the field to its window.
+fn content_frame(field: &FocusedField) -> Option<CGRect> {
+    let mut elements = Vec::new();
+    let mut roles = Vec::new();
+    let mut next = Some(field.element.clone());
+    while let Some(element) = next
+        && roles.len() < MAX_CONTENT_DEPTH
+    {
+        let role = accessibility::copy_string(&element, ROLE_ATTRIBUTE);
+        if role.as_deref() == Some(WINDOW_ROLE) {
+            break;
+        }
+        next = accessibility::parent(&element);
+        elements.push(element);
+        roles.push(role);
+    }
+    accessibility::frame(&elements[content_position(&roles)?])
+}
+
+/// Returns the position in `path`, the roles from the focused field up to its window, of the
+/// element that holds the content of the field: the outermost web area above the field, which is
+/// the page in a browser, else the nearest pane of a split group, such as the editor of Notes
+/// beside its sidebar and its list of notes. A web area that the field is, such as the body of an
+/// email in Mail, holds no other content.
+fn content_position(path: &[Option<String>]) -> Option<usize> {
+    let has_role = |role: &Option<String>, wanted: &str| role.as_deref() == Some(wanted);
+    let outermost_web_area = path
+        .iter()
+        .rposition(|role| has_role(role, WEB_AREA_ROLE))
+        .filter(|&position| position > 0);
+    outermost_web_area.or_else(|| {
+        path.windows(2)
+            .position(|pair| has_role(&pair[1], SPLIT_GROUP_ROLE))
+    })
+}
+
+/// Returns the part of `window` that the OCR reads: the part of `content` in it, else the whole
+/// window.
+fn capture_area(window: CGRect, content: Option<CGRect>) -> CGRect {
+    content
+        .and_then(|content| intersection(content, window))
+        .unwrap_or(window)
 }
 
 fn screen_text_of<'a>(
@@ -348,7 +407,7 @@ fn start_capture(
     };
     // SAFETY: plain calls on a valid window.
     let (frame, window_id) = unsafe { (window.frame(), window.windowID()) };
-    let band = band_around(field, frame);
+    let band = band_around(field, capture_area(frame, field_window.content));
     // SAFETY: plain calls on valid objects.
     let filter =
         unsafe { SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), window) };
@@ -424,14 +483,14 @@ fn is_window_of(window: &SCWindow, process: i32, point: CGPoint) -> bool {
     owner == Some(process) && layer == 0 && contains(frame, point)
 }
 
-/// Returns the band of `window` from [`BAND_POINTS`] above `field` to [`BAND_POINTS`] below it,
-/// as wide as the window.
-fn band_around(field: CGRect, window: CGRect) -> CGRect {
-    let top = (field.min().y - BAND_POINTS).max(window.min().y);
-    let bottom = (field.max().y + BAND_POINTS).min(window.max().y);
+/// Returns the band of `area` from [`BAND_POINTS`] above `field` to [`BAND_POINTS`] below it,
+/// as wide as the area.
+fn band_around(field: CGRect, area: CGRect) -> CGRect {
+    let top = (field.min().y - BAND_POINTS).max(area.min().y);
+    let bottom = (field.max().y + BAND_POINTS).min(area.max().y);
     CGRect::new(
-        CGPoint::new(window.origin.x, top),
-        CGSize::new(window.size.width, (bottom - top).max(0.0)),
+        CGPoint::new(area.origin.x, top),
+        CGSize::new(area.size.width, (bottom - top).max(0.0)),
     )
 }
 
@@ -688,6 +747,77 @@ mod tests {
             [
                 frame(100.0, 400.0, 1000.0, 1230.0),
                 frame(100.0, 50.0, 1000.0, 680.0)
+            ]
+        );
+    }
+
+    fn path(roles: &[&str]) -> Vec<Option<String>> {
+        roles.iter().map(|role| Some((*role).to_owned())).collect()
+    }
+
+    #[test]
+    fn content_of_a_field_in_a_web_page_is_the_outermost_web_area_above_it() {
+        let paths = [
+            path(&["AXTextArea", "AXGroup", "AXWebArea", "AXScrollArea", "AXGroup"]),
+            path(&["AXTextArea", "AXWebArea", "AXGroup", "AXWebArea", "AXSplitGroup"]),
+        ];
+
+        let positions = paths.each_ref().map(|path| content_position(path));
+
+        assert_eq!(positions, [Some(2), Some(3)]);
+    }
+
+    #[test]
+    fn content_of_a_field_outside_of_a_web_page_is_the_pane_of_the_nearest_split_group() {
+        let paths = [
+            path(&["AXTextArea", "AXScrollArea", "AXSplitGroup"]),
+            path(&[
+                "AXTextArea",
+                "AXScrollArea",
+                "AXSplitGroup",
+                "AXGroup",
+                "AXSplitGroup",
+            ]),
+            path(&["AXTextArea", "AXSplitGroup"]),
+        ];
+
+        let positions = paths.each_ref().map(|path| content_position(path));
+
+        assert_eq!(positions, [Some(1), Some(1), Some(0)]);
+    }
+
+    #[test]
+    fn field_that_is_a_web_area_or_outside_of_a_pane_has_no_content() {
+        let paths = [
+            path(&["AXWebArea", "AXGroup"]),
+            path(&["AXTextArea", "AXScrollArea", "AXGroup"]),
+            vec![None, None],
+            Vec::new(),
+        ];
+
+        let positions = paths.each_ref().map(|path| content_position(path));
+
+        assert_eq!(positions, [None; 4]);
+    }
+
+    #[test]
+    fn capture_area_is_the_part_of_the_content_in_the_window() {
+        let window = frame(0.0, 33.0, 1512.0, 882.0);
+
+        let areas = [
+            capture_area(window, Some(frame(0.0, 154.0, 1512.0, 761.0))),
+            capture_area(window, Some(frame(685.0, 210.0, 571.0, 2000.0))),
+            capture_area(window, Some(frame(2000.0, 0.0, 100.0, 100.0))),
+            capture_area(window, None),
+        ];
+
+        assert_eq!(
+            areas,
+            [
+                frame(0.0, 154.0, 1512.0, 761.0),
+                frame(685.0, 210.0, 571.0, 705.0),
+                window,
+                window,
             ]
         );
     }

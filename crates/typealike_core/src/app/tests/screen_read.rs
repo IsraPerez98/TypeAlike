@@ -3,8 +3,8 @@
 use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_first_key, app_preparing_on_focus};
 use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{
-    Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
-    ScreenText,
+    Confidence, Field, OcrArea, OcrAvailability, OcrRead, ScreenLine, ScreenRead, ScreenReadId, ScreenRect,
+    ScreenSource, ScreenText,
 };
 use crate::engine::Reaction;
 use crate::history::HistoryEntry;
@@ -530,11 +530,67 @@ fn ocr_read_uses_the_level_of_the_settings() {
         matches!(
             work,
             Some(SettledWork::ReadScreen {
-                source: ScreenSource::Ocr(OcrLevel::Accurate),
+                source: ScreenSource::Ocr(OcrRead {
+                    level: OcrLevel::Accurate,
+                    ..
+                }),
                 ..
             })
         ),
         "{work:?}"
+    );
+}
+
+/// Returns the area of the OCR read that an answer without lines starts in `place`.
+fn ocr_area_in(place: &TextField) -> Option<OcrArea> {
+    let mut app = App::new();
+    let Some(SettledWork::ReadScreen { read, .. }) = app.on_input_settled(place) else {
+        return None;
+    };
+    match app.on_screen_read(answer(read), place) {
+        Some(SettledWork::ReadScreen {
+            source: ScreenSource::Ocr(ocr),
+            ..
+        }) => Some(ocr.area),
+        _ => None,
+    }
+}
+
+#[test]
+fn ocr_read_covers_the_whole_window_only_in_a_chat_or_an_email_app() {
+    let places = [
+        MAIL_WITH_OCR,
+        TextField {
+            app_id: "com.tinyspeck.slackmacgap",
+            ..MAIL_WITH_OCR
+        },
+        TextField {
+            app_id: "com.google.Chrome",
+            domain: Some("shop.example"),
+            ..MAIL_WITH_OCR
+        },
+        TextField {
+            app_id: "com.google.Chrome",
+            domain: Some("mail.google.com"),
+            ..MAIL_WITH_OCR
+        },
+        TextField {
+            app_id: "com.apple.TextEdit",
+            ..MAIL_WITH_OCR
+        },
+    ];
+
+    let areas = places.each_ref().map(ocr_area_in);
+
+    assert_eq!(
+        areas,
+        [
+            Some(OcrArea::Window),
+            Some(OcrArea::Window),
+            Some(OcrArea::Content),
+            Some(OcrArea::Content),
+            Some(OcrArea::Content),
+        ]
     );
 }
 

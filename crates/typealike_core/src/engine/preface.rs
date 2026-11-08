@@ -3,11 +3,13 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use crate::desktop::{Desktop, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings, Timestamp};
+use crate::desktop::{
+    Desktop, OcrRead, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings, Timestamp,
+};
 use crate::history;
 use crate::prompt::{self, Example, Preface, ScreenPart, Writer};
 use crate::screen::{ConversationLines, LineScope};
-use crate::settings::{ClipboardAccess, OcrLevel, ReplyWords, ScreenTextSettings};
+use crate::settings::{ClipboardAccess, ReplyWords, ScreenTextSettings};
 
 use super::{Engine, read_surroundings};
 
@@ -75,13 +77,13 @@ impl ScreenReads {
         self.newest
     }
 
-    /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
-    /// the accessibility tree, and returns its id. `tree_text` is the answer of `read`.
+    /// Starts the OCR read `ocr` in place of `read`, when `read` is the newest read and reads the
+    /// accessibility tree, and returns its id. `tree_text` is the answer of `read`.
     fn start_ocr_after(
         &mut self,
         read: ScreenReadId,
         tree_text: Option<ScreenText>,
-        level: OcrLevel,
+        ocr: OcrRead,
     ) -> Option<ScreenReadId> {
         let is_newest_tree_read = matches!(
             self.screen,
@@ -91,7 +93,7 @@ impl ScreenReads {
             self.newest = self.newest.next();
             self.screen = Screen::Reading {
                 id: self.newest,
-                source: ScreenSource::Ocr(level),
+                source: ScreenSource::Ocr(ocr),
                 tree_text,
             };
             self.newest
@@ -179,16 +181,16 @@ impl Engine {
         self.start_screen_read()
     }
 
-    /// Starts an OCR read at `level` in place of `read`, when `read` is the newest read and reads
-    /// the accessibility tree, and returns its id. When the OCR gives no lines, the screen text is
+    /// Starts the OCR read `ocr` in place of `read`, when `read` is the newest read and reads the
+    /// accessibility tree, and returns its id. When the OCR gives no lines, the screen text is
     /// `tree_text`, the answer of `read`.
     pub(crate) fn start_ocr_after(
         &mut self,
         read: ScreenReadId,
         tree_text: Option<ScreenText>,
-        level: OcrLevel,
+        ocr: OcrRead,
     ) -> Option<ScreenReadId> {
-        self.screen_reads.start_ocr_after(read, tree_text, level)
+        self.screen_reads.start_ocr_after(read, tree_text, ocr)
     }
 
     /// Keeps the text of `read` when it answers the newest read. A session without its final

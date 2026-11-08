@@ -63,7 +63,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - In a chat or an email app, the scope is the column of the field: the span of the field from left to right, with each line that reaches into that span, such as a chat message that starts left of the input box.
 - A line wholly beside the column there is the list of the other conversations, so it goes and gives no topic words to the examples.
-- In other places, a panel beside the field, such as the help of a form, can tell what the field needs, so all the lines of the window stay, and the lines beside the field rank last.
+- In other places, a panel beside the field, such as the help of a form, can tell what the field needs, so all the lines of the window stay, and the lines beside the field rank last. An OCR there reads only the content of the field ("Screen reads").
 
 ### Times of chat messages
 
@@ -119,6 +119,15 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
   - After a single read, the prompt shows only the lines of that read. In other places, it shows only the newest read.
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
+- An OCR reads the whole window only in a chat or an email app (`OcrArea::Window`). Elsewhere, and in a browser also for a chat or an email page, it reads the content that holds the field (`OcrArea::Content`, `screen::ocr_area`):
+  - The window of a browser also shows its tabs, its address bar and its bookmarks bar, and other apps show a toolbar, a sidebar or a list of other notes beside the content. These lines are noise for the model, and they put private names into the prompt.
+  - In a chat or an email app, core keeps the column of the field itself ("Scope of the lines"). The name in the header of a chat or the address of an email can be outside of the content of the field there, for example in a toolbar.
+  - The platform finds the content (`docs/macos.md`, "Screen text"). When it finds none, it reads the whole window.
+  - Thus the OCR of a native app leaves out the other panes of a split view, such as a sidebar, but a panel inside a web page stays.
+- The cost of these lines, measured on `cases/window_chrome.jsonl` (23 cases of `recall` and `tuning` with made-up lines of tabs, an address, 10 bookmarks, a ribbon or a sidebar, Gemma 4 E4B on Metal, 2026-11-08):
+  - No case changed its match (0 helped, 0 harmed). The log probability of the next word changed by +0.04 (95% interval −0.11 to +0.18), and 6 suggestions changed their words.
+  - The prompts got 49 more tokens (173 to 222), and the median time of the first key went from 267 ms to 379 ms. On the CPU with the short length, it went from 1030 ms to 1477 ms, also with no change of a match.
+  - In the Notion cases, a sidebar item became the last line above the field.
 - The level of the Copied and screen text pane (fast or accurate) shows only when the OCR of the platform has levels (`OcrLevels`).
 - When the user picks a level, the controller tells the shell (`Shell::warm_up_ocr`), so that the platform can load the OCR of that level before its first read.
 

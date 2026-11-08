@@ -54,6 +54,15 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - The OCR captures the window of the app that holds the middle of the visible part. It reads a band from 600 pt above the visible part to 600 pt below it (`BAND_POINTS`).
 - Two windows of one app can have the same frame. Of the windows that hold that point, the OCR captures the window with the longest title that starts the window title, else the first one (`picked_window`). Chrome gives its name after the title of the page only in the AX title.
 - When the frame of the AX window is unknown, or the field has no part in it, the OCR uses the full frame of the field.
+- An OCR of the content (`OcrArea::Content`) reads only the part of the window that holds the content of the field (`content_frame`, `content_position`). The read looks at 64 elements at most on the way up from the field to its window (`MAX_CONTENT_DEPTH`).
+  - The content is the outermost web area above the field: the page of a browser tab, without the tabs, the address bar and the bookmarks bar. A field in a frame of the page gets the whole page.
+  - Else it is the nearest pane of a split group above the field, such as the editor of Notes without its toolbar, its sidebar and its list of notes.
+  - A field that is itself a web area, such as the body of an email in Mail, gets no content. A field without such an element above it, such as the in-cell editor of Excel, which has no parent in the tree, also gets none. The OCR then reads the window.
+  - The band is then from 600 pt above the field to 600 pt below it in that part, and as wide as that part.
+- Measured on 2026-11-08 at the fast level, in Chrome with a test page that draws its text on a canvas, in a test note and in a new Excel workbook:
+  - Chrome: 19 lines in a normal window and 18 in an Incognito window, 5 of them in the page. The other lines were the tab, the address bar, the Incognito mark and the 10 items of the bookmarks bar, and 11 of them went into "Above the field". With the crop, the OCR read the 5 lines of the page, and the prompt kept the 4 test lines.
+  - Notes: 19 lines, 4 of them in the note, which the prompt does not show. The prompt showed 13 lines of the toolbar, the sidebar and the list of notes, and the last line above the field was the preview of the same note in the list. With the crop, the OCR read only the 4 lines of the note, and the prompt showed no screen line.
+  - Excel: 70 lines, about 36 of them of the ribbon and the toolbar. The crop does not change it.
 - The OCR keeps the lines of its last read, and reads again only when the pixels of the band change (`pixels_hash`). The pixels of the field do not count, so that typing does not start a new OCR.
 - In a field that shows its text only on the screen, the OCR reads the text of the field, so its pixels count. Thus a new answer in a terminal starts a new OCR.
 - Vision loads the model of the accurate level at its first recognition in a process. In a new program, such as a new build, the first load took 24 to 53 s. Each later process of that program took about 75 ms. The screen reads wait for the load.
