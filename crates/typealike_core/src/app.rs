@@ -565,6 +565,18 @@ impl App {
             .or_else(|| self.idle_field_place.as_ref()?.host.as_deref())
     }
 
+    /// Whether the focused field of `desktop` gives no text in a place where suggestions are on.
+    /// Some apps build the text of their fields only after an assistive app reads the tree of the
+    /// window, so the platform then reads that tree.
+    #[must_use]
+    pub fn should_wake_field_text(&self, desktop: &dyn Desktop) -> bool {
+        let surroundings = desktop.surroundings();
+        self.offers_suggestions()
+            && desktop.field() != Field::Excluded
+            && !surroundings.holds_text()
+            && FieldPlace::of(&surroundings).is_on_in(&self.suggestion_places)
+    }
+
     /// Whether suggestions show in the focused field of `desktop`. A session runs only in a place
     /// where they show.
     fn allows_suggestions_in(&self, desktop: &dyn Desktop) -> bool {

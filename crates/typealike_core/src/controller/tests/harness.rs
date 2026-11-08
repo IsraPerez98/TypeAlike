@@ -79,6 +79,8 @@ pub(super) struct FakeShell {
     /// How the shell looks at the caret. A shell that looks later records each look as a call.
     pub(super) caret_look: CaretLook,
     pub(super) now: Option<Timestamp>,
+    /// How many times the controller asked the shell to wake the text of the focused field.
+    pub(super) field_text_wakes: usize,
 }
 
 impl Desktop for FakeShell {
@@ -196,6 +198,10 @@ impl Shell for FakeShell {
 
     fn warm_up_ocr(&mut self, level: OcrLevel) {
         self.calls.push(Call::WarmUpOcr(level));
+    }
+
+    fn wake_field_text(&mut self) {
+        self.field_text_wakes += 1;
     }
 
     fn ask_for_permission(&mut self, permission: Permission) {
@@ -451,6 +457,7 @@ impl Harness {
                 is_ghost_shown: true,
                 caret_look: CaretLook::Now(CaretRead::default()),
                 now: None,
+                field_text_wakes: 0,
             },
             recorder,
             deliveries,

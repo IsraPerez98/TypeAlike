@@ -139,6 +139,12 @@ pub trait Shell: Desktop {
     /// nothing, for an OCR that needs no warm-up.
     fn warm_up_ocr(&mut self, _level: OcrLevel) {}
 
+    /// Reads the tree of the focused window, so that an app that builds the text of its fields only
+    /// for an assistive app that reads the tree, as Word on macOS does, builds it. The controller
+    /// calls it when the input settles in a field without text. The default does nothing, for an OS
+    /// whose apps give their text without it.
+    fn wake_field_text(&mut self) {}
+
     /// Asks the user for `permission`: shows the prompt of the system, or the place in the system
     /// settings where the user gives it. When the OS keeps an old grant that it refuses, the shell
     /// removes that grant first, so that the user can give the permission again.

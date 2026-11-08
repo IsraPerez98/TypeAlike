@@ -15,6 +15,7 @@ use objc2_core_foundation::{
 };
 
 pub(crate) const FOCUSED_ELEMENT_ATTRIBUTE: &str = "AXFocusedUIElement";
+pub(crate) const FOCUSED_WINDOW_ATTRIBUTE: &str = "AXFocusedWindow";
 const SUBROLE_ATTRIBUTE: &str = "AXSubrole";
 const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
 const SEARCH_FIELD_SUBROLE: &str = "AXSearchField";

@@ -36,6 +36,9 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
   - Only the end of the field text that the session typed counts as typed. The text before that end counts as text of the field (`field_chars`), so a prefilled text does not count as typed.
 - When suggestions are off in the place of that field, as in a private window, the session ends, and the earlier writing keeps none of its text.
 - A session in a field that shows text that the platform cannot read (`FieldTextAccess::Unreadable`) keeps its field.
+- Some apps build the text of a field only after an assistive app reads the tree of its window. Word on macOS shows its document as an empty layout area until then.
+  - Thus, when the input settles in a field that gives no text, in a place where suggestions are on, the controller asks the platform to wake the field text (`Shell::wake_field_text`, `App::should_wake_field_text`). A paused TypeAlike, an excluded field and a place where suggestions are off get no wake.
+  - The next read of the field can then show the text, and the session takes that field.
 
 ### Field text
 

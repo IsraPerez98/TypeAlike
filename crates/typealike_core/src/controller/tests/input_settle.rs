@@ -3,11 +3,11 @@
 use super::harness::{Call, Harness, completed, field_around, ghost_at_caret, hidden_ghost_and_badge};
 use crate::app::INPUT_SETTLE_DELAY;
 use crate::controller::{CARET_SETTLE_DELAY, FocusChange, Timer};
-use crate::desktop::Surroundings;
+use crate::desktop::{Field, Surroundings};
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
-use crate::settings::{PromptPreparation, Settings};
-use crate::test_support::{active_badge, suggestion_request};
+use crate::settings::{PromptPreparation, Settings, SuggestionPlaces};
+use crate::test_support::{MAIL_APP, active_badge, suggestion_app, suggestion_request};
 
 #[test]
 fn input_waits_for_input_to_settle() {
@@ -146,4 +146,62 @@ fn settled_input_after_focus_change_hides_ghost_and_badge() {
     harness.settle_input();
 
     assert_eq!(harness.take_calls(), hidden_ghost_and_badge());
+}
+
+#[test]
+fn settled_input_in_a_field_without_text_wakes_the_field_text() {
+    let mut harness = Harness::new(Settings::default());
+
+    harness.settle_input();
+
+    assert_eq!(harness.shell.field_text_wakes, 1);
+}
+
+#[test]
+fn settled_input_in_a_field_with_text_does_not_wake_the_field_text() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_with_text("Best regards");
+
+    harness.settle_input();
+
+    assert_eq!(harness.shell.field_text_wakes, 0);
+}
+
+#[test]
+fn settled_input_in_an_app_where_suggestions_are_off_does_not_wake_the_field_text() {
+    let mut harness = Harness::new(Settings {
+        suggestion_places: SuggestionPlaces {
+            apps: vec![suggestion_app(MAIL_APP, "Mail", false)],
+            ..SuggestionPlaces::default()
+        },
+        ..Settings::default()
+    });
+    harness.shell.surroundings = Surroundings {
+        app_id: Some(MAIL_APP.to_owned()),
+        ..Surroundings::default()
+    };
+
+    harness.settle_input();
+
+    assert_eq!(harness.shell.field_text_wakes, 0);
+}
+
+#[test]
+fn settled_input_in_an_excluded_field_does_not_wake_the_field_text() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.field = Field::Excluded;
+
+    harness.settle_input();
+
+    assert_eq!(harness.shell.field_text_wakes, 0);
+}
+
+#[test]
+fn settled_input_while_suggestions_pause_does_not_wake_the_field_text() {
+    let mut harness = Harness::new(Settings::default());
+    harness.toggle_pause();
+
+    harness.settle_input();
+
+    assert_eq!(harness.shell.field_text_wakes, 0);
 }

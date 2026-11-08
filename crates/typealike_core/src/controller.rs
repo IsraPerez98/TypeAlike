@@ -737,6 +737,9 @@ impl Controller {
         }
         self.save_history();
         let work = self.app.on_input_settled(&*shell);
+        if self.app.should_wake_field_text(&*shell) {
+            shell.wake_field_text();
+        }
         self.do_settled_work(work, shell);
     }
 

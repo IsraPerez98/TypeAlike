@@ -73,6 +73,11 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - Chromium browsers and Electron apps build the AX tree of their web content only after an assistive app asks for it. When an app comes to the front, the focus tracker sets `AXEnhancedUserInterface` on a Chromium browser and `AXManualAccessibility` on any other app (`wake_web_accessibility`).
 - An Electron app that still starts answers that request with `CannotComplete`, and then it builds no tree. Thus the tracker asks again at each key and each settled input until the app answers (`FrontmostApp::is_web_content_asleep`). The request waits at most as long as the other AX queries (`bound_queries`).
+- Word builds the text area of a document only after an assistive app reads the tree of its window. Until then, the focused element is an `AXSplitGroup` and the page is an empty `AXLayoutArea`. Word refuses `AXManualAccessibility` and `AXEnhancedUserInterface` (`AttributeUnsupported`, `NotImplemented`), and they do not help.
+  - About 2 s after a read of about 120 elements, 6 levels deep, the focused element becomes an `AXTextArea` with its text, its selection and the bounds of its caret. Each new document window needs its own read.
+  - Thus `Shell::wake_field_text` reads the tree of the focused window once for each window (`FocusTracker::wake_field_text`, `window_tree`): breadth first, at most 200 elements, 8 levels and 100 ms on the main thread. It reads the role and the children of each element. A walk of Word took 17 to 24 ms.
+  - The walk skips the elements in a popover (`AXPopover`), because a popover can close when an assistive app reads its tree, as the event popover of Calendar does.
+  - The walk runs at the settled input, not in the event tap, so it never delays a key.
 - Each look at the caret also gives the frame of the focused field.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.

@@ -500,6 +500,10 @@ impl Shell for AppKitShell {
         self.focus.refresh()
     }
 
+    fn wake_field_text(&mut self) {
+        self.focus.wake_field_text();
+    }
+
     /// Reads the caret and the frame of the focused field through Accessibility, and keeps them
     /// for the draw. The style of the text before the caret waits for its first use.
     fn read_caret(&mut self) -> CaretLook {

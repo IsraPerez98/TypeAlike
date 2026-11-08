@@ -3,6 +3,7 @@
 
 mod caret;
 mod surroundings;
+mod window_tree;
 
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::{AXError, AXUIElement};
@@ -11,12 +12,13 @@ use typealike_core::controller::FocusChange;
 use typealike_core::desktop::{Field, Surroundings};
 
 use crate::accessibility::{
-    FOCUSED_ELEMENT_ATTRIBUTE, bound_queries, can_focused_element_hide_text, copy_element, frame,
-    is_search_field, is_secure_text, selected_range,
+    FOCUSED_ELEMENT_ATTRIBUTE, FOCUSED_WINDOW_ATTRIBUTE, bound_queries, can_focused_element_hide_text,
+    copy_element, frame, is_same, is_search_field, is_secure_text, selected_range,
 };
 pub(crate) use crate::focus::caret::{FontFace, TextStyle};
 use crate::focus::caret::{caret_bounds, is_terminal_input, terminal_screen_frame, text_style};
 use crate::focus::surroundings::{field_labels, field_text, has_unreadable_text, web_domain, window_title};
+use crate::focus::window_tree::walk_window;
 use crate::geometry::{Caret, is_finite_frame};
 
 const MANUAL_ACCESSIBILITY_ATTRIBUTE: &str = "AXManualAccessibility";
@@ -37,6 +39,8 @@ const GHOSTTY_BUNDLE_PREFIX: &str = "com.mitchellh.ghostty";
 pub(crate) struct FocusTracker {
     system_wide: CFRetained<AXUIElement>,
     frontmost: Option<FrontmostApp>,
+    /// The window whose tree [`FocusTracker::wake_field_text`] read last.
+    walked_window: Option<CFRetained<AXUIElement>>,
 }
 
 /// The frontmost app when [`FocusTracker::refresh`] looked last.
@@ -60,6 +64,7 @@ impl FocusTracker {
         Self {
             system_wide,
             frontmost: None,
+            walked_window: None,
         }
     }
 
@@ -137,6 +142,28 @@ impl FocusTracker {
 
     fn focused_element(&self) -> Option<CFRetained<AXUIElement>> {
         copy_element(&self.system_wide, FOCUSED_ELEMENT_ATTRIBUTE)
+    }
+
+    /// Reads the tree of the focused window of the frontmost app, once for each window. Word builds
+    /// the text area of a document only after an assistive app reads the tree of its window, and
+    /// each new document window needs its own read.
+    pub(crate) fn wake_field_text(&mut self) {
+        let Some(window) = self
+            .frontmost_process()
+            .map(application_element)
+            .and_then(|app| copy_element(&app, FOCUSED_WINDOW_ATTRIBUTE))
+        else {
+            return;
+        };
+        if self
+            .walked_window
+            .as_deref()
+            .is_some_and(|walked| is_same(walked, &window))
+        {
+            return;
+        }
+        walk_window(&window);
+        self.walked_window = Some(window);
     }
 
     /// Classifies the focused control right now: excluded for ineligible apps and for a control
