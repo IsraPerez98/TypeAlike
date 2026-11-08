@@ -6,12 +6,14 @@ use crate::desktop::{FieldText, Timestamp};
 use crate::history::HistoryEntry;
 use crate::key::Key;
 use crate::settings::{
-    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextSettings, Settings, SuggestionPlaces,
+    HistoryAccess, HistoryScope, PersonalizationSettings, PrivateWindowRule, ScreenTextSettings, Settings,
+    SuggestionPlaces,
 };
 use crate::settings_window::general::CLIPBOARD;
 use crate::settings_window::personalization::{DELETE, HISTORY, REPLY_WORDS};
+use crate::settings_window::suggestion_places::PRIVATE_WINDOWS;
 use crate::test_support::{
-    MAIL_APP, mail_app, mail_entry, mail_history_app, suggestion_app, suggestion_request,
+    MAIL_APP, history_app, mail_app, mail_entry, mail_history_app, suggestion_app, suggestion_request,
 };
 
 #[test]
@@ -204,6 +206,71 @@ fn text_of_a_session_whose_app_turns_off_is_not_saved() {
         &mut harness.shell,
     );
     harness.press(Key::Other);
+
+    harness.settle_input();
+
+    assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
+}
+
+const CHROME_APP: &str = "com.google.Chrome";
+
+fn history_on_in_private_windows() -> Settings {
+    let settings = history_on();
+    Settings {
+        suggestion_places: SuggestionPlaces {
+            private_windows: PrivateWindowRule::KeepSuggestions,
+            ..SuggestionPlaces::default()
+        },
+        personalization: PersonalizationSettings {
+            apps: vec![history_app(CHROME_APP, "Google Chrome", HistoryScope::AllApps)],
+            ..settings.personalization
+        },
+        ..settings
+    }
+}
+
+fn type_in_a_private_window(harness: &mut Harness) {
+    harness.focus_text_field_of(CHROME_APP, "Google Chrome");
+    harness.shell.surroundings.window_title = Some("Trip notes - Google Chrome (Incognito)".to_owned());
+    harness.shell.surroundings.field_text = Some(FieldText {
+        before_caret: "Hi Ana, ".to_owned(),
+        after_caret: String::new(),
+    });
+    harness.type_text("the report is ready and the numbers look good");
+}
+
+#[test]
+fn text_of_a_private_window_session_is_saved_while_the_rule_keeps_suggestions() {
+    let mut harness = Harness::new(history_on_in_private_windows());
+    type_in_a_private_window(&mut harness);
+    harness.controller.on_context_lost(&mut harness.shell);
+
+    harness.settle_input();
+
+    assert_eq!(harness.history_saves().len(), 1);
+}
+
+#[test]
+fn text_of_a_private_window_session_is_not_saved_after_the_pane_stops_suggestions_there() {
+    let mut harness = Harness::new(history_on_in_private_windows());
+    type_in_a_private_window(&mut harness);
+    harness.toggle(PRIVATE_WINDOWS, true);
+    harness.controller.on_context_lost(&mut harness.shell);
+
+    harness.settle_input();
+
+    assert_eq!(harness.history_saves(), Vec::<Vec<HistoryEntry>>::new());
+}
+
+#[test]
+fn text_of_a_private_window_session_is_not_saved_after_the_badge_stops_suggestions_there() {
+    let mut harness = Harness::new(history_on_in_private_windows());
+    type_in_a_private_window(&mut harness);
+    harness.controller.on_badge_command(
+        BadgeCommand::SwitchPrivateWindows(PrivateWindowRule::StopSuggestions),
+        &mut harness.shell,
+    );
+    harness.controller.on_context_lost(&mut harness.shell);
 
     harness.settle_input();
 

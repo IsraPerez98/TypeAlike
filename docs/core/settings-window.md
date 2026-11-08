@@ -106,6 +106,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - While the switch "Stop in private windows" is on, a field in a private window of a browser works as a field of a place that is off (`private_window`, `FieldPlace::is_private_window`). TypeAlike starts no session there, reads no screen, prepares no prompt and keeps no earlier writing.
 - While the switch is off, a private window works as any other window of its browser.
+- A session in a private window ends when the user turns the switch on, and the earlier writing keeps none of its text. A session reads at its start whether its field is in a private window (`SessionField`).
 - The badge there shows as paused ("TypeAlike (off here)"). The window never goes into the Apps and websites pane, because no ghost text shows there.
 - No browser tells a private window in a way that does not depend on the language. Thus core reads the end of the window title in English, Spanish, Portuguese, French, German and Italian.
   - Chrome, Chromium and Vivaldi: "(Incognito)". Brave: "(Private)". Opera: "(Private)". Edge: "(InPrivate)", or "[InPrivate]" anywhere in the title.
@@ -117,11 +118,12 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The badge at the caret opens a menu (`BadgeMenu`):
   - pause or resume
-  - in a private window where suggestions stop, the checked switch "Stop suggestions in private windows", which tells why the badge shows "off here"
+  - in a private window, the switch "Stop suggestions in private windows". It is checked while suggestions stop there, and then tells why the badge shows "off here".
   - the suggestion switches of the app and of the website where the user types ("Show suggestions in <app>", "Show suggestions on <host>")
   - the screen text switch of the app
   - the scope of its earlier writing (Off, Only this app, All apps)
-- A pick of the private window switch turns off "Stop in private windows" in the Apps and websites pane. Suggestions then start in the window, and the menu has no private window switch there.
+- A pick of the private window switch turns "Stop in private windows" on or off in the Apps and websites pane. After a pick that turns it off, suggestions start in the window, and the menu shows the switch unchecked. Thus the user can turn it on again from the badge.
+- Outside a private window, the menu has no private window switch.
 - An entry is dimmed while the main switch of its pane is off.
 - The screen text switch and the scope are also dimmed while suggestions are off in that app, on that website or in that private window.
 - The suggestion switches stay enabled.

@@ -389,12 +389,12 @@ impl App {
         }
     }
 
-    /// The place of the session, if a session runs. A session never starts in a private window.
+    /// The place of the session, if a session runs.
     fn session_place(&self) -> Option<FieldPlace> {
         self.engine.has_session().then(|| FieldPlace {
             app: self.engine.session_app().cloned(),
             host: self.engine.session_domain().map(str::to_owned),
-            is_private_window: false,
+            is_private_window: self.engine.is_session_in_private_window(),
         })
     }
 
@@ -713,12 +713,12 @@ impl App {
     }
 
     /// Returns the menu that a click on the badge at the caret shows, or `None` while no badge
-    /// shows. The menu pauses or resumes suggestions. In a private window where suggestions stop,
-    /// it also turns off the switch that stops them. When the lists of `suggestion_places` have
-    /// the app or the website where the user types, it also turns their suggestions on or off.
-    /// When the lists of `screen_text` and `personalization` have the app, it also switches the
-    /// screen text of the app and selects the scope of its earlier writing. The entries have the
-    /// texts of `translations`.
+    /// shows. The menu pauses or resumes suggestions. In a private window, it also turns on or off
+    /// the switch that stops suggestions in private windows. When the lists of
+    /// `suggestion_places` have the app or the website where the user types, it also turns their
+    /// suggestions on or off. When the lists of `screen_text` and `personalization` have the app,
+    /// it also switches the screen text of the app and selects the scope of its earlier writing.
+    /// The entries have the texts of `translations`.
     #[must_use]
     pub fn badge_menu(&self, settings: &BadgeSettings<'_>, translations: &Translations) -> Option<BadgeMenu> {
         if !self.is_in_open_field {

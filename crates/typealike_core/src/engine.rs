@@ -256,6 +256,14 @@ impl Engine {
         self.session.as_ref()?.field.domain.as_deref()
     }
 
+    /// Whether a session runs in a private window of a browser.
+    #[must_use]
+    pub(crate) fn is_session_in_private_window(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.field.is_private_window)
+    }
+
     /// Returns the session, and starts it with what surrounds the caret in `desktop` when there
     /// is none.
     fn start_session(&mut self, desktop: &dyn Desktop) -> &mut Session {

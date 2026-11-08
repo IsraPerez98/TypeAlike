@@ -1,4 +1,5 @@
-//! Tests of the private windows of a browser, where suggestions never show.
+//! Tests of the private windows of a browser, where suggestions stop while the rule for private
+//! windows stops them.
 
 use super::fixtures::app_preparing_on_focus;
 use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings};
@@ -219,7 +220,7 @@ fn badge_menu_in_a_private_window_dims_the_screen_text_and_the_earlier_writing_o
 }
 
 #[test]
-fn badge_menu_in_a_private_window_leaves_out_the_switch_while_the_rule_keeps_suggestions() {
+fn badge_menu_in_a_private_window_offers_the_unchecked_switch_while_the_rule_keeps_suggestions() {
     let places = chrome_places(PrivateWindowRule::KeepSuggestions);
     let mut app = app_with(&places);
     app.on_key(Key::Char('H'), Press::First, &PRIVATE_WINDOW);
@@ -227,13 +228,104 @@ fn badge_menu_in_a_private_window_leaves_out_the_switch_while_the_rule_keeps_sug
     let menu = badge_menu_of(&app, &places);
 
     assert_eq!(
-        menu.items().map(|item| item.label.as_str()).collect::<Vec<_>>(),
+        menu.items().cloned().collect::<Vec<_>>(),
         [
-            "Pause suggestions",
-            "Show suggestions in Chrome",
-            "Show suggestions on notes.example"
+            BadgeItem {
+                label: "Pause suggestions".to_owned(),
+                command: BadgeCommand::TogglePause,
+                is_checked: false,
+                is_enabled: true,
+            },
+            BadgeItem {
+                label: "Stop suggestions in private windows".to_owned(),
+                command: BadgeCommand::SwitchPrivateWindows(PrivateWindowRule::StopSuggestions),
+                is_checked: false,
+                is_enabled: true,
+            },
+            BadgeItem {
+                label: "Show suggestions in Chrome".to_owned(),
+                command: BadgeCommand::SwitchAppSuggestions {
+                    app_id: "com.google.Chrome".to_owned(),
+                    is_on: false,
+                },
+                is_checked: true,
+                is_enabled: true,
+            },
+            BadgeItem {
+                label: "Show suggestions on notes.example".to_owned(),
+                command: BadgeCommand::SwitchSiteSuggestions {
+                    host: "notes.example".to_owned(),
+                    is_on: false,
+                },
+                is_checked: true,
+                is_enabled: true,
+            },
         ]
     );
+}
+
+fn badge_labels_in_normal_window(rule: PrivateWindowRule) -> Vec<String> {
+    let places = chrome_places(rule);
+    let mut app = app_with(&places);
+    app.on_key(Key::Char('H'), Press::First, &NORMAL_WINDOW);
+    badge_menu_of(&app, &places)
+        .items()
+        .map(|item| item.label.clone())
+        .collect()
+}
+
+#[test]
+fn badge_menu_in_a_normal_window_leaves_out_the_private_window_switch() {
+    let rules = [
+        PrivateWindowRule::StopSuggestions,
+        PrivateWindowRule::KeepSuggestions,
+    ];
+
+    let labels = rules.map(badge_labels_in_normal_window);
+
+    let normal_window_labels = [
+        "Pause suggestions",
+        "Show suggestions in Chrome",
+        "Show suggestions on notes.example",
+    ];
+    assert_eq!(labels, [normal_window_labels, normal_window_labels]);
+}
+
+fn stop_in_private_windows(app: &mut App) {
+    app.use_settings(&Settings {
+        suggestion_places: chrome_places(PrivateWindowRule::StopSuggestions),
+        ..Settings::default()
+    });
+}
+
+#[test]
+fn turning_on_the_rule_during_a_session_in_a_private_window_ends_the_session() {
+    let mut app = app_with(&chrome_places(PrivateWindowRule::KeepSuggestions));
+    app.on_key(Key::Char('H'), Press::First, &PRIVATE_WINDOW);
+
+    stop_in_private_windows(&mut app);
+
+    assert_eq!((app.text_before_caret(), app.has_offer()), ("", false));
+}
+
+#[test]
+fn turning_on_the_rule_during_a_session_in_a_private_window_shows_the_off_badge() {
+    let mut app = app_with(&chrome_places(PrivateWindowRule::KeepSuggestions));
+    app.on_key(Key::Char('H'), Press::First, &PRIVATE_WINDOW);
+
+    stop_in_private_windows(&mut app);
+
+    assert_eq!(app.badge_view(&english()), Some(off_badge()));
+}
+
+#[test]
+fn turning_on_the_rule_during_a_session_in_a_normal_window_keeps_the_session() {
+    let mut app = app_with(&chrome_places(PrivateWindowRule::KeepSuggestions));
+    app.on_key(Key::Char('H'), Press::First, &NORMAL_WINDOW);
+
+    stop_in_private_windows(&mut app);
+
+    assert_eq!(app.text_before_caret(), "H");
 }
 
 #[test]

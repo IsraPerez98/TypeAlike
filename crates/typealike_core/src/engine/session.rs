@@ -4,6 +4,7 @@ use crate::desktop::{Surroundings, Timestamp};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::TokenCount;
 use crate::place;
+use crate::private_window;
 use crate::prompt::{self, Preface};
 use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 
@@ -20,6 +21,8 @@ pub(super) struct SessionField {
     pub(super) text: FieldTextAccess,
     /// Whether the field gets no suggestions, so that Tab moves the focus out of it.
     pub(super) is_excluded: bool,
+    /// Whether the field is in a private window of a browser.
+    pub(super) is_private_window: bool,
     /// Whether the field hides the text on the line of the caret, so that text can follow the
     /// caret also when the field gives no text after the caret.
     is_caret_line_hidden: bool,
@@ -38,6 +41,7 @@ impl SessionField {
             domain: surroundings.domain.clone(),
             text: FieldTextAccess::of(surroundings),
             is_excluded: place::is_excluded_field(surroundings),
+            is_private_window: private_window::is_private_window(surroundings),
             is_caret_line_hidden: surroundings.is_caret_line_hidden,
         }
     }

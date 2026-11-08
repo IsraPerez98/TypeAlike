@@ -146,8 +146,8 @@ impl BadgeMenu {
 }
 
 /// The entries of the badge menu for `place`, with the texts of `translations`: the switch that
-/// stops suggestions in private windows while it stops them in `place`, the suggestion switches of
-/// its app and of its website, then the screen text switch and the menu of the scope of its app,
+/// stops suggestions in private windows when `place` is a private window, the suggestion switches
+/// of its app and of its website, then the screen text switch and the menu of the scope of its app,
 /// each when the list of `settings` has the app or the website. The entries of the app are dimmed
 /// while suggestions are off in `place`.
 pub(super) fn place_entries(
@@ -156,11 +156,17 @@ pub(super) fn place_entries(
     translations: &Translations,
 ) -> Vec<BadgeEntry> {
     let suggestion_places = settings.suggestion_places;
-    let private_window_switch = place.is_stopped_as_private(suggestion_places).then(|| {
+    let is_stopped_as_private = place.is_stopped_as_private(suggestion_places);
+    let private_window_switch = place.is_private_window.then(|| {
+        let picked_rule = if is_stopped_as_private {
+            PrivateWindowRule::KeepSuggestions
+        } else {
+            PrivateWindowRule::StopSuggestions
+        };
         suggestion_switch(
             translations.text("badge-private-windows"),
-            BadgeCommand::SwitchPrivateWindows(PrivateWindowRule::KeepSuggestions),
-            true,
+            BadgeCommand::SwitchPrivateWindows(picked_rule),
+            is_stopped_as_private,
         )
     });
     let app_switch = place
