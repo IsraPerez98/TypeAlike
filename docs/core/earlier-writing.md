@@ -21,6 +21,13 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## Examples of the prompt
 
 - The examples are the texts of the same place that match the topic of the field: one on the CPU, two on a GPU.
+- A session picks its examples at its first key, often in an empty field, and again at the answer of its first screen read.
+- When the input settles, the session picks its examples again with the text of the field. It does this when the text before the caret reaches 16 estimated tokens, about 8 words (`EXAMPLE_STEP_TOKENS`), and each time that text doubles (`Engine::pick_examples_again`).
+  - Thus the examples follow the topic of a long text that the user types in one session.
+  - A new pick decodes the prompt again from the examples on. The doubling keeps these decodes rare: a text of 1000 tokens gets 6 picks.
+  - When the new pick changes the prompt and TypeAlike prepares prompts before a key ("Prepare suggestions early" on, or a place with earlier writing), the settle prepares the new prompt. Thus the next key does not wait for that decode.
+  - A new pick also takes the newest screen text.
+  - Before this rule, a new email without screen text or a window title got no examples for its whole session. On 298 cases of the `register` and `stores_*` sets with a session that starts at the first character (`--session-start first-key`, Gemma 4 E4B, Metal), the rule helped 54 cases and harmed 8: 98 matches before it, 144 with it. With the whole text in the field at the first key, these sets match 167 cases. On the CPU (one example), it helped 5 of the 38 cases of `stores_held_out` and harmed 1.
 - A word of the window title matches only a text of the same typing context or of none. A text to a contact seldom holds the name of the contact, but a text about that contact to another person does. Thus in a chat with "Mamá", a text to another contact that names "mamá" is no example for that word.
 - When no text of the place matches, the newest text of the typing context of the window is the example.
 - On 38 cases of chats and mail threads (Gemma 4 E4B), these two rules helped 3 cases and harmed none with two examples (Metal), and helped 4 and harmed none with one example (CPU). When all the texts of a place have one title, such as "Untitled", the second rule gives the newest text of the place: on 208 cases of the history sets with such a title, it helped 2 cases and harmed none.

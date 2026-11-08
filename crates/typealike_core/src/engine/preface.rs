@@ -13,6 +13,10 @@ use super::{Engine, read_surroundings};
 
 /// The age after which a copy has no relation to the text that the user types.
 pub(super) const MAX_CLIPBOARD_AGE: Duration = Duration::from_mins(5);
+/// The estimated tokens of the text before the caret, about 8 words, after which a settle of the
+/// input picks the examples of the session again, and again each time the text doubles. A new
+/// pick decodes the prompt again from the examples on, so the picks get rarer as the text grows.
+pub(super) const EXAMPLE_STEP_TOKENS: u32 = 16;
 
 /// What the engine knows of the text near the field on the screen.
 #[derive(Default)]
@@ -247,6 +251,29 @@ impl Engine {
         screen
             .map(|screen| history::reply_words(screen, surroundings, &self.history))
             .unwrap_or_default()
+    }
+
+    /// Picks the examples of the session again with what surrounds the caret in `desktop`, when its
+    /// text before the caret reached another step since the last pick (`Session::example_step_now`).
+    /// Returns whether the preface of the session changed.
+    pub(crate) fn pick_examples_again(&mut self, desktop: &dyn Desktop) -> bool {
+        let Some(session) = &self.session else {
+            return false;
+        };
+        let step = session.example_step_now();
+        if step == session.example_step || session.field.is_excluded {
+            return false;
+        }
+        let preface = self.build_preface(&read_surroundings(desktop), desktop);
+        let Some(session) = &mut self.session else {
+            return false;
+        };
+        session.example_step = step;
+        let is_changed = preface != session.preface;
+        if is_changed {
+            session.use_preface(preface);
+        }
+        is_changed
     }
 
     /// Lets the session read the screen once more, for when a scroll moved the text on the screen.

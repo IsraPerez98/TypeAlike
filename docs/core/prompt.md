@@ -102,7 +102,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - A screen read starts at the first key of a session and when the input settles, unless the session has its final screen text.
 - It starts only in a field that holds text: a field whose text the platform reads, or a field with unreadable text (`Surroundings::holds_text`). A terminal that shows its text only on the screen gives no field text, but it still gets screen reads.
-- A session first uses the stored screen text. The answer of its own read replaces that text one time, when the text changed.
+- A session first uses the stored screen text. The answer of its own read replaces that text one time, when the text changed. A new pick of the examples also takes the newest screen text (`docs/core/earlier-writing.md`, "Examples of the prompt").
 - When that answer changes the prompt of the suggestion that runs or shows, and the user pressed no key after its request, TypeAlike asks for the suggestion again with the new prompt. Thus the first suggestion of a reply also uses a chat message that came while the field was idle. When no suggestion runs or shows, TypeAlike asks for none.
 - A scroll moves the text on the screen, so the next key of the session reads the screen again, and its answer replaces the text of the session one more time.
 - In a text field of a chat or an email app where the screen text is on, the stop of a scroll also reads the screen:

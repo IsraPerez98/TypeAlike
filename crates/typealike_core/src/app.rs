@@ -434,6 +434,7 @@ impl App {
             return Some(SettledWork::Suggest(reaction));
         }
         self.engine.follow_field(desktop);
+        let has_new_examples = self.is_preparation_due(desktop) && self.engine.pick_examples_again(desktop);
         if let Some(reaction) = self.engine.suggest_after_hold() {
             return Some(SettledWork::Suggest(reaction));
         }
@@ -446,7 +447,7 @@ impl App {
                     source: ScreenSource::Accessibility,
                 });
         }
-        if self.engine.has_session() {
+        if self.engine.has_session() && !has_new_examples {
             return None;
         }
         self.prepare_on_focus(desktop).map(SettledWork::Prepare)
@@ -565,14 +566,19 @@ impl App {
     }
 
     fn prepare_on_focus(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
-        let is_due = match self.prompt_preparation {
-            PromptPreparation::OnFocus => true,
-            PromptPreparation::OnFirstKey => self.engine.has_earlier_writing_in(desktop),
-        };
-        if is_due {
+        if self.is_preparation_due(desktop) {
             self.engine.prepare(desktop)
         } else {
             None
+        }
+    }
+
+    /// Whether TypeAlike prepares the prompt of the focused field of `desktop` before a key: with
+    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text.
+    fn is_preparation_due(&self, desktop: &dyn Desktop) -> bool {
+        match self.prompt_preparation {
+            PromptPreparation::OnFocus => true,
+            PromptPreparation::OnFirstKey => self.engine.has_earlier_writing_in(desktop),
         }
     }
 

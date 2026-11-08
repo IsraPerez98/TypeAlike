@@ -7,6 +7,7 @@ use crate::place;
 use crate::prompt::{self, Preface};
 use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 
+use super::preface::EXAMPLE_STEP_TOKENS;
 use super::shown_suggestions::ShownSuggestions;
 
 /// The facts of the field where a session types, which stay the same for the whole session.
@@ -115,6 +116,9 @@ pub(super) struct Session {
     /// Whether the session has a request for a suggestion, and the user pressed no key after the
     /// newest one.
     pub(super) has_untouched_request: bool,
+    /// The step of the text before the caret when the session picked its examples
+    /// ([`Session::example_step_now`]).
+    pub(super) example_step: u32,
 }
 
 impl Session {
@@ -138,7 +142,7 @@ impl Session {
                 )
             })
             .unwrap_or_default();
-        Self {
+        let mut session = Self {
             preface,
             field_chars: text_before.chars().count(),
             read_chars: finished_chars(&text_before),
@@ -154,7 +158,15 @@ impl Session {
             started_at,
             reply_to: Vec::new(),
             has_untouched_request: false,
-        }
+            example_step: 0,
+        };
+        session.example_step = session.example_step_now();
+        session
+    }
+
+    /// The step of the text before the caret for a new pick of the examples ([`example_step_of`]).
+    pub(super) fn example_step_now(&self) -> u32 {
+        example_step_of(&self.text_before)
     }
 
     /// Whether a read of the field shows the text before the caret of the session: the platform
@@ -257,4 +269,32 @@ pub(super) fn recent_text(text: &str, limits: TextLimits, max_tokens: TokenCount
     }
     let trimmed_tokens = TokenCount(max_tokens.0 / 4 * 3);
     last_tokens(last_chars(text, limits.trimmed_chars), trimmed_tokens)
+}
+
+/// Returns the step of `text` for a new pick of the examples: 0 below [`EXAMPLE_STEP_TOKENS`]
+/// estimated tokens, then one more each time the text doubles.
+fn example_step_of(text: &str) -> u32 {
+    let steps = estimated_tokens(text).0 / EXAMPLE_STEP_TOKENS;
+    steps.checked_ilog2().map_or(0, |doublings| doublings + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn example_step_starts_at_sixteen_tokens_and_grows_each_time_the_text_doubles() {
+        let texts = [
+            String::new(),
+            "abc ".repeat(11),
+            "abc ".repeat(12),
+            "abc ".repeat(23),
+            "abc ".repeat(24),
+            "abc ".repeat(48),
+        ];
+
+        let steps = texts.map(|text| example_step_of(&text));
+
+        assert_eq!(steps, [0, 0, 1, 1, 2, 3]);
+    }
 }

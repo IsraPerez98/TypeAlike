@@ -5,12 +5,16 @@ use super::fixtures::{
     request, type_key,
 };
 use crate::app::{App, SettledWork, TrayCommand};
-use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
+use crate::desktop::{CopiedText, Desktop, Field, FieldText, ScreenRead, Surroundings};
 use crate::engine::Reaction;
-use crate::inference::{InferenceRequest, NextWordBias};
+use crate::history::HistoryEntry;
+use crate::inference::{InferenceError, InferenceRequest, NextWordBias};
 use crate::key::{Key, Press};
 use crate::prompt::prompt_with_notes;
-use crate::settings::{KeptTexts, PersonalizationSettings, Settings, SuggestionDisplay, WriterNotes};
+use crate::settings::{
+    HistoryAccess, KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
+    ScreenTextSettings, Settings, SuggestionDisplay, WriterNotes,
+};
 use crate::test_support::{completion, preparation_request};
 
 /// A field of an unknown app with this text before the caret.
@@ -332,4 +336,130 @@ fn typing_while_paused_keeps_no_earlier_writing() {
     });
 
     assert_eq!(kept, [Some(1), None]);
+}
+
+/// A field of the mail app with this text before the caret.
+struct MailDraft(&'static str);
+
+impl Desktop for MailDraft {
+    fn field(&self) -> Field {
+        Field::Open
+    }
+
+    fn surroundings(&self) -> Surroundings {
+        Surroundings {
+            app_id: Some("com.apple.mail".to_owned()),
+            field_text: Some(FieldText {
+                before_caret: self.0.to_owned(),
+                after_caret: String::new(),
+            }),
+            ..Surroundings::default()
+        }
+    }
+
+    fn copied_text(&self) -> Option<CopiedText> {
+        None
+    }
+}
+
+const BLUEFIN_MAIL: &str = "Dear Ana, the Bluefin budget review moves to Monday.";
+
+fn app_with_four_mails() -> App {
+    app_with_four_mails_and(ScreenTextAccess::Denied)
+}
+
+fn app_with_four_mails_and(screen_text: ScreenTextAccess) -> App {
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        personalization: PersonalizationSettings {
+            history: HistoryAccess::On,
+            ..PersonalizationSettings::default()
+        },
+        prompt_preparation: PromptPreparation::OnFocus,
+        screen_text: ScreenTextSettings {
+            access: screen_text,
+            ..ScreenTextSettings::default()
+        },
+        ..Settings::default()
+    });
+    let texts = [
+        BLUEFIN_MAIL,
+        "Dear Ana, the garden party starts at noon.",
+        "Dear Ana, the dentist moved my visit.",
+        "Dear Ana, the train leaves at eight.",
+    ];
+    app.use_history(texts.map(mail_entry).to_vec());
+    app
+}
+
+fn mail_entry(text: &str) -> HistoryEntry {
+    HistoryEntry {
+        text: text.to_owned(),
+        app_id: "com.apple.mail".to_owned(),
+        domain: None,
+        written_at: None,
+        reply_to: Vec::new(),
+        typing_context: None,
+    }
+}
+
+/// Types `draft` in the mail app, where a newer key replaces the request of each key.
+fn type_draft(app: &mut App, draft: &'static str) {
+    for (index, character) in draft.char_indices() {
+        app.on_key(Key::Char(character), Press::First, &MailDraft(&draft[..index]));
+        app.on_completion(Err(InferenceError::Superseded));
+    }
+}
+
+#[test]
+fn settle_after_a_new_block_of_typed_words_prepares_the_prompt_with_the_matching_examples() {
+    let mut app = app_with_four_mails();
+    let draft = "Hi Ana, a short update on the plan for the Bluefin budget ";
+    type_draft(&mut app, draft);
+
+    let work = app.on_input_settled(&MailDraft(draft));
+
+    assert_eq!(
+        work,
+        Some(SettledWork::Prepare(preparation_request(
+            &[
+                "Where I am typing: Format: email",
+                &format!("My earlier writing:\n“{BLUEFIN_MAIL}\n”")
+            ],
+            draft
+        )))
+    );
+}
+
+#[test]
+fn settle_in_the_same_block_of_typed_words_prepares_nothing() {
+    let mut app = app_with_four_mails();
+    type_draft(&mut app, "Hi Ana, a ");
+
+    let work = app.on_input_settled(&MailDraft("Hi Ana, a "));
+
+    assert_eq!(work, None);
+}
+
+#[test]
+fn screen_read_of_a_settle_after_a_new_block_of_typed_words_prepares_the_prompt_with_the_matching_examples() {
+    let mut app = app_with_four_mails_and(ScreenTextAccess::Allowed);
+    let draft = "Hi Ana, a short update on the plan for the Bluefin budget ";
+    type_draft(&mut app, draft);
+    let Some(SettledWork::ReadScreen { read, .. }) = app.on_input_settled(&MailDraft(draft)) else {
+        panic!("a settle in a mail field reads the screen");
+    };
+
+    let work = app.on_screen_read(ScreenRead { id: read, text: None }, &MailDraft(draft));
+
+    assert_eq!(
+        work,
+        Some(SettledWork::Prepare(preparation_request(
+            &[
+                "Where I am typing: Format: email",
+                &format!("My earlier writing:\n“{BLUEFIN_MAIL}\n”")
+            ],
+            draft
+        )))
+    );
 }
