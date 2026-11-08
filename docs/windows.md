@@ -59,6 +59,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The caret reader also reads the text around the caret (UIA `TextPattern`, else a classic edit control), the field labels (UIA `LabeledBy`, `Name`, then `HelpText`, else `FullDescription`) and the host of the web page (the URL in the value of the nearest Chromium or Gecko document) 40 ms after each key, click and focus move.
 - The shell keeps that read for the hook, because the hook must not wait for UIA.
 - A field that UIA marks as a password field (`IsPassword`) gets no suggestions.
+- The window title is the title of the foreground window (`GetWindowTextW`). Chrome, Brave, Opera and Vivaldi write their private window mark only in the accessible title, not in this title. Thus core finds only the private windows of Firefox and Edge on Windows (`docs/core/settings-window.md`, "Private windows"). Nobody checked this on a Windows computer yet.
 - A field with the ARIA role `searchbox` (UIA `AriaRole`: a web search box or an HTML `<input type="search">`) is a search field. A native search box gives no ARIA role.
 - A field with the class `native-edit-context` in UIA (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): UIA gives its text only while the screen reader mode of VS Code is on.
 - After a click or a focus move, the field also counts as a password field until a read of the new field tells that it shows its text.

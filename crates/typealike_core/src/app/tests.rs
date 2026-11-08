@@ -7,6 +7,7 @@ mod fixtures;
 mod full_screen;
 mod games;
 mod off_places;
+mod private_windows;
 mod screen_read;
 mod suggestions;
 mod tray;

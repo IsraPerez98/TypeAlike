@@ -15,6 +15,7 @@ pub mod key;
 pub mod language;
 pub mod localization;
 mod place;
+mod private_window;
 mod prompt;
 pub mod release;
 mod screen;

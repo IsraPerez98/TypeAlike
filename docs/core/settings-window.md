@@ -92,6 +92,16 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - A session in a place that the user turns off ends, and the earlier writing keeps none of its text. The pause keeps that text.
 - The Copied and screen text and Personalization panes dim the row of an app whose suggestions are off.
 
+### Private windows
+
+- A field in a private window of a browser works as a field of a place that is off (`private_window`, `FieldPlace::is_private_window`). TypeAlike starts no session there, reads no screen, prepares no prompt and keeps no earlier writing.
+- The badge there shows as paused ("TypeAlike (off here)"). The window never goes into the Apps and websites pane, because no ghost text shows there.
+- No browser tells a private window in a way that does not depend on the language. Thus core reads the end of the window title in English, Spanish, Portuguese, French, German and Italian.
+  - Chrome, Chromium and Vivaldi: "(Incognito)". Brave: "(Private)". Opera: "(Private)". Edge: "(InPrivate)", or "[InPrivate]" anywhere in the title.
+  - Firefox: "— Private Browsing", and on Windows "— Mozilla Firefox Private Browsing".
+  - Safari: ", Private Browsing".
+- The strings come from the language files of each browser. A browser in another language, or a new string in a new version, gives no match, and suggestions then show.
+
 ## Badge menu
 
 - The badge at the caret opens a menu (`BadgeMenu`):

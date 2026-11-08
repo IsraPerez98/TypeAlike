@@ -2,6 +2,7 @@
 //! read already.
 
 use crate::desktop::{CopiedText, Desktop, Field, OcrAvailability, OcrLevels, Surroundings, Timestamp};
+use crate::private_window;
 use crate::settings::{ScreenTextApp, SuggestionPlaces};
 
 /// The app and the website of a field where the user types.
@@ -11,6 +12,8 @@ pub(super) struct FieldPlace {
     pub(super) app: Option<ScreenTextApp>,
     /// The host of the website, if any.
     pub(super) host: Option<String>,
+    /// Whether the place is a private window of a browser, where suggestions never show.
+    pub(super) is_private_window: bool,
 }
 
 impl FieldPlace {
@@ -18,13 +21,14 @@ impl FieldPlace {
         Self {
             app: ScreenTextApp::of(surroundings),
             host: surroundings.domain.clone(),
+            is_private_window: private_window::is_private_window(surroundings),
         }
     }
 
     /// Whether `places` lets suggestions show in this place.
     pub(super) fn is_on_in(&self, places: &SuggestionPlaces) -> bool {
         let app_id = self.app.as_ref().map(|app| app.app_id.as_str());
-        places.allows(app_id, self.host.as_deref())
+        !self.is_private_window && places.allows(app_id, self.host.as_deref())
     }
 }
 

@@ -388,11 +388,12 @@ impl App {
         }
     }
 
-    /// The place of the session, if a session runs.
+    /// The place of the session, if a session runs. A session never starts in a private window.
     fn session_place(&self) -> Option<FieldPlace> {
         self.engine.has_session().then(|| FieldPlace {
             app: self.engine.session_app().cloned(),
             host: self.engine.session_domain().map(str::to_owned),
+            is_private_window: false,
         })
     }
 

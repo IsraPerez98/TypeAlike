@@ -6,6 +6,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - Event tap.
 - Accessibility (AX) for the caret, the text around it, the field labels (`AXTitle`, else the text of `AXTitleUIElement`, `AXDescription`, `AXPlaceholderValue`, `AXHelp`) and the host of the web page.
+- The window title is the `AXTitle` of the AX window of the field. Chromium browsers give their accessible title there, with the private window mark ("Google Chrome (Incognito)"). Safari gives ", Private Browsing".
 - The static text of the focused window, else the OCR of a band of the window around the field (`ScreenCaptureKit` and Vision, only with the Screen & System Audio Recording permission).
 - Overlay panel.
 - The mirror, for a field that gives no caret through AX (the editor of VS Code while its screen reader mode is off: an empty EditContext element).
