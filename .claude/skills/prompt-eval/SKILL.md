@@ -37,6 +37,13 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 
 - `--notes TEXT` sets the notes about the writer, and `--name TEXT` the name of the writer.
 
+### Session
+
+- `--session-start last-key|first-key` sets the key that starts the session of a case (default: last-key).
+- With `last-key`, the field holds the text before the last key when the session starts. Thus the examples of the earlier writing match all of that text.
+- With `first-key`, the field opens without that text, and the session starts at its first character, as in a new message. The eval then types the text: the screen read answers the first key, and the input settles after each line break and after the space after the end of a sentence. A newer key replaces the request of each key, so the model runs only at the last key.
+- Run the sets of the earlier writing with both values for a change to the examples. The gap between them shows what the examples lose when the user types the whole text in one session.
+
 ### Backend and speed
 
 - `--backend cpu|vulkan|cuda|metal` sets the backend (default: Metal on macOS, else the CPU).

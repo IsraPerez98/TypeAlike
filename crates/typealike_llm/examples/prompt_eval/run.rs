@@ -19,7 +19,7 @@ use typealike_core::key::{Key, Press};
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
 use typealike_llm::LlamaCpp;
 
-use crate::arguments::{Arguments, DrafterUse, TailCut, WordBiasUse};
+use crate::arguments::{Arguments, DrafterUse, SessionStart, TailCut, WordBiasUse};
 use crate::case::{Case, CaseField, CaseScreen};
 use crate::dictionary::FileDictionary;
 use crate::likelihood::{Continuation, Measured};
@@ -250,6 +250,7 @@ struct Typing<'case> {
     version: u64,
     word_bias: WordBiasUse,
     tail_cut: TailCut,
+    session_start: SessionStart,
 }
 
 impl Typing<'_> {
@@ -273,7 +274,10 @@ impl Typing<'_> {
             app.on_scroll();
         }
         let screen = self.case.screen.as_ref();
-        let opened = Self::settle(model, &mut app, &self.field, screen, preparation)?;
+        let opened = match self.session_start {
+            SessionStart::LastKey => Self::settle(model, &mut app, &self.field, screen, preparation)?,
+            SessionStart::FirstKey => self.type_before_last_key(model, &mut app, preparation)?,
+        };
         let is_screen_allowed = self.settings.screen_text.access == ScreenTextAccess::Allowed;
         if self.case.screen.is_some() && is_screen_allowed && !opened.has_read_screen {
             bail!("case {} reads no screen text", self.case.id);
@@ -339,6 +343,47 @@ impl Typing<'_> {
         })
     }
 
+    /// Opens the field of the case without the text before the last key, and lets the input settle
+    /// with the `preparation`. Then it types that text in `app` as a writer does: the screen read of
+    /// the session answers the first key, and the input settles after each line break and after
+    /// the space after the end of a sentence. The next key replaces the request of each key.
+    fn type_before_last_key(
+        &self,
+        model: &mut ModelSession,
+        app: &mut App,
+        preparation: Preparation,
+    ) -> anyhow::Result<Settled> {
+        let screen = self.case.screen.as_ref();
+        let (before_key, _) = self.case.last_key()?;
+        let mut settled = Self::settle(model, app, &self.case.field(String::new()), screen, preparation)?;
+        let mut typed = String::new();
+        for character in before_key.chars() {
+            let key = if character == '\n' {
+                Key::Enter
+            } else {
+                Key::Char(character)
+            };
+            if let Reaction::Request(_) = app.on_key(key, Press::First, &self.case.field(typed.clone())) {
+                app.on_completion(Err(InferenceError::Superseded));
+            }
+            typed.push(character);
+            let field = self.case.field(typed.clone());
+            let read = if typed.chars().count() == 1 {
+                let work = app.start_session_screen_read();
+                Self::finish(model, app, work, &field, screen, Preparation::Skip)?
+            } else if is_pause_after(&typed) {
+                Self::settle(model, app, &field, screen, Preparation::Skip)?
+            } else {
+                continue;
+            };
+            settled.has_read_screen |= read.has_read_screen;
+            if read.suggestion.is_some() {
+                app.on_completion(Err(InferenceError::Superseded));
+            }
+        }
+        Ok(settled)
+    }
+
     /// Lets the input settle in `app` with the focus in `field`: gives `screen` to each read of the
     /// screen, and does the `preparation` with each prompt that the app prepares.
     fn settle(
@@ -348,11 +393,24 @@ impl Typing<'_> {
         screen: Option<&CaseScreen>,
         preparation: Preparation,
     ) -> anyhow::Result<Settled> {
+        let work = app.on_input_settled(field);
+        Self::finish(model, app, work, field, screen, preparation)
+    }
+
+    /// Does the `work` of `app` and the work after it, with the focus in `field`: gives `screen` to
+    /// each read of the screen, and does the `preparation` with each prompt that the app prepares.
+    fn finish(
+        model: &mut ModelSession,
+        app: &mut App,
+        mut work: Option<SettledWork>,
+        field: &CaseField,
+        screen: Option<&CaseScreen>,
+        preparation: Preparation,
+    ) -> anyhow::Result<Settled> {
         let mut settled = Settled {
             has_read_screen: false,
             suggestion: None,
         };
-        let mut work = app.on_input_settled(field);
         while let Some(next) = work {
             work = match next {
                 SettledWork::ReadScreen { read, .. } => {
@@ -435,6 +493,7 @@ pub fn run_case(
         version,
         word_bias: arguments.word_bias,
         tail_cut: arguments.tail_cut,
+        session_start: arguments.session_start,
     };
     let (mut app, cold) = typing.press_last_key(model, Preparation::Skip)?;
     let accepted = match app.on_key(Key::Tab, Press::First, &typing.typed_field) {
@@ -443,4 +502,37 @@ pub fn run_case(
     };
     let (_, warm) = typing.press_last_key(model, Preparation::Decode)?;
     Ok(CaseRun::of(case, cold, warm.millis, &accepted))
+}
+
+/// Whether a writer pauses after `typed`: after a line break, or after the space after the end of
+/// a sentence.
+fn is_pause_after(typed: &str) -> bool {
+    let mut last = typed.chars().rev();
+    match (last.next(), last.next()) {
+        (Some('\n'), _) => true,
+        (Some(space), Some(end)) => space.is_whitespace() && matches!(end, '.' | '!' | '?'),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writer_pauses_after_a_line_break_or_the_space_after_a_sentence() {
+        let texts = [
+            "Hi Ana,\n",
+            "It works. ",
+            "Really? ",
+            "It works.",
+            "Hi Ana, ",
+            "e.g",
+            "",
+        ];
+
+        let pauses = texts.map(is_pause_after);
+
+        assert_eq!(pauses, [true, true, true, false, false, false, false]);
+    }
 }

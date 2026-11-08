@@ -14,7 +14,8 @@ pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline R
      [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--drafter on|off] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
-     [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off] [--preparation on-focus|first-key]";
+     [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off] [--preparation on-focus|first-key] \
+     [--session-start last-key|first-key]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Arguments {
@@ -45,6 +46,7 @@ pub struct Arguments {
     pub history: HistoryAccess,
     pub reply_words: ReplyWords,
     pub preparation: PromptPreparation,
+    pub session_start: SessionStart,
 }
 
 /// Whether the model runs with its drafter, when the folder of the model holds the drafter.
@@ -77,6 +79,16 @@ pub enum Replay {
     Word,
     /// Also after each character of `next`.
     Character,
+}
+
+/// The key that starts the session of a case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStart {
+    /// The last key, in a field that holds the text before it.
+    LastKey,
+    /// The first character of the text before the caret, in a field without that text. The writer
+    /// then types the rest, as in a new message.
+    FirstKey,
 }
 
 /// Whether the suggestions stop when the text after the first word gets unlikely, as in the app.
@@ -118,6 +130,7 @@ impl Arguments {
             history: HistoryAccess::On,
             reply_words: ReplyWords::On,
             preparation: PromptPreparation::default(),
+            session_start: SessionStart::LastKey,
         };
         for option in options.chunks(2) {
             match option {
@@ -164,6 +177,9 @@ impl Arguments {
                 }
                 [name, reply_words] if name == "--reply-words" => {
                     parsed.reply_words = switch_named(reply_words, ReplyWords::On, ReplyWords::Off)?;
+                }
+                [name, start] if name == "--session-start" => {
+                    parsed.session_start = session_start_named(start)?;
                 }
                 [name, preparation] if name == "--preparation" => {
                     parsed.preparation = preparation_named(preparation)?;
@@ -230,6 +246,15 @@ fn length_named(name: &str) -> Option<SuggestionLength> {
         "medium" => Some(SuggestionLength::Medium),
         "long" => Some(SuggestionLength::Long),
         "very_long" => Some(SuggestionLength::VeryLong),
+        _ => None,
+    }
+}
+
+/// Returns the session start with `name` in [`USAGE`], or `None` for another name.
+fn session_start_named(name: &str) -> Option<SessionStart> {
+    match name {
+        "last-key" => Some(SessionStart::LastKey),
+        "first-key" => Some(SessionStart::FirstKey),
         _ => None,
     }
 }
@@ -316,6 +341,7 @@ mod tests {
                 history: HistoryAccess::On,
                 reply_words: ReplyWords::On,
                 preparation: PromptPreparation::OnFocus,
+                session_start: SessionStart::LastKey,
             })
         );
     }
@@ -559,6 +585,21 @@ mod tests {
                 Some(PromptPreparation::OnFirstKey),
                 None
             ]
+        );
+    }
+
+    #[test]
+    fn session_start_option_starts_the_session_at_the_last_or_the_first_key() {
+        let names = ["last-key", "first-key", "now"];
+
+        let starts = names.map(|name| {
+            parse(&["model.gguf", "cases.jsonl", "--session-start", name])
+                .map(|arguments| arguments.session_start)
+        });
+
+        assert_eq!(
+            starts,
+            [Some(SessionStart::LastKey), Some(SessionStart::FirstKey), None]
         );
     }
 
