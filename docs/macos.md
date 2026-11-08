@@ -35,6 +35,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - An observer of Low Power Mode (`EnergySaverObserver`: `NSProcessInfoPowerStateDidChangeNotification` on the main queue) gives each change to the runtime.
 - At the start, at each activation of an app and at each change of the space, the runtime reads whether the app in front shows in full screen (`full_screen`): the presentation options of the active app (`currentSystemPresentationOptions`) have `FullScreen` or `HideMenuBar`.
 - At the start and at each activation of an app, the runtime reads whether the app in front is a game (`game`): its `Info.plist` has `public.app-category.games` or a genre that ends with `-games` in `LSApplicationCategoryType`, the key that Game Mode uses.
+  - An app without `LSApplicationCategoryType` is a game when its bundle path has `/steamapps/common/`, the games folder of a Steam library. Some games do not set the key.
+  - The category decides when the app has one, also in a Steam library. Thus a game engine editor from Steam with the developer tools category keeps the suggestions.
+  - A Steam shortcut app (a script that opens `steam://run/<id>`) is never in front. The game that Steam starts is in front, from its own bundle in the Steam library.
 
 ## Screen text
 
