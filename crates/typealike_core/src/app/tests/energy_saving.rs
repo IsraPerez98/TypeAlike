@@ -1,7 +1,7 @@
 //! Tests of the stops that save energy: the energy saver of the computer and the idle timeout.
 
 use super::fixtures::{MAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayItem, TrayView};
+use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph, TrayItem, TrayView};
 use crate::desktop::EnergySaver;
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
@@ -12,7 +12,7 @@ use crate::test_support::english;
 fn energy_saver_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
-        label: "TypeAlike (off to save energy)".to_owned(),
+        label: "TypeAlike (off while the computer saves energy)".to_owned(),
     }
 }
 
@@ -129,8 +129,8 @@ fn tray_in_energy_saver_shows_the_stop_and_offers_the_pause() {
     assert_eq!(
         view,
         TrayView {
-            status: Status::Paused,
-            tooltip: "TypeAlike (off to save energy)".to_owned(),
+            glyph: TrayGlyph::Stopped,
+            tooltip: "TypeAlike (off while the computer saves energy)".to_owned(),
             items: vec![
                 TrayItem {
                     label: "Pause suggestions".to_owned(),
@@ -147,6 +147,19 @@ fn tray_in_energy_saver_shows_the_stop_and_offers_the_pause() {
             ],
             language: UiLanguage::English,
         }
+    );
+}
+
+#[test]
+fn pause_in_energy_saver_shows_the_paused_glyph_in_the_tray() {
+    let mut app = app_in_energy_saver();
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    let view = app.tray_view(&english());
+
+    assert_eq!(
+        (view.glyph, view.tooltip.as_str()),
+        (TrayGlyph::Paused, "TypeAlike (paused)")
     );
 }
 

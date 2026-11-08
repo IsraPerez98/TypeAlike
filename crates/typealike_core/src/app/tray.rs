@@ -23,11 +23,43 @@ pub struct TrayItem {
     pub command: TrayCommand,
 }
 
+/// What the glyph of the tray icon shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayGlyph {
+    /// Suggestions are on: the active robot in the color of the taskbar or the menu bar.
+    Active,
+    /// The user paused suggestions: the paused robot in the color of the taskbar or the menu bar.
+    Paused,
+    /// The energy saver, a game or an app in full screen stops suggestions, as the Energy saving
+    /// pane sets: the paused robot in yellow.
+    Stopped,
+}
+
+impl TrayGlyph {
+    /// The status whose robot the glyph shows.
+    #[must_use]
+    pub fn face(self) -> Status {
+        match self {
+            Self::Active => Status::Active,
+            Self::Paused | Self::Stopped => Status::Paused,
+        }
+    }
+}
+
+impl From<Status> for TrayGlyph {
+    fn from(status: Status) -> Self {
+        match status {
+            Status::Active => Self::Active,
+            Status::Paused => Self::Paused,
+        }
+    }
+}
+
 /// Everything the platform needs to render the tray icon and its menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrayView {
-    /// Status the icon glyph must reflect.
-    pub status: Status,
+    /// What the icon glyph must show.
+    pub glyph: TrayGlyph,
     /// Tooltip naming the app and its status.
     pub tooltip: String,
     /// Menu entries, top to bottom.
@@ -44,7 +76,7 @@ impl TrayView {
             command,
         };
         Self {
-            status,
+            glyph: TrayGlyph::from(status),
             tooltip: translations.text(status.name_message()),
             items: vec![
                 item(status.toggle_message(), TrayCommand::TogglePause),

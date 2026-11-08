@@ -54,25 +54,27 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ### Energy saver
 
 - While the energy saver of the computer is on (`EnergySaver`: energy saver or battery saver on Windows, Low Power Mode on macOS) and the switch is on, suggestions stop as in a pause: no request, no prepare, no screen read and no phrase.
-- The model unloads, and the badge and the tray show "TypeAlike (off to save energy)".
+- The model unloads, and the badge and the tray show "TypeAlike (off while the computer saves energy)". The tray icon shows the paused robot in yellow (`TrayGlyph::Stopped`).
 - The platform gives the state at start (`Startup`) and each change (`Controller::on_energy_saver`).
 - When the energy saver goes off, the model loads again, unless the idle timeout ran out.
 
 ### Games
 
-- While a game is in front (`GameActivity`) and the switch "Stop during games" is on, suggestions stop as in the energy saver, the model unloads, and the badge and the tray show "TypeAlike (off during a game)".
+- While a game is in front (`GameActivity`) and the switch "Stop during games" is on, suggestions stop as in the energy saver, the model unloads, and the badge and the tray show "TypeAlike (off while you play a game)", with the yellow tray icon.
 - The platform gives each change of the app in front (`Controller::on_game`).
 - After the game, the model stays unloaded until the next request for a suggestion, as after the idle timeout. Thus a quick switch out of a game does not load the model.
 
 ### Full screen
 
-- While an app in full screen is in front (`FullScreenActivity`: a video, a slideshow or a game that fills the display) and the switch "Stop in full screen" is on, suggestions stop as during a game, and the badge and the tray show "TypeAlike (off in full screen)".
+- While an app in full screen is in front (`FullScreenActivity`: a video, a slideshow or a game that fills the display) and the switch "Stop in full screen" is on, suggestions stop as during a game, and the badge and the tray show "TypeAlike (off while an app fills the screen)", with the yellow tray icon.
 - The platform gives each change (`Controller::on_full_screen`), and after the full screen the model also stays unloaded until the next request for a suggestion.
 
 ### Reason of a stop
 
 - The stops that last until that request (idle, game, full screen) are one set (`App::stops_until_request`).
 - `App::stop_reason` gives the reason for an unloaded model (pause, energy saver, game, full screen, idle, in this order), and the model menu of the General and Playground panes tells it.
+- A pause of the user comes before a stop: the tray icon then shows the paused robot in the color of the taskbar or the menu bar, and "TypeAlike (paused)".
+- The idle timeout, and a game or an app in full screen that left the front, do not change the tray icon, because the next key gets a suggestion.
 
 ## Apps and websites
 

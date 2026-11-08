@@ -1,7 +1,7 @@
 //! Tests of the stop while a game is in front.
 
 use super::fixtures::{MAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeView, Status, StopReason, TrayCommand};
+use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph};
 use crate::desktop::{EnergySaver, GameActivity};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
@@ -11,7 +11,7 @@ use crate::test_support::english;
 fn game_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
-        label: "TypeAlike (off during a game)".to_owned(),
+        label: "TypeAlike (off while you play a game)".to_owned(),
     }
 }
 
@@ -125,8 +125,8 @@ fn tray_during_a_game_shows_the_stop() {
     let view = app.tray_view(&english());
 
     assert_eq!(
-        (view.status, view.tooltip.as_str()),
-        (Status::Paused, "TypeAlike (off during a game)")
+        (view.glyph, view.tooltip.as_str()),
+        (TrayGlyph::Stopped, "TypeAlike (off while you play a game)")
     );
 }
 
@@ -136,7 +136,7 @@ fn tray_after_the_game_shows_suggestions_as_active() {
 
     let view = app.tray_view(&english());
 
-    assert_eq!(view.status, Status::Active);
+    assert_eq!(view.glyph, TrayGlyph::Active);
 }
 
 #[test]

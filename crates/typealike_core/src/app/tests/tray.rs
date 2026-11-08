@@ -1,6 +1,6 @@
 //! Tests of the tray view and the commands of the tray menu.
 
-use crate::app::{App, Status, TrayCommand, TrayItem, TrayOutcome, TrayView};
+use crate::app::{App, TrayCommand, TrayGlyph, TrayItem, TrayOutcome, TrayView};
 use crate::localization::UiLanguage;
 use crate::test_support::english;
 
@@ -13,7 +13,7 @@ fn new_app_is_active_with_pause_entry() {
     assert_eq!(
         view,
         TrayView {
-            status: Status::Active,
+            glyph: TrayGlyph::Active,
             tooltip: "TypeAlike".to_owned(),
             items: vec![
                 TrayItem {
@@ -63,7 +63,7 @@ fn paused_app_offers_resume_entry() {
     assert_eq!(
         view,
         TrayView {
-            status: Status::Paused,
+            glyph: TrayGlyph::Paused,
             tooltip: "TypeAlike (paused)".to_owned(),
             items: vec![
                 TrayItem {

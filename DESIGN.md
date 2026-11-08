@@ -58,7 +58,7 @@ There are two kinds of UI:
 - **Typo fix.** The typed letters with a red line through them, then the fixed word in green.
 - **Badge.** A small button above the caret with the robot of the tray icon, which shows the status. A click opens the badge menu, a native popup menu.
 - **App icon.** The logo. On macOS, on a dark rounded rectangle of the macOS icon grid. On Windows, without a plate, as the app icons of Windows 11. Small sizes show only the head of the robot (`docs/icons.md`).
-- **Tray icon and menu bar extra.** The robot of the logo as a one-color glyph that follows the theme of the taskbar or the menu bar. The status shows as a change of the face, never of the color only: happy eyes when active, an empty visor with a pause sign when paused.
+- **Tray icon and menu bar extra.** The robot of the logo as a one-color glyph that follows the theme of the taskbar or the menu bar. The status shows as a change of the face, never of the color only: happy eyes when active, an empty visor with a pause sign when paused. While a stop of the Energy saving pane applies, the paused robot is yellow, and the tooltip tells the reason.
 
 ## Do's and Don'ts
 

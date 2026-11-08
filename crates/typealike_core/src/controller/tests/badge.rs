@@ -1,7 +1,7 @@
 //! Tests of the menu of the badge at the caret.
 
 use super::harness::{Call, Harness, history_on, suggestion_settings};
-use crate::app::{BadgeCommand, Status};
+use crate::app::{BadgeCommand, TrayGlyph};
 use crate::inference::InferenceRequest;
 use crate::key::{Disposition, Key};
 use crate::settings::{HistoryScope, Settings, SuggestionPlaces};
@@ -19,7 +19,7 @@ fn badge_pause_command_pauses_suggestions() {
         .controller
         .on_badge_command(BadgeCommand::TogglePause, &mut harness.shell);
 
-    assert_eq!(harness.controller.tray_view().status, Status::Paused);
+    assert_eq!(harness.controller.tray_view().glyph, TrayGlyph::Paused);
 }
 
 #[test]

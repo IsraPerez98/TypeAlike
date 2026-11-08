@@ -1,7 +1,7 @@
 //! Tests of the stop while an app in full screen is in front.
 
 use super::fixtures::{MAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeView, Status, StopReason, TrayCommand};
+use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph};
 use crate::desktop::{FullScreenActivity, GameActivity};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
@@ -112,7 +112,7 @@ fn typing_in_full_screen_shows_the_full_screen_badge() {
         app.badge_view(&english()),
         Some(BadgeView {
             status: Status::Paused,
-            label: "TypeAlike (off in full screen)".to_owned(),
+            label: "TypeAlike (off while an app fills the screen)".to_owned(),
         })
     );
 }
@@ -124,8 +124,11 @@ fn tray_in_full_screen_shows_the_stop() {
     let view = app.tray_view(&english());
 
     assert_eq!(
-        (view.status, view.tooltip.as_str()),
-        (Status::Paused, "TypeAlike (off in full screen)")
+        (view.glyph, view.tooltip.as_str()),
+        (
+            TrayGlyph::Stopped,
+            "TypeAlike (off while an app fills the screen)"
+        )
     );
 }
 
@@ -135,7 +138,7 @@ fn tray_after_full_screen_shows_suggestions_as_active() {
 
     let view = app.tray_view(&english());
 
-    assert_eq!(view.status, Status::Active);
+    assert_eq!(view.glyph, TrayGlyph::Active);
 }
 
 #[test]
@@ -144,7 +147,10 @@ fn game_in_full_screen_shows_the_game_in_the_tray() {
 
     app.use_game(GameActivity::InFront);
 
-    assert_eq!(app.tray_view(&english()).tooltip, "TypeAlike (off during a game)");
+    assert_eq!(
+        app.tray_view(&english()).tooltip,
+        "TypeAlike (off while you play a game)"
+    );
 }
 
 #[test]

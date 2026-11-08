@@ -22,7 +22,7 @@ The script reads `RESVG` for the path of resvg when it is not on `PATH`.
 |---|---|
 | `packaging/macos/TypeAlike.icns` | The app icon of `TypeAlike.app` (`CFBundleIconFile` in `Info.plist`), 16 to 1024 px |
 | `crates/typealike/TypeAlike.ico` | The app icon in `TypeAlike.exe` (`TypeAlike.rc`, `build.rs`) and the icon of the Windows installer (`SetupIconFile`) |
-| `crates/typealike_windows/assets/tray/*.ico` | The tray icon and the badge on Windows, for each status, in black and in white |
+| `crates/typealike_windows/assets/tray/*.ico` | The tray icon and the badge on Windows, for each status, in black and in white, and the paused robot in amber and in yellow |
 | `crates/typealike_macos/assets/menu_bar/*.tiff` | The menu bar extra and the badge on macOS, for each status, at 1x and 2x |
 
 ## macOS app icon
@@ -42,8 +42,11 @@ The script reads `RESVG` for the path of resvg when it is not on `PATH`.
 ## Tray icon, menu bar extra and badge
 
 - The robot shows the status by a change of its face, not of its color. Active: a filled visor with happy eyes. Paused: an empty visor with a pause sign.
-- Windows: black on a light taskbar, white on a dark taskbar. The icon file has 16, 20, 24, 32, 40, 48 and 64 px. Each size comes from the grid of 16, 20 or 24 px at 1x, 2x, 3x or 4x, so its edges stay sharp at 100 to 400 % scale. `tray.rs` takes the smallest image at least as wide as the small icon size of the system, or else the largest one.
+- Stopped: while a stop of the Energy saving pane applies (energy saver, game, full screen), the paused robot is yellow. The face also changes, so the color is not the only sign.
+- Windows: black on a light taskbar, white on a dark taskbar. The stopped robot uses the caution fill of Fluent: amber `#9D5D00` on a light taskbar, yellow `#FCE100` on a dark one. Pure yellow has too little contrast on a light taskbar. The icon file has 16, 20, 24, 32, 40, 48 and 64 px. Each size comes from the grid of 16, 20 or 24 px at 1x, 2x, 3x or 4x, so its edges stay sharp at 100 to 400 % scale. `tray.rs` takes the smallest image at least as wide as the small icon size of the system, or else the largest one.
 - macOS: a template image of 16 pt, from the grid of 16 px at 1x and 2x. macOS gives it the color of the menu bar and of the selection.
+- macOS, stopped: `in_yellow` draws the paused template image in `systemYellowColor`, in an image that draws itself again for each appearance. It is not a template image. On macOS 27, the menu bar showed a template image in black when the button had a `contentTintColor`.
+- The badge shows the stopped robot in its own text color, not in yellow.
 - The badge at the caret shows the same robot, 16 px on a plate of 24 px, in the text color of the badge.
 - Windows: the badge tints the white tray icon (`robot_icon`). At 100, 125, 150, 200, 250, 300 and 400 % scale, the badge uses an image of the icon file without a change of size.
 - macOS: the badge shows the template image of the menu bar extra (`status_glyph`), in the secondary label color.

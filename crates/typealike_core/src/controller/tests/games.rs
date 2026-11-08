@@ -75,7 +75,7 @@ fn game_shows_the_stop_in_the_tray() {
             tray.tooltip.as_str(),
             harness.take_calls().contains(&Call::RenderTray(tray.clone()))
         ),
-        ("TypeAlike (off during a game)", true)
+        ("TypeAlike (off while you play a game)", true)
     );
 }
 

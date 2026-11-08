@@ -1,12 +1,16 @@
 //! The menu bar extra and its menu.
 
+use block2::RcBlock;
 use objc2::AnyThread;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, Sel};
+use objc2::runtime::{Bool, NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
-use objc2_foundation::{NSData, NSString};
-use typealike_core::app::{Status, TrayCommand, TrayItem, TrayView};
+use objc2_app_kit::{
+    NSColor, NSCompositingOperation, NSImage, NSMenu, NSMenuItem, NSRectFillUsingOperation, NSStatusBar,
+    NSStatusItem, NSVariableStatusItemLength,
+};
+use objc2_foundation::{NSData, NSRect, NSString};
+use typealike_core::app::{Status, TrayCommand, TrayGlyph, TrayItem, TrayView};
 use typealike_core::localization::UiLanguage;
 
 use crate::labels::menu_label;
@@ -54,9 +58,12 @@ impl MenuBarItem {
     /// Re-renders the glyph, tooltip and menu for `view`.
     pub(crate) fn update(&self, view: &TrayView) {
         if let Some(button) = self.status_item.button(self.main_thread) {
-            let image = status_glyph(view.status, &view.tooltip);
+            let image = status_glyph(view.glyph.face(), &view.tooltip).map(|template| match view.glyph {
+                TrayGlyph::Stopped => in_yellow(template),
+                TrayGlyph::Active | TrayGlyph::Paused => template,
+            });
             if image.is_none() {
-                tracing::warn!(status = ?view.status, "menu bar glyph is unavailable");
+                tracing::warn!(glyph = ?view.glyph, "menu bar glyph is unavailable");
             }
             button.setImage(image.as_deref());
             button.setToolTip(Some(&NSString::from_str(&view.tooltip)));
@@ -109,6 +116,23 @@ pub(crate) fn status_glyph(status: Status, description: &str) -> Option<Retained
     image.setTemplate(true);
     image.setAccessibilityDescription(Some(&NSString::from_str(description)));
     Some(image)
+}
+
+/// `template` in the yellow of the system for the appearance of the menu bar, as an image that
+/// draws itself again for each appearance.
+fn in_yellow(template: Retained<NSImage>) -> Retained<NSImage> {
+    let description = template.accessibilityDescription();
+    let size = template.size();
+    // A template image stays black in the menu bar with `contentTintColor`, so the color is drawn in.
+    let draw = RcBlock::new(move |rect: NSRect| {
+        template.drawInRect(rect);
+        NSColor::systemYellowColor().set();
+        NSRectFillUsingOperation(rect, NSCompositingOperation::SourceAtop);
+        Bool::YES
+    });
+    let image = NSImage::imageWithSize_flipped_drawingHandler(size, false, &draw);
+    image.setAccessibilityDescription(description.as_deref());
+    image
 }
 
 /// Returns the command of the entry a menu item with `tag` was built for.
@@ -182,5 +206,25 @@ mod tests {
             .map(|status| status_glyph(status, "TypeAlike").map(|glyph| (glyph.isTemplate(), glyph.size())));
 
         assert_eq!(glyphs, [Some((true, NSSize::new(16.0, 16.0))); 2]);
+    }
+
+    #[test]
+    fn yellow_glyph_keeps_its_color_size_and_description() {
+        let template = status_glyph(Status::Paused, "TypeAlike (paused)").unwrap();
+
+        let glyph = in_yellow(template);
+
+        assert_eq!(
+            (
+                glyph.isTemplate(),
+                glyph.size(),
+                glyph.accessibilityDescription().map(|text| text.to_string())
+            ),
+            (
+                false,
+                NSSize::new(16.0, 16.0),
+                Some("TypeAlike (paused)".to_owned())
+            )
+        );
     }
 }

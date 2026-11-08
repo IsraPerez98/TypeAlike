@@ -84,7 +84,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - The badge menu is a native popup menu, as the tray menu, with a submenu and check marks. The window that had the focus gets it back after the menu closes.
 
 ## Tray & menus
-- Tray icon: the robot of the logo, white on a dark taskbar and black on a light one, swapped on theme change. A multi-resolution `.ico` for each status and color (16 to 64 px, `assets/tray`), drawn on the pixel grids of 16, 20 and 24 px, so it is crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone.
+- Tray icon: the robot of the logo, white on a dark taskbar and black on a light one, swapped on theme change. A multi-resolution `.ico` for each status and color (16 to 64 px, `assets/tray`), drawn on the pixel grids of 16, 20 and 24 px, so it is crisp at every DPI. State (paused, error) by glyph change + tooltip, never color alone. A stop of the Energy saving pane also makes the paused robot yellow, in the Fluent caution fill: amber `#9D5D00` on a light taskbar, yellow `#FCE100` on a dark one. The Windows guide reserves red, yellow and green for status.
 - Left click = primary action/flyout. Right click = context menu. Tooltip names app + state.
 - Menus: native look: rounded 8 px, acrylic, dark-mode aware, Segoe Fluent Icons glyphs optional, sentence case, keyboard accelerators.
 - Dark menus: Win32 has no documented call. uxtheme exports `SetPreferredAppMode` (ordinal 135) and `FlushMenuThemes` (ordinal 136) since Windows 10 1903. Resolve them at run time with `GetProcAddress` and skip them when they are missing. Set force dark or force light from the apps theme at start and on each theme change.

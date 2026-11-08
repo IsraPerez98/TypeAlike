@@ -75,7 +75,7 @@ fn full_screen_shows_the_stop_in_the_tray() {
             tray.tooltip.as_str(),
             harness.take_calls().contains(&Call::RenderTray(tray.clone()))
         ),
-        ("TypeAlike (off in full screen)", true)
+        ("TypeAlike (off while an app fills the screen)", true)
     );
 }
 

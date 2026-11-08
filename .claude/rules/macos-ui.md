@@ -47,7 +47,7 @@ Source: developer.apple.com/design/human-interface-guidelines (design-principles
 
 ## Menu bar extra & menus
 - `NSStatusItem` icon: the robot of the logo as a template image (`isTemplate = true`), black and clear only, 16 pt with 1x and 2x pixels on the 16 px grid. The system tints it for light/dark menu bar and selection. Menu bar height is 24 pt.
-- State (paused, error) by glyph change, never color alone.
+- State (paused, error) by glyph change, never color alone. A stop of the Energy saving pane also draws the paused robot in `systemYellowColor`. That image is not a template image, because the menu bar keeps a template image black with `contentTintColor`.
 - Click shows a menu, not a popover. Items: `Pause Suggestions` / `Resume Suggestions` (one item, label shows the action), separator, `Settings…` ⌘,, `Quit TypeAlike` ⌘Q.
 - The system can hide the extra (crowded menu bar, notch, user turns it off in System Settings > Menu Bar). Never rely on it.
 - Menu icons: sparingly. Give icons to all items in a group or to none. Show keyboard equivalents. Never repurpose standard shortcuts.

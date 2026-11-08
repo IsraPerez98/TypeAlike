@@ -10,9 +10,9 @@ menu-quit = Sair do TypeAlike
 status-active = TypeAlike
 status-paused = TypeAlike (pausado)
 status-off-here = TypeAlike (desativado aqui)
-status-energy-saver = TypeAlike (desativado para economizar energia)
-status-game = TypeAlike (desativado durante um jogo)
-status-full-screen = TypeAlike (desativado em tela cheia)
+status-energy-saver = TypeAlike (desativado enquanto o computador economiza energia)
+status-game = TypeAlike (desativado enquanto você joga)
+status-full-screen = TypeAlike (desativado enquanto um app ocupa a tela inteira)
 
 ## The menu of the badge at the caret. $app is the name of an app, and $host is the host of a website, such as mail.example.com.
 

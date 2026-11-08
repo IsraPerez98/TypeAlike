@@ -43,7 +43,9 @@ SMALL_EYE_STROKE = 54
 
 TRAY_GRIDS = {16: 16, 20: 20, 24: 24, 32: 16, 40: 20, 48: 24, 64: 16}
 TRAY_STATES = ["active", "paused"]
-TRAY_COLORS = {"black": "0", "white": "1"}
+TRAY_COLORS = {"black": "#000000", "white": "#FFFFFF"}
+# The caution fill of Fluent: the light theme color on a light taskbar, the dark theme color on a dark one.
+STOPPED_COLORS = {"amber": "#9D5D00", "yellow": "#FCE100"}
 MENU_BAR_POINTS = 16
 
 APPLE_CORNER = [
@@ -190,11 +192,11 @@ def tray_svg(grid, state, color):
     for group in root.iter(tag("g")):
         if group.get("id") in TRAY_STATES:
             group.set("display", "inline" if group.get("id") == state else "none")
-    value = TRAY_COLORS[color]
+    red, green, blue = (int(color[index : index + 2], 16) / 255 for index in (1, 3, 5))
     glyph = "".join(ET.tostring(element, encoding="unicode") for element in root)
     defs = (
         '<filter id="color" color-interpolation-filters="sRGB">'
-        f'<feColorMatrix type="matrix" values="0 0 0 0 {value} 0 0 0 0 {value} 0 0 0 0 {value} 0 0 0 1 0"/>'
+        f'<feColorMatrix type="matrix" values="0 0 0 0 {red:g} 0 0 0 0 {green:g} 0 0 0 0 {blue:g} 0 0 0 1 0"/>'
         "</filter>"
     )
     return (
@@ -229,18 +231,24 @@ def build_windows_icon(renderer, logo):
     WINDOWS_ICON.write_bytes(ico_bytes(images))
 
 
+def build_tray_icon(renderer, state, color, name):
+    images = {side: renderer.png(tray_svg(grid, state, color), side) for side, grid in TRAY_GRIDS.items()}
+    (WINDOWS_TRAY / f"{state}-{name}.ico").write_bytes(ico_bytes(images))
+
+
 def build_tray_icons(renderer):
     WINDOWS_TRAY.mkdir(parents=True, exist_ok=True)
     for state in TRAY_STATES:
-        for color in TRAY_COLORS:
-            images = {side: renderer.png(tray_svg(grid, state, color), side) for side, grid in TRAY_GRIDS.items()}
-            (WINDOWS_TRAY / f"{state}-{color}.ico").write_bytes(ico_bytes(images))
+        for name, color in TRAY_COLORS.items():
+            build_tray_icon(renderer, state, color, name)
+    for name, color in STOPPED_COLORS.items():
+        build_tray_icon(renderer, "paused", color, name)
 
 
 def build_menu_bar_images(renderer, folder):
     MAC_MENU_BAR.mkdir(parents=True, exist_ok=True)
     for state in TRAY_STATES:
-        svg = tray_svg(MENU_BAR_POINTS, state, "black")
+        svg = tray_svg(MENU_BAR_POINTS, state, TRAY_COLORS["black"])
         normal = Path(folder) / f"{state}.png"
         retina = Path(folder) / f"{state}@2x.png"
         normal.write_bytes(renderer.png(svg, MENU_BAR_POINTS))

@@ -6,7 +6,7 @@ mod field_place;
 mod tray;
 
 pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, BadgeView};
-pub use tray::{TrayCommand, TrayItem, TrayOutcome, TrayView};
+pub use tray::{TrayCommand, TrayGlyph, TrayItem, TrayOutcome, TrayView};
 
 use std::collections::HashSet;
 use std::mem;
@@ -372,9 +372,9 @@ impl App {
         !mem::take(&mut self.stops_until_request).is_empty()
     }
 
-    /// The status that the glyphs of the badge and the tray icon show, and the message of the name
-    /// of the app with that status.
-    fn shown_status(&self) -> (Status, &'static str) {
+    /// The glyph that the tray icon shows, whose robot the badge also shows, and the message of
+    /// the name of the app with that glyph.
+    fn shown_glyph(&self) -> (TrayGlyph, &'static str) {
         let stop_name = [
             (self.stops_for_energy_saver(), ENERGY_SAVER_NAME),
             (self.stops_for_game(), GAME_NAME),
@@ -383,8 +383,8 @@ impl App {
         .into_iter()
         .find_map(|(applies, name)| applies.then_some(name));
         match stop_name {
-            Some(name) if self.status == Status::Active => (Status::Paused, name),
-            _ => (self.status, self.status.name_message()),
+            Some(name) if self.status == Status::Active => (TrayGlyph::Stopped, name),
+            _ => (TrayGlyph::from(self.status), self.status.name_message()),
         }
     }
 
@@ -641,12 +641,12 @@ impl App {
 
     /// Returns what the tray icon and menu must show now, with the texts of `translations`. While
     /// the energy saver, a game or an app in full screen stops suggestions, the icon shows as
-    /// paused.
+    /// stopped.
     #[must_use]
     pub fn tray_view(&self, translations: &Translations) -> TrayView {
-        let (status, name) = self.shown_status();
+        let (glyph, name) = self.shown_glyph();
         TrayView {
-            status,
+            glyph,
             tooltip: translations.text(name),
             ..TrayView::of(self.status, translations)
         }
@@ -689,7 +689,8 @@ impl App {
             let (status, name) = if self.offers_suggestions() && self.is_in_off_place() {
                 (Status::Paused, OFF_HERE_NAME)
             } else {
-                self.shown_status()
+                let (glyph, name) = self.shown_glyph();
+                (glyph.face(), name)
             };
             BadgeView {
                 status,

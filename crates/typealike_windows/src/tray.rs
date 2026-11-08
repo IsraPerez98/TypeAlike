@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use typealike_core::app::{Status, TrayCommand, TrayItem, TrayView};
+use typealike_core::app::{Status, TrayCommand, TrayGlyph, TrayItem, TrayView};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
@@ -31,6 +31,10 @@ const ACTIVE_BLACK: &[u8] = include_bytes!("../assets/tray/active-black.ico");
 const ACTIVE_WHITE: &[u8] = include_bytes!("../assets/tray/active-white.ico");
 const PAUSED_BLACK: &[u8] = include_bytes!("../assets/tray/paused-black.ico");
 const PAUSED_WHITE: &[u8] = include_bytes!("../assets/tray/paused-white.ico");
+/// The paused robot in the caution color of Fluent, for a stop of the Energy saving pane: amber on
+/// a light taskbar, yellow on a dark one.
+const PAUSED_AMBER: &[u8] = include_bytes!("../assets/tray/paused-amber.ico");
+const PAUSED_YELLOW: &[u8] = include_bytes!("../assets/tray/paused-yellow.ico");
 
 /// The version of the icon format that `CreateIconFromResourceEx` reads.
 const ICON_FORMAT_VERSION: u32 = 0x0003_0000;
@@ -73,7 +77,7 @@ impl Tray {
     pub(crate) fn add(window: HWND, view: &TrayView) -> Result<Self> {
         let tray = Self {
             window,
-            icon: render_icon(view.status)?,
+            icon: render_icon(view.glyph)?,
             tooltip: view.tooltip.clone(),
         };
         tray.register()?;
@@ -88,7 +92,7 @@ impl Tray {
 
     /// Re-renders the icon and tooltip for `view` and the current taskbar theme.
     pub(crate) fn update(&mut self, view: &TrayView) -> Result<()> {
-        self.icon = render_icon(view.status)?;
+        self.icon = render_icon(view.glyph)?;
         self.tooltip.clone_from(&view.tooltip);
         self.notify(NIM_MODIFY)
     }
@@ -127,15 +131,16 @@ pub(crate) fn pick_command(window: HWND, items: &[TrayItem], anchor: POINT) -> R
     Ok(picked.and_then(|index| items.get(index)).map(|item| item.command))
 }
 
-fn render_icon(status: Status) -> Result<Owned<HICON>> {
+fn render_icon(glyph: TrayGlyph) -> Result<Owned<HICON>> {
     // SAFETY: the calls take no pointer and have no precondition.
     let side = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
-    let color = if is_taskbar_light() {
-        RobotColor::Black
-    } else {
-        RobotColor::White
+    let icon_file = match (glyph, is_taskbar_light()) {
+        (TrayGlyph::Stopped, true) => PAUSED_AMBER,
+        (TrayGlyph::Stopped, false) => PAUSED_YELLOW,
+        (_, true) => robot_file(glyph.face(), RobotColor::Black),
+        (_, false) => robot_file(glyph.face(), RobotColor::White),
     };
-    robot_icon(status, color, side)
+    icon_of(icon_file, side)
 }
 
 /// The color of the robot icon.
@@ -147,12 +152,19 @@ pub(crate) enum RobotColor {
 
 /// The robot that shows `status`, in `color`, `side` pixels wide.
 pub(crate) fn robot_icon(status: Status, color: RobotColor, side: i32) -> Result<Owned<HICON>> {
-    let icon_file = match (status, color) {
+    icon_of(robot_file(status, color), side)
+}
+
+fn robot_file(status: Status, color: RobotColor) -> &'static [u8] {
+    match (status, color) {
         (Status::Active, RobotColor::Black) => ACTIVE_BLACK,
         (Status::Active, RobotColor::White) => ACTIVE_WHITE,
         (Status::Paused, RobotColor::Black) => PAUSED_BLACK,
         (Status::Paused, RobotColor::White) => PAUSED_WHITE,
-    };
+    }
+}
+
+fn icon_of(icon_file: &[u8], side: i32) -> Result<Owned<HICON>> {
     let image = best_image(icon_file, u32::try_from(side).unwrap_or(LARGEST_SIDE))
         .expect("each robot icon file has a PNG image, as a test checks");
     // SAFETY: the image is a PNG image of an icon file, and the call copies it into the new icon.
@@ -324,10 +336,17 @@ mod tests {
 
     #[test]
     fn each_robot_icon_has_a_png_image() {
-        let files = [ACTIVE_BLACK, ACTIVE_WHITE, PAUSED_BLACK, PAUSED_WHITE];
+        let files = [
+            ACTIVE_BLACK,
+            ACTIVE_WHITE,
+            PAUSED_BLACK,
+            PAUSED_WHITE,
+            PAUSED_AMBER,
+            PAUSED_YELLOW,
+        ];
 
         let signatures = files.map(|file| best_image(file, 16).and_then(|image| image.get(1..4)));
 
-        assert_eq!(signatures, [Some(&b"PNG"[..]); 4]);
+        assert_eq!(signatures, [Some(&b"PNG"[..]); 6]);
     }
 }
