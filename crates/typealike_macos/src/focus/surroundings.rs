@@ -23,6 +23,7 @@ const DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
 const HELP_ATTRIBUTE: &str = "AXHelp";
 const TITLE_UI_ELEMENT_ATTRIBUTE: &str = "AXTitleUIElement";
 const URL_ATTRIBUTE: &str = "AXURL";
+const FOCUSED_WINDOW_ATTRIBUTE: &str = "AXFocusedWindow";
 const WEB_AREA_ROLE: &str = "AXWebArea";
 /// The most elements that TypeAlike reads on the way up from the focused field to its web area.
 const MAX_WEB_AREA_DISTANCE: usize = 64;
@@ -35,9 +36,40 @@ pub(super) fn has_unreadable_text(element: &AXUIElement) -> bool {
     has_dom_class(element, EDIT_CONTEXT_CLASS)
 }
 
-pub(super) fn window_title(element: &AXUIElement) -> Option<String> {
-    let window = copy_element(element, WINDOW_ATTRIBUTE)?;
-    copy_string(&window, TITLE_ATTRIBUTE)
+/// Reads the title of the window of `element`, the focused element of `app`, as
+/// [`picked_window_title`] picks it. Zed and Mac Catalyst apps focus an element without a window.
+/// The in-cell editor of Excel has a window without a title.
+pub(super) fn window_title(element: Option<&AXUIElement>, app: Option<&AXUIElement>) -> Option<String> {
+    picked_window_title(
+        || copy_element(element?, WINDOW_ATTRIBUTE).and_then(|window| copy_string(&window, TITLE_ATTRIBUTE)),
+        || copy_string(element?, ROLE_ATTRIBUTE),
+        || copy_string(element?, TITLE_ATTRIBUTE),
+        || {
+            copy_element(app?, FOCUSED_WINDOW_ATTRIBUTE)
+                .and_then(|window| copy_string(&window, TITLE_ATTRIBUTE))
+        },
+    )
+}
+
+/// Picks the window title of an element: the title of its window, else its own title when its
+/// `role` is a window, else the title of the focused window of its app. A read runs only when the
+/// reads before it give no title. An empty title counts as no title.
+fn picked_window_title(
+    window_title: impl FnOnce() -> Option<String>,
+    role: impl FnOnce() -> Option<String>,
+    own_title: impl FnOnce() -> Option<String>,
+    focused_window_title: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let is_title = |title: &String| !title.trim().is_empty();
+    window_title()
+        .filter(is_title)
+        .or_else(|| {
+            (role().as_deref() == Some(WINDOW_ROLE))
+                .then(own_title)
+                .flatten()
+                .filter(is_title)
+        })
+        .or_else(|| focused_window_title().filter(is_title))
 }
 
 /// Reads the labels of `element`. Its caption is its title, else the text of the element that
@@ -227,6 +259,53 @@ mod tests {
 
     fn range(location: isize, length: isize) -> CFRange {
         CFRange { location, length }
+    }
+
+    fn read(text: &'static str) -> impl FnOnce() -> Option<String> {
+        move || Some(text.to_owned())
+    }
+
+    fn read_nothing() -> Option<String> {
+        None
+    }
+
+    fn unread() -> Option<String> {
+        unreachable!("a read after a title ran")
+    }
+
+    #[test]
+    fn title_of_the_window_of_the_element_wins_without_other_reads() {
+        let title = picked_window_title(read("Book1"), unread, unread, unread);
+
+        assert_eq!(title.as_deref(), Some("Book1"));
+    }
+
+    #[test]
+    fn element_that_is_a_window_gives_its_own_title() {
+        let title = picked_window_title(read_nothing, read(WINDOW_ROLE), read("main.rs - project"), unread);
+
+        assert_eq!(title.as_deref(), Some("main.rs - project"));
+    }
+
+    #[test]
+    fn element_that_is_no_window_gives_the_title_of_the_focused_window() {
+        let title = picked_window_title(read_nothing, read("AXTextArea"), read("Message"), read("Book1"));
+
+        assert_eq!(title.as_deref(), Some("Book1"));
+    }
+
+    #[test]
+    fn empty_titles_count_as_no_title() {
+        let title = picked_window_title(read(""), read(WINDOW_ROLE), read("  "), read("Book1"));
+
+        assert_eq!(title.as_deref(), Some("Book1"));
+    }
+
+    #[test]
+    fn no_title_anywhere_gives_none() {
+        let title = picked_window_title(read_nothing, read_nothing, unread, read_nothing);
+
+        assert_eq!(title, None);
     }
 
     #[test]

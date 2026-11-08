@@ -24,7 +24,7 @@ use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNR
 use typealike_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
 use typealike_core::settings::OcrLevel;
 
-use crate::accessibility::{self, TITLE_ATTRIBUTE, WINDOW_ATTRIBUTE};
+use crate::accessibility::{self, WINDOW_ATTRIBUTE};
 use crate::energy_saver;
 use crate::focus::{self, FocusedField};
 use crate::geometry::{contains, intersection, moved_by, screen_rect};
@@ -161,9 +161,7 @@ impl FieldWindow {
                 .and_then(accessibility::frame)
                 .and_then(|window| intersection(field.frame, window))
                 .unwrap_or(field.frame),
-            title: window
-                .as_deref()
-                .and_then(|window| accessibility::copy_string(window, TITLE_ATTRIBUTE)),
+            title: field.window_title.clone(),
         }
     }
 }

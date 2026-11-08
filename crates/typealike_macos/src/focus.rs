@@ -151,6 +151,7 @@ impl FocusTracker {
 
     pub(crate) fn surroundings(&self) -> Surroundings {
         let element = self.focused_element();
+        let app_element = self.frontmost_process().map(application_element);
         let app_id = self.frontmost.as_ref().and_then(|app| app.app_id.clone());
         let shows_text_only_on_screen = element
             .as_deref()
@@ -159,7 +160,7 @@ impl FocusTracker {
             app_name: self.frontmost.as_ref().and_then(|app| app.name.clone()),
             app_id,
             app_path: None,
-            window_title: element.as_deref().and_then(window_title),
+            window_title: window_title(element.as_deref(), app_element.as_deref()),
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
             domain: element.as_deref().and_then(web_domain),
             field_text: element
@@ -182,9 +183,7 @@ fn wake_web_accessibility(application: &NSRunningApplication) -> bool {
         .bundleIdentifier()
         .map(|identifier| identifier.to_string());
     let attribute = web_accessibility_attribute(bundle_identifier.as_deref());
-    // SAFETY: plain call.
-    let element = unsafe { AXUIElement::new_application(application.processIdentifier()) };
-    bound_queries(&element);
+    let element = application_element(application.processIdentifier());
     // SAFETY: plain call on a valid element, with a CFBoolean value as both attributes expect.
     let error =
         unsafe { element.set_attribute_value(&CFString::from_static_str(attribute), CFBoolean::new(true)) };
@@ -227,6 +226,14 @@ fn gives_mouse_selection_only(bundle_identifier: Option<&str>) -> bool {
         .is_some_and(|identifier| identifier.to_ascii_lowercase().starts_with(GHOSTTY_BUNDLE_PREFIX))
 }
 
+/// The AX element of the app of `process`, whose queries are bounded.
+fn application_element(process: i32) -> CFRetained<AXUIElement> {
+    // SAFETY: plain call.
+    let app = unsafe { AXUIElement::new_application(process) };
+    bound_queries(&app);
+    app
+}
+
 fn is_own_process(process: i32) -> bool {
     u32::try_from(process).is_ok_and(|process| process == std::process::id())
 }
@@ -241,13 +248,12 @@ pub(crate) struct FocusedField {
     /// Whether the field shows its text only on the screen, as a terminal does. Its lines on the
     /// screen are then its text.
     pub(crate) shows_text_only_on_screen: bool,
+    pub(crate) window_title: Option<String>,
 }
 
 /// Returns the focused field of the app of `process`, or `None` for a password field.
 pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
-    // SAFETY: plain call.
-    let app = unsafe { AXUIElement::new_application(process) };
-    bound_queries(&app);
+    let app = application_element(process);
     let element = copy_element(&app, FOCUSED_ELEMENT_ATTRIBUTE)?;
     if is_secure_text(&element) {
         return None;
@@ -259,6 +265,7 @@ pub(crate) fn focused_field(process: i32) -> Option<FocusedField> {
         frame: terminal_screen_frame(&element).or_else(|| frame(&element))?,
         caret: caret_bounds(&element),
         shows_text_only_on_screen: shows_text_only_on_screen(&element, app_id.as_deref()),
+        window_title: window_title(Some(&element), Some(&app)),
         element,
     })
 }

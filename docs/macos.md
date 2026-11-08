@@ -7,6 +7,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Event tap.
 - Accessibility (AX) for the caret, the text around it, the field labels (`AXTitle`, else the text of `AXTitleUIElement`, `AXDescription`, `AXPlaceholderValue`, `AXHelp`) and the host of the web page.
 - The window title is the `AXTitle` of the AX window of the field. Chromium browsers give their accessible title there, with the private window mark ("Google Chrome (Incognito)"). Safari gives ", Private Browsing".
+- When that window gives no title or an empty title, the window title comes from the `AXTitle` of the field when its role is `AXWindow`. Else it is the `AXTitle` of the focused window of the app in front (`AXFocusedWindow`). Zed and Mac Catalyst apps, such as Home Assistant, focus an element without a window. The in-cell editor of Excel has a window without a title. The OCR uses the same window title.
 - The static text of the focused window, else the OCR of a band of the window around the field (`ScreenCaptureKit` and Vision, only with the Screen & System Audio Recording permission).
 - Overlay panel.
 - The mirror, for a field that gives no caret through AX (the editor of VS Code while its screen reader mode is off: an empty EditContext element).
@@ -48,7 +49,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A static text that does not show never joins. The static texts of a child element, for example a link, do not join the static texts around it.
 - The OCR uses the visible part of the field: the part of the field frame in the frame of its AX window. A text view that scrolled can have a frame taller than its window, for example in TextEdit.
 - The OCR captures the window of the app that holds the middle of the visible part. It reads a band from 600 pt above the visible part to 600 pt below it (`BAND_POINTS`).
-- Two windows of one app can have the same frame. Of the windows that hold that point, the OCR captures the window with the longest title that starts the title of the AX window, else the first one (`picked_window`). Chrome gives its name after the title of the page only in the AX title.
+- Two windows of one app can have the same frame. Of the windows that hold that point, the OCR captures the window with the longest title that starts the window title, else the first one (`picked_window`). Chrome gives its name after the title of the page only in the AX title.
 - When the frame of the AX window is unknown, or the field has no part in it, the OCR uses the full frame of the field.
 - The OCR keeps the lines of its last read, and reads again only when the pixels of the band change (`pixels_hash`). The pixels of the field do not count, so that typing does not start a new OCR.
 - In a field that shows its text only on the screen, the OCR reads the text of the field, so its pixels count. Thus a new answer in a terminal starts a new OCR.
