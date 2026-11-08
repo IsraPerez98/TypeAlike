@@ -1,7 +1,7 @@
 //! Tests of the suggestions, the prompt preparation and the pause of the app.
 
 use super::fixtures::{
-    FakeDesktop, app_preparing_on_first_key, app_preparing_on_focus, app_showing_complete_suggestions,
+    FakeDesktop, MAIL, app_preparing_on_first_key, app_preparing_on_focus, app_showing_complete_suggestions,
     request, type_key,
 };
 use crate::app::{App, SettledWork, TrayCommand};
@@ -10,7 +10,7 @@ use crate::engine::Reaction;
 use crate::inference::{InferenceRequest, NextWordBias};
 use crate::key::{Key, Press};
 use crate::prompt::prompt_with_notes;
-use crate::settings::{Settings, SuggestionDisplay, WriterNotes};
+use crate::settings::{KeptTexts, PersonalizationSettings, Settings, SuggestionDisplay, WriterNotes};
 use crate::test_support::{completion, preparation_request};
 
 /// A field of an unknown app with this text before the caret.
@@ -300,4 +300,36 @@ fn pausing_forgets_typed_context() {
     let reaction = type_key(&mut app, 'r');
 
     assert_eq!(reaction, request("r"));
+}
+
+fn app_keeping_all_texts() -> App {
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        personalization: PersonalizationSettings {
+            kept_texts: KeptTexts::All,
+            ..PersonalizationSettings::default()
+        },
+        ..Settings::default()
+    });
+    app
+}
+
+fn paused(mut app: App) -> App {
+    app.on_tray_command(TrayCommand::TogglePause);
+    app
+}
+
+#[test]
+fn typing_while_paused_keeps_no_earlier_writing() {
+    let apps = [app_keeping_all_texts(), paused(app_keeping_all_texts())];
+
+    let kept = apps.map(|mut app| {
+        "Hello Ana, the report is ready"
+            .chars()
+            .for_each(|character| drop(app.on_key(Key::Char(character), Press::First, &MAIL)));
+        app.on_context_lost();
+        app.history_to_save().map(<[_]>::len)
+    });
+
+    assert_eq!(kept, [Some(1), None]);
 }

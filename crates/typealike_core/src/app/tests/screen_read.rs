@@ -1,7 +1,7 @@
 //! Tests of the screen reads that the app starts and the answers that it uses.
 
 use super::fixtures::{FakeDesktop, MAIL, TextField, app_preparing_on_first_key, app_preparing_on_focus};
-use crate::app::{App, SettledWork};
+use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{
     Confidence, Field, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
     ScreenText,
@@ -730,4 +730,36 @@ fn typing_names_the_typed_app() {
         app.typed_app().map(|typed| typed.app_id.as_str()),
         Some("com.apple.mail")
     );
+}
+
+#[test]
+fn paused_app_reads_no_screen() {
+    let mut app = app_preparing_on_focus();
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    let work = app.on_input_settled(&MAIL);
+
+    assert_eq!(work, None);
+}
+
+#[test]
+fn key_while_paused_reads_no_screen() {
+    let mut app = App::new();
+    app.on_tray_command(TrayCommand::TogglePause);
+    app.on_key(Key::Char('H'), Press::First, &MAIL);
+
+    let work = app.start_session_screen_read();
+
+    assert_eq!(work, None);
+}
+
+#[test]
+fn answer_after_the_pause_starts_no_ocr() {
+    let mut app = app_preparing_on_focus();
+    let read = screen_read(&mut app);
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    let work = app.on_screen_read(answer(read), &MAIL_WITH_OCR);
+
+    assert_eq!(work, None);
 }
