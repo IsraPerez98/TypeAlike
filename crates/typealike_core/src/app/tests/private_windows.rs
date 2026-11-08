@@ -5,6 +5,7 @@ use crate::app::App;
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
+use crate::settings::{PrivateWindowRule, Settings, SuggestionPlaces};
 use crate::test_support::{english, off_badge};
 
 /// A text field of a page in a window of Chrome with the title `title`.
@@ -74,4 +75,20 @@ fn settled_input_in_a_private_window_reads_no_screen_and_prepares_nothing() {
     let work = app.on_input_settled(&PRIVATE_WINDOW);
 
     assert_eq!(work, None);
+}
+
+#[test]
+fn key_in_a_private_window_asks_for_a_suggestion_when_the_rule_keeps_suggestions() {
+    let mut app = App::new();
+    app.use_settings(&Settings {
+        suggestion_places: SuggestionPlaces {
+            private_windows: PrivateWindowRule::KeepSuggestions,
+            ..SuggestionPlaces::default()
+        },
+        ..Settings::default()
+    });
+
+    let reaction = app.on_key(Key::Char('H'), Press::First, &PRIVATE_WINDOW);
+
+    assert!(matches!(reaction, Reaction::Request(_)));
 }

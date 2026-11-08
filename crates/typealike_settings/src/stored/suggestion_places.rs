@@ -1,14 +1,23 @@
-//! Converts the apps and the websites where suggestions show to and from the format of the
-//! settings file.
+//! Converts the apps and the websites where suggestions show, and the rule for private windows,
+//! to and from the format of the settings file.
 
 use serde::{Deserialize, Serialize};
-use typealike_core::settings::{SuggestionApp, SuggestionPlaces, SuggestionSite};
+use typealike_core::settings::{PrivateWindowRule, SuggestionApp, SuggestionPlaces, SuggestionSite};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct StoredSuggestionPlaces {
     apps: Vec<StoredSuggestionApp>,
     sites: Vec<StoredSuggestionSite>,
+    private_windows: StoredPrivateWindowRule,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredPrivateWindowRule {
+    #[default]
+    StopSuggestions,
+    KeepSuggestions,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +55,15 @@ impl From<SuggestionPlaces> for StoredSuggestionPlaces {
                 is_on: site.is_on,
             })
             .collect();
-        Self { apps, sites }
+        let private_windows = match places.private_windows {
+            PrivateWindowRule::StopSuggestions => StoredPrivateWindowRule::StopSuggestions,
+            PrivateWindowRule::KeepSuggestions => StoredPrivateWindowRule::KeepSuggestions,
+        };
+        Self {
+            apps,
+            sites,
+            private_windows,
+        }
     }
 }
 
@@ -70,6 +87,14 @@ impl From<StoredSuggestionPlaces> for SuggestionPlaces {
                 is_on: site.is_on,
             })
             .collect();
-        Self { apps, sites }
+        let private_windows = match stored.private_windows {
+            StoredPrivateWindowRule::StopSuggestions => PrivateWindowRule::StopSuggestions,
+            StoredPrivateWindowRule::KeepSuggestions => PrivateWindowRule::KeepSuggestions,
+        };
+        Self {
+            apps,
+            sites,
+            private_windows,
+        }
     }
 }

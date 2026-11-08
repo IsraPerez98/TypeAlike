@@ -338,6 +338,7 @@ fn shown_suggestion_adds_the_app_and_the_website_to_the_apps_and_websites_pane()
         Some(SuggestionPlaces {
             apps: vec![suggestion_app("com.apple.mail", "Mail", true)],
             sites: vec![suggestion_site("mail.example", true)],
+            ..SuggestionPlaces::default()
         })
     );
 }

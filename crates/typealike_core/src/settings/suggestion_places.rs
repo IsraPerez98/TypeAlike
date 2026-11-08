@@ -40,13 +40,26 @@ pub struct SuggestionSite {
     pub is_on: bool,
 }
 
-/// The apps and the websites where the user typed, each with its switch for suggestions.
+/// What TypeAlike does in a private window of a web browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrivateWindowRule {
+    /// TypeAlike shows no suggestions, reads no screen text and keeps no earlier writing there.
+    #[default]
+    StopSuggestions,
+    /// Suggestions show as in any other window.
+    KeepSuggestions,
+}
+
+/// The apps and the websites where the user typed, each with its switch for suggestions, and the
+/// rule for private windows.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SuggestionPlaces {
     /// The apps, in alphabetical order of their names.
     pub apps: Vec<SuggestionApp>,
     /// The websites, in alphabetical order of their hosts.
     pub sites: Vec<SuggestionSite>,
+    /// What TypeAlike does in a private window of a web browser.
+    pub private_windows: PrivateWindowRule,
 }
 
 impl SuggestionPlaces {
@@ -105,7 +118,18 @@ mod tests {
     use crate::test_support::{screen_text_app, suggestion_app, suggestion_site};
 
     fn places(apps: Vec<SuggestionApp>, sites: Vec<SuggestionSite>) -> SuggestionPlaces {
-        SuggestionPlaces { apps, sites }
+        SuggestionPlaces {
+            apps,
+            sites,
+            ..SuggestionPlaces::default()
+        }
+    }
+
+    #[test]
+    fn suggestions_stop_in_private_windows_by_default() {
+        let places = SuggestionPlaces::default();
+
+        assert_eq!(places.private_windows, PrivateWindowRule::StopSuggestions);
     }
 
     #[test]

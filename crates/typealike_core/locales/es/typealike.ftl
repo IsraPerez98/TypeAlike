@@ -172,6 +172,8 @@ suggestion-places-summary = Las sugerencias aparecen en cada app y en cada sitio
 suggestion-places-websites = Sitios web
 suggestion-places-no-websites = Todavía no apareció ninguna sugerencia en ningún sitio web.
 suggestion-places-websites-footer = Cuando una sugerencia aparece por primera vez en un sitio web, TypeAlike agrega el sitio web a esta lista.
+suggestion-places-private-windows = Detener en ventanas privadas
+suggestion-places-private-windows-description = En una ventana privada o de incógnito de un navegador web, TypeAlike no muestra sugerencias, no lee el texto de la pantalla y no guarda nada de lo que escribes.
 
 ## The Copied and screen text pane of the settings window.
 

@@ -1,12 +1,14 @@
 //! The Apps and websites pane of the settings window: the apps and the websites where suggestions
-//! show.
+//! show, and the rule for private windows.
 
 use crate::localization::Translations;
-use crate::settings::{SuggestionApp, SuggestionPlaces};
+use crate::settings::{PrivateWindowRule, SuggestionApp, SuggestionPlaces};
 use crate::settings_window::controls::{
     SUGGESTED_APPS_FOOTER, app_list_section, list_section, replace_if_changed,
 };
-use crate::settings_window::view::{AppSwitch, ControlId, Page, PageIcon, Row, SettingsInput, SiteSwitch};
+use crate::settings_window::view::{
+    AppSwitch, ControlId, Page, PageIcon, Row, RowIcon, Section, SettingsInput, SiteSwitch, Switch,
+};
 
 /// Something the user did in the Apps and websites pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,10 +27,13 @@ pub enum SuggestionPlacesAction {
         /// Whether the switch is on now.
         is_on: bool,
     },
+    /// Turned on or off the switch that stops suggestions in private windows.
+    SwitchPrivateWindows(PrivateWindowRule),
 }
 
 const APP_SWITCH_PREFIX: &str = "suggestions-app:";
 const SITE_SWITCH_PREFIX: &str = "suggestions-site:";
+pub(crate) const PRIVATE_WINDOWS: &str = "private-windows";
 /// State of the Apps and websites pane: the switch of each app and of each website.
 ///
 /// ```
@@ -80,6 +85,9 @@ impl SuggestionPlacesPane {
 
     /// Handles a user action. Returns whether the settings changed.
     pub fn on_action(&mut self, action: SuggestionPlacesAction) -> bool {
+        if let SuggestionPlacesAction::SwitchPrivateWindows(rule) = action {
+            return replace_if_changed(&mut self.settings.private_windows, rule);
+        }
         let switch = match action {
             SuggestionPlacesAction::SwitchApp { app_id, is_on } => self
                 .settings
@@ -93,6 +101,7 @@ impl SuggestionPlacesPane {
                 .iter_mut()
                 .find(|site| site.host == host)
                 .map(|site| (&mut site.is_on, is_on)),
+            SuggestionPlacesAction::SwitchPrivateWindows(_) => None,
         };
         switch.is_some_and(|(slot, is_on)| replace_if_changed(slot, is_on))
     }
@@ -105,6 +114,13 @@ impl SuggestionPlacesPane {
         };
         let id = id.as_str();
         let is_on = *is_on;
+        if id == PRIVATE_WINDOWS {
+            return Some(SuggestionPlacesAction::SwitchPrivateWindows(if is_on {
+                PrivateWindowRule::StopSuggestions
+            } else {
+                PrivateWindowRule::KeepSuggestions
+            }));
+        }
         if let Some(app_id) = id.strip_prefix(APP_SWITCH_PREFIX) {
             return Some(SuggestionPlacesAction::SwitchApp {
                 app_id: app_id.to_owned(),
@@ -127,12 +143,21 @@ impl SuggestionPlacesPane {
             self.site_rows(),
             translations.text("suggestion-places-websites-footer"),
         );
+        let private_windows = Switch {
+            id: ControlId::new(PRIVATE_WINDOWS),
+            icon: RowIcon::Lock,
+            label: translations.text("suggestion-places-private-windows"),
+            description: translations.text("suggestion-places-private-windows-description"),
+            is_on: self.settings.private_windows == PrivateWindowRule::StopSuggestions,
+            note: None,
+        };
         Page {
             title: translations.text("suggestion-places-title"),
             icon: PageIcon::AppGrid,
             summary: translations.text("suggestion-places-summary"),
             search: None,
             sections: vec![
+                Section::new(vec![Row::Switch(private_windows)]),
                 app_list_section(self.app_rows(), SUGGESTED_APPS_FOOTER, translations),
                 sites,
             ],
@@ -176,10 +201,14 @@ mod tests {
     use super::*;
     use crate::settings::SuggestionSite;
     use crate::settings_window::view::Message;
-    use crate::test_support::{english, suggestion_app, suggestion_site, toggled};
+    use crate::test_support::{english, suggestion_app, suggestion_site, toggled, writing_rule_breaks};
 
     fn pane_with(apps: Vec<SuggestionApp>, sites: Vec<SuggestionSite>) -> SuggestionPlacesPane {
-        SuggestionPlacesPane::new(SuggestionPlaces { apps, sites })
+        SuggestionPlacesPane::new(SuggestionPlaces {
+            apps,
+            sites,
+            ..SuggestionPlaces::default()
+        })
     }
 
     #[test]
@@ -195,6 +224,7 @@ mod tests {
             shown
                 .sections
                 .iter()
+                .skip(1)
                 .map(|section| (section.heading.as_deref(), section.rows.clone()))
                 .collect::<Vec<_>>(),
             [
@@ -231,6 +261,7 @@ mod tests {
             shown
                 .sections
                 .iter()
+                .skip(1)
                 .map(|section| section.rows.clone())
                 .collect::<Vec<_>>(),
             [
@@ -247,12 +278,59 @@ mod tests {
     }
 
     #[test]
+    fn page_starts_with_the_switch_of_private_windows() {
+        let pane = pane_with(Vec::new(), Vec::new());
+
+        let shown = pane.page(&english());
+
+        assert_eq!(
+            shown.sections.first().map(|section| section.rows.clone()),
+            Some(vec![Row::Switch(Switch {
+                id: ControlId::new(PRIVATE_WINDOWS),
+                icon: RowIcon::Lock,
+                label: "Stop in private windows".to_owned(),
+                description:
+                    "In a private or incognito window of a web browser, TypeAlike shows no suggestions, \
+                              reads no screen text and saves nothing that you type."
+                        .to_owned(),
+                is_on: true,
+                note: None,
+            })])
+        );
+    }
+
+    #[test]
+    fn page_follows_the_writing_rules() {
+        let pane = pane_with(Vec::new(), Vec::new());
+
+        let texts = pane.page(&english()).texts();
+
+        assert_eq!(writing_rule_breaks(&texts), Vec::<String>::new());
+    }
+
+    #[test]
+    fn private_windows_switch_changes_the_rule() {
+        let mut pane = pane_with(Vec::new(), Vec::new());
+
+        let is_changed = pane.on_action(SuggestionPlacesAction::SwitchPrivateWindows(
+            PrivateWindowRule::KeepSuggestions,
+        ));
+
+        assert_eq!(
+            (is_changed, pane.settings().private_windows),
+            (true, PrivateWindowRule::KeepSuggestions)
+        );
+    }
+
+    #[test]
     fn switches_give_their_actions() {
         let pane = pane_with(Vec::new(), Vec::new());
         let inputs = [
             toggled("suggestions-app:com.apple.mail", false),
             toggled("suggestions-site:bank.example", true),
             toggled("screen-text-app:com.apple.mail", false),
+            toggled("private-windows", false),
+            toggled("private-windows", true),
         ];
 
         let actions = inputs.map(|input| pane.action_for(&input));
@@ -269,6 +347,12 @@ mod tests {
                     is_on: true,
                 }),
                 None,
+                Some(SuggestionPlacesAction::SwitchPrivateWindows(
+                    PrivateWindowRule::KeepSuggestions
+                )),
+                Some(SuggestionPlacesAction::SwitchPrivateWindows(
+                    PrivateWindowRule::StopSuggestions
+                )),
             ]
         );
     }

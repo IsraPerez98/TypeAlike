@@ -176,6 +176,8 @@ suggestion-places-summary = Les suggestions s’affichent dans chaque app et sur
 suggestion-places-websites = Sites web
 suggestion-places-no-websites = Aucune suggestion ne s’est encore affichée sur un site web.
 suggestion-places-websites-footer = Quand une suggestion s’affiche pour la première fois sur un site web, TypeAlike ajoute le site web à cette liste.
+suggestion-places-private-windows = Arrêter dans les fenêtres privées
+suggestion-places-private-windows-description = Dans une fenêtre de navigation privée d’un navigateur web, TypeAlike n’affiche aucune suggestion, ne lit pas le texte de l’écran et n’enregistre rien de ce que vous tapez.
 
 ## The Copied and screen text pane of the settings window.
 

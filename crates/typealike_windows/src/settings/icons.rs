@@ -75,6 +75,7 @@ pub(super) fn row_glyph(icon: RowIcon) -> &'static str {
         RowIcon::Globe => "\u{E774}",
         RowIcon::ChatBubbles => "\u{E8F2}",
         RowIcon::CircleArrows => "\u{E895}",
+        RowIcon::Lock => "\u{E72E}",
     }
 }
 

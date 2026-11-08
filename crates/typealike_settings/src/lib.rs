@@ -104,9 +104,9 @@ mod tests {
     use typealike_core::settings::{
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess,
         HistoryApp, HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings,
-        PromptPreparation, ReplyWords, ScreenTextAccess, ScreenTextApp, ScreenTextSettings, Setup,
-        SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, Updates,
-        WordChoice, WriterName, WriterNotes,
+        PrivateWindowRule, PromptPreparation, ReplyWords, ScreenTextAccess, ScreenTextApp,
+        ScreenTextSettings, Setup, SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite,
+        TypoFix, TypoRule, Updates, WordChoice, WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -136,6 +136,7 @@ mod tests {
                     host: "bank.example".to_owned(),
                     is_on: false,
                 }],
+                private_windows: PrivateWindowRule::KeepSuggestions,
             },
             writer_name: WriterName("Sara Novak".to_owned()),
             writer_notes: WriterNotes("I am a nurse.".to_owned()),

@@ -168,6 +168,8 @@ suggestion-places-summary = Suggestions show in each app and on each website whe
 suggestion-places-websites = Websites
 suggestion-places-no-websites = No suggestion showed on a website yet.
 suggestion-places-websites-footer = When a suggestion shows on a website for the first time, TypeAlike adds the website to this list.
+suggestion-places-private-windows = Stop in private windows
+suggestion-places-private-windows-description = In a private or incognito window of a web browser, TypeAlike shows no suggestions, reads no screen text and saves nothing that you type.
 
 ## The Copied and screen text pane of the settings window.
 

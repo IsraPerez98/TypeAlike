@@ -83,6 +83,7 @@ Use one term for one thing. The writing-rules test rejects the words in the "Not
 | typo fix | corrección de erratas | correção de erros de digitação | correction des fautes de frappe | Tippfehlerkorrektur | correzione degli errori di battitura | A suggestion that replaces a word with a typo. | |
 | word choice | elección de palabras | escolha de palavras | choix des mots | Wortwahl | scelta delle parole | How much the earlier writing changes the words of a suggestion. | |
 | full screen | pantalla completa | tela cheia | plein écran | Vollbild | schermo intero | An app whose window fills the whole screen, such as a video or a game. | fullscreen |
+| private window | ventana privada | janela privativa | fenêtre de navigation privée | privates Fenster | finestra privata | A private or incognito window of a web browser, which keeps no browsing history. | |
 
 When a language gets its first translated message, add its term to each row.
 

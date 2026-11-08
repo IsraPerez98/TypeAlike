@@ -154,6 +154,8 @@ pub enum RowIcon {
     ChatBubbles,
     /// Two arrows in a circle, for the new versions of TypeAlike.
     CircleArrows,
+    /// A closed lock, for the private windows of a web browser.
+    Lock,
 }
 
 /// A field that searches for the text that the user submits.

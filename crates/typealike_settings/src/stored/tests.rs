@@ -3,8 +3,9 @@
 use super::*;
 use typealike_core::settings::{
     EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess, HistoryApp, HistoryScope,
-    IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, ReplyWords, ScreenTextAccess, ScreenTextApp,
-    ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite, WordChoice,
+    IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PrivateWindowRule, ReplyWords,
+    ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite,
+    WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -229,6 +230,7 @@ fn suggestion_places_read_their_apps_and_websites() {
                 host: "bank.example".to_owned(),
                 is_on: false,
             }],
+            private_windows: PrivateWindowRule::StopSuggestions,
         })
     );
 }
@@ -264,6 +266,7 @@ fn suggestion_places_survive_a_save_and_a_load() {
             host: "bank.example".to_owned(),
             is_on: false,
         }],
+        private_windows: PrivateWindowRule::KeepSuggestions,
     };
     let settings = Settings {
         suggestion_places: places.clone(),
@@ -739,4 +742,35 @@ fn manual_updates_survive_a_save_and_a_load() {
     let loaded = parse(&to_json(&settings)).map(|loaded| loaded.updates).ok();
 
     assert_eq!(loaded, Some(Updates::Manual));
+}
+
+#[test]
+fn private_window_rule_reads_from_its_name() {
+    let files = [
+        r#"{ "suggestion_places": { "private_windows": "stop_suggestions" } }"#,
+        r#"{ "suggestion_places": { "private_windows": "keep_suggestions" } }"#,
+    ];
+
+    let rules = files.map(|json| {
+        parse(json)
+            .map(|settings| settings.suggestion_places.private_windows)
+            .ok()
+    });
+
+    assert_eq!(
+        rules,
+        [
+            Some(PrivateWindowRule::StopSuggestions),
+            Some(PrivateWindowRule::KeepSuggestions)
+        ]
+    );
+}
+
+#[test]
+fn file_without_the_private_window_rule_stops_in_private_windows() {
+    let rule = parse(r#"{ "suggestion_places": { "apps": [] } }"#)
+        .map(|settings| settings.suggestion_places.private_windows)
+        .ok();
+
+    assert_eq!(rule, Some(PrivateWindowRule::StopSuggestions));
 }

@@ -20,7 +20,7 @@ pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords, WordChoice,
 };
 pub use screen_text::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
-pub use suggestion_places::{SuggestionApp, SuggestionPlaces, SuggestionSite};
+pub use suggestion_places::{PrivateWindowRule, SuggestionApp, SuggestionPlaces, SuggestionSite};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
 /// only its length, so logs never hold what the user wrote. The default notes are true for every

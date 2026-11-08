@@ -78,7 +78,9 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 ## Apps and websites
 
-- The Apps and websites pane (`SuggestionPlaces`) has a switch for each app and for each website (host) where a suggestion showed.
+- The Apps and websites pane (`SuggestionPlaces`) has:
+  - the switch "Stop in private windows" (`PrivateWindowRule`, on by default) at the top
+  - a switch for each app and for each website (host) where a suggestion showed
 - TypeAlike adds each place with its switch on when its first ghost text shows on the screen (`Desktop::is_ghost_shown`).
 - The Copied and screen text and Personalization panes add the app at the same time. Thus a window without a text field, such as a game, never goes into these lists.
 - A website matches only its exact host.
@@ -94,7 +96,8 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 ### Private windows
 
-- A field in a private window of a browser works as a field of a place that is off (`private_window`, `FieldPlace::is_private_window`). TypeAlike starts no session there, reads no screen, prepares no prompt and keeps no earlier writing.
+- While the switch "Stop in private windows" is on, a field in a private window of a browser works as a field of a place that is off (`private_window`, `FieldPlace::is_private_window`). TypeAlike starts no session there, reads no screen, prepares no prompt and keeps no earlier writing.
+- While the switch is off, a private window works as any other window of its browser.
 - The badge there shows as paused ("TypeAlike (off here)"). The window never goes into the Apps and websites pane, because no ghost text shows there.
 - No browser tells a private window in a way that does not depend on the language. Thus core reads the end of the window title in English, Spanish, Portuguese, French, German and Italian.
   - Chrome, Chromium and Vivaldi: "(Incognito)". Brave: "(Private)". Opera: "(Private)". Edge: "(InPrivate)", or "[InPrivate]" anywhere in the title.

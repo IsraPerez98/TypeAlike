@@ -29,6 +29,7 @@ fn webmail_places(is_app_on: bool, is_site_on: bool) -> SuggestionPlaces {
     SuggestionPlaces {
         apps: vec![suggestion_app("com.apple.Safari", "Safari", is_app_on)],
         sites: vec![suggestion_site("mail.example", is_site_on)],
+        ..SuggestionPlaces::default()
     }
 }
 
