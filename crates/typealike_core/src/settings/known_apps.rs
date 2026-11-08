@@ -1,5 +1,5 @@
-//! The apps of the settings: the password managers, the terminals, the database tools and the
-//! spreadsheets that TypeAlike knows by their app id, and the order of the app lists.
+//! The apps of the settings: the password managers, the terminals and the spreadsheets that
+//! TypeAlike knows by their app id, and the order of the app lists.
 
 /// Adds `app` to `apps` in the alphabetical order of the names that `app_name` gives, unless
 /// `apps` has an app with the id that `app_id` gives. Returns whether `apps` changed.
@@ -104,42 +104,4 @@ const TERMINALS: [&str; 27] = [
     "putty.exe",
     "rio.exe",
     "termius.exe",
-];
-
-/// Whether the app with `app_id` is a database tool, whose queries can hold data and secrets.
-/// TypeAlike does not save its text unless the user turns it on. Its id matches by its start in
-/// lowercase.
-pub(super) fn is_database_tool(app_id: &str) -> bool {
-    starts_with_any(app_id, &DATABASE_TOOLS)
-}
-
-/// The database tools that TypeAlike knows, by the start of their app id in lowercase: the
-/// bundle identifier on macOS and the program file name on Windows.
-const DATABASE_TOOLS: [&str; 26] = [
-    "org.jkiss.dbeaver",
-    "com.dbeaver.",
-    "com.tinyapp.tableplus",
-    "at.eggerapps.postico",
-    "com.sequel-ace.sequel-ace",
-    "com.jetbrains.datagrip",
-    "org.pgadmin.pgadmin4",
-    "com.oracle.workbench.mysqlworkbench",
-    "io.beekeeperstudio.desktop",
-    "com.mongodb.compass",
-    "org.redislabs.redisinsight",
-    "com.azuredatastudio.oss",
-    "com.navicat.",
-    "com.prect.navicat",
-    "dbeaver.exe",
-    "tableplus.exe",
-    "datagrip64.exe",
-    "pgadmin4.exe",
-    "mysqlworkbench.exe",
-    "beekeeper studio.exe",
-    "mongodbcompass.exe",
-    "redis insight.exe",
-    "azuredatastudio.exe",
-    "ssms.exe",
-    "heidisql.exe",
-    "navicat.exe",
 ];
