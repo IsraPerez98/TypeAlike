@@ -421,6 +421,9 @@ impl Controller {
             BadgeCommand::SwitchSiteSuggestions { host, is_on } => {
                 self.switch_suggestions_here(SuggestionPlacesAction::SwitchSite { host, is_on }, shell);
             }
+            BadgeCommand::SwitchPrivateWindows(rule) => {
+                self.switch_suggestions_here(SuggestionPlacesAction::SwitchPrivateWindows(rule), shell);
+            }
             BadgeCommand::SelectHistoryScope { app_id, scope } => {
                 self.on_personalization_action(PersonalizationAction::SelectAppScope { app_id, scope });
                 self.render_settings(shell);

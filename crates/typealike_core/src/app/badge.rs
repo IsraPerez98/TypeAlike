@@ -3,9 +3,10 @@
 use std::slice;
 
 use super::Status;
+use super::field_place::FieldPlace;
 use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
-    HistoryAccess, HistoryScope, PersonalizationSettings, ScreenTextAccess, ScreenTextApp,
+    HistoryAccess, HistoryScope, PersonalizationSettings, PrivateWindowRule, ScreenTextAccess,
     ScreenTextSettings, SuggestionPlaces,
 };
 
@@ -56,6 +57,8 @@ pub enum BadgeCommand {
         /// Whether suggestions show on the website after the command.
         is_on: bool,
     },
+    /// Selects whether suggestions stop in private windows.
+    SwitchPrivateWindows(PrivateWindowRule),
     /// Selects which earlier writing the app with this id gives and gets.
     SelectHistoryScope {
         /// The id of the app.
@@ -142,26 +145,27 @@ impl BadgeMenu {
     }
 }
 
-/// The app and the website of the field where the user types.
-pub(super) struct TypedPlace<'place> {
-    /// The app, if it has an id.
-    pub(super) app: Option<&'place ScreenTextApp>,
-    /// The host of the website, if any.
-    pub(super) host: Option<&'place str>,
-}
-
-/// The entries of the badge menu for `place`, with the texts of `translations`: the suggestion
-/// switches of its app and of its website, then the screen text switch and the menu of the scope
-/// of its app, each when the list of `settings` has the app or the website. The entries of the app
-/// are dimmed while suggestions are off in `place`.
+/// The entries of the badge menu for `place`, with the texts of `translations`: the switch that
+/// stops suggestions in private windows while it stops them in `place`, the suggestion switches of
+/// its app and of its website, then the screen text switch and the menu of the scope of its app,
+/// each when the list of `settings` has the app or the website. The entries of the app are dimmed
+/// while suggestions are off in `place`.
 pub(super) fn place_entries(
-    place: &TypedPlace<'_>,
+    place: &FieldPlace,
     settings: &BadgeSettings<'_>,
     translations: &Translations,
 ) -> Vec<BadgeEntry> {
     let suggestion_places = settings.suggestion_places;
+    let private_window_switch = place.is_stopped_as_private(suggestion_places).then(|| {
+        suggestion_switch(
+            translations.text("badge-private-windows"),
+            BadgeCommand::SwitchPrivateWindows(PrivateWindowRule::KeepSuggestions),
+            true,
+        )
+    });
     let app_switch = place
         .app
+        .as_ref()
         .and_then(|typed| {
             suggestion_places
                 .apps
@@ -183,6 +187,7 @@ pub(super) fn place_entries(
         });
     let site_switch = place
         .host
+        .as_deref()
         .and_then(|host| suggestion_places.sites.iter().find(|site| site.host == host))
         .map(|site| {
             suggestion_switch(
@@ -197,12 +202,13 @@ pub(super) fn place_entries(
                 site.is_on,
             )
         });
-    let app_id = place.app.map(|app| app.app_id.as_str());
-    let is_place_on = suggestion_places.allows(app_id, place.host);
-    let app_entries = app_id
-        .map(|app_id| app_entries(app_id, settings, is_place_on, translations))
+    let is_place_on = place.is_on_in(suggestion_places);
+    let app_entries = place
+        .app
+        .as_ref()
+        .map(|app| app_entries(&app.app_id, settings, is_place_on, translations))
         .unwrap_or_default();
-    [app_switch, site_switch]
+    [private_window_switch, app_switch, site_switch]
         .into_iter()
         .flatten()
         .chain(app_entries)

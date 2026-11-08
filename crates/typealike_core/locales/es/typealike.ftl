@@ -18,6 +18,7 @@ status-full-screen = TypeAlike (desactivado mientras una app ocupa toda la panta
 
 badge-app-suggestions = Mostrar sugerencias en { $app }
 badge-site-suggestions = Mostrar sugerencias en { $host }
+badge-private-windows = Detener las sugerencias en ventanas privadas
 badge-app-screen-text = Usar el texto de la pantalla en { $app }
 badge-app-earlier-writing = Escritura anterior en { $app }
 

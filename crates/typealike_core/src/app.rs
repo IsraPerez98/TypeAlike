@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::mem;
 use std::time::Duration;
 
-use badge::{TypedPlace, place_entries};
+use badge::place_entries;
 use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
@@ -713,7 +713,8 @@ impl App {
     }
 
     /// Returns the menu that a click on the badge at the caret shows, or `None` while no badge
-    /// shows. The menu pauses or resumes suggestions. When the lists of `suggestion_places` have
+    /// shows. The menu pauses or resumes suggestions. In a private window where suggestions stop,
+    /// it also turns off the switch that stops them. When the lists of `suggestion_places` have
     /// the app or the website where the user types, it also turns their suggestions on or off.
     /// When the lists of `screen_text` and `personalization` have the app, it also switches the
     /// screen text of the app and selects the scope of its earlier writing. The entries have the
@@ -729,11 +730,11 @@ impl App {
             is_checked: false,
             is_enabled: true,
         });
-        let place = TypedPlace {
-            app: self.typed_app(),
-            host: self.typed_host(),
-        };
-        let place_entries = place_entries(&place, settings, translations);
+        let place_entries = self
+            .session_place()
+            .or_else(|| self.idle_field_place.clone())
+            .map(|place| place_entries(&place, settings, translations))
+            .unwrap_or_default();
         let separator = (!place_entries.is_empty()).then_some(BadgeEntry::Separator);
         Some(BadgeMenu {
             entries: [Some(pause), separator]

@@ -117,11 +117,13 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The badge at the caret opens a menu (`BadgeMenu`):
   - pause or resume
+  - in a private window where suggestions stop, the checked switch "Stop suggestions in private windows", which tells why the badge shows "off here"
   - the suggestion switches of the app and of the website where the user types ("Show suggestions in <app>", "Show suggestions on <host>")
   - the screen text switch of the app
   - the scope of its earlier writing (Off, Only this app, All apps)
+- A pick of the private window switch turns off "Stop in private windows" in the Apps and websites pane. Suggestions then start in the window, and the menu has no private window switch there.
 - An entry is dimmed while the main switch of its pane is off.
-- The screen text switch and the scope are also dimmed while suggestions are off in that app or on that website.
+- The screen text switch and the scope are also dimmed while suggestions are off in that app, on that website or in that private window.
 - The suggestion switches stay enabled.
 - A pick changes the settings as the pane does.
 

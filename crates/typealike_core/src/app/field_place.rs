@@ -28,9 +28,12 @@ impl FieldPlace {
     /// Whether `places` lets suggestions show in this place.
     pub(super) fn is_on_in(&self, places: &SuggestionPlaces) -> bool {
         let app_id = self.app.as_ref().map(|app| app.app_id.as_str());
-        let is_stopped_as_private =
-            self.is_private_window && places.private_windows == PrivateWindowRule::StopSuggestions;
-        !is_stopped_as_private && places.allows(app_id, self.host.as_deref())
+        !self.is_stopped_as_private(places) && places.allows(app_id, self.host.as_deref())
+    }
+
+    /// Whether the rule of `places` for private windows stops suggestions in this place.
+    pub(super) fn is_stopped_as_private(&self, places: &SuggestionPlaces) -> bool {
+        self.is_private_window && places.private_windows == PrivateWindowRule::StopSuggestions
     }
 }
 

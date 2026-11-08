@@ -4,7 +4,7 @@ use super::harness::{Call, Harness, history_on, suggestion_settings};
 use crate::app::{BadgeCommand, BadgeItem, TrayGlyph};
 use crate::inference::InferenceRequest;
 use crate::key::{Disposition, Key};
-use crate::settings::{HistoryScope, Settings, SuggestionPlaces};
+use crate::settings::{HistoryScope, PrivateWindowRule, Settings, SuggestionPlaces};
 use crate::test_support::{
     MAIL_APP, active_badge, mail_app, mail_entry, mail_history_app, off_badge, suggestion_app,
     suggestion_site,
@@ -217,6 +217,27 @@ fn badge_suggestions_command_turns_off_the_website_and_keeps_the_setting() {
             .last()
             .map(|settings| settings.suggestion_places.sites.clone()),
         Some(vec![suggestion_site("mail.example", false)])
+    );
+}
+
+#[test]
+fn badge_private_window_command_keeps_suggestions_in_private_windows_and_keeps_the_setting() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.google.Chrome", "Google Chrome");
+    harness.shell.surroundings.window_title = Some("Trip notes - Google Chrome (Incognito)".to_owned());
+    harness.press(Key::Char('H'));
+
+    harness.controller.on_badge_command(
+        BadgeCommand::SwitchPrivateWindows(PrivateWindowRule::KeepSuggestions),
+        &mut harness.shell,
+    );
+
+    assert_eq!(
+        harness
+            .saved()
+            .last()
+            .map(|settings| settings.suggestion_places.private_windows),
+        Some(PrivateWindowRule::KeepSuggestions)
     );
 }
 
