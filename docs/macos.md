@@ -109,6 +109,18 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - CodeMirror holds only the lines that it draws, so the text before the caret starts at the first line that it draws.
 - The text of the lines also loses the half of a character at each end of its cut.
 
+## Text markers
+
+- The body of a message in Mail is an editable web area (`AXWebArea`, description "message body"). It has an empty `AXValue` and no `AXSelectedTextRange`, but it has text markers.
+- When the reads by range give no field text, macOS reads the text around the caret through text markers (`focus/surroundings/text_markers.rs`):
+  - The markers at the ends of the selection (`AXSelectedTextMarkerRange`) and of the field (`AXTextMarkerRangeForUIElement`) give their indices (`AXIndexForTextMarker`).
+  - The limits of the text around the caret (`MAX_CHARS_BEFORE_CARET`, `MAX_CHARS_AFTER_CARET`) are indices, and `AXTextMarkerForIndex` gives their markers. Thus a long quoted thread costs no long read.
+  - `AXTextMarkerRangeForUnorderedTextMarkers` and `AXStringForTextMarkerRange` give the text before the selection and the text after it.
+- Mail does not support `AXStartTextMarkerForTextMarkerRange` and `AXEndTextMarkerForTextMarkerRange`. Thus the ends of a marker range come from `AXTextMarkerRangeCopyStartMarker` and `AXTextMarkerRangeCopyEndMarker` of HIServices.
+- Only a field that the user can edit gives its text this way. Mail and Safari let an assistive app set `AXValue` of a web area only when the user can edit its page. Thus a web page that the user only reads gives no field text.
+- With field text, the body of a message in Mail is a field that holds text. Thus the earlier writing keeps its text, and a screen read runs there.
+- A read of the body of a short message in Mail took 0.2 to 0.7 ms. Mail gives a space at the end of the text as U+00A0 until the next character.
+
 ## Event tap
 
 - The event tap also watches the scroll-wheel event and gives it only to `Controller::on_scroll`, with no AX read and no read of the pasteboard.

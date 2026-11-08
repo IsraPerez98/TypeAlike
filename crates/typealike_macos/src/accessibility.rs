@@ -20,6 +20,9 @@ const SECURE_TEXT_FIELD_SUBROLE: &str = "AXSecureTextField";
 const SEARCH_FIELD_SUBROLE: &str = "AXSearchField";
 const SELECTED_TEXT_RANGE_ATTRIBUTE: &str = "AXSelectedTextRange";
 const STRING_FOR_RANGE_ATTRIBUTE: &str = "AXStringForRange";
+pub(crate) const SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXSelectedTextMarkerRange";
+pub(crate) const TEXT_MARKER_RANGE_FOR_ELEMENT_ATTRIBUTE: &str = "AXTextMarkerRangeForUIElement";
+const STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXStringForTextMarkerRange";
 pub(crate) const WINDOW_ATTRIBUTE: &str = "AXWindow";
 pub(crate) const TITLE_ATTRIBUTE: &str = "AXTitle";
 const POSITION_ATTRIBUTE: &str = "AXPosition";
@@ -163,6 +166,27 @@ pub(crate) fn string_for_range(element: &AXUIElement, range: CFRange) -> Option<
         .downcast::<CFString>()
         .ok()
         .map(|text| text.to_string())
+}
+
+/// Reads the text of `range`, a text marker range of `element`.
+pub(crate) fn string_for_text_marker_range(element: &AXUIElement, range: &CFType) -> Option<String> {
+    copy_attribute_for_parameter(element, STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE, range)?
+        .downcast::<CFString>()
+        .ok()
+        .map(|text| text.to_string())
+}
+
+/// Whether an assistive app may set `attribute` of `element`.
+pub(crate) fn is_settable(element: &AXUIElement, attribute: &'static str) -> bool {
+    let mut is_settable = 0;
+    // SAFETY: the output pointer refers to a local.
+    let error = unsafe {
+        element.is_attribute_settable(
+            &CFString::from_static_str(attribute),
+            NonNull::from(&mut is_settable),
+        )
+    };
+    error == AXError::Success && is_settable != 0
 }
 
 pub(crate) fn copy_attribute_for_index(

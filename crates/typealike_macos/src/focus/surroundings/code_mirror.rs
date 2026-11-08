@@ -3,17 +3,18 @@
 //! breaks come from the lines of the editor.
 
 use objc2_application_services::AXUIElement;
-use objc2_core_foundation::{CFRange, CFRetained, CFString};
+use objc2_core_foundation::{CFRange, CFRetained};
 use typealike_core::desktop::{FieldText, MAX_CHARS_AFTER_CARET, is_line_break};
 
-use crate::accessibility::{children, copy_attribute_for_parameter, frame, has_dom_class, string_for_range};
+use crate::accessibility::{
+    TEXT_MARKER_RANGE_FOR_ELEMENT_ATTRIBUTE, children, copy_attribute_for_parameter, frame, has_dom_class,
+    string_for_range, string_for_text_marker_range,
+};
 use crate::focus::caret::caret_bounds;
 use crate::focus::surroundings::whole_characters;
 
 /// The DOM class of the content of a CodeMirror editor. Each of its children is one line.
 const CONTENT_CLASS: &str = "cm-content";
-const TEXT_MARKER_RANGE_FOR_ELEMENT_ATTRIBUTE: &str = "AXTextMarkerRangeForUIElement";
-const STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXStringForTextMarkerRange";
 /// The character that the text of a line gives for a widget, such as an image, which the range
 /// text leaves out.
 const OBJECT_REPLACEMENT: char = '\u{fffc}';
@@ -49,11 +50,9 @@ pub(super) fn code_mirror_text(
 fn line_text(element: &AXUIElement, line: &CFRetained<AXUIElement>) -> Option<String> {
     let range =
         copy_attribute_for_parameter(element, TEXT_MARKER_RANGE_FOR_ELEMENT_ATTRIBUTE, line.as_ref())?;
-    let text = copy_attribute_for_parameter(element, STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE, &range)?
-        .downcast::<CFString>()
-        .ok()?;
+    let text = string_for_text_marker_range(element, &range)?;
     let is_kept = |character: &char| *character != OBJECT_REPLACEMENT && !is_line_break(*character);
-    Some(text.to_string().chars().filter(is_kept).collect())
+    Some(text.chars().filter(is_kept).collect())
 }
 
 /// Whether the caret of `element` is on `line`: the middle of the caret box is not above the line.

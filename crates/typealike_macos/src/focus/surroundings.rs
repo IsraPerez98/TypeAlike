@@ -10,12 +10,14 @@ use typealike_core::desktop::{
 };
 
 mod code_mirror;
+mod text_markers;
 
 use crate::accessibility::{
     ROLE_ATTRIBUTE, TITLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, copy_attribute,
     copy_element, copy_string, has_dom_class, parent, selected_range, string_for_range,
 };
 use crate::focus::surroundings::code_mirror::code_mirror_text;
+use crate::focus::surroundings::text_markers::field_text_by_markers;
 
 const NUMBER_OF_CHARACTERS_ATTRIBUTE: &str = "AXNumberOfCharacters";
 const PLACEHOLDER_ATTRIBUTE: &str = "AXPlaceholderValue";
@@ -116,8 +118,13 @@ fn url_host(element: &AXUIElement) -> Option<String> {
 }
 
 /// Reads the text around the selection of `element`: from its lines in a CodeMirror editor, else
-/// by range, or from its whole value when it cannot read a range.
+/// by range, or from its whole value when it cannot read a range. An element without a text range,
+/// as the body of a message in Mail, gives its text through text markers.
 pub(super) fn field_text(element: &AXUIElement) -> Option<FieldText> {
+    field_text_by_selected_range(element).or_else(|| field_text_by_markers(element))
+}
+
+fn field_text_by_selected_range(element: &AXUIElement) -> Option<FieldText> {
     let selection = selected_range(element)?;
     let text_length = character_count(element);
     let ranges = SurroundingRanges::new(selection, text_length)?;

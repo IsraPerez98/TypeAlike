@@ -17,15 +17,15 @@ use objc2_core_graphics::CGColor;
 use typealike_core::desktop::{TextColor, is_line_break};
 
 use crate::accessibility::{
-    copy_attribute, copy_attribute_for_index, copy_attribute_for_parameter, copy_attribute_for_range, frame,
-    has_dom_class, parent, read_range, read_rect, selected_range, string_for_range,
+    SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE, copy_attribute, copy_attribute_for_index,
+    copy_attribute_for_parameter, copy_attribute_for_range, frame, has_dom_class, parent, read_range,
+    read_rect, selected_range, string_for_range,
 };
 use crate::geometry::is_caret_box;
 
 const BOUNDS_FOR_RANGE_ATTRIBUTE: &str = "AXBoundsForRange";
 const LINE_FOR_INDEX_ATTRIBUTE: &str = "AXLineForIndex";
 const RANGE_FOR_LINE_ATTRIBUTE: &str = "AXRangeForLine";
-const SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXSelectedTextMarkerRange";
 const BOUNDS_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXBoundsForTextMarkerRange";
 const ATTRIBUTED_STRING_FOR_RANGE_ATTRIBUTE: &str = "AXAttributedStringForRange";
 const FOREGROUND_COLOR_TEXT_ATTRIBUTE: &str = "AXForegroundColor";
