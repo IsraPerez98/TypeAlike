@@ -11,7 +11,8 @@ use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 use super::preface::EXAMPLE_STEP_TOKENS;
 use super::shown_suggestions::ShownSuggestions;
 
-/// The facts of the field where a session types, which stay the same for the whole session.
+/// The facts of the field where a session types, which stay the same for the whole session. A
+/// session whose field held no text can take another field once ([`Session::take_field_of`]).
 pub(super) struct SessionField {
     /// The app where the user types, if it has an id.
     pub(super) app: Option<ScreenTextApp>,
@@ -235,6 +236,33 @@ impl Session {
         self.text_before.truncate(self.text_before.len() - deleted);
         self.keep_counts_inside_text();
         self.append_text(word);
+    }
+
+    /// Takes the facts and the text of the field of `surroundings` when that field shows text in
+    /// the app of the session, for a session whose field held no text, as the grid of a
+    /// spreadsheet before the editor of the cell opens. Of the field text before the caret, only
+    /// the end that the session typed counts as typed. Returns whether the session took the field.
+    pub(super) fn take_field_of(&mut self, surroundings: &Surroundings) -> bool {
+        let app_id = self.field.app.as_ref().map(|app| app.app_id.as_str());
+        let Some(field_text) = surroundings
+            .field_text
+            .as_ref()
+            .filter(|_| app_id == surroundings.app_id.as_deref())
+        else {
+            return false;
+        };
+        let typed_chars = self
+            .text_before
+            .chars()
+            .rev()
+            .zip(field_text.before_caret.chars().rev())
+            .take_while(|(typed, shown)| typed == shown)
+            .count();
+        self.field_chars = field_text.before_caret.chars().count() - typed_chars;
+        self.field = SessionField::of(surroundings);
+        self.text_after.clone_from(&field_text.after_caret);
+        self.use_read_text(field_text.before_caret.clone());
+        true
     }
 
     /// Makes `text_before` the text before the caret that a read of the field showed, and drops

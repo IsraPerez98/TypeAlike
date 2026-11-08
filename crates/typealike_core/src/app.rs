@@ -420,9 +420,10 @@ impl App {
     /// `desktop` again. When the field shows the text of the session and a new line, the session
     /// continues there, and it returns the suggestion for the new line. Else the session ends.
     /// Without Enter, the session takes the words that the app changed in the field, as an
-    /// autocorrect does. A session that a shortcut ended keeps only the text that the field still
-    /// holds. After a key that the OS repeated while the user held it, it then returns
-    /// the suggestion for the text of the session.
+    /// autocorrect does. A session whose field held no text takes the field when it shows text, and
+    /// ends without its text when the place of that field is off. A session that a shortcut ended
+    /// keeps only the text that the field still holds. After a key that the OS repeated while the
+    /// user held it, it then returns the suggestion for the text of the session.
     /// In a text field that gets suggestions, of an app where the screen text is on, it then starts
     /// a read of the screen, unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
@@ -437,7 +438,16 @@ impl App {
         if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
             return Some(SettledWork::Suggest(reaction));
         }
-        self.engine.follow_field(desktop);
+        let off_new_place = self
+            .engine
+            .follow_field(desktop)
+            .then(|| FieldPlace::of(&desktop.surroundings()))
+            .filter(|place| !place.is_on_in(&self.suggestion_places));
+        if let Some(place) = off_new_place {
+            self.engine.discard_session();
+            self.idle_field_place = Some(place);
+            return None;
+        }
         let has_new_examples = self.is_preparation_due(desktop) && self.engine.pick_examples_again(desktop);
         if let Some(reaction) = self.engine.suggest_after_hold() {
             return Some(SettledWork::Suggest(reaction));

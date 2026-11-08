@@ -5,27 +5,38 @@ use super::fixtures::app_preparing_on_focus;
 use crate::app::{App, BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, Surroundings};
 use crate::engine::Reaction;
+use crate::history::HistoryEntry;
 use crate::key::{Key, Press};
 use crate::settings::{
-    HistoryAccess, HistoryScope, PersonalizationSettings, PrivateWindowRule, ScreenTextSettings, Settings,
-    SuggestionPlaces,
+    HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, PrivateWindowRule, ScreenTextSettings,
+    Settings, SuggestionPlaces,
 };
 use crate::test_support::{
     UiText, english, history_app, off_badge, screen_text_app, suggestion_app, suggestion_site,
     writing_rule_breaks,
 };
 
-/// A text field of a page in a window of Chrome with the title `title`.
+/// A field of a page in a window of Chrome with the title `title`, with `before_caret` before the
+/// caret, or no text.
 struct ChromeWindow {
     title: &'static str,
+    before_caret: Option<&'static str>,
 }
 
 const PRIVATE_WINDOW: ChromeWindow = ChromeWindow {
     title: "Trip notes - Google Chrome (Incognito)",
+    before_caret: Some(""),
 };
 
 const NORMAL_WINDOW: ChromeWindow = ChromeWindow {
     title: "Trip notes - Google Chrome",
+    before_caret: Some(""),
+};
+
+/// A window that Chrome opened just now, before it built the accessibility tree of the window.
+const NEW_WINDOW: ChromeWindow = ChromeWindow {
+    title: "",
+    before_caret: None,
 };
 
 impl Desktop for ChromeWindow {
@@ -38,7 +49,10 @@ impl Desktop for ChromeWindow {
             app_id: Some("com.google.Chrome".to_owned()),
             window_title: Some(self.title.to_owned()),
             domain: Some("notes.example".to_owned()),
-            field_text: Some(FieldText::default()),
+            field_text: self.before_caret.map(|before_caret| FieldText {
+                before_caret: before_caret.to_owned(),
+                after_caret: String::new(),
+            }),
             ..Surroundings::default()
         }
     }
@@ -82,6 +96,34 @@ fn settled_input_in_a_private_window_reads_no_screen_and_prepares_nothing() {
     let work = app.on_input_settled(&PRIVATE_WINDOW);
 
     assert_eq!(work, None);
+}
+
+#[test]
+fn session_that_started_before_the_window_had_a_title_keeps_its_text_only_outside_a_private_window() {
+    let windows = [PRIVATE_WINDOW, NORMAL_WINDOW];
+
+    let kept_texts = windows.map(|window| {
+        let mut app = App::new();
+        app.use_settings(&Settings {
+            personalization: PersonalizationSettings {
+                history: HistoryAccess::On,
+                kept_texts: KeptTexts::All,
+                ..PersonalizationSettings::default()
+            },
+            ..Settings::default()
+        });
+        for character in "Flight at seven".chars() {
+            app.on_key(Key::Char(character), Press::First, &NEW_WINDOW);
+        }
+        app.on_input_settled(&ChromeWindow {
+            before_caret: Some("Flight at seven"),
+            ..window
+        });
+        app.on_context_lost();
+        app.history_to_save().map(<[HistoryEntry]>::len)
+    });
+
+    assert_eq!(kept_texts, [None, Some(1)]);
 }
 
 #[test]

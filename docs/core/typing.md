@@ -28,6 +28,15 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
   - A read of another field (another app, website, window title or field labels) keeps the whole text, because the key moved the focus. A field that the platform cannot read also keeps the whole text.
 - A dead key (`Key::Dead`) does not end the session.
 
+### Field without text at the start
+
+- A session can start in a field without text: the grid of a spreadsheet before the editor of the cell opens, or a new browser window before the browser builds its accessibility tree.
+- When the input settles, core reads the field again. When that read shows a field with text in the same app, the session takes that field (`Session::take_field_of`).
+  - The session gets the facts of that field (`SessionField`): its place, its text access and its typing context. It also gets its text around the caret.
+  - Only the end of the field text that the session typed counts as typed. The text before that end counts as text of the field (`field_chars`), so a prefilled text does not count as typed.
+- When suggestions are off in the place of that field, as in a private window, the session ends, and the earlier writing keeps none of its text.
+- A session in a field that shows text that the platform cannot read (`FieldTextAccess::Unreadable`) keeps its field.
+
 ### Field text
 
 - Core reads each no-break space of the field text (U+00A0, U+202F, U+2007) as a plain space (`excerpt::plain_spaces`), because a web editor shows a typed space at the end of a text as a no-break space.
@@ -46,6 +55,10 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - When the field shows the text that the user typed since the last read, or that text with the same words, each with at most 2 changed characters, the same word at the caret and the same last character, the session takes the text of the field.
 - The word at the caret of a read counts as typed, because the app changes a word when the user finishes it.
 - Thus an autocorrect of the app goes into the prompt and into the earlier writing.
+- When the field shows only an end of the text that the user typed since the last read, the newest keys went to another field. An example is the next cell of a spreadsheet after Escape stopped the edit of a cell.
+  - Then the session ends, and its text keeps none of these newest keys. The next key starts a new session, so the texts of two fields do not join.
+  - The text before that end must have a letter, because an app can remove a list mark, such as "- ".
+  - A read that shows the typed text late, or an empty field, does not end the session.
 
 ## Keys while a completion runs
 

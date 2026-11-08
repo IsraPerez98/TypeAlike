@@ -19,6 +19,8 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
   - card numbers
 - A run whose parts between dashes and underscores each have only letters or only digits is a name, such as the file name "Informe_Gestion_2024", not a secret.
 - The store keeps no text of a field that the platform cannot find (`SessionField::can_keep_text`). The keys can then go to any other place, for example a remote desktop, or an app that draws its own text, such as Zed.
+  - When a later read of the same app shows a field with text, the session takes that field, and the store keeps the text that the user typed there (`docs/core/typing.md`, "Field without text at the start").
+- The store keeps the text of each field apart. When a read shows that the newest keys went to another field, such as the next cell of a spreadsheet, the session ends without them.
 - The store also keeps no text of a terminal panel in an app, such as the terminal of VS Code. A terminal can ask for a password that it does not show, and the keys still get to TypeAlike.
 - The place of a text is its web page in any browser, else its app.
 - A text that the user typed in full is a new text, also when an older text is the same, so a repeated message counts each time.

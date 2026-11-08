@@ -11,20 +11,36 @@ use super::{Engine, read_surroundings};
 const MAX_CHANGED_CHARS: usize = 2;
 
 impl Engine {
-    /// Reads the field of `desktop`, and takes its text before the caret when it shows the text
-    /// that the user typed since the last read, or that text with words that the app changed after
-    /// the user finished them.
-    pub(crate) fn follow_field(&mut self, desktop: &dyn Desktop) {
+    /// Reads the field of `desktop`. A session whose field held no text takes the field when it
+    /// shows text in the same app. Else the session takes the text before the caret when it shows
+    /// the text that the user typed since the last read, or that text with words that the app
+    /// changed after the user finished them. The session ends when the field shows only the newest
+    /// keys, because these keys went to another field. Returns whether the session took the field.
+    pub(crate) fn follow_field(&mut self, desktop: &dyn Desktop) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if !session.field.holds_text() {
+            return session.take_field_of(&read_surroundings(desktop));
+        }
+        self.follow_text_field(desktop);
+        false
+    }
+
+    fn follow_text_field(&mut self, desktop: &dyn Desktop) {
         let Some(session) = self.session.as_mut().filter(|session| session.can_follow_field()) else {
             return;
         };
         let Some(field_text) = read_surroundings(desktop).field_text else {
             return;
         };
-        if let Some(text_before) =
-            text_shown_by_field(&session.text_before, session.read_chars, &field_text.before_caret)
-        {
-            session.use_read_text(text_before);
+        let field_before = &field_text.before_caret;
+        let (text_before, read_chars) = (&session.text_before, session.read_chars);
+        if let Some(shown) = text_shown_by_field(text_before, read_chars, field_before) {
+            session.use_read_text(shown);
+        } else if let Some(earlier) = text_before_other_field(text_before, read_chars, field_before) {
+            session.use_read_text(earlier);
+            self.reset();
         }
     }
 }
@@ -51,6 +67,17 @@ fn text_shown_by_field(text_before: &str, read_chars: usize, field_before: &str)
         .map(|start| &field_before[start..])
         .find(|shown| *shown == typed || is_app_change_of(typed, shown))
         .map(|shown| format!("{read}{shown}"))
+}
+
+/// Returns the start of `text_before` before the end that `field_before` shows, when the field
+/// shows only an end of the text that the user typed after the first `read_chars` characters, and
+/// that start has a letter. The newest keys then went to another field, as the next cell of a
+/// spreadsheet after the edit of a cell stopped. An app can remove a list mark, such as "- ".
+fn text_before_other_field(text_before: &str, read_chars: usize, field_before: &str) -> Option<String> {
+    let earlier = text_before
+        .strip_suffix(field_before)
+        .filter(|earlier| !field_before.is_empty() && earlier.chars().count() >= read_chars)?;
+    earlier.contains(char::is_alphabetic).then(|| earlier.to_owned())
 }
 
 /// Whether `shown` is `typed` after an app changed some of its finished words: the same words, each

@@ -591,3 +591,175 @@ fn text_that_a_shortcut_deleted_before_the_input_settled_is_not_kept_at_a_click(
         Some(vec![mail_entry("The report is ready. Sorry for the")])
     );
 }
+
+const SHEET_APP: &str = "com.microsoft.Excel";
+const BROWSER_APP: &str = "com.google.Chrome";
+
+/// The grid of a spreadsheet, which holds no text. A typed key there opens the editor of the cell.
+fn sheet_grid() -> FakeDesktop {
+    FakeDesktop::default().in_app(SHEET_APP)
+}
+
+/// The editor of a cell of a spreadsheet, with `before_caret` before the caret.
+fn cell_editor(before_caret: &str) -> FakeDesktop {
+    FakeDesktop::with_field_text(before_caret).in_app(SHEET_APP)
+}
+
+fn sheet_entry(text: &str) -> HistoryEntry {
+    HistoryEntry {
+        app_id: SHEET_APP.to_owned(),
+        ..mail_entry(text)
+    }
+}
+
+/// Types [`TYPED_TEXT`] in the grid of a spreadsheet, takes the read `field_read` of the field when
+/// the input settles, and ends the session with a click. Returns the history to save.
+fn kept_after_typing_in_the_grid_and_a_read_of(field_read: &FakeDesktop) -> Option<Vec<HistoryEntry>> {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(&mut engine, &sheet_grid(), TYPED_TEXT);
+    engine.follow_field(field_read);
+    engine.reset();
+    engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+}
+
+#[test]
+fn field_that_shows_text_after_a_start_without_text_keeps_only_its_typed_end() {
+    let field_reads = [
+        cell_editor(TYPED_TEXT),
+        cell_editor(&format!("{}{TYPED_TEXT}", long_field())),
+        cell_editor("Total due"),
+        mail_desktop(TYPED_TEXT),
+        sheet_grid(),
+    ];
+
+    let saved = field_reads.map(|field_read| kept_after_typing_in_the_grid_and_a_read_of(&field_read));
+
+    assert_eq!(
+        saved,
+        [
+            Some(vec![sheet_entry(TYPED_TEXT)]),
+            Some(vec![sheet_entry(TYPED_TEXT)]),
+            None,
+            None,
+            None
+        ]
+    );
+}
+
+#[test]
+fn session_that_started_without_field_text_takes_the_place_of_the_field_that_a_read_shows() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(
+        &mut engine,
+        &FakeDesktop::default().in_app(BROWSER_APP),
+        TYPED_TEXT,
+    );
+    let mut text_area = FakeDesktop::with_field_text(TYPED_TEXT).in_app(BROWSER_APP);
+    text_area.surroundings.domain = Some("notes.example".to_owned());
+    text_area.surroundings.window_title = Some("Garden party".to_owned());
+    engine.follow_field(&text_area);
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![HistoryEntry {
+            app_id: BROWSER_APP.to_owned(),
+            domain: Some("notes.example".to_owned()),
+            typing_context: Some("garden party".to_owned()),
+            ..mail_entry(TYPED_TEXT)
+        }])
+    );
+}
+
+#[test]
+fn field_that_hides_the_line_of_its_caret_keeps_nothing_after_a_read_that_shows_text() {
+    let mut hidden_line_with_text = FakeDesktop::with_field_text(TYPED_TEXT).in_app(EDITOR_APP);
+    hidden_line_with_text.surroundings.is_caret_line_hidden = true;
+    let starts = [terminal_of_an_editor(), FakeDesktop::default().in_app(EDITOR_APP)];
+
+    let saved = starts.map(|start| {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        type_text_in(&mut engine, &start, TYPED_TEXT);
+        engine.follow_field(&hidden_line_with_text);
+        engine.reset();
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+    });
+
+    assert_eq!(saved, [None, None]);
+}
+
+#[test]
+fn read_of_a_new_cell_that_shows_only_the_newest_keys_keeps_the_text_of_each_cell_apart() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(&mut engine, &cell_editor(""), "Quarterly revenue by region");
+    engine.follow_field(&cell_editor("Quarterly revenue by region"));
+    engine.on_key(Key::Escape, Press::First, &sheet_grid());
+    type_text_in(&mut engine, &sheet_grid(), "Total due");
+    engine.follow_field(&cell_editor("Total due"));
+    type_text_in(&mut engine, &cell_editor("Total due"), " in March");
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![
+            sheet_entry("Quarterly revenue by region"),
+            sheet_entry("Total due in March")
+        ])
+    );
+}
+
+#[test]
+fn read_that_shows_the_typed_text_late_or_without_its_list_mark_keeps_the_session() {
+    let field_reads = ["- Buy milk and eggs", "- Buy milk and", "", "Buy milk and eggs"];
+
+    let saved = field_reads.map(|field_read| {
+        let mut engine = engine_with(&kept_settings(KeptTexts::All));
+        type_text_in(&mut engine, &mail_desktop(""), "- Buy milk and eggs");
+        engine.follow_field(&mail_desktop(field_read));
+        type_text_in(&mut engine, &mail_desktop(""), " today");
+        engine.reset();
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+    });
+
+    assert_eq!(
+        saved,
+        field_reads.map(|_| Some(vec![mail_entry("- Buy milk and eggs today")]))
+    );
+}
+
+#[test]
+fn read_of_a_field_that_shows_only_the_end_of_its_text_near_the_caret_keeps_the_session() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(&mut engine, &mail_desktop(""), "Hi Ana, the plan is ready");
+    engine.follow_field(&mail_desktop("Hi Ana, the plan is ready"));
+    type_text_in(&mut engine, &mail_desktop(""), " today");
+    engine.follow_field(&mail_desktop("plan is ready today"));
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![mail_entry("Hi Ana, the plan is ready today")])
+    );
+}
+
+#[test]
+fn session_on_the_new_line_after_enter_stays_one_text_after_the_reads_of_the_settles() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(&mut engine, &mail_desktop(""), "Hi Ana,");
+    engine.follow_field(&mail_desktop("Hi Ana,"));
+    engine.on_key(Key::Enter, Press::First, &mail_desktop("Hi Ana,"));
+    engine.suggest_on_new_line(&mail_desktop("Hi Ana,\n"));
+    engine.follow_field(&mail_desktop("Hi Ana,\n"));
+    type_text_in(&mut engine, &mail_desktop(""), TYPED_TEXT);
+    engine.follow_field(&mail_desktop(&format!("Hi Ana,\n{TYPED_TEXT}")));
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![mail_entry(&format!("Hi Ana,\n{TYPED_TEXT}"))])
+    );
+}
