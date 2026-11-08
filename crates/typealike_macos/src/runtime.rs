@@ -26,7 +26,7 @@ use typealike_core::desktop::{
 };
 use typealike_core::inference::Backend;
 use typealike_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
-use typealike_core::settings::{ClipboardAccess, Settings};
+use typealike_core::settings::{ClipboardAccess, OcrLevel, Settings};
 use typealike_core::settings_window::view::{SettingsInput, SettingsView};
 use typealike_core::setup::SetupView;
 use typealike_core::setup::TrayPlace;
@@ -48,7 +48,7 @@ use crate::language::ui_language;
 use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
-use crate::ocr;
+use crate::ocr::{self, AccurateWarmUp};
 use crate::overlay::{self, Overlay};
 use crate::permissions;
 use crate::runtime::target::{RuntimeTarget, observe_workspace};
@@ -80,6 +80,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         playground: PlaygroundPage::of_build(),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read Low Power Mode");
+    let mut ocr_warm_up = AccurateWarmUp::default();
+    ocr_warm_up.start_for(settings.screen_text.ocr_level);
     let controller = Controller::new(settings, services, startup, &deliver);
     let menu_bar = MenuBarItem::add(
         &controller.tray_view(),
@@ -94,6 +96,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         shell: AppKitShell {
             focus: FocusTracker::new(),
             screen_text: ScreenTextReader::new(Arc::clone(&deliver)),
+            ocr_warm_up,
             clipboard: ClipboardWatch::start(),
             menu_bar,
             overlay: Overlay::new(main_thread),
@@ -369,6 +372,7 @@ impl Runtime {
 struct AppKitShell {
     focus: FocusTracker,
     screen_text: ScreenTextReader,
+    ocr_warm_up: AccurateWarmUp,
     clipboard: ClipboardWatch,
     menu_bar: MenuBarItem,
     overlay: Overlay,
@@ -632,6 +636,10 @@ impl Shell for AppKitShell {
     fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
         self.screen_text
             .read(read, source, self.focus.frontmost_process());
+    }
+
+    fn warm_up_ocr(&mut self, level: OcrLevel) {
+        self.ocr_warm_up.start_for(level);
     }
 
     fn ask_for_permission(&mut self, permission: Permission) {

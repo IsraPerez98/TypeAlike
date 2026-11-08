@@ -27,8 +27,8 @@ use crate::release::{
     ReleaseReadFailed, ReleaseSink, ReleaseTag, SelfUpdate,
 };
 use crate::settings::{
-    Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords,
-    Settings, SettingsStore, Setup, WordChoice, WriterName,
+    Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings,
+    ReplyWords, Settings, SettingsStore, Setup, WordChoice, WriterName,
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
 use crate::setup::{SetupView, TrayPlace};
@@ -61,6 +61,7 @@ pub(super) enum Call {
     CloseSetup,
     UseClipboardAccess(ClipboardAccess),
     ReadScreen(ScreenReadId, ScreenSource),
+    WarmUpOcr(OcrLevel),
     AskForPermission(Permission),
     OpenWebPage(String),
     Quit,
@@ -191,6 +192,10 @@ impl Shell for FakeShell {
 
     fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
         self.calls.push(Call::ReadScreen(read, source));
+    }
+
+    fn warm_up_ocr(&mut self, level: OcrLevel) {
+        self.calls.push(Call::WarmUpOcr(level));
     }
 
     fn ask_for_permission(&mut self, permission: Permission) {

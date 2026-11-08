@@ -120,6 +120,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
 - The level of the Copied and screen text pane (fast or accurate) shows only when the OCR of the platform has levels (`OcrLevels`).
+- When the user picks a level, the controller tells the shell (`Shell::warm_up_ocr`), so that the platform can load the OCR of that level before its first read.
 
 ## Preparation of the prompt
 

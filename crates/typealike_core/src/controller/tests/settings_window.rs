@@ -8,14 +8,15 @@ use crate::inference::{Backend, InferenceRequest, SentenceEnd};
 use crate::key::Key;
 use crate::localization::UiLanguage;
 use crate::settings::{
-    ClipboardAccess, PromptPreparation, ScreenTextAccess, ScreenTextSettings, Settings, SuggestionPlaces,
+    ClipboardAccess, OcrLevel, PromptPreparation, ScreenTextAccess, ScreenTextSettings, Settings,
+    SuggestionPlaces,
 };
 use crate::settings_window::general::{
     BACKEND, CLIPBOARD, PREPARATION, SUGGESTION_MODEL, UI_LANGUAGE, WRITER_NAME,
 };
 use crate::settings_window::models::SEARCH;
 use crate::settings_window::playground::MODEL;
-use crate::settings_window::screen_text::SCREEN_TEXT;
+use crate::settings_window::screen_text::{OCR_LEVEL, SCREEN_TEXT};
 use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput, SettingsView};
 use crate::test_support::{mail_app, suggestion_app, suggestion_site, writing_rule_breaks};
 
@@ -85,6 +86,19 @@ fn general_change_gives_clipboard_access_to_shell() {
         harness
             .take_calls()
             .contains(&Call::UseClipboardAccess(ClipboardAccess::Allowed))
+    );
+}
+
+#[test]
+fn picked_ocr_level_warms_up_the_ocr_at_that_level() {
+    let mut harness = Harness::new(Settings::default());
+
+    harness.pick(OCR_LEVEL, 1);
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::WarmUpOcr(OcrLevel::Accurate))
     );
 }
 

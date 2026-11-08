@@ -33,7 +33,7 @@ pub enum ScreenTextAction {
 pub(crate) const SCREEN_TEXT: &str = "screen-text";
 const APP_SWITCH_PREFIX: &str = "screen-text-app:";
 const OCR_PERMISSION: &str = "screen-text-ocr-permission";
-const OCR_LEVEL: &str = "screen-text-ocr-level";
+pub(crate) const OCR_LEVEL: &str = "screen-text-ocr-level";
 const OCR_LEVEL_CHOICES: [(OcrLevel, &str); 2] = [
     (OcrLevel::Fast, "screen-text-recognition-fast"),
     (OcrLevel::Accurate, "screen-text-recognition-accurate"),

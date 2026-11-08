@@ -56,6 +56,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - When the frame of the AX window is unknown, or the field has no part in it, the OCR uses the full frame of the field.
 - The OCR keeps the lines of its last read, and reads again only when the pixels of the band change (`pixels_hash`). The pixels of the field do not count, so that typing does not start a new OCR.
 - In a field that shows its text only on the screen, the OCR reads the text of the field, so its pixels count. Thus a new answer in a terminal starts a new OCR.
+- Vision loads the model of the accurate level at its first recognition in a process. In a new program, such as a new build, the first load took 24 to 53 s. Each later process of that program took about 75 ms. The screen reads wait for the load.
+- Thus the accurate level gets a warm-up (`AccurateWarmUp`): a recognition of the letters "HI", drawn as black bars in a small image, on a dispatch queue with a low priority. A blank image does not load the model that reads the letters.
+- The warm-up starts when TypeAlike starts with the accurate level, or when the user picks it (`Shell::warm_up_ocr`). It runs once in each process. The log shows its time at the debug level.
 
 ## Fields
 

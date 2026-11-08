@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::{Ghost, GhostView};
 use crate::app::{BadgeView, TrayView};
 use crate::desktop::{Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
-use crate::settings::ClipboardAccess;
+use crate::settings::{ClipboardAccess, OcrLevel};
 use crate::settings_window::view::SettingsView;
 use crate::setup::SetupView;
 
@@ -133,6 +133,11 @@ pub trait Shell: Desktop {
     /// [`Controller::on_delivery`](super::Controller::on_delivery) as a
     /// [`Delivery::Screen`](super::Delivery::Screen).
     fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource);
+
+    /// Loads what the OCR at `level` needs before its first read, so that the first OCR read does
+    /// not wait for it. The controller calls it when the user picks a level. The default does
+    /// nothing, for an OCR that needs no warm-up.
+    fn warm_up_ocr(&mut self, _level: OcrLevel) {}
 
     /// Asks the user for `permission`: shows the prompt of the system, or the place in the system
     /// settings where the user gives it. When the OS keeps an old grant that it refuses, the shell

@@ -4,17 +4,19 @@
 
 use std::cmp::Reverse;
 use std::hash::{DefaultHasher, Hasher};
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
+use dispatch2::{DispatchQoS, DispatchQueue, GlobalQueueIdentifier};
 use objc2::AllocAnyThread;
 use objc2::rc::Retained;
 use objc2_app_kit::NSWorkspace;
-use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
+use objc2_core_foundation::{CFData, CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
-    CGDataProvider, CGImage, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
+    CGBitmapInfo, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage,
+    CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
 use objc2_screen_capture_kit::{
@@ -36,6 +38,38 @@ const BAND_POINTS: f64 = 600.0;
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(3);
 const SCREEN_RECORDING_SETTINGS: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+const WARM_UP_WIDTH: usize = 120;
+const WARM_UP_HEIGHT: usize = 40;
+/// The bars of the letters "HI" in the warm-up image, which Vision reads as "HI".
+const WARM_UP_BARS: [PixelRect; 4] = [
+    PixelRect {
+        left: 10,
+        top: 10,
+        right: 13,
+        bottom: 30,
+    },
+    PixelRect {
+        left: 22,
+        top: 10,
+        right: 25,
+        bottom: 30,
+    },
+    PixelRect {
+        left: 10,
+        top: 19,
+        right: 25,
+        bottom: 22,
+    },
+    PixelRect {
+        left: 32,
+        top: 10,
+        right: 35,
+        bottom: 30,
+    },
+];
+const GRAY_PIXEL_BITS: usize = 8;
+const BLACK: u8 = 0;
+const WHITE: u8 = u8::MAX;
 
 /// Tells whether the user gave TypeAlike the Screen & System Audio Recording permission.
 pub(crate) fn is_permitted() -> bool {
@@ -140,6 +174,80 @@ impl Ocr {
         let lines = self.last.as_ref()?.lines.iter();
         Some(screen_text_of(lines, capture.band.origin, &field))
     }
+}
+
+/// The warm-up of the Accurate level, once in each process. Vision loads the model of that level
+/// at the first recognition of a process, which took close to a minute in a new build.
+#[derive(Debug, Default)]
+pub(crate) struct AccurateWarmUp {
+    is_started: bool,
+}
+
+impl AccurateWarmUp {
+    /// Starts the warm-up the first time that `level` is Accurate, on a queue with a low priority
+    /// and off the thread of the screen reads.
+    pub(crate) fn start_for(&mut self, level: OcrLevel) {
+        if self.is_due_for(level) {
+            DispatchQueue::global_queue(GlobalQueueIdentifier::QualityOfService(DispatchQoS::Utility))
+                .exec_async(warm_up_accurate);
+        }
+    }
+
+    /// Tells whether the warm-up starts for `level`, and then counts it as started.
+    fn is_due_for(&mut self, level: OcrLevel) -> bool {
+        let is_due = level == OcrLevel::Accurate && !self.is_started;
+        self.is_started |= is_due;
+        is_due
+    }
+}
+
+/// Recognizes the letters of a small image at the Accurate level, so that Vision loads its model.
+fn warm_up_accurate() {
+    let started = Instant::now();
+    let lines = warm_up_image().and_then(|image| recognize(&image, CGSize::ZERO, OcrLevel::Accurate));
+    tracing::debug!(
+        duration = ?started.elapsed(),
+        lines = lines.map(|lines| lines.len()),
+        "OCR warm-up of the accurate level"
+    );
+}
+
+/// Makes the image of the warm-up from [`warm_up_pixels`].
+fn warm_up_image() -> Option<CFRetained<CGImage>> {
+    let pixels = CFData::from_bytes(&warm_up_pixels());
+    let provider = CGDataProvider::with_cf_data(Some(&pixels))?;
+    let gray = CGColorSpace::new_device_gray()?;
+    // SAFETY: the provider holds one gray byte for each pixel, and the decode array can be null.
+    unsafe {
+        CGImage::new(
+            WARM_UP_WIDTH,
+            WARM_UP_HEIGHT,
+            GRAY_PIXEL_BITS,
+            GRAY_PIXEL_BITS,
+            WARM_UP_WIDTH,
+            Some(&gray),
+            CGBitmapInfo::empty(),
+            Some(&provider),
+            ptr::null(),
+            false,
+            CGColorRenderingIntent::RenderingIntentDefault,
+        )
+    }
+}
+
+/// The gray pixels of the warm-up image, row by row: the [`WARM_UP_BARS`] in black on white.
+/// A blank image does not load the model that reads the letters.
+fn warm_up_pixels() -> Vec<u8> {
+    (0..WARM_UP_HEIGHT)
+        .flat_map(|row| {
+            (0..WARM_UP_WIDTH).map(move |column| {
+                let is_bar = WARM_UP_BARS.iter().any(|bar| {
+                    (bar.left..bar.right).contains(&column) && (bar.top..bar.bottom).contains(&row)
+                });
+                if is_bar { BLACK } else { WHITE }
+            })
+        })
+        .collect()
 }
 
 /// What the AX window of the focused field tells about the window to capture.
@@ -582,6 +690,21 @@ mod tests {
                 frame(100.0, 50.0, 1000.0, 680.0)
             ]
         );
+    }
+
+    #[test]
+    fn accurate_warm_up_is_due_only_at_the_first_accurate_level() {
+        let mut warm_up = AccurateWarmUp::default();
+        let levels = [
+            OcrLevel::Fast,
+            OcrLevel::Accurate,
+            OcrLevel::Fast,
+            OcrLevel::Accurate,
+        ];
+
+        let due = levels.map(|level| warm_up.is_due_for(level));
+
+        assert_eq!(due, [false, true, false, false]);
     }
 
     #[test]

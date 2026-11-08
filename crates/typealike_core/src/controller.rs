@@ -496,6 +496,10 @@ impl Controller {
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
                 shell.ask_for_permission(Permission::ScreenRecording);
             }
+            Some(PaneAction::ScreenText(ScreenTextAction::SelectOcrLevel(level))) => {
+                self.on_screen_text_action(ScreenTextAction::SelectOcrLevel(level));
+                shell.warm_up_ocr(level);
+            }
             Some(PaneAction::ScreenText(action)) => self.on_screen_text_action(action),
             Some(PaneAction::Personalization(action)) => self.on_personalization_action(action),
             Some(PaneAction::EnergySaving(action)) => self.on_energy_saving_action(action, shell),
