@@ -107,7 +107,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - While the switch "Stop in private windows" is on, a field in a private window of a browser works as a field of a place that is off (`private_window`, `FieldPlace::is_private_window`). TypeAlike starts no session there, reads no screen, prepares no prompt and keeps no earlier writing.
 - While the switch is off, a private window works as any other window of its browser.
 - A session in a private window ends when the user turns the switch on, and the earlier writing keeps none of its text. A session reads at its start whether its field is in a private window (`SessionField`).
-- The badge there shows as paused ("TypeAlike (off here)"). The window never goes into the Apps and websites pane, because no ghost text shows there.
+- While the switch is on, the badge there shows as paused ("TypeAlike (off here)") and no ghost text shows. Thus the window adds no app and no website to the Apps and websites pane.
 - No browser tells a private window in a way that does not depend on the language. Thus core reads the end of the window title in English, Spanish, Portuguese, French, German and Italian.
   - Chrome, Chromium and Vivaldi: "(Incognito)". Brave: "(Private)". Opera: "(Private)". Edge: "(InPrivate)", or "[InPrivate]" anywhere in the title.
   - Firefox: "— Private Browsing", and on Windows "— Mozilla Firefox Private Browsing".
