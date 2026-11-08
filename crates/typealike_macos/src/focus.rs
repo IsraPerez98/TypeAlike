@@ -5,7 +5,7 @@ mod caret;
 mod surroundings;
 
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
-use objc2_application_services::AXUIElement;
+use objc2_application_services::{AXError, AXUIElement};
 use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CGRect};
 use typealike_core::controller::FocusChange;
 use typealike_core::desktop::{Field, Surroundings};
@@ -47,6 +47,9 @@ struct FrontmostApp {
     app_id: Option<String>,
     /// Whether TypeAlike may observe and type into the app, which is not TypeAlike itself.
     is_eligible: bool,
+    /// Whether the app did not answer the request for its web content tree yet, as an Electron app
+    /// that still starts does.
+    is_web_content_asleep: bool,
 }
 
 impl FocusTracker {
@@ -67,6 +70,7 @@ impl FocusTracker {
             .as_ref()
             .map(|application| application.processIdentifier());
         if process == self.frontmost_process() {
+            self.wake_web_content_still_asleep(application.as_deref());
             return FocusChange::Unchanged;
         }
         self.frontmost = application
@@ -79,11 +83,26 @@ impl FocusTracker {
                     .bundleIdentifier()
                     .map(|identifier| identifier.to_string()),
                 is_eligible: !is_own_process(process),
+                is_web_content_asleep: true,
             });
-        if let Some(application) = application.filter(|_| self.is_frontmost_eligible()) {
-            wake_web_accessibility(&application);
-        }
+        self.wake_web_content_still_asleep(application.as_deref());
         FocusChange::Changed
+    }
+
+    /// Asks the frontmost app for its web content tree until it answers. An app that still starts
+    /// cannot answer the first request, and it builds no tree without one.
+    fn wake_web_content_still_asleep(&mut self, application: Option<&NSRunningApplication>) {
+        let Some(frontmost) = self
+            .frontmost
+            .as_mut()
+            .filter(|app| app.is_eligible && app.is_web_content_asleep)
+        else {
+            return;
+        };
+        let Some(application) = application else {
+            return;
+        };
+        frontmost.is_web_content_asleep = !wake_web_accessibility(application);
     }
 
     /// The process of the frontmost app when [`refresh`](Self::refresh) looked last.
@@ -155,15 +174,17 @@ impl FocusTracker {
     }
 }
 
-/// Asks a Chromium or Electron app to build the accessibility tree of its web content. These apps
-/// skip that tree until an assistive app sets an attribute on them. Other apps ignore the request.
-fn wake_web_accessibility(application: &NSRunningApplication) {
+/// Asks a Chromium or Electron app to build the accessibility tree of its web content, and returns
+/// whether the app answered. These apps skip that tree until an assistive app sets an attribute on
+/// them. Other apps answer that they do not know the attribute.
+fn wake_web_accessibility(application: &NSRunningApplication) -> bool {
     let bundle_identifier = application
         .bundleIdentifier()
         .map(|identifier| identifier.to_string());
     let attribute = web_accessibility_attribute(bundle_identifier.as_deref());
     // SAFETY: plain call.
     let element = unsafe { AXUIElement::new_application(application.processIdentifier()) };
+    bound_queries(&element);
     // SAFETY: plain call on a valid element, with a CFBoolean value as both attributes expect.
     let error =
         unsafe { element.set_attribute_value(&CFString::from_static_str(attribute), CFBoolean::new(true)) };
@@ -172,6 +193,7 @@ fn wake_web_accessibility(application: &NSRunningApplication) {
         code = error.0,
         "asked the frontmost app for its web content"
     );
+    error != AXError::CannotComplete
 }
 
 /// Picks the attribute that wakes the web content tree of the app with `bundle_identifier`.

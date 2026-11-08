@@ -55,6 +55,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 ## Fields
 
+- Chromium browsers and Electron apps build the AX tree of their web content only after an assistive app asks for it. When an app comes to the front, the focus tracker sets `AXEnhancedUserInterface` on a Chromium browser and `AXManualAccessibility` on any other app (`wake_web_accessibility`).
+- An Electron app that still starts answers that request with `CannotComplete`, and then it builds no tree. Thus the tracker asks again at each key and each settled input until the app answers (`FrontmostApp::is_web_content_asleep`). The request waits at most as long as the other AX queries (`bound_queries`).
 - Each look at the caret also gives the frame of the focused field.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
