@@ -99,8 +99,18 @@ fn is_secret_token(token: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('-'));
     let is_mixed = token.len() >= MIN_MIXED_TOKEN_CHARS
         && token.contains(|character: char| character.is_ascii_alphabetic())
-        && token.contains(|character: char| character.is_ascii_digit());
+        && token.contains(|character: char| character.is_ascii_digit())
+        && !is_name_of_plain_parts(token);
     has_secret_prefix || is_slack_token || is_mixed
+}
+
+/// Whether each part of `token` between its dashes and underscores has only letters or only
+/// digits, as a file name such as `Report_Q_2024` has. A part of a secret mixes them.
+fn is_name_of_plain_parts(token: &str) -> bool {
+    token.split(['-', '_']).all(|part| {
+        part.chars().all(|character| character.is_ascii_alphabetic())
+            || part.chars().all(|character| character.is_ascii_digit())
+    })
 }
 
 /// The spans of the runs of 13 to 19 digits, in groups that one space or dash divides.
@@ -178,6 +188,8 @@ mod tests {
                 "internationalization and end-to-end-encryption",
             ),
             ("order 1Z999AA10123456 shipped", "order 1Z999AA10123456 shipped"),
+            ("file Informe_Gestion_2024.docx", "file Informe_Gestion_2024.docx"),
+            ("key abc123-def456-ghi789-jkl0", "key [redacted]"),
         ];
 
         let redactions = cases.map(|(text, _)| redacted(text));
