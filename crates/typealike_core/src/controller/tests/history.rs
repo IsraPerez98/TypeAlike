@@ -181,7 +181,7 @@ fn text_typed_in_an_off_app_is_not_saved() {
         ..history_on()
     });
     type_in_mail(&mut harness);
-    harness.press(Key::Other);
+    harness.controller.on_context_lost(&mut harness.shell);
 
     harness.settle_input();
 
@@ -205,7 +205,7 @@ fn text_of_a_session_whose_app_turns_off_is_not_saved() {
         },
         &mut harness.shell,
     );
-    harness.press(Key::Other);
+    harness.controller.on_context_lost(&mut harness.shell);
 
     harness.settle_input();
 
