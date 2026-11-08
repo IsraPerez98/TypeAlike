@@ -1,7 +1,7 @@
 //! Tests of the menu of the badge at the caret.
 
 use super::harness::{Call, Harness, history_on, suggestion_settings};
-use crate::app::{BadgeCommand, TrayGlyph};
+use crate::app::{BadgeCommand, BadgeItem, TrayGlyph};
 use crate::inference::InferenceRequest;
 use crate::key::{Disposition, Key};
 use crate::settings::{HistoryScope, Settings, SuggestionPlaces};
@@ -277,4 +277,42 @@ fn tab_in_an_off_app_reaches_the_app() {
     let disposition = harness.press(Key::Tab);
 
     assert_eq!(disposition, Disposition::Pass);
+}
+
+const EXCEL_APP: &str = "com.microsoft.Excel";
+
+#[test]
+fn tab_in_a_spreadsheet_reaches_the_app() {
+    let mut harness = Harness::new(suggestion_settings());
+    harness.focus_text_field_of(EXCEL_APP, "Microsoft Excel");
+    harness.show("est regards");
+
+    let disposition = harness.press(Key::Tab);
+
+    assert_eq!(disposition, Disposition::Pass);
+}
+
+#[test]
+fn badge_menu_in_a_spreadsheet_offers_to_turn_on_its_suggestions() {
+    let mut harness = Harness::new(suggestion_settings());
+    harness.focus_text_field_of(EXCEL_APP, "Microsoft Excel");
+    harness.press(Key::Char('H'));
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness
+            .controller
+            .badge_menu()
+            .and_then(|menu| menu.items().nth(1).cloned()),
+        Some(BadgeItem {
+            label: "Show suggestions in Microsoft Excel".to_owned(),
+            command: BadgeCommand::SwitchAppSuggestions {
+                app_id: EXCEL_APP.to_owned(),
+                is_on: true,
+            },
+            is_checked: false,
+            is_enabled: true,
+        })
+    );
 }

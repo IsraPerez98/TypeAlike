@@ -236,7 +236,7 @@ fn suggestion_places_read_their_apps_and_websites() {
 }
 
 #[test]
-fn settings_file_without_suggestion_places_shows_suggestions_everywhere() {
+fn settings_file_without_suggestion_places_gives_the_default_places() {
     let files = [
         r#"{ "screen_text": { "access": "allowed", "apps": [] } }"#,
         r#"{ "suggestion_places": { "apps": [] } }"#,

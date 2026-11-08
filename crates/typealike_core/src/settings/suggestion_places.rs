@@ -1,7 +1,7 @@
 //! The settings of the Apps and websites pane: the apps and the websites where suggestions show.
 
 use crate::settings::ScreenTextApp;
-use crate::settings::known_apps::insert_in_name_order;
+use crate::settings::known_apps::{insert_in_name_order, is_spreadsheet};
 
 /// An app of the Apps and websites pane, and whether suggestions show in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,13 +19,13 @@ pub struct SuggestionApp {
 }
 
 impl SuggestionApp {
-    /// The entry of `app`, where the user types, which is on.
+    /// The entry of `app`, where the user types, which is on unless the app is a spreadsheet.
     pub(crate) fn of(app: &ScreenTextApp) -> Self {
         Self {
             app_id: app.app_id.clone(),
             app_name: app.app_name.clone(),
             app_path: app.app_path.clone(),
-            is_on: true,
+            is_on: !is_spreadsheet(&app.app_id),
         }
     }
 }
@@ -65,7 +65,7 @@ pub struct SuggestionPlaces {
 impl SuggestionPlaces {
     /// Whether suggestions show in a field of the app with `app_id`, on the website `host` if any.
     /// The app and the website must both be on. An app or a website that is not in its list yet is
-    /// on.
+    /// on, unless the app is a spreadsheet.
     ///
     /// ```
     /// use typealike_core::settings::{SuggestionPlaces, SuggestionSite};
@@ -77,6 +77,7 @@ impl SuggestionPlaces {
     ///
     /// assert!(places.allows(Some("com.apple.Safari"), Some("mail.example")));
     /// assert!(!places.allows(Some("com.apple.Safari"), Some("bank.example")));
+    /// assert!(!places.allows(Some("com.microsoft.Excel"), None));
     /// ```
     #[must_use]
     pub fn allows(&self, app_id: Option<&str>, host: Option<&str>) -> bool {
@@ -84,7 +85,7 @@ impl SuggestionPlaces {
             self.apps
                 .iter()
                 .find(|app| app.app_id == app_id)
-                .is_none_or(|app| app.is_on)
+                .map_or_else(|| !is_spreadsheet(app_id), |app| app.is_on)
         });
         let is_site_on = host.is_none_or(|host| {
             self.sites
@@ -148,6 +149,48 @@ mod tests {
                 ..suggestion_app("com.1password.1password", "1Password", true)
             }
         );
+    }
+
+    #[test]
+    fn new_app_entry_is_on_unless_the_app_is_a_spreadsheet() {
+        let apps = [
+            ("com.microsoft.Excel", "Microsoft Excel"),
+            ("EXCEL.EXE", "Excel"),
+            ("com.apple.iWork.Numbers", "Numbers"),
+            ("com.apple.mail", "Mail"),
+        ];
+
+        let is_on =
+            apps.map(|(app_id, app_name)| SuggestionApp::of(&screen_text_app(app_id, app_name, true)).is_on);
+
+        assert_eq!(is_on, [false, false, false, true]);
+    }
+
+    #[test]
+    fn app_without_an_entry_is_on_unless_it_is_a_spreadsheet() {
+        let places = SuggestionPlaces::default();
+
+        let allowed = [
+            "com.microsoft.Excel",
+            "EXCEL.EXE",
+            "com.apple.iWork.Numbers",
+            "com.apple.mail",
+        ]
+        .map(|app_id| places.allows(Some(app_id), None));
+
+        assert_eq!(allowed, [false, false, false, true]);
+    }
+
+    #[test]
+    fn app_entry_that_is_on_turns_on_a_spreadsheet() {
+        let places = places(
+            vec![suggestion_app("com.microsoft.Excel", "Microsoft Excel", true)],
+            Vec::new(),
+        );
+
+        let is_allowed = places.allows(Some("com.microsoft.Excel"), None);
+
+        assert!(is_allowed);
     }
 
     #[test]

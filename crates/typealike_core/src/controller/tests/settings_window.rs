@@ -344,6 +344,28 @@ fn shown_suggestion_adds_the_app_and_the_website_to_the_apps_and_websites_pane()
 }
 
 #[test]
+fn badge_in_a_spreadsheet_adds_the_app_to_the_apps_and_websites_pane_with_its_switch_off() {
+    let mut harness = Harness::new(Settings::default());
+    harness.focus_text_field_of("com.microsoft.Excel", "Microsoft Excel");
+    harness.press(Key::Char('H'));
+    harness.settle_caret();
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness
+            .saved()
+            .pop()
+            .map(|settings| settings.suggestion_places.apps),
+        Some(vec![suggestion_app(
+            "com.microsoft.Excel",
+            "Microsoft Excel",
+            false
+        )])
+    );
+}
+
+#[test]
 fn key_without_a_suggestion_adds_no_app_and_no_website() {
     let mut harness = Harness::new(Settings::default());
     harness.focus_text_field_of("com.apple.mail", "Mail");

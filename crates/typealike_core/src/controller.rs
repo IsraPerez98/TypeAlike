@@ -766,6 +766,20 @@ impl Controller {
         }
     }
 
+    /// Adds the app where the user types to the Apps and websites pane with its switch off, when
+    /// its suggestions are off by default, such as in a spreadsheet, and the pane does not have it.
+    /// Thus the user can turn it on in the pane or in the badge menu.
+    fn add_off_by_default_app(&mut self) {
+        let off_app = self
+            .app
+            .typed_app()
+            .map(SuggestionApp::of)
+            .filter(|app| !app.is_on);
+        if let Some(app) = off_app {
+            self.has_unsaved_app |= self.suggestion_places.add_app(&app);
+        }
+    }
+
     /// Keeps the settings of the Apps and websites, Copied and screen text, Personalization and Energy saving
     /// panes for the next run, and uses them.
     fn keep_pane_settings(&mut self) {
@@ -1135,7 +1149,8 @@ impl Controller {
 
     /// Shows the waiting ghost text and the badge at the caret of `read`, with the ghost text fit
     /// into the field of `read`. When the ghost text shows, its app and its website go into the
-    /// lists of the panes.
+    /// lists of the panes. Else an app whose suggestions are off by default goes into the list of
+    /// the Apps and websites pane.
     fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
         let placement = if self.app.is_caret_at_line_end() {
             GhostPlacement::AfterCaret
@@ -1150,6 +1165,8 @@ impl Controller {
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {
             self.add_suggested_place();
+        } else {
+            self.add_off_by_default_app();
         }
     }
 

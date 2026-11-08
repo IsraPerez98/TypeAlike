@@ -85,6 +85,14 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The Copied and screen text and Personalization panes add the app at the same time. Thus a window without a text field, such as a game, never goes into these lists.
 - A website matches only its exact host.
 
+### Spreadsheets
+
+- Suggestions are off in a spreadsheet app (`SPREADSHEETS` in `known_apps`): Microsoft Excel and Apple Numbers. Thus Tab and Escape keep their meaning in the spreadsheet: Tab moves to the next cell, and Escape cancels the cell edit. A cell holds a short entry, so a suggestion helps little there.
+- The app matches by the start of its id in lowercase: the bundle identifier on macOS and the program file name on Windows.
+- When the badge first shows in the app, TypeAlike adds the app to the list with its switch off. The pane and the badge menu ("Show suggestions in <app>") then show the switch, and the user can turn it on.
+- An entry of the list decides for its app. Thus an entry that is on overrides the default.
+- The Copied and screen text and Personalization panes add the app only when its first ghost text shows.
+
 ### A place that is off
 
 - A field whose app or website is off works as a paused field: a key gets no request, no ghost text and no phrase, and Tab goes to the app.

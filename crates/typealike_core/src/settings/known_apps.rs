@@ -1,5 +1,5 @@
-//! The apps of the settings: the password managers, the terminals and the database tools that
-//! TypeAlike knows by their app id, and the order of the app lists.
+//! The apps of the settings: the password managers, the terminals, the database tools and the
+//! spreadsheets that TypeAlike knows by their app id, and the order of the app lists.
 
 /// Adds `app` to `apps` in the alphabetical order of the names that `app_name` gives, unless
 /// `apps` has an app with the id that `app_id` gives. Returns whether `apps` changed.
@@ -58,6 +58,16 @@ const PASSWORD_MANAGERS: [&str; 24] = [
 pub(super) fn is_terminal(app_id: &str) -> bool {
     starts_with_any(app_id, &TERMINALS)
 }
+
+/// Whether the app with `app_id` is a spreadsheet, where suggestions are off unless the user
+/// turns them on. Its id matches by its start in lowercase.
+pub(super) fn is_spreadsheet(app_id: &str) -> bool {
+    starts_with_any(app_id, &SPREADSHEETS)
+}
+
+/// The spreadsheets that TypeAlike knows, by the start of their app id in lowercase: the bundle
+/// identifier on macOS and the program file name on Windows.
+const SPREADSHEETS: [&str; 3] = ["com.microsoft.excel", "com.apple.iwork.numbers", "excel.exe"];
 
 fn starts_with_any(app_id: &str, starts: &[&str]) -> bool {
     let app_id = app_id.to_lowercase();
