@@ -1,7 +1,7 @@
 //! The settings of the Personalization pane: what suggestions learn from the earlier writing.
 
 use crate::settings::ScreenTextApp;
-use crate::settings::known_apps::{insert_in_name_order, is_password_manager, is_terminal};
+use crate::settings::known_apps::{insert_in_name_order, is_database_tool, is_password_manager, is_terminal};
 
 /// Whether TypeAlike saves the text that the user writes, for the suggestions to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -120,7 +120,7 @@ pub struct PersonalizationSettings {
 impl PersonalizationSettings {
     /// Which earlier writing the app with `app_id` gives and gets. Each app is off while the main
     /// switch is off. An app that is not in the list yet shares with all apps, unless it is a
-    /// password manager or a terminal.
+    /// password manager, a terminal or a database tool.
     ///
     /// ```
     /// use typealike_core::settings::{HistoryAccess, HistoryScope, PersonalizationSettings};
@@ -152,7 +152,7 @@ impl PersonalizationSettings {
 }
 
 fn default_scope(app_id: &str) -> HistoryScope {
-    if is_password_manager(app_id) || is_terminal(app_id) {
+    if is_password_manager(app_id) || is_terminal(app_id) || is_database_tool(app_id) {
         HistoryScope::Off
     } else {
         HistoryScope::AllApps
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn new_history_app_shares_with_all_apps_unless_it_is_a_password_manager_or_a_terminal() {
+    fn new_history_app_shares_with_all_apps_unless_it_is_a_password_manager_terminal_or_database_tool() {
         let cases = [
             ("com.apple.mail", HistoryScope::AllApps),
             ("com.1password.1password", HistoryScope::Off),
@@ -192,6 +192,13 @@ mod tests {
             ("pwsh.exe", HistoryScope::Off),
             ("com.termius-dmg.mac", HistoryScope::Off),
             ("Termius.exe", HistoryScope::Off),
+            ("org.jkiss.dbeaver.core.product", HistoryScope::Off),
+            ("dbeaver.exe", HistoryScope::Off),
+            ("org.RedisLabs.RedisInsight-V2", HistoryScope::Off),
+            ("com.tinyapp.TablePlus", HistoryScope::Off),
+            ("at.eggerapps.Postico2", HistoryScope::Off),
+            ("Ssms.exe", HistoryScope::Off),
+            ("heidisql.exe", HistoryScope::Off),
         ];
 
         let scopes = cases.map(|(app_id, _)| HistoryApp::of(&screen_text_app(app_id, "App", true)).scope);
