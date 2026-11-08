@@ -11,7 +11,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 - The place of a text is its web page in any browser, else its app.
 - A text that the user typed in full is a new text, also when an older text is the same, so a repeated message counts each time.
 - Each text keeps the time when the user started to write it (`HistoryEntry::written_at`, from `Desktop::now`).
-- Each text also keeps its typing context (`HistoryEntry::typing_context`, `history::typing_context`): the window title of its session in lowercase, without the parts that name the app, counts such as "(3)", reply marks such as "Re:" and file extensions. For example, "#team-web - Acme - Slack" gives "#team-web | acme", and "Re: Garden party" gives "garden party". Thus it names the contact, the channel, the thread or the document. A text of an older file has none.
+- Each text also keeps its typing context (`HistoryEntry::typing_context`, `history::typing_context`): the window title of its session in lowercase, without the parts that name the app, counts such as "(3)", reply marks such as "Re:" and file extensions. For example, "#team-web - Acme - Slack" gives "#team-web | acme", and "Re: Garden party" gives "garden party". Thus it names the contact, the channel, the thread or the document. The typing context also has no secrets, because a title can show a web address with a key, as in Postman. A text of an older file has none.
 - The store keeps at most 1,000,000 characters of text and at most 10,000 texts. Above either limit, the oldest texts of the store go, in any place.
 - The core also has the `WritingHistory` and `KeyVault` traits.
 

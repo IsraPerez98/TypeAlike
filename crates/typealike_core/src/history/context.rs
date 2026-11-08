@@ -1,5 +1,7 @@
 //! The typing context of a text: the contact, channel or document that the window title names.
 
+use super::redaction::redacted;
+
 /// The marks between the parts of a window title.
 const TITLE_SEPARATORS: [&str; 5] = [" - ", " | ", " — ", " – ", " · "];
 /// The marks at the start of the subject of a reply or a forward, in lowercase.
@@ -9,10 +11,10 @@ const MAX_EXTENSION_CHARS: usize = 4;
 
 /// Returns the typing context of a window with `window_title` in the app named `app_name`: the
 /// parts of the title in lowercase, without the parts that name the app, without counts such as
-/// "(3)", reply marks such as "Re:" and file extensions. `None` when no part stays.
+/// "(3)", reply marks such as "Re:", file extensions and secrets. `None` when no part stays.
 #[must_use]
 pub fn typing_context(app_name: Option<&str>, window_title: Option<&str>) -> Option<String> {
-    let mut title = window_title?.to_lowercase();
+    let mut title = redacted(window_title?).to_lowercase();
     for separator in TITLE_SEPARATORS {
         title = title.replace(separator, "\u{1}");
     }
@@ -66,6 +68,19 @@ fn without_extension(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typing_context_leaves_out_the_secrets_of_the_title() {
+        let context = typing_context(
+            Some("Postman"),
+            Some("GET https://api.example/v1?key=sk-abcdefgh12345 - My Workspace"),
+        );
+
+        assert_eq!(
+            context.as_deref(),
+            Some("get https://api.example/v1?[redacted] | my workspace")
+        );
+    }
 
     #[test]
     fn typing_context_keeps_the_parts_of_the_title_that_do_not_name_the_app() {
