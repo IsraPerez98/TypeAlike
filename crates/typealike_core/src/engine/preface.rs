@@ -161,8 +161,8 @@ impl Engine {
     }
 
     /// Starts a read of the accessibility tree for the session, when the session is in a text
-    /// field of an app that `screen_text` allows, and returns its id. A session that has its
-    /// final screen text or waits for a read starts none.
+    /// field that gets suggestions, of an app that `screen_text` allows, and returns its id. A
+    /// session that has its final screen text or waits for a read starts none.
     pub(crate) fn start_session_screen_read(
         &mut self,
         screen_text: &ScreenTextSettings,
@@ -173,7 +173,7 @@ impl Engine {
             .app
             .as_ref()
             .is_some_and(|app| screen_text.allows(&app.app_id));
-        if !session.field.holds_text() || !is_allowed {
+        if !session.field.holds_text() || session.field.is_excluded || !is_allowed {
             return None;
         }
         self.start_screen_read()

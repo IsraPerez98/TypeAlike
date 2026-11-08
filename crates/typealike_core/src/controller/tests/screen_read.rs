@@ -2,7 +2,9 @@
 
 use super::harness::{Call, Harness};
 use crate::controller::{Delivery, SCROLL_SETTLE_DELAY, Timer};
-use crate::desktop::{OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, ScreenText};
+use crate::desktop::{
+    FieldLabels, FieldText, OcrAvailability, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings,
+};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, ScreenTextSettings, Settings};
 use crate::settings_window::view::{ControlId, SettingsInput};
@@ -231,4 +233,65 @@ fn key_after_the_read_of_a_scroll_stop_reads_the_screen_no_more() {
     let read_after_stop = key_read(&mut harness, Key::Char('i'));
 
     assert_eq!(read_after_stop, None);
+}
+
+/// The fields of Mail that get no suggestions: the address field and a search field.
+fn mail_fields_without_suggestions() -> [Surroundings; 2] {
+    let mail = Surroundings {
+        app_id: Some("com.apple.mail".to_owned()),
+        app_name: Some("Mail".to_owned()),
+        field_text: Some(FieldText::default()),
+        ..Surroundings::default()
+    };
+    [
+        Surroundings {
+            field_labels: FieldLabels {
+                caption: Some("To:".to_owned()),
+                ..FieldLabels::default()
+            },
+            ..mail.clone()
+        },
+        Surroundings {
+            is_search_field: true,
+            ..mail
+        },
+    ]
+}
+
+#[test]
+fn settled_input_reads_no_screen_in_a_field_without_suggestions() {
+    let reads = mail_fields_without_suggestions().map(|surroundings| {
+        let mut harness = Harness::new(Settings::default());
+        harness.shell.surroundings = surroundings;
+        harness.settle_input();
+        harness
+            .take_calls()
+            .into_iter()
+            .filter(|call| matches!(call, Call::ReadScreen(..)))
+            .count()
+    });
+
+    assert_eq!(reads, [0, 0]);
+}
+
+#[test]
+fn first_key_reads_no_screen_in_a_field_without_suggestions() {
+    let reads = mail_fields_without_suggestions().map(|surroundings| {
+        let mut harness = Harness::new(Settings::default());
+        harness.shell.surroundings = surroundings;
+        key_read(&mut harness, Key::Char('H'))
+    });
+
+    assert_eq!(reads, [None, None]);
+}
+
+#[test]
+fn stop_of_a_scroll_reads_no_screen_in_a_field_without_suggestions() {
+    let reads = mail_fields_without_suggestions().map(|surroundings| {
+        let mut harness = Harness::new(Settings::default());
+        harness.shell.surroundings = surroundings;
+        scroll_stop_reads(&mut harness)
+    });
+
+    assert_eq!(reads, [Vec::new(), Vec::new()]);
 }

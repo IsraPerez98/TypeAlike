@@ -24,6 +24,7 @@ use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::{Key, Press};
 use crate::localization::Translations;
+use crate::place;
 use crate::screen::{self, LineScope};
 use crate::settings::{
     EnergySaverRule, FullScreenRule, GameRule, PromptPreparation, ScreenTextApp, ScreenTextSettings,
@@ -422,8 +423,8 @@ impl App {
     /// autocorrect does. A session that a shortcut ended keeps only the text that the field still
     /// holds. After a key that the OS repeated while the user held it, it then returns
     /// the suggestion for the text of the session.
-    /// In a text field of an app where the screen text is on, it then starts a read of the screen,
-    /// unless the session has its final screen text or waits for a read.
+    /// In a text field that gets suggestions, of an app where the screen text is on, it then starts
+    /// a read of the screen, unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text. In a
     /// place where suggestions are off, it does nothing.
@@ -495,9 +496,10 @@ impl App {
         self.engine.read_screen_again();
     }
 
-    /// Handles the stop of a scroll. In a text field of a chat or an email app where the screen
-    /// text is on, it returns the read of the accessibility tree, so that the screen text also
-    /// gets the lines that the scroll showed. Give the answer to [`App::on_screen_read`].
+    /// Handles the stop of a scroll. In a text field that gets suggestions, of a chat or an email
+    /// app where the screen text is on, it returns the read of the accessibility tree, so that the
+    /// screen text also gets the lines that the scroll showed. Give the answer to
+    /// [`App::on_screen_read`].
     pub fn on_scroll_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
         let field = ReadField {
             desktop,
@@ -518,7 +520,8 @@ impl App {
     }
 
     /// Starts a read of the screen for the session of the last key, when the session is in a text
-    /// field of an app where the screen text is on. The session uses the stored screen text until
+    /// field that gets suggestions, of an app where the screen text is on. The session uses the
+    /// stored screen text until
     /// the answer comes. A session that has its own screen text or waits for a read starts none.
     pub fn start_session_screen_read(&mut self) -> Option<SettledWork> {
         self.engine
@@ -563,6 +566,7 @@ impl App {
     fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
         let surroundings = desktop.surroundings();
         surroundings.holds_text()
+            && !place::is_excluded_field(&surroundings)
             && surroundings
                 .app_id
                 .is_some_and(|app_id| self.screen_text.allows(&app_id))

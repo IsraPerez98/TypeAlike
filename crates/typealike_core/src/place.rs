@@ -153,9 +153,15 @@ impl Format {
     }
 }
 
+/// Whether the focused field gets no suggestions: a search box, or an address or the subject of
+/// an email. The screen reads also skip such a field.
+pub(crate) fn is_excluded_field(surroundings: &Surroundings) -> bool {
+    surroundings.is_search_field || is_address_or_subject_field(surroundings)
+}
+
 /// Whether the focused field is an address or the subject of an email. These fields get no
 /// suggestions, because Tab moves the focus between them.
-pub(crate) fn is_address_or_subject_field(surroundings: &Surroundings) -> bool {
+fn is_address_or_subject_field(surroundings: &Surroundings) -> bool {
     Format::of(surroundings) == Some(Format::Email)
         && field_labels(surroundings)
             .iter()
