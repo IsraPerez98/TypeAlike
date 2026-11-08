@@ -81,14 +81,11 @@ fn new_word_choice_gives_a_new_version() {
 #[test]
 fn new_history_gives_a_new_version() {
     let mut engine = engine_with_words(&word_choice_settings(HistoryAccess::On, Vec::new()));
-    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_field()));
+    let mail_text_field = FakeDesktop::with_field_text(GREETING).in_app(MAIL_APP);
+    let before = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_text_field));
     engine.on_completion(completion(""));
 
-    finish_typing(
-        &mut engine,
-        &FakeDesktop::with_field_text(GREETING).in_app(MAIL_APP),
-        Suggestion::Accepted,
-    );
+    finish_typing(&mut engine, &mail_text_field, Suggestion::Accepted);
 
     let after = word_bias_version_of_request(engine.on_key(Key::Char('h'), Press::First, &mail_field()));
     assert!(before < after, "{before:?} {after:?}");

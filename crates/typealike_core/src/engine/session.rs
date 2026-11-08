@@ -77,6 +77,13 @@ impl SessionField {
     pub(super) fn holds_text(&self) -> bool {
         self.text != FieldTextAccess::NoText
     }
+
+    /// Whether the earlier writing may keep the text of the session. A field that the platform
+    /// cannot find gives keys that can belong to any other place, such as a remote desktop, and the
+    /// terminal panel of an app can ask for a password that it does not show.
+    pub(super) fn can_keep_text(&self) -> bool {
+        self.holds_text() && !self.is_caret_line_hidden
+    }
 }
 
 /// The typing in one place: what the model reads before the text, and the text before the caret.

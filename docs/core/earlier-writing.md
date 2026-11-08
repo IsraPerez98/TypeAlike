@@ -5,6 +5,8 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## Texts
 
 - The store keeps the texts of finished sessions without their secrets and without the text that the user did not write.
+- The store keeps no text of a field that the platform cannot find (`SessionField::can_keep_text`). The keys can then go to any other place, for example a remote desktop, or an app that draws its own text, such as Zed.
+- The store also keeps no text of a terminal panel in an app, such as the terminal of VS Code. A terminal can ask for a password that it does not show, and the keys still get to TypeAlike.
 - The place of a text is its web page in any browser, else its app.
 - A text that the user typed in full is a new text, also when an older text is the same, so a repeated message counts each time.
 - Each text keeps the time when the user started to write it (`HistoryEntry::written_at`, from `Desktop::now`).

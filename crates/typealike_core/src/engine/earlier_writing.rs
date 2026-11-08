@@ -61,6 +61,7 @@ impl Engine {
         };
         let is_wanted = session.has_accepted || self.personalization.kept_texts == KeptTexts::All;
         if session.field.is_excluded
+            || !session.field.can_keep_text()
             || !is_wanted
             || self.personalization.scope_of(&app.app_id) == HistoryScope::Off
         {

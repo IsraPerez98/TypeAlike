@@ -287,13 +287,44 @@ fn finished_text_is_not_kept_where_the_rules_forbid_it() {
             kept_settings(KeptTexts::All),
             mail_desktop(GREETING).with_field_name("Subject"),
         ),
+        (kept_settings(KeptTexts::All), terminal_of_an_editor()),
+        (
+            kept_settings(KeptTexts::All),
+            FakeDesktop::default().in_app(EDITOR_APP),
+        ),
     ];
 
     let saved = cases.map(|(settings, desktop)| {
         finish_typing(&mut engine_with(&settings), &desktop, Suggestion::Accepted)
     });
 
-    assert_eq!(saved, [None, None, None, None, None]);
+    assert_eq!(saved, [None, None, None, None, None, None, None]);
+}
+
+#[test]
+fn text_of_an_editor_that_hides_its_text_is_kept() {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+
+    let saved = finish_typing(&mut engine, &editor_with_hidden_text(), Suggestion::Ignored);
+
+    assert_eq!(saved.map(|entries| entries.len()), Some(1));
+}
+
+const EDITOR_APP: &str = "com.microsoft.VSCode";
+
+/// The field of a code editor that shows its text only on the screen, as the editor of VS Code
+/// does while its screen reader mode is off.
+fn editor_with_hidden_text() -> FakeDesktop {
+    let mut desktop = FakeDesktop::default().in_app(EDITOR_APP);
+    desktop.surroundings.has_unreadable_text = true;
+    desktop
+}
+
+/// The input box of a terminal panel in a code editor, which hides the line of its caret.
+fn terminal_of_an_editor() -> FakeDesktop {
+    let mut desktop = editor_with_hidden_text();
+    desktop.surroundings.is_caret_line_hidden = true;
+    desktop
 }
 
 fn long_field() -> String {
