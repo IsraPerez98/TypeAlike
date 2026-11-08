@@ -138,6 +138,10 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
   - Its groups: `joined` (the same caret and next word, for the harm of a change) and `end` (the caret after the whole message, a leak case whose leaks are the joined times).
   - Run it with `--name "Sara Novak" --word-choice medium` for a change to the screen lines of a chat or to the times of messages.
   - `cases/message_times_gen.py` writes the set again from the two source sets, and `--check` makes sure that the set is the same as the sets give.
+- `cases/window_chrome.jsonl` has the cases of `recall.jsonl` and `tuning.jsonl` with screen text in a browser, Word or Notion, with made-up lines of the app around the page, as an OCR of the whole window reads them.
+  - Its groups: `browser` (the tabs, the address and 10 items of the bookmarks bar), `word` (the title bar and the ribbon) and `notion` (the sidebar and the bar above the page).
+  - To measure the cost of these lines, write the same cases without them with `cases/window_chrome_gen.py --clean FILE`, run FILE with `--save`, then run `window_chrome.jsonl` with `--baseline`. Run both with `--name "Sara Novak"`.
+  - `cases/window_chrome_gen.py` writes the set again, and `--check` makes sure that the set is the same as the source sets give.
 
 ### Stores of the writers
 
