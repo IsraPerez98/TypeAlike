@@ -190,6 +190,8 @@ mod tests {
             ("com.apple.Terminal", HistoryScope::Off),
             ("WindowsTerminal.exe", HistoryScope::Off),
             ("pwsh.exe", HistoryScope::Off),
+            ("com.termius-dmg.mac", HistoryScope::Off),
+            ("Termius.exe", HistoryScope::Off),
         ];
 
         let scopes = cases.map(|(app_id, _)| HistoryApp::of(&screen_text_app(app_id, "App", true)).scope);

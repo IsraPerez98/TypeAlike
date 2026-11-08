@@ -15,6 +15,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 ## Pools
 
 - Each app of the Personalization pane has a scope: Off, Only this app or All apps.
+- A password manager and a terminal app (`known_apps`: Terminal, Ghostty, Termius and others) start with Off. The other apps start with All apps.
 - A session uses only the texts of its pool: the texts of its own app with "Only this app", else the texts of all the apps with "All apps".
 - A text never replaces or continues a text of another pool.
 
