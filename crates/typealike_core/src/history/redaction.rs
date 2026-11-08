@@ -1,5 +1,6 @@
 //! The removal of secrets from a text: private keys, passwords of web addresses, credentials of an
-//! authorization header, API tokens, long mixed tokens and card numbers.
+//! authorization header, values of named secrets, passwords of database commands, JSON web tokens,
+//! API tokens, long mixed tokens and card numbers.
 
 use std::ops::Range;
 
@@ -25,14 +26,26 @@ const SLACK_PREFIX: &str = "xox";
 const MIN_MIXED_TOKEN_CHARS: usize = 20;
 /// The digits of a card number.
 const CARD_DIGITS: Range<usize> = 13..20;
+/// The names of secrets, alone or as the last part of a longer name, as in `DB_PASSWORD`.
+const SECRET_NAMES: [&str; 7] = ["password", "passwd", "pwd", "pass", "secret", "token", "apikey"];
+/// The last part of a longer name of a secret, as in `API_KEY`. Alone, "key" is a common word.
+const KEY_NAME: &str = "key";
+/// The flag of a `mysql` password, with the password next to it, as in `-pS3cret`.
+const MYSQL_PASSWORD_FLAG: &str = "-p";
+/// The start of a JSON web token: `{"` in base64.
+const JSON_WEB_TOKEN_START: &str = "eyJ";
 
 /// Returns `text` with each secret replaced by [`REDACTED`]: private keys, passwords of web
-/// addresses, credentials of an authorization header, API tokens, long tokens that mix letters and
-/// digits, and card numbers.
+/// addresses, credentials of an authorization header, values of named secrets, passwords of
+/// database commands, JSON web tokens, API tokens, long tokens that mix letters and digits, and
+/// card numbers.
 pub(super) fn redacted(text: &str) -> String {
     let text = replaced(text, &private_key_spans(text));
     let text = replaced(&text, &web_address_password_spans(&text));
     let text = replaced(&text, &authorization_spans(&text));
+    let text = replaced(&text, &named_secret_spans(&text));
+    let text = replaced(&text, &command_password_spans(&text));
+    let text = replaced(&text, &json_web_token_spans(&text));
     let secret_tokens = runs_of(&text, is_token_character)
         .into_iter()
         .filter(|span| is_secret_token(&text[span.clone()]))
@@ -152,6 +165,133 @@ fn next_word(text: &str, from: usize) -> Option<Range<usize>> {
         .find(|character: char| character.is_whitespace() || matches!(character, '"' | '\''))
         .map_or(text.len(), |offset| start + offset);
     (end > start).then_some(start..end)
+}
+
+/// The spans of the values after the names of secrets: after ":" or "=", as in
+/// `DB_PASSWORD=value`, or after "is", as in "my password is hunter2".
+fn named_secret_spans(text: &str) -> Vec<Range<usize>> {
+    let mut spans = Vec::new();
+    let mut from = 0;
+    for name in runs_of(text, is_name_character) {
+        if name.start < from || !is_secret_name(&text[name.clone()]) {
+            continue;
+        }
+        if let Some(value) = named_value_span(text, name.end) {
+            from = value.end;
+            spans.push(value);
+        }
+    }
+    spans
+}
+
+fn is_name_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+}
+
+/// Whether `name` is one of the [`SECRET_NAMES`], or ends with one of them or with [`KEY_NAME`]
+/// after a dash or an underscore.
+fn is_secret_name(name: &str) -> bool {
+    let lowercase = name.to_ascii_lowercase();
+    let last_part = lowercase.rsplit(['_', '-']).next().unwrap_or_default();
+    let has_more_parts = last_part.len() < lowercase.len();
+    SECRET_NAMES.contains(&last_part) || (has_more_parts && last_part == KEY_NAME)
+}
+
+/// The span of the value after the name of a secret that ends at `name_end`. A value after "is"
+/// must not be a plain word, because "the password is wrong" names no secret.
+fn named_value_span(text: &str, name_end: usize) -> Option<Range<usize>> {
+    let after_name = &text[name_end..];
+    let rest = after_name
+        .strip_prefix(['"', '\''])
+        .unwrap_or(after_name)
+        .trim_start_matches([' ', '\t']);
+    if let Some(value) = rest.strip_prefix([':', '=']) {
+        let is_operator = value.starts_with([':', '=', '>']);
+        return (!is_operator)
+            .then(|| value_span(text, text.len() - value.len()))
+            .flatten();
+    }
+    let value = rest.strip_prefix("is ")?;
+    value_span(text, text.len() - value.len()).filter(|span| !is_plain_word(&text[span.clone()]))
+}
+
+/// The span of the value at `from` on the same line: the text between quotes, else the next word.
+fn value_span(text: &str, from: usize) -> Option<Range<usize>> {
+    let start = text.len() - text[from..].trim_start_matches([' ', '\t']).len();
+    let Some(quote) = text[start..]
+        .chars()
+        .next()
+        .filter(|character| matches!(character, '"' | '\''))
+    else {
+        return next_word(text, start).filter(|word| word.start == start);
+    };
+    let value_start = start + quote.len_utf8();
+    let value_end = text[value_start..]
+        .find([quote, '\n'])
+        .map_or(text.len(), |offset| value_start + offset);
+    (value_end > value_start).then_some(value_start..value_end)
+}
+
+/// Whether `word`, without the punctuation at its end, has only letters, dashes and apostrophes.
+fn is_plain_word(word: &str) -> bool {
+    word.trim_end_matches(['.', ',', '!', '?', ';', ':'])
+        .chars()
+        .all(|character| character.is_alphabetic() || matches!(character, '-' | '\''))
+}
+
+/// The spans of the passwords of database commands: the value next to `-p` after `mysql` or
+/// `mariadb`, the word after `-a` after `redis-cli`, and the last word of a Redis `AUTH` with one
+/// or two words after it. Each command ends at the end of its line.
+fn command_password_spans(text: &str) -> Vec<Range<usize>> {
+    let mut spans = Vec::new();
+    let mut line_start = 0;
+    for line in text.split_inclusive('\n') {
+        let word_spans = runs_of(line, |character| !character.is_whitespace());
+        let words = word_spans
+            .iter()
+            .map(|span| &line[span.clone()])
+            .collect::<Vec<_>>();
+        for (index, span) in word_spans.iter().enumerate() {
+            let is_last = index + 1 == words.len();
+            if let Some(offset) = command_password_offset(&words[..index], words[index], is_last) {
+                spans.push(line_start + span.start + offset..line_start + span.end);
+            }
+        }
+        line_start += line.len();
+    }
+    spans
+}
+
+/// The byte of `word` where its password starts, when `word` follows the words `before` of a
+/// database command.
+fn command_password_offset(before: &[&str], word: &str, is_last: bool) -> Option<usize> {
+    let is_after_mysql = before
+        .iter()
+        .any(|earlier| earlier.starts_with("mysql") || earlier.starts_with("mariadb"));
+    let is_mysql_password =
+        is_after_mysql && word.len() > MYSQL_PASSWORD_FLAG.len() && word.starts_with(MYSQL_PASSWORD_FLAG);
+    let is_redis_cli_password = before.last() == Some(&"-a") && before.contains(&"redis-cli");
+    let is_auth_password = is_last && before.iter().rev().take(2).any(|earlier| *earlier == "AUTH");
+    if is_mysql_password {
+        Some(MYSQL_PASSWORD_FLAG.len())
+    } else {
+        (is_redis_cli_password || is_auth_password).then_some(0)
+    }
+}
+
+/// The spans of the JSON web tokens: three parts or more between dots, and the first starts with
+/// [`JSON_WEB_TOKEN_START`].
+fn json_web_token_spans(text: &str) -> Vec<Range<usize>> {
+    runs_of(text, |character| {
+        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+    })
+    .into_iter()
+    .map(|run| run.start..run.start + text[run].trim_end_matches('.').len())
+    .filter(|run| {
+        let token = &text[run.clone()];
+        token.starts_with(JSON_WEB_TOKEN_START) && token.matches('.').count() >= 2
+    })
+    .collect()
 }
 
 fn is_token_character(character: char) -> bool {
@@ -300,6 +440,108 @@ mod tests {
                 "-H 'authorization: Bearer [redacted]' -X",
             ),
             ("the basic idea works", "the basic idea works"),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_the_values_after_the_names_of_secrets() {
+        let cases = [
+            ("export PASSWORD=S3cretPass", "export PASSWORD=[redacted]"),
+            (
+                "DB_PASSWORD=S3cretPass\nDB_HOST=db",
+                "DB_PASSWORD=[redacted]\nDB_HOST=db",
+            ),
+            ("API_KEY=abc123xyz", "API_KEY=[redacted]"),
+            ("password: Summer2024", "password: [redacted]"),
+            ("pwd=Summer2024", "pwd=[redacted]"),
+            ("Secret: blue-falcon", "Secret: [redacted]"),
+            ("token = abc123xyz ok", "token = [redacted] ok"),
+            ("mysql --password=S3cretPass", "mysql --password=[redacted]"),
+            ("X-Api-Key: abc123xyz", "X-Api-Key: [redacted]"),
+            (
+                r#"{"password": "S3cret Pass", "user": "ana"}"#,
+                r#"{"password": "[redacted]", "user": "ana"}"#,
+            ),
+            ("pass the salt", "pass the salt"),
+            ("the token of appreciation", "the token of appreciation"),
+            ("password reset email sent", "password reset email sent"),
+            ("Key: blue line", "Key: blue line"),
+            ("max_tokens=100", "max_tokens=100"),
+            ("if password == stored:", "if password == stored:"),
+            ("Password:\nUse eight letters", "Password:\nUse eight letters"),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_a_password_that_is_not_a_plain_word_after_is() {
+        let cases = [
+            ("my password is hunter2", "my password is [redacted]"),
+            ("Your API_KEY is abc123xyz now", "Your API_KEY is [redacted] now"),
+            ("the password is wrong", "the password is wrong"),
+            (
+                "your password is case-sensitive",
+                "your password is case-sensitive",
+            ),
+            (
+                "the new password is in a separate mail.",
+                "the new password is in a separate mail.",
+            ),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_the_passwords_of_database_commands() {
+        let cases = [
+            ("mysql -u root -pS3cretPass app", "mysql -u root -p[redacted] app"),
+            (
+                "mysqldump -uroot -pS3cretPass db > db.sql",
+                "mysqldump -uroot -p[redacted] db > db.sql",
+            ),
+            (
+                "redis-cli -h cache -a S3cretPass ping",
+                "redis-cli -h cache -a [redacted] ping",
+            ),
+            ("AUTH default S3cretPass", "AUTH default [redacted]"),
+            (
+                "127.0.0.1:6379> AUTH S3cretPass\nOK",
+                "127.0.0.1:6379> AUTH [redacted]\nOK",
+            ),
+            ("psql -h db -p 5432 -U app", "psql -h db -p 5432 -U app"),
+            ("mysql -u root -p app", "mysql -u root -p app"),
+            ("cp -pR old new", "cp -pR old new"),
+            (
+                "ls -a and AUTH settings are in the docs",
+                "ls -a and AUTH settings are in the docs",
+            ),
+        ];
+
+        let redactions = cases.map(|(text, _)| redacted(text));
+
+        assert_eq!(redactions, cases.map(|(_, kept)| kept.to_owned()));
+    }
+
+    #[test]
+    fn redaction_replaces_json_web_tokens() {
+        let cases = [
+            (
+                "jwt eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhYmMifQ.c2ln ok",
+                "jwt [redacted] ok",
+            ),
+            ("eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhYmMifQ.c2ln.", "[redacted]."),
+            ("see eyJhbGci.eyJzdWIi for more", "see eyJhbGci.eyJzdWIi for more"),
+            ("v1.2.3 and a.b.c", "v1.2.3 and a.b.c"),
         ];
 
         let redactions = cases.map(|(text, _)| redacted(text));

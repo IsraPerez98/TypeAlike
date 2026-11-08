@@ -6,7 +6,18 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 
 - The store keeps the texts of finished sessions without their secrets and without the text that the user did not write.
 - The store keeps no text that the user deleted with a shortcut, or with a selection and a key, at the end of a session. It keeps only the text that the field still holds after the key that ended the session (`docs/core/typing.md`, Session).
-- The secrets are private keys, the passwords of web addresses (`postgres://user:password@host`), the credentials after "Authorization:", API tokens with a known start (`sk-`, `ghp_`, `AKIA` and others), runs of 20 or more letters and digits, and card numbers (`redaction`). A run whose parts between dashes and underscores each have only letters or only digits is a name, such as the file name "Informe_Gestion_2024", not a secret.
+- The store keeps these secrets as "[redacted]" (`redaction`):
+  - private keys
+  - the passwords of web addresses (`postgres://user:password@host`)
+  - the credentials after "Authorization:"
+  - the value after the name of a secret and ":" or "=", as in `DB_PASSWORD=value`, `password: value` and `token = value`. A name of a secret is `password`, `passwd`, `pwd`, `pass`, `secret`, `token` or `apikey`, or a longer name whose last part after "_" or "-" is one of them or `key`, such as `API_KEY`. The value is the next word on the same line, or the text between quotes.
+  - the value after the name of a secret and "is", as in "my password is hunter2". This value must have a character that is not a letter, a dash or an apostrophe, because "the password is wrong" names no secret.
+  - the passwords of database commands: the value next to `-p` after `mysql` or `mariadb`, the word after `-a` after `redis-cli`, and the last word of a Redis `AUTH` with one or two words after it
+  - JSON web tokens: three parts or more between dots, and the first part starts with `eyJ`
+  - API tokens with a known start (`sk-`, `ghp_`, `AKIA` and others)
+  - runs of 20 or more letters and digits
+  - card numbers
+- A run whose parts between dashes and underscores each have only letters or only digits is a name, such as the file name "Informe_Gestion_2024", not a secret.
 - The store keeps no text of a field that the platform cannot find (`SessionField::can_keep_text`). The keys can then go to any other place, for example a remote desktop, or an app that draws its own text, such as Zed.
 - The store also keeps no text of a terminal panel in an app, such as the terminal of VS Code. A terminal can ask for a password that it does not show, and the keys still get to TypeAlike.
 - The place of a text is its web page in any browser, else its app.
