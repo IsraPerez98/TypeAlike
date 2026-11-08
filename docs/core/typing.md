@@ -21,6 +21,11 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 
 - A session lasts while the user types in the same field.
 - A click and a focus change end the session.
+- A shortcut, a navigation key and a control character also end the session (`Engine::end_session_at_key`). The app handles such a key after core, and the key can delete or select text, as Option+Backspace and Command+A do.
+  - Thus the history waits to keep the text of that session. When the input settles and at the next key, core reads the field and cuts the text to the part that the field still holds (`held_text`).
+  - The text after the caret also counts, because an arrow key moves the caret back without a change to the text.
+  - A second such key in the same field makes the session wait again. Any other key, a click and a focus change keep the text.
+  - A read of another field (another app, website, window title or field labels) keeps the whole text, because the key moved the focus. A field that the platform cannot read also keeps the whole text.
 - A dead key (`Key::Dead`) does not end the session.
 
 ### Field text

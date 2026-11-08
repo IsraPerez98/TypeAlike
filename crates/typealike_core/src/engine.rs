@@ -2,6 +2,7 @@
 
 mod autocorrect;
 mod earlier_writing;
+mod ended_session;
 mod new_line;
 mod offer;
 mod preface;
@@ -25,6 +26,7 @@ use crate::settings::{
 };
 
 use earlier_writing::needs_new_tables;
+use ended_session::KeyEndedSession;
 use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
@@ -38,6 +40,9 @@ pub(crate) use suggestion::split_next_part;
 /// Tracks the text at the caret and the model's suggestion for it.
 pub(crate) struct Engine {
     session: Option<Session>,
+    /// The session that the last key ended before the app handled the key, while the history waits
+    /// to keep its text.
+    key_ended_session: Option<KeyEndedSession>,
     offer: Offer,
     unanswered_requests: usize,
     writer_notes: WriterNotes,
@@ -84,6 +89,7 @@ impl Default for Engine {
         let settings = Settings::default();
         let mut engine = Self {
             session: None,
+            key_ended_session: None,
             offer: Offer::default(),
             unanswered_requests: 0,
             writer_notes: WriterNotes::default(),
@@ -158,6 +164,7 @@ impl Engine {
         if key != Key::Enter {
             self.read_field_after_enter(desktop);
         }
+        self.follow_key_ended_session_at(key, desktop);
         match key {
             Key::Char(character) if !character.is_control() => {
                 self.start_session(desktop)
@@ -173,7 +180,8 @@ impl Engine {
             Key::Escape => self.reject(),
             Key::Dead => self.dismiss(),
             Key::Enter => self.wait_for_new_line(desktop),
-            Key::Char(_) | Key::Tab | Key::Other => self.reset(),
+            Key::Tab => self.reset(),
+            Key::Char(_) | Key::Other => self.end_session_at_key(desktop),
         }
     }
 
@@ -185,13 +193,14 @@ impl Engine {
     }
 
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text
-    /// before the caret when the personalization allows it.
+    /// before the caret, and the text of a session that a key ended, when the personalization
+    /// allows it.
     pub(crate) fn reset(&mut self) -> Reaction {
+        self.keep_key_ended_session();
         if let Some(session) = self.session.take() {
             self.keep_text_of(&session);
         }
-        self.offer = Offer::Idle;
-        self.is_suggestion_due = false;
+        self.end_offer();
         Reaction::Hide
     }
 
@@ -199,6 +208,10 @@ impl Engine {
     /// text.
     pub(crate) fn discard_session(&mut self) {
         self.session = None;
+        self.end_offer();
+    }
+
+    fn end_offer(&mut self) {
         self.offer = Offer::Idle;
         self.is_suggestion_due = false;
     }

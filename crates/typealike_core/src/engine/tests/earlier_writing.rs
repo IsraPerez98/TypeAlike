@@ -9,7 +9,7 @@ use crate::test_support::{MAIL_APP, mail_entry, mail_history_app};
 
 use super::support::{
     FakeDesktop, GREETING, Suggestion, TYPED_TEXT, engine_with, engine_with_history, finish_typing,
-    finish_typing_text, history_settings, mail_field, request_with, type_text,
+    finish_typing_text, history_settings, mail_field, request_with, type_text, type_text_in,
 };
 
 #[test]
@@ -499,5 +499,95 @@ fn forgetting_an_app_drops_its_texts() {
             app_id: "com.apple.Notes".to_owned(),
             ..mail_entry("Shopping list")
         }])
+    );
+}
+
+const LETTER: &str = "The report is ready. Sorry for the delay";
+
+/// Types [`LETTER`] in the mail app, then presses a shortcut that the app handles after the engine,
+/// such as Option+Backspace.
+fn engine_after_a_shortcut() -> Engine {
+    let mut engine = engine_with(&kept_settings(KeptTexts::All));
+    type_text_in(&mut engine, &mail_desktop(""), LETTER);
+    engine.on_key(Key::Other, Press::First, &mail_desktop(LETTER));
+    engine
+}
+
+#[test]
+fn text_of_a_session_that_a_shortcut_ended_is_kept_as_far_as_its_field_still_holds_it() {
+    let next_fields = [
+        mail_desktop("The report is ready. Sorry for the "),
+        FakeDesktop::with_text_around("The report is ready. Sorry for the de", "lay").in_app(MAIL_APP),
+        FakeDesktop::with_text_around("", "").in_app(MAIL_APP),
+        mail_field(),
+        mail_desktop("").with_field_name("Subject"),
+    ];
+
+    let saved = next_fields.map(|next_field| {
+        let mut engine = engine_after_a_shortcut();
+        engine.on_key(Key::Char('x'), Press::First, &next_field);
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec)
+    });
+
+    assert_eq!(
+        saved,
+        [
+            Some(vec![mail_entry("The report is ready. Sorry for the")]),
+            Some(vec![mail_entry(LETTER)]),
+            None,
+            Some(vec![mail_entry(LETTER)]),
+            Some(vec![mail_entry(LETTER)]),
+        ]
+    );
+}
+
+#[test]
+fn text_of_a_session_waits_for_the_last_shortcut_in_its_field() {
+    let mut engine = engine_after_a_shortcut();
+    engine.on_key(
+        Key::Other,
+        Press::First,
+        &mail_desktop("The report is ready. Sorry for the "),
+    );
+    engine.on_key(
+        Key::Other,
+        Press::First,
+        &mail_desktop("The report is ready. Sorry for "),
+    );
+
+    engine.on_key(
+        Key::Char('x'),
+        Press::First,
+        &mail_desktop("The report is ready. "),
+    );
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![mail_entry("The report is ready.")])
+    );
+}
+
+#[test]
+fn text_of_a_session_that_a_shortcut_ended_is_kept_whole_at_a_click() {
+    let mut engine = engine_after_a_shortcut();
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![mail_entry(LETTER)])
+    );
+}
+
+#[test]
+fn text_that_a_shortcut_deleted_before_the_input_settled_is_not_kept_at_a_click() {
+    let mut engine = engine_after_a_shortcut();
+    engine.follow_key_ended_session(&mail_desktop("The report is ready. Sorry for the "));
+
+    engine.reset();
+
+    assert_eq!(
+        engine.history_to_save().map(<[HistoryEntry]>::to_vec),
+        Some(vec![mail_entry("The report is ready. Sorry for the")])
     );
 }

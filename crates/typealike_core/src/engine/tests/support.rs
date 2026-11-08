@@ -192,25 +192,30 @@ pub(super) enum Suggestion {
     Ignored,
 }
 
+/// Types `typed` in `desktop`, and answers each request with an empty completion.
+pub(super) fn type_text_in(engine: &mut Engine, desktop: &FakeDesktop, typed: &str) {
+    for character in typed.chars() {
+        if let Reaction::Request(_) = engine.on_key(Key::Char(character), Press::First, desktop) {
+            engine.on_completion(completion(""));
+        }
+    }
+}
+
 /// Types `typed` and the key `d` in `desktop`, accepts the suggestion when `suggestion` is
-/// [`Suggestion::Accepted`] and ends the session. Returns the history to save.
+/// [`Suggestion::Accepted`] and ends the session with a click. Returns the history to save.
 pub(super) fn finish_typing_text(
     engine: &mut Engine,
     desktop: &FakeDesktop,
     typed: &str,
     suggestion: Suggestion,
 ) -> Option<Vec<HistoryEntry>> {
-    for character in typed.chars() {
-        if let Reaction::Request(_) = engine.on_key(Key::Char(character), Press::First, desktop) {
-            engine.on_completion(completion(""));
-        }
-    }
+    type_text_in(engine, desktop, typed);
     engine.on_key(Key::Char('d'), Press::First, desktop);
     engine.on_completion(completion(". Best, Tom"));
     if matches!(suggestion, Suggestion::Accepted) {
         engine.on_key(Key::Tab, Press::First, desktop);
     }
-    engine.on_key(Key::Other, Press::First, desktop);
+    engine.reset();
     engine.history_to_save().map(<[HistoryEntry]>::to_vec)
 }
 

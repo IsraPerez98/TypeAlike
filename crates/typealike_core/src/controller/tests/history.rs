@@ -96,7 +96,7 @@ fn finished_typing_is_saved_when_the_input_settles() {
         after_caret: String::new(),
     });
     harness.type_text("the report is ready and the numbers look good");
-    harness.press(Key::Other);
+    harness.controller.on_context_lost(&mut harness.shell);
     let saves_before_settle = harness.history_saves().len();
 
     harness.settle_input();
@@ -116,7 +116,7 @@ fn saved_text_has_the_time_of_the_clock_when_the_typing_started() {
     harness.shell.now = Some(Timestamp(1_793_199_600));
     type_in_mail(&mut harness);
     harness.shell.now = Some(Timestamp(1_793_203_200));
-    harness.press(Key::Other);
+    harness.controller.on_context_lost(&mut harness.shell);
 
     harness.settle_input();
 
@@ -137,6 +137,36 @@ fn type_in_mail(harness: &mut Harness) {
         after_caret: String::new(),
     });
     harness.type_text("the report is ready and the numbers look good");
+}
+
+fn show_field_text(harness: &mut Harness, before_caret: &str) {
+    harness.shell.surroundings.field_text = Some(FieldText {
+        before_caret: before_caret.to_owned(),
+        after_caret: String::new(),
+    });
+}
+
+#[test]
+fn text_that_a_shortcut_deleted_before_the_input_settled_is_not_saved() {
+    let mut harness = Harness::new(history_on());
+    type_in_mail(&mut harness);
+    show_field_text(
+        &mut harness,
+        "Hi Ana, the report is ready and the numbers look good",
+    );
+    harness.press(Key::Other);
+    show_field_text(&mut harness, "Hi Ana, the report is ready and the numbers look ");
+    harness.settle_input();
+
+    harness.controller.on_context_lost(&mut harness.shell);
+    harness.settle_input();
+
+    assert_eq!(
+        harness.history_saves(),
+        vec![vec![mail_entry(
+            "Hi Ana, the report is ready and the numbers look"
+        )]]
+    );
 }
 
 #[test]

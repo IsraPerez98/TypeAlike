@@ -419,7 +419,8 @@ impl App {
     /// `desktop` again. When the field shows the text of the session and a new line, the session
     /// continues there, and it returns the suggestion for the new line. Else the session ends.
     /// Without Enter, the session takes the words that the app changed in the field, as an
-    /// autocorrect does. After a key that the OS repeated while the user held it, it then returns
+    /// autocorrect does. A session that a shortcut ended keeps only the text that the field still
+    /// holds. After a key that the OS repeated while the user held it, it then returns
     /// the suggestion for the text of the session.
     /// In a text field of an app where the screen text is on, it then starts a read of the screen,
     /// unless the session has its final screen text or waits for a read.
@@ -431,6 +432,7 @@ impl App {
         if !self.offers_suggestions() || is_excluded || !self.allows_suggestions_in(desktop) {
             return None;
         }
+        self.engine.follow_key_ended_session(desktop);
         if let Some(reaction) = self.engine.suggest_on_new_line(desktop) {
             return Some(SettledWork::Suggest(reaction));
         }

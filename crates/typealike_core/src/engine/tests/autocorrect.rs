@@ -105,7 +105,7 @@ fn history_keeps_the_word_that_the_app_corrected() {
     type_in(&mut engine, &field, "I recieve the report ");
     engine.follow_field(&FakeDesktop::with_field_text("I receive the report ").in_app(MAIL_APP));
 
-    engine.on_key(Key::Other, Press::First, &field);
+    engine.reset();
 
     assert_eq!(
         engine.history_to_save().map(<[HistoryEntry]>::to_vec),
