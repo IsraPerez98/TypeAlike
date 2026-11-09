@@ -16,7 +16,8 @@ pub(super) struct EnterWait {
     /// The text before the caret that the read at the settled caret took, if it found a new line.
     new_line: Option<String>,
     /// Whether the settled caret reads the field: the user pressed the last Enter, the OS did not
-    /// repeat it, and no read at the settled caret came after it.
+    /// repeat it, no read at the settled caret came after it, and the field is not a terminal. A
+    /// terminal shows the new line at once, but the output of the command only later.
     is_caret_read_due: bool,
 }
 
@@ -104,7 +105,7 @@ impl Engine {
                 is_caret_read_due: false,
             }
         });
-        wait.is_caret_read_due = press == Press::First;
+        wait.is_caret_read_due = press == Press::First && !session.field.is_terminal();
         self.dismiss()
     }
 

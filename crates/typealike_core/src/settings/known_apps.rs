@@ -55,7 +55,7 @@ const PASSWORD_MANAGERS: [&str; 24] = [
 
 /// Whether the app with `app_id` is a terminal, whose text TypeAlike does not save unless the
 /// user turns it on. Its id matches by its start in lowercase.
-pub(super) fn is_terminal(app_id: &str) -> bool {
+pub(crate) fn is_terminal(app_id: &str) -> bool {
     starts_with_any(app_id, &TERMINALS)
 }
 

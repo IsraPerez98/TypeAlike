@@ -15,6 +15,7 @@ use crate::inference::{Backend, LogProbability, SentenceEnd, TokenCount, TypoChe
 use crate::localization::UiLanguage;
 
 pub use energy_saving::{EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, IdleTimeout};
+pub(crate) use known_apps::is_terminal;
 pub use notes_example::NotesExample;
 pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords, WordChoice,

@@ -45,13 +45,36 @@ fn field_with_text(before_caret: &str) -> Surroundings {
     field_around(before_caret, "")
 }
 
+/// A field of the terminal app with this text before the caret.
+fn terminal_field(before_caret: &str) -> Surroundings {
+    Surroundings {
+        app_id: Some("com.apple.Terminal".to_owned()),
+        ..field_with_text(before_caret)
+    }
+}
+
+/// The input box of a terminal panel, which hides the line of its caret, with this text before
+/// the caret.
+fn terminal_panel_field(before_caret: &str) -> Surroundings {
+    Surroundings {
+        is_caret_line_hidden: true,
+        ..field_with_text(before_caret)
+    }
+}
+
 /// A harness after the user typed "Best regards," and pressed Enter.
 fn harness_after_enter() -> Harness {
+    harness_after_enter_in(field_with_text)
+}
+
+/// A harness after the user typed "Best regards," in the field that `field` gives for a text
+/// before the caret, and pressed Enter.
+fn harness_after_enter_in(field: fn(&str) -> Surroundings) -> Harness {
     let mut harness = Harness::new(Settings {
         prompt_preparation: PromptPreparation::OnFirstKey,
         ..Settings::default()
     });
-    harness.shell.surroundings = field_with_text("Best regards");
+    harness.shell.surroundings = field("Best regards");
     harness.press(Key::Char(','));
     harness.answer(completed(""));
     harness.press(Key::Enter);
@@ -83,6 +106,35 @@ fn suggestion_after_enter_asks_when_the_caret_settles() {
     harness.shell.surroundings = field_with_text("Best regards,\n");
 
     harness.settle_caret();
+
+    assert_eq!(
+        harness.last_request(),
+        Some(suggestion_request(&[], "Best regards,\n"))
+    );
+}
+
+#[test]
+fn enter_in_a_terminal_asks_for_no_suggestion_when_the_caret_settles() {
+    let fields: [fn(&str) -> Surroundings; 2] = [terminal_field, terminal_panel_field];
+
+    let requests_unchanged = fields.map(|field| {
+        let mut harness = harness_after_enter_in(field);
+        harness.shell.surroundings = field("Best regards,\n");
+        let requests_after_enter = harness.requests();
+        harness.settle_caret();
+        harness.requests() == requests_after_enter
+    });
+
+    assert_eq!(requests_unchanged, [true; 2]);
+}
+
+#[test]
+fn enter_in_a_terminal_asks_for_the_new_line_when_the_input_settles() {
+    let mut harness = harness_after_enter_in(terminal_field);
+    harness.shell.surroundings = terminal_field("Best regards,\n");
+    harness.settle_caret();
+
+    harness.settle_input();
 
     assert_eq!(
         harness.last_request(),

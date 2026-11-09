@@ -6,7 +6,7 @@ use crate::inference::TokenCount;
 use crate::place;
 use crate::private_window;
 use crate::prompt::{self, Preface};
-use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
+use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits, is_terminal};
 
 use super::new_line::EnterWait;
 use super::preface::EXAMPLE_STEP_TOKENS;
@@ -89,6 +89,12 @@ impl SessionField {
     /// terminal panel of an app can ask for a password that it does not show.
     pub(super) fn can_keep_text(&self) -> bool {
         self.holds_text() && !self.is_caret_line_hidden
+    }
+
+    /// Whether the field is in a terminal app, or is the input box of a terminal panel, which
+    /// hides the line of its caret.
+    pub(super) fn is_terminal(&self) -> bool {
+        self.is_caret_line_hidden || self.app.as_ref().is_some_and(|app| is_terminal(&app.app_id))
     }
 }
 
