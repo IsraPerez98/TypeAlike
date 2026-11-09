@@ -15,7 +15,7 @@ use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
     AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
-use super::logits::{log_probability_of, most_likely_tokens, with_bias};
+use super::logits::with_bias;
 use super::model_params::{ContextSetup, context_params, drafter_context_params};
 
 /// The sequence that keeps the last prompt between completions.
@@ -27,9 +27,6 @@ const LAST_OUTPUT: i32 = -1;
 /// The most saved states of the prompt sequence: one for each of the last words, so that a
 /// backspace across each of these words goes back to a saved state.
 const MAX_SNAPSHOTS: usize = 4;
-/// The most likely tokens where a completion looks for a token that keeps its text on the line,
-/// after the end of a sentence that it goes on past.
-const SAME_LINE_CANDIDATES: usize = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum GenerateError {
@@ -318,8 +315,8 @@ impl<'model> PromptCache<'model> {
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
     /// the end of the text, at markup, and where each [`Generation`] step stops. After the end of a
     /// sentence that it goes on past, it takes the most likely token that keeps the text on its
-    /// line. Before each
-    /// decode, it stops when `progress` tells so, and else sends the text that it added so far.
+    /// line. Before each decode, it stops when `progress` tells so, and else sends the text that it
+    /// added so far.
     pub(super) fn continue_prompt(
         &mut self,
         decoder: &Decoder<'_>,
@@ -339,18 +336,12 @@ impl<'model> PromptCache<'model> {
             generation.add_join_step(logits, limits.line_after);
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
-            let chosen = generation.choose_next_token(scores, logits);
             let (token, log_probability) =
-                if generation.continues_past_sentence_end(limits) && ends_text_or_line(vocab, chosen.0) {
-                    same_line_token(vocab, scores, logits).unwrap_or(chosen)
-                } else {
-                    chosen
-                };
-            if vocab.is_eog(token) || is_markup(vocab.attr(token)) {
+                generation.choose_next_token(scores, logits, limits, |token| text_of(vocab, token));
+            let Some(piece) = text_of(vocab, token) else {
                 generation.add_end_step(logits);
                 break;
-            }
-            let piece = vocab.token_to_piece(token, false, None);
+            };
             if generation.add_token(token, &piece, log_probability, logits, limits) == Step::Stop {
                 break;
             }
@@ -420,20 +411,10 @@ impl<'model> PromptCache<'model> {
     }
 }
 
-/// Whether `token` ends the added text or its line: the end of the text, markup or a line break.
-fn ends_text_or_line(vocab: &LlamaVocab<'_>, token: LlamaToken) -> bool {
-    vocab.is_eog(token)
-        || is_markup(vocab.attr(token))
-        || vocab.token_to_piece(token, false, None).contains(&b'\n')
-}
-
-/// Returns the most likely token of `scores` that keeps the text on its line, among the
-/// [`SAME_LINE_CANDIDATES`], and the natural log of its probability in `logits`.
-fn same_line_token(vocab: &LlamaVocab<'_>, scores: &[f32], logits: &[f32]) -> Option<(LlamaToken, f32)> {
-    most_likely_tokens(scores, SAME_LINE_CANDIDATES)
-        .into_iter()
-        .find(|&token| !ends_text_or_line(vocab, token))
-        .map(|token| (token, log_probability_of(logits, token)))
+/// Returns the text of `token`, or `None` when it ends the text or is markup.
+fn text_of(vocab: &LlamaVocab<'_>, token: LlamaToken) -> Option<Vec<u8>> {
+    let ends_text = vocab.is_eog(token) || is_markup(vocab.attr(token));
+    (!ends_text).then(|| vocab.token_to_piece(token, false, None))
 }
 
 /// Returns how many cached tokens a new `prompt` keeps: the tokens that both start with. It keeps

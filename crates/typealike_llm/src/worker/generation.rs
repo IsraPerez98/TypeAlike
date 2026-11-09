@@ -9,7 +9,10 @@ use llama_cpp_2::vocab::LlamaVocab;
 use typealike_core::inference::{Correction, LogProbability, SentenceEnd, TypoCheck};
 
 use super::correction::TypedLetters;
-use super::logits::{TokenBias, agreeing_log_probability, choose_token, typed_log_probability};
+use super::logits::{
+    TokenBias, agreeing_log_probability, choose_token, log_probability_of, most_likely_tokens,
+    typed_log_probability,
+};
 use super::pieces::TokenPieces;
 use super::words::{WordLogProbabilities, ends_phrase, ends_sentence, starts_next_sentence, starts_word};
 
@@ -25,6 +28,9 @@ const MIN_PHRASE_END: LogProbability = LogProbability(-2.3);
 /// The tokens that a completion can add after the cut of the tail or the token limit, to reach the
 /// end of a phrase, in percent of the token limit.
 const PHRASE_END_TOKENS_PERCENT: usize = 40;
+/// The most likely tokens where a completion looks for a token that keeps its text on the line,
+/// when the most likely token must not come next.
+const SAME_LINE_CANDIDATES: usize = 64;
 
 /// Where a completion stops adding tokens.
 #[derive(Debug, Clone, Copy)]
@@ -295,20 +301,41 @@ impl<'text> Generation<'text> {
     }
 
     /// Returns the next token for `scores`, and the natural log of its probability in `logits`. The
-    /// first step takes the first token of the healing, if it has one.
-    pub(super) fn choose_next_token(&self, scores: &[f32], logits: &[f32]) -> (LlamaToken, f32) {
-        match self.healing.first_token.filter(|_| self.tokens.is_empty()) {
+    /// first step takes the first token of the healing, if it has one. Past the end of a sentence
+    /// that the completion added, a token that ends the text or its line gives way to the most
+    /// likely token among the [`SAME_LINE_CANDIDATES`] that keeps the text on its line, because the
+    /// model often ends the message there. `text_of` gives the text of a token, or `None` for the
+    /// end of the text or markup.
+    pub(super) fn choose_next_token(
+        &self,
+        scores: &[f32],
+        logits: &[f32],
+        limits: Limits<'_>,
+        text_of: impl Fn(LlamaToken) -> Option<Vec<u8>>,
+    ) -> (LlamaToken, f32) {
+        let chosen = match self.healing.first_token.filter(|_| self.tokens.is_empty()) {
             Some(token) => (
                 token,
                 agreeing_log_probability(logits, token, self.pieces.agreeing_with(self.unwritten)),
             ),
             None => choose_token(scores, logits, self.pieces, self.unwritten),
+        };
+        if !self.continues_past_sentence_end(limits) {
+            return chosen;
         }
+        let stays_on_line = |token| text_of(token).is_some_and(|piece| !piece.contains(&b'\n'));
+        if stays_on_line(chosen.0) {
+            return chosen;
+        }
+        most_likely_tokens(scores, SAME_LINE_CANDIDATES)
+            .into_iter()
+            .find(|&token| stays_on_line(token))
+            .map_or(chosen, |token| (token, log_probability_of(logits, token)))
     }
 
     /// Whether the completion goes on past the end of a sentence that it added, so that the next
     /// token must not end the text or its line.
-    pub(super) fn continues_past_sentence_end(&self, limits: Limits<'_>) -> bool {
+    fn continues_past_sentence_end(&self, limits: Limits<'_>) -> bool {
         limits.sentence_end == SentenceEnd::Continue
             && self.unwritten.is_empty()
             && ends_sentence(self.healing.text, &self.written)
@@ -772,9 +799,30 @@ mod tests {
             },
         );
 
-        let (token, _) = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0]);
+        let (token, _) = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0], limits(16, None), |_| None);
 
         assert_eq!(token, LlamaToken(1));
+    }
+
+    #[test]
+    fn line_break_after_an_added_sentence_end_gives_way_only_without_the_sentence_stop() {
+        let texts = [" soon.", "\n\n", " dinner"];
+        let pieces = TokenPieces::from_texts(&texts);
+        let text_of = |token: LlamaToken| Some(texts[usize::try_from(token.0).unwrap()].as_bytes().to_vec());
+        let scores = [0.0, 6.0, 4.0];
+        let sentence_ends = [SentenceEnd::Continue, SentenceEnd::Stop];
+
+        let tokens = sentence_ends.map(|sentence_end| {
+            let limits = Limits {
+                sentence_end,
+                ..limits(16, None)
+            };
+            let mut generation = Generation::new(&pieces, healing(b""));
+            generation.add_token(LlamaToken(0), texts[0].as_bytes(), -0.5, &[], limits);
+            generation.choose_next_token(&scores, &scores, limits, text_of).0
+        });
+
+        assert_eq!(tokens, [LlamaToken(2), LlamaToken(1)]);
     }
 
     #[test]
