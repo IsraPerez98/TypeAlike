@@ -147,6 +147,68 @@ fn settled_input_after_enter_requests_the_new_line_with_the_same_preface() {
 }
 
 #[test]
+fn settled_input_asks_nothing_for_the_new_line_of_the_settled_caret() {
+    let mut engine = engine_after_enter("Best regards,");
+    engine.suggest_on_settled_caret(&field_with_copy("Best regards,\n"));
+
+    let reaction = engine.suggest_on_new_line(&field_with_copy("Best regards,\n"));
+
+    assert_eq!((reaction, engine.has_session()), (None, true));
+}
+
+#[test]
+fn settled_input_asks_again_for_a_list_mark_that_the_app_added_after_the_settled_caret() {
+    let mut engine = engine_after_enter("- milk");
+    engine.suggest_on_settled_caret(&field_with_copy("- milk\n"));
+
+    let reaction = engine.suggest_on_new_line(&field_with_copy("- milk\n- "));
+
+    assert_eq!(reaction, Some(request("- milk\n- ")));
+}
+
+#[test]
+fn settled_caret_reads_the_field_once_after_enter() {
+    let mut engine = engine_after_enter("Hi Tom,");
+    engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,"));
+
+    let reaction = engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,\n"));
+
+    assert_eq!(reaction, None);
+}
+
+#[test]
+fn settled_caret_after_a_second_enter_asks_nothing_while_the_field_shows_one_new_line() {
+    let mut engine = engine_after_enter("Hi Tom,");
+    engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,\n"));
+    engine.on_key(Key::Enter, Press::First, &field_with_copy("Hi Tom,\n"));
+
+    let reaction = engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,\n"));
+
+    assert_eq!(reaction, None);
+}
+
+#[test]
+fn settled_caret_after_a_second_enter_asks_for_the_second_new_line() {
+    let mut engine = engine_after_enter("Hi Tom,");
+    engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,\n"));
+    engine.on_key(Key::Enter, Press::First, &field_with_copy("Hi Tom,\n"));
+
+    let reaction = engine.suggest_on_settled_caret(&field_with_copy("Hi Tom,\n\n"));
+
+    assert_eq!(reaction, Some(request("Hi Tom,\n\n")));
+}
+
+#[test]
+fn session_ends_when_the_field_drops_the_new_line_of_the_settled_caret() {
+    let mut engine = engine_after_enter("See you at 8");
+    engine.suggest_on_settled_caret(&field_with_copy("See you at 8\n"));
+
+    let reaction = engine.suggest_on_new_line(&field_with_copy(""));
+
+    assert_eq!((reaction, engine.has_session()), (Some(Reaction::Hide), false));
+}
+
+#[test]
 fn key_after_enter_continues_the_session_on_the_new_line() {
     let mut engine = engine_after_enter("Best regards,");
 

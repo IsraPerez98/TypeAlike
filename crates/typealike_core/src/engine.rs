@@ -179,7 +179,7 @@ impl Engine {
             Key::Escape if desktop.is_ghost_shown() => self.pause_field(),
             Key::Escape => self.reject(),
             Key::Dead => self.dismiss(),
-            Key::Enter => self.wait_for_new_line(desktop),
+            Key::Enter => self.wait_for_new_line(desktop, press),
             Key::Tab => self.reset(),
             Key::Char(_) | Key::Other => self.end_session_at_key(desktop),
         }

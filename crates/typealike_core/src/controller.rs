@@ -710,6 +710,9 @@ impl Controller {
 
     fn on_caret_settled(&mut self, shell: &mut dyn Shell) {
         self.caret_wait.on_timer();
+        if let Some(reaction) = self.app.on_caret_settled(&*shell) {
+            self.apply(reaction, shell);
+        }
         self.render_waiting_ghost(shell);
     }
 

@@ -14,6 +14,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ## Timing
 
 - The ghost text and the badge show 40 ms after a key (`CARET_SETTLE_DELAY`), at the caret that the key moved.
+- After Enter, core also reads the field at the end of this wait, so that the suggestion for the new line does not wait for the input to settle (`docs/core/typing.md`, "Enter").
 - A suggestion that comes after this wait shows at once (`GhostTiming::Now`).
 - A completion does not move the caret, so it does not change this wait. A suggestion that comes during the wait shows when the wait ends.
 - A completion that hides the ghost text or asks again also keeps the wait. Thus the badge still shows at the caret that the key moved, and the next suggestion does not wait 40 ms again. Examples:

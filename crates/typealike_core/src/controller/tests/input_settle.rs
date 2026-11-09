@@ -78,6 +78,33 @@ fn suggestion_shows_after_enter_and_a_pause() {
 }
 
 #[test]
+fn suggestion_after_enter_asks_when_the_caret_settles() {
+    let mut harness = harness_after_enter();
+    harness.shell.surroundings = field_with_text("Best regards,\n");
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.last_request(),
+        Some(suggestion_request(&[], "Best regards,\n"))
+    );
+}
+
+#[test]
+fn settled_input_hides_the_new_line_suggestion_when_the_app_emptied_the_field() {
+    let mut harness = harness_after_enter();
+    harness.shell.surroundings = field_with_text("Best regards,\n");
+    harness.settle_caret();
+    harness.answer(completed("Sara Novak"));
+    harness.shell.surroundings = field_with_text("");
+    harness.take_calls();
+
+    harness.settle_input();
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
 fn suggestion_after_enter_and_a_pause_shows_at_once_when_the_caret_settled() {
     let mut harness = harness_after_enter();
     harness.settle_caret();

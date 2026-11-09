@@ -8,6 +8,7 @@ use crate::private_window;
 use crate::prompt::{self, Preface};
 use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits};
 
+use super::new_line::EnterWait;
 use super::preface::EXAMPLE_STEP_TOKENS;
 use super::shown_suggestions::ShownSuggestions;
 
@@ -114,10 +115,8 @@ pub(super) struct Session {
     /// stored text of a read before the session, if any. After it, the session starts no other
     /// read, so that the start of its prompt changes at most one time.
     pub(super) has_screen_read: bool,
-    /// The text before the caret in the field when the user pressed Enter, while the text before
-    /// the caret is not known until the next read of the field. It is the text of the session
-    /// when the platform gave no field text.
-    pub(super) field_at_enter: Option<String>,
+    /// The texts at Enter, while the session waits for the read of its field after Enter.
+    pub(super) enter_wait: Option<EnterWait>,
     /// The suggestions that the ghost text showed in the session, which a backspace or a retype
     /// shows again. They all have the text after the caret of the session.
     pub(super) shown_suggestions: ShownSuggestions,
@@ -165,7 +164,7 @@ impl Session {
             field: SessionField::of(surroundings),
             has_accepted: false,
             has_screen_read: false,
-            field_at_enter: None,
+            enter_wait: None,
             shown_suggestions: ShownSuggestions::default(),
             started_at,
             reply_to: Vec::new(),
@@ -184,7 +183,7 @@ impl Session {
     /// Whether a read of the field shows the text before the caret of the session: the platform
     /// reads the field, the field shows the line of the caret, and no read after Enter waits.
     pub(super) fn can_follow_field(&self) -> bool {
-        self.field.is_text_field() && !self.field.is_caret_line_hidden && self.field_at_enter.is_none()
+        self.field.is_text_field() && !self.field.is_caret_line_hidden && self.enter_wait.is_none()
     }
 
     /// Whether the line of the caret has no text after the caret, as a look that sees `after` shows

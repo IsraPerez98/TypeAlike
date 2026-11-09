@@ -1,22 +1,84 @@
 //! Continues a session on the new line after Enter.
 
 use crate::desktop::{Desktop, is_line_break};
+use crate::key::Press;
 
 use super::session::recent_text;
 use super::{Engine, Reaction, read_surroundings};
 
+/// What a session keeps from Enter until the read of its field after Enter.
+pub(super) struct EnterWait {
+    /// The text of the session at Enter.
+    typed: String,
+    /// The text before the caret in the field at Enter. It is `typed` when the platform gave no
+    /// field text.
+    field: String,
+    /// The text before the caret that the read at the settled caret took, if it found a new line.
+    new_line: Option<String>,
+    /// Whether the settled caret reads the field: the user pressed the last Enter, the OS did not
+    /// repeat it, and no read at the settled caret came after it.
+    is_caret_read_due: bool,
+}
+
+impl EnterWait {
+    /// Returns the text before the caret after Enter that `field_text` shows ([`text_after_enter`]).
+    fn text_shown_in(&self, field_text: &str) -> Option<String> {
+        text_after_enter(&self.typed, &self.field, field_text)
+    }
+}
+
+/// What the read of the field after Enter did to the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NewLineRead {
+    /// The session continues on a new line that it did not have before the read.
+    NewLine,
+    /// The session did not change: no read after Enter waited, or the field shows the new line
+    /// that the read at the settled caret took.
+    Same,
+    /// The field shows no new line after the text of the session, so the session ended.
+    Ended,
+}
+
 impl Engine {
     /// Reads the field of `desktop` again after Enter, and returns the suggestion for the new line
-    /// when the session continues there. `None` when the user pressed no Enter since the last read,
-    /// or when the session ends.
+    /// when the session continues on a line that the read at the settled caret did not take. When
+    /// the session ends after that read took a new line, it hides the suggestion of that line.
+    /// `None` when the user pressed no Enter since the last read, when the session keeps the new
+    /// line of the settled caret, or when the session ends with no suggestion.
     pub(crate) fn suggest_on_new_line(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
-        self.read_field_after_enter(desktop).then(|| self.suggest())
+        let had_offer = self.has_offer();
+        match self.read_field_after_enter(desktop) {
+            NewLineRead::NewLine => Some(self.suggest()),
+            NewLineRead::Ended if had_offer => Some(Reaction::Hide),
+            NewLineRead::Ended | NewLineRead::Same => None,
+        }
+    }
+
+    /// Reads the field of `desktop` once after Enter, when the caret settled, so that the
+    /// suggestion for the new line does not wait for the input to settle. Returns that suggestion
+    /// when the field shows a new line that the session did not take yet. The session still waits
+    /// for the read when the input settles or at the next key, because the app can still change
+    /// the field, as a chat that sends the message.
+    pub(crate) fn suggest_on_settled_caret(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
+        let session = self.session.as_mut()?;
+        let wait = session
+            .enter_wait
+            .as_mut()
+            .filter(|wait| wait.is_caret_read_due)?;
+        wait.is_caret_read_due = false;
+        let field_text = read_surroundings(desktop).field_text?;
+        let text_before = wait
+            .text_shown_in(&field_text.before_caret)
+            .filter(|text| wait.new_line.as_ref() != Some(text))?;
+        wait.new_line = Some(text_before.clone());
+        session.use_read_text(text_before);
+        Some(self.suggest())
     }
 
     /// Hides the ghost text, keeps the text of the field in `desktop`, and lets the session wait
     /// for a read of its field. A second Enter keeps the text of the first. A session in a field
     /// that the platform cannot read or that gets no suggestions ends.
-    pub(super) fn wait_for_new_line(&mut self, desktop: &dyn Desktop) -> Reaction {
+    pub(super) fn wait_for_new_line(&mut self, desktop: &dyn Desktop, press: Press) -> Reaction {
         let Some(session) = self
             .session
             .as_mut()
@@ -24,9 +86,9 @@ impl Engine {
         else {
             return self.reset();
         };
-        if session.field_at_enter.is_none() {
+        let wait = session.enter_wait.get_or_insert_with(|| {
             let field_text = read_surroundings(desktop).field_text;
-            let text = field_text
+            let field = field_text
                 .as_ref()
                 .map_or(session.text_before.as_str(), |field_text| {
                     recent_text(
@@ -35,31 +97,39 @@ impl Engine {
                         session.max_tokens_before,
                     )
                 });
-            session.field_at_enter = Some(text.to_owned());
-        }
+            EnterWait {
+                typed: session.text_before.clone(),
+                field: field.to_owned(),
+                new_line: None,
+                is_caret_read_due: false,
+            }
+        });
+        wait.is_caret_read_due = press == Press::First;
         self.dismiss()
     }
 
     /// Reads the field of `desktop` when the session waits for a read after Enter. The session
     /// continues with the text that Enter added when the field shows the text of the session, or
-    /// the text of the field at Enter, and a new line after it. Else it ends. Returns whether the
-    /// session continues on a new line.
-    pub(super) fn read_field_after_enter(&mut self, desktop: &dyn Desktop) -> bool {
+    /// the text of the field at Enter, and a new line after it. Else it ends.
+    pub(super) fn read_field_after_enter(&mut self, desktop: &dyn Desktop) -> NewLineRead {
         let Some(session) = self.session.as_mut() else {
-            return false;
+            return NewLineRead::Same;
         };
-        let Some(field_at_enter) = session.field_at_enter.take() else {
-            return false;
+        let Some(wait) = session.enter_wait.take() else {
+            return NewLineRead::Same;
         };
         let field_text = read_surroundings(desktop).field_text.unwrap_or_default();
-        let Some(text_before) =
-            text_after_enter(&session.text_before, &field_at_enter, &field_text.before_caret)
-        else {
-            self.reset();
-            return false;
-        };
-        session.use_read_text(text_before);
-        true
+        match wait.text_shown_in(&field_text.before_caret) {
+            None => {
+                self.reset();
+                NewLineRead::Ended
+            }
+            Some(text_before) if wait.new_line.as_ref() == Some(&text_before) => NewLineRead::Same,
+            Some(text_before) => {
+                session.use_read_text(text_before);
+                NewLineRead::NewLine
+            }
+        }
     }
 }
 

@@ -416,9 +416,19 @@ impl App {
         self.engine.forget_history_of(app_id);
     }
 
+    /// Handles the caret that settled after a key. After a pressed Enter, it reads the field of
+    /// `desktop` once, and returns the suggestion for the new line when the field shows the text
+    /// of the session and a new line. The read when the input settles still decides whether the
+    /// session continues there.
+    pub fn on_caret_settled(&mut self, desktop: &dyn Desktop) -> Option<Reaction> {
+        self.engine.suggest_on_settled_caret(desktop)
+    }
+
     /// Handles [`INPUT_SETTLE_DELAY`] without keys and clicks. After Enter, it reads the field of
     /// `desktop` again. When the field shows the text of the session and a new line, the session
-    /// continues there, and it returns the suggestion for the new line. Else the session ends.
+    /// continues there, and it returns the suggestion for the new line, unless the settled caret
+    /// already asked for that line. Else the session ends, and the suggestion of the settled caret
+    /// hides.
     /// Without Enter, the session takes the words that the app changed in the field, as an
     /// autocorrect does. A session whose field held no text takes the field when it shows text, and
     /// ends without its text when the place of that field is off. A session that a shortcut ended

@@ -50,9 +50,15 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 
 ### Enter
 
-- After Enter, core reads the field again when the input settles or at the next key.
-- When the field shows the text of the session (or the field text that core read at Enter, because a dead key or an autocorrect can change the typed text), line breaks, and then no letters, the session continues on the new line, and the settle asks the model for a suggestion there.
-- Else the session ends.
+- After Enter, core reads the field when the caret settles (`App::on_caret_settled`, 40 ms after the key), and again when the input settles or at the next key.
+- When the field shows the text of the session (or the field text that core read at Enter, because a dead key or an autocorrect can change the typed text), line breaks, and then no letters, the session continues on the new line. Core then asks the model for a suggestion there.
+- The read when the caret settles lets the suggestion show sooner.
+  - Core does this read once after each Enter. An Enter that the OS repeats while the user holds the key gets no such read.
+  - When the field does not show the new line yet, core waits for the later read.
+- The later read decides, because the app can still change the field. A chat app can clear the field after it sends the message, and a terminal writes the output of a command.
+  - When the field shows the same new line, the suggestion stays, and core asks for no other suggestion.
+  - When the app added signs after the first read, such as a list mark, core asks again for the new text.
+  - When the field shows no new line after the text of the session, the session ends. When the first read asked for a suggestion, its ghost text hides, and that settle prepares no prompt.
 
 ### Read of the field when the input settles
 
