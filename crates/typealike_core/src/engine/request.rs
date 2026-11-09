@@ -100,6 +100,7 @@ impl Engine {
             shown: String::new(),
             added: String::new(),
             typo_check,
+            fix_of_known_word: None,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self

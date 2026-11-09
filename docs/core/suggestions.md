@@ -35,6 +35,7 @@ The length of the suggestions, the typo rule and fix, and the rules in `typealik
 - When a completion stops for a typo in typed letters that the dictionary of the OS knows as a word or as the start of a word (`SpellChecker::is_word_start`), or that it does not check (fewer than 3 letters, a digit or a sign inside), core asks again without the rule (`TypoCheck::Off`).
 - A fix of letters that the dictionary knows as a word also asks again.
 - Thus a correct word that the model did not expect, such as "Friday" after "before", gets a suggestion.
+- When the completion without the rule continues those letters but gives no suggestion, the fix of the first completion shows. For example, after "a day trip to Snit", the completion "ra" makes "Snitra", which the dictionary does not know, so the fix "Sintra" shows.
 - Core asks the dictionary only after such a stop, because a query of the start of a word costs some milliseconds on macOS.
 
 ## Where a suggestion stops

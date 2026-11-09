@@ -230,6 +230,40 @@ fn fix_of_a_known_word_asks_again_without_the_typo_rule() {
 }
 
 #[test]
+fn fix_of_a_known_word_shows_when_the_answer_without_the_typo_rule_makes_an_unknown_word_of_it() {
+    let mut engine = engine_typed(&Settings::default(), "a day trip to Snit", &["Snitra"]);
+    engine.on_completion(correction(" Snit", " Sint", "ra for the palaces"));
+
+    let reaction = engine.on_completion(completion("ra for the palaces"));
+
+    assert_eq!(
+        reaction,
+        Reaction::ShowFix(WordFix {
+            typo: "Snit".to_owned(),
+            word: "Sintra".to_owned(),
+            rest: " for the palaces".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn fix_of_a_known_word_does_not_show_when_the_answer_without_the_typo_rule_keeps_the_word() {
+    let cases = [
+        ("n the door", show("n the door")),
+        (" today", show(" today")),
+        ("", Reaction::Hide),
+    ];
+
+    let reactions = cases.clone().map(|(text, _)| {
+        let mut engine = engine_typed(&Settings::default(), "the ope", &[]);
+        engine.on_completion(correction(" ope", " ove", "rall"));
+        engine.on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, reaction)| reaction));
+}
+
+#[test]
 fn fix_of_letters_that_only_start_a_known_word_shows() {
     let mut engine = engine_typed(&Settings::default(), "los premi", &["premi"]);
 
