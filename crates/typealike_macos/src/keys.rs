@@ -3,6 +3,8 @@
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventFlags, CGKeyCode};
 use typealike_core::key::{Chord, KeyKind, Press, Typed};
 
+use crate::keyboard_layout::{DeadKeyState, KeyboardLayout};
+
 const RETURN_KEY_CODE: CGKeyCode = 36;
 const TAB_KEY_CODE: CGKeyCode = 48;
 /// The key that deletes the character before the caret (`kVK_Delete`).
@@ -65,8 +67,24 @@ pub(crate) fn press(event: &CGEvent) -> Press {
     }
 }
 
-/// Returns what a keyboard `event` types in the active layout.
-pub(crate) fn typed(event: &CGEvent) -> Typed {
+/// Returns what a keyboard `event` of the key `code` types in the active layout. A dead key and the
+/// key after it go through the layout with `dead_key`, which keeps the dead key between the two
+/// presses, because the event of the next key can give the letter without its accent.
+pub(crate) fn typed(event: &CGEvent, code: CGKeyCode, dead_key: &mut DeadKeyState) -> Typed {
+    let typed = typed_from_event(event);
+    if typed != Typed::Dead && !dead_key.is_waiting() {
+        return typed;
+    }
+    let Some(units) = KeyboardLayout::current()
+        .and_then(|layout| layout.translate(code, CGEvent::flags(Some(event)), dead_key))
+    else {
+        *dead_key = DeadKeyState::default();
+        return typed;
+    };
+    typed_from(&units)
+}
+
+fn typed_from_event(event: &CGEvent) -> Typed {
     let mut units = [0_u16; MAX_TYPED_UNITS];
     let mut written = 0;
     // SAFETY: both output pointers refer to locals; the buffer holds the maximum length passed.

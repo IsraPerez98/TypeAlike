@@ -143,6 +143,16 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - macOS turns the tap off after a slow callback (`TapDisabledByTimeout`) or for user input (`TapDisabledByUserInput`). The tap then turns itself on again at once, without the state of the runtime.
 - When the tap cannot join the main run loop, TypeAlike invalidates its port.
 
+### Dead keys
+
+- A key event gives no text for a dead key, such as ´ on the Latin American layout. The event of the next key can give the letter without its accent ("o", while the app types "ó"). This occurs with the keys of System Events and of a `CGEvent` HID source.
+- Thus the runtime keeps the dead key (`DeadKeyState`) and translates the dead key and the next key press with `UCKeyTranslate` on the current keyboard layout (`KeyboardLayout`, from `TISCopyCurrentKeyboardLayoutInputSource`). Core then gets "ó".
+- A key that does not compose gives what the layout types: the space key gives "´", and a consonant gives two characters ("´n"), which core gets as `Key::Other`.
+- The translation starts from the key code, never from the text of the event. Thus an event that already gives "ó" also gives "ó", and nothing composes twice.
+- All other keys use the text of the event.
+- A click ends the wait for the next key, as it ends the waiting accent in the app.
+- The input source functions trap when two threads call them at once. The runtime calls them only on the main thread.
+
 ## Overlay
 
 - A fix: an attributed string with a red line through clear letters, then the fixed word in `systemGreen`.

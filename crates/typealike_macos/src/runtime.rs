@@ -43,6 +43,7 @@ use crate::full_screen;
 use crate::game;
 use crate::geometry::{Caret, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
+use crate::keyboard_layout::DeadKeyState;
 use crate::keys;
 use crate::language::ui_language;
 use crate::main_menu;
@@ -118,6 +119,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             setup: None,
         },
         tap,
+        dead_key: DeadKeyState::default(),
         release_filter: ReleaseFilter::default(),
         badge_click: BadgeClickFilter::default(),
         badge_menu: None,
@@ -157,6 +159,8 @@ struct Runtime {
     shell: AppKitShell,
     /// The event tap, which macOS refuses until the user gives the Accessibility permission.
     tap: Option<EventTap>,
+    /// The dead key that waits for the next key press of the user.
+    dead_key: DeadKeyState,
     release_filter: ReleaseFilter<CGKeyCode>,
     badge_click: BadgeClickFilter,
     /// The badge menu that shows now, whose entries a pick names by their index.
@@ -186,6 +190,7 @@ impl Runtime {
             }
             CGEventType::LeftMouseUp => self.badge_click.on_release(),
             CGEventType::LeftMouseDown | CGEventType::RightMouseDown | CGEventType::OtherMouseDown => {
+                self.dead_key = DeadKeyState::default();
                 self.controller.on_context_lost(&mut self.shell);
                 Disposition::Pass
             }
@@ -196,7 +201,10 @@ impl Runtime {
     fn on_key_down(&mut self, event: &CGEvent) -> Disposition {
         let code = keys::key_code(event);
         let chord = keys::chord_from_flags(CGEvent::flags(Some(event)));
-        let key = code.map(|code| Key::from_press(keys::kind_of(code), chord, keys::typed(event)));
+        let key = code.map(|code| {
+            let typed = keys::typed(event, code, &mut self.dead_key);
+            Key::from_press(keys::kind_of(code), chord, typed)
+        });
         let disposition = self
             .controller
             .on_key_down(key, keys::press(event), &mut self.shell);

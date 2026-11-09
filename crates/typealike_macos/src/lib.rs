@@ -18,6 +18,7 @@ mod full_screen;
 mod game;
 mod geometry;
 mod injection;
+mod keyboard_layout;
 mod keychain;
 mod keys;
 mod labels;
