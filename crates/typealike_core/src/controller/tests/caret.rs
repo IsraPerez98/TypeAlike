@@ -10,7 +10,7 @@ use crate::controller::{
 };
 use crate::desktop::{AfterCaret, Field};
 use crate::engine::WordFix;
-use crate::inference::{InferenceEvent, InferenceRequest};
+use crate::inference::{InferenceError, InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key, Press};
 use crate::settings::{Settings, SuggestionDisplay};
 use crate::test_support::{active_badge, suggestion_request};
@@ -75,6 +75,30 @@ fn completion_during_caret_wait_keeps_timer() {
     harness.answer(completed("est"));
 
     assert_eq!(harness.take_calls(), Vec::new());
+}
+
+#[test]
+fn completion_of_a_replaced_request_keeps_timer_for_the_newest_completion() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.press(Key::Char('e'));
+    harness.answer(InferenceEvent::Completed(Err(InferenceError::Superseded)));
+    harness.take_calls();
+
+    harness.answer(completed("st"));
+
+    assert_eq!(harness.take_calls(), Vec::new());
+}
+
+#[test]
+fn completion_without_suggestion_during_caret_wait_keeps_timer_for_the_badge() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('B'));
+    harness.take_calls();
+
+    harness.answer(completed(""));
+
+    assert_eq!(harness.take_calls(), vec![Call::HideGhost]);
 }
 
 #[test]

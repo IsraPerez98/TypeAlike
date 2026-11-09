@@ -15,6 +15,9 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 
 - The ghost text and the badge show 40 ms after a key (`CARET_SETTLE_DELAY`), at the caret that the key moved.
 - A suggestion that comes after this wait shows at once (`GhostTiming::Now`).
+- A completion does not move the caret, so it does not change this wait. A suggestion that comes during the wait shows when the wait ends.
+- A completion that hides the ghost text also keeps the wait. Thus the badge still shows at the caret that the key moved.
+- An example is the completion of a request that the next key replaced. It does not stop the wait, so the suggestion of the next key does not wait 40 ms again.
 - While the ghost text does not show, core looks at the caret again every 20 ms, at most 20 times, and then shows the ghost text at the caret where it is.
 - The fix of a typo of the same length does not move the caret, so the rest after it shows at once.
 

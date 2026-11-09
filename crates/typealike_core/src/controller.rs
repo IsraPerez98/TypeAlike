@@ -957,12 +957,16 @@ impl Controller {
             InferenceEvent::Loaded { .. } | InferenceEvent::GpuMemory { .. } => None,
         };
         match reaction {
-            // A completion does not move the caret, so it must not make the wait for the caret longer.
+            // A completion does not move the caret, so it must not change the wait for the caret.
             Some(Reaction::Show(text)) if self.caret_wait.is_timer_pending() => {
                 self.caret_wait.replace_ghost(Ghost::Text(text));
             }
             Some(Reaction::ShowFix(fix)) if self.caret_wait.is_timer_pending() => {
                 self.caret_wait.replace_ghost(Ghost::Fix(fix));
+            }
+            Some(Reaction::Hide) if self.caret_wait.is_timer_pending() => {
+                self.caret_wait.forget_ghost();
+                shell.hide_ghost();
             }
             Some(reaction) => {
                 self.apply(reaction, shell);

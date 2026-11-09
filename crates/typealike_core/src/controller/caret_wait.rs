@@ -240,13 +240,19 @@ impl CaretWait {
         Some(GhostView::new(ghost, text_before_caret, placement))
     }
 
+    /// Forgets the waiting ghost text, and keeps the caret timer, so that the badge still shows
+    /// when the caret settles.
+    pub(super) fn forget_ghost(&mut self) {
+        self.ghost = None;
+        self.is_rest = false;
+    }
+
     /// Stops the wait and forgets the waiting ghost text. A look that waits goes on, so that the
     /// badge shows when it comes.
     pub(super) fn stop(&mut self, shell: &mut dyn Shell) {
-        self.ghost = None;
+        self.forget_ghost();
         shell.stop_timer(Timer::CaretSettle);
         self.is_timer_pending = false;
-        self.is_rest = false;
     }
 }
 
