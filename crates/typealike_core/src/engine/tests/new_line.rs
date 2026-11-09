@@ -9,7 +9,7 @@ use crate::test_support::{MAIL_APP, completion};
 
 use super::support::{
     FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request,
-    request_with,
+    request_with, show,
 };
 
 /// A field with `before_caret` and a recent copy, which a new session puts into its preface.
@@ -79,12 +79,12 @@ fn dead_key_keeps_the_session_for_the_accented_letter() {
 }
 
 #[test]
-fn dead_key_hides_the_suggestion() {
+fn dead_key_keeps_the_suggestion() {
     let mut engine = engine_showing("qu", "é tal");
 
     let reaction = press(&mut engine, Key::Dead);
 
-    assert_eq!(reaction, Reaction::Hide);
+    assert_eq!(reaction, show("é tal"));
 }
 
 #[test]
@@ -93,6 +93,16 @@ fn tab_after_a_dead_key_passes_through() {
     press(&mut engine, Key::Dead);
 
     let reaction = press(&mut engine, Key::Tab);
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn escape_after_a_dead_key_does_not_pause_the_field() {
+    let mut engine = engine_showing("qu", "é tal");
+    press(&mut engine, Key::Dead);
+
+    let reaction = press(&mut engine, Key::Escape);
 
     assert_eq!(reaction, Reaction::Hide);
 }

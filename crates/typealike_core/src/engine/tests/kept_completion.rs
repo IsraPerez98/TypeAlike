@@ -46,6 +46,16 @@ fn key_that_differs_from_the_running_completion_requests_the_new_text() {
 }
 
 #[test]
+fn accented_letter_after_a_dead_key_keeps_the_running_completion() {
+    let mut engine = engine_running("qu", "é tal");
+    press(&mut engine, Key::Dead);
+
+    let reaction = press(&mut engine, Key::Char('é'));
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
 fn key_after_all_the_added_text_requests_the_new_text() {
     let mut engine = engine_running("hel", "lo");
     type_text(&mut engine, "lo");

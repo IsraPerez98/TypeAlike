@@ -26,7 +26,12 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
   - The text after the caret also counts, because an arrow key moves the caret back without a change to the text.
   - A second such key in the same field makes the session wait again. Any other key, a click and a focus change keep the text.
   - A read of another field (another app, website, window title or field labels) keeps the whole text, because the key moved the focus. A field that the platform cannot read also keeps the whole text.
-- A dead key (`Key::Dead`) does not end the session.
+
+### Dead key
+
+- A dead key (`Key::Dead`) types nothing, and the next key types the accented letter, such as ´ and then o for ó. The platform gives core the composed letter (`docs/macos.md`, "Dead keys").
+- A dead key does not end the session. It keeps the ghost text and a completion that runs. The composed letter then continues them or not, as any typed key does.
+- The key after a dead key goes to the waiting accent in the app. Thus Tab after a dead key does not take the ghost text, and Escape does not pause the field.
 
 ### Field without text at the start
 

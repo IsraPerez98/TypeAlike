@@ -81,6 +81,9 @@ pub(crate) struct Engine {
     /// Whether the text before the caret changed after the last suggestion, so that the input
     /// settle asks for one: the OS repeated a held key, or a read of the field changed the text.
     is_suggestion_due: bool,
+    /// The last key that the user pressed. After a dead key, its accent waits in the app for the
+    /// next key.
+    last_key: Option<Key>,
 }
 
 impl Default for Engine {
@@ -113,6 +116,7 @@ impl Default for Engine {
             dictionary: None,
             is_field_paused: false,
             is_suggestion_due: false,
+            last_key: None,
         };
         engine.use_settings(&settings);
         engine
@@ -156,8 +160,10 @@ impl Engine {
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`. A key
     /// that the OS repeats changes the text, but asks for no suggestion until
-    /// [`suggest_when_due`](Self::suggest_when_due).
+    /// [`suggest_when_due`](Self::suggest_when_due). A dead key keeps the ghost text, and the key
+    /// after it goes to the accent in the app: Tab and Escape then do not act on the ghost text.
     pub(crate) fn on_key(&mut self, key: Key, press: Press, desktop: &dyn Desktop) -> Reaction {
+        let is_after_dead_key = self.last_key.replace(key) == Some(Key::Dead);
         if let Some(session) = &mut self.session {
             session.has_untouched_request = false;
         }
@@ -175,10 +181,10 @@ impl Engine {
                 self.start_session(desktop).delete_last_character();
                 self.suggest_after(press)
             }
-            Key::Tab if desktop.is_ghost_shown() => self.accept(desktop),
-            Key::Escape if desktop.is_ghost_shown() => self.pause_field(),
+            Key::Tab if !is_after_dead_key && desktop.is_ghost_shown() => self.accept(desktop),
+            Key::Escape if !is_after_dead_key && desktop.is_ghost_shown() => self.pause_field(),
             Key::Escape => self.reject(),
-            Key::Dead => self.dismiss(),
+            Key::Dead => self.offer.reaction(),
             Key::Enter => self.wait_for_new_line(desktop, press),
             Key::Tab => self.reset(),
             Key::Char(_) | Key::Other => self.end_session_at_key(desktop),
