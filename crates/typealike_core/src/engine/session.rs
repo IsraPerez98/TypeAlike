@@ -1,6 +1,6 @@
 //! Holds the text of a typing session and keeps it in the token budget of the prompt.
 
-use crate::desktop::{Surroundings, Timestamp};
+use crate::desktop::{AfterCaret, Surroundings, Timestamp, line_after_caret};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::TokenCount;
 use crate::place;
@@ -187,15 +187,24 @@ impl Session {
         self.field.is_text_field() && !self.field.is_caret_line_hidden && self.field_at_enter.is_none()
     }
 
-    pub(super) fn is_caret_at_line_end(&self) -> bool {
-        !self.field.is_caret_line_hidden && self.line_after().is_empty()
+    /// Whether the line of the caret has no text after the caret, as a look that sees `after` shows
+    /// it. Without a look that tells, the text that the session read at its start counts. A field
+    /// that hides its line never has the caret at the end, because text can follow it there.
+    pub(super) fn is_caret_at_line_end(&self, after: AfterCaret) -> bool {
+        if self.field.is_caret_line_hidden {
+            return false;
+        }
+        match after {
+            AfterCaret::Nothing => true,
+            AfterCaret::Text | AfterCaret::Selection => false,
+            AfterCaret::Unknown => self.line_after().is_empty(),
+        }
     }
 
     /// The text after the caret on its line, or empty when that line has only whitespace after
     /// the caret.
     pub(super) fn line_after(&self) -> &str {
-        let line = self.text_after.lines().next().unwrap_or_default();
-        if line.trim().is_empty() { "" } else { line }
+        line_after_caret(&self.text_after)
     }
 
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the

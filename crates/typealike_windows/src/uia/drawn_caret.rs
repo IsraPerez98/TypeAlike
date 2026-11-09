@@ -3,7 +3,7 @@
 //! Apps without a system caret draw a caret of their own. The caret has the color and the font face
 //! of the text before it. In a terminal of xterm.js, the caret moves up to the row that holds it.
 
-use typealike_core::desktop::{TextColor, is_line_break};
+use typealike_core::desktop::{AfterCaret, TextColor, is_line_break};
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
@@ -14,6 +14,7 @@ use windows::Win32::UI::Accessibility::{
 };
 
 use super::com::SafeArray;
+use super::field::after_caret;
 use super::{Uia, WHOLE_RANGE, caret_range, frame_with_area, is_password, is_terminal_input, text_of};
 use crate::caret::{self, Caret};
 use crate::display::round_to_pixel;
@@ -35,17 +36,20 @@ pub(crate) struct FocusedCaret {
     /// The frame of the control in physical screen pixels, or `None` when UIA gives no frame with
     /// an area.
     pub(crate) frame: Option<RECT>,
+    /// What follows the caret now: selected text, or the text after it on its line.
+    pub(crate) after: AfterCaret,
 }
 
 impl Uia {
     /// Locates the caret of the focused control: the system caret, else the caret that the control
     /// draws itself. The caret has the color and the font face of the text before it, when the
-    /// control tells them. The frame of the control comes with it.
+    /// control tells them. The frame of the control comes with it, and what follows the caret now.
     pub(crate) fn caret(&self) -> FocusedCaret {
         let element = self.focused_element();
         FocusedCaret {
             caret: self.styled_caret(element.as_ref()),
             frame: element.as_ref().and_then(frame_with_area),
+            after: element.as_ref().map_or(AfterCaret::Unknown, after_caret),
         }
     }
 

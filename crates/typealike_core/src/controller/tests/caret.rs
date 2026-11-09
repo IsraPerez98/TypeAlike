@@ -5,9 +5,10 @@ use super::harness::{
     loaded,
 };
 use crate::controller::{
-    CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, Delivery, FocusChange, Ghost, GhostPlacement, Timer,
+    CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, CaretLook, CaretRead, Delivery, FocusChange, Ghost,
+    GhostPlacement, Timer,
 };
-use crate::desktop::Field;
+use crate::desktop::{AfterCaret, Field};
 use crate::engine::WordFix;
 use crate::inference::{InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key, Press};
@@ -330,6 +331,83 @@ fn ghost_text_goes_below_the_caret_while_text_follows_the_caret_on_its_line() {
             Some(GhostPlacement::AfterCaret),
             Some(GhostPlacement::BelowCaret),
         ]
+    );
+}
+
+/// A harness whose session read `text_after` after "Let's meet" at its start, and whose look at
+/// the caret sees `after`. It waits for the look to show "tomorrow".
+fn harness_whose_look_sees(text_after: &str, after: AfterCaret) -> Harness {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_around("Let's meet", text_after);
+    harness.shell.caret_look = CaretLook::Now(CaretRead {
+        after,
+        ..CaretRead::default()
+    });
+    harness.press(Key::Char(' '));
+    harness.answer(completed("tomorrow"));
+    harness
+}
+
+#[test]
+fn ghost_text_goes_after_the_caret_when_the_look_sees_that_the_text_after_it_is_gone() {
+    let mut harness = harness_whose_look_sees("Try \"create a util\"", AfterCaret::Nothing);
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.shell.ghost_view.map(|view| view.placement),
+        Some(GhostPlacement::AfterCaret)
+    );
+}
+
+#[test]
+fn ghost_text_goes_below_the_caret_when_the_look_sees_text_that_the_session_did_not_read() {
+    let mut harness = harness_whose_look_sees("", AfterCaret::Text);
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.shell.ghost_view.map(|view| view.placement),
+        Some(GhostPlacement::BelowCaret)
+    );
+}
+
+#[test]
+fn ghost_text_hides_while_the_look_sees_selected_text_after_the_caret() {
+    let mut harness = harness_whose_look_sees("", AfterCaret::Selection);
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn ghost_text_shows_when_the_selected_text_after_the_caret_goes_away() {
+    let mut harness = harness_whose_look_sees("", AfterCaret::Selection);
+    harness.shell.caret_look = CaretLook::Later;
+    harness.settle_caret();
+    harness.answer_caret(CaretRead {
+        after: AfterCaret::Selection,
+        ..CaretRead::default()
+    });
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(CaretRead {
+        after: AfterCaret::Nothing,
+        ..CaretRead::default()
+    });
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("tomorrow"), Some(active_badge()))]
     );
 }
 

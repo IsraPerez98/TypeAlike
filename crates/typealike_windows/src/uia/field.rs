@@ -5,7 +5,9 @@
 
 use std::fmt;
 
-use typealike_core::desktop::{FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET};
+use typealike_core::desktop::{
+    AfterCaret, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, MAX_CHARS_BEFORE_CARET,
+};
 use windows::Foundation::Uri;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
@@ -24,6 +26,12 @@ use crate::utf16::whole_chars;
 const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
 /// The ARIA role of a search box, which a browser also gives an HTML `<input type="search">`.
 const SEARCH_BOX_ARIA_ROLE: &str = "searchbox";
+/// The characters of the selection that a look reads. One character tells that text is selected.
+const CHARS_TO_FIND_SELECTION: i32 = 1;
+/// The characters after the caret that a look reads to find text on its line. It is far less than
+/// the text of a read of the field, which a slow app can need seconds to give. A terminal pads each
+/// line with spaces, so a line that has only spaces in these characters counts as empty.
+const CHARS_TO_FIND_LINE_TEXT: usize = 160;
 
 /// What UIA tells about the focused control.
 #[derive(Debug)]
@@ -141,24 +149,43 @@ enum Side {
 fn text_around_selection(element: &IUIAutomationElement) -> Option<FieldText> {
     let selection = caret_range(element)?;
     Some(FieldText {
-        before_caret: text_beside(&selection, Side::Before)?,
-        after_caret: text_beside(&selection, Side::After).unwrap_or_default(),
+        before_caret: text_beside(&selection, Side::Before, MAX_CHARS_BEFORE_CARET)?,
+        after_caret: text_beside(&selection, Side::After, MAX_CHARS_AFTER_CARET).unwrap_or_default(),
     })
 }
 
-/// Reads the text next to `selection` on `side`: at most [`MAX_CHARS_BEFORE_CARET`] characters
-/// before it, or at most [`MAX_CHARS_AFTER_CARET`] after it.
-fn text_beside(selection: &IUIAutomationTextRange, side: Side) -> Option<String> {
+/// Reads what follows the caret of `element` now: selected text, else the text after the caret on
+/// its line. `Unknown` when the field hides its text, or when UIA gives no selection or no text,
+/// so that the text that the session read at its start counts.
+pub(super) fn after_caret(element: &IUIAutomationElement) -> AfterCaret {
+    if is_password(element) {
+        return AfterCaret::Unknown;
+    }
+    let Some(selection) = caret_range(element) else {
+        return AfterCaret::Unknown;
+    };
+    // SAFETY: plain call on an interface of this thread.
+    let selected = unsafe { selection.GetText(CHARS_TO_FIND_SELECTION) }.ok();
+    let after = text_beside(&selection, Side::After, CHARS_TO_FIND_LINE_TEXT);
+    match (selected, after) {
+        (Some(selected), Some(after)) => AfterCaret::seen(&selected.to_string(), &after),
+        _ => AfterCaret::Unknown,
+    }
+}
+
+/// Reads the text next to `selection` on `side`: at most `max_chars` characters.
+fn text_beside(selection: &IUIAutomationTextRange, side: Side, max_chars: usize) -> Option<String> {
+    let characters = i32::try_from(max_chars).ok()?;
     let (collapsed_end, growing_end, characters) = match side {
         Side::Before => (
             TextPatternRangeEndpoint_End,
             TextPatternRangeEndpoint_Start,
-            -i32::try_from(MAX_CHARS_BEFORE_CARET).ok()?,
+            -characters,
         ),
         Side::After => (
             TextPatternRangeEndpoint_Start,
             TextPatternRangeEndpoint_End,
-            i32::try_from(MAX_CHARS_AFTER_CARET).ok()?,
+            characters,
         ),
     };
     // SAFETY: plain calls on interfaces of this thread.

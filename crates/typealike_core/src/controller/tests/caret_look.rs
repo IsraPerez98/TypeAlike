@@ -33,6 +33,7 @@ pub(super) fn look_at(left: i32) -> CaretRead {
     CaretRead {
         caret: Some(caret_at(left)),
         field: Some(FIELD),
+        ..CaretRead::default()
     }
 }
 
@@ -260,6 +261,7 @@ fn look_without_a_caret_renders_the_ghost_and_the_badge() {
     harness.answer_caret(CaretRead {
         caret: None,
         field: Some(FIELD),
+        ..CaretRead::default()
     });
 
     assert_eq!(
@@ -275,6 +277,7 @@ fn look_without_a_field_frame_shows_a_far_caret() {
     harness.answer_caret(CaretRead {
         caret: Some(caret_at(FAR_CARET)),
         field: None,
+        ..CaretRead::default()
     });
 
     assert_eq!(

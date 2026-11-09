@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use crate::desktop::Surroundings;
+use crate::desktop::{AfterCaret, Surroundings};
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
 use crate::engine::{Engine, Reaction};
 use crate::inference::{Backend, InferenceRequest};
@@ -27,10 +27,36 @@ fn caret_is_at_the_line_end_while_its_line_has_no_text_after_it() {
             Press::First,
             &FakeDesktop::with_text_around("Let's meet", text_after),
         );
-        engine.is_caret_at_line_end()
+        engine.is_caret_at_line_end(AfterCaret::Unknown)
     });
 
     assert_eq!(line_ends, [true, true, false]);
+}
+
+#[test]
+fn look_that_sees_the_text_after_the_caret_decides_over_the_text_that_the_session_read() {
+    let looks = [
+        AfterCaret::Unknown,
+        AfterCaret::Nothing,
+        AfterCaret::Text,
+        AfterCaret::Selection,
+    ];
+    let texts_after = ["", "Try \"create a util\""];
+
+    let line_ends = texts_after.map(|text_after| {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char(' '),
+            Press::First,
+            &FakeDesktop::with_text_around("Let's meet", text_after),
+        );
+        looks.map(|after| engine.is_caret_at_line_end(after))
+    });
+
+    assert_eq!(
+        line_ends,
+        [[true, true, false, false], [false, true, false, false]]
+    );
 }
 
 #[test]
@@ -46,7 +72,7 @@ fn caret_in_a_field_that_hides_its_line_is_not_at_the_line_end() {
 
     engine.on_key(Key::Char(' '), Press::First, &desktop);
 
-    assert!(!engine.is_caret_at_line_end());
+    assert!(!engine.is_caret_at_line_end(AfterCaret::Nothing));
 }
 
 #[test]

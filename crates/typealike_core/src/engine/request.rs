@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use crate::desktop::Desktop;
+use crate::desktop::{AfterCaret, Desktop};
 use crate::history::HistoryPool;
 use crate::inference::{
     InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck, WordBias,
@@ -182,7 +182,7 @@ impl Engine {
     /// of the session, when the line after the caret is empty.
     fn repeated_phrase(&self) -> Option<String> {
         let (session, pool, place) = self.session_pool()?;
-        if session.field.is_excluded || !session.is_caret_at_line_end() {
+        if session.field.is_excluded || !session.is_caret_at_line_end(AfterCaret::Unknown) {
             return None;
         }
         self.tables

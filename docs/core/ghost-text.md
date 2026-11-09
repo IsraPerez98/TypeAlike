@@ -47,6 +47,12 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 
 - When text follows the caret on its line, the ghost text goes below the caret (`GhostPlacement::BelowCaret`), because at the caret it would cover that text.
 - A field that hides the text of that line (`Surroundings::is_caret_line_hidden`: the input box of a terminal of xterm.js) always gets the ghost text below the caret, and no phrases.
+- Each look at the caret also tells what follows the caret now (`CaretRead::after`, `AfterCaret`: nothing, text on the line, selected text, or unknown).
+- The look decides the placement, because the text that the session read at its start can be stale. An empty field can show a placeholder that goes away at the first key, as Claude Code does.
+- Thus a look that sees no text after the caret puts the ghost text after the caret, also when the session read a placeholder there. A look that sees text puts it below the caret.
+- When the platform cannot tell (`AfterCaret::Unknown`), the text that the session read at its start counts.
+- While the app selects text after the caret, the ghost text hides. An example is the inline completion of the address bar of Chrome. The ghost text then never covers the suggestion of the app.
+- The ghost text waits, and core looks at the caret again as for each ghost text that does not show. It shows when the selection goes away.
 
 ### Fit in the field
 

@@ -513,6 +513,7 @@ impl Shell for AppKitShell {
         CaretLook::Now(CaretRead {
             caret: self.caret.map(Caret::to_screen_rect),
             field: self.field_frame.map(screen_rect),
+            ..CaretRead::default()
         })
     }
 

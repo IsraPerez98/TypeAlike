@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::{Ghost, GhostView};
 use crate::app::{BadgeView, TrayView};
-use crate::desktop::{Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
+use crate::desktop::{AfterCaret, Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
 use crate::settings::{ClipboardAccess, OcrLevel};
 use crate::settings_window::view::SettingsView;
 use crate::setup::SetupView;
@@ -47,6 +47,8 @@ pub struct CaretRead {
     pub caret: Option<ScreenRect>,
     /// The frame of the focused field, or `None` when the platform cannot read it.
     pub field: Option<ScreenRect>,
+    /// What the platform sees after the caret at this look.
+    pub after: AfterCaret,
 }
 
 /// How a shell looks at the caret before the controller shows something at the caret. With each

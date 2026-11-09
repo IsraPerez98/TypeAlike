@@ -40,6 +40,14 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - Each read of the caret also gives the frame of the focused field: the UIA `CurrentBoundingRectangle` of the focused element when it has an area, else the `GetWindowRect` of the focused window.
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
 
+### What follows the caret
+
+- Each read of the caret also tells what follows the caret now (`AfterCaret`, from the UIA `TextPattern` of the focused element): selected text, else text after the caret on its line, else nothing.
+- The read takes one character of the selection and at most 160 characters after it (`CHARS_TO_FIND_LINE_TEXT`), so that a slow app does not hold the read. A line with only spaces in these characters has no text, because a terminal pads its lines with spaces.
+- The address bar of Chromium browsers gives its inline completion as the selection, so the ghost text hides while it shows.
+- Claude Code in Windows Terminal gives its placeholder as text after the caret in an empty field. The look sees that the placeholder is gone after the first key.
+- The answer is `Unknown` for a password field, for an element without a `TextPattern`, and for a read that fails. Core then uses the text that the session read at its start (`docs/core/ghost-text.md`, "Placement").
+
 ### UIA caret
 
 - A UIA caret with a value that is not finite counts as no caret.

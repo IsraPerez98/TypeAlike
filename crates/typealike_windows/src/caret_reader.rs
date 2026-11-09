@@ -17,7 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use typealike_core::controller::CaretRead;
-use typealike_core::desktop::FieldText;
+use typealike_core::desktop::{AfterCaret, FieldText};
 use windows::Win32::Foundation::RECT;
 use windows::core::Result;
 
@@ -48,6 +48,8 @@ pub(crate) struct CaretAnswer {
     /// The frame of the focused field in physical screen pixels, or `None` when TypeAlike cannot
     /// read it.
     pub(crate) field: Option<RECT>,
+    /// What follows the caret at this read.
+    pub(crate) after: AfterCaret,
 }
 
 /// Identifies one read of the field text. A later read has a higher id.
@@ -181,6 +183,7 @@ fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
         || FocusedCaret {
             caret: caret::system_caret(),
             frame: None,
+            after: AfterCaret::Unknown,
         },
         Uia::caret,
     );
@@ -188,6 +191,7 @@ fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
         id,
         caret: focused.caret,
         field: focused.frame.or_else(focus::focused_window_frame),
+        after: focused.after,
     }
 }
 
@@ -327,6 +331,7 @@ impl NewestCaret {
         let read = CaretRead {
             caret: answer.caret.as_ref().map(Caret::screen_rect),
             field: answer.field.map(display::screen_rect),
+            after: answer.after,
         };
         self.caret = answer.caret;
         Some(read)
@@ -366,6 +371,7 @@ mod tests {
                 right: 600,
                 bottom: 70,
             }),
+            after: AfterCaret::Unknown,
         }
     }
 
@@ -391,8 +397,23 @@ mod tests {
                     right: 600,
                     bottom: 70,
                 }),
+                after: AfterCaret::Unknown,
             })
         );
+    }
+
+    #[test]
+    fn answer_to_the_newest_read_gives_what_follows_the_caret_to_core() {
+        let mut newest = NewestCaret::default();
+        let read = newest.next_read();
+        let answer = CaretAnswer {
+            after: AfterCaret::Selection,
+            ..caret_answer(read, Some(caret_at(102)))
+        };
+
+        let look = newest.keep(answer);
+
+        assert_eq!(look.map(|look| look.after), Some(AfterCaret::Selection));
     }
 
     #[test]

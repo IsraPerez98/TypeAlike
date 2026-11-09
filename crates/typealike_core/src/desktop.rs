@@ -53,6 +53,45 @@ impl fmt::Debug for FieldText {
     }
 }
 
+/// The text after the caret on its line: the first line of `text_after`, or empty when that line
+/// has only white space.
+pub(crate) fn line_after_caret(text_after: &str) -> &str {
+    let line = text_after.lines().next().unwrap_or_default();
+    if line.trim().is_empty() { "" } else { line }
+}
+
+/// What the platform sees after the caret at a look. The text that a session reads at its start
+/// can be stale at the look: an empty field can show a placeholder that goes away at the first
+/// key. An app can also select text after the caret that the next key replaces, as the address bar
+/// of a browser does for its inline completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AfterCaret {
+    /// The platform cannot tell, so the text that the session read at its start counts.
+    #[default]
+    Unknown,
+    /// No text is selected, and the line of the caret has only white space after the caret.
+    Nothing,
+    /// No text is selected, and text follows the caret on its line.
+    Text,
+    /// Text is selected, so it follows the caret. The app shows it as a suggestion of its own.
+    Selection,
+}
+
+impl AfterCaret {
+    /// What a look sees when `selected` is the start of the selected text, empty when nothing is
+    /// selected, and `text_after` is the text after the selection.
+    #[must_use]
+    pub fn seen(selected: &str, text_after: &str) -> Self {
+        if !selected.is_empty() {
+            Self::Selection
+        } else if line_after_caret(text_after).is_empty() {
+            Self::Nothing
+        } else {
+            Self::Text
+        }
+    }
+}
+
 /// A moment of the clock of the OS: the seconds since the Unix epoch, in UTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp(pub u64);
@@ -453,6 +492,22 @@ mod tests {
         let characters = [' ', '\t', '\u{a0}', '\u{c}', 'a'];
 
         assert_eq!(characters.map(is_line_break), [false; 5]);
+    }
+
+    #[test]
+    fn look_sees_what_follows_the_caret() {
+        let looks = [
+            ("", "", AfterCaret::Nothing),
+            ("", "  \nSee you", AfterCaret::Nothing),
+            ("", " on Friday.", AfterCaret::Text),
+            ("", "Try \"create a util\"   \n", AfterCaret::Text),
+            ("1", "", AfterCaret::Selection),
+            ("o", " on Friday.", AfterCaret::Selection),
+        ];
+
+        let seen = looks.map(|(selected, text_after, _)| AfterCaret::seen(selected, text_after));
+
+        assert_eq!(seen, looks.map(|(_, _, expected)| expected));
     }
 
     #[test]

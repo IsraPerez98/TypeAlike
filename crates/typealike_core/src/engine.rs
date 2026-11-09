@@ -15,7 +15,7 @@ mod suggestion;
 
 use std::fmt;
 
-use crate::desktop::{Desktop, Surroundings, Timestamp};
+use crate::desktop::{AfterCaret, Desktop, Surroundings, Timestamp};
 use crate::excerpt::{plain_spaces, without_zero_width_spaces};
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TokenCount, TypoCheck};
@@ -185,11 +185,14 @@ impl Engine {
         }
     }
 
-    /// Whether the line of the caret has no text after the caret, also without a session. `false`
-    /// in a field that hides that line, because text can follow the caret there.
+    /// Whether the line of the caret has no text after the caret, also without a session, as a look
+    /// that sees `after` shows it. `false` in a field that hides that line, because text can follow
+    /// the caret there.
     #[must_use]
-    pub(crate) fn is_caret_at_line_end(&self) -> bool {
-        self.session.as_ref().is_none_or(Session::is_caret_at_line_end)
+    pub(crate) fn is_caret_at_line_end(&self, after: AfterCaret) -> bool {
+        self.session
+            .as_ref()
+            .is_none_or(|session| session.is_caret_at_line_end(after))
     }
 
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text

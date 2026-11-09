@@ -42,6 +42,7 @@ fn move_caret_to(harness: &mut Harness, left: i32, field: Option<ScreenRect>) {
     harness.shell.caret_look = CaretLook::Now(CaretRead {
         caret: Some(caret_at(left)),
         field,
+        ..CaretRead::default()
     });
 }
 

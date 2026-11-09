@@ -16,8 +16,8 @@ use badge::place_entries;
 use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
-    Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrRead, ScreenRead,
-    ScreenReadId, ScreenSource,
+    AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrRead,
+    ScreenRead, ScreenReadId, ScreenSource,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
@@ -698,11 +698,12 @@ impl App {
         self.engine.text_before_caret()
     }
 
-    /// Whether the line of the caret has no text after the caret, also without a session. `false`
-    /// in a field that hides that line, because text can follow the caret there.
+    /// Whether the line of the caret has no text after the caret, also without a session, as a look
+    /// that sees `after` shows it. `false` in a field that hides that line, because text can follow
+    /// the caret there.
     #[must_use]
-    pub fn is_caret_at_line_end(&self) -> bool {
-        self.engine.is_caret_at_line_end()
+    pub fn is_caret_at_line_end(&self, after: AfterCaret) -> bool {
+        self.engine.is_caret_at_line_end(after)
     }
 
     /// Whether the ghost text has a suggestion or a fix, or the completion of the newest

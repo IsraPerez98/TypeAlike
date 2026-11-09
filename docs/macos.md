@@ -79,6 +79,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - The walk skips the elements in a popover (`AXPopover`), because a popover can close when an assistive app reads its tree, as the event popover of Calendar does.
   - The walk runs at the settled input, not in the event tap, so it never delays a key.
 - Each look at the caret also gives the frame of the focused field.
+- A look does not tell what follows the caret yet (`AfterCaret::Unknown`), so core uses the text that the session read at its start.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
 - A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.

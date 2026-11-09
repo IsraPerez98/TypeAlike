@@ -24,8 +24,8 @@ use crate::app::{
     TrayView,
 };
 use crate::desktop::{
-    CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrLevels,
-    Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
+    AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability,
+    OcrLevels, Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -1162,15 +1162,7 @@ impl Controller {
     /// lists of the panes. Else an app whose suggestions are off by default goes into the list of
     /// the Apps and websites pane.
     fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
-        let placement = if self.app.is_caret_at_line_end() {
-            GhostPlacement::AfterCaret
-        } else {
-            GhostPlacement::BelowCaret
-        };
-        let ghost = self
-            .caret_wait
-            .ghost_view(self.app.text_before_caret(), placement)
-            .map(|view| fit_to_field(view, read, &*shell));
+        let ghost = self.ghost_view_at(read, &*shell);
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view(&self.translations));
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {
@@ -1178,6 +1170,25 @@ impl Controller {
         } else {
             self.add_off_by_default_app();
         }
+    }
+
+    /// The view of the waiting ghost text at the caret of `read`. The ghost text goes after the
+    /// caret, and below it only while text follows the caret on its line, as `read` sees it. It
+    /// never shows while the app selects text after the caret, because it would cover the
+    /// suggestion of the app. `None` when no ghost text waits.
+    fn ghost_view_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<GhostView> {
+        if read.after == AfterCaret::Selection {
+            return None;
+        }
+        let placement = if self.app.is_caret_at_line_end(read.after) {
+            GhostPlacement::AfterCaret
+        } else {
+            GhostPlacement::BelowCaret
+        };
+        let view = self
+            .caret_wait
+            .ghost_view(self.app.text_before_caret(), placement)?;
+        Some(fit_to_field(view, read, shell))
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
