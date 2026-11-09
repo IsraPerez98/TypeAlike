@@ -152,7 +152,7 @@ impl Engine {
     /// Returns the fix that the `correction` and the added `text` of the newest request give, when
     /// the user typed nothing since the request, the text before the caret ends with the typo and
     /// the suggestion after the fixed letters is not bad. The dictionary cuts that suggestion
-    /// before a made-up word.
+    /// before a made-up word, and a made-up fixed word gives no fix.
     fn fix_of(&mut self, correction: &Correction, text: &str) -> Option<WordFix> {
         let is_untouched = matches!(&self.offer, Offer::Growing { typed, .. } if typed.is_empty());
         if !is_untouched || self.typo_fix == TypoFix::Off {
@@ -172,8 +172,10 @@ impl Engine {
             session,
             word_bias: word_bias.as_ref(),
         };
-        let known = known_start(self.dictionary.as_mut(), &fixed_before, &suggestion, &written);
-        Some(word_fix(correction, known))
+        let fixed_text = format!("{}{suggestion}", correction.fixed);
+        let known = known_start(self.dictionary.as_mut(), before_typo, &fixed_text, &written);
+        let rest = known.strip_prefix(correction.fixed.as_str())?;
+        Some(word_fix(correction, rest))
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so

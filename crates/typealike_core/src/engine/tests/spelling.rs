@@ -260,3 +260,15 @@ fn rest_after_a_typo_fix_ends_before_an_unknown_word() {
         })
     );
 }
+
+#[test]
+fn fix_to_a_word_that_the_dictionary_does_not_know_hides() {
+    let cases = [(&["sbaa", "sabado"][..], "do o no"), (&["sbaa", "saba"], " o no")];
+
+    let reactions = cases.map(|(unknown, text)| {
+        engine_typed(&Settings::default(), "el sbaa", unknown)
+            .on_completion(correction(" sbaa", " saba", text))
+    });
+
+    assert_eq!(reactions, [Reaction::Hide, Reaction::Hide]);
+}

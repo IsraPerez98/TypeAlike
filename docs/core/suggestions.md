@@ -48,6 +48,7 @@ The length of the suggestions, the typo rule and fix, and the rules in `typealik
 - Each suggestion of the model also stops before its first word that the dictionary of the OS (`SpellChecker`, a service of the bin) does not know, unless the prompt, the text after the caret or the word bias of the pool holds that word in any case (`engine/spelling.rs`).
 - A word with fewer than 3 letters, a digit or a sign inside, or a capital letter inside (code) needs no dictionary.
 - The first word counts with the typed letters before it, so an unknown first word hides the suggestion.
+- The fixed word of a typo fix also needs the dictionary, so an unknown fixed word hides the fix. Thus a fix never shows only a part of a word, such as "saba" for "sabado", which the Spanish dictionary of macOS knows only as "sábado".
 - The engine keeps each answer of the dictionary, because each answer costs a call to the OS.
 - The phrases of the earlier writing and the shown suggestions need no dictionary.
 - `language::closest_languages` gives the dictionary of each preferred language of the user.
