@@ -28,6 +28,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 tracing-subscriber.workspace = true
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+typealike_macos.workspace = true
+
 [[example]]
 name = "prompt_eval"
 test = true
