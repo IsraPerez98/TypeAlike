@@ -13,7 +13,7 @@ use typealike_core::inference::{Correction, InferenceError, TypoCheck};
 use super::correction::typo_fix;
 use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
-    AddedTokens, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
+    AddedTokens, Choice, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
 };
 use super::logits::with_bias;
 use super::model_params::{ContextSetup, context_params, drafter_context_params};
@@ -314,9 +314,10 @@ impl<'model> PromptCache<'model> {
     /// Continues a copy of the prompt sequence greedily, so that the prompt sequence stays as it is
     /// for the next completion. Its first added tokens write the `healing` text again. It stops at
     /// the end of the text, at markup, and where each [`Generation`] step stops. After the end of a
-    /// sentence that it goes on past, it takes the most likely token that keeps the text on its
-    /// line. Before each decode, it stops when `progress` tells so, and else sends the text that it
-    /// added so far.
+    /// sentence that it goes on past, and after a typed space before its first text, it takes the
+    /// most likely token that keeps the text on its line, or starts again with another first token
+    /// ([`Choice::StartWith`]). Before each decode, it stops when `progress` tells so, and else
+    /// sends the text that it added so far.
     pub(super) fn continue_prompt(
         &mut self,
         decoder: &Decoder<'_>,
@@ -337,7 +338,16 @@ impl<'model> PromptCache<'model> {
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
             let (token, log_probability) =
-                generation.choose_next_token(scores, logits, limits, |token| text_of(vocab, token));
+                match generation.choose_next_token(scores, logits, limits, |token| text_of(vocab, token)) {
+                    Choice::Add(token, log_probability) => (token, log_probability),
+                    Choice::StartWith(first_token) => {
+                        let healing = Healing {
+                            first_token: Some(first_token),
+                            ..healing
+                        };
+                        return self.continue_prompt(decoder, healing, progress);
+                    }
+                };
             let Some(piece) = text_of(vocab, token) else {
                 generation.add_end_step(logits);
                 break;

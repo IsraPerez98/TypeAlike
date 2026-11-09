@@ -68,6 +68,15 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - A period ends a sentence only after a word of at least 2 letters, because one letter is often an initial or the end of "e.g." or "a.m.".
 - The word must also not be one of the English and Spanish `ABBREVIATIONS`, such as "Mrs.", "Sra." or "pág.".
 
+### First text after a typed space
+
+- When the text before the caret ends with a typed space, the tokens before the first added text must keep the text on its line, with the sentence stop on or off. Core shows nothing for them otherwise, because the ghost text is the first line up to a placeholder.
+- A line break, the end of the text, markup and a token that opens a placeholder (an opening square bracket at the end of the token or before a letter or a digit) then give way to the most likely token that writes the healed space and stays on the line (among the 64 most likely).
+- Gemma often writes the typed space as a lone space token, and then a line break, a digit or an emoji. When the token after that whitespace leaves the line, the completion starts again with the most likely first token that writes a word (`Choice::StartWith`), if the model finds that token more likely than the whitespace and the next token on the line together.
+- The rule for the end of a sentence above does not apply there: the healed text is only the typed space, so the added text has no end of a sentence.
+- A line break after text without a space, such as at the end of an item of a list, stays.
+- On Gemma 4 E4B, the rule helped 1 case of the mid-line set, and harmed no case of the tuning, chat, new-line, mid-line and leak sets. It gave a suggestion in 9 cases that had none, all without a leak, but most of their words were wrong, such as a made-up address after "my new address: ".
+
 ### Token limit
 
 - At the token limit, it leaves out the last word, unless that word ends a sentence or it is the only word.

@@ -118,6 +118,15 @@ pub(super) struct AddedTokens {
     pub(super) correction: Option<Correction>,
 }
 
+/// What a completion does with the next token that it chose.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Choice {
+    /// Adds the token, with the natural log of its probability.
+    Add(LlamaToken, f32),
+    /// Starts the completion again with the token as its first token.
+    StartWith(LlamaToken),
+}
+
 /// Whether a completion goes on after a step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -147,6 +156,9 @@ pub(super) struct Generation<'text> {
     /// The last end after a word where the added text ends a phrase, if any.
     phrase_end: Option<TextEnd>,
     pending_stop: Option<PendingStop>,
+    /// The most likely first token that writes a word after a typed space, and the natural log of
+    /// its probability, when the first token wrote only whitespace.
+    first_word: Option<(LlamaToken, f32)>,
 }
 
 /// A place where the added text can end before the line after the caret.
@@ -174,6 +186,7 @@ impl<'text> Generation<'text> {
             best_end: None,
             phrase_end: None,
             pending_stop: None,
+            first_word: None,
         }
     }
 
@@ -301,36 +314,122 @@ impl<'text> Generation<'text> {
     }
 
     /// Returns the next token for `scores`, and the natural log of its probability in `logits`. The
-    /// first step takes the first token of the healing, if it has one. Past the end of a sentence
-    /// that the completion added, a token that ends the text or its line gives way to the most
-    /// likely token among the [`SAME_LINE_CANDIDATES`] that keeps the text on its line, because the
-    /// model often ends the message there. `text_of` gives the text of a token, or `None` for the
-    /// end of the text or markup.
+    /// first step takes the first token of the healing, if it has one. Where the text must stay on
+    /// its line ([`Generation::must_stay_on_line`]), a token that leaves it gives way to the most
+    /// likely token among the [`SAME_LINE_CANDIDATES`] that stays. When the first token after a
+    /// typed space wrote only whitespace and the next token leaves the line, it starts again with
+    /// the most likely first token that writes a word, if the model finds that token more likely
+    /// than the whitespace and the next token on the line together. `text_of` gives the text of a
+    /// token, or `None` for the end of the text or markup.
     pub(super) fn choose_next_token(
-        &self,
+        &mut self,
         scores: &[f32],
         logits: &[f32],
         limits: Limits<'_>,
         text_of: impl Fn(LlamaToken) -> Option<Vec<u8>>,
-    ) -> (LlamaToken, f32) {
-        let chosen = match self.healing.first_token.filter(|_| self.tokens.is_empty()) {
-            Some(token) => (
-                token,
-                agreeing_log_probability(logits, token, self.pieces.agreeing_with(self.unwritten)),
-            ),
-            None => choose_token(scores, logits, self.pieces, self.unwritten),
+    ) -> Choice {
+        if let Some(token) = self.healing.first_token.filter(|_| self.tokens.is_empty()) {
+            return Choice::Add(token, self.log_probability_in(logits, token));
+        }
+        let chosen = choose_token(scores, logits, self.pieces, self.unwritten);
+        if !self.must_stay_on_line(limits) {
+            return Choice::Add(chosen.0, chosen.1);
+        }
+        let stays_on_line = |token| text_of(token).is_some_and(|piece| self.stays_on_line(&piece));
+        let is_refused = !stays_on_line(chosen.0);
+        let next = if is_refused {
+            self.most_likely_where(scores, logits, stays_on_line)
+        } else {
+            Some(chosen)
         };
-        if !self.continues_past_sentence_end(limits) {
-            return chosen;
+        if self.tokens.is_empty() {
+            self.first_word = self.alternative_first_word(next, scores, logits, &text_of);
+        } else if let Some((first_word, first_log_probability)) = self.first_word
+            && is_refused
+            && self.is_after_typed_space()
+            && next.is_none_or(|(_, log_probability)| {
+                first_log_probability > self.words.total() + log_probability
+            })
+        {
+            return Choice::StartWith(first_word);
         }
-        let stays_on_line = |token| text_of(token).is_some_and(|piece| !piece.contains(&b'\n'));
-        if stays_on_line(chosen.0) {
-            return chosen;
-        }
+        let (token, log_probability) = next.unwrap_or(chosen);
+        Choice::Add(token, log_probability)
+    }
+
+    /// Returns the most likely token of `scores` among the [`SAME_LINE_CANDIDATES`] that `is_kept`
+    /// keeps, and the natural log of its probability in `logits`.
+    fn most_likely_where(
+        &self,
+        scores: &[f32],
+        logits: &[f32],
+        is_kept: impl Fn(LlamaToken) -> bool,
+    ) -> Option<(LlamaToken, f32)> {
         most_likely_tokens(scores, SAME_LINE_CANDIDATES)
             .into_iter()
-            .find(|&token| stays_on_line(token))
-            .map_or(chosen, |token| (token, log_probability_of(logits, token)))
+            .find(|&token| is_kept(token))
+            .map(|token| (token, self.log_probability_in(logits, token)))
+    }
+
+    /// Returns the most likely first token that writes a word on the line of a typed space, and the
+    /// natural log of its probability, when the `first` token writes only whitespace.
+    fn alternative_first_word(
+        &self,
+        first: Option<(LlamaToken, f32)>,
+        scores: &[f32],
+        logits: &[f32],
+        text_of: &impl Fn(LlamaToken) -> Option<Vec<u8>>,
+    ) -> Option<(LlamaToken, f32)> {
+        let writes_word = |piece: &[u8]| self.stays_on_line(piece) && self.writes_word(piece);
+        let first_piece = first.and_then(|(token, _)| text_of(token))?;
+        if writes_word(&first_piece) {
+            return None;
+        }
+        self.most_likely_where(scores, logits, |token| {
+            text_of(token).is_some_and(|piece| writes_word(&piece))
+        })
+    }
+
+    /// Whether a token with `piece` as text writes a character that is not whitespace after the
+    /// unwritten text.
+    fn writes_word(&self, piece: &[u8]) -> bool {
+        added_after(piece, self.unwritten)
+            .iter()
+            .any(|byte| !byte.is_ascii_whitespace())
+    }
+
+    /// Returns the natural log of the probability of `token` in `logits`. While healed text is
+    /// unwritten, it is the share of `token` among the tokens that agree with that text.
+    fn log_probability_in(&self, logits: &[f32], token: LlamaToken) -> f32 {
+        if self.unwritten.is_empty() {
+            log_probability_of(logits, token)
+        } else {
+            agreeing_log_probability(logits, token, self.pieces.agreeing_with(self.unwritten))
+        }
+    }
+
+    /// Whether the next token must keep the text on its line: past the end of a sentence that the
+    /// completion added, because the model often ends the message there, and after a typed space
+    /// before the first added text, because the ghost text then shows nothing.
+    fn must_stay_on_line(&self, limits: Limits<'_>) -> bool {
+        self.continues_past_sentence_end(limits) || self.is_after_typed_space()
+    }
+
+    /// Whether the healed text ends with a typed space, and the added tokens wrote only whitespace
+    /// after it.
+    fn is_after_typed_space(&self) -> bool {
+        self.healing.text.ends_with(b" ") && self.written.iter().all(u8::is_ascii_whitespace)
+    }
+
+    /// Whether a token with `piece` as text writes the start of the unwritten text, and then no
+    /// line break. After a typed space, it must also open no placeholder, which the ghost text
+    /// leaves out.
+    fn stays_on_line(&self, piece: &[u8]) -> bool {
+        let agrees =
+            !piece.is_empty() && (piece.starts_with(self.unwritten) || self.unwritten.starts_with(piece));
+        let added = added_after(piece, self.unwritten);
+        let opens_hidden_placeholder = self.is_after_typed_space() && opens_placeholder(added);
+        agrees && !added.contains(&b'\n') && !opens_hidden_placeholder
     }
 
     /// Whether the completion goes on past the end of a sentence that it added, so that the next
@@ -575,6 +674,7 @@ fn text_without_cut_character(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker::test_support::assert_near;
 
     #[test]
     fn only_bytes_that_start_with_the_prefix_keep_the_rest_after_it() {
@@ -791,7 +891,7 @@ mod tests {
     #[test]
     fn first_step_takes_the_first_token_of_the_healing() {
         let pieces = TokenPieces::from_texts(&[" de", " deli"]);
-        let generation = Generation::new(
+        let mut generation = Generation::new(
             &pieces,
             Healing {
                 text: b" deli",
@@ -799,17 +899,138 @@ mod tests {
             },
         );
 
-        let (token, _) = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0], limits(16, None), |_| None);
+        let choice = generation.choose_next_token(&[5.0, 1.0], &[5.0, 1.0], limits(16, None), |_| None);
 
-        assert_eq!(token, LlamaToken(1));
+        assert!(matches!(choice, Choice::Add(LlamaToken(1), _)));
+    }
+
+    /// The texts of the tokens of the tests of the token after a typed space, in the order of their
+    /// ids. The last token ends the text.
+    const AFTER_SPACE: [&str; 7] = [" [", " ", "\n\n", " dinner", "Si", " soon.", "<eos>"];
+    const PLACEHOLDER: LlamaToken = LlamaToken(0);
+    const SPACE: LlamaToken = LlamaToken(1);
+    const LINE_BREAK: LlamaToken = LlamaToken(2);
+    const DINNER: LlamaToken = LlamaToken(3);
+    const SI: LlamaToken = LlamaToken(4);
+    const SOON: LlamaToken = LlamaToken(5);
+    const END_OF_TEXT: LlamaToken = LlamaToken(6);
+
+    /// Returns the token that `choice` adds, if any.
+    fn token_of(choice: Choice) -> Option<LlamaToken> {
+        match choice {
+            Choice::Add(token, _) => Some(token),
+            Choice::StartWith(_) => None,
+        }
+    }
+
+    /// Returns the text of each token of [`AFTER_SPACE`], or `None` for [`END_OF_TEXT`].
+    fn text_after_space(token: LlamaToken) -> Option<Vec<u8>> {
+        let text = AFTER_SPACE[usize::try_from(token.0).unwrap()];
+        (token != END_OF_TEXT).then(|| text.as_bytes().to_vec())
+    }
+
+    /// Chooses the token after the `healed` text and the `added` tokens of [`AFTER_SPACE`], for
+    /// `scores` that are also the logits.
+    fn choose_after(healed: &[u8], added: &[LlamaToken], scores: &[f32; 7], limits: Limits<'_>) -> Choice {
+        let pieces = TokenPieces::from_texts(&AFTER_SPACE);
+        let mut generation = Generation::new(&pieces, healing(healed));
+        for &token in added {
+            let text = text_after_space(token).unwrap();
+            generation.add_token(token, &text, -0.5, &[], limits);
+        }
+        generation.choose_next_token(scores, scores, limits, text_after_space)
+    }
+
+    #[test]
+    fn placeholder_after_a_typed_space_gives_way_to_the_next_token_that_writes_the_space() {
+        let scores = [5.0, 3.0, 0.0, 4.0, 6.0, 0.0, 0.0];
+
+        let choice = choose_after(b" ", &[], &scores, limits(16, None));
+
+        let Choice::Add(token, log_probability) = choice else {
+            panic!("{choice:?} adds no token");
+        };
+        assert_eq!(token, DINNER);
+        assert_near(
+            log_probability,
+            agreeing_log_probability(&scores, DINNER, [PLACEHOLDER, SPACE, DINNER, SOON].into_iter()),
+        );
+    }
+
+    #[test]
+    fn line_end_after_a_typed_space_gives_way_to_the_next_token_on_the_line() {
+        let cases = [
+            [0.0, 0.0, 6.0, 1.0, 5.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 5.0, 0.0, 6.0],
+        ];
+
+        let chosen = cases.map(|scores| choose_after(b" ", &[SPACE], &scores, limits(16, None)));
+
+        assert_eq!(
+            chosen,
+            cases.map(|scores| Choice::Add(SI, log_probability_of(&scores, SI)))
+        );
+    }
+
+    /// Chooses the first token after a typed space for `first_scores`, adds it, and chooses the
+    /// next token for `next_scores`. The scores are also the logits.
+    fn choose_after_first(first_scores: &[f32; 7], next_scores: &[f32; 7]) -> Choice {
+        let pieces = TokenPieces::from_texts(&AFTER_SPACE);
+        let mut generation = Generation::new(&pieces, healing(b" "));
+        let first_choice =
+            generation.choose_next_token(first_scores, first_scores, limits(16, None), text_after_space);
+        let Choice::Add(first, log_probability) = first_choice else {
+            panic!("{first_choice:?} adds no first token");
+        };
+        let text = text_after_space(first).unwrap();
+        generation.add_token(first, &text, log_probability, first_scores, limits(16, None));
+        generation.choose_next_token(next_scores, next_scores, limits(16, None), text_after_space)
+    }
+
+    /// Scores where a lone space is the most likely token that writes a typed space, and " dinner"
+    /// the most likely one that also writes a word.
+    const SPACE_BEFORE_DINNER: [f32; 7] = [0.0, 3.0, 5.0, 2.0, 0.0, 0.0, 0.0];
+
+    #[test]
+    fn line_end_after_whitespace_for_a_typed_space_starts_again_with_a_more_likely_first_word() {
+        let next_scores = [0.0, 0.0, 6.0, 0.0, 1.0, 0.0, 0.0];
+
+        let choice = choose_after_first(&SPACE_BEFORE_DINNER, &next_scores);
+
+        assert_eq!(choice, Choice::StartWith(DINNER));
+    }
+
+    #[test]
+    fn line_end_after_whitespace_for_a_typed_space_gives_way_to_a_more_likely_next_token() {
+        let next_scores = [0.0, 0.0, 3.0, 0.0, 2.9, 0.0, 0.0];
+
+        let choice = choose_after_first(&SPACE_BEFORE_DINNER, &next_scores);
+
+        assert_eq!(choice, Choice::Add(SI, log_probability_of(&next_scores, SI)));
+    }
+
+    #[test]
+    fn word_after_whitespace_for_a_typed_space_stays() {
+        let next_scores = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+        let choice = choose_after_first(&SPACE_BEFORE_DINNER, &next_scores);
+
+        assert_eq!(choice, Choice::Add(SI, log_probability_of(&next_scores, SI)));
+    }
+
+    #[test]
+    fn line_break_after_text_on_the_line_stays() {
+        let scores = [0.0, 0.0, 6.0, 1.0, 5.0, 0.0, 0.0];
+        let cases: [(&[u8], &[LlamaToken]); 2] = [(b" dinner", &[DINNER]), (b" ", &[DINNER])];
+
+        let choices = cases.map(|(healed, added)| choose_after(healed, added, &scores, limits(16, None)));
+
+        assert_eq!(choices.map(token_of), [Some(LINE_BREAK), Some(LINE_BREAK)]);
     }
 
     #[test]
     fn line_break_after_an_added_sentence_end_gives_way_only_without_the_sentence_stop() {
-        let texts = [" soon.", "\n\n", " dinner"];
-        let pieces = TokenPieces::from_texts(&texts);
-        let text_of = |token: LlamaToken| Some(texts[usize::try_from(token.0).unwrap()].as_bytes().to_vec());
-        let scores = [0.0, 6.0, 4.0];
+        let scores = [0.0, 0.0, 6.0, 4.0, 0.0, 0.0, 0.0];
         let sentence_ends = [SentenceEnd::Continue, SentenceEnd::Stop];
 
         let tokens = sentence_ends.map(|sentence_end| {
@@ -817,12 +1038,10 @@ mod tests {
                 sentence_end,
                 ..limits(16, None)
             };
-            let mut generation = Generation::new(&pieces, healing(b""));
-            generation.add_token(LlamaToken(0), texts[0].as_bytes(), -0.5, &[], limits);
-            generation.choose_next_token(&scores, &scores, limits, text_of).0
+            token_of(choose_after(b"", &[SOON], &scores, limits))
         });
 
-        assert_eq!(tokens, [LlamaToken(2), LlamaToken(1)]);
+        assert_eq!(tokens, [Some(DINNER), Some(LINE_BREAK)]);
     }
 
     #[test]
