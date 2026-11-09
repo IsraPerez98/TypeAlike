@@ -34,6 +34,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - When the input settles, core reads the field again. When that read shows a field with text in the same app, the session takes that field (`Session::take_field_of`).
   - The session gets the facts of that field (`SessionField`): its place, its text access and its typing context. It also gets its text around the caret.
   - Only the end of the field text that the session typed counts as typed. The text before that end counts as text of the field (`field_chars`), so a prefilled text does not count as typed.
+  - When the field text changes the text before the caret, core asks for the suggestion again, as after an autocorrect ("Read of the field when the input settles").
 - When suggestions are off in the place of that field, as in a private window, the session ends, and the earlier writing keeps none of its text.
 - A session in a field that shows text that the platform cannot read (`FieldTextAccess::Unreadable`) keeps its field.
 - Some apps build the text of a field only after an assistive app reads the tree of its window. Word on macOS shows its document as an empty layout area until then.
@@ -59,6 +60,10 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - When the field shows the text that the user typed since the last read, or that text with the same words, each with at most 2 changed characters, the same word at the caret and the same last character, the session takes the text of the field.
 - The word at the caret of a read counts as typed, because the app changes a word when the user finishes it.
 - Thus an autocorrect of the app goes into the prompt and into the earlier writing.
+- An app can change the text without a key, as an autocorrect at the space after a word does. Thus the suggestion that runs or shows can continue the old text.
+  - When the read changes the text before the caret, and the user pressed no key after the request of that suggestion, core asks again as after a typed key (`Engine::suggest_when_due`).
+  - The ghost text hides until the new suggestion comes, because it continues the old text.
+  - A read that changes nothing, a key after the request and a completion without ghost text get no new request. Thus each change of the app costs at most one more model run.
 - When the field shows only an end of the text that the user typed since the last read, the newest keys went to another field. An example is the next cell of a spreadsheet after Escape stopped the edit of a cell.
   - Then the session ends, and its text keeps none of these newest keys. The next key starts a new session, so the texts of two fields do not join.
   - The text before that end must have a letter, because an app can remove a list mark, such as "- ".
@@ -73,7 +78,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 ## Held keys
 
 - A key that the OS repeats while the user holds it (`Press::Repeat`) changes the text of the session, but asks the model for no suggestion.
-- The ghost text hides, and the input settle then asks one time for the suggestion at the new text (`Engine::suggest_after_hold`).
+- The ghost text hides, and the input settle then asks one time for the suggestion at the new text (`Engine::suggest_when_due`).
 - A repeated key that continues the ghost text still takes it, and a key that the user presses still asks at once.
 
 ## Shown suggestions

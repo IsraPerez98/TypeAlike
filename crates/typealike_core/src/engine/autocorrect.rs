@@ -15,16 +15,23 @@ impl Engine {
     /// shows text in the same app. Else the session takes the text before the caret when it shows
     /// the text that the user typed since the last read, or that text with words that the app
     /// changed after the user finished them. The session ends when the field shows only the newest
-    /// keys, because these keys went to another field. Returns whether the session took the field.
+    /// keys, because these keys went to another field. When the read changes the text before the
+    /// caret of a suggestion that runs or shows, and the user pressed no key after its request,
+    /// the suggestion is due again ([`suggest_when_due`](Self::suggest_when_due)). Returns whether
+    /// the session took the field.
     pub(crate) fn follow_field(&mut self, desktop: &dyn Desktop) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
-        if !session.field.holds_text() {
-            return session.take_field_of(&read_surroundings(desktop));
-        }
-        self.follow_text_field(desktop);
-        false
+        let text_before = session.text_before.clone();
+        let has_taken_field = if session.field.holds_text() {
+            self.follow_text_field(desktop);
+            false
+        } else {
+            session.take_field_of(&read_surroundings(desktop))
+        };
+        self.is_suggestion_due |= self.has_untouched_offer() && self.text_before_caret() != text_before;
+        has_taken_field
     }
 
     fn follow_text_field(&mut self, desktop: &dyn Desktop) {

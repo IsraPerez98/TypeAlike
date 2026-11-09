@@ -50,7 +50,7 @@ impl Engine {
 
     /// Suggests after a key that changed the text. A key that the OS repeats while the user holds
     /// it only hides the ghost text, and the suggestion waits for
-    /// [`suggest_after_hold`](Self::suggest_after_hold).
+    /// [`suggest_when_due`](Self::suggest_when_due).
     pub(super) fn suggest_after(&mut self, press: Press) -> Reaction {
         match press {
             Press::First => self.suggest(),
@@ -61,9 +61,10 @@ impl Engine {
         }
     }
 
-    /// Suggests at the end of a held key, when the OS repeated it after the last suggestion.
-    /// `None` when no suggestion waits.
-    pub(crate) fn suggest_after_hold(&mut self) -> Option<Reaction> {
+    /// Suggests when the input settles after the text before the caret changed without a
+    /// suggestion: the OS repeated a held key, or a read of the field changed the text of an
+    /// untouched suggestion. `None` when no suggestion waits.
+    pub(crate) fn suggest_when_due(&mut self) -> Option<Reaction> {
         mem::take(&mut self.is_suggestion_due).then(|| self.suggest())
     }
 

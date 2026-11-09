@@ -423,7 +423,9 @@ impl App {
     /// autocorrect does. A session whose field held no text takes the field when it shows text, and
     /// ends without its text when the place of that field is off. A session that a shortcut ended
     /// keeps only the text that the field still holds. After a key that the OS repeated while the
-    /// user held it, it then returns the suggestion for the text of the session.
+    /// user held it, it then returns the suggestion for the text of the session. It also does so
+    /// when the read of the field changed the text of a suggestion that runs or shows, and the user
+    /// pressed no key after its request.
     /// In a text field that gets suggestions, of an app where the screen text is on, it then starts
     /// a read of the screen, unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
@@ -449,7 +451,7 @@ impl App {
             return None;
         }
         let has_new_examples = self.is_preparation_due(desktop) && self.engine.pick_examples_again(desktop);
-        if let Some(reaction) = self.engine.suggest_after_hold() {
+        if let Some(reaction) = self.engine.suggest_when_due() {
             return Some(SettledWork::Suggest(reaction));
         }
         if self.reads_screen_in(desktop) {

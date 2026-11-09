@@ -78,8 +78,8 @@ pub(crate) struct Engine {
     dictionary: Option<Dictionary>,
     /// Whether the user rejected a suggestion in the field, so that the keys there get none.
     is_field_paused: bool,
-    /// Whether the OS repeated a held key after the last suggestion, so that the end of the hold
-    /// asks for one.
+    /// Whether the text before the caret changed after the last suggestion, so that the input
+    /// settle asks for one: the OS repeated a held key, or a read of the field changed the text.
     is_suggestion_due: bool,
 }
 
@@ -156,7 +156,7 @@ impl Engine {
 
     /// Updates the text at the caret for a key pressed in the focused field of `desktop`. A key
     /// that the OS repeats changes the text, but asks for no suggestion until
-    /// [`suggest_after_hold`](Self::suggest_after_hold).
+    /// [`suggest_when_due`](Self::suggest_when_due).
     pub(crate) fn on_key(&mut self, key: Key, press: Press, desktop: &dyn Desktop) -> Reaction {
         if let Some(session) = &mut self.session {
             session.has_untouched_request = false;
@@ -245,6 +245,15 @@ impl Engine {
     #[must_use]
     pub(crate) fn has_offer(&self) -> bool {
         !matches!(self.offer, Offer::Idle)
+    }
+
+    /// Whether a suggestion runs or shows, and the user pressed no key after its request.
+    fn has_untouched_offer(&self) -> bool {
+        self.has_offer()
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|session| session.has_untouched_request)
     }
 
     /// The app of the session, if a session runs in an app with an id.

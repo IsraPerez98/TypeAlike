@@ -205,3 +205,88 @@ fn settled_input_while_suggestions_pause_does_not_wake_the_field_text() {
 
     assert_eq!(harness.shell.field_text_wakes, 0);
 }
+
+/// A harness after the user typed a space after "I recieve", and the model suggested "the letter".
+fn harness_with_suggestion_after_a_typo() -> Harness {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_with_text("I recieve");
+    harness.press(Key::Char(' '));
+    harness.answer(completed("the letter"));
+    harness
+}
+
+#[test]
+fn settled_input_asks_again_for_the_word_that_the_app_corrected() {
+    let mut harness = harness_with_suggestion_after_a_typo();
+    harness.shell.surroundings = field_with_text("I receive ");
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness.last_request(),
+        Some(suggestion_request(&[], "I receive "))
+    );
+}
+
+#[test]
+fn settled_input_asks_again_when_the_session_takes_a_field_with_text() {
+    let mut harness = Harness::new(Settings::default());
+    harness.press(Key::Char('H'));
+    harness.answer(completed("ello there"));
+    harness.shell.surroundings = field_with_text("Dear Ana,\nH");
+
+    harness.settle_input();
+
+    assert_eq!(
+        harness.last_request(),
+        Some(suggestion_request(&[], "Dear Ana,\nH"))
+    );
+}
+
+#[test]
+fn settled_input_hides_the_suggestion_for_the_word_that_the_app_corrected() {
+    let mut harness = harness_with_suggestion_after_a_typo();
+    harness.shell.surroundings = field_with_text("I receive ");
+    harness.take_calls();
+
+    harness.settle_input();
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
+fn settled_input_asks_for_no_suggestion_when_the_field_shows_the_typed_text() {
+    let mut harness = harness_with_suggestion_after_a_typo();
+    harness.shell.surroundings = field_with_text("I recieve ");
+    let requests_before_settle = harness.requests().len();
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests().len(), requests_before_settle);
+}
+
+#[test]
+fn settled_input_after_a_key_that_continues_the_suggestion_does_not_ask_again() {
+    let mut harness = harness_with_suggestion_after_a_typo();
+    harness.press(Key::Char('t'));
+    harness.shell.surroundings = field_with_text("I receive t");
+    let requests_before_settle = harness.requests().len();
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests().len(), requests_before_settle);
+}
+
+#[test]
+fn settled_input_after_a_completion_without_a_suggestion_does_not_ask_again() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = field_with_text("I recieve");
+    harness.press(Key::Char(' '));
+    harness.answer(completed(""));
+    harness.shell.surroundings = field_with_text("I receive ");
+    let requests_before_settle = harness.requests().len();
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests().len(), requests_before_settle);
+}

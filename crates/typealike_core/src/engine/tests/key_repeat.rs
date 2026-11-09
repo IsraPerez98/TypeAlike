@@ -43,7 +43,7 @@ fn end_of_a_hold_asks_for_a_suggestion_at_the_new_text() {
     repeat(&mut engine, Key::Backspace);
     repeat(&mut engine, Key::Backspace);
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, Some(request("Hel")));
 }
@@ -54,7 +54,7 @@ fn end_of_a_hold_shows_the_earlier_suggestion_at_the_same_text_without_a_request
     press(&mut engine, Key::Char('p'));
     repeat(&mut engine, Key::Backspace);
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, Some(show("lo world")));
 }
@@ -63,9 +63,9 @@ fn end_of_a_hold_shows_the_earlier_suggestion_at_the_same_text_without_a_request
 fn end_of_a_hold_asks_once() {
     let mut engine = engine_showing("Hello", " there");
     repeat(&mut engine, Key::Backspace);
-    engine.suggest_after_hold();
+    engine.suggest_when_due();
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, None);
 }
@@ -74,7 +74,7 @@ fn end_of_a_hold_asks_once() {
 fn input_without_a_hold_asks_for_nothing_after_it() {
     let mut engine = engine_showing("Hello", " there");
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, None);
 }
@@ -85,7 +85,7 @@ fn press_after_a_hold_asks_in_place_of_the_end_of_the_hold() {
     repeat(&mut engine, Key::Backspace);
     press(&mut engine, Key::Char('p'));
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, None);
 }
@@ -96,7 +96,7 @@ fn end_of_the_session_drops_the_suggestion_after_the_hold() {
     repeat(&mut engine, Key::Backspace);
     press(&mut engine, Key::Other);
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, None);
 }
@@ -107,7 +107,7 @@ fn discarded_session_drops_the_suggestion_after_the_hold() {
     repeat(&mut engine, Key::Backspace);
     engine.discard_session();
 
-    let reaction = engine.suggest_after_hold();
+    let reaction = engine.suggest_when_due();
 
     assert_eq!(reaction, None);
 }

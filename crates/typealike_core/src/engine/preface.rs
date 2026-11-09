@@ -202,11 +202,7 @@ impl Engine {
             return ScreenAnswer::Dropped;
         }
         let is_preface_changed = self.add_screen_to_session(desktop);
-        let has_untouched_request = self
-            .session
-            .as_ref()
-            .is_some_and(|session| session.has_untouched_request);
-        if is_preface_changed && has_untouched_request && self.has_offer() {
+        if is_preface_changed && self.has_untouched_offer() {
             ScreenAnswer::ChangedSuggestionPrompt
         } else {
             ScreenAnswer::Kept
