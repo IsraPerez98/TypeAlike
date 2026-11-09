@@ -101,6 +101,49 @@ fn completion_without_suggestion_during_caret_wait_keeps_timer_for_the_badge() {
     assert_eq!(harness.take_calls(), vec![Call::HideGhost]);
 }
 
+/// Returns a harness whose completion ended before "e", the key that the user typed after "B" while
+/// it ran, so that the completion asked again during the caret wait.
+fn harness_that_asked_again_during_caret_wait() -> Harness {
+    let mut harness = Harness::new(Settings {
+        suggestion_display: SuggestionDisplay::WhenComplete,
+        ..Settings::default()
+    });
+    harness.press(Key::Char('B'));
+    harness.answer(InferenceEvent::Partial("est regards".to_owned()));
+    harness.press(Key::Char('e'));
+    harness.take_calls();
+    harness.answer(completed("e"));
+    harness
+}
+
+#[test]
+fn completion_that_asks_again_during_caret_wait_keeps_timer() {
+    let mut harness = harness_that_asked_again_during_caret_wait();
+
+    let calls = harness.take_calls();
+
+    assert_eq!(calls, vec![Call::HideGhost]);
+}
+
+#[test]
+fn completion_that_asks_again_during_caret_wait_submits_the_new_request() {
+    let harness = harness_that_asked_again_during_caret_wait();
+
+    let request = harness.last_request();
+
+    assert_eq!(request, Some(suggestion_request(&[], "Be")));
+}
+
+#[test]
+fn answer_of_a_request_that_a_completion_asked_again_keeps_timer() {
+    let mut harness = harness_that_asked_again_during_caret_wait();
+    harness.take_calls();
+
+    harness.answer(completed("st"));
+
+    assert_eq!(harness.take_calls(), Vec::new());
+}
+
 #[test]
 fn completion_shows_when_caret_settles() {
     let mut harness = Harness::new(Settings::default());

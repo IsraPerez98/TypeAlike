@@ -968,6 +968,11 @@ impl Controller {
                 self.caret_wait.forget_ghost();
                 shell.hide_ghost();
             }
+            Some(Reaction::Request(request)) if self.caret_wait.is_timer_pending() => {
+                self.caret_wait.forget_ghost();
+                shell.hide_ghost();
+                self.request_suggestion(request, shell);
+            }
             Some(reaction) => {
                 self.apply(reaction, shell);
             }
