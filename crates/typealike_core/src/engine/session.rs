@@ -1,6 +1,6 @@
 //! Holds the text of a typing session and keeps it in the token budget of the prompt.
 
-use crate::desktop::{AfterCaret, Surroundings, Timestamp, line_after_caret};
+use crate::desktop::{AfterCaret, LinesBelow, Surroundings, Timestamp, line_after_caret};
 use crate::excerpt::{estimated_tokens, last_chars, last_tokens};
 use crate::inference::TokenCount;
 use crate::place;
@@ -210,6 +210,12 @@ impl Session {
     /// the caret.
     pub(super) fn line_after(&self) -> &str {
         line_after_caret(&self.text_after)
+    }
+
+    /// What the text after the caret that the session read shows on the lines below the line of
+    /// the caret.
+    pub(super) fn lines_below(&self) -> LinesBelow {
+        LinesBelow::of(&self.text_after)
     }
 
     /// Makes `preface` what the model reads before the text, and drops the oldest text before the

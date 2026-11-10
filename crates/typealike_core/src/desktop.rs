@@ -60,6 +60,26 @@ pub(crate) fn line_after_caret(text_after: &str) -> &str {
     if line.trim().is_empty() { "" } else { line }
 }
 
+/// What the field shows on the lines below the line of the caret, which a ghost text that wraps
+/// must not cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinesBelow {
+    /// No line below the line of the caret has text, as far as the text after the caret shows.
+    #[default]
+    Empty,
+    /// A line below the line of the caret has text.
+    WithText,
+}
+
+impl LinesBelow {
+    /// What `text_after`, the text after the caret, shows on the lines after the line of the caret.
+    /// A line with only white space counts as empty, because a terminal pads its lines.
+    pub(crate) fn of(text_after: &str) -> Self {
+        let has_text = text_after.lines().skip(1).any(|line| !line.trim().is_empty());
+        if has_text { Self::WithText } else { Self::Empty }
+    }
+}
+
 /// What the platform sees after the caret at a look. The text that a session reads at its start
 /// can be stale at the look: an empty field can show a placeholder that goes away at the first
 /// key. An app can also select text after the caret that the next key replaces, as the address bar

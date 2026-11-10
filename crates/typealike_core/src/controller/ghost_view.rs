@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::desktop::ScreenRect;
+use crate::desktop::{LinesBelow, ScreenRect};
 use crate::engine::WordFix;
 
 /// The most characters of the word before the caret that the mirror shows.
@@ -78,15 +78,16 @@ impl GhostView {
 
     /// Fits the ghost text after `caret` into `field`, as `width_of` measures a ghost text after
     /// the caret. A ghost text that does not fit on the line of the caret wraps onto the lines
-    /// below. When the field has no room for those lines, the whole ghost text moves below the
-    /// caret. A view below the caret stays whole.
+    /// below. When the field has no room for those lines, or `lines_below` has text that they
+    /// would cover, the whole ghost text moves below the caret. A view below the caret stays whole.
     pub(super) fn fit_to(
         self,
         caret: ScreenRect,
         field: ScreenRect,
+        lines_below: LinesBelow,
         width_of: impl Fn(&Ghost) -> i32,
     ) -> Self {
-        let room = FieldRoom::after(caret, field);
+        let room = FieldRoom::after(caret, field, lines_below);
         if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room.caret_line {
             return self;
         }
@@ -115,25 +116,23 @@ struct FieldRoom {
     line_left: i32,
     /// The width of each line below the line of the caret.
     line_width: i32,
-    /// How many lines of the height of the caret fit below the line of the caret.
+    /// How many lines of the height of the caret fit below the line of the caret, and have no
+    /// text to cover.
     lines_below: usize,
 }
 
 impl FieldRoom {
-    fn after(caret: ScreenRect, field: ScreenRect) -> Self {
+    fn after(caret: ScreenRect, field: ScreenRect, lines_below: LinesBelow) -> Self {
         let line_left = field.left.saturating_add(FIELD_EDGE_GAP);
         let line_right = field.right.saturating_sub(FIELD_EDGE_GAP);
-        let lines_below = field
-            .bottom
-            .saturating_sub(caret.bottom)
-            .checked_div(caret.bottom.saturating_sub(caret.top))
-            .and_then(|lines| usize::try_from(lines).ok())
-            .unwrap_or(0);
         Self {
             caret_line: line_right.saturating_sub(caret.right),
             line_left,
             line_width: line_right.saturating_sub(line_left),
-            lines_below,
+            lines_below: match lines_below {
+                LinesBelow::Empty => lines_below_in(caret, field),
+                LinesBelow::WithText => 0,
+            },
         }
     }
 
@@ -158,6 +157,16 @@ impl FieldRoom {
         }
         (lines.len() <= self.lines_below).then(|| (ghost.cut_at(first_end), lines))
     }
+}
+
+/// Returns how many lines of the height of `caret` fit in `field` below the line of `caret`.
+fn lines_below_in(caret: ScreenRect, field: ScreenRect) -> usize {
+    field
+        .bottom
+        .saturating_sub(caret.bottom)
+        .checked_div(caret.bottom.saturating_sub(caret.top))
+        .and_then(|lines| usize::try_from(lines).ok())
+        .unwrap_or(0)
 }
 
 /// Returns the end of the longest line of `text` from `start` to one of `breaks` whose text up to
@@ -333,7 +342,9 @@ mod tests {
     fn fit_keeps_a_ghost_text_that_fits_whole() {
         let view = inline_text(" regards");
 
-        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
+        let fitted = view
+            .clone()
+            .fit_to(caret_at(100), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(fitted, view);
     }
@@ -342,7 +353,7 @@ mod tests {
     fn fit_wraps_the_rest_onto_the_lines_below_near_the_left_edge_of_the_field() {
         let view = inline_text(" see you next week to discuss the findings");
 
-        let fitted = view.fit_to(caret_at(100), FIELD, width_of);
+        let fitted = view.fit_to(caret_at(100), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(
             (fitted.ghost, fitted.wrapped),
@@ -357,7 +368,7 @@ mod tests {
     fn fit_puts_a_first_word_that_does_not_fit_on_the_next_line() {
         let view = inline_text(" regards");
 
-        let fitted = view.fit_to(caret_at(170), FIELD, width_of);
+        let fitted = view.fit_to(caret_at(170), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(
             (fitted.ghost, fitted.wrapped),
@@ -369,7 +380,7 @@ mod tests {
     fn fit_keeps_closing_signs_on_the_line_of_their_word() {
         let view = inline_text(" regards, Sam");
 
-        let fitted = view.fit_to(caret_at(120), FIELD, width_of);
+        let fitted = view.fit_to(caret_at(120), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(
             (fitted.ghost, fitted.wrapped),
@@ -381,7 +392,7 @@ mod tests {
     fn fit_keeps_the_word_of_a_fix_on_the_line_of_the_caret_and_wraps_its_rest() {
         let view = inline_fix(" end of the story");
 
-        let fitted = view.fit_to(caret_at(100), FIELD, width_of);
+        let fitted = view.fit_to(caret_at(100), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(
             (fitted.ghost, fitted.wrapped),
@@ -394,7 +405,10 @@ mod tests {
         let fields = [20, 60].map(|bottom| ScreenRect { bottom, ..FIELD });
         let view = inline_text(" see you next week to discuss the findings");
 
-        let fitted = fields.map(|field| view.clone().fit_to(caret_at(100), field, width_of));
+        let fitted = fields.map(|field| {
+            view.clone()
+                .fit_to(caret_at(100), field, LinesBelow::Empty, width_of)
+        });
 
         assert_eq!(fitted, [below_caret(view.clone()), below_caret(view)]);
     }
@@ -405,7 +419,7 @@ mod tests {
 
         let fitted = views
             .clone()
-            .map(|view| view.fit_to(caret_at(190), FIELD, width_of));
+            .map(|view| view.fit_to(caret_at(190), FIELD, LinesBelow::Empty, width_of));
 
         assert_eq!(fitted, views.map(below_caret));
     }
@@ -414,16 +428,42 @@ mod tests {
     fn fit_moves_the_whole_ghost_text_below_the_caret_when_a_word_is_wider_than_a_line() {
         let view = inline_text(" supercalifragilisticexpialidocious");
 
-        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
+        let fitted = view
+            .clone()
+            .fit_to(caret_at(100), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(fitted, below_caret(view));
+    }
+
+    #[test]
+    fn fit_moves_the_whole_ghost_text_below_the_caret_when_its_lines_would_cover_text_below() {
+        let view = inline_text(" see you next week to discuss the findings");
+
+        let fitted = view
+            .clone()
+            .fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
+
+        assert_eq!(fitted, below_caret(view));
+    }
+
+    #[test]
+    fn fit_keeps_a_ghost_text_that_fits_whole_on_the_line_of_the_caret_above_text_below() {
+        let view = inline_text(" regards");
+
+        let fitted = view
+            .clone()
+            .fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
+
+        assert_eq!(fitted, view);
     }
 
     #[test]
     fn fit_leaves_a_ghost_text_below_the_caret_whole() {
         let view = below_caret(inline_text(" see you next week to discuss the findings"));
 
-        let fitted = view.clone().fit_to(caret_at(100), FIELD, width_of);
+        let fitted = view
+            .clone()
+            .fit_to(caret_at(100), FIELD, LinesBelow::Empty, width_of);
 
         assert_eq!(fitted, view);
     }

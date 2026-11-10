@@ -16,7 +16,7 @@ mod suggestion;
 use std::collections::HashSet;
 use std::fmt;
 
-use crate::desktop::{AfterCaret, Desktop, Surroundings, Timestamp};
+use crate::desktop::{AfterCaret, Desktop, LinesBelow, Surroundings, Timestamp};
 use crate::excerpt::{plain_spaces, without_zero_width_spaces};
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TokenCount, TypoCheck};
@@ -204,6 +204,15 @@ impl Engine {
         self.session
             .as_ref()
             .is_none_or(|session| session.is_caret_at_line_end(after))
+    }
+
+    /// What the field shows on the lines below the line of the caret, as the text after the caret
+    /// of the session shows it. Without a session, the lines are empty.
+    #[must_use]
+    pub(crate) fn lines_below_caret(&self) -> LinesBelow {
+        self.session
+            .as_ref()
+            .map_or(LinesBelow::Empty, Session::lines_below)
     }
 
     /// Ends the session, for when the caret moved somewhere unknown. The history keeps the text

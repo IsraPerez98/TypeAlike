@@ -75,5 +75,8 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - A first word that does not fit after the caret goes to the next line. The word of a fix always stays at the caret.
 - The platform measures each line in the font of its overlay (`Shell::ghost_width`).
 - The whole ghost text goes below the caret (`GhostPlacement::BelowCaret`) when the frame has no room below the caret for the wrapped lines (a field of one line, or the last line of a field), or when a word does not fit on a line.
+- The ghost text does not wrap when a line after the line of the caret has text, so that the wrapped lines do not cover that text. Core finds this text in the text after the caret that the session read (`LinesBelow::WithText`).
+- A ghost text that does not fit on the line of the caret then goes below the caret. Examples are the end of a line in the middle of a document, and the input line above the status line of a terminal app.
+- A line with only whitespace counts as empty, because a terminal pads its lines with spaces.
 - Without a frame with an area, the ghost text stays whole on the line of the caret.
 - After each Tab, core wraps the rest again at the new caret.

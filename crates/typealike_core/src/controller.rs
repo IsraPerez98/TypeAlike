@@ -24,8 +24,8 @@ use crate::app::{
     TrayView,
 };
 use crate::desktop::{
-    AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability,
-    OcrLevels, Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
+    AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow,
+    OcrAvailability, OcrLevels, Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
 };
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
@@ -1285,8 +1285,9 @@ impl Controller {
 
     /// The view of the waiting ghost text at the caret of `read`. The ghost text goes after the
     /// caret, and below it only while text follows the caret on its line, as `read` sees it. It
-    /// never shows while the app selects text after the caret, because it would cover the
-    /// suggestion of the app. `None` when no ghost text waits.
+    /// wraps onto the lines below only while they have no text. It never shows while the app
+    /// selects text after the caret, because it would cover the suggestion of the app. `None` when
+    /// no ghost text waits.
     fn ghost_view_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<GhostView> {
         if read.after == AfterCaret::Selection {
             return None;
@@ -1299,7 +1300,7 @@ impl Controller {
         let view = self
             .caret_wait
             .ghost_view(self.app.text_before_caret(), placement)?;
-        Some(fit_to_field(view, read, shell))
+        Some(fit_to_field(view, read, self.app.lines_below_caret(), shell))
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
@@ -1308,13 +1309,13 @@ impl Controller {
     }
 }
 
-/// Fits `view` into the field of `read` after its caret. Without a caret or a field frame with
-/// area, the view stays whole.
-fn fit_to_field(view: GhostView, read: CaretRead, shell: &dyn Shell) -> GhostView {
+/// Fits `view` into the field of `read` after its caret, above the text of `lines_below`. Without
+/// a caret or a field frame with area, the view stays whole.
+fn fit_to_field(view: GhostView, read: CaretRead, lines_below: LinesBelow, shell: &dyn Shell) -> GhostView {
     let (Some(caret), Some(field)) = (read.caret, read.field.filter(ScreenRect::has_area)) else {
         return view;
     };
-    view.fit_to(caret, field, |ghost| shell.ghost_width(ghost))
+    view.fit_to(caret, field, lines_below, |ghost| shell.ghost_width(ghost))
 }
 
 /// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the

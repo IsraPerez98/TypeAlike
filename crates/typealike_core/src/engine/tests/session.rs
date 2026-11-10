@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use crate::desktop::{AfterCaret, Surroundings};
+use crate::desktop::{AfterCaret, LinesBelow, Surroundings};
 use crate::engine::preface::MAX_CLIPBOARD_AGE;
 use crate::engine::{Engine, Reaction};
 use crate::inference::{Backend, InferenceRequest};
@@ -31,6 +31,39 @@ fn caret_is_at_the_line_end_while_its_line_has_no_text_after_it() {
     });
 
     assert_eq!(line_ends, [true, true, false]);
+}
+
+#[test]
+fn lines_below_the_caret_have_text_while_a_line_after_the_line_of_the_caret_has_text() {
+    let texts_after = ["", " on Friday.", "\n  \n\t", "\nSee you", " on\n\nFriday."];
+
+    let lines_below = texts_after.map(|text_after| {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char(' '),
+            Press::First,
+            &FakeDesktop::with_text_around("Let's meet", text_after),
+        );
+        engine.lines_below_caret()
+    });
+
+    assert_eq!(
+        lines_below,
+        [
+            LinesBelow::Empty,
+            LinesBelow::Empty,
+            LinesBelow::Empty,
+            LinesBelow::WithText,
+            LinesBelow::WithText,
+        ]
+    );
+}
+
+#[test]
+fn lines_below_the_caret_are_empty_without_a_session() {
+    let engine = Engine::default();
+
+    assert_eq!(engine.lines_below_caret(), LinesBelow::Empty);
 }
 
 #[test]

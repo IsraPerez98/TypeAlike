@@ -1,8 +1,8 @@
 //! Tests of the ghost text after the caret that stays inside its field: the controller wraps the
 //! rest that does not fit on the line of the caret onto the lines below, or shows the whole ghost
-//! text below the caret when the field has no room for those lines.
+//! text below the caret when the field has no room for those lines or text on them.
 
-use super::harness::{Call, Harness};
+use super::harness::{Call, Harness, field_around};
 use crate::controller::{CaretLook, CaretRead, Ghost, GhostPlacement, GhostView, WrappedLines};
 use crate::desktop::ScreenRect;
 use crate::key::Key;
@@ -101,6 +101,33 @@ fn ghost_text_that_does_not_fit_in_a_single_line_field_shows_whole_below_the_car
     assert_eq!(
         (view.ghost, view.wrapped, view.placement),
         (text(SUGGESTION), None, GhostPlacement::BelowCaret)
+    );
+}
+
+#[test]
+fn ghost_text_that_does_not_fit_above_a_line_with_text_shows_whole_below_the_caret() {
+    let mut harness = harness_at(100, Some(FIELD));
+    harness.shell.surroundings = field_around("", "\nSee you on Friday.");
+
+    harness.show(SUGGESTION);
+
+    let view = shown_view(&harness);
+    assert_eq!(
+        (view.ghost, view.wrapped, view.placement),
+        (text(SUGGESTION), None, GhostPlacement::BelowCaret)
+    );
+}
+
+#[test]
+fn ghost_text_wraps_onto_lines_below_that_have_only_whitespace() {
+    let mut harness = harness_at(100, Some(FIELD));
+    harness.shell.surroundings = field_around("", "\n  \n");
+
+    harness.show(SUGGESTION);
+
+    assert_eq!(
+        shown_lines(&harness),
+        (text("est regards "), Some(wrapped("to you")))
     );
 }
 

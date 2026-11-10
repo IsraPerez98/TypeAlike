@@ -16,8 +16,8 @@ use badge::place_entries;
 use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
-    AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, OcrAvailability, OcrRead,
-    ScreenRead, ScreenReadId, ScreenSource,
+    AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow, OcrAvailability,
+    OcrRead, ScreenRead, ScreenReadId, ScreenSource,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
@@ -716,6 +716,13 @@ impl App {
     #[must_use]
     pub fn is_caret_at_line_end(&self, after: AfterCaret) -> bool {
         self.engine.is_caret_at_line_end(after)
+    }
+
+    /// What the field shows on the lines below the line of the caret, as the text after the caret
+    /// of the session shows it. Without a session, the lines are empty.
+    #[must_use]
+    pub fn lines_below_caret(&self) -> LinesBelow {
+        self.engine.lines_below_caret()
     }
 
     /// Whether the ghost text has a suggestion or a fix, or the completion of the newest
