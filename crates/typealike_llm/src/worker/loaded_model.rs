@@ -161,14 +161,23 @@ impl<'model> LoadedModel<'model> {
                 }
                 InferenceError::from(error)
             })?;
-        Ok(Completion {
+        let completion = Completion {
             text,
             tokens: TokenCount(u32::try_from(added.tokens.len()).expect("added tokens fit in the context")),
             duration: started.elapsed(),
             word_log_probabilities: added.word_log_probabilities,
             typed_log_probability: added.typed_log_probability,
             correction: added.correction,
-        })
+        };
+        tracing::debug!(
+            ?prompt,
+            added_tokens = completion.tokens.0,
+            added_chars = completion.text.chars().count(),
+            duration = ?completion.duration,
+            is_corrected = completion.correction.is_some(),
+            "completed the prompt"
+        );
+        Ok(completion)
     }
 
     /// Returns the logits that `word_bias` adds to each token, and that `next_word_bias` adds to

@@ -123,6 +123,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - With a drafter, llama.cpp also keeps the last state of each token of a prompt decode.
 - When the drafter is missing, does not fit the model or fails to start, the model runs without it, and the log tells why.
 - With `TYPEALIKE_LOG=typealike_llm=debug`, the log gives the guesses and the right guesses of each completion.
+- At the same level, the log also gives the length of the prompt in characters, the number of added tokens and characters, the time and whether a typo fix occurred for each completion (`LoadedModel::complete`). It never gives the text.
 
 ### Measured gain
 

@@ -6,6 +6,7 @@ mod edit_control;
 use typealike_core::controller::FocusChange;
 use typealike_core::desktop::{Field, Surroundings};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
@@ -129,6 +130,28 @@ pub(crate) fn foreground_window() -> WindowId {
 pub(crate) fn foreground_hwnd() -> HWND {
     // SAFETY: the call takes no argument and has no precondition.
     unsafe { GetForegroundWindow() }
+}
+
+/// Reads the frame of the window in the foreground now without its invisible borders, in physical
+/// screen pixels. `None` when no window is in the foreground.
+pub(crate) fn foreground_window_bounds() -> Option<RECT> {
+    let window = foreground_hwnd();
+    if window.is_invalid() {
+        return None;
+    }
+    let mut bounds = RECT::default();
+    // SAFETY: `bounds` is a local of the size that the call writes, and a window that closed only
+    // makes the call fail.
+    unsafe {
+        DwmGetWindowAttribute(
+            window,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            (&raw mut bounds).cast(),
+            struct_size::<RECT>(),
+        )
+    }
+    .ok()?;
+    Some(bounds)
 }
 
 /// The thread of the window in the foreground now, or thread 0 when no window is in the

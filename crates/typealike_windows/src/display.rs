@@ -4,7 +4,7 @@
 //! and the screen rectangles of core.
 
 use typealike_core::desktop::ScreenRect;
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::{HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromWindow,
 };
@@ -98,6 +98,38 @@ pub(crate) fn visible_field_frame(frame: Option<RECT>, client_area: Option<RECT>
         .map(|client_area| intersection(frame, client_area))
         .filter(|visible| has_area(*visible));
     Some(visible.unwrap_or(frame))
+}
+
+/// An edge of a rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Edge {
+    Left,
+    Top,
+    Right,
+    Bottom,
+}
+
+/// The rectangle of `size` with its top left corner at `origin`.
+pub(crate) fn rect_at(origin: POINT, size: SIZE) -> RECT {
+    RECT {
+        left: origin.x,
+        top: origin.y,
+        right: origin.x.saturating_add(size.cx),
+        bottom: origin.y.saturating_add(size.cy),
+    }
+}
+
+/// The edges of `outer` that `inner` crosses: a part of `inner` is past each of them.
+pub(crate) fn crossed_edges(inner: RECT, outer: RECT) -> Vec<Edge> {
+    [
+        (inner.left < outer.left, Edge::Left),
+        (inner.top < outer.top, Edge::Top),
+        (inner.right > outer.right, Edge::Right),
+        (inner.bottom > outer.bottom, Edge::Bottom),
+    ]
+    .into_iter()
+    .filter_map(|(is_crossed, edge)| is_crossed.then_some(edge))
+    .collect()
 }
 
 /// The rectangle that both `first` and `second` cover. It has no area when they do not overlap.
@@ -226,6 +258,40 @@ mod tests {
         let visible = client_areas.map(|client_area| visible_field_frame(Some(frame), client_area));
 
         assert_eq!(visible, [Some(frame); 4]);
+    }
+
+    #[test]
+    fn rect_at_an_origin_has_the_size_of_the_bitmap() {
+        let origin = POINT { x: 100, y: 40 };
+
+        let covered = rect_at(origin, SIZE { cx: 300, cy: 60 });
+
+        assert_eq!(covered, rect(100, 40, 400, 100));
+    }
+
+    /// A window from 100 to 900 across and from 50 to 650 down.
+    const WINDOW: RECT = rect(100, 50, 900, 650);
+
+    #[test]
+    fn crossed_edges_are_the_edges_of_the_window_that_the_ghost_text_goes_past() {
+        let ghost_texts = [
+            rect(200, 100, 600, 300),
+            rect(100, 50, 900, 650),
+            rect(700, 600, 1000, 700),
+            rect(0, 0, 1000, 700),
+        ];
+
+        let edges = ghost_texts.map(|ghost_text| crossed_edges(ghost_text, WINDOW));
+
+        assert_eq!(
+            edges,
+            [
+                vec![],
+                vec![],
+                vec![Edge::Right, Edge::Bottom],
+                vec![Edge::Left, Edge::Top, Edge::Right, Edge::Bottom],
+            ]
+        );
     }
 
     #[test]

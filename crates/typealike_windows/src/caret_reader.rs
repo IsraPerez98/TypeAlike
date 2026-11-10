@@ -180,6 +180,7 @@ fn answer_reads(
 /// of the frame that UIA gives inside the client area of the focused window, else that client area
 /// ([`display::visible_field_frame`]).
 fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
+    let started = Instant::now();
     let focused = uia.map_or_else(
         || FocusedCaret {
             caret: caret::system_caret(),
@@ -188,10 +189,21 @@ fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
         },
         Uia::caret,
     );
+    let client_area = focus::focused_client_area();
+    let field = display::visible_field_frame(focused.frame, client_area);
+    tracing::debug!(
+        duration = ?started.elapsed(),
+        caret = ?focused.caret.as_ref().map(Caret::screen_rect),
+        uia_frame = ?focused.frame,
+        ?client_area,
+        ?field,
+        after = ?focused.after,
+        "read the caret"
+    );
     CaretAnswer {
         id,
         caret: focused.caret,
-        field: display::visible_field_frame(focused.frame, focus::focused_client_area()),
+        field,
         after: focused.after,
     }
 }

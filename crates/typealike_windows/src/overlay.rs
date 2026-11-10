@@ -9,7 +9,8 @@ use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOW
 use windows::core::{Result, w};
 
 use crate::caret::Caret;
-use crate::display::{monitor_dpi, to_pixels, work_area};
+use crate::display::{crossed_edges, monitor_dpi, rect_at, to_pixels, work_area};
+use crate::focus;
 use crate::gdi::{Font, FontWeight, TextBitmap, TextRun, line_width};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
 use crate::system_theme::{Contrast, SystemTheme, ThemeMode, TooltipColors, system_color};
@@ -112,67 +113,13 @@ impl Overlay {
     pub(crate) fn show(&self, view: &GhostView, caret: &Caret) -> Result<()> {
         let font = ghost_text_font(caret, FontWeight::Regular)?;
         let theme = SystemTheme::read();
-        match view.placement {
-            GhostPlacement::AfterCaret => {
-                let colors = inline_colors(theme, caret.text_color);
-                let (first_line, caret_left) = render(no_typed_letters(&font), &view.ghost, &font, colors)?;
-                let first_line_left = caret.origin.x - caret_left;
-                let (bitmap, left) = match &view.wrapped {
-                    Some(wrapped) => {
-                        let style = TextRun::new("", &font, colors.rest);
-                        with_wrapped_lines((first_line, first_line_left), wrapped, style, caret.height)?
-                    }
-                    None => (first_line, first_line_left),
-                };
-                let origin = POINT {
-                    x: left,
-                    y: caret.origin.y,
-                };
-                bitmap.present(self.window.handle(), origin)?;
-            }
-            GhostPlacement::BelowCaret => self.present_card(view, &font, theme, caret)?,
-        }
+        let (bitmap, origin) = match view.placement {
+            GhostPlacement::AfterCaret => inline_bitmap(view, &font, theme, caret)?,
+            GhostPlacement::BelowCaret => card_bitmap(view, &font, theme, caret)?,
+        };
+        log_shown_ghost(view, rect_at(origin, bitmap.size()));
+        bitmap.present(self.window.handle(), origin)?;
         self.window.show_on_top()
-    }
-
-    /// Shows the typed word of `view` in a semibold font of the ghost text faces and the ghost text
-    /// in `font` on a card below the line of `caret`, with the ghost text under the caret, or above
-    /// the line when the card does not fit below.
-    fn present_card(&self, view: &GhostView, font: &Font, theme: SystemTheme, caret: &Caret) -> Result<()> {
-        let typed_font = ghost_text_font(caret, FontWeight::Semibold)?;
-        let colors = TooltipColors::for_theme(theme);
-        let text_colors = card_text(theme);
-        let typed = TypedLetters {
-            word: &view.typed_word,
-            font: &typed_font,
-            ink: text_colors.typed.into(),
-        };
-        let (text, caret_left) = render(
-            typed,
-            &view.ghost,
-            font,
-            fix_colors(theme, text_colors.ghost.into()),
-        )?;
-        let text_left = caret.origin.x - caret_left;
-        let line = RECT {
-            left: text_left,
-            top: caret.origin.y,
-            right: text_left,
-            bottom: caret.origin.y.saturating_add(caret.height),
-        };
-        let layout = CardLayout::new(
-            line,
-            text.size(),
-            work_area(caret.origin)?,
-            monitor_dpi(caret.origin),
-        );
-        let mut bitmap = text.padded(layout.padding)?;
-        bitmap.lay_over(&layout.plate(colors).pixels());
-        let top_left = POINT {
-            x: layout.frame.left,
-            y: layout.frame.top,
-        };
-        bitmap.present(self.window.handle(), top_left)
     }
 
     pub(crate) fn hide(&self) {
@@ -182,6 +129,96 @@ impl Overlay {
     pub(crate) fn is_shown(&self) -> bool {
         self.window.is_visible()
     }
+}
+
+/// Renders the ghost text of `view` in `font` right after `caret`, and its wrapped lines below.
+/// Returns the bitmap and its top left corner on the screen.
+fn inline_bitmap(
+    view: &GhostView,
+    font: &Font,
+    theme: SystemTheme,
+    caret: &Caret,
+) -> Result<(TextBitmap, POINT)> {
+    let colors = inline_colors(theme, caret.text_color);
+    let (first_line, caret_left) = render(no_typed_letters(font), &view.ghost, font, colors)?;
+    let first_line_left = caret.origin.x - caret_left;
+    let (bitmap, left) = match &view.wrapped {
+        Some(wrapped) => {
+            let style = TextRun::new("", font, colors.rest);
+            with_wrapped_lines((first_line, first_line_left), wrapped, style, caret.height)?
+        }
+        None => (first_line, first_line_left),
+    };
+    let origin = POINT {
+        x: left,
+        y: caret.origin.y,
+    };
+    Ok((bitmap, origin))
+}
+
+/// Renders the typed word of `view` in a semibold font of the ghost text faces and the ghost text
+/// in `font` on a card below the line of `caret`, with the ghost text under the caret, or above
+/// the line when the card does not fit below. Returns the bitmap and its top left corner on the
+/// screen.
+fn card_bitmap(
+    view: &GhostView,
+    font: &Font,
+    theme: SystemTheme,
+    caret: &Caret,
+) -> Result<(TextBitmap, POINT)> {
+    let typed_font = ghost_text_font(caret, FontWeight::Semibold)?;
+    let colors = TooltipColors::for_theme(theme);
+    let text_colors = card_text(theme);
+    let typed = TypedLetters {
+        word: &view.typed_word,
+        font: &typed_font,
+        ink: text_colors.typed.into(),
+    };
+    let (text, caret_left) = render(
+        typed,
+        &view.ghost,
+        font,
+        fix_colors(theme, text_colors.ghost.into()),
+    )?;
+    let text_left = caret.origin.x - caret_left;
+    let line = RECT {
+        left: text_left,
+        top: caret.origin.y,
+        right: text_left,
+        bottom: caret.origin.y.saturating_add(caret.height),
+    };
+    let layout = CardLayout::new(
+        line,
+        text.size(),
+        work_area(caret.origin)?,
+        monitor_dpi(caret.origin),
+    );
+    let mut bitmap = text.padded(layout.padding)?;
+    bitmap.lay_over(&layout.plate(colors).pixels());
+    let top_left = POINT {
+        x: layout.frame.left,
+        y: layout.frame.top,
+    };
+    Ok((bitmap, top_left))
+}
+
+/// Logs where the ghost text of `view` shows: `covered`, the rectangle of the screen that its
+/// bitmap covers, and the edges of the foreground window that it goes past. It logs no text.
+fn log_shown_ghost(view: &GhostView, covered: RECT) {
+    if !tracing::enabled!(tracing::Level::DEBUG) {
+        return;
+    }
+    let window = focus::foreground_window_bounds();
+    let crossed_edges = window.map(|window| crossed_edges(covered, window));
+    tracing::debug!(
+        placement = ?view.placement,
+        wrapped_lines = view.wrapped.as_ref().map_or(0, |wrapped| wrapped.lines.len()),
+        ?covered,
+        ?window,
+        leaves_window = crossed_edges.as_ref().is_some_and(|edges| !edges.is_empty()),
+        ?crossed_edges,
+        "showed the ghost text"
+    );
 }
 
 /// Renders the `typed` letters, then `ghost` in `font` and `colors`. A fix has a line through its

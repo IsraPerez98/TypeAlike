@@ -14,6 +14,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - The overlay draws in the face of the caret when it is installed, else in Segoe UI, always at the height of the caret.
 - The overlay draws each wrapped line of a ghost text in a bitmap of its own, then puts the lines in one bitmap: the first line at the caret, and each wrapped line at the left edge that core gives, one caret height below the line above it.
 - When the overlay cannot show a ghost text, it hides the old ghost text, so that Tab never types a suggestion that the user did not see.
+- With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the placement of each ghost text that shows, its number of wrapped lines and the rectangle that the overlay covers. It also gives the frame of the foreground window without its invisible borders (`DWMWA_EXTENDED_FRAME_BOUNDS`) and the edges of that frame that the overlay goes past (`leaves_window`, `crossed_edges`). It never gives the text.
 
 ### Card below the caret
 
@@ -41,6 +42,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - A UIA frame covers the whole element, also the part that the edge of the window or a scrolled page hides. Thus the frame of the field is only the part of the UIA frame inside the client area of the focused window (`display::visible_field_frame`), and the wrapped ghost text stays inside the window. A scroll container inside the window can still hide a part of the frame.
 - When the client area shows no part of the UIA frame (a hidden focus window without a size), the frame stays the whole UIA frame. A mirrored window (right to left) maps the corners of its client area in the opposite order (`display::rect_between`).
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
+- With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the time, the caret, the UIA frame, the client area, the frame of the field and what follows the caret of each read of the caret.
 
 ### What follows the caret
 
