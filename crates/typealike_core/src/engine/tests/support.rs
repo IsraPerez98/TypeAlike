@@ -152,11 +152,17 @@ pub(super) fn engine_waiting_for(context: &str) -> Engine {
 /// newest request, with no other request open.
 pub(super) fn engine_waiting_with(settings: &Settings, context: &str) -> Engine {
     let mut engine = engine_with(settings);
+    type_waiting(&mut engine, context);
+    engine
+}
+
+/// Types `context` in `engine`, and answers the request of each key before the next key with an
+/// empty completion, so that the engine waits for the completion of its newest request.
+pub(super) fn type_waiting(engine: &mut Engine, context: &str) {
     for character in context.chars() {
         engine.on_completion(completion(""));
-        press(&mut engine, Key::Char(character));
+        press(engine, Key::Char(character));
     }
-    engine
 }
 
 pub(super) fn engine_showing(context: &str, suggestion: &str) -> Engine {
