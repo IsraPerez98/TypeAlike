@@ -11,6 +11,9 @@ use crate::test_support::{active_badge, paused_badge};
 const CARET_HEIGHT: i32 = 20;
 pub(super) const OLD_CARET: i32 = 100;
 const NEXT_CARET: i32 = 108;
+/// A caret 20 pixels before the right side of [`FIELD`], where a field that scrolls its line
+/// sideways keeps the caret.
+const RIGHT_SIDE_CARET: i32 = 630;
 pub(super) const FAR_CARET: i32 = 900;
 const FIELD: ScreenRect = ScreenRect {
     left: 50,
@@ -144,6 +147,72 @@ fn caret_that_moved_after_a_key_gets_the_ghost_at_once() {
     assert_eq!(
         harness.take_calls(),
         vec![ghost_at_caret(Some(" regards"), Some(active_badge()))]
+    );
+}
+
+/// A harness that shows `suggestion` after "B" at [`RIGHT_SIDE_CARET`], and then waits for the
+/// look after "e".
+fn harness_after_e_at_the_right_side(suggestion: &str) -> Harness {
+    let mut harness = harness_waiting_for_the_look(suggestion);
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.press(Key::Char('e'));
+    harness.settle_caret();
+    harness.take_calls();
+    harness
+}
+
+#[test]
+fn caret_at_the_right_side_that_one_key_did_not_move_gets_only_the_badge_and_a_new_look() {
+    let mut harness = harness_after_e_at_the_right_side("est");
+
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn caret_that_stays_at_the_right_side_over_a_whole_key_gets_the_ghost_at_once() {
+    let mut harness = harness_after_e_at_the_right_side("est");
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.press(Key::Char('s'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("t"), Some(active_badge()))]
+    );
+}
+
+#[test]
+fn caret_that_left_the_right_side_waits_again_for_a_caret_that_moved() {
+    let mut harness = harness_after_e_at_the_right_side("esteem");
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.settle_caret();
+    harness.answer_caret(look_at(OLD_CARET));
+    harness.press(Key::Char('s'));
+    harness.settle_caret();
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.press(Key::Char('t'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
     );
 }
 

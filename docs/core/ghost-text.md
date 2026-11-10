@@ -8,6 +8,10 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - A shell that reads the caret off its thread (`CaretLook::Later`, Windows) gives each read (`CaretRead`: the caret and the frame of the focused field) to `Controller::on_caret_read`.
 - A shell that reads the caret at once (`CaretLook::Now`, macOS) gives the read as its answer.
 - Core compares the caret with the caret of the last look that found a caret that moved, and a caret that did not move gets only the badge.
+- Some fields keep the caret at their right side while the user types. Examples are classic Notepad without word wrap, which scrolls the line sideways, and a field that aligns its text to the right.
+- Thus a caret near the right side of its field counts as a caret that moved when it stayed at that place over a whole key (`RightSideCaret::Stays`). Near means at most 2 caret heights before the right side (`RIGHT_SIDE_IN_CARET_HEIGHTS`).
+- The first key there still waits, because a terminal also gives the old caret at its right side until the program in it writes the key back.
+- Without this rule, in classic Notepad, the ghost text showed after 2 percent of the looks at the right side, against 95 percent inside the line, because each key started the looks again. With it, 92 percent of the looks at the right side showed the ghost text.
 - A focus change, a click and a screen change forget that caret (`Controller::on_context_lost`), so the first look in another field shows the ghost text also at the same place on the screen.
 - A caret more than 4 caret heights outside the frame of its field counts as no caret, and core hides the ghost text and the badge.
 

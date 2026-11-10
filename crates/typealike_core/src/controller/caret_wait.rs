@@ -13,6 +13,9 @@ use crate::key::Key;
 /// The room around the focused field, in caret heights, where a caret still counts as a caret of
 /// that field.
 const FIELD_HALO_IN_CARET_HEIGHTS: i32 = 4;
+/// The room before the right side of the focused field, in caret heights, where a caret that stays
+/// over a whole key counts as a caret that the key moved.
+const RIGHT_SIDE_IN_CARET_HEIGHTS: i32 = 2;
 
 /// When the controller shows a ghost text that waits for the caret.
 #[must_use]
@@ -79,6 +82,24 @@ struct CaretLooks {
     last_caret: Option<ScreenRect>,
     /// The accent of a dead key, when the last key was a dead key.
     accent: DeadKeyAccent,
+    /// Whether the caret stays at the right side of its field while the user types.
+    right_side: RightSideCaret,
+}
+
+/// Whether the caret stays at the right side of its field while the user types, as in a field that
+/// scrolls its line sideways, by what the looks at the caret found.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum RightSideCaret {
+    /// No look after a key found the caret at the right side of its field where the key did not
+    /// move it, since the last look that found a caret that moved.
+    #[default]
+    Unseen,
+    /// A look after the last key found the caret at the right side of its field, where the key did
+    /// not move it. A terminal also gives such a look before it writes the key back.
+    Unmoved,
+    /// The caret stayed at the right side of its field over a whole key. Thus a caret there that
+    /// a key did not move is not stale.
+    Stays,
 }
 
 /// The accent that a dead key types in the app, by what the looks at the caret found.
@@ -105,6 +126,9 @@ impl CaretLooks {
         } else {
             DeadKeyAccent::None
         };
+        if self.right_side == RightSideCaret::Unmoved {
+            self.right_side = RightSideCaret::Stays;
+        }
         self.checks_left = MAX_CARET_MOVE_CHECKS;
         self.is_after_edit = !replaces_marked_accent;
         self.is_pending = false;
@@ -142,16 +166,37 @@ impl CaretLooks {
         if read.field.is_some_and(|field| !is_plausible_caret(caret, field)) {
             return Some(LookOutcome::Nothing);
         }
-        if self.is_after_edit() && self.last_caret == Some(caret) {
+        if self.is_stale(caret, read.field) {
             return Some(LookOutcome::BadgeOnly);
         }
-        let has_moved_after_edit = self.is_after_edit() && self.last_caret.is_some();
+        if self.last_caret != Some(caret) {
+            self.right_side = RightSideCaret::Unseen;
+        }
+        let has_moved_after_edit =
+            self.is_after_edit() && self.last_caret.is_some_and(|last_caret| last_caret != caret);
         if has_moved_after_edit && self.accent == DeadKeyAccent::Unseen {
             self.accent = DeadKeyAccent::Marked;
         }
         self.last_caret = Some(caret);
         self.is_after_edit = false;
         Some(LookOutcome::GhostAndBadge)
+    }
+
+    /// Whether `caret`, the caret of a look in `field` after a key, is still the caret before the
+    /// key: it is at the place of the last look, and it did not stay at the right side of the
+    /// field over a whole key. Notes a caret at the right side that the key did not move.
+    fn is_stale(&mut self, caret: ScreenRect, field: Option<ScreenRect>) -> bool {
+        if !self.is_after_edit() || self.last_caret != Some(caret) {
+            return false;
+        }
+        if !field.is_some_and(|field| is_at_right_side(caret, field)) {
+            return true;
+        }
+        if self.right_side == RightSideCaret::Stays {
+            return false;
+        }
+        self.right_side = RightSideCaret::Unmoved;
+        true
     }
 }
 
@@ -241,7 +286,9 @@ impl CaretWait {
     /// Ends the look that waits, and returns what the controller shows for `read`. `None` when no
     /// look waits, because a key came after the look started. A caret far from its field counts as
     /// no caret. After a key, a caret at the place of the last look gets only the badge while looks
-    /// are left, because the host app did not move it yet.
+    /// are left, because the host app did not move it yet. A caret that stayed at the right side of
+    /// its field over a whole key gets the ghost text, because a field that scrolls its line
+    /// sideways keeps the caret there.
     pub(super) fn on_caret_read(&mut self, read: CaretRead) -> Option<LookOutcome> {
         self.looks.on_read(read)
     }
@@ -281,6 +328,21 @@ impl CaretWait {
         shell.stop_timer(Timer::CaretSettle);
         self.is_timer_pending = false;
     }
+}
+
+/// Whether `caret` is at the right side of `field`: at most [`RIGHT_SIDE_IN_CARET_HEIGHTS`] caret
+/// heights before it, or after it. A field that scrolls its line sideways, as classic Notepad does,
+/// or that aligns its text to the right keeps the caret there while the user types. A field without
+/// area is not known.
+fn is_at_right_side(caret: ScreenRect, field: ScreenRect) -> bool {
+    if !field.has_area() {
+        return false;
+    }
+    let room = caret
+        .bottom
+        .saturating_sub(caret.top)
+        .saturating_mul(RIGHT_SIDE_IN_CARET_HEIGHTS);
+    caret.left >= field.right.saturating_sub(room)
 }
 
 /// Whether `caret` can be the caret of `field`: the middle of the caret is in the field grown by
@@ -338,6 +400,28 @@ mod tests {
         let plausible = cases.map(|(caret, _)| is_plausible_caret(caret, FIELD));
 
         assert_eq!(plausible, cases.map(|(_, expected)| expected));
+    }
+
+    #[test]
+    fn caret_is_at_the_right_side_up_to_two_caret_heights_before_it() {
+        let cases = [
+            (caret_at(300, 110), false),
+            (caret_at(459, 110), false),
+            (caret_at(460, 110), true),
+            (caret_at(490, 110), true),
+            (caret_at(520, 110), true),
+        ];
+
+        let at_right_side = cases.map(|(caret, _)| is_at_right_side(caret, FIELD));
+
+        assert_eq!(at_right_side, cases.map(|(_, expected)| expected));
+    }
+
+    #[test]
+    fn no_caret_is_at_the_right_side_of_a_field_without_area() {
+        let field = ScreenRect { right: 100, ..FIELD };
+
+        assert!(!is_at_right_side(caret_at(100, 110), field));
     }
 
     #[test]
