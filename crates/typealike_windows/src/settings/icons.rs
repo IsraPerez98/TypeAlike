@@ -1,8 +1,9 @@
 //! The icons of the settings window and of the setup window. Each page has a color icon of the
-//! Fluent UI System Icons in the navigation, as in the Settings app, and each step of the setup has
-//! a larger one above its title. High contrast shows the symbol of the page or of the step in the
-//! text color instead, because a color icon does not follow the colors of the theme. Each card of a
-//! setting starts with a glyph of the icon font in the text color.
+//! Fluent UI System Icons in the navigation, as in the Settings app, and each step of the setup
+//! after the welcome step has a larger one above its title. High contrast shows the symbol of the
+//! page or of the step in the text color instead, because a color icon does not follow the colors
+//! of the theme. The welcome step shows the app logo. Each card of a setting starts with a glyph of
+//! the icon font in the text color.
 
 use typealike_core::settings_window::view::{PageIcon, RowIcon};
 use typealike_core::setup::SetupStep;
@@ -13,34 +14,61 @@ use crate::system_theme::Contrast;
 const ROBOT_GLYPH: &str = "\u{E99A}";
 const LIGHTBULB_GLYPH: &str = "\u{EA80}";
 const INFO_GLYPH: &str = "\u{E946}";
-const EDIT_GLYPH: &str = "\u{E70F}";
 const PERMISSIONS_GLYPH: &str = "\u{E8D7}";
 const CONTACT_GLYPH: &str = "\u{E779}";
 const ACCEPT_GLYPH: &str = "\u{E8FB}";
 const SCAN_GLYPH: &str = "\u{E8FE}";
 
-/// The color picture above the title of `step` in the setup window, as a PNG file.
-pub(super) fn setup_picture(step: SetupStep) -> &'static [u8] {
+/// The picture above the title of a step in the setup window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SetupPicture {
+    /// A PNG file in its own colors.
+    Bitmap(&'static [u8]),
+    /// A glyph of the icon font in the text color. Each glyph is in Segoe Fluent Icons and also in
+    /// Segoe MDL2 Assets.
+    Glyph(&'static str),
+}
+
+/// The picture above the title of `step` in the setup window, while the contrast is `contrast`.
+/// The welcome step shows the app logo, which keeps its colors in high contrast, as the app icons
+/// of Windows do.
+pub(super) fn setup_picture(step: SetupStep, contrast: Contrast) -> SetupPicture {
     match step {
-        SetupStep::Welcome => include_bytes!("../../assets/fluent/setup/text_edit_style.png"),
-        SetupStep::About => include_bytes!("../../assets/fluent/setup/contact_card.png"),
-        SetupStep::Sources => include_bytes!("../../assets/fluent/setup/scan_type.png"),
-        SetupStep::Permission => include_bytes!("../../assets/fluent/setup/shield_checkmark.png"),
-        SetupStep::Model => include_bytes!("../../assets/fluent/setup/bot.png"),
-        SetupStep::Ready => include_bytes!("../../assets/fluent/setup/checkmark_circle.png"),
+        SetupStep::Welcome => SetupPicture::Bitmap(include_bytes!("../../assets/logo.png")),
+        SetupStep::About => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/contact_card.png"),
+            CONTACT_GLYPH,
+            contrast,
+        ),
+        SetupStep::Sources => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/scan_type.png"),
+            SCAN_GLYPH,
+            contrast,
+        ),
+        SetupStep::Permission => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/shield_checkmark.png"),
+            PERMISSIONS_GLYPH,
+            contrast,
+        ),
+        SetupStep::Model => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/bot.png"),
+            ROBOT_GLYPH,
+            contrast,
+        ),
+        SetupStep::Ready => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/checkmark_circle.png"),
+            ACCEPT_GLYPH,
+            contrast,
+        ),
     }
 }
 
-/// The glyph above the title of `step` in the setup window in high contrast. Each glyph is in
-/// Segoe Fluent Icons and also in Segoe MDL2 Assets.
-pub(super) fn setup_glyph(step: SetupStep) -> &'static str {
-    match step {
-        SetupStep::Welcome => EDIT_GLYPH,
-        SetupStep::About => CONTACT_GLYPH,
-        SetupStep::Sources => SCAN_GLYPH,
-        SetupStep::Permission => PERMISSIONS_GLYPH,
-        SetupStep::Model => ROBOT_GLYPH,
-        SetupStep::Ready => ACCEPT_GLYPH,
+/// The Fluent color icon `bitmap`, or in high contrast the symbol `glyph`, because a color icon
+/// does not follow the colors of the theme.
+fn fluent_picture(bitmap: &'static [u8], glyph: &'static str, contrast: Contrast) -> SetupPicture {
+    match contrast {
+        Contrast::Standard => SetupPicture::Bitmap(bitmap),
+        Contrast::High => SetupPicture::Glyph(glyph),
     }
 }
 
@@ -130,9 +158,51 @@ mod tests {
             SetupStep::Ready,
         ];
 
-        let sizes = steps.map(|step| bitmap_size(setup_picture(step)));
+        let sizes = steps.map(|step| bitmap_size(bitmap(setup_picture(step, Contrast::Standard))?));
 
         assert_eq!(sizes, [Some((224, 224)); 6]);
+    }
+
+    #[test]
+    fn welcome_shows_the_app_logo() {
+        let picture = setup_picture(SetupStep::Welcome, Contrast::Standard);
+
+        assert_eq!(
+            picture,
+            SetupPicture::Bitmap(include_bytes!("../../assets/logo.png"))
+        );
+    }
+
+    #[test]
+    fn welcome_keeps_the_app_logo_in_high_contrast() {
+        let picture = setup_picture(SetupStep::Welcome, Contrast::High);
+
+        assert_eq!(
+            picture,
+            SetupPicture::Bitmap(include_bytes!("../../assets/logo.png"))
+        );
+    }
+
+    #[test]
+    fn each_other_step_shows_a_glyph_in_high_contrast() {
+        let steps = [
+            SetupStep::About,
+            SetupStep::Sources,
+            SetupStep::Permission,
+            SetupStep::Model,
+            SetupStep::Ready,
+        ];
+
+        let glyphs = steps.map(|step| matches!(setup_picture(step, Contrast::High), SetupPicture::Glyph(_)));
+
+        assert_eq!(glyphs, [true; 5]);
+    }
+
+    fn bitmap(picture: SetupPicture) -> Option<&'static [u8]> {
+        match picture {
+            SetupPicture::Bitmap(bytes) => Some(bytes),
+            SetupPicture::Glyph(_) => None,
+        }
     }
 
     #[test]

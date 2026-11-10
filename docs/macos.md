@@ -185,7 +185,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Setup window
 
 - The setup window (`settings/setup.rs`) is a window with a full-size content view and a transparent title bar.
-- It has the SF Symbol of each step in a system color, the rows of the settings window (`SectionList`, shared with the settings page), the demo and a footer with the dots, Back and the default Next button.
+- The welcome step shows the app icon (`assets/logo.png`) at 64 pt, the size of an app icon in an alert. Each other step shows its SF Symbol in a system color.
+- It has the rows of the settings window (`SectionList`, shared with the settings page), the demo and a footer with the dots, Back and the default Next button.
 - The dot of the step that shows is as wide as a pill, under an accent pill, so the gaps between the dots stay the same.
 - The pill slides to the next dot while that dot grows and the old dot shrinks (`NSAnimationContext` with an implicit animation of the layout), and moves at once with Reduce Motion.
 - A new step fades in and slides in (`CABasicAnimation` of `objc2-quartz-core`), and the step before goes at once. With Reduce Motion, it only fades in.

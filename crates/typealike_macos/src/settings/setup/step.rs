@@ -1,16 +1,16 @@
 //! The content of a setup step, which scrolls: the picture of the step, the title and the body, the
 //! demo, the sections with the rows of the settings window, and the footnote, top to bottom.
 
-use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
+use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
-    NSAccessibility as _, NSColor, NSFont, NSFontWeightRegular, NSImageSymbolConfiguration, NSImageView,
-    NSLayoutAttribute, NSScrollView, NSStackView, NSTextAlignment, NSTextField,
+    NSAccessibility as _, NSColor, NSFont, NSFontWeightRegular, NSImage, NSImageSymbolConfiguration,
+    NSImageView, NSLayoutAttribute, NSScrollView, NSStackView, NSTextAlignment, NSTextField,
     NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_core_foundation::CGFloat;
-use objc2_foundation::{NSEdgeInsets, NSPoint};
+use objc2_foundation::{NSData, NSEdgeInsets, NSPoint, NSSize, NSString};
 use typealike_core::settings_window::view::{ControlId, SettingsInput};
 use typealike_core::setup::{SetupStep, SetupView};
 
@@ -33,17 +33,30 @@ const HERO_SPACING: CGFloat = 16.0;
 const TITLE_SPACING: CGFloat = 8.0;
 const SECTION_SPACING: CGFloat = 20.0;
 const HERO_SYMBOL_SIZE: CGFloat = 56.0;
+/// The size of an app icon in an alert.
+const APP_ICON_SIZE: CGFloat = 64.0;
 const LARGE_TITLE_SIZE: CGFloat = 26.0;
 
-/// The SF Symbol of each step, and its system color, which names the step and never a state.
-fn hero(step: SetupStep) -> (&'static str, Retained<NSColor>) {
+/// The app icon of `TypeAlike.icns` at 2x. `assets/build_icons.py` makes the file.
+const APP_ICON: &[u8] = include_bytes!("../../../assets/logo.png");
+
+/// The picture above the title of a step.
+enum Hero {
+    /// The app icon.
+    AppIcon,
+    /// An SF Symbol and its system color, which names the step and never a state.
+    Symbol(&'static str, Retained<NSColor>),
+}
+
+/// The picture of each step. The welcome step shows the app icon.
+fn hero(step: SetupStep) -> Hero {
     match step {
-        SetupStep::Welcome => ("character.cursor.ibeam", NSColor::systemBlueColor()),
-        SetupStep::About => ("person.text.rectangle", NSColor::systemGreenColor()),
-        SetupStep::Sources => ("text.viewfinder", NSColor::systemPurpleColor()),
-        SetupStep::Permission => ("hand.raised", NSColor::systemOrangeColor()),
-        SetupStep::Model => ("arrow.down.circle", NSColor::systemIndigoColor()),
-        SetupStep::Ready => ("checkmark.circle", NSColor::systemTealColor()),
+        SetupStep::Welcome => Hero::AppIcon,
+        SetupStep::About => Hero::Symbol("person.text.rectangle", NSColor::systemGreenColor()),
+        SetupStep::Sources => Hero::Symbol("text.viewfinder", NSColor::systemPurpleColor()),
+        SetupStep::Permission => Hero::Symbol("hand.raised", NSColor::systemOrangeColor()),
+        SetupStep::Model => Hero::Symbol("arrow.down.circle", NSColor::systemIndigoColor()),
+        SetupStep::Ready => Hero::Symbol("checkmark.circle", NSColor::systemTealColor()),
     }
 }
 
@@ -149,7 +162,7 @@ impl StepView {
     }
 }
 
-/// An image view for the large symbol of a step. Assistive technology skips it, because the title
+/// An image view for the large picture of a step. Assistive technology skips it, because the title
 /// names the step.
 fn hero_view(main_thread: MainThreadMarker) -> Retained<NSImageView> {
     let view = NSImageView::new(main_thread);
@@ -158,15 +171,35 @@ fn hero_view(main_thread: MainThreadMarker) -> Retained<NSImageView> {
 }
 
 fn show_hero(view: &NSImageView, step: SetupStep, description: &str) {
-    let (name, color) = hero(step);
-    view.setImage(symbol(name, description).as_deref());
-    let size = NSImageSymbolConfiguration::configurationWithPointSize_weight(
-        HERO_SYMBOL_SIZE,
-        // SAFETY: the weight is a constant of AppKit.
-        unsafe { NSFontWeightRegular },
-    );
-    let colors = NSImageSymbolConfiguration::configurationWithHierarchicalColor(&color);
-    view.setSymbolConfiguration(Some(&size.configurationByApplyingConfiguration(&colors)));
+    match hero(step) {
+        Hero::AppIcon => {
+            view.setSymbolConfiguration(None);
+            view.setImage(app_icon(description).as_deref());
+        }
+        Hero::Symbol(name, color) => {
+            view.setImage(symbol(name, description).as_deref());
+            let size = NSImageSymbolConfiguration::configurationWithPointSize_weight(
+                HERO_SYMBOL_SIZE,
+                // SAFETY: the weight is a constant of AppKit.
+                unsafe { NSFontWeightRegular },
+            );
+            let colors = NSImageSymbolConfiguration::configurationWithHierarchicalColor(&color);
+            view.setSymbolConfiguration(Some(&size.configurationByApplyingConfiguration(&colors)));
+        }
+    }
+}
+
+/// The app icon at the size of an app icon in an alert, which assistive technology reads as
+/// `description`.
+fn app_icon(description: &str) -> Option<Retained<NSImage>> {
+    let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(APP_ICON));
+    let Some(image) = image else {
+        tracing::warn!("the app icon of the setup window is unreadable");
+        return None;
+    };
+    image.setSize(NSSize::new(APP_ICON_SIZE, APP_ICON_SIZE));
+    image.setAccessibilityDescription(Some(&NSString::from_str(description)));
+    Some(image)
 }
 
 /// `label` with its text in the center, and not selectable, so that the keyboard focus moves only
@@ -175,4 +208,40 @@ fn centered_label(label: Retained<NSTextField>) -> Retained<NSTextField> {
     label.setAlignment(NSTextAlignment::Center);
     label.setSelectable(false);
     label
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn welcome_shows_the_app_icon() {
+        let hero = hero(SetupStep::Welcome);
+
+        assert!(matches!(hero, Hero::AppIcon));
+    }
+
+    #[test]
+    fn app_icon_shows_at_the_size_of_an_alert_icon() {
+        let icon = app_icon("TypeAlike").expect("the app icon is a PNG file");
+
+        let size = icon.size();
+
+        assert_eq!(size, NSSize::new(64.0, 64.0));
+    }
+
+    #[test]
+    fn app_icon_is_a_bitmap_for_two_times_its_size() {
+        let size = bitmap_size(APP_ICON);
+
+        assert_eq!(size, Some((128, 128)));
+    }
+
+    /// The width and the height of the PNG file `bytes`, from its header.
+    fn bitmap_size(bytes: &[u8]) -> Option<(u32, u32)> {
+        let header = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
+        let dimension =
+            |range: std::ops::Range<usize>| Some(u32::from_be_bytes(header.get(range)?.try_into().ok()?));
+        Some((dimension(8..12)?, dimension(12..16)?))
+    }
 }

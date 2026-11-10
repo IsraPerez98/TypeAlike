@@ -12,7 +12,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - Tray icon, tray menu, ghost text overlay and caret badge: Win32 on the main thread, next to the hooks. This crate draws them and follows the system by hand.
 
 ## Follow the system, never hardcode a look
-- Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal. The color icons of the pages are the only colored pictures, and high contrast replaces them.
+- Settings window: WinUI follows the theme, the accent color, high contrast, transparency, animations, text scale and DPI live. Never set a theme, a color or a size that turns this off. Use `ThemeBrush` values, never a `Color` literal. The color icons of the pages and the setup steps are the only colored pictures, and high contrast replaces them. The app logo on the welcome step of the setup keeps its colors, as the app icons of Windows do.
 - Win32 parts: follow the apps theme for menus and `SystemUsesLightTheme` for the tray icon. Re-read on `WM_SETTINGCHANGE` ("ImmersiveColorSet", `SPI_SETHIGHCONTRAST`) and update live. No restart.
 - Accent: the user accent color only, sparingly (focus, selected, primary action). No brand color for state.
 - Per-monitor DPI aware v2 for the whole process. Physical px in the Win32 parts, effective px (DIPs) in reactor views.

@@ -26,11 +26,10 @@ The view box of each SVG is cut to the live area of the icon (`2 2 16 16`) befor
 
 ## Setup pictures
 
-The pictures above the title of each step of the setup window are in `setup/`. They show at 56 DIPs. They are PNG files of 224 x 224 px, made from the icons at the largest size that the source has in color:
+The pictures above the title of each step of the setup window after the welcome step are in `setup/`. The welcome step shows the app logo (`../logo.png`, `docs/icons.md`). They show at 56 DIPs. They are PNG files of 224 x 224 px, made from the icons at the largest size that the source has in color:
 
 | File | Icon | Setup step |
 | --- | --- | --- |
-| `setup/text_edit_style.png` | `ic_fluent_text_edit_style_24_color` | `SetupStep::Welcome` |
 | `setup/contact_card.png` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
 | `setup/scan_type.png` | `ic_fluent_scan_type_24_color` | `SetupStep::Sources` |
 | `setup/shield_checkmark.png` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |

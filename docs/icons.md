@@ -21,7 +21,9 @@ The script reads `RESVG` for the path of resvg when it is not on `PATH`.
 | File | Use |
 |---|---|
 | `packaging/macos/TypeAlike.icns` | The app icon of `TypeAlike.app` (`CFBundleIconFile` in `Info.plist`), 16 to 1024 px |
+| `crates/typealike_macos/assets/logo.png` | The picture of the welcome step of the setup window on macOS: the macOS app icon at 128 px, which shows at 64 pt |
 | `crates/typealike/TypeAlike.ico` | The app icon in `TypeAlike.exe` (`TypeAlike.rc`, `build.rs`) and the icon of the Windows installer (`SetupIconFile`) |
+| `crates/typealike_windows/assets/logo.png` | The picture of the welcome step of the setup window on Windows: the Windows app icon at 224 px, which shows at 56 DIPs |
 | `crates/typealike_windows/assets/tray/*.ico` | The tray icon and the badge on Windows, for each status, in black and in white, and the paused robot in amber and in yellow |
 | `crates/typealike_macos/assets/menu_bar/*.tiff` | The menu bar extra and the badge on macOS, for each status, at 1x and 2x |
 

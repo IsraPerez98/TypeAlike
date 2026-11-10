@@ -21,7 +21,9 @@ SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 MAC_ICON = ROOT / "packaging/macos/TypeAlike.icns"
 MAC_MENU_BAR = ROOT / "crates/typealike_macos/assets/menu_bar"
+MAC_SETUP_LOGO = ROOT / "crates/typealike_macos/assets/logo.png"
 WINDOWS_ICON = ROOT / "crates/typealike/TypeAlike.ico"
+WINDOWS_SETUP_LOGO = ROOT / "crates/typealike_windows/assets/logo.png"
 WINDOWS_TRAY = ROOT / "crates/typealike_windows/assets/tray"
 
 MARK_PARTS = ["earL", "earR", "stem", "ball", "head", "visor", "eyes", "letterI"]
@@ -34,9 +36,13 @@ MAC_MARK_WIDTH = 600
 MAC_HEAD_WIDTH = 600
 MAC_SMALL_POINTS = 32
 MAC_ICON_POINTS = [16, 32, 128, 256, 512]
+# The setup window shows the app icon at 64 points, from a bitmap at 2x.
+MAC_SETUP_LOGO_POINTS = 64
 
 WINDOWS_ICON_SIZES = [16, 20, 24, 32, 40, 48, 64, 256]
 WINDOWS_SMALL_SIZE = 24
+# The setup window shows the logo at 56 DIPs, from a bitmap of four times that size.
+WINDOWS_SETUP_LOGO_SIZE = 224
 FLUENT_KEYLINE = 44 / 48
 WINDOWS_HEAD_STROKE = "#8EA6CC"
 SMALL_EYE_STROKE = 54
@@ -226,9 +232,19 @@ def build_mac_icon(renderer, logo, folder):
     subprocess.run(["iconutil", "--convert", "icns", "--output", str(MAC_ICON), str(iconset)], check=True)
 
 
+def build_mac_setup_logo(renderer, logo):
+    svg = mac_icon_svg(logo, MAC_SETUP_LOGO_POINTS <= MAC_SMALL_POINTS)
+    MAC_SETUP_LOGO.write_bytes(renderer.png(svg, MAC_SETUP_LOGO_POINTS * 2))
+
+
 def build_windows_icon(renderer, logo):
     images = {side: renderer.png(windows_icon_svg(logo, side), side) for side in WINDOWS_ICON_SIZES}
     WINDOWS_ICON.write_bytes(ico_bytes(images))
+
+
+def build_windows_setup_logo(renderer, logo):
+    svg = windows_icon_svg(logo, WINDOWS_SETUP_LOGO_SIZE)
+    WINDOWS_SETUP_LOGO.write_bytes(renderer.png(svg, WINDOWS_SETUP_LOGO_SIZE))
 
 
 def build_tray_icon(renderer, state, color, name):
@@ -262,7 +278,9 @@ def main():
         renderer = Renderer(folder)
         logo = Logo(renderer)
         build_mac_icon(renderer, logo, folder)
+        build_mac_setup_logo(renderer, logo)
         build_windows_icon(renderer, logo)
+        build_windows_setup_logo(renderer, logo)
         build_tray_icons(renderer)
         build_menu_bar_images(renderer, folder)
 

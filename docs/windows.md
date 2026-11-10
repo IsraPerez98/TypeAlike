@@ -116,7 +116,9 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - The setup window (`settings/setup_page.rs`) is a second WinUI window on the same thread, 720 x 720 DIPs (lower when the work area is too small), in the center of the work area of the main monitor.
 - It has no resize frame and no maximize button (`settings/fixed_window.rs`), so that each step of the longest language fits without a scroll bar.
-- It has Mica, the Fluent color picture of each step (`assets/fluent/setup`, the symbol in high contrast), the cards of the settings window, a footnote and a footer with a gray dot for each step, Back and the accent Next button.
+- It has Mica, the picture of each step, the cards of the settings window, a footnote and a footer with a gray dot for each step, Back and the accent Next button.
+- The welcome step shows the app logo (`assets/logo.png`). It keeps its colors in high contrast, as the app icons of Windows do.
+- Each other step shows a Fluent color picture (`assets/fluent/setup`), and the symbol of the step in high contrast (`settings/icons.rs`).
 
 ### Step dots and motion
 

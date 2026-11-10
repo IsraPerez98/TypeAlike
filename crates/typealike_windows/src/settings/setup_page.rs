@@ -17,7 +17,7 @@ use windows_reactor::{
 };
 
 use super::fixed_window::{Size, WindowPlace, fix_size};
-use super::icons::{setup_glyph, setup_picture};
+use super::icons::{SetupPicture, setup_picture};
 use super::layout::secondary_text;
 use super::page::Renderer;
 use super::typed_texts::TypedTexts;
@@ -335,18 +335,17 @@ impl SetupPage {
         }
     }
 
-    /// The picture of the step: its Fluent color icon, or its symbol in high contrast, because a
-    /// color icon does not follow the colors of the theme.
+    /// The picture of the step for the contrast of the window.
     fn picture(&self, view: &SetupView) -> View {
-        match self.contrast {
-            Contrast::Standard => Image::new()
-                .source_data(EncodedImage::from_static(setup_picture(view.step)))
+        match setup_picture(view.step, self.contrast) {
+            SetupPicture::Bitmap(bitmap) => Image::new()
+                .source_data(EncodedImage::from_static(bitmap))
                 .width(PICTURE_SIZE)
                 .height(PICTURE_SIZE)
                 .horizontal_alignment(HorizontalAlignment::Left)
                 .into(),
-            Contrast::High => FontIcon::new()
-                .glyph(setup_glyph(view.step))
+            SetupPicture::Glyph(glyph) => FontIcon::new()
+                .glyph(glyph)
                 .font_size(GLYPH_SIZE)
                 .horizontal_alignment(HorizontalAlignment::Left)
                 .into(),
