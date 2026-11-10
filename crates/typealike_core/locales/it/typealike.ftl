@@ -47,9 +47,9 @@ general-language-system = Lingua del sistema
 general-display = Mostra le parole una alla volta
 general-display-description = Ogni parola di un suggerimento compare appena il modello la scrive. La prima parola compare prima, ma il suggerimento cresce mentre lo leggi.
 general-typo-rule = Nascondi i suggerimenti in caso di errori di battitura
-general-typo-rule-description = Quando una parola sembra contenere un errore di battitura, nessun suggerimento la completa, così il tasto Tab non inserisce l’errore. Anche un nome raro può sembrare un errore, e allora non riceve suggerimenti.
+general-typo-rule-description = Nessun suggerimento completa una parola che sembra contenere un errore di battitura, così Tab non scrive l’errore. Anche un nome raro può sembrare un errore di battitura.
 general-typo-fix = Correggi gli errori di battitura
-general-typo-fix-description = Quando una parola sembra contenere un errore di battitura, il suggerimento mostra la parola barrata e poi la parola corretta. Il tasto Tab inserisce la parola corretta.
+general-typo-fix-description = Il suggerimento barra l’errore di battitura e mostra dopo la parola corretta. Premi Tab per inserire la parola corretta.
 general-length = Lunghezza dei suggerimenti
 general-length-description = Un suggerimento si ferma a questa lunghezza. Un suggerimento più breve compare prima.
 general-length-very-short = Molto breve
@@ -65,27 +65,21 @@ general-reset = Ripristina tutte le impostazioni
 general-reset-description = Tutte le impostazioni tornano ai valori predefiniti e la configurazione si riapre. I modelli scaricati e i testi precedenti restano.
 general-reset-confirm = Premi di nuovo per ripristinare
 
-## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language.
 
 languages-title = Lingue ed errori di battitura
-languages-summary = Scegli le lingue in cui scrivi e cosa fanno i suggerimenti con gli errori di battitura e le parole sconosciute.
-languages-heading = Lingue in cui scrivi
+languages-summary = TypeAlike controlla l’ortografia di ogni suggerimento nelle lingue in cui scrivi.
+languages-heading = Le tue lingue
 languages-add = Aggiungi una lingua
-languages-add-description = TypeAlike controlla l’ortografia dei suggerimenti con il dizionario di ogni lingua.
 languages-add-description-download = Se questo computer non ha un dizionario per una lingua, TypeAlike ne scarica uno.
 # The first entry of the menu "Add a language". It adds no language.
 languages-add-choose = Scegli una lingua
 languages-remove = Rimuovi
-languages-cancel = Annulla il download
-languages-try-again = Riprova
-languages-downloading = { $percent }% del dizionario scaricato
-languages-no-dictionary = TypeAlike non ha un dizionario per questa lingua, quindi non controlla l’ortografia dei suggerimenti in questa lingua.
+languages-no-dictionary = TypeAlike non può controllare l’ortografia di questa lingua.
 languages-error-offline = TypeAlike non riesce a scaricare il dizionario. Controlla la connessione a Internet.
 languages-error-server = TypeAlike non riesce a ottenere il dizionario ora. Riprova più tardi.
 languages-error-storage = TypeAlike non riesce a salvare il dizionario su questo computer. Controlla che il disco abbia spazio libero.
-languages-typos-heading = Errori di battitura e parole sconosciute
-languages-spell-check = Controlla l’ortografia dei suggerimenti
-languages-spell-check-description = Un suggerimento si ferma prima di una parola che nessun dizionario delle tue lingue conosce, come una parola inventata dal modello. Anche lo slang e i nomi rari possono fermare un suggerimento.
+languages-typos-heading = Errori di battitura
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -337,8 +331,8 @@ setup-other-models = Scegli un altro modello
 setup-permission-title = Dai a TypeAlike l’accesso ai campi di testo
 setup-permission-body = Fai clic su “Consenti l’accesso”. Poi attiva TypeAlike in Impostazioni di Sistema e torna a questa finestra.
 setup-languages-title = Scegli le tue lingue
-setup-spelling = Controlla errori di battitura e ortografia
-setup-spelling-description = Una parola con un errore di battitura riceve una correzione, e un suggerimento si ferma prima di una parola che non è in nessun dizionario.
+setup-typos = Controlla gli errori di battitura
+setup-typos-description = Quando una parola che scrivi sembra contenere un errore di battitura, il suggerimento mostra la parola corretta. Premi Tab per inserirla.
 setup-about-title = Parla di te a TypeAlike
 setup-sources-title = Cosa possono usare i suggerimenti
 setup-history-description = TypeAlike salva quello che scrivi in un file cifrato su questo computer. Così i suggerimenti usano le tue parole e il tuo stile. Puoi eliminare questo testo nella pagina Personalizzazione.

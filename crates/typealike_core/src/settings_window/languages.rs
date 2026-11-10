@@ -1,14 +1,14 @@
 //! The Languages and typos pane of the settings window: the languages that the user writes, the
-//! downloads of their dictionaries, and what suggestions do with typos and unknown words.
+//! downloads of their dictionaries, and what suggestions do with typos.
 
 use crate::hub::{ByteSize, HubError};
 use crate::language::{closest_languages, language_of, same_tag};
 use crate::localization::{MessageArgument, Translations};
-use crate::settings::{SpellCheck, SpellingSettings};
+use crate::settings::SpellingSettings;
 use crate::settings_window::models::{permille, size_text};
 use crate::settings_window::view::{
     Accessory, Button, ChoiceText, ControlId, Item, Page, PageIcon, Picker, Row, RowIcon, Section,
-    SettingsInput, Switch,
+    SettingsInput,
 };
 use crate::spelling::{
     DictionaryEvent, DictionaryRequest, DownloadableDictionary, WRITING_LANGUAGES, is_main_entry,
@@ -16,7 +16,6 @@ use crate::spelling::{
 };
 
 pub(crate) const ADD_LANGUAGE: &str = "language-add";
-pub(crate) const SPELL_CHECK: &str = "spell-check";
 /// The start of the id of the button that removes a language, before the tag of the language.
 const REMOVE_PREFIX: &str = "language-remove:";
 /// The start of the id of the button that stops the download of a dictionary.
@@ -34,8 +33,6 @@ pub enum LanguagesAction {
     Remove(String),
     /// Started the failed download of the dictionary of the language with this tag again.
     RetryDownload(String),
-    /// Turned on or off the switch that stops a suggestion before a word that no dictionary knows.
-    SwitchCheck(SpellCheck),
 }
 
 /// The languages of the OS: the languages of the user in its settings, and the languages that it
@@ -246,10 +243,6 @@ impl LanguagesPane {
                 requests: self.download_request(&language).into_iter().collect(),
                 ..LanguagesOutcome::default()
             },
-            LanguagesAction::SwitchCheck(check) => LanguagesOutcome {
-                is_settings_change: std::mem::replace(&mut self.settings.check, check) != check,
-                ..LanguagesOutcome::default()
-            },
         }
     }
 
@@ -428,13 +421,6 @@ impl LanguagesPane {
     #[must_use]
     pub fn action_for(&self, input: &SettingsInput) -> Option<LanguagesAction> {
         match input {
-            SettingsInput::Toggled { id, is_on } if id.as_str() == SPELL_CHECK => {
-                Some(LanguagesAction::SwitchCheck(if *is_on {
-                    SpellCheck::On
-                } else {
-                    SpellCheck::Off
-                }))
-            }
             SettingsInput::Picked { id, index } if id.as_str() == ADD_LANGUAGE => {
                 let language = self.offered_languages().get(index.checked_sub(1)?)?.to_string();
                 Some(LanguagesAction::Add(language))
@@ -454,7 +440,7 @@ impl LanguagesPane {
     }
 
     /// Returns the page of the pane: the languages, then the switches of the `typo_rows` of the
-    /// General pane and the switch of the spell check.
+    /// General pane.
     #[must_use]
     pub fn page(&self, typo_rows: Vec<Row>, translations: &Translations) -> Page {
         Page {
@@ -464,7 +450,12 @@ impl LanguagesPane {
             search: None,
             sections: vec![
                 self.languages_section(translations),
-                self.typos_section(typo_rows, translations),
+                Section {
+                    heading: Some(translations.text("languages-typos-heading")),
+                    back: None,
+                    rows: typo_rows,
+                    footer: None,
+                },
             ],
         }
     }
@@ -486,26 +477,6 @@ impl LanguagesPane {
         }
     }
 
-    /// Returns the section of the typos: the `typo_rows` of the General pane, then the switch of
-    /// the spell check, for the page and the setup.
-    #[must_use]
-    pub fn typos_section(&self, typo_rows: Vec<Row>, translations: &Translations) -> Section {
-        let spell_check = Row::Switch(Switch {
-            id: ControlId::new(SPELL_CHECK),
-            icon: RowIcon::Letters,
-            label: translations.text("languages-spell-check"),
-            description: translations.text("languages-spell-check-description"),
-            is_on: self.settings.check == SpellCheck::On,
-            note: None,
-        });
-        Section {
-            heading: Some(translations.text("languages-typos-heading")),
-            back: None,
-            rows: typo_rows.into_iter().chain([spell_check]).collect(),
-            footer: None,
-        }
-    }
-
     fn language_item(&self, language: &str, translations: &Translations) -> Item {
         let title = language_name(language).unwrap_or(language).to_owned();
         let size = self.catalog_size(language);
@@ -520,17 +491,17 @@ impl LanguagesPane {
                 let progress = permille(received, size.unwrap_or(ByteSize(0)));
                 let percent = MessageArgument::Number(u32::from(progress.0 / 10));
                 (
-                    translations.text_with("languages-downloading", &[("percent", percent)]),
+                    translations.text_with("models-download-progress", &[("percent", percent)]),
                     Accessory::Downloading {
                         progress,
-                        cancel: button(CANCEL_PREFIX, "languages-cancel"),
+                        cancel: button(CANCEL_PREFIX, "models-cancel-download"),
                     },
                 )
             }
             Some(Download::Failed(error)) => (
                 translations.text(error_message(error)),
                 Accessory::Failed {
-                    retry: button(RETRY_PREFIX, "languages-try-again"),
+                    retry: button(RETRY_PREFIX, "models-try-again"),
                 },
             ),
             None if self.has_dictionary(language) => (String::new(), remove()),
@@ -564,11 +535,11 @@ impl LanguagesPane {
             id: ControlId::new(ADD_LANGUAGE),
             icon: RowIcon::Globe,
             label: translations.text("languages-add"),
-            description: translations.text(if self.catalog.is_empty() {
-                "languages-add-description"
+            description: if self.catalog.is_empty() {
+                String::new()
             } else {
-                "languages-add-description-download"
-            }),
+                translations.text("languages-add-description-download")
+            },
             choices: [translations.text("languages-add-choose")]
                 .into_iter()
                 .chain(names)

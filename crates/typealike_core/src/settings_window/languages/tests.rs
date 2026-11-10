@@ -1,6 +1,6 @@
 use super::*;
 use crate::settings_window::view::Permille;
-use crate::test_support::{english, picked, toggled, writing_rule_breaks};
+use crate::test_support::{english, picked, writing_rule_breaks};
 
 const CHILE: &str = "es-CL";
 
@@ -31,7 +31,6 @@ fn strings(texts: &[&str]) -> Vec<String> {
 fn pane_with(languages: &[&str], installed: &[&str]) -> LanguagesPane {
     let settings = SpellingSettings {
         languages: Some(strings(languages)),
-        check: SpellCheck::On,
     };
     let mut pane = LanguagesPane::new(settings, os(), catalog());
     pane.on_event(DictionaryEvent::Installed(strings(installed)));
@@ -112,7 +111,6 @@ fn start_lists_the_downloaded_dictionaries_only_when_the_hub_has_dictionaries() 
 fn list_of_the_hub_reads_the_downloaded_dictionary_and_downloads_a_missing_one() {
     let settings = SpellingSettings {
         languages: Some(strings(&["en-US", CHILE, "fr"])),
-        check: SpellCheck::On,
     };
     let mut pane = LanguagesPane::new(settings, os(), catalog());
 
@@ -160,7 +158,7 @@ fn adding_a_language_that_the_os_lacks_downloads_its_dictionary() {
         (outcome.requests, shown.subtitle, shown.accessory),
         (
             vec![download(CHILE)],
-            "0% of the dictionary downloaded".to_owned(),
+            "0% downloaded".to_owned(),
             Accessory::Downloading {
                 progress: Permille(0),
                 cancel: Button {
@@ -186,7 +184,6 @@ fn adding_a_language_with_a_downloaded_dictionary_reads_it() {
 fn adding_a_language_before_the_hub_listed_its_dictionaries_waits_for_the_list() {
     let settings = SpellingSettings {
         languages: Some(strings(&["en-US"])),
-        check: SpellCheck::On,
     };
     let mut pane = LanguagesPane::new(settings, os(), catalog());
     pane.on_action(LanguagesAction::Add(CHILE.to_owned()));
@@ -234,7 +231,6 @@ fn language_without_its_dictionary_yet_uses_the_os_dictionary_of_its_language() 
     };
     let settings = SpellingSettings {
         languages: Some(strings(&[CHILE])),
-        check: SpellCheck::On,
     };
     let mut pane = LanguagesPane::new(settings, os, catalog());
     pane.on_event(DictionaryEvent::Installed(Vec::new()));
@@ -262,7 +258,7 @@ fn progress_of_the_download_shows_in_the_item() {
     let shown = item(&pane, "Español (Chile)");
     assert_eq!(
         (shown.subtitle, shown.detail),
-        ("50% of the dictionary downloaded".to_owned(), "835 KB".to_owned())
+        ("50% downloaded".to_owned(), "835 KB".to_owned())
     );
 }
 
@@ -390,11 +386,10 @@ fn item_of_a_language_of_the_os_has_a_remove_button_and_no_size() {
 }
 
 #[test]
-fn language_without_any_dictionary_tells_that_it_gets_no_spelling_check() {
+fn language_without_any_dictionary_tells_that_typealike_cannot_check_it() {
     let pane = LanguagesPane::new(
         SpellingSettings {
             languages: Some(strings(&["ar"])),
-            check: SpellCheck::On,
         },
         os(),
         catalog(),
@@ -404,22 +399,7 @@ fn language_without_any_dictionary_tells_that_it_gets_no_spelling_check() {
 
     assert_eq!(
         shown.subtitle,
-        "TypeAlike has no dictionary for this language, so suggestions in it do not get a spelling check."
-    );
-}
-
-#[test]
-fn spell_check_switch_turns_the_check_off_and_keeps_it() {
-    let mut pane = pane_with(&["en-US"], &[]);
-    let action = pane
-        .action_for(&toggled(SPELL_CHECK, false))
-        .expect("the switch acts");
-
-    let outcome = pane.on_action(action);
-
-    assert_eq!(
-        (outcome.is_settings_change, pane.settings().check),
-        (true, SpellCheck::Off)
+        "TypeAlike cannot check the spelling of this language."
     );
 }
 
@@ -434,7 +414,7 @@ fn description_of_the_menu_tells_about_the_downloads_only_when_the_hub_has_dicti
         descriptions,
         [
             "When this computer has no dictionary for a language, TypeAlike downloads one.",
-            "TypeAlike checks the spelling of suggestions with the dictionary of each language.",
+            "",
         ]
     );
 }

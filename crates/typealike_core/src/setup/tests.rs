@@ -713,7 +713,7 @@ fn sources_step_tells_what_uses_the_internet() {
 }
 
 #[test]
-fn languages_step_shows_the_languages_then_one_switch_for_typos_and_spelling() {
+fn languages_step_shows_the_languages_then_one_switch_for_typos() {
     let fixture = Fixture::new();
 
     let view = fixture.view(&flow_at(SetupStep::Languages));
@@ -723,12 +723,12 @@ fn languages_step_shows_the_languages_then_one_switch_for_typos_and_spelling() {
         (view.title.as_str(), view.sections[0].heading.as_deref(), last_rows),
         (
             "Choose your languages",
-            Some("Languages that you write"),
+            Some("Your languages"),
             Some(vec![Row::Switch(Switch {
-                id: ControlId::new(SPELLING),
+                id: ControlId::new(TYPOS),
                 icon: RowIcon::SpellCheck,
-                label: "Check typos and spelling".to_owned(),
-                description: "A word with a typo gets a fix, and a suggestion stops before a word that is in no dictionary.".to_owned(),
+                label: "Check for typos".to_owned(),
+                description: "When a word that you type looks like a typo, the suggestion shows the correct word. Press Tab to type it.".to_owned(),
                 is_on: true,
                 note: None,
             })])
@@ -737,7 +737,7 @@ fn languages_step_shows_the_languages_then_one_switch_for_typos_and_spelling() {
 }
 
 #[test]
-fn switch_of_typos_and_spelling_is_off_while_the_rule_for_typos_is_off() {
+fn switch_of_typos_is_off_while_the_rule_for_typos_is_off() {
     let fixture = Fixture {
         general: GeneralPane::new(Settings {
             typo_rule: TypoRule::Suggest,
@@ -753,19 +753,19 @@ fn switch_of_typos_and_spelling_is_off_while_the_rule_for_typos_is_off() {
         .iter()
         .flat_map(|section| &section.rows)
         .find_map(|row| match row {
-            Row::Switch(switch) if switch.id.as_str() == SPELLING => Some(switch.is_on),
+            Row::Switch(switch) if switch.id.as_str() == TYPOS => Some(switch.is_on),
             _ => None,
         });
     assert_eq!(is_on, Some(false));
 }
 
 #[test]
-fn switch_of_typos_and_spelling_asks_the_controller_to_change_the_checks() {
+fn switch_of_typos_asks_the_controller_to_change_the_rule_for_typos() {
     let fixture = Fixture::new();
     let mut flow = flow_at(SetupStep::Languages);
-    let action = SetupFlow::action_for(&toggled(SPELLING, false)).expect("the switch acts");
+    let action = SetupFlow::action_for(&toggled(TYPOS, false)).expect("the switch acts");
 
     let outcome = fixture.act(&mut flow, action);
 
-    assert_eq!(outcome, SetupOutcome::Spelling(false));
+    assert_eq!(outcome, SetupOutcome::Typos(false));
 }

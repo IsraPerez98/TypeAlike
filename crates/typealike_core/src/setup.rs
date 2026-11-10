@@ -10,8 +10,7 @@ use crate::engine::split_next_part;
 use crate::hub::ModelFile;
 use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
-    ClipboardAccess, HistoryAccess, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
-    SpellCheck, TypoRule,
+    ClipboardAccess, HistoryAccess, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings, TypoRule,
 };
 use crate::settings_window::general::{CLIPBOARD, GeneralAction, GeneralPane};
 use crate::settings_window::languages::LanguagesPane;
@@ -26,7 +25,7 @@ const BACK: &str = "setup-back";
 const NEXT: &str = "setup-next";
 const AUTOSTART: &str = "setup-autostart";
 const OTHER_MODELS: &str = "setup-other-models";
-const SPELLING: &str = "setup-spelling";
+const TYPOS: &str = "setup-typos";
 
 /// Everything that the setup window shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +120,7 @@ pub(crate) enum SetupAction {
     Next,
     SwitchAutostart(bool),
     ShowOtherModels,
-    SwitchSpelling(bool),
+    SwitchTypos(bool),
 }
 
 /// What the controller must do after a setup action.
@@ -132,9 +131,8 @@ pub(crate) enum SetupOutcome {
     /// The user finished the setup, and the setup window closes. The action applies the choice of
     /// the autostart switch.
     Finished(GeneralAction),
-    /// The user turned on or off the checks of typos and spelling: the rule for typos, the typo
-    /// fix and the spell check.
-    Spelling(bool),
+    /// The user turned on or off the check of typos: the rule for typos and the typo fix.
+    Typos(bool),
 }
 
 /// What the setup shows: the settings and the state of the panes, and the platform.
@@ -189,8 +187,8 @@ impl SetupFlow {
                 Some(SetupAction::SwitchAutostart(*is_on))
             }
             SettingsInput::Pressed(id) if id.as_str() == OTHER_MODELS => Some(SetupAction::ShowOtherModels),
-            SettingsInput::Toggled { id, is_on } if id.as_str() == SPELLING => {
-                Some(SetupAction::SwitchSpelling(*is_on))
+            SettingsInput::Toggled { id, is_on } if id.as_str() == TYPOS => {
+                Some(SetupAction::SwitchTypos(*is_on))
             }
             _ => None,
         }
@@ -213,7 +211,7 @@ impl SetupFlow {
             },
             SetupAction::SwitchAutostart(is_on) => self.is_autostart_on = is_on,
             SetupAction::ShowOtherModels => self.model_choice = ModelChoice::Other,
-            SetupAction::SwitchSpelling(is_on) => return SetupOutcome::Spelling(is_on),
+            SetupAction::SwitchTypos(is_on) => return SetupOutcome::Typos(is_on),
         }
         SetupOutcome::Shown
     }
@@ -481,25 +479,23 @@ fn permission(context: &SetupContext<'_>) -> StepContent {
     }
 }
 
-/// The step of the languages that the user writes, and of one switch for the checks of typos and
-/// spelling, so that the step fits in the window. The Languages and typos page has a switch for
-/// each check. Each row tells what it does, so the step has no body.
+/// The step of the languages that the user writes, and of one switch for the check of typos, so
+/// that the step fits in the window. The Languages and typos page has a switch for the rule for
+/// typos and one for the typo fix. Each row tells what it does, so the step has no body.
 fn languages(context: &SetupContext<'_>) -> StepContent {
     let translations = context.translations;
-    let is_on = context.general.settings().typo_rule == TypoRule::HideSuggestions
-        && context.languages.settings().check == SpellCheck::On;
-    let spelling = Row::Switch(Switch {
-        id: ControlId::new(SPELLING),
+    let typos = Row::Switch(Switch {
+        id: ControlId::new(TYPOS),
         icon: RowIcon::SpellCheck,
-        label: translations.text("setup-spelling"),
-        description: translations.text("setup-spelling-description"),
-        is_on,
+        label: translations.text("setup-typos"),
+        description: translations.text("setup-typos-description"),
+        is_on: context.general.settings().typo_rule == TypoRule::HideSuggestions,
         note: None,
     });
     StepContent {
         sections: vec![
             context.languages.languages_section(translations),
-            Section::new(vec![spelling]),
+            Section::new(vec![typos]),
         ],
         ..StepContent::new("setup-languages-title")
     }

@@ -7,10 +7,7 @@ use std::time::Duration;
 use crate::engine::{Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError, LogProbability, TypoCheck};
 use crate::key::{Key, Press};
-use crate::settings::{
-    ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, SpellCheck, SpellingSettings,
-    WordChoice,
-};
+use crate::settings::{ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
 use crate::test_support::{
     ExpectedRequest, FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days,
 };
@@ -39,21 +36,6 @@ fn suggestion_ends_before_a_word_that_the_dictionary_does_not_know() {
     let reaction = reaction_after("Ya ", &["prostu"], "vamos prostu nie");
 
     assert_eq!(reaction, show("vamos"));
-}
-
-#[test]
-fn spell_check_that_is_off_cuts_no_word() {
-    let settings = Settings {
-        spelling: SpellingSettings {
-            check: SpellCheck::Off,
-            ..SpellingSettings::default()
-        },
-        ..Settings::default()
-    };
-
-    let reaction = engine_typed(&settings, "Ya ", &["prostu"]).on_completion(completion("vamos prostu nie"));
-
-    assert_eq!(reaction, show("vamos prostu nie"));
 }
 
 #[test]

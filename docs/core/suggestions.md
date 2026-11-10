@@ -47,14 +47,14 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 
 ### Unknown words
 
-- While the switch "Check the spelling of suggestions" is on (`SpellCheck`, on by default), each suggestion of the model also stops before its first word that no dictionary of the languages of the user knows (`SpellChecker`), unless the prompt, the text after the caret, the word bias of the pool or the earlier writing holds that word in any case (`engine/spelling.rs`).
+- Each suggestion of the model also stops before its first word that no dictionary of the languages of the user knows (`SpellChecker`), unless the prompt, the text after the caret, the word bias of the pool or the earlier writing holds that word in any case (`engine/spelling.rs`).
 - A word of the earlier writing counts with any word choice, because the writer wrote it, so it is no made-up word. With the dictionaries of Windows and of Spanish of Chile, this helped 2 cases of the `new_words` set ("porfa" after a text of today with it) and harmed none. The tuning, held-out, today-harm and language-switch sets did not change. Slang that the writer never wrote still stops a suggestion.
 - A word with fewer than 3 letters, a digit or a sign inside, or a capital letter inside (code) needs no dictionary.
 - The first word counts with the typed letters before it, so an unknown first word hides the suggestion.
 - The fixed word of a typo fix also needs the dictionary, so an unknown fixed word hides the fix. Thus a fix never shows only a part of a word, such as "saba" for "sabado", which the Spanish dictionary of macOS knows only as "sábado".
 - The engine keeps each answer of the dictionary, because each answer costs a call to the OS.
 - The phrases of the earlier writing and the shown suggestions need no dictionary.
-- The switch off cuts no word, but the typo rule still uses the dictionaries (see "Dictionary of the OS").
+- The cut has no switch: it removes only a word that no dictionary knows and that the user never wrote, such as a word that the model made up.
 
 ### Languages and dictionaries
 

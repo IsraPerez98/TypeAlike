@@ -189,7 +189,7 @@ fn typo_rule_switch() -> Row {
         id: ControlId::new(TYPO_RULE),
         icon: RowIcon::WarningSign,
         label: "Hide suggestions on typos".to_owned(),
-        description: "When a word looks like it has a typo, no suggestion finishes it, so that Tab does not type the typo. A rare name can also look like a typo, and then gets no suggestion.".to_owned(),
+        description: "No suggestion finishes a word that looks like a typo, so that Tab does not type the typo. A rare name can also look like a typo.".to_owned(),
         is_on: true,
         note: None,
     })
@@ -200,7 +200,7 @@ fn typo_fix_switch() -> Row {
         id: ControlId::new(TYPO_FIX),
         icon: RowIcon::SpellCheck,
         label: "Fix typos".to_owned(),
-        description: "When a word looks like it has a typo, the suggestion shows the word with a line through it, then the fixed word. Tab types the fixed word.".to_owned(),
+        description: "The suggestion shows a line through the typo and the correct word after it. Press Tab to type the correct word.".to_owned(),
         is_on: true,
         note: None,
     })

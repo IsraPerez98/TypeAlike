@@ -1,10 +1,10 @@
 //! Tests of the languages that the user writes, the dictionaries that check them, and the switch
-//! of the spell check.
+//! of the typos in the setup.
 
 use crate::controller::Delivery;
 use crate::hub::ByteSize;
-use crate::settings::{Settings, Setup, SpellCheck, SpellingSettings, TypoRule};
-use crate::settings_window::languages::{ADD_LANGUAGE, SPELL_CHECK};
+use crate::settings::{Settings, Setup, SpellingSettings, TypoRule};
+use crate::settings_window::languages::ADD_LANGUAGE;
 use crate::spelling::{DictionaryEvent, DictionaryRequest};
 
 use super::harness::Harness;
@@ -19,7 +19,6 @@ fn settings_with(languages: &[&str]) -> Settings {
     Settings {
         spelling: SpellingSettings {
             languages: Some(strings(languages)),
-            check: SpellCheck::On,
         },
         ..Settings::default()
     }
@@ -98,16 +97,6 @@ fn downloaded_dictionary_checks_words_with_the_os_dictionary_after_its_read() {
 }
 
 #[test]
-fn spell_check_switch_keeps_the_check_off() {
-    let mut harness = Harness::new(Settings::default());
-
-    harness.toggle(SPELL_CHECK, false);
-
-    let saved = harness.saved().pop().map(|settings| settings.spelling.check);
-    assert_eq!(saved, Some(SpellCheck::Off));
-}
-
-#[test]
 fn reset_lists_the_languages_of_the_os_again() {
     let mut harness = Harness::new(settings_with(&[CHILE]));
     harness.press_button("reset-settings");
@@ -119,18 +108,15 @@ fn reset_lists_the_languages_of_the_os_again() {
 }
 
 #[test]
-fn switch_of_the_setup_turns_off_the_rule_for_typos_and_the_spell_check() {
+fn switch_of_the_setup_turns_off_the_rule_for_typos() {
     let mut harness = Harness::new(Settings {
         setup: Setup::Needed,
         ..Settings::default()
     });
     harness.controller.on_launch(&mut harness.shell);
 
-    harness.toggle("setup-spelling", false);
+    harness.toggle("setup-typos", false);
 
-    let saved = harness
-        .saved()
-        .pop()
-        .map(|settings| (settings.typo_rule, settings.spelling.check));
-    assert_eq!(saved, Some((TypoRule::Suggest, SpellCheck::Off)));
+    let saved = harness.saved().pop().map(|settings| settings.typo_rule);
+    assert_eq!(saved, Some(TypoRule::Suggest));
 }

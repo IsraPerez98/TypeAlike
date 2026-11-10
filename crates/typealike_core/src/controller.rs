@@ -36,7 +36,7 @@ use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
 use crate::release::{DownloadSink, ReleaseFeed, ReleaseSink};
 use crate::settings::{
-    HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SpellCheck, SuggestionApp, TypoFix, TypoRule,
+    HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp, TypoFix, TypoRule,
 };
 use crate::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
@@ -697,9 +697,9 @@ impl Controller {
         let outcome = flow.on_action(action, &self.setup_context(&installed, &permissions));
         match outcome {
             SetupOutcome::Shown => self.setup = Some(flow),
-            SetupOutcome::Spelling(is_on) => {
+            SetupOutcome::Typos(is_on) => {
                 self.setup = Some(flow);
-                self.switch_spelling(is_on, shell);
+                self.switch_typos(is_on, shell);
             }
             SetupOutcome::Finished(autostart) => {
                 shell.close_setup();
@@ -709,22 +709,14 @@ impl Controller {
         }
     }
 
-    /// Turns on or off the checks of typos and spelling: the rule for typos with its fix, and the
-    /// spell check.
-    fn switch_spelling(&mut self, is_on: bool, shell: &mut dyn Shell) {
-        let (typo_rule, spell_check) = if is_on {
-            (TypoRule::HideSuggestions, SpellCheck::On)
-        } else {
-            (TypoRule::Suggest, SpellCheck::Off)
-        };
-        self.on_general_action(GeneralAction::SwitchTypoRule(typo_rule), shell);
+    /// Turns on or off the check of typos: the rule for typos with its fix.
+    fn switch_typos(&mut self, is_on: bool, shell: &mut dyn Shell) {
         if is_on {
+            self.on_general_action(GeneralAction::SwitchTypoRule(TypoRule::HideSuggestions), shell);
             self.on_general_action(GeneralAction::SwitchTypoFix(TypoFix::Offer), shell);
+        } else {
+            self.on_general_action(GeneralAction::SwitchTypoRule(TypoRule::Suggest), shell);
         }
-        let outcome = self
-            .languages
-            .on_action(LanguagesAction::SwitchCheck(spell_check));
-        self.apply_languages_outcome(outcome);
     }
 
     fn setup_view(&self, desktop: &dyn Desktop) -> Option<SetupView> {

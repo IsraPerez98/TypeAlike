@@ -5,7 +5,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::inference::WordBias;
-use crate::settings::SpellCheck;
 use crate::spelling::{SpellChecker, checked_words};
 
 use super::Engine;
@@ -131,14 +130,6 @@ impl Engine {
             fits_writer: true,
         });
     }
-}
-
-/// The `dictionary` that cuts a suggestion while the `spell_check` is on, else `None`.
-pub(super) fn checking_dictionary(
-    dictionary: &mut Option<Dictionary>,
-    spell_check: SpellCheck,
-) -> Option<&mut Dictionary> {
-    dictionary.as_mut().filter(|_| spell_check == SpellCheck::On)
 }
 
 /// Returns `suggestion`, the ghost text after `text_before`, up to its first word that the

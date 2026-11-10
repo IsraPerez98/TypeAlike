@@ -9,7 +9,7 @@ related_targets: ["crates/typealike_core/src/settings_window/view.rs","crates/ty
 
 ## Scope
 
-The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, Permissions on macOS, and Playground only in a build with the `playground` feature). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
+The settings window of TypeAlike on Windows and macOS: the navigation of the panes and each pane (General, Languages and typos, Apps and websites, Copied and screen text, Personalization, Energy saving, Models, Permissions on macOS, and Playground only in a build with the `playground` feature). Core gives each page as sections and rows (`settings_window::view`). Each platform shows the rows with its own controls.
 
 ## Mode
 
@@ -47,6 +47,8 @@ Closed on 2026-10-27, from `.claude/rules/ui-text.md` and the table "Not in the 
 - **Permissions on macOS.** Closed on 2026-10-27. The Permissions pane shows Accessibility and Screen & System Audio Recording, each with the reason for it and "Allowed" with a check mark, or a "Give access" button. Without Accessibility, TypeAlike does not quit. It opens the settings window at this pane, as the pre-prompt window of `macos-ui.md`, and the button shows the prompt of macOS. The footer tells the user to quit and reopen TypeAlike when System Settings asks.
 
 - **The setup.** Closed on 2026-10-27. A window of its own shows at each start until the user finishes it, and "Reset all settings" at the end of the General page opens it again. It covers only what a new user must decide: the model, the Accessibility permission on macOS, the name and the notes (with examples for kinds of writing), the switches of the earlier writing, the copied text and the screen text, and "Open at login", on by default. Screen & System Audio Recording stays in the Permissions pane, because suggestions also work without it. A close of the window keeps the setup to do. When TypeAlike cannot read the graphics card, the recommended model shows with a warning.
+
+- **Languages and typos.** Closed on 2026-11-10. A page after General, and the second step of the setup, show "Your languages": an item for each language with "Remove", and the menu "Add a language". On Windows, a language without a dictionary of Windows downloads one, and the menu says so in plain words, without "Windows" or "GitHub". The section "Typos" has "Hide suggestions on typos" and "Fix typos", which moved from the General page. The spell check of suggestions has no switch: it removes only words that no dictionary knows and that the user never wrote, so a switch gave no useful choice. The setup step has one switch, "Check for typos", for the rule and the fix, so that the step fits in its window in each language. The texts had a review with `clarify`: they tell what the user gets, not how TypeAlike works.
 
 ## Open decisions
 

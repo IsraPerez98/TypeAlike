@@ -47,9 +47,9 @@ general-language-system = Systemsprache
 general-display = Wörter einzeln anzeigen
 general-display-description = Jedes Wort eines Vorschlags erscheint, sobald das Modell es schreibt. Das erste Wort erscheint so früher, aber der Vorschlag wächst, während du ihn liest.
 general-typo-rule = Vorschläge bei Tippfehlern ausblenden
-general-typo-rule-description = Wenn ein Wort einen Tippfehler zu haben scheint, vervollständigt kein Vorschlag das Wort, damit die Tab-Taste den Tippfehler nicht einfügt. Auch ein seltener Name kann wie ein Tippfehler aussehen und bekommt dann keinen Vorschlag.
+general-typo-rule-description = Kein Vorschlag ergänzt ein Wort, das nach einem Tippfehler aussieht, damit Tab den Tippfehler nicht tippt. Auch ein seltener Name kann wie ein Tippfehler aussehen.
 general-typo-fix = Tippfehler korrigieren
-general-typo-fix-description = Wenn ein Wort einen Tippfehler zu haben scheint, zeigt der Vorschlag das Wort durchgestrichen und danach das korrigierte Wort. Die Tab-Taste fügt das korrigierte Wort ein.
+general-typo-fix-description = Der Vorschlag streicht den Tippfehler durch und zeigt danach das richtige Wort. Drücke Tab, um das richtige Wort einzufügen.
 general-length = Länge der Vorschläge
 general-length-description = Ein Vorschlag endet bei dieser Länge. Ein kürzerer Vorschlag erscheint früher.
 general-length-very-short = Sehr kurz
@@ -65,27 +65,21 @@ general-reset = Alle Einstellungen zurücksetzen
 general-reset-description = Alle Einstellungen erhalten wieder ihre Standardwerte, und die Einrichtung öffnet sich erneut. Deine heruntergeladenen Modelle und deine früheren Texte bleiben erhalten.
 general-reset-confirm = Zum Zurücksetzen erneut drücken
 
-## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language.
 
 languages-title = Sprachen und Tippfehler
-languages-summary = Wähle die Sprachen, in denen du schreibst, und was Vorschläge mit Tippfehlern und unbekannten Wörtern tun.
-languages-heading = Sprachen, in denen du schreibst
+languages-summary = TypeAlike prüft die Rechtschreibung jedes Vorschlags in den Sprachen, in denen du schreibst.
+languages-heading = Deine Sprachen
 languages-add = Sprache hinzufügen
-languages-add-description = TypeAlike prüft die Rechtschreibung der Vorschläge mit dem Wörterbuch jeder Sprache.
 languages-add-description-download = Wenn dieser Computer kein Wörterbuch für eine Sprache hat, lädt TypeAlike eines herunter.
 # The first entry of the menu "Add a language". It adds no language.
 languages-add-choose = Sprache wählen
 languages-remove = Entfernen
-languages-cancel = Download abbrechen
-languages-try-again = Erneut versuchen
-languages-downloading = { $percent } % des Wörterbuchs heruntergeladen
-languages-no-dictionary = TypeAlike hat kein Wörterbuch für diese Sprache und prüft daher die Rechtschreibung der Vorschläge in ihr nicht.
+languages-no-dictionary = TypeAlike kann die Rechtschreibung dieser Sprache nicht prüfen.
 languages-error-offline = TypeAlike kann das Wörterbuch nicht herunterladen. Prüfe deine Internetverbindung.
 languages-error-server = TypeAlike kann das Wörterbuch gerade nicht abrufen. Versuche es später erneut.
 languages-error-storage = TypeAlike kann das Wörterbuch nicht auf diesem Computer speichern. Prüfe, ob auf dem Datenträger genug Platz frei ist.
-languages-typos-heading = Tippfehler und unbekannte Wörter
-languages-spell-check = Rechtschreibung der Vorschläge prüfen
-languages-spell-check-description = Ein Vorschlag endet vor einem Wort, das kein Wörterbuch deiner Sprachen kennt, etwa einem Wort, das das Modell erfunden hat. Auch Umgangssprache und seltene Namen können einen Vorschlag beenden.
+languages-typos-heading = Tippfehler
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -337,8 +331,8 @@ setup-other-models = Anderes Modell auswählen
 setup-permission-title = TypeAlike Zugriff auf Textfelder geben
 setup-permission-body = Klicke auf „Zugriff erlauben“. Schalte dann TypeAlike in den Systemeinstellungen ein und kehre zu diesem Fenster zurück.
 setup-languages-title = Wähle deine Sprachen
-setup-spelling = Tippfehler und Rechtschreibung prüfen
-setup-spelling-description = Ein Wort mit Tippfehler bekommt eine Korrektur, und ein Vorschlag endet vor einem Wort, das in keinem Wörterbuch steht.
+setup-typos = Auf Tippfehler prüfen
+setup-typos-description = Wenn ein Wort, das du tippst, nach einem Tippfehler aussieht, zeigt der Vorschlag das richtige Wort. Drücke Tab, um es einzufügen.
 setup-about-title = Erzähl TypeAlike von dir
 setup-sources-title = Was Vorschläge verwenden können
 setup-history-description = TypeAlike speichert, was du schreibst, in einer verschlüsselten Datei auf diesem Computer. So verwenden Vorschläge deine Wörter und deinen Stil. Du kannst diesen Text auf der Seite „Personalisierung“ löschen.

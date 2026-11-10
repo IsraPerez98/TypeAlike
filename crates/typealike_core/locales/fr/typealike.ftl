@@ -47,9 +47,9 @@ general-language-system = Langue du système
 general-display = Afficher les mots un par un
 general-display-description = Chaque mot d’une suggestion s’affiche dès que le modèle l’écrit. Le premier mot s’affiche plus tôt, mais la suggestion s’allonge pendant que vous la lisez.
 general-typo-rule = Masquer les suggestions en cas de faute de frappe
-general-typo-rule-description = Quand un mot semble contenir une faute de frappe, aucune suggestion ne le complète, pour que la touche Tab n’insère pas la faute. Un nom rare peut aussi ressembler à une faute, et ne reçoit alors aucune suggestion.
+general-typo-rule-description = Aucune suggestion ne termine un mot qui semble contenir une faute de frappe, ainsi Tab ne tape pas la faute. Un nom rare peut aussi ressembler à une faute de frappe.
 general-typo-fix = Corriger les fautes de frappe
-general-typo-fix-description = Quand un mot semble contenir une faute de frappe, la suggestion affiche le mot barré, puis le mot corrigé. La touche Tab insère le mot corrigé.
+general-typo-fix-description = La suggestion barre la faute de frappe et affiche le mot correct après. Appuyez sur Tab pour insérer le mot correct.
 general-length = Longueur des suggestions
 general-length-description = Une suggestion s’arrête à cette longueur. Une suggestion plus courte s’affiche plus tôt.
 general-length-very-short = Très courte
@@ -65,27 +65,21 @@ general-reset = Réinitialiser tous les réglages
 general-reset-description = Tous les réglages reprennent leurs valeurs par défaut, et la configuration s’ouvre à nouveau. Vos modèles téléchargés et vos textes précédents sont conservés.
 general-reset-confirm = Appuyez à nouveau pour réinitialiser
 
-## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language.
 
 languages-title = Langues et fautes de frappe
-languages-summary = Choisissez les langues dans lesquelles vous écrivez, et ce que font les suggestions avec les fautes de frappe et les mots inconnus.
-languages-heading = Langues dans lesquelles vous écrivez
+languages-summary = TypeAlike vérifie l’orthographe de chaque suggestion dans les langues dans lesquelles vous écrivez.
+languages-heading = Vos langues
 languages-add = Ajouter une langue
-languages-add-description = TypeAlike vérifie l’orthographe des suggestions avec le dictionnaire de chaque langue.
 languages-add-description-download = Si cet ordinateur n’a pas de dictionnaire pour une langue, TypeAlike en télécharge un.
 # The first entry of the menu "Add a language". It adds no language.
 languages-add-choose = Choisissez une langue
 languages-remove = Retirer
-languages-cancel = Annuler le téléchargement
-languages-try-again = Réessayer
-languages-downloading = { $percent } % du dictionnaire téléchargé
-languages-no-dictionary = TypeAlike n’a pas de dictionnaire pour cette langue. Il ne vérifie donc pas l’orthographe des suggestions dans cette langue.
+languages-no-dictionary = TypeAlike ne peut pas vérifier l’orthographe de cette langue.
 languages-error-offline = TypeAlike ne peut pas télécharger le dictionnaire. Vérifiez votre connexion Internet.
 languages-error-server = TypeAlike ne peut pas obtenir le dictionnaire pour le moment. Réessayez plus tard.
 languages-error-storage = TypeAlike ne peut pas enregistrer le dictionnaire sur cet ordinateur. Vérifiez qu’il reste de l’espace libre sur le disque.
-languages-typos-heading = Fautes de frappe et mots inconnus
-languages-spell-check = Vérifier l’orthographe des suggestions
-languages-spell-check-description = Une suggestion s’arrête avant un mot qu’aucun dictionnaire de vos langues ne connaît, comme un mot que le modèle a inventé. L’argot et les noms rares peuvent aussi arrêter une suggestion.
+languages-typos-heading = Fautes de frappe
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -341,8 +335,8 @@ setup-other-models = Choisir un autre modèle
 setup-permission-title = Donnez à TypeAlike l’accès aux champs de texte
 setup-permission-body = Cliquez sur « Autoriser l’accès ». Activez ensuite TypeAlike dans Réglages Système, puis revenez à cette fenêtre.
 setup-languages-title = Choisissez vos langues
-setup-spelling = Vérifier les fautes de frappe et l’orthographe
-setup-spelling-description = Un mot avec une faute de frappe reçoit une correction, et une suggestion s’arrête avant un mot qui n’est dans aucun dictionnaire.
+setup-typos = Vérifier les fautes de frappe
+setup-typos-description = Quand un mot que vous tapez semble contenir une faute de frappe, la suggestion affiche le mot correct. Appuyez sur Tab pour l’insérer.
 setup-about-title = Présentez-vous à TypeAlike
 setup-sources-title = Ce que les suggestions peuvent utiliser
 setup-history-description = TypeAlike enregistre ce que vous écrivez dans un fichier chiffré sur cet ordinateur. Les suggestions utilisent alors vos mots et votre style. Vous pouvez supprimer ce texte dans la page Personnalisation.

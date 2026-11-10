@@ -47,9 +47,9 @@ general-language-system = System language
 general-display = Show words early
 general-display-description = Each word of a suggestion shows as soon as the model writes it. The first word then shows sooner, but the suggestion grows while you read it.
 general-typo-rule = Hide suggestions on typos
-general-typo-rule-description = When a word looks like it has a typo, no suggestion finishes it, so that Tab does not type the typo. A rare name can also look like a typo, and then gets no suggestion.
+general-typo-rule-description = No suggestion finishes a word that looks like a typo, so that Tab does not type the typo. A rare name can also look like a typo.
 general-typo-fix = Fix typos
-general-typo-fix-description = When a word looks like it has a typo, the suggestion shows the word with a line through it, then the fixed word. Tab types the fixed word.
+general-typo-fix-description = The suggestion shows a line through the typo and the correct word after it. Press Tab to type the correct word.
 general-length = Suggestion length
 general-length-description = A suggestion stops at this length. A shorter suggestion shows sooner.
 general-length-very-short = Very short
@@ -65,27 +65,21 @@ general-reset = Reset all settings
 general-reset-description = All settings go back to their defaults, and the setup opens again. Your downloaded models and your earlier writing stay.
 general-reset-confirm = Press again to reset
 
-## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language.
 
 languages-title = Languages and typos
-languages-summary = Choose the languages that you write, and what suggestions do with typos and unknown words.
-languages-heading = Languages that you write
+languages-summary = TypeAlike checks the spelling of each suggestion in the languages that you write.
+languages-heading = Your languages
 languages-add = Add a language
-languages-add-description = TypeAlike checks the spelling of suggestions with the dictionary of each language.
 languages-add-description-download = When this computer has no dictionary for a language, TypeAlike downloads one.
 # The first entry of the menu "Add a language". It adds no language.
 languages-add-choose = Choose a language
 languages-remove = Remove
-languages-cancel = Cancel download
-languages-try-again = Try again
-languages-downloading = { $percent }% of the dictionary downloaded
-languages-no-dictionary = TypeAlike has no dictionary for this language, so suggestions in it do not get a spelling check.
+languages-no-dictionary = TypeAlike cannot check the spelling of this language.
 languages-error-offline = TypeAlike cannot download the dictionary. Check your internet connection.
 languages-error-server = TypeAlike cannot get the dictionary now. Try again later.
 languages-error-storage = TypeAlike cannot save the dictionary on this computer. Make sure that the disk has free space.
-languages-typos-heading = Typos and unknown words
-languages-spell-check = Check the spelling of suggestions
-languages-spell-check-description = A suggestion stops before a word that no dictionary of your languages knows, such as a word that the model made up. Slang and rare names can also stop a suggestion.
+languages-typos-heading = Typos
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -333,8 +327,8 @@ setup-other-models = Choose another model
 setup-permission-title = Give TypeAlike access to text fields
 setup-permission-body = Click “Give access”. Then turn on TypeAlike in System Settings, and come back to this window.
 setup-languages-title = Choose your languages
-setup-spelling = Check typos and spelling
-setup-spelling-description = A word with a typo gets a fix, and a suggestion stops before a word that is in no dictionary.
+setup-typos = Check for typos
+setup-typos-description = When a word that you type looks like a typo, the suggestion shows the correct word. Press Tab to type it.
 setup-about-title = Tell TypeAlike about you
 setup-sources-title = What suggestions can use
 setup-history-description = TypeAlike saves what you write in an encrypted file on this computer. Suggestions then use your words and your style. You can delete this text on the Personalization page.

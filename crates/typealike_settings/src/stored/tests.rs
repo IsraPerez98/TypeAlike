@@ -4,8 +4,8 @@ use super::*;
 use typealike_core::settings::{
     EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess, HistoryApp, HistoryScope,
     IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PrivateWindowRule, ReplyWords,
-    ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SpellCheck, SpellingSettings, SuggestionApp,
-    SuggestionPlaces, SuggestionSite, WordChoice,
+    ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SpellingSettings, SuggestionApp, SuggestionPlaces,
+    SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -783,8 +783,8 @@ fn settings_file_without_languages_follows_the_languages_of_the_os() {
 }
 
 #[test]
-fn languages_and_the_spell_check_read_from_their_names() {
-    let json = r#"{"spelling": {"languages": ["en-US", "es-CL"], "check": "off"}}"#;
+fn languages_read_from_their_tags() {
+    let json = r#"{"spelling": {"languages": ["en-US", "es-CL"]}}"#;
 
     let settings = parse(json).expect("valid settings");
 
@@ -792,7 +792,6 @@ fn languages_and_the_spell_check_read_from_their_names() {
         settings.spelling,
         SpellingSettings {
             languages: Some(vec!["en-US".to_owned(), "es-CL".to_owned()]),
-            check: SpellCheck::Off,
         }
     );
 }

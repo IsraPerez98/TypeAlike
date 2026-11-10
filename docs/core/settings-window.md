@@ -34,10 +34,12 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ## Languages and typos pane
 
 - The Languages and typos pane (`settings_window::languages`, `LanguagesPane`) is the page after the General page.
-- The section "Languages that you write" has an item for each language, with "Remove", then the menu "Add a language". The first entry of the menu adds nothing, and the other entries are the languages that the user does not write yet and that have a dictionary, by name.
-- An item of a language whose dictionary downloads shows the progress and "Cancel download". A failed download shows why and "Try again". A language without any dictionary tells that its suggestions get no spelling check.
-- With a hub (on Windows), the description of the menu tells that TypeAlike downloads a dictionary when the computer has none. The texts of the downloads name neither the OS nor GitHub, because most users do not know GitHub.
-- The section "Typos and unknown words" has the switches of the rule for typos and of the typo fix of the General pane (`GeneralPane::typo_rows`), then "Check the spelling of suggestions".
+- The section "Your languages" has an item for each language, with "Remove", then the menu "Add a language". The first entry of the menu adds nothing, and the other entries are the languages that the user does not write yet and that have a dictionary, by name.
+- An item of a language whose dictionary downloads shows the progress and "Cancel download". A failed download shows why and "Try again". A language without any dictionary tells that TypeAlike cannot check its spelling.
+- Only with a hub (on Windows), the menu has a description: TypeAlike downloads a dictionary when the computer has none.
+- The section "Typos" has the switches of the rule for typos and of the typo fix of the General pane (`GeneralPane::typo_rows`).
+- The spell check has no switch, because it removes only words that no dictionary knows and that the user never wrote.
+- The texts of the page and of its setup step had a review with `impeccable clarify` on 2026-11-10: each text tells what the user gets, not how TypeAlike works, and says each fact once. The download texts name neither the OS nor GitHub.
 - The rules of the languages, the dictionaries and the downloads are in `docs/core/suggestions.md`, "Languages and dictionaries".
 
 ### Reset all settings
@@ -240,7 +242,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 In the order of `SetupStep`:
 
 1. Welcome: what TypeAlike does, a demo of a suggestion and the language menu.
-2. The languages: the section of the languages of the Languages and typos pane, and one switch "Check typos and spelling" (`SetupOutcome::Spelling`). It turns on or off the rule for typos, the typo fix and the spell check together. The pane has a switch for each, but three switches do not fit in the window.
+2. The languages: the section of the languages of the Languages and typos pane, and one switch "Check for typos" (`SetupOutcome::Typos`). It turns on or off the rule for typos and the typo fix together. The pane has a switch for each, but the two switches and their descriptions do not fit in the window.
 3. The name and the notes with their examples.
 4. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, to download dictionaries, and to get new versions of TypeAlike.
 5. The permissions, only on an OS that asks for Accessibility: Accessibility, and Screen & System Audio Recording while the screen text switch is on.

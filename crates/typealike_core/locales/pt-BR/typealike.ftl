@@ -47,9 +47,9 @@ general-language-system = Idioma do sistema
 general-display = Mostrar palavra por palavra
 general-display-description = Cada palavra de uma sugestão aparece assim que o modelo a escreve. A primeira palavra aparece mais rápido, mas a sugestão cresce enquanto você a lê.
 general-typo-rule = Ocultar sugestões em erros de digitação
-general-typo-rule-description = Quando uma palavra parece ter um erro de digitação, nenhuma sugestão a completa, para que a tecla Tab não insira o erro. Um nome raro também pode parecer um erro e, nesse caso, fica sem sugestão.
+general-typo-rule-description = Nenhuma sugestão completa uma palavra que parece ter um erro de digitação, assim o Tab não digita o erro. Um nome raro também pode parecer um erro de digitação.
 general-typo-fix = Corrigir erros de digitação
-general-typo-fix-description = Quando uma palavra parece ter um erro de digitação, a sugestão mostra a palavra riscada e, depois, a palavra corrigida. A tecla Tab insere a palavra corrigida.
+general-typo-fix-description = A sugestão risca o erro de digitação e mostra a palavra correta depois dele. Pressione Tab para inserir a palavra correta.
 general-length = Tamanho das sugestões
 general-length-description = Uma sugestão termina neste tamanho. Uma sugestão mais curta aparece mais rápido.
 general-length-very-short = Muito curto
@@ -65,27 +65,21 @@ general-reset = Redefinir todos os ajustes
 general-reset-description = Todos os ajustes voltam ao padrão, e a configuração inicial abre de novo. Seus modelos baixados e seus textos anteriores são mantidos.
 general-reset-confirm = Pressione de novo para redefinir
 
-## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language.
 
 languages-title = Idiomas e erros de digitação
-languages-summary = Escolha os idiomas em que você escreve e o que as sugestões fazem com erros de digitação e palavras desconhecidas.
-languages-heading = Idiomas em que você escreve
+languages-summary = O TypeAlike verifica a ortografia de cada sugestão nos idiomas em que você escreve.
+languages-heading = Seus idiomas
 languages-add = Adicionar um idioma
-languages-add-description = O TypeAlike verifica a ortografia das sugestões com o dicionário de cada idioma.
 languages-add-description-download = Quando este computador não tem um dicionário para um idioma, o TypeAlike baixa um.
 # The first entry of the menu "Add a language". It adds no language.
 languages-add-choose = Escolha um idioma
 languages-remove = Remover
-languages-cancel = Cancelar download
-languages-try-again = Tentar de novo
-languages-downloading = { $percent }% do dicionário baixado
-languages-no-dictionary = O TypeAlike não tem um dicionário para este idioma, então não verifica a ortografia das sugestões nele.
+languages-no-dictionary = O TypeAlike não consegue verificar a ortografia deste idioma.
 languages-error-offline = O TypeAlike não consegue baixar o dicionário. Verifique sua conexão com a internet.
 languages-error-server = O TypeAlike não consegue obter o dicionário agora. Tente de novo mais tarde.
 languages-error-storage = O TypeAlike não consegue salvar o dicionário neste computador. Verifique se há espaço livre no disco.
-languages-typos-heading = Erros de digitação e palavras desconhecidas
-languages-spell-check = Verificar a ortografia das sugestões
-languages-spell-check-description = Uma sugestão para antes de uma palavra que nenhum dicionário dos seus idiomas conhece, como uma palavra que o modelo inventou. Gírias e nomes raros também podem interromper uma sugestão.
+languages-typos-heading = Erros de digitação
 
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
@@ -343,8 +337,8 @@ setup-other-models = Escolher outro modelo
 setup-permission-title = Dê ao TypeAlike acesso aos campos de texto
 setup-permission-body = Clique em “Dar acesso”. Depois, ative o TypeAlike nos Ajustes do Sistema e volte a esta janela.
 setup-languages-title = Escolha seus idiomas
-setup-spelling = Verificar erros de digitação e ortografia
-setup-spelling-description = Uma palavra com erro de digitação recebe uma correção, e uma sugestão para antes de uma palavra que não está em nenhum dicionário.
+setup-typos = Verificar erros de digitação
+setup-typos-description = Quando uma palavra que você digita parece ter um erro de digitação, a sugestão mostra a palavra correta. Pressione Tab para inseri-la.
 setup-about-title = Conte ao TypeAlike sobre você
 setup-sources-title = O que as sugestões podem usar
 setup-history-description = O TypeAlike salva o que você escreve em um arquivo criptografado neste computador. Assim, as sugestões usam suas palavras e seu estilo. Você pode excluir esse texto na página Personalização.
