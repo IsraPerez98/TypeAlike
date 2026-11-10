@@ -4,17 +4,13 @@
 
 use std::collections::HashMap;
 
-use crate::history::is_apostrophe;
 use crate::inference::WordBias;
-use crate::spelling::SpellChecker;
+use crate::spelling::{SpellChecker, checked_words};
 
 use super::Engine;
 use super::session::Session;
 use super::suggestion::{word_starts, words};
 
-/// The fewest letters of a word that the dictionary checks. Shorter words of a chat, such as "ok",
-/// "xd" or "po", are often in no dictionary.
-const MIN_CHECKED_LETTERS: usize = 3;
 /// The most answers of the dictionary that the engine keeps. Each answer costs a call to the OS.
 const MAX_KEPT_ANSWERS: usize = 10_000;
 /// The fewest checked words that the writer finished before the caret that tell whether the
@@ -74,8 +70,8 @@ impl Dictionary {
     }
 
     /// Whether the dictionary knows the typed letters of the last word of `text_before` as a word
-    /// or the start of a word. Letters that it does not check, such as a word with fewer than
-    /// [`MIN_CHECKED_LETTERS`] letters, count as known.
+    /// or the start of a word. Letters that it does not check ([`checked_words`]), such as a word
+    /// with fewer than 3 letters, count as known.
     pub(super) fn knows_typed_start(&mut self, text_before: &str) -> bool {
         typed_letters(text_before).is_none_or(|letters| self.knows_start(letters))
     }
@@ -181,23 +177,6 @@ fn before_unknown_word<'text>(
     cut.map_or(suggestion, |end| suggestion[..end].trim_end())
 }
 
-/// Returns the words of `run` that the dictionary checks: its parts between hyphens, without the
-/// signs around it, with at least [`MIN_CHECKED_LETTERS`] letters. A run with a digit or another
-/// sign inside, such as a number, an address or a name in code, or with a capital letter inside,
-/// such as `useState`, has none.
-fn checked_words(run: &str) -> impl Iterator<Item = &str> {
-    let word = run.trim_matches(|character: char| !character.is_alphabetic());
-    let is_plain = word
-        .chars()
-        .all(|character| character.is_alphabetic() || character == '-' || is_apostrophe(character));
-    let has_inner_capital =
-        word.chars().skip(1).any(char::is_uppercase) && word.chars().any(char::is_lowercase);
-    let checked = if is_plain && !has_inner_capital { word } else { "" };
-    checked.split('-').filter(|part| {
-        part.chars().filter(|character| character.is_alphabetic()).count() >= MIN_CHECKED_LETTERS
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -278,37 +257,5 @@ mod tests {
             .map(|(unknown, typed_letters, suggestion, _)| cut_without(unknown, typed_letters, suggestion));
 
         assert_eq!(cuts, cases.map(|(_, _, _, expected)| expected.to_owned()));
-    }
-
-    #[test]
-    fn only_plain_words_of_three_letters_or_more_are_checked() {
-        let runs = [
-            "15th",
-            "example.com",
-            "useState",
-            "po",
-            "ok,",
-            "¿Qué",
-            "don't",
-            "well-known",
-            "NASA",
-        ];
-
-        let checked = runs.map(|run| checked_words(run).collect::<Vec<_>>());
-
-        assert_eq!(
-            checked,
-            [
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec!["Qué"],
-                vec!["don't"],
-                vec!["well", "known"],
-                vec!["NASA"],
-            ]
-        );
     }
 }
