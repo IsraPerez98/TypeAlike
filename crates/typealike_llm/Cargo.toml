@@ -31,6 +31,9 @@ tracing-subscriber.workspace = true
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 typealike_macos.workspace = true
 
+[target.'cfg(windows)'.dev-dependencies]
+typealike_windows.workspace = true
+
 [[example]]
 name = "prompt_eval"
 test = true

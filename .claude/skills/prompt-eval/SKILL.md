@@ -78,6 +78,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `--typo-rule on|off` sets the rule for typos (default: on, as in the app).
 - The report then gives a table for each cut of the typed letters: the typo cases that it catches and the other cases that it hides. Run it with `--typo-rule off` to choose a cut.
 - `--dictionary FILE` gives the app the answers of the dictionary of the OS: each line has a text, a tab, and `word`, `start` or `none`. A text that the file does not hold is a known word and no start of a word. Without it, the app of the eval has no dictionary.
+- `--dictionary macos` and `--dictionary windows` give the live dictionary of that OS, for the preferred languages of the user. Use `windows` on a computer with only English to measure Spanish cases with a dictionary that does not fit them.
 
 ### Sections of the prompt
 

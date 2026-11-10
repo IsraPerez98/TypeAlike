@@ -28,11 +28,14 @@ pub struct FileDictionary {
 }
 
 impl FileDictionary {
-    /// Reads the answers in the file at `path`. The path `macos` gives the dictionary of macOS
-    /// that the app uses, for the preferred languages of the user.
+    /// Reads the answers in the file at `path`. The paths `macos` and `windows` give the
+    /// dictionary of that OS that the app uses, for the preferred languages of the user.
     pub fn read(path: &Path) -> anyhow::Result<Self> {
         if path == Path::new("macos") {
             return Self::macos();
+        }
+        if path == Path::new("windows") {
+            return Self::windows();
         }
         let text = fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
         Self::parse(&text).with_context(|| format!("in {}", path.display()))
@@ -72,7 +75,24 @@ impl FileDictionary {
 
     #[cfg(not(target_os = "macos"))]
     fn macos() -> anyhow::Result<Self> {
-        bail!("only macOS has a live dictionary")
+        bail!("the macOS dictionary is only on macOS")
+    }
+
+    #[cfg(windows)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the other OSes have no Windows dictionary"
+    )]
+    fn windows() -> anyhow::Result<Self> {
+        Ok(Self {
+            answers: Rc::default(),
+            live: Some(Rc::new(typealike_windows::SpellingDictionary::new())),
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn windows() -> anyhow::Result<Self> {
+        bail!("the Windows dictionary is only on Windows")
     }
 }
 

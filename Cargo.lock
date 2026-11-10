@@ -1011,6 +1011,7 @@ dependencies = [
  "tracing-subscriber",
  "typealike_core",
  "typealike_macos",
+ "typealike_windows",
 ]
 
 [[package]]
