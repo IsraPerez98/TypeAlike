@@ -14,7 +14,7 @@ use crate::test_support::{
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
-    show,
+    show, type_waiting,
 };
 
 /// Returns an engine with `settings` that typed `typed`, and a dictionary without the `unknown`
@@ -66,6 +66,55 @@ fn unknown_word_that_the_preface_holds_stays() {
     let reaction = engine.on_completion(completion(" live on Turjal Road"));
 
     assert_eq!(reaction, show(" live on Turjal Road"));
+}
+
+#[test]
+fn dictionary_that_does_not_know_most_typed_words_cuts_no_word() {
+    let unknown = [
+        "Hola",
+        "equipo",
+        "escribo",
+        "para",
+        "contarles",
+        "lunes",
+        "reunión",
+    ];
+
+    let reaction = reaction_after(
+        "Hola equipo, les escribo para ",
+        &unknown,
+        "contarles que el lunes hay reunión",
+    );
+
+    assert_eq!(reaction, show("contarles que el lunes hay reunión"));
+}
+
+#[test]
+fn dictionary_that_knows_most_typed_words_cuts_an_unknown_word() {
+    let reaction = reaction_after("We will meet the team ", &["prostu"], "today prostu nie");
+
+    assert_eq!(reaction, show("today"));
+}
+
+#[test]
+fn field_with_few_typed_words_keeps_the_fit_of_the_last_text() {
+    let unknown = [
+        "Hola",
+        "equipo",
+        "escribo",
+        "para",
+        "contarles",
+        "Wena",
+        "compadre",
+    ];
+    let mut engine = engine_typed(&Settings::default(), "Hola equipo, les escribo para ", &unknown);
+    engine.on_completion(completion("contarles"));
+    engine.reset();
+    type_waiting(&mut engine, "Wena ");
+
+    let reaction = engine.on_completion(completion("compadre, ¿cómo estás?"));
+
+    assert_eq!(reaction, show("compadre, ¿cómo estás?"));
 }
 
 #[test]

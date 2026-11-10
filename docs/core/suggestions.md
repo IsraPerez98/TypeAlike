@@ -54,6 +54,14 @@ The length of the suggestions, the typo rule and fix, and the rules in `typealik
 - The phrases of the earlier writing and the shown suggestions need no dictionary.
 - `language::closest_languages` gives the dictionary of each preferred language of the user.
 
+### Dictionary of another language
+
+- The cut of an unknown word applies only while the dictionary fits the language of the writer (`Dictionary::fits_writer`): it knows at least half of the last 30 checked words that the writer finished before the caret.
+- With fewer than 3 such words, the answer for the last text with enough words counts. Before any such text, the dictionary fits. Thus a new chat message in Spanish keeps the answer of the last message.
+- A dictionary that does not fit cuts no word, as without a dictionary.
+- The reason: Windows has dictionaries only for the languages that the user added in the settings of Windows. A Spanish writer with only English (United States) has no Spanish dictionary, and the cut then hid most suggestions in Spanish.
+- On the tuning set with the dictionary of such a Windows computer (Gemma 4 E4B, long, without the sentence stop, word replay), the rule gave Spanish carets 6.13 words for each caret in place of 1.73, and 23 carets without a suggestion in place of 89. It helped 35 cases and harmed none. The English carets did not change.
+
 ## Suggestions that do not show
 
 - A suggestion of the model does not show when it copies the frame of its prompt (`copies_frame_line`): it holds 5 words in a row of a frame line, or the line of the caret starts as a frame line starts (its first 5 words, or all the words of a shorter line of at least 3).

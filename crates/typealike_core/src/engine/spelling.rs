@@ -17,15 +17,44 @@ use super::suggestion::{word_starts, words};
 const MIN_CHECKED_LETTERS: usize = 3;
 /// The most answers of the dictionary that the engine keeps. Each answer costs a call to the OS.
 const MAX_KEPT_ANSWERS: usize = 10_000;
+/// The fewest checked words that the writer finished before the caret that tell whether the
+/// dictionary fits the language of the writer.
+const MIN_FIT_WORDS: usize = 3;
+/// The most checked words that the writer finished before the caret, from the last, that tell
+/// whether the dictionary fits the language of the writer.
+const MAX_FIT_WORDS: usize = 30;
 
 /// The dictionary of the OS, with the answers that it gave.
 pub(super) struct Dictionary {
     spell_checker: Box<dyn SpellChecker>,
     answers: HashMap<String, bool>,
     word_starts: HashMap<String, bool>,
+    /// Whether the dictionary knew most words of the last text of the writer that had enough of
+    /// them ([`Dictionary::fits_writer`]).
+    fits_writer: bool,
 }
 
 impl Dictionary {
+    /// Whether the dictionary fits the language of the writer: it knows at least half of the last
+    /// [`MAX_FIT_WORDS`] checked words that the writer finished in `text_before`. With fewer than
+    /// [`MIN_FIT_WORDS`] such words, the answer for the last text with enough of them counts, and
+    /// before any such text the dictionary fits. A dictionary of another language does not know
+    /// most words of the writer, so its cut would hide good suggestions.
+    fn fits_writer(&mut self, text_before: &str) -> bool {
+        let finished = text_before.trim_end_matches(|character: char| !character.is_whitespace());
+        let typed_words = finished
+            .split_whitespace()
+            .rev()
+            .flat_map(checked_words)
+            .take(MAX_FIT_WORDS)
+            .collect::<Vec<_>>();
+        if typed_words.len() >= MIN_FIT_WORDS {
+            let known = typed_words.iter().filter(|word| self.knows(word)).count();
+            self.fits_writer = known * 2 >= typed_words.len();
+        }
+        self.fits_writer
+    }
+
     fn knows(&mut self, word: &str) -> bool {
         let spell_checker = &self.spell_checker;
         kept_answer(&mut self.answers, word, |word| spell_checker.is_known_word(word))
@@ -99,6 +128,7 @@ impl Engine {
             spell_checker,
             answers: HashMap::new(),
             word_starts: HashMap::new(),
+            fits_writer: true,
         });
     }
 }
@@ -106,7 +136,8 @@ impl Engine {
 /// Returns `suggestion`, the ghost text after `text_before`, up to its first word that the
 /// `dictionary` does not know and that the `written` words do not hold, without the whitespace
 /// before that word. A first word that finishes the last word of `text_before` counts with its
-/// typed letters. Without a dictionary, it returns all of `suggestion`.
+/// typed letters. Without a dictionary, or with one that does not fit the language of the writer
+/// ([`Dictionary::fits_writer`]), it returns all of `suggestion`.
 pub(super) fn known_start<'text>(
     dictionary: Option<&mut Dictionary>,
     text_before: &str,
@@ -116,6 +147,9 @@ pub(super) fn known_start<'text>(
     let Some(dictionary) = dictionary else {
         return suggestion;
     };
+    if !dictionary.fits_writer(text_before) {
+        return suggestion;
+    }
     let typed_letters = if suggestion.starts_with(char::is_whitespace) {
         ""
     } else {
@@ -177,6 +211,7 @@ mod tests {
             spell_checker: Box::new(spell_checker),
             answers: HashMap::new(),
             word_starts: HashMap::new(),
+            fits_writer: true,
         }
     }
 
