@@ -37,7 +37,9 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ### Sources of the caret
 
 - The system caret, else the caret object of the focused window (`OBJID_CARET` of Microsoft Active Accessibility: Chromium browsers and Electron apps such as VS Code), else UI Automation (UIA) for apps that draw their own caret (WinUI).
-- Each read of the caret also gives the frame of the focused field: the UIA `CurrentBoundingRectangle` of the focused element when it has an area, else the `GetWindowRect` of the focused window.
+- Each read of the caret also gives the frame of the focused field: the UIA `CurrentBoundingRectangle` of the focused element when it has an area, else the client area of the focused window (`GetClientRect`, `ClientToScreen`).
+- A UIA frame covers the whole element, also the part that the edge of the window or a scrolled page hides. Thus the frame of the field is only the part of the UIA frame inside the client area of the focused window (`display::visible_field_frame`), and the wrapped ghost text stays inside the window. A scroll container inside the window can still hide a part of the frame.
+- When the client area shows no part of the UIA frame (a hidden focus window without a size), the frame stays the whole UIA frame. A mirrored window (right to left) maps the corners of its client area in the opposite order (`display::rect_between`).
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
 
 ### What follows the caret

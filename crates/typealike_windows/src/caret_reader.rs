@@ -45,8 +45,8 @@ pub(crate) struct CaretAnswer {
     /// The caret of the focused control, or `None` when the control shows no caret that TypeAlike
     /// can find.
     pub(crate) caret: Option<Caret>,
-    /// The frame of the focused field in physical screen pixels, or `None` when TypeAlike cannot
-    /// read it.
+    /// The frame of the focused field in physical screen pixels, without the part outside the
+    /// client area of the focused window, or `None` when TypeAlike cannot read it.
     pub(crate) field: Option<RECT>,
     /// What follows the caret at this read.
     pub(crate) after: AfterCaret,
@@ -176,8 +176,9 @@ fn answer_reads(
     }
 }
 
-/// Reads the caret through `uia`, else the system caret. The frame of the focused field is the
-/// frame that UIA gives, else the frame of the focused window.
+/// Reads the caret through `uia`, else the system caret. The frame of the focused field is the part
+/// of the frame that UIA gives inside the client area of the focused window, else that client area
+/// ([`display::visible_field_frame`]).
 fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
     let focused = uia.map_or_else(
         || FocusedCaret {
@@ -190,7 +191,7 @@ fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
     CaretAnswer {
         id,
         caret: focused.caret,
-        field: focused.frame.or_else(focus::focused_window_frame),
+        field: display::visible_field_frame(focused.frame, focus::focused_client_area()),
         after: focused.after,
     }
 }

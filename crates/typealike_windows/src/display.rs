@@ -75,6 +75,41 @@ pub(crate) fn has_area(rect: RECT) -> bool {
     rect.right > rect.left && rect.bottom > rect.top
 }
 
+/// The rectangle between the corners `corner` and `opposite`, in any order. A mirrored window
+/// (right to left) puts the left edge of its client area at the right on the screen.
+pub(crate) fn rect_between(corner: POINT, opposite: POINT) -> RECT {
+    RECT {
+        left: corner.x.min(opposite.x),
+        top: corner.y.min(opposite.y),
+        right: corner.x.max(opposite.x),
+        bottom: corner.y.max(opposite.y),
+    }
+}
+
+/// The part of `frame`, the frame of the focused field, that `client_area`, the client area of the
+/// focused window, shows. A UIA frame covers the whole field, also the part that the edge of the
+/// window or a scrolled page hides. When the client area shows no part of the frame, as for a
+/// hidden focus window without a size, the whole frame. Without a frame, the client area.
+pub(crate) fn visible_field_frame(frame: Option<RECT>, client_area: Option<RECT>) -> Option<RECT> {
+    let Some(frame) = frame else {
+        return client_area;
+    };
+    let visible = client_area
+        .map(|client_area| intersection(frame, client_area))
+        .filter(|visible| has_area(*visible));
+    Some(visible.unwrap_or(frame))
+}
+
+/// The rectangle that both `first` and `second` cover. It has no area when they do not overlap.
+fn intersection(first: RECT, second: RECT) -> RECT {
+    RECT {
+        left: first.left.max(second.left),
+        top: first.top.max(second.top),
+        right: first.right.min(second.right),
+        bottom: first.bottom.min(second.bottom),
+    }
+}
+
 /// Rounds `coordinate`, in physical pixels, to the nearest whole pixel.
 #[expect(
     clippy::cast_possible_truncation,
@@ -132,5 +167,73 @@ mod tests {
         let areas = cases.map(|(rect, _)| has_area(rect));
 
         assert_eq!(areas, cases.map(|(_, expected)| expected));
+    }
+
+    const fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+        RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn rect_between_corners_has_its_left_edge_at_the_left_also_in_a_mirrored_window() {
+        let corners = [
+            (POINT { x: 10, y: 20 }, POINT { x: 300, y: 200 }),
+            (POINT { x: 300, y: 20 }, POINT { x: 10, y: 200 }),
+        ];
+
+        let rects = corners.map(|(corner, opposite)| rect_between(corner, opposite));
+
+        assert_eq!(rects, [rect(10, 20, 300, 200), rect(10, 20, 300, 200)]);
+    }
+
+    /// The client area of a window from 100 to 900 across and from 50 to 650 down.
+    const CLIENT_AREA: RECT = rect(100, 50, 900, 650);
+
+    #[test]
+    fn visible_field_frame_is_the_part_of_the_frame_that_the_client_area_shows() {
+        let frames = [
+            rect(200, 100, 600, 300),
+            rect(200, 500, 1000, 1400),
+            rect(0, -300, 600, 300),
+        ];
+
+        let visible = frames.map(|frame| visible_field_frame(Some(frame), Some(CLIENT_AREA)));
+
+        assert_eq!(
+            visible,
+            [
+                Some(rect(200, 100, 600, 300)),
+                Some(rect(200, 500, 900, 650)),
+                Some(rect(100, 50, 600, 300)),
+            ]
+        );
+    }
+
+    #[test]
+    fn visible_field_frame_is_the_whole_frame_when_the_client_area_shows_no_part_of_it() {
+        let frame = rect(200, 100, 600, 300);
+        let client_areas = [
+            Some(rect(0, 0, 0, 0)),
+            Some(rect(700, 400, 900, 650)),
+            Some(rect(200, 300, 600, 400)),
+            None,
+        ];
+
+        let visible = client_areas.map(|client_area| visible_field_frame(Some(frame), client_area));
+
+        assert_eq!(visible, [Some(frame); 4]);
+    }
+
+    #[test]
+    fn visible_field_frame_without_a_frame_is_the_client_area() {
+        let client_areas = [Some(CLIENT_AREA), None];
+
+        let visible = client_areas.map(|client_area| visible_field_frame(None, client_area));
+
+        assert_eq!(visible, [Some(CLIENT_AREA), None]);
     }
 }

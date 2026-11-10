@@ -45,7 +45,8 @@ pub enum FocusChange {
 pub struct CaretRead {
     /// The caret, or `None` when the platform finds no caret.
     pub caret: Option<ScreenRect>,
-    /// The frame of the focused field, or `None` when the platform cannot read it.
+    /// The frame of the focused field, or `None` when the platform cannot read it. When the
+    /// platform can tell, the frame leaves out the part of the field that its window does not show.
     pub field: Option<ScreenRect>,
     /// What the platform sees after the caret at this look.
     pub after: AfterCaret,

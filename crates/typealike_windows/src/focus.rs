@@ -5,22 +5,23 @@ mod edit_control;
 
 use typealike_core::controller::FocusChange;
 use typealike_core::desktop::{Field, Surroundings};
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GUITHREADINFO, GetForegroundWindow, GetGUIThreadInfo, GetWindowRect, GetWindowTextW,
+    GUITHREADINFO, GetClientRect, GetForegroundWindow, GetGUIThreadInfo, GetWindowTextW,
     GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
 };
 use windows::core::{Owned, PWSTR, Result};
 
 pub(crate) use self::edit_control::edit_field_text;
 use self::edit_control::is_password_focused;
-use crate::struct_size;
 use crate::window::WindowId;
+use crate::{display, struct_size};
 
 const REPLY_TIMEOUT_MS: u32 = 50;
 const MAX_WINDOW_TITLE_UNITS: usize = 256;
@@ -233,17 +234,31 @@ pub(crate) fn foreground_thread_state() -> Option<GUITHREADINFO> {
     Some(thread_state)
 }
 
-/// Reads the frame of the focused window of the foreground thread, in physical screen pixels.
+/// Reads the client area of the focused window of the foreground thread, in physical screen
+/// pixels: the part of the window inside its borders and scroll bars, where it shows its content.
 /// `None` when no window has the focus.
-pub(crate) fn focused_window_frame() -> Option<RECT> {
+pub(crate) fn focused_client_area() -> Option<RECT> {
     let window = foreground_thread_state()?.hwndFocus;
     if window.is_invalid() {
         return None;
     }
-    let mut frame = RECT::default();
+    let mut client_area = RECT::default();
     // SAFETY: the output is a local, and a window that closed only makes the call fail.
-    unsafe { GetWindowRect(window, &raw mut frame) }.ok()?;
-    Some(frame)
+    unsafe { GetClientRect(window, &raw mut client_area) }.ok()?;
+    let mut top_left = POINT {
+        x: client_area.left,
+        y: client_area.top,
+    };
+    let mut bottom_right = POINT {
+        x: client_area.right,
+        y: client_area.bottom,
+    };
+    // SAFETY: the points are locals, and a window that closed only makes the calls fail.
+    let is_mapped = unsafe {
+        ClientToScreen(window, &raw mut top_left).as_bool()
+            && ClientToScreen(window, &raw mut bottom_right).as_bool()
+    };
+    is_mapped.then(|| display::rect_between(top_left, bottom_right))
 }
 
 fn is_process_elevated(process_id: u32) -> Result<bool> {
