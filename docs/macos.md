@@ -179,7 +179,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 ## Spelling dictionary
 
-- The spelling dictionary (`SpellingDictionary`): `NSSpellChecker` for the languages of `NSLocale.preferredLanguages` (Language & Region), on the main thread.
+- The spelling dictionaries (`MacDictionaries`, `SpellingDictionary`): the languages of the user are `NSLocale.preferredLanguages` (Language & Region), and the languages with a dictionary are `NSSpellChecker.availableLanguages`. The controller opens `NSSpellChecker` for the languages that it picks, on the main thread.
+- macOS has a dictionary for many languages, also for a language that the user did not add in Language & Region. Thus TypeAlike downloads no dictionary on macOS.
 - A start of a word (`is_word_start`) is a known word, else a word that `completionsForPartialWordRange` gives in a language (it also gives "después" for "despues").
 
 ## Setup window

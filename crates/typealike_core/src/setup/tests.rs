@@ -3,7 +3,8 @@
 use super::*;
 use crate::hub::{ByteSize, HubEvent, SizedFile};
 use crate::inference::{Backend, InferenceError};
-use crate::settings::{Autostart, Settings};
+use crate::settings::{Autostart, Settings, SpellingSettings};
+use crate::settings_window::languages::OsLanguages;
 use crate::settings_window::view::{Accessory, Item, PermissionRow};
 use crate::test_support::{english, model_file, toggled, writing_rule_breaks};
 
@@ -22,6 +23,7 @@ impl Autostart for NoAutostart {
 /// The panes and the platform that the setup reads.
 struct Fixture {
     general: GeneralPane,
+    languages: LanguagesPane,
     models: ModelsPane,
     playground: PlaygroundPane,
     personalization: PersonalizationSettings,
@@ -44,6 +46,14 @@ impl Fixture {
         };
         Self {
             general: GeneralPane::new(settings).with_autostart(Box::new(NoAutostart)),
+            languages: LanguagesPane::new(
+                SpellingSettings::default(),
+                OsLanguages {
+                    preferred: vec!["en-US".to_owned()],
+                    available: vec!["en-US".to_owned()],
+                },
+                Vec::new(),
+            ),
             models: ModelsPane::new(),
             playground: PlaygroundPane::with_backend(backend),
             personalization: PersonalizationSettings::default(),
@@ -105,6 +115,7 @@ impl Fixture {
     fn context<'context>(&'context self, installed: &'context [ModelFile]) -> SetupContext<'context> {
         SetupContext {
             general: &self.general,
+            languages: &self.languages,
             models: &self.models,
             playground: &self.playground,
             installed,
@@ -170,8 +181,8 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
             step: SetupStep::Welcome,
             progress: StepProgress {
                 number: 1,
-                count: 5,
-                text: "Step 1 of 5".to_owned(),
+                count: 6,
+                text: "Step 1 of 6".to_owned(),
             },
             title: "Welcome to TypeAlike".to_owned(),
             body: Some("TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.".to_owned()),
@@ -222,7 +233,7 @@ fn os_that_asks_for_accessibility_adds_the_permission_step() {
 
     let counts = cases.map(|fixture| fixture.view(&SetupFlow::new()).progress.count);
 
-    assert_eq!(counts, [5, 6]);
+    assert_eq!(counts, [6, 7]);
 }
 
 #[test]
@@ -233,7 +244,7 @@ fn next_goes_through_each_step_in_order() {
     };
     let mut flow = SetupFlow::new();
 
-    let steps = [(); 5].map(|()| {
+    let steps = [(); 6].map(|()| {
         fixture.act(&mut flow, SetupAction::Next);
         fixture.view(&flow).step
     });
@@ -241,6 +252,7 @@ fn next_goes_through_each_step_in_order() {
     assert_eq!(
         steps,
         [
+            SetupStep::Languages,
             SetupStep::About,
             SetupStep::Sources,
             SetupStep::Permission,
@@ -269,7 +281,7 @@ fn step_that_the_os_does_not_have_counts_as_the_step_before_it() {
 
     let progress = fixture.view(&flow_at(SetupStep::Permission)).progress;
 
-    assert_eq!((progress.number, progress.count), (3, 5));
+    assert_eq!((progress.number, progress.count), (4, 6));
 }
 
 #[test]
@@ -640,6 +652,7 @@ fn each_step_follows_the_writing_rules() {
     ];
     let steps = [
         SetupStep::Welcome,
+        SetupStep::Languages,
         SetupStep::About,
         SetupStep::Sources,
         SetupStep::Permission,
@@ -679,7 +692,7 @@ fn setup_shows_in_spanish() {
         (view.title.as_str(), view.progress.text.as_str(), view.language),
         (
             "Te damos la bienvenida a TypeAlike",
-            "Paso 1 de 5",
+            "Paso 1 de 6",
             UiLanguage::Spanish
         )
     );
@@ -694,7 +707,65 @@ fn sources_step_tells_what_uses_the_internet() {
     assert_eq!(
         view.sections.last().and_then(|section| section.footer.as_deref()),
         Some(
-            "TypeAlike uses the internet only to find and download models, and to get new versions of TypeAlike. It does not save the text of password fields."
+            "TypeAlike uses the internet only to find and download models, to download dictionaries, and to get new versions of TypeAlike. It does not save the text of password fields."
         )
     );
+}
+
+#[test]
+fn languages_step_shows_the_languages_then_one_switch_for_typos_and_spelling() {
+    let fixture = Fixture::new();
+
+    let view = fixture.view(&flow_at(SetupStep::Languages));
+
+    let last_rows = view.sections.last().map(|section| section.rows.clone());
+    assert_eq!(
+        (view.title.as_str(), view.sections[0].heading.as_deref(), last_rows),
+        (
+            "Choose your languages",
+            Some("Languages that you write"),
+            Some(vec![Row::Switch(Switch {
+                id: ControlId::new(SPELLING),
+                icon: RowIcon::SpellCheck,
+                label: "Check typos and spelling".to_owned(),
+                description: "A word with a typo gets a fix, and a suggestion stops before a word that is in no dictionary.".to_owned(),
+                is_on: true,
+                note: None,
+            })])
+        )
+    );
+}
+
+#[test]
+fn switch_of_typos_and_spelling_is_off_while_the_rule_for_typos_is_off() {
+    let fixture = Fixture {
+        general: GeneralPane::new(Settings {
+            typo_rule: TypoRule::Suggest,
+            ..Settings::default()
+        }),
+        ..Fixture::new()
+    };
+
+    let view = fixture.view(&flow_at(SetupStep::Languages));
+
+    let is_on = view
+        .sections
+        .iter()
+        .flat_map(|section| &section.rows)
+        .find_map(|row| match row {
+            Row::Switch(switch) if switch.id.as_str() == SPELLING => Some(switch.is_on),
+            _ => None,
+        });
+    assert_eq!(is_on, Some(false));
+}
+
+#[test]
+fn switch_of_typos_and_spelling_asks_the_controller_to_change_the_checks() {
+    let fixture = Fixture::new();
+    let mut flow = flow_at(SetupStep::Languages);
+    let action = SetupFlow::action_for(&toggled(SPELLING, false)).expect("the switch acts");
+
+    let outcome = fixture.act(&mut flow, action);
+
+    assert_eq!(outcome, SetupOutcome::Spelling(false));
 }

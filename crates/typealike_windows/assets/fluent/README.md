@@ -14,6 +14,7 @@ The page icons show in the 16 px icon box of the navigation. They are PNG files 
 | File | Icon | Page icon |
 | --- | --- | --- |
 | `settings.png` | `ic_fluent_settings_20_color` | `PageIcon::Gear` |
+| `globe.png` | `ic_fluent_globe_20_color` | `PageIcon::Languages` |
 | `scan_type.png` | `ic_fluent_scan_type_20_color` | `PageIcon::TextViewfinder` |
 | `contact_card.png` | `ic_fluent_contact_card_20_color` | `PageIcon::PersonText` |
 | `bot.png` | `ic_fluent_bot_20_color` | `PageIcon::Cube` |
@@ -30,6 +31,7 @@ The pictures above the title of each step of the setup window after the welcome 
 
 | File | Icon | Setup step |
 | --- | --- | --- |
+| `setup/globe.png` | `ic_fluent_globe_24_color` | `SetupStep::Languages` |
 | `setup/contact_card.png` | `ic_fluent_contact_card_48_color` | `SetupStep::About` |
 | `setup/scan_type.png` | `ic_fluent_scan_type_24_color` | `SetupStep::Sources` |
 | `setup/shield_checkmark.png` | `ic_fluent_shield_checkmark_48_color` | `SetupStep::Permission` |

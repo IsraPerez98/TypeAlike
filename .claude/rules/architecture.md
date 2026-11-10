@@ -17,14 +17,15 @@ Virtual workspace, flat `crates/`. Never nest crates in `src/`.
 - `typealike_history`: the earlier writing in one encrypted file (`WritingHistory`), with `ring` for the cipher and the random key. It reads the key from the `KeyVault` of the platform (`typealike_macos::Keychain`, `typealike_windows::ProtectedKeyFile`) only at the first read or write. File IO, no FFI, no network.
 - `typealike_settings`: the settings file (`SettingsFile`, the `SettingsStore` of core): the serde format of the settings and the migrations of old fields (`stored`). File IO, no FFI.
 - `typealike_llm`: runs GGUF models with llama.cpp (`docs/llm.md`).
+- `typealike_dictionaries`: the Hunspell dictionaries that TypeAlike downloads on Windows for the languages that Windows has no dictionary for (`HunspellDictionaries`, the `DictionaryHub` of core), checked with `spellbook`. HTTPS + file IO, no FFI.
 - `typealike_releases`: the newest release of TypeAlike from the GitHub API (`GitHubReleases`, the `ReleaseFeed` of core): the check for updates of the About pane, and the download and the install of a new version. HTTPS and the processes of the installers (`hdiutil`, the Inno Setup installer), no FFI. Only its `install` module selects the OS.
 - `typealike`: thin bin. Wiring, data folders, settings load, logging, event loop. No business logic.
 - New crate only for a clear boundary, own deps, or compile time. Name it `typealike_<area>`.
 
 ## Dependencies point inward
 
-- `typealike` → `typealike_windows` / `typealike_macos` / `typealike_models` / `typealike_llm` / `typealike_history` / `typealike_settings` / `typealike_releases` → `typealike_core`. Core never depends outward.
-- Platform crates get services like `ModelHub` and `ModelRunner` as core trait objects from the bin, never by depending on `typealike_models`, `typealike_llm`, `typealike_history`, `typealike_settings` or `typealike_releases`. The bin gives the platform `KeyVault` to `typealike_history` the same way.
+- `typealike` → `typealike_windows` / `typealike_macos` / `typealike_models` / `typealike_llm` / `typealike_history` / `typealike_settings` / `typealike_releases` / `typealike_dictionaries` → `typealike_core`. Core never depends outward.
+- Platform crates get services like `ModelHub` and `ModelRunner` as core trait objects from the bin, never by depending on `typealike_models`, `typealike_llm`, `typealike_history`, `typealike_settings`, `typealike_releases` or `typealike_dictionaries`. The bin gives the platform `KeyVault` to `typealike_history` the same way.
 - Platform crates are target-gated deps of the bin (`[target.'cfg(windows)'.dependencies]`).
 - Platform selection via `cfg(target_os)` in one bin module only. The rest of the bin is OS-agnostic.
 - `typealike_core` builds and tests on Linux in CI. Keep it green.

@@ -74,7 +74,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 | `docs/core/prompt.md` | Sections of the prompt, place, screen text, screen reads |
 | `docs/core/earlier-writing.md` | Store, pools, examples, words of the answered messages, word bias, phrases, next-word bias, `history.bin` |
 | `docs/core/typing.md` | Key rules, sessions, Enter, read of the field, held keys, shown suggestions, Escape, Tab, Tab hold |
-| `docs/core/suggestions.md` | Length, typo rule and fix, the stops and the filters of a suggestion |
+| `docs/core/suggestions.md` | Length, typo rule and fix, languages and dictionaries, the stops and the filters of a suggestion |
 | `docs/core/ghost-text.md` | Caret looks, timing, scroll, `GhostView`, colors, mirror, placement |
 | `docs/core/settings-window.md` | Rows, settings file, panes, energy stops, apps and websites, badge menu, model recommendation, drafters, permissions, About pane, check for updates, third-party licenses, setup, UI languages |
 | `docs/windows.md` | `typealike_windows`: overlay, hooks, caret reader, UIA, screen text, watches, settings and setup windows, autostart |

@@ -13,6 +13,7 @@ mod shown_suggestions;
 mod spelling;
 mod suggestion;
 
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::desktop::{AfterCaret, Desktop, Surroundings, Timestamp};
@@ -21,8 +22,8 @@ use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TokenCount, TypoCheck};
 use crate::key::{Key, Press};
 use crate::settings::{
-    ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TextLimits, TypoFix,
-    WriterName, WriterNotes,
+    ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SpellCheck, SuggestionLength,
+    TextLimits, TypoFix, WriterName, WriterNotes,
 };
 
 use earlier_writing::needs_new_tables;
@@ -69,6 +70,9 @@ pub(crate) struct Engine {
     tables: HistoryTables,
     /// The newest version of a word bias of `tables`.
     word_bias_version: u64,
+    /// The words of `history` in lowercase, which a suggestion may write although no dictionary
+    /// knows them.
+    history_words: HashSet<String>,
     /// The newest time of the clock of the desktop, read at the start of each session.
     clock: Option<Timestamp>,
     /// The time of the clock when the engine built `tables`.
@@ -76,6 +80,8 @@ pub(crate) struct Engine {
     /// The dictionary of the OS that cuts a suggestion before a word that the model made up, if
     /// the platform has one.
     dictionary: Option<Dictionary>,
+    /// Whether the dictionary cuts a suggestion before a word that it does not know.
+    spell_check: SpellCheck,
     /// Whether the user rejected a suggestion in the field, so that the keys there get none.
     is_field_paused: bool,
     /// Whether the text before the caret changed after the last suggestion, so that the input
@@ -111,9 +117,11 @@ impl Default for Engine {
             has_unsaved_history: false,
             tables: HistoryTables::default(),
             word_bias_version: 0,
+            history_words: HashSet::new(),
             clock: None,
             tables_clock: None,
             dictionary: None,
+            spell_check: SpellCheck::default(),
             is_field_paused: false,
             is_suggestion_due: false,
             last_key: None,
@@ -138,7 +146,8 @@ impl Engine {
     /// Uses the writer name, the writer notes, the clipboard access, the personalization, the
     /// number of matching examples, the budget of the screen text and the limits of the text before
     /// the caret of `settings` from the next session on. Uses its suggestion length, its typo rule,
-    /// its typo fix and its sentence end from the next request on.
+    /// its typo fix and its sentence end from the next request on, and its spell check from the
+    /// next completion on.
     pub(crate) fn use_settings(&mut self, settings: &Settings) {
         let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
         self.writer_notes = settings.writer_notes.clone();
@@ -149,6 +158,7 @@ impl Engine {
         self.typo_check = settings.typo_check();
         self.typo_fix = settings.typo_fix;
         self.sentence_end = settings.sentence_end;
+        self.spell_check = settings.spelling.check;
         self.matching_examples = settings.matching_examples();
         self.screen_tokens = settings.screen_tokens();
         self.text_limits = settings.text_limits();

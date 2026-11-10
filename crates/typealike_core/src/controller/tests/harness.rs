@@ -32,6 +32,10 @@ use crate::settings::{
 };
 use crate::settings_window::view::{ControlId, SettingsInput, SettingsView};
 use crate::setup::{SetupView, TrayPlace};
+use crate::spelling::{
+    DictionaryEventSink, DictionaryHub, DictionaryRequest, DownloadableDictionary, OsDictionaries,
+    SpellChecker,
+};
 use crate::test_support::{self, FakeSpellChecker, completion, mail_history_app};
 
 /// The width of each character of a ghost text after the caret in the fake shell.
@@ -221,6 +225,8 @@ impl Shell for FakeShell {
 struct Recorder {
     inference: Vec<(InferenceRequest, InferenceEventSink)>,
     hub: Vec<HubRequest>,
+    dictionaries: Vec<DictionaryRequest>,
+    opened_dictionaries: Vec<Vec<String>>,
     saved: Vec<Settings>,
     kept_history: Vec<HistoryEntry>,
     history_loads: usize,
@@ -245,6 +251,46 @@ struct FakeHub(Rc<RefCell<Recorder>>);
 impl ModelHub for FakeHub {
     fn submit(&mut self, request: HubRequest, _sink: &HubEventSink) {
         self.0.borrow_mut().hub.push(request);
+    }
+}
+
+/// The dictionaries of a Windows computer with only English, which do not know the made-up word
+/// and the typo of the harness.
+struct FakeOsDictionaries(Rc<RefCell<Recorder>>);
+
+impl OsDictionaries for FakeOsDictionaries {
+    fn preferred_languages(&self) -> Vec<String> {
+        vec!["en-US".to_owned()]
+    }
+
+    fn available_languages(&self) -> Vec<String> {
+        vec!["en-US".to_owned()]
+    }
+
+    fn open(&self, languages: &[String]) -> Box<dyn SpellChecker> {
+        self.0.borrow_mut().opened_dictionaries.push(languages.to_vec());
+        Box::new(FakeSpellChecker::without(&[MADE_UP_WORD, TYPO]))
+    }
+}
+
+/// A hub that can download the dictionary of Spanish of Chile, which knows each word.
+struct FakeDictionaryHub(Rc<RefCell<Recorder>>);
+
+impl DictionaryHub for FakeDictionaryHub {
+    fn catalog(&self) -> Vec<DownloadableDictionary> {
+        vec![DownloadableDictionary {
+            language: "es-CL".to_owned(),
+            size: ByteSize(835_000),
+        }]
+    }
+
+    fn submit(&mut self, request: DictionaryRequest, _sink: &DictionaryEventSink) {
+        self.0.borrow_mut().dictionaries.push(request);
+    }
+
+    fn open(&self, languages: &[String]) -> Box<dyn SpellChecker> {
+        self.0.borrow_mut().opened_dictionaries.push(languages.to_vec());
+        Box::new(FakeSpellChecker::default())
     }
 }
 
@@ -437,7 +483,8 @@ impl Harness {
             settings_store: Box::new(FakeStore(Rc::clone(&recorder))),
             autostart: Box::new(FakeAutostart),
             history: Box::new(FakeHistory(Rc::clone(&recorder))),
-            spell_checker: Box::new(FakeSpellChecker::without(&[MADE_UP_WORD, TYPO])),
+            os_dictionaries: Box::new(FakeOsDictionaries(Rc::clone(&recorder))),
+            dictionary_hub: Some(Box::new(FakeDictionaryHub(Rc::clone(&recorder)))),
             releases: Box::new(FakeReleases {
                 recorder: Rc::clone(&recorder),
                 self_update: services.self_update,
@@ -612,6 +659,15 @@ impl Harness {
 
     pub(super) fn hub_requests(&self) -> Vec<HubRequest> {
         self.recorder.borrow().hub.clone()
+    }
+
+    pub(super) fn dictionary_requests(&self) -> Vec<DictionaryRequest> {
+        self.recorder.borrow().dictionaries.clone()
+    }
+
+    /// The languages of each spell checker that the dictionaries of the OS and the hub opened.
+    pub(super) fn opened_dictionaries(&self) -> Vec<Vec<String>> {
+        self.recorder.borrow().opened_dictionaries.clone()
     }
 
     pub(super) fn saved(&self) -> Vec<Settings> {

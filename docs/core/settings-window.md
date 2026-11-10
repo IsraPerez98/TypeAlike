@@ -4,7 +4,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 ## Pages and rows
 
-- Core has the settings model, and the Models, Playground, General, Apps and websites, Copied and screen text, Personalization, Energy saving and About panes.
+- Core has the settings model, and the Models, Playground, General, Languages and typos, Apps and websites, Copied and screen text, Personalization, Energy saving and About panes.
 - Each pane (`settings_window`) gives its page of the settings window as a tree of sections and rows (`settings_window::view`), with a stable id for each control.
 - Each row of a setting also has a picture before its label (`RowIcon`).
 - Each platform has one renderer for each kind of row and sends back what the user did with a control, so a new setting needs no platform code.
@@ -12,7 +12,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ## Settings file
 
 - The settings file is `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS.
-- The General, Apps and websites, Copied and screen text, Personalization, Energy saving, Models and About panes and the setup write it through `typealike_settings::SettingsFile`.
+- The General, Languages and typos, Apps and websites, Copied and screen text, Personalization, Energy saving, Models and About panes and the setup write it through `typealike_settings::SettingsFile`.
 - Without a settings file, the bin gives the settings of the first start (`SettingsFile::new`):
   - The name of the writer is the full name of the user account (`account_name` of each platform crate).
   - The notes are the default notes in the language of the UI (`WriterNotes::default_for`, `ui_language` of each platform crate).
@@ -28,8 +28,17 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The General pane (`GeneralPane`) keeps the settings that no other pane keeps.
 - Its page shows the language menu first, then the autostart switch and how suggestions show.
-- The sections of the General pane show the copied text switch on the Copied and screen text page, the name and the notes of the writer on the Personalization page, "Prepare suggestions early" on the Energy saving page, and the suggestion model and the backend menus at the top of the Models page.
-- The suggestion length, the rule for typos and "Stop at the end of a sentence" are in `docs/core/suggestions.md` and `docs/llm.md`.
+- The sections of the General pane show the switches of the typos on the Languages and typos page, the copied text switch on the Copied and screen text page, the name and the notes of the writer on the Personalization page, "Prepare suggestions early" on the Energy saving page, and the suggestion model and the backend menus at the top of the Models page.
+- The suggestion length and "Stop at the end of a sentence" are in `docs/core/suggestions.md` and `docs/llm.md`.
+
+## Languages and typos pane
+
+- The Languages and typos pane (`settings_window::languages`, `LanguagesPane`) is the page after the General page.
+- The section "Languages that you write" has an item for each language, with "Remove", then the menu "Add a language". The first entry of the menu adds nothing, and the other entries are the languages that the user does not write yet and that have a dictionary, by name.
+- An item of a language whose dictionary downloads shows the progress and "Cancel download". A failed download shows why and "Try again". A language without any dictionary tells that its suggestions get no spelling check.
+- With a hub (on Windows), the description of the menu tells that TypeAlike downloads a dictionary when the computer has none. The texts of the downloads name neither the OS nor GitHub, because most users do not know GitHub.
+- The section "Typos and unknown words" has the switches of the rule for typos and of the typo fix of the General pane (`GeneralPane::typo_rows`), then "Check the spelling of suggestions".
+- The rules of the languages, the dictionaries and the downloads are in `docs/core/suggestions.md`, "Languages and dictionaries".
 
 ### Reset all settings
 
@@ -224,21 +233,23 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - A close by the user (`Controller::on_setup_closed`) keeps the setup to do, and the setup starts again at its first step.
 - Each platform renders `SetupView` with the row renderers of the settings window.
 - Only Welcome, the permission and the ready step have a body below the title (`SetupView::body`), because the rows of the other steps tell what they are for.
+- Each step fits in the window without a scroll bar in each language of the UI, with one or two languages in the step of the languages.
 
 ### Steps
 
 In the order of `SetupStep`:
 
 1. Welcome: what TypeAlike does, a demo of a suggestion and the language menu.
-2. The name and the notes with their examples.
-3. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, and to get new versions of TypeAlike.
-4. The permissions, only on an OS that asks for Accessibility: Accessibility, and Screen & System Audio Recording while the screen text switch is on.
-5. The model, from top to bottom:
+2. The languages: the section of the languages of the Languages and typos pane, and one switch "Check typos and spelling" (`SetupOutcome::Spelling`). It turns on or off the rule for typos, the typo fix and the spell check together. The pane has a switch for each, but three switches do not fit in the window.
+3. The name and the notes with their examples.
+4. What suggestions can use: the switches of the earlier writing, the copied text and the screen text, and below them: TypeAlike uses the internet only to find and download models, to download dictionaries, and to get new versions of TypeAlike.
+5. The permissions, only on an OS that asks for Accessibility: Accessibility, and Screen & System Audio Recording while the screen text switch is on.
+6. The model, from top to bottom:
    - the backend menu
    - the recommended row, or "Checking the graphics card…" while the read of the GPU memory runs
    - the menu of the suggestion model while a model is downloaded
    - last, a quiet link "Choose another model" (`Row::Link`), an option that most users do not need. The link shows the search of Hugging Face as a text field and the lists of the Models page (`ModelsPane::browser_sections`) in place of the recommended row until the step changes.
-6. The ready step: where to try TypeAlike, where its icon is, and "Open at login", on by default, which applies at the finish.
+7. The ready step: where to try TypeAlike, where its icon is, and "Open at login", on by default, which applies at the finish.
 
 ## UI languages
 

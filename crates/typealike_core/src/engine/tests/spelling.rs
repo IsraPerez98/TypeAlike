@@ -7,7 +7,10 @@ use std::time::Duration;
 use crate::engine::{Engine, Reaction, WordFix};
 use crate::inference::{Completion, Correction, InferenceError, LogProbability, TypoCheck};
 use crate::key::{Key, Press};
-use crate::settings::{ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, WordChoice};
+use crate::settings::{
+    ClipboardAccess, HistoryAccess, HistoryApp, HistoryScope, Settings, SpellCheck, SpellingSettings,
+    WordChoice,
+};
 use crate::test_support::{
     ExpectedRequest, FakeSpellChecker, completion, mail_entry, mail_history_app, on_own_days,
 };
@@ -36,6 +39,21 @@ fn suggestion_ends_before_a_word_that_the_dictionary_does_not_know() {
     let reaction = reaction_after("Ya ", &["prostu"], "vamos prostu nie");
 
     assert_eq!(reaction, show("vamos"));
+}
+
+#[test]
+fn spell_check_that_is_off_cuts_no_word() {
+    let settings = Settings {
+        spelling: SpellingSettings {
+            check: SpellCheck::Off,
+            ..SpellingSettings::default()
+        },
+        ..Settings::default()
+    };
+
+    let reaction = engine_typed(&settings, "Ya ", &["prostu"]).on_completion(completion("vamos prostu nie"));
+
+    assert_eq!(reaction, show("vamos prostu nie"));
 }
 
 #[test]
@@ -149,7 +167,7 @@ fn shared_pool_settings(word_choice: WordChoice) -> Settings {
 }
 
 #[test]
-fn unknown_word_stays_only_when_the_word_choice_prefers_it() {
+fn unknown_word_of_the_earlier_writing_stays_with_any_word_choice() {
     let word_choices = [WordChoice::Medium, WordChoice::Off];
 
     let reactions = word_choices.map(|word_choice| {
@@ -166,7 +184,25 @@ fn unknown_word_stays_only_when_the_word_choice_prefers_it() {
         engine.on_completion(completion("cachai el plan"))
     });
 
-    assert_eq!(reactions, [show("cachai el plan"), Reaction::Hide]);
+    assert_eq!(reactions, [show("cachai el plan"), show("cachai el plan")]);
+}
+
+#[test]
+fn unknown_word_that_the_earlier_writing_holds_once_stays() {
+    let mut engine = engine_with_history(
+        &shared_pool_settings(WordChoice::Medium),
+        on_own_days(vec![mail_entry("Porfa send me the file")]),
+    );
+    engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["porfa"])));
+    engine.on_key(
+        Key::Char(' '),
+        Press::First,
+        &FakeDesktop::with_field_text("Hi").in_app(CHAT_APP),
+    );
+
+    let reaction = engine.on_completion(completion("porfa call me"));
+
+    assert_eq!(reaction, show("porfa call me"));
 }
 
 #[test]

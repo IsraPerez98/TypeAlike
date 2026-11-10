@@ -7,7 +7,7 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSSpellChecker;
 use objc2_foundation::{NSNotFound, NSRange, NSString};
 use typealike_core::language::closest_languages;
-use typealike_core::spelling::SpellChecker;
+use typealike_core::spelling::{OsDictionaries, SpellChecker};
 
 use crate::language::preferred_languages;
 
@@ -20,21 +20,53 @@ pub struct SpellingDictionary {
 }
 
 impl SpellingDictionary {
-    /// Connects to the spelling service of macOS. Call it on the main thread.
+    /// Connects to the spelling service of macOS for the preferred languages of the user. Call it
+    /// on the main thread.
     #[must_use]
     pub fn new() -> Self {
-        let checker = NSSpellChecker::sharedSpellChecker();
-        let available = checker
-            .availableLanguages()
-            .iter()
-            .map(|language| language.to_string())
-            .collect::<Vec<_>>();
-        let preferred = preferred_languages();
-        let languages = closest_languages(&preferred, &available)
-            .iter()
-            .map(|language| NSString::from_str(language))
-            .collect();
-        Self { checker, languages }
+        let languages = closest_languages(&preferred_languages(), &available_languages());
+        Self::with_languages(&languages)
+    }
+
+    /// Connects to the spelling service of macOS for `languages`, each a language that macOS has a
+    /// dictionary for. Call it on the main thread.
+    #[must_use]
+    pub fn with_languages(languages: &[String]) -> Self {
+        Self {
+            checker: NSSpellChecker::sharedSpellChecker(),
+            languages: languages
+                .iter()
+                .map(|language| NSString::from_str(language))
+                .collect(),
+        }
+    }
+}
+
+/// The languages that macOS has a spelling dictionary for, such as `en` or `en_GB`.
+fn available_languages() -> Vec<String> {
+    NSSpellChecker::sharedSpellChecker()
+        .availableLanguages()
+        .iter()
+        .map(|language| language.to_string())
+        .collect()
+}
+
+/// The spelling dictionaries of macOS, which the controller opens for the languages that the user
+/// writes. macOS has a dictionary for many languages, so TypeAlike downloads none there.
+#[derive(Debug, Default)]
+pub struct MacDictionaries;
+
+impl OsDictionaries for MacDictionaries {
+    fn preferred_languages(&self) -> Vec<String> {
+        preferred_languages()
+    }
+
+    fn available_languages(&self) -> Vec<String> {
+        available_languages()
+    }
+
+    fn open(&self, languages: &[String]) -> Box<dyn SpellChecker> {
+        Box::new(SpellingDictionary::with_languages(languages))
     }
 }
 

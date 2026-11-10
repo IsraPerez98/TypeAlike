@@ -65,6 +65,28 @@ general-reset = Réinitialiser tous les réglages
 general-reset-description = Tous les réglages reprennent leurs valeurs par défaut, et la configuration s’ouvre à nouveau. Vos modèles téléchargés et vos textes précédents sont conservés.
 general-reset-confirm = Appuyez à nouveau pour réinitialiser
 
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+
+languages-title = Langues et fautes de frappe
+languages-summary = Choisissez les langues dans lesquelles vous écrivez, et ce que font les suggestions avec les fautes de frappe et les mots inconnus.
+languages-heading = Langues dans lesquelles vous écrivez
+languages-add = Ajouter une langue
+languages-add-description = TypeAlike vérifie l’orthographe des suggestions avec le dictionnaire de chaque langue.
+languages-add-description-download = Si cet ordinateur n’a pas de dictionnaire pour une langue, TypeAlike en télécharge un.
+# The first entry of the menu "Add a language". It adds no language.
+languages-add-choose = Choisissez une langue
+languages-remove = Retirer
+languages-cancel = Annuler le téléchargement
+languages-try-again = Réessayer
+languages-downloading = { $percent } % du dictionnaire téléchargé
+languages-no-dictionary = TypeAlike n’a pas de dictionnaire pour cette langue. Il ne vérifie donc pas l’orthographe des suggestions dans cette langue.
+languages-error-offline = TypeAlike ne peut pas télécharger le dictionnaire. Vérifiez votre connexion Internet.
+languages-error-server = TypeAlike ne peut pas obtenir le dictionnaire pour le moment. Réessayez plus tard.
+languages-error-storage = TypeAlike ne peut pas enregistrer le dictionnaire sur cet ordinateur. Vérifiez qu’il reste de l’espace libre sur le disque.
+languages-typos-heading = Fautes de frappe et mots inconnus
+languages-spell-check = Vérifier l’orthographe des suggestions
+languages-spell-check-description = Une suggestion s’arrête avant un mot qu’aucun dictionnaire de vos langues ne connaît, comme un mot que le modèle a inventé. L’argot et les noms rares peuvent aussi arrêter une suggestion.
+
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Modèle de suggestions
@@ -318,11 +340,14 @@ setup-model-checking = Vérification de la carte graphique…
 setup-other-models = Choisir un autre modèle
 setup-permission-title = Donnez à TypeAlike l’accès aux champs de texte
 setup-permission-body = Cliquez sur « Autoriser l’accès ». Activez ensuite TypeAlike dans Réglages Système, puis revenez à cette fenêtre.
+setup-languages-title = Choisissez vos langues
+setup-spelling = Vérifier les fautes de frappe et l’orthographe
+setup-spelling-description = Un mot avec une faute de frappe reçoit une correction, et une suggestion s’arrête avant un mot qui n’est dans aucun dictionnaire.
 setup-about-title = Présentez-vous à TypeAlike
 setup-sources-title = Ce que les suggestions peuvent utiliser
 setup-history-description = TypeAlike enregistre ce que vous écrivez dans un fichier chiffré sur cet ordinateur. Les suggestions utilisent alors vos mots et votre style. Vous pouvez supprimer ce texte dans la page Personnalisation.
 setup-screen-text-description = TypeAlike lit le texte près du champ où vous tapez, comme les derniers messages d’une discussion. Avec vos textes précédents, il enregistre aussi quelques mots des messages auxquels vous répondez.
-setup-sources-footer = TypeAlike utilise Internet seulement pour trouver et télécharger des modèles, et pour obtenir ses nouvelles versions. Il n’enregistre pas le texte des champs de mot de passe.
+setup-sources-footer = TypeAlike utilise Internet seulement pour trouver et télécharger des modèles, pour télécharger des dictionnaires et pour obtenir ses nouvelles versions. Il n’enregistre pas le texte des champs de mot de passe.
 setup-ready-title = TypeAlike est prêt
 setup-ready-body = Essayez-le maintenant dans n’importe quelle app, comme votre messagerie ou une discussion.
 setup-tray-notification-area = TypeAlike reste dans la zone de notification de la barre des tâches. Utilisez son icône pour suspendre les suggestions ou ouvrir les réglages.

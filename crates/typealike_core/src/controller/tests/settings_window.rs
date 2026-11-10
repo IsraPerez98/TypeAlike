@@ -481,6 +481,7 @@ fn panes_show_in_the_language_of_the_user() {
             .collect::<Vec<_>>(),
         [
             "General",
+            "Idiomas y erratas",
             "Apps y sitios web",
             "Texto copiado y de la pantalla",
             "Personalización",
@@ -539,6 +540,7 @@ fn panes_show_in_the_order_of_the_navigation() {
             .collect::<Vec<_>>(),
         [
             "General",
+            "Languages and typos",
             "Apps and websites",
             "Copied and screen text",
             "Personalization",
@@ -608,6 +610,7 @@ fn permissions_pane_shows_after_the_models_pane_when_the_os_asks_for_permissions
         page_icons(&view),
         [
             PageIcon::Gear,
+            PageIcon::Languages,
             PageIcon::AppGrid,
             PageIcon::TextViewfinder,
             PageIcon::PersonText,

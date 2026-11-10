@@ -7,6 +7,7 @@ use crate::history::{self, HistoryEntry, HistoryTables};
 use crate::settings::{HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords};
 
 use super::Engine;
+use super::suggestion::words;
 
 /// The most seconds between two builds of the tables while sessions start, so that a text leaves
 /// the last day of the tables at most this late.
@@ -117,9 +118,10 @@ impl Engine {
         }
     }
 
-    /// Builds the word bias of each pool, with new versions, and the phrases again from the
-    /// history.
+    /// Builds the word bias of each pool, with new versions, the phrases and the words of the history
+    /// again from the history.
     pub(super) fn refresh_tables(&mut self) {
+        self.history_words = self.history.iter().flat_map(|entry| words(&entry.text)).collect();
         self.tables_clock = self.clock;
         self.tables = HistoryTables::of(
             &self.history,

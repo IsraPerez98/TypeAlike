@@ -148,6 +148,17 @@ fn switch(page: &Page, id: &str) -> Switch {
     }
 }
 
+/// The page of the switches of the typos of `pane` alone.
+fn typo_page(pane: &GeneralPane) -> Page {
+    Page {
+        title: String::new(),
+        icon: PageIcon::Gear,
+        summary: String::new(),
+        search: None,
+        sections: vec![Section::new(pane.typo_rows(&english()))],
+    }
+}
+
 fn picker(page: &Page, id: &str) -> Picker {
     match row(page, id) {
         Row::Picker(picker) => picker,
@@ -337,8 +348,6 @@ fn page_shows_the_suggestion_settings() {
                     is_on: true,
                     note: None,
                 }),
-                typo_rule_switch(),
-                typo_fix_switch(),
             ]), reset_section("Reset all settings")],
         }
     );
@@ -1531,7 +1540,7 @@ fn suggesting_on_typos_keeps_it_and_turns_the_switch_off() {
         &mut PlaygroundPane::new(),
     );
 
-    let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
+    let is_on = switch(&typo_page(&pane), TYPO_RULE).is_on;
     assert_eq!(
         (outcome, is_on),
         (settings_outcome(typo_settings(TypoRule::Suggest)), false)
@@ -1547,7 +1556,7 @@ fn hiding_suggestions_on_typos_keeps_it_and_turns_the_switch_on() {
         &mut PlaygroundPane::new(),
     );
 
-    let is_on = switch(&default_page(&pane), TYPO_RULE).is_on;
+    let is_on = switch(&typo_page(&pane), TYPO_RULE).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
 }
 
@@ -1560,7 +1569,7 @@ fn leaving_typos_keeps_it_and_turns_the_fix_switch_off() {
         &mut PlaygroundPane::new(),
     );
 
-    let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
+    let is_on = switch(&typo_page(&pane), TYPO_FIX).is_on;
     let saved = Settings {
         typo_fix: TypoFix::Off,
         ..Settings::default()
@@ -1580,15 +1589,24 @@ fn fixing_typos_keeps_it_and_turns_the_fix_switch_on() {
         &mut PlaygroundPane::new(),
     );
 
-    let is_on = switch(&default_page(&pane), TYPO_FIX).is_on;
+    let is_on = switch(&typo_page(&pane), TYPO_FIX).is_on;
     assert_eq!((outcome, is_on), (settings_outcome(Settings::default()), true));
+}
+
+#[test]
+fn typo_rows_show_the_rule_and_the_fix() {
+    let pane = GeneralPane::new(Settings::default());
+
+    let rows = pane.typo_rows(&english());
+
+    assert_eq!(rows, [typo_rule_switch(), typo_fix_switch()]);
 }
 
 #[test]
 fn suggesting_on_typos_hides_the_fix_switch() {
     let pane = GeneralPane::new(typo_settings(TypoRule::Suggest));
 
-    let shown = default_page(&pane);
+    let shown = typo_page(&pane);
 
     assert_eq!(shown.row(TYPO_FIX), None);
 }

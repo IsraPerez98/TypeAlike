@@ -35,10 +35,13 @@ use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceReq
 use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
 use crate::release::{DownloadSink, ReleaseFeed, ReleaseSink};
-use crate::settings::{HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp};
+use crate::settings::{
+    HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SpellCheck, SuggestionApp, TypoFix, TypoRule,
+};
 use crate::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 use crate::settings_window::energy_saving::{EnergySavingAction, EnergySavingPane};
 use crate::settings_window::general::{GeneralAction, GeneralPane, ResetPress, presses_reset};
+use crate::settings_window::languages::{LanguagesAction, LanguagesOutcome, LanguagesPane, OsLanguages};
 use crate::settings_window::models::{ModelsAction, ModelsPane};
 use crate::settings_window::permissions;
 use crate::settings_window::personalization::{
@@ -49,6 +52,10 @@ use crate::settings_window::screen_text::{ScreenTextAction, ScreenTextPane};
 use crate::settings_window::suggestion_places::{SuggestionPlacesAction, SuggestionPlacesPane};
 use crate::settings_window::view::{PageIcon, Row, SettingsInput, SettingsView};
 use crate::setup::{SetupAction, SetupContext, SetupFlow, SetupOutcome, SetupView, TrayPlace};
+use crate::spelling::{
+    DictionaryEvent, DictionaryEventSink, DictionaryHub, DictionaryRequest, JoinedSpellCheckers,
+    OsDictionaries,
+};
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
 /// show after it, so that they show at the new caret.
@@ -72,6 +79,7 @@ const UPDATE_CHECK_INTERVAL: Duration = Duration::from_hours(24);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PaneAction {
     General(GeneralAction),
+    Languages(LanguagesAction),
     SuggestionPlaces(SuggestionPlacesAction),
     ScreenText(ScreenTextAction),
     Personalization(PersonalizationAction),
@@ -93,6 +101,7 @@ pub struct Controller {
     playground: PlaygroundPane,
     playground_page: PlaygroundPage,
     general: GeneralPane,
+    languages: LanguagesPane,
     suggestion_places: SuggestionPlacesPane,
     screen_text: ScreenTextPane,
     personalization: PersonalizationPane,
@@ -103,9 +112,12 @@ pub struct Controller {
     settings_store: Box<dyn SettingsStore>,
     history: Box<dyn WritingHistory>,
     releases: Box<dyn ReleaseFeed>,
+    os_dictionaries: Box<dyn OsDictionaries>,
+    dictionary_hub: Option<Box<dyn DictionaryHub>>,
     /// Whether the app has the entries of `history`, which it reads only while the history is on.
     is_history_loaded: bool,
     hub_sink: HubEventSink,
+    dictionary_sink: DictionaryEventSink,
     playground_sink: InferenceEventSink,
     suggestion_sink: InferenceEventSink,
     recommendation_sink: InferenceEventSink,
@@ -145,14 +157,23 @@ impl Controller {
             mut settings_store,
             autostart,
             history,
-            spell_checker,
+            os_dictionaries,
+            dictionary_hub,
             releases,
             libraries,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
-        app.use_spell_checker(spell_checker);
         app.use_energy_saver(startup.energy_saver);
+        let os_languages = OsLanguages {
+            preferred: os_dictionaries.preferred_languages(),
+            available: os_dictionaries.available_languages(),
+        };
+        let catalog = dictionary_hub
+            .as_ref()
+            .map(|hub| hub.catalog())
+            .unwrap_or_default();
+        let languages = LanguagesPane::new(settings.spelling.clone(), os_languages, catalog);
         let energy_saving = EnergySavingPane::new(settings.energy_saving);
         let suggestion_places = SuggestionPlacesPane::new(settings.suggestion_places.clone());
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
@@ -178,6 +199,7 @@ impl Controller {
             playground,
             playground_page: startup.playground,
             general,
+            languages,
             suggestion_places,
             screen_text,
             personalization,
@@ -188,8 +210,11 @@ impl Controller {
             settings_store,
             history,
             releases,
+            os_dictionaries,
+            dictionary_hub,
             is_history_loaded: false,
             hub_sink: delivering_sink(deliver, Delivery::Hub),
+            dictionary_sink: delivering_sink(deliver, Delivery::Dictionary),
             playground_sink: delivering_sink(deliver, Delivery::Playground),
             suggestion_sink: delivering_sink(deliver, Delivery::Suggestion),
             recommendation_sink: delivering_sink(deliver, Delivery::Recommendation),
@@ -201,6 +226,9 @@ impl Controller {
             setup: None,
             tray: startup.tray,
         };
+        controller.use_dictionaries();
+        let requests = controller.languages.start();
+        controller.submit_dictionary_requests(requests);
         controller.submit_model_request();
         controller.list_models_for_drafter();
         controller.read_gpu_memory_for_recommendation();
@@ -221,6 +249,52 @@ impl Controller {
         if has_drafter {
             self.hub.submit(HubRequest::ListInstalled, &self.hub_sink);
         }
+    }
+
+    /// Opens the dictionaries of the languages that the user writes, and gives them to the app, so
+    /// that they check the words of the next suggestions.
+    fn use_dictionaries(&mut self) {
+        let dictionaries = self.languages.dictionaries();
+        let mut spell_checkers = Vec::new();
+        if !dictionaries.os.is_empty() {
+            spell_checkers.push(self.os_dictionaries.open(&dictionaries.os));
+        }
+        if let Some(hub) = self
+            .dictionary_hub
+            .as_ref()
+            .filter(|_| !dictionaries.downloaded.is_empty())
+        {
+            spell_checkers.push(hub.open(&dictionaries.downloaded));
+        }
+        self.app
+            .use_spell_checker(Box::new(JoinedSpellCheckers(spell_checkers)));
+    }
+
+    fn submit_dictionary_requests(&mut self, requests: Vec<DictionaryRequest>) {
+        let Some(hub) = &mut self.dictionary_hub else {
+            return;
+        };
+        for request in requests {
+            hub.submit(request, &self.dictionary_sink);
+        }
+    }
+
+    /// Does what the Languages and typos pane asks after a change: keeps its settings, gives the
+    /// work to the dictionary hub, and opens the dictionaries again.
+    fn apply_languages_outcome(&mut self, outcome: LanguagesOutcome) {
+        if outcome.is_settings_change {
+            self.keep_pane_settings();
+        }
+        self.submit_dictionary_requests(outcome.requests);
+        if outcome.is_dictionary_change {
+            self.use_dictionaries();
+        }
+    }
+
+    fn on_dictionary_event(&mut self, event: DictionaryEvent, shell: &mut dyn Shell) {
+        let outcome = self.languages.on_event(event);
+        self.apply_languages_outcome(outcome);
+        self.render_settings(shell);
     }
 
     /// Returns what the tray icon and its menu must show now.
@@ -492,6 +566,10 @@ impl Controller {
                 }
             }
             Some(PaneAction::General(action)) => self.on_general_action(action, shell),
+            Some(PaneAction::Languages(action)) => {
+                let outcome = self.languages.on_action(action);
+                self.apply_languages_outcome(outcome);
+            }
             Some(PaneAction::SuggestionPlaces(action)) => self.on_suggestion_places_action(action),
             Some(PaneAction::ScreenText(ScreenTextAction::AskForOcrPermission)) => {
                 shell.ask_for_permission(Permission::ScreenRecording);
@@ -561,6 +639,7 @@ impl Controller {
         self.general
             .action_for(input, &self.playground, &installed)
             .map(PaneAction::General)
+            .or_else(|| self.languages.action_for(input).map(PaneAction::Languages))
             .or_else(|| {
                 self.suggestion_places
                     .action_for(input)
@@ -618,12 +697,34 @@ impl Controller {
         let outcome = flow.on_action(action, &self.setup_context(&installed, &permissions));
         match outcome {
             SetupOutcome::Shown => self.setup = Some(flow),
+            SetupOutcome::Spelling(is_on) => {
+                self.setup = Some(flow);
+                self.switch_spelling(is_on, shell);
+            }
             SetupOutcome::Finished(autostart) => {
                 shell.close_setup();
                 self.on_general_action(autostart, shell);
                 self.on_general_action(GeneralAction::FinishSetup, shell);
             }
         }
+    }
+
+    /// Turns on or off the checks of typos and spelling: the rule for typos with its fix, and the
+    /// spell check.
+    fn switch_spelling(&mut self, is_on: bool, shell: &mut dyn Shell) {
+        let (typo_rule, spell_check) = if is_on {
+            (TypoRule::HideSuggestions, SpellCheck::On)
+        } else {
+            (TypoRule::Suggest, SpellCheck::Off)
+        };
+        self.on_general_action(GeneralAction::SwitchTypoRule(typo_rule), shell);
+        if is_on {
+            self.on_general_action(GeneralAction::SwitchTypoFix(TypoFix::Offer), shell);
+        }
+        let outcome = self
+            .languages
+            .on_action(LanguagesAction::SwitchCheck(spell_check));
+        self.apply_languages_outcome(outcome);
     }
 
     fn setup_view(&self, desktop: &dyn Desktop) -> Option<SetupView> {
@@ -640,6 +741,7 @@ impl Controller {
     ) -> SetupContext<'context> {
         SetupContext {
             general: &self.general,
+            languages: &self.languages,
             models: &self.models,
             playground: &self.playground,
             installed,
@@ -661,6 +763,8 @@ impl Controller {
         self.screen_text = ScreenTextPane::new(first_start.screen_text);
         self.personalization = PersonalizationPane::new(first_start.personalization);
         self.energy_saving = EnergySavingPane::new(first_start.energy_saving);
+        let languages = self.languages.reset(first_start.spelling);
+        self.apply_languages_outcome(languages);
         self.about
             .on_action(AboutAction::SwitchUpdates(first_start.updates));
         let settings = self.save_settings(self.general.settings().clone());
@@ -682,6 +786,7 @@ impl Controller {
     pub fn on_delivery(&mut self, delivery: Delivery, shell: &mut dyn Shell) {
         match delivery {
             Delivery::Hub(event) => self.on_hub_event(event, shell),
+            Delivery::Dictionary(event) => self.on_dictionary_event(event, shell),
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
             Delivery::Recommendation(event) => self.on_recommendation_event(&event, shell),
@@ -793,19 +898,20 @@ impl Controller {
         }
     }
 
-    /// Keeps the settings of the Apps and websites, Copied and screen text, Personalization and Energy saving
-    /// panes for the next run, and uses them.
+    /// Keeps the settings of the Languages and typos, Apps and websites, Copied and screen text,
+    /// Personalization and Energy saving panes for the next run, and uses them.
     fn keep_pane_settings(&mut self) {
         let settings = self.save_settings(self.general.settings().clone());
         self.app.use_settings(&settings);
     }
 
-    /// Saves `general`, the settings of the General pane, with the settings of the Apps and
-    /// websites, Copied and screen text, Personalization, Energy saving and About panes, and
-    /// returns them all.
+    /// Saves `general`, the settings of the General pane, with the settings of the Languages and
+    /// typos, Apps and websites, Copied and screen text, Personalization, Energy saving and About
+    /// panes, and returns them all.
     fn save_settings(&mut self, general: Settings) -> Settings {
         let settings = Settings {
             suggestion_places: self.suggestion_places.settings().clone(),
+            spelling: self.languages.settings().clone(),
             screen_text: self.screen_text.settings().clone(),
             personalization: self.personalization.settings().clone(),
             energy_saving: *self.energy_saving.settings(),
@@ -1131,6 +1237,7 @@ impl Controller {
         let general = &self.general;
         let mut pages = vec![
             general.page(first_run, translations),
+            self.languages.page(general.typo_rows(translations), translations),
             self.suggestion_places.page(translations),
             self.screen_text
                 .page(

@@ -2,9 +2,10 @@
 //! does not know and that the writer did not write. Also tells the typed letters that the typo
 //! rule must not take for a typo.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::inference::WordBias;
+use crate::settings::SpellCheck;
 use crate::spelling::{SpellChecker, checked_words};
 
 use super::Engine;
@@ -92,10 +93,12 @@ fn kept_answer(answers: &mut HashMap<String, bool>, text: &str, ask: impl FnOnce
 }
 
 /// The words that the writer wrote or prefers: the words of the prompt and of the text after the
-/// caret of a session, and the words of its word bias.
+/// caret of a session, the words of its word bias, and the words of the earlier writing.
 pub(super) struct WrittenWords<'session> {
     pub(super) session: &'session Session,
     pub(super) word_bias: Option<&'session WordBias>,
+    /// The words of the earlier writing in lowercase.
+    pub(super) history_words: &'session HashSet<String>,
 }
 
 impl WrittenWords<'_> {
@@ -107,6 +110,7 @@ impl WrittenWords<'_> {
             .into_iter()
             .any(|text| words(text).any(|written| written == lowercase));
         is_in_session
+            || self.history_words.contains(&lowercase)
             || self.word_bias.is_some_and(|bias| {
                 bias.words
                     .iter()
@@ -127,6 +131,14 @@ impl Engine {
             fits_writer: true,
         });
     }
+}
+
+/// The `dictionary` that cuts a suggestion while the `spell_check` is on, else `None`.
+pub(super) fn checking_dictionary(
+    dictionary: &mut Option<Dictionary>,
+    spell_check: SpellCheck,
+) -> Option<&mut Dictionary> {
+    dictionary.as_mut().filter(|_| spell_check == SpellCheck::On)
 }
 
 /// Returns `suggestion`, the ghost text after `text_before`, up to its first word that the

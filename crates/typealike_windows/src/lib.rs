@@ -56,7 +56,7 @@ pub use crate::account::account_name;
 pub use crate::cpu_cores::cpu_cores;
 pub use crate::key_file::ProtectedKeyFile;
 pub use crate::language::ui_language;
-pub use crate::spelling::SpellingDictionary;
+pub use crate::spelling::{SpellingDictionary, WindowsDictionaries};
 pub use crate::startup::StartupEntry;
 
 /// A failure that stops TypeAlike from starting or running.

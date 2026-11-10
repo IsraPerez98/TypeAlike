@@ -27,11 +27,14 @@ pub fn closest_languages(preferred: &[String], available: &[String]) -> Vec<Stri
     languages
 }
 
-fn language_of(tag: &str) -> &str {
+/// The language part of `tag`, such as `es` of `es-CL`.
+pub(crate) fn language_of(tag: &str) -> &str {
     tag.split(['-', '_']).next().unwrap_or_default()
 }
 
-fn same_tag(left: &str, right: &str) -> bool {
+/// Whether `left` and `right` are the same tag. A hyphen and an underscore separate the parts of a
+/// tag alike, and the case does not count.
+pub(crate) fn same_tag(left: &str, right: &str) -> bool {
     left.len() == right.len()
         && left.chars().zip(right.chars()).all(|(left, right)| {
             left.eq_ignore_ascii_case(&right) || matches!((left, right), ('-', '_') | ('_', '-'))

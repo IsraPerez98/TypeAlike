@@ -98,7 +98,7 @@ fn next_shows_the_next_step() {
 
     harness.press_button(NEXT);
 
-    assert_eq!(shown_step(&mut harness), Some(SetupStep::About));
+    assert_eq!(shown_step(&mut harness), Some(SetupStep::Languages));
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn finish_closes_the_setup_and_keeps_it_finished() {
     harness.install(model_file());
     harness.controller.on_launch(&mut harness.shell);
 
-    let steps = [(); 4].map(|()| {
+    let steps = [(); 5].map(|()| {
         harness.press_button(NEXT);
         shown_step(&mut harness)
     });
@@ -189,6 +189,7 @@ fn finish_closes_the_setup_and_keeps_it_finished() {
         ),
         (
             [
+                Some(SetupStep::Languages),
                 Some(SetupStep::About),
                 Some(SetupStep::Sources),
                 Some(SetupStep::Model),

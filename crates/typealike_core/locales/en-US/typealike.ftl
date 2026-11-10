@@ -65,6 +65,28 @@ general-reset = Reset all settings
 general-reset-description = All settings go back to their defaults, and the setup opens again. Your downloaded models and your earlier writing stay.
 general-reset-confirm = Press again to reset
 
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+
+languages-title = Languages and typos
+languages-summary = Choose the languages that you write, and what suggestions do with typos and unknown words.
+languages-heading = Languages that you write
+languages-add = Add a language
+languages-add-description = TypeAlike checks the spelling of suggestions with the dictionary of each language.
+languages-add-description-download = When this computer has no dictionary for a language, TypeAlike downloads one.
+# The first entry of the menu "Add a language". It adds no language.
+languages-add-choose = Choose a language
+languages-remove = Remove
+languages-cancel = Cancel download
+languages-try-again = Try again
+languages-downloading = { $percent }% of the dictionary downloaded
+languages-no-dictionary = TypeAlike has no dictionary for this language, so suggestions in it do not get a spelling check.
+languages-error-offline = TypeAlike cannot download the dictionary. Check your internet connection.
+languages-error-server = TypeAlike cannot get the dictionary now. Try again later.
+languages-error-storage = TypeAlike cannot save the dictionary on this computer. Make sure that the disk has free space.
+languages-typos-heading = Typos and unknown words
+languages-spell-check = Check the spelling of suggestions
+languages-spell-check-description = A suggestion stops before a word that no dictionary of your languages knows, such as a word that the model made up. Slang and rare names can also stop a suggestion.
+
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Suggestion model
@@ -310,11 +332,14 @@ setup-model-checking = Checking the graphics card…
 setup-other-models = Choose another model
 setup-permission-title = Give TypeAlike access to text fields
 setup-permission-body = Click “Give access”. Then turn on TypeAlike in System Settings, and come back to this window.
+setup-languages-title = Choose your languages
+setup-spelling = Check typos and spelling
+setup-spelling-description = A word with a typo gets a fix, and a suggestion stops before a word that is in no dictionary.
 setup-about-title = Tell TypeAlike about you
 setup-sources-title = What suggestions can use
 setup-history-description = TypeAlike saves what you write in an encrypted file on this computer. Suggestions then use your words and your style. You can delete this text on the Personalization page.
 setup-screen-text-description = TypeAlike reads the text near the field where you type, such as the last messages of a chat. With your earlier writing, it also saves some words of the messages that you answer.
-setup-sources-footer = TypeAlike uses the internet only to find and download models, and to get new versions of TypeAlike. It does not save the text of password fields.
+setup-sources-footer = TypeAlike uses the internet only to find and download models, to download dictionaries, and to get new versions of TypeAlike. It does not save the text of password fields.
 setup-ready-title = TypeAlike is ready
 setup-ready-body = Try it now in any app, such as your email or a chat.
 setup-tray-notification-area = TypeAlike stays in the notification area of the taskbar. Use its icon to pause suggestions or to open the settings.

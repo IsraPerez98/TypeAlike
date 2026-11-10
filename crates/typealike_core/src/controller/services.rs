@@ -12,7 +12,7 @@ use crate::release::{DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed, Rele
 use crate::settings::{Autostart, SettingsStore};
 use crate::settings_window::about::Library;
 use crate::setup::TrayPlace;
-use crate::spelling::SpellChecker;
+use crate::spelling::{DictionaryEvent, DictionaryHub, OsDictionaries};
 
 /// Who picks the backend that runs each model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,8 @@ impl PlaygroundPage {
 pub enum Delivery {
     /// For the Models pane.
     Hub(HubEvent),
+    /// For the Languages and typos pane.
+    Dictionary(DictionaryEvent),
     /// For the Playground pane, which also loads the suggestion model.
     Playground(InferenceEvent),
     /// For the ghost text at the caret.
@@ -97,9 +99,12 @@ pub struct Services {
     pub autostart: Box<dyn Autostart>,
     /// Keeps the earlier writing of the user while the Personalization pane allows it.
     pub history: Box<dyn WritingHistory>,
-    /// Knows the words of the languages that the user writes, so that a suggestion stops before a
-    /// word that the model made up.
-    pub spell_checker: Box<dyn SpellChecker>,
+    /// The spelling dictionaries of the OS, which know the words of the languages that the user
+    /// writes, so that a suggestion stops before a word that the model made up.
+    pub os_dictionaries: Box<dyn OsDictionaries>,
+    /// Downloads the dictionaries of the languages that the OS has no dictionary for, on an OS that
+    /// has few of them.
+    pub dictionary_hub: Option<Box<dyn DictionaryHub>>,
     /// Finds, downloads and installs the newest release of TypeAlike for the About pane.
     pub releases: Box<dyn ReleaseFeed>,
     /// The third-party libraries of the build, which the About pane lists with their licenses.

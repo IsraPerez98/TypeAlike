@@ -65,6 +65,28 @@ general-reset = Redefinir todos os ajustes
 general-reset-description = Todos os ajustes voltam ao padrão, e a configuração inicial abre de novo. Seus modelos baixados e seus textos anteriores são mantidos.
 general-reset-confirm = Pressione de novo para redefinir
 
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+
+languages-title = Idiomas e erros de digitação
+languages-summary = Escolha os idiomas em que você escreve e o que as sugestões fazem com erros de digitação e palavras desconhecidas.
+languages-heading = Idiomas em que você escreve
+languages-add = Adicionar um idioma
+languages-add-description = O TypeAlike verifica a ortografia das sugestões com o dicionário de cada idioma.
+languages-add-description-download = Quando este computador não tem um dicionário para um idioma, o TypeAlike baixa um.
+# The first entry of the menu "Add a language". It adds no language.
+languages-add-choose = Escolha um idioma
+languages-remove = Remover
+languages-cancel = Cancelar download
+languages-try-again = Tentar de novo
+languages-downloading = { $percent }% do dicionário baixado
+languages-no-dictionary = O TypeAlike não tem um dicionário para este idioma, então não verifica a ortografia das sugestões nele.
+languages-error-offline = O TypeAlike não consegue baixar o dicionário. Verifique sua conexão com a internet.
+languages-error-server = O TypeAlike não consegue obter o dicionário agora. Tente de novo mais tarde.
+languages-error-storage = O TypeAlike não consegue salvar o dicionário neste computador. Verifique se há espaço livre no disco.
+languages-typos-heading = Erros de digitação e palavras desconhecidas
+languages-spell-check = Verificar a ortografia das sugestões
+languages-spell-check-description = Uma sugestão para antes de uma palavra que nenhum dicionário dos seus idiomas conhece, como uma palavra que o modelo inventou. Gírias e nomes raros também podem interromper uma sugestão.
+
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Modelo de sugestões
@@ -320,11 +342,14 @@ setup-model-checking = Verificando a placa de vídeo…
 setup-other-models = Escolher outro modelo
 setup-permission-title = Dê ao TypeAlike acesso aos campos de texto
 setup-permission-body = Clique em “Dar acesso”. Depois, ative o TypeAlike nos Ajustes do Sistema e volte a esta janela.
+setup-languages-title = Escolha seus idiomas
+setup-spelling = Verificar erros de digitação e ortografia
+setup-spelling-description = Uma palavra com erro de digitação recebe uma correção, e uma sugestão para antes de uma palavra que não está em nenhum dicionário.
 setup-about-title = Conte ao TypeAlike sobre você
 setup-sources-title = O que as sugestões podem usar
 setup-history-description = O TypeAlike salva o que você escreve em um arquivo criptografado neste computador. Assim, as sugestões usam suas palavras e seu estilo. Você pode excluir esse texto na página Personalização.
 setup-screen-text-description = O TypeAlike lê o texto perto do campo onde você digita, como as últimas mensagens de um chat. Junto com seus textos anteriores, ele também salva algumas palavras das mensagens que você responde.
-setup-sources-footer = O TypeAlike usa a internet só para encontrar e baixar modelos, e para baixar as novas versões dele. Ele não salva o texto de campos de senha.
+setup-sources-footer = O TypeAlike usa a internet só para encontrar e baixar modelos, para baixar dicionários e para baixar as novas versões dele. Ele não salva o texto de campos de senha.
 setup-ready-title = O TypeAlike está pronto
 setup-ready-body = Experimente agora em qualquer app, como seu e-mail ou um chat.
 setup-tray-notification-area = O TypeAlike fica na área de notificação da barra de tarefas. Use o ícone dele para pausar as sugestões ou abrir os ajustes.

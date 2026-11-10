@@ -42,7 +42,10 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 data_dir.join("history.key"),
             )),
         )),
-        spell_checker: Box::new(typealike_windows::SpellingDictionary::new()),
+        os_dictionaries: Box::new(typealike_windows::WindowsDictionaries),
+        dictionary_hub: Some(Box::new(typealike_dictionaries::HunspellDictionaries::new(
+            data_dir.join("Dictionaries"),
+        ))),
         releases: Box::new(typealike_releases::GitHubReleases::new(installer_suffix())),
         libraries: windows_licenses::LIBRARIES,
     };
@@ -93,7 +96,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
             data_dir.join("history.bin"),
             Box::new(typealike_macos::Keychain),
         )),
-        spell_checker: Box::new(typealike_macos::SpellingDictionary::new()),
+        os_dictionaries: Box::new(typealike_macos::MacDictionaries),
+        dictionary_hub: None,
         releases: Box::new(typealike_releases::GitHubReleases::new("-macos-arm64.dmg")),
         libraries: macos_licenses::LIBRARIES,
     };

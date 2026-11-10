@@ -4,6 +4,7 @@ mod catalog;
 mod page;
 
 pub(crate) use catalog::drafter_of;
+pub(in crate::settings_window) use page::{permille, size_text};
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -161,6 +161,7 @@ fn icon_tile(icon: PageIcon, main_thread: MainThreadMarker) -> Retained<NSBox> {
 fn page_look(icon: PageIcon) -> (&'static str, Retained<NSColor>) {
     match icon {
         PageIcon::Gear => ("gearshape.fill", NSColor::systemGrayColor()),
+        PageIcon::Languages => ("globe", NSColor::systemBlueColor()),
         PageIcon::TextViewfinder => ("text.viewfinder", NSColor::systemBlueColor()),
         PageIcon::PersonText => ("person.text.rectangle.fill", NSColor::systemOrangeColor()),
         PageIcon::Cube => ("cube.fill", NSColor::systemPurpleColor()),

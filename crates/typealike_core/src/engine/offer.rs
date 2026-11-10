@@ -5,7 +5,7 @@ use std::mem;
 use crate::inference::{Completion, Correction, InferenceError, TypoCheck};
 use crate::settings::TypoFix;
 
-use super::spelling::{WrittenWords, known_start};
+use super::spelling::{WrittenWords, checking_dictionary, known_start};
 use super::suggestion::{
     complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed, word_fix,
 };
@@ -210,9 +210,11 @@ impl Engine {
         let written = WrittenWords {
             session,
             word_bias: word_bias.as_ref(),
+            history_words: &self.history_words,
         };
         let fixed_text = format!("{}{suggestion}", correction.fixed);
-        let known = known_start(self.dictionary.as_mut(), before_typo, &fixed_text, &written);
+        let dictionary = checking_dictionary(&mut self.dictionary, self.spell_check);
+        let known = known_start(dictionary, before_typo, &fixed_text, &written);
         let rest = known.strip_prefix(correction.fixed.as_str())?;
         Some(word_fix(correction, rest))
     }
@@ -286,9 +288,10 @@ impl Engine {
         let written = WrittenWords {
             session,
             word_bias: word_bias.as_ref(),
+            history_words: &self.history_words,
         };
         let grown = known_start(
-            self.dictionary.as_mut(),
+            checking_dictionary(&mut self.dictionary, self.spell_check),
             &session.text_before,
             &suggestion,
             &written,

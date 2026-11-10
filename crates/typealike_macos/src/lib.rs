@@ -42,7 +42,7 @@ pub use account::account_name;
 pub use keychain::Keychain;
 pub use language::ui_language;
 pub use launch_agent::LaunchAgent;
-pub use spelling::SpellingDictionary;
+pub use spelling::{MacDictionaries, SpellingDictionary};
 
 use typealike_core::controller::Services;
 use typealike_core::settings::Settings;

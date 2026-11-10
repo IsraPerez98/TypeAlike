@@ -132,7 +132,12 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ## Other services
 
 - The physical cores of the CPU and their efficiency classes (`cpu_cores`).
-- The spelling dictionaries (`SpellingDictionary`): an `ISpellChecker` for each language of `GlobalizationPreferences::Languages`, on the main thread in the multithreaded COM apartment. `ISpellChecker` gives no completions, so only letters that are a whole word count as the start of a word.
+- The spelling dictionaries (`WindowsDictionaries`, `SpellingDictionary`): the languages of the user are `GlobalizationPreferences::Languages`, and the languages with a dictionary are `ISpellCheckerFactory::SupportedLanguages`. The controller opens an `ISpellChecker` for each language that it picks, on the main thread in the multithreaded COM apartment. `ISpellChecker` gives no completions, so only letters that are a whole word count as the start of a word.
+- Windows has a spell checker only for the languages that the user added in Time & language. It does not use Hunspell files in `%APPDATA%\Microsoft\Spelling` as a new language.
+- The downloaded dictionaries (`typealike_dictionaries::HunspellDictionaries`, the `DictionaryHub` of core): Hunspell dictionaries from `wooorm/dictionaries` on GitHub at a pinned commit, in `%LOCALAPPDATA%\TypeAlike\Dictionaries\<language>`.
+  - Each file must have the size and the SHA-256 digest of the catalog (`catalog/pinned.rs`, from `make_catalog.py`). The files go to `<language>.part` first, and the folder gets its name when each file is right.
+  - A worker thread reads each dictionary with `spellbook` (8 ms and about 4 MB for Spanish), so a read never delays the hooks. A check takes about 2.5 µs.
+  - Hunspell gives no completions either, so only a whole word counts as the start of a word.
 - A web page of the About pane opens in the default browser through `ShellExecuteW` (`web_page.rs`), on a thread of its own in the multithreaded COM apartment, so that the start of the browser never delays the hooks.
 
 ## Autostart

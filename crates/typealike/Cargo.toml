@@ -41,6 +41,7 @@ typealike_releases.workspace = true
 typealike_settings.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+typealike_dictionaries.workspace = true
 typealike_windows.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -78,6 +78,8 @@ impl Page {
 pub enum PageIcon {
     /// A gear, for settings.
     Gear,
+    /// Letters of two scripts, for the languages that the user writes.
+    Languages,
     /// A cube, for things that the user downloads.
     Cube,
     /// A text cursor, for text that the user types.

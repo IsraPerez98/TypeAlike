@@ -106,8 +106,8 @@ const BACKEND_CHOICES: [(Backend, &str); 3] = [
 ];
 
 /// State of the General pane: the settings that no other pane keeps. The General page shows some of
-/// them, and the sections of the pane show the others on the Copied and screen text,
-/// Personalization, Energy saving and Models pages.
+/// them, and the sections of the pane show the others on the Languages and typos, Copied and screen
+/// text, Personalization, Energy saving and Models pages.
 ///
 /// ```
 /// use typealike_core::settings_window::general::{GeneralAction, GeneralPane};
@@ -580,14 +580,21 @@ impl GeneralPane {
                 self.settings.suggestion_display == SuggestionDisplay::WordByWord,
                 translations,
             ),
-            switch_row(
-                TYPO_RULE,
-                RowIcon::WarningSign,
-                ("general-typo-rule", "general-typo-rule-description"),
-                self.settings.typo_rule == TypoRule::HideSuggestions,
-                translations,
-            ),
         ];
+        Section::new(rows.into())
+    }
+
+    /// Returns the switches of the rule for typos and of the typo fix, for the Languages and typos
+    /// page and the setup. The typo fix shows only while the rule is on.
+    #[must_use]
+    pub fn typo_rows(&self, translations: &Translations) -> Vec<Row> {
+        let typo_rule = switch_row(
+            TYPO_RULE,
+            RowIcon::WarningSign,
+            ("general-typo-rule", "general-typo-rule-description"),
+            self.settings.typo_rule == TypoRule::HideSuggestions,
+            translations,
+        );
         let typo_fix = (self.settings.typo_rule == TypoRule::HideSuggestions).then(|| {
             switch_row(
                 TYPO_FIX,
@@ -597,7 +604,7 @@ impl GeneralPane {
                 translations,
             )
         });
-        Section::new(rows.into_iter().chain(typo_fix).collect())
+        iter::once(typo_rule).chain(typo_fix).collect()
     }
 
     fn select_backend(&mut self, backend: Backend, playground: &mut PlaygroundPane) -> GeneralOutcome {

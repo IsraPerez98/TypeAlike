@@ -1,14 +1,26 @@
-//! The spelling dictionary of the OS, which tells which words a suggestion may write.
+//! The spelling dictionaries of the languages that the user writes, which tell which words a
+//! suggestion may write: the dictionaries of the OS, and on an OS that has few of them, the
+//! dictionaries that TypeAlike downloads.
+
+mod dictionaries;
+mod languages;
 
 use crate::history::is_apostrophe;
+
+pub(crate) use dictionaries::JoinedSpellCheckers;
+pub use dictionaries::{
+    DictionaryEvent, DictionaryEventSink, DictionaryHub, DictionaryRequest, DownloadableDictionary,
+    OsDictionaries,
+};
+pub use languages::{WRITING_LANGUAGES, language_name};
+pub(crate) use languages::{is_main_entry, writing_language_of};
 
 /// The fewest letters of a word that the dictionary checks. Shorter words of a chat, such as "ok",
 /// "xd" or "po", are often in no dictionary.
 const MIN_CHECKED_LETTERS: usize = 3;
 
-/// The spelling dictionary of the OS for the languages that the user writes. The platform
-/// implements it, and core asks it about each word that a suggestion writes, so that a suggestion
-/// never writes a word that the model made up.
+/// The spelling dictionaries of the languages that the user writes. Core asks them about each word
+/// that a suggestion writes, so that a suggestion never writes a word that the model made up.
 pub trait SpellChecker {
     /// Whether the dictionary knows `word`, a run of letters with no whitespace, in any language
     /// that the user writes. A platform that cannot check `word` answers `true`.

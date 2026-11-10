@@ -982,6 +982,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typealike_core",
+ "typealike_dictionaries",
  "typealike_history",
  "typealike_llm",
  "typealike_macos",
@@ -999,6 +1000,18 @@ dependencies = [
  "fluent-bundle",
  "fluent-syntax",
  "unic-langid",
+]
+
+[[package]]
+name = "typealike_dictionaries"
+version = "0.8.0"
+dependencies = [
+ "ring",
+ "spellbook",
+ "thiserror",
+ "tracing",
+ "typealike_core",
+ "ureq",
 ]
 
 [[package]]

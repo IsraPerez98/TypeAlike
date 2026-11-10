@@ -65,6 +65,28 @@ general-reset = Alle Einstellungen zurücksetzen
 general-reset-description = Alle Einstellungen erhalten wieder ihre Standardwerte, und die Einrichtung öffnet sich erneut. Deine heruntergeladenen Modelle und deine früheren Texte bleiben erhalten.
 general-reset-confirm = Zum Zurücksetzen erneut drücken
 
+## The Languages and typos pane of the settings window, and the step of the setup that shows it. The menu "Add a language" lists the names of the languages, which stay the same in each language. $percent is a whole number from 0 to 100.
+
+languages-title = Sprachen und Tippfehler
+languages-summary = Wähle die Sprachen, in denen du schreibst, und was Vorschläge mit Tippfehlern und unbekannten Wörtern tun.
+languages-heading = Sprachen, in denen du schreibst
+languages-add = Sprache hinzufügen
+languages-add-description = TypeAlike prüft die Rechtschreibung der Vorschläge mit dem Wörterbuch jeder Sprache.
+languages-add-description-download = Wenn dieser Computer kein Wörterbuch für eine Sprache hat, lädt TypeAlike eines herunter.
+# The first entry of the menu "Add a language". It adds no language.
+languages-add-choose = Sprache wählen
+languages-remove = Entfernen
+languages-cancel = Download abbrechen
+languages-try-again = Erneut versuchen
+languages-downloading = { $percent } % des Wörterbuchs heruntergeladen
+languages-no-dictionary = TypeAlike hat kein Wörterbuch für diese Sprache und prüft daher die Rechtschreibung der Vorschläge in ihr nicht.
+languages-error-offline = TypeAlike kann das Wörterbuch nicht herunterladen. Prüfe deine Internetverbindung.
+languages-error-server = TypeAlike kann das Wörterbuch gerade nicht abrufen. Versuche es später erneut.
+languages-error-storage = TypeAlike kann das Wörterbuch nicht auf diesem Computer speichern. Prüfe, ob auf dem Datenträger genug Platz frei ist.
+languages-typos-heading = Tippfehler und unbekannte Wörter
+languages-spell-check = Rechtschreibung der Vorschläge prüfen
+languages-spell-check-description = Ein Vorschlag endet vor einem Wort, das kein Wörterbuch deiner Sprachen kennt, etwa einem Wort, das das Modell erfunden hat. Auch Umgangssprache und seltene Namen können einen Vorschlag beenden.
+
 ## The menu of the suggestion model and its status, in the General, Models and Playground panes.
 
 model-menu = Vorschlagsmodell
@@ -314,11 +336,14 @@ setup-model-checking = Grafikkarte wird geprüft…
 setup-other-models = Anderes Modell auswählen
 setup-permission-title = TypeAlike Zugriff auf Textfelder geben
 setup-permission-body = Klicke auf „Zugriff erlauben“. Schalte dann TypeAlike in den Systemeinstellungen ein und kehre zu diesem Fenster zurück.
+setup-languages-title = Wähle deine Sprachen
+setup-spelling = Tippfehler und Rechtschreibung prüfen
+setup-spelling-description = Ein Wort mit Tippfehler bekommt eine Korrektur, und ein Vorschlag endet vor einem Wort, das in keinem Wörterbuch steht.
 setup-about-title = Erzähl TypeAlike von dir
 setup-sources-title = Was Vorschläge verwenden können
 setup-history-description = TypeAlike speichert, was du schreibst, in einer verschlüsselten Datei auf diesem Computer. So verwenden Vorschläge deine Wörter und deinen Stil. Du kannst diesen Text auf der Seite „Personalisierung“ löschen.
 setup-screen-text-description = TypeAlike liest den Text in der Nähe des Felds, in dem du tippst, etwa die letzten Nachrichten eines Chats. Mit deinen früheren Texten speichert es auch einige Wörter der Nachrichten, auf die du antwortest.
-setup-sources-footer = TypeAlike verwendet das Internet nur, um Modelle zu finden und herunterzuladen und um neue Versionen von TypeAlike zu laden. Den Text von Passwortfeldern speichert es nicht.
+setup-sources-footer = TypeAlike verwendet das Internet nur, um Modelle zu finden und herunterzuladen, um Wörterbücher herunterzuladen und um neue Versionen von TypeAlike zu laden. Den Text von Passwortfeldern speichert es nicht.
 setup-ready-title = TypeAlike ist bereit
 setup-ready-body = Probier es jetzt in einer beliebigen App aus, etwa in deinem E-Mail-Programm oder einem Chat.
 setup-tray-notification-area = TypeAlike bleibt im Infobereich der Taskleiste. Über sein Symbol kannst du Vorschläge pausieren oder die Einstellungen öffnen.

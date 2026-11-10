@@ -14,6 +14,7 @@ mod harness;
 mod history;
 mod input_settle;
 mod key_repeat;
+mod languages;
 mod screen_read;
 mod scroll;
 mod settings_window;

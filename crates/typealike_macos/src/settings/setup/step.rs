@@ -52,6 +52,7 @@ enum Hero {
 fn hero(step: SetupStep) -> Hero {
     match step {
         SetupStep::Welcome => Hero::AppIcon,
+        SetupStep::Languages => Hero::Symbol("character.bubble", NSColor::systemBlueColor()),
         SetupStep::About => Hero::Symbol("person.text.rectangle", NSColor::systemGreenColor()),
         SetupStep::Sources => Hero::Symbol("text.viewfinder", NSColor::systemPurpleColor()),
         SetupStep::Permission => Hero::Symbol("hand.raised", NSColor::systemOrangeColor()),

@@ -2,7 +2,7 @@
 //! of a word.
 
 use typealike_core::language::closest_languages;
-use typealike_core::spelling::SpellChecker;
+use typealike_core::spelling::{OsDictionaries, SpellChecker};
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Globalization::{ISpellChecker, ISpellCheckerFactory, SpellCheckerFactory};
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree, IEnumString};
@@ -89,14 +89,47 @@ fn has_no_error(checker: &ISpellChecker, word: &HSTRING) -> bool {
     next.is_err() || error.is_none()
 }
 
+/// The spelling dictionaries of Windows, which the controller opens for the languages that the user
+/// writes.
+#[derive(Debug, Default)]
+pub struct WindowsDictionaries;
+
+impl OsDictionaries for WindowsDictionaries {
+    fn preferred_languages(&self) -> Vec<String> {
+        preferred_languages()
+    }
+
+    fn available_languages(&self) -> Vec<String> {
+        let available =
+            ComApartment::join().and_then(|_apartment| supported_languages(&spell_checker_factory()?));
+        available.unwrap_or_else(|error| {
+            tracing::warn!(%error, "the spelling dictionaries are unavailable");
+            Vec::new()
+        })
+    }
+
+    fn open(&self, languages: &[String]) -> Box<dyn SpellChecker> {
+        Box::new(SpellingDictionary::with_languages(languages))
+    }
+}
+
+/// The factory of the spell checkers of Windows. COM must be initialized on this thread.
+fn spell_checker_factory() -> Result<ISpellCheckerFactory> {
+    // SAFETY: plain call; COM is initialized on this thread.
+    unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }
+}
+
+/// The languages that `factory` has a spell checker for.
+fn supported_languages(factory: &ISpellCheckerFactory) -> Result<Vec<String>> {
+    // SAFETY: plain call on a live factory.
+    Ok(strings_of(&unsafe { factory.SupportedLanguages() }?))
+}
+
 /// Opens a dictionary for each of the `languages` that has one, and returns the languages of the
 /// dictionaries with them.
 fn open_checkers(languages: &[String]) -> Result<(Vec<String>, Vec<ISpellChecker>)> {
-    // SAFETY: plain call; COM is initialized on this thread.
-    let factory: ISpellCheckerFactory =
-        unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }?;
-    // SAFETY: plain call on a live factory.
-    let available = strings_of(&unsafe { factory.SupportedLanguages() }?);
+    let factory = spell_checker_factory()?;
+    let available = supported_languages(&factory)?;
     let languages = closest_languages(languages, &available);
     let checkers = languages
         .iter()

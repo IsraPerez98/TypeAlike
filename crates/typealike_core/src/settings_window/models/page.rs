@@ -280,7 +280,7 @@ fn failure_message(error: HubError, retry_action: ModelsAction, buttons: &mut Bu
     })]
 }
 
-fn permille(received: ByteSize, total: ByteSize) -> Permille {
+pub(in crate::settings_window) fn permille(received: ByteSize, total: ByteSize) -> Permille {
     let thousandths = received
         .0
         .saturating_mul(u64::from(Permille::FULL.0))
@@ -307,7 +307,7 @@ fn error_message(error: HubError) -> &'static str {
 
 /// The text of `size` in decimal units, as Finder and Explorer show file sizes: whole bytes,
 /// kilobytes and megabytes, and gigabytes with one digit after the decimal separator.
-fn size_text(size: ByteSize, translations: &Translations) -> String {
+pub(in crate::settings_window) fn size_text(size: ByteSize, translations: &Translations) -> String {
     let (message, size) = match size.0 {
         bytes if bytes < KILOBYTE => ("models-size-bytes", whole_number(bytes)),
         bytes if bytes < MEGABYTE => (

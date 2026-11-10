@@ -4,6 +4,7 @@ pub mod about;
 mod controls;
 pub mod energy_saving;
 pub mod general;
+pub mod languages;
 pub mod models;
 pub mod permissions;
 pub mod personalization;

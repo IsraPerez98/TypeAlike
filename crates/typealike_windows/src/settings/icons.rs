@@ -18,6 +18,7 @@ const PERMISSIONS_GLYPH: &str = "\u{E8D7}";
 const CONTACT_GLYPH: &str = "\u{E779}";
 const ACCEPT_GLYPH: &str = "\u{E8FB}";
 const SCAN_GLYPH: &str = "\u{E8FE}";
+const LANGUAGE_GLYPH: &str = "\u{E775}";
 
 /// The picture above the title of a step in the setup window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +36,11 @@ pub(super) enum SetupPicture {
 pub(super) fn setup_picture(step: SetupStep, contrast: Contrast) -> SetupPicture {
     match step {
         SetupStep::Welcome => SetupPicture::Bitmap(include_bytes!("../../assets/logo.png")),
+        SetupStep::Languages => fluent_picture(
+            include_bytes!("../../assets/fluent/setup/globe.png"),
+            LANGUAGE_GLYPH,
+            contrast,
+        ),
         SetupStep::About => fluent_picture(
             include_bytes!("../../assets/fluent/setup/contact_card.png"),
             CONTACT_GLYPH,
@@ -120,6 +126,7 @@ fn color_page_icon(icon: PageIcon) -> &'static [u8] {
         // Windows asks for no permission, so the Permissions page never shows here.
         PageIcon::Gear | PageIcon::Hand => include_bytes!("../../assets/fluent/settings.png"),
         PageIcon::Cube => include_bytes!("../../assets/fluent/bot.png"),
+        PageIcon::Languages => include_bytes!("../../assets/fluent/globe.png"),
         PageIcon::TextCursor => include_bytes!("../../assets/fluent/edit.png"),
         PageIcon::TextViewfinder => include_bytes!("../../assets/fluent/scan_type.png"),
         PageIcon::PersonText => include_bytes!("../../assets/fluent/contact_card.png"),
@@ -133,6 +140,7 @@ fn symbol_page_icon(icon: PageIcon) -> Icon {
     match icon {
         PageIcon::Gear => Symbol::Setting.into(),
         PageIcon::Cube => Icon::font(ROBOT_GLYPH),
+        PageIcon::Languages => Icon::font(LANGUAGE_GLYPH),
         PageIcon::TextCursor => Symbol::Edit.into(),
         PageIcon::TextViewfinder => Symbol::Scan.into(),
         PageIcon::PersonText => Symbol::ContactInfo.into(),
@@ -151,6 +159,7 @@ mod tests {
     fn each_picture_is_a_bitmap_for_four_times_its_size() {
         let steps = [
             SetupStep::Welcome,
+            SetupStep::Languages,
             SetupStep::About,
             SetupStep::Sources,
             SetupStep::Permission,
@@ -160,7 +169,7 @@ mod tests {
 
         let sizes = steps.map(|step| bitmap_size(bitmap(setup_picture(step, Contrast::Standard))?));
 
-        assert_eq!(sizes, [Some((224, 224)); 6]);
+        assert_eq!(sizes, [Some((224, 224)); 7]);
     }
 
     #[test]
@@ -186,6 +195,7 @@ mod tests {
     #[test]
     fn each_other_step_shows_a_glyph_in_high_contrast() {
         let steps = [
+            SetupStep::Languages,
             SetupStep::About,
             SetupStep::Sources,
             SetupStep::Permission,
@@ -195,7 +205,7 @@ mod tests {
 
         let glyphs = steps.map(|step| matches!(setup_picture(step, Contrast::High), SetupPicture::Glyph(_)));
 
-        assert_eq!(glyphs, [true; 5]);
+        assert_eq!(glyphs, [true; 6]);
     }
 
     fn bitmap(picture: SetupPicture) -> Option<&'static [u8]> {
@@ -209,6 +219,7 @@ mod tests {
     fn each_page_icon_is_a_bitmap_for_two_times_its_size() {
         let icons = [
             PageIcon::Gear,
+            PageIcon::Languages,
             PageIcon::Hand,
             PageIcon::Cube,
             PageIcon::TextCursor,
@@ -221,7 +232,7 @@ mod tests {
 
         let sizes = icons.map(|icon| bitmap_size(color_page_icon(icon)));
 
-        assert_eq!(sizes, [Some((32, 32)); 9]);
+        assert_eq!(sizes, [Some((32, 32)); 10]);
     }
 
     /// The width and the height of the PNG file `bytes`, from its header.

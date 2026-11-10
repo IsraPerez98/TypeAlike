@@ -1,7 +1,8 @@
 //! The setup: a window that shows when TypeAlike starts for the first time and after a reset of
-//! the settings, until the user finishes it. It tells what TypeAlike does, asks for the name and
-//! the notes of the user, lets the user pick what suggestions use, asks for the permissions of the
-//! OS, and downloads the model. Its rows are the rows of the settings window, so each platform
+//! the settings, until the user finishes it. It tells what TypeAlike does, lets the user pick the
+//! languages that they write and what suggestions do with typos, asks for the name and the notes of
+//! the user, lets the user pick what suggestions use, asks for the permissions of the OS, and
+//! downloads the model. Its rows are the rows of the settings window, so each platform
 //! renders them as in the settings window and sends back each [`SettingsInput`].
 
 use crate::desktop::{Permission, PermissionState};
@@ -10,8 +11,10 @@ use crate::hub::ModelFile;
 use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
     ClipboardAccess, HistoryAccess, PersonalizationSettings, ScreenTextAccess, ScreenTextSettings,
+    SpellCheck, TypoRule,
 };
 use crate::settings_window::general::{CLIPBOARD, GeneralAction, GeneralPane};
+use crate::settings_window::languages::LanguagesPane;
 use crate::settings_window::models::ModelsPane;
 use crate::settings_window::permissions::permission_row;
 use crate::settings_window::personalization::HISTORY;
@@ -23,6 +26,7 @@ const BACK: &str = "setup-back";
 const NEXT: &str = "setup-next";
 const AUTOSTART: &str = "setup-autostart";
 const OTHER_MODELS: &str = "setup-other-models";
+const SPELLING: &str = "setup-spelling";
 
 /// Everything that the setup window shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +63,8 @@ pub struct SetupView {
 pub enum SetupStep {
     /// What TypeAlike does.
     Welcome,
+    /// The languages that the user writes, and what suggestions do with typos and unknown words.
+    Languages,
     /// The name and the notes of the user.
     About,
     /// What suggestions can use: the earlier writing, the copied text and the screen text.
@@ -115,6 +121,7 @@ pub(crate) enum SetupAction {
     Next,
     SwitchAutostart(bool),
     ShowOtherModels,
+    SwitchSpelling(bool),
 }
 
 /// What the controller must do after a setup action.
@@ -125,11 +132,15 @@ pub(crate) enum SetupOutcome {
     /// The user finished the setup, and the setup window closes. The action applies the choice of
     /// the autostart switch.
     Finished(GeneralAction),
+    /// The user turned on or off the checks of typos and spelling: the rule for typos, the typo
+    /// fix and the spell check.
+    Spelling(bool),
 }
 
 /// What the setup shows: the settings and the state of the panes, and the platform.
 pub(crate) struct SetupContext<'context> {
     pub(crate) general: &'context GeneralPane,
+    pub(crate) languages: &'context LanguagesPane,
     pub(crate) models: &'context ModelsPane,
     pub(crate) playground: &'context PlaygroundPane,
     pub(crate) installed: &'context [ModelFile],
@@ -178,6 +189,9 @@ impl SetupFlow {
                 Some(SetupAction::SwitchAutostart(*is_on))
             }
             SettingsInput::Pressed(id) if id.as_str() == OTHER_MODELS => Some(SetupAction::ShowOtherModels),
+            SettingsInput::Toggled { id, is_on } if id.as_str() == SPELLING => {
+                Some(SetupAction::SwitchSpelling(*is_on))
+            }
             _ => None,
         }
     }
@@ -199,6 +213,7 @@ impl SetupFlow {
             },
             SetupAction::SwitchAutostart(is_on) => self.is_autostart_on = is_on,
             SetupAction::ShowOtherModels => self.model_choice = ModelChoice::Other,
+            SetupAction::SwitchSpelling(is_on) => return SetupOutcome::Spelling(is_on),
         }
         SetupOutcome::Shown
     }
@@ -216,6 +231,7 @@ impl SetupFlow {
         let count = steps.len();
         let step_content = match self.step {
             SetupStep::Welcome => welcome(context),
+            SetupStep::Languages => languages(context),
             SetupStep::About => about(context),
             SetupStep::Sources => sources(context),
             SetupStep::Permission => permission(context),
@@ -225,9 +241,11 @@ impl SetupFlow {
         let next_label = match self.step {
             SetupStep::Welcome => "setup-start",
             SetupStep::Ready => "setup-finish",
-            SetupStep::About | SetupStep::Sources | SetupStep::Permission | SetupStep::Model => {
-                "setup-continue"
-            }
+            SetupStep::Languages
+            | SetupStep::About
+            | SetupStep::Sources
+            | SetupStep::Permission
+            | SetupStep::Model => "setup-continue",
         };
         SetupView {
             window_title: translations.text("setup-window-title"),
@@ -340,18 +358,24 @@ fn has_model(context: &SetupContext<'_>) -> bool {
     context.general.settings().suggestion_model.is_some() || !context.installed.is_empty()
 }
 
-/// The steps of the setup: the steps about the user first, then the permission step only on an
-/// OS that asks for the Accessibility permission, the model, and the last step.
+/// The steps of the setup: the welcome and the languages, the steps about the user, then the
+/// permission step only on an OS that asks for the Accessibility permission, the model, and the
+/// last step.
 fn steps(permissions: &[(Permission, PermissionState)]) -> Vec<SetupStep> {
     let permission = permissions
         .iter()
         .any(|&(permission, _)| permission == Permission::Accessibility)
         .then_some(SetupStep::Permission);
-    [SetupStep::Welcome, SetupStep::About, SetupStep::Sources]
-        .into_iter()
-        .chain(permission)
-        .chain([SetupStep::Model, SetupStep::Ready])
-        .collect()
+    [
+        SetupStep::Welcome,
+        SetupStep::Languages,
+        SetupStep::About,
+        SetupStep::Sources,
+    ]
+    .into_iter()
+    .chain(permission)
+    .chain([SetupStep::Model, SetupStep::Ready])
+    .collect()
 }
 
 /// The index of `step` in `steps`. A step that the OS does not have, such as the permission step,
@@ -368,7 +392,11 @@ fn can_continue(step: SetupStep, context: &SetupContext<'_>) -> bool {
         SetupStep::Permission => context.permissions.iter().all(|&(permission, state)| {
             permission != Permission::Accessibility || state == PermissionState::Granted
         }),
-        SetupStep::Welcome | SetupStep::About | SetupStep::Sources | SetupStep::Ready => true,
+        SetupStep::Welcome
+        | SetupStep::Languages
+        | SetupStep::About
+        | SetupStep::Sources
+        | SetupStep::Ready => true,
     }
 }
 
@@ -450,6 +478,30 @@ fn permission(context: &SetupContext<'_>) -> StepContent {
         body: Some("setup-permission-body"),
         sections: vec![Section::new(rows)],
         ..StepContent::new("setup-permission-title")
+    }
+}
+
+/// The step of the languages that the user writes, and of one switch for the checks of typos and
+/// spelling, so that the step fits in the window. The Languages and typos page has a switch for
+/// each check. Each row tells what it does, so the step has no body.
+fn languages(context: &SetupContext<'_>) -> StepContent {
+    let translations = context.translations;
+    let is_on = context.general.settings().typo_rule == TypoRule::HideSuggestions
+        && context.languages.settings().check == SpellCheck::On;
+    let spelling = Row::Switch(Switch {
+        id: ControlId::new(SPELLING),
+        icon: RowIcon::SpellCheck,
+        label: translations.text("setup-spelling"),
+        description: translations.text("setup-spelling-description"),
+        is_on,
+        note: None,
+    });
+    StepContent {
+        sections: vec![
+            context.languages.languages_section(translations),
+            Section::new(vec![spelling]),
+        ],
+        ..StepContent::new("setup-languages-title")
     }
 }
 

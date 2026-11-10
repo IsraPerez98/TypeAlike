@@ -4,8 +4,8 @@ use super::*;
 use typealike_core::settings::{
     EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess, HistoryApp, HistoryScope,
     IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings, PrivateWindowRule, ReplyWords,
-    ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SuggestionApp, SuggestionPlaces, SuggestionSite,
-    WordChoice,
+    ScreenTextAccess, ScreenTextApp, ScreenTextSettings, SpellCheck, SpellingSettings, SuggestionApp,
+    SuggestionPlaces, SuggestionSite, WordChoice,
 };
 
 fn model_file() -> ModelFile {
@@ -773,4 +773,26 @@ fn file_without_the_private_window_rule_stops_in_private_windows() {
         .ok();
 
     assert_eq!(rule, Some(PrivateWindowRule::StopSuggestions));
+}
+
+#[test]
+fn settings_file_without_languages_follows_the_languages_of_the_os() {
+    let settings = parse("{}").expect("an empty object is a settings file");
+
+    assert_eq!(settings.spelling, SpellingSettings::default());
+}
+
+#[test]
+fn languages_and_the_spell_check_read_from_their_names() {
+    let json = r#"{"spelling": {"languages": ["en-US", "es-CL"], "check": "off"}}"#;
+
+    let settings = parse(json).expect("valid settings");
+
+    assert_eq!(
+        settings.spelling,
+        SpellingSettings {
+            languages: Some(vec!["en-US".to_owned(), "es-CL".to_owned()]),
+            check: SpellCheck::Off,
+        }
+    );
 }

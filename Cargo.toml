@@ -22,6 +22,7 @@ typealike_llm = { path = "crates/typealike_llm" }
 typealike_history = { path = "crates/typealike_history" }
 typealike_settings = { path = "crates/typealike_settings" }
 typealike_releases = { path = "crates/typealike_releases" }
+typealike_dictionaries = { path = "crates/typealike_dictionaries" }
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 fluent-bundle = { version = "0.16.0", default-features = false }

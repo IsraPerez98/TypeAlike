@@ -3,6 +3,7 @@
 mod energy_saving;
 mod personalization;
 mod screen_text;
+mod spelling;
 mod suggestion_places;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ use typealike_core::settings::{
 use energy_saving::StoredEnergySaving;
 use personalization::StoredPersonalization;
 use screen_text::StoredScreenText;
+use spelling::StoredSpelling;
 use suggestion_places::StoredSuggestionPlaces;
 
 /// The settings as the file stores them. Missing fields take their default values, so a file
@@ -44,6 +46,7 @@ struct StoredSettings {
     suggestion_length: StoredSuggestionLength,
     typo_rule: StoredTypoRule,
     typo_fix: StoredTypoFix,
+    spelling: StoredSpelling,
     sentence_end: StoredSentenceEnd,
     /// `None` follows the language of the OS.
     ui_language: Option<StoredUiLanguage>,
@@ -225,6 +228,7 @@ impl From<Settings> for StoredSettings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            spelling: settings.spelling.into(),
             sentence_end,
             ui_language,
             setup,
@@ -313,6 +317,7 @@ impl From<StoredSettings> for Settings {
             suggestion_length,
             typo_rule,
             typo_fix,
+            spelling: stored.spelling.into(),
             sentence_end,
             ui_language,
             setup,

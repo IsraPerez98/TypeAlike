@@ -105,8 +105,8 @@ mod tests {
         ClipboardAccess, EnergySaverRule, EnergySavingSettings, FullScreenRule, GameRule, HistoryAccess,
         HistoryApp, HistoryScope, IdleTimeout, KeptTexts, OcrLevel, PersonalizationSettings,
         PrivateWindowRule, PromptPreparation, ReplyWords, ScreenTextAccess, ScreenTextApp,
-        ScreenTextSettings, Setup, SuggestionDisplay, SuggestionLength, SuggestionPlaces, SuggestionSite,
-        TypoFix, TypoRule, Updates, WordChoice, WriterName, WriterNotes,
+        ScreenTextSettings, Setup, SpellCheck, SpellingSettings, SuggestionDisplay, SuggestionLength,
+        SuggestionPlaces, SuggestionSite, TypoFix, TypoRule, Updates, WordChoice, WriterName, WriterNotes,
     };
 
     fn model_file() -> ModelFile {
@@ -174,6 +174,10 @@ mod tests {
             suggestion_length: SuggestionLength::Long,
             typo_rule: TypoRule::Suggest,
             typo_fix: TypoFix::Off,
+            spelling: SpellingSettings {
+                languages: Some(vec!["es-CL".to_owned(), "en-US".to_owned()]),
+                check: SpellCheck::Off,
+            },
             sentence_end: SentenceEnd::Stop,
             ui_language: Some(UiLanguage::Spanish),
             setup: Setup::Finished,

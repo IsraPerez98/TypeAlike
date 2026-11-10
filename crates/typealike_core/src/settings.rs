@@ -5,6 +5,7 @@ mod known_apps;
 mod notes_example;
 mod personalization;
 mod screen_text;
+mod spelling;
 mod suggestion_places;
 
 use std::fmt;
@@ -21,6 +22,7 @@ pub use personalization::{
     HistoryAccess, HistoryApp, HistoryScope, KeptTexts, PersonalizationSettings, ReplyWords, WordChoice,
 };
 pub use screen_text::{OcrLevel, ScreenTextAccess, ScreenTextApp, ScreenTextSettings};
+pub use spelling::{SpellCheck, SpellingSettings};
 pub use suggestion_places::{PrivateWindowRule, SuggestionApp, SuggestionPlaces, SuggestionSite};
 
 /// What the user writes about themself and how they write, which suggestions use. `Debug` shows
@@ -251,6 +253,9 @@ pub struct Settings {
     pub typo_rule: TypoRule,
     /// Whether a suggestion fixes the word before the caret when it looks misspelled.
     pub typo_fix: TypoFix,
+    /// The languages that the user writes, and whether a suggestion stops before a word that no
+    /// dictionary knows.
+    pub spelling: SpellingSettings,
     /// Whether a suggestion stops at the end of a sentence.
     pub sentence_end: SentenceEnd,
     /// The language of the UI, or `None` for the language that the OS gives
