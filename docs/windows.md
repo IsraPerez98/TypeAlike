@@ -72,7 +72,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - A field with the class `native-edit-context` in UIA (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): UIA gives its text only while the screen reader mode of VS Code is on.
 - After a click or a focus move, the field also counts as a password field until a read of the new field tells that it shows its text.
 - A read that gives no focused element (`FieldAnswer::Unknown`: the request failed or did not finish in time) does not change whether the field counts as a password field.
-- The caret reader waits at most 500 ms for an element and 3 s for each request about an element (`Uia::limit_waits`), so that one app that does not answer cannot stop the reads in all apps.
+- The caret reader waits at most 500 ms for an element and 3 s for each request about an element (`Uia::limit_waits`), so that one app that does not answer cannot stop the reads in all apps. Only the UIA object of Windows 8 and later (`CUIAutomation8`) can set these limits, so `Uia::connect` makes that object.
 
 ## Screen text reader
 

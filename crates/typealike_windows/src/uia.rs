@@ -13,7 +13,7 @@ use windows::Win32::Foundation::RECT;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::Variant::{VARIANT, VT_BSTR};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
+    CUIAutomation8, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
     IUIAutomationTextPattern, IUIAutomationTextRange, UIA_PROPERTY_ID, UIA_TextPatternId,
 };
 use windows::core::{BOOL, Interface, Result};
@@ -41,11 +41,13 @@ pub(crate) struct Uia {
 }
 
 impl Uia {
-    /// Joins the multithreaded COM apartment on this thread and connects to UIA.
+    /// Joins the multithreaded COM apartment on this thread and connects to UIA. The connection
+    /// is the UIA object of Windows 8 and later, because only it can limit its waits
+    /// ([`Self::limit_waits`]).
     fn connect() -> Result<Self> {
         let apartment = ComApartment::join()?;
         // SAFETY: plain call; COM is initialized on this thread.
-        let automation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }?;
+        let automation = unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER) }?;
         Ok(Self {
             automation,
             _apartment: apartment,
