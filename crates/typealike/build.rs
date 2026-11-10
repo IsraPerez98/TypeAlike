@@ -4,7 +4,8 @@
 //! It also embeds the app icon (`TypeAlike.rc`), which File Explorer, the Start menu and the
 //! windows of TypeAlike show.
 //! With the `self-contained` feature, it also copies the Windows App Runtime next to the program
-//! and adds the manifest that tells windows-reactor to load that copy.
+//! and adds the manifest that tells windows-reactor to load that copy. It also delay-loads the
+//! dynamic dependency API of Windows 11, so that the program starts on Windows 10.
 
 fn main() {
     let is_windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
@@ -27,6 +28,18 @@ fn main() {
             .manifest_required()
             .expect("the resource compiler of the Windows SDK embeds the app icon");
         #[cfg(feature = "self-contained")]
-        windows_reactor_setup::as_self_contained();
+        {
+            windows_reactor_setup::as_self_contained();
+            delay_load_package_dependency_api();
+        }
     }
+}
+
+/// Loads the dynamic dependency API (`AddPackageDependency`) only at its first call, so that
+/// TypeAlike also starts on Windows 10. Only Windows 11 has this API. windows-reactor imports it,
+/// but calls it only when no self-contained runtime is next to the program.
+#[cfg(feature = "self-contained")]
+fn delay_load_package_dependency_api() {
+    println!("cargo::rustc-link-arg-bins=delayimp.lib");
+    println!("cargo::rustc-link-arg-bins=/DELAYLOAD:api-ms-win-appmodel-runtime-l1-1-5.dll");
 }

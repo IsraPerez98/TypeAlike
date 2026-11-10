@@ -18,7 +18,7 @@ path = "src/main.rs"
 vulkan = ["typealike_llm/vulkan"]
 cuda = ["typealike_llm/cuda"]
 # Puts a private copy of the Windows App Runtime next to the program, so TypeAlike runs without
-# the installed runtime. The Windows installers use it. It adds about 30 MB.
+# the installed runtime and also on Windows 10. The Windows installers use it. It adds about 30 MB.
 self-contained = ["dep:windows-reactor-setup"]
 # Shows the Playground pane in the settings window, where a developer tries the model.
 playground = ["typealike_core/playground"]

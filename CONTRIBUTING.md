@@ -37,7 +37,8 @@ cargo run --features vulkan,cuda
 - `vulkan` needs the [Vulkan SDK](https://vulkan.lunarg.com/) (`VULKAN_SDK`).
 - `cuda` needs the CUDA Toolkit, and the CUDA DLLs on `PATH` at run time.
 - `self-contained` copies the Windows App Runtime next to the program. It adds about 30 MB, and the installers
-  use it.
+  use it. A build without it starts only on Windows 11, because windows-reactor then loads the installed runtime
+  through an API that Windows 10 does not have.
 
 On macOS, each build runs the models with Metal.
 

@@ -28,8 +28,9 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 - CMake configures llama.cpp only once. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
 - The llama.cpp build needs CMake and libclang. It does not use OpenSSL (`.cargo/config.toml`), because llama-common.dll then needs OpenSSL DLLs that Windows does not have.
 - Windows settings window: WinUI 3 through `windows-reactor`, a git dependency on windows-rs `master` at a fixed commit (the release 0.100.0 has no `AppProxy` and no public `App::run_with`).
-  - It is framework-dependent: running TypeAlike needs the Windows App Runtime 2 installed.
+  - It is framework-dependent: running TypeAlike needs the Windows App Runtime 2 installed, and Windows 11 (windows-reactor finds the runtime with `AddPackageDependency`).
   - The `self-contained` feature (`windows-reactor-setup` in `build.rs`) copies the runtime next to the program instead. It adds about 30 MB, and the Windows installers use it.
+  - The `self-contained` build delay-loads `api-ms-win-appmodel-runtime-l1-1-5.dll`, so it also starts on Windows 10. Without the delay-load, Windows 10 stops it at load ("entry point AddPackageDependency not found").
 - macOS: TypeAlike needs Accessibility access. With `cargo run` from a terminal, grant it to the terminal app. The OCR also needs Screen & System Audio Recording, which `cargo run` also takes from the terminal app.
 - Each program that loads a model calls `disable_metal_residency_sets` at the start of its `main` (the bin, `prompt_eval`, `first_key`). The reason is in `docs/llm.md`.
 

@@ -110,6 +110,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - It has a color icon of the Fluent UI System Icons for each page in the navigation (`assets/fluent`, the page symbol in high contrast), and a glyph of the icon font at the leading edge of each card of a setting. The About page has the question mark in a circle, because the Fluent icons have no color icon with the letter i.
 - The settings and setup windows show the app icon of `TypeAlike.exe` in the title bar and on the taskbar button (`settings/window_icon.rs`).
 - Each window keeps the edits that went to the controller (`TypedTexts`). A view text that is no such edit, while no edit waits, is a change of the controller, and the field shows it.
+- The installers put a copy of the Windows App Runtime next to `TypeAlike.exe` (the `self-contained` feature). windows-reactor then does not use the dynamic dependency API (`AddPackageDependency`), which only Windows 11 has. The program loads this API only at its first call, so it starts on Windows 10.
 
 ## Setup window
 
