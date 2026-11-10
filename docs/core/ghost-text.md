@@ -23,6 +23,8 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
   - A completion that stops for a typo in letters that the dictionary knows. Core asks again without the typo rule (`docs/core/suggestions.md`).
 - While the ghost text does not show, core looks at the caret again every 20 ms, at most 20 times, and then shows the ghost text at the caret where it is.
 - The fix of a typo of the same length does not move the caret, so the rest after it shows at once.
+- Some apps show the accent of a dead key as marked text, so the caret moves after the dead key (`DeadKeyAccent::Marked`). The letter after it takes the place of the accent and does not move the caret. Thus the ghost text after that letter shows at once at the same caret.
+- After a dead key that did not move the caret, the next letter moves the caret, so its ghost text waits for a caret that moved.
 
 ## Scroll
 

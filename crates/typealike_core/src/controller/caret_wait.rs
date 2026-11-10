@@ -8,6 +8,7 @@ use super::{
     MAX_CARET_MOVE_CHECKS, Shell, Timer,
 };
 use crate::desktop::ScreenRect;
+use crate::key::Key;
 
 /// The room around the focused field, in caret heights, where a caret still counts as a caret of
 /// that field.
@@ -76,14 +77,36 @@ struct CaretLooks {
     is_pending: bool,
     /// The caret of the last look that found a caret that moved.
     last_caret: Option<ScreenRect>,
+    /// The accent of a dead key, when the last key was a dead key.
+    accent: DeadKeyAccent,
+}
+
+/// The accent that a dead key types in the app, by what the looks at the caret found.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum DeadKeyAccent {
+    /// The last key was not a dead key.
+    #[default]
+    None,
+    /// The last key was a dead key, and no look found a caret that moved after it.
+    Unseen,
+    /// A look found a caret that the dead key moved: the app shows the accent as marked text, and
+    /// the letter after it takes its place without a move of the caret.
+    Marked,
 }
 
 impl CaretLooks {
-    /// Gives a key all the checks, and ends the look that waits, because the key can move the
-    /// caret.
-    fn on_key(&mut self) {
+    /// Gives `key` all the checks, and ends the look that waits, because the key can move the
+    /// caret. A letter in place of a marked accent does not move the caret, so its ghost text does
+    /// not wait for a caret that moved.
+    fn on_key(&mut self, key: Key) {
+        let replaces_marked_accent = self.accent == DeadKeyAccent::Marked && matches!(key, Key::Char(_));
+        self.accent = if key == Key::Dead {
+            DeadKeyAccent::Unseen
+        } else {
+            DeadKeyAccent::None
+        };
         self.checks_left = MAX_CARET_MOVE_CHECKS;
-        self.is_after_edit = true;
+        self.is_after_edit = !replaces_marked_accent;
         self.is_pending = false;
     }
 
@@ -122,6 +145,10 @@ impl CaretLooks {
         if self.is_after_edit() && self.last_caret == Some(caret) {
             return Some(LookOutcome::BadgeOnly);
         }
+        let has_moved_after_edit = self.is_after_edit() && self.last_caret.is_some();
+        if has_moved_after_edit && self.accent == DeadKeyAccent::Unseen {
+            self.accent = DeadKeyAccent::Marked;
+        }
         self.last_caret = Some(caret);
         self.is_after_edit = false;
         Some(LookOutcome::GhostAndBadge)
@@ -129,11 +156,11 @@ impl CaretLooks {
 }
 
 impl CaretWait {
-    /// Gives a key all the looks at the caret, and waits for the caret to settle again, because
+    /// Gives `key` all the looks at the caret, and waits for the caret to settle again, because
     /// the key can move the caret. The look that waits ends, because its caret can be stale.
-    pub(super) fn on_key(&mut self) {
+    pub(super) fn on_key(&mut self, key: Key) {
         self.has_caret_settled = false;
-        self.looks.on_key();
+        self.looks.on_key(key);
     }
 
     /// Forgets the caret of the last look, because the caret is now in another field or at an

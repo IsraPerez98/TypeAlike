@@ -222,6 +222,46 @@ fn rest_after_a_fix_of_the_same_length_shows_at_once_at_the_same_caret() {
 }
 
 #[test]
+fn letter_after_a_dead_key_that_moved_the_caret_shows_the_ghost_at_once_at_the_same_caret() {
+    let mut harness = harness_showing_at_the_old_caret("ó soon");
+    harness.press(Key::Dead);
+    harness.settle_caret();
+    harness.answer_caret(look_at(NEXT_CARET));
+    harness.press(Key::Char('ó'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(look_at(NEXT_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some(" soon"), Some(active_badge()))]
+    );
+}
+
+#[test]
+fn letter_after_a_dead_key_that_did_not_move_the_caret_waits_for_a_caret_that_moved() {
+    let mut harness = harness_showing_at_the_old_caret("ó soon");
+    harness.press(Key::Dead);
+    harness.run_out_caret_checks_at(look_at(OLD_CARET));
+    harness.settle_caret();
+    harness.answer_caret(look_at(OLD_CARET));
+    harness.press(Key::Char('ó'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(look_at(OLD_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
 fn first_look_in_a_new_field_shows_the_ghost_at_the_caret_of_the_last_look() {
     let mut harness = harness_showing_at_the_old_caret("est");
     harness.shell.focus_change = FocusChange::Changed;

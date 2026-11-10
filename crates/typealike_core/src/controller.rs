@@ -269,7 +269,7 @@ impl Controller {
         if self.tab_hold.holds(key, shell) {
             return Disposition::Swallow;
         }
-        self.caret_wait.on_key();
+        self.caret_wait.on_key(key);
         let reaction = if self.caret_wait.is_rest() {
             self.app.on_key(key, press, &DesktopWithPendingRest(&*shell))
         } else {
