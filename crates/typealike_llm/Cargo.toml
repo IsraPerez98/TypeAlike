@@ -26,6 +26,8 @@ anyhow.workspace = true
 serde.workspace = true
 # The eval compares log probabilities that it reads back from its own result files.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
+# The evals compare the dictionaries of the OS with Hunspell dictionaries.
+spellbook.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
@@ -36,6 +38,10 @@ typealike_windows.workspace = true
 
 [[example]]
 name = "prompt_eval"
+test = true
+
+[[example]]
+name = "spelling_eval"
 test = true
 
 [lints]

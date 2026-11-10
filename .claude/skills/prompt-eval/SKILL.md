@@ -79,6 +79,20 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - The report then gives a table for each cut of the typed letters: the typo cases that it catches and the other cases that it hides. Run it with `--typo-rule off` to choose a cut.
 - `--dictionary FILE` gives the app the answers of the dictionary of the OS: each line has a text, a tab, and `word`, `start` or `none`. A text that the file does not hold is a known word and no start of a word. Without it, the app of the eval has no dictionary.
 - `--dictionary macos` and `--dictionary windows` give the live dictionary of that OS, for the preferred languages of the user. Use `windows` on a computer with only English to measure Spanish cases with a dictionary that does not fit them.
+- `--dictionary windows:es-CL,en-US` gives the dictionaries of Windows for those languages. It fails when Windows has no dictionary for any of them.
+- `--dictionary hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and `PATH.dic` (UTF-8, for example from `wooorm/dictionaries`).
+- A `+` joins live dictionaries, which then know a word when any of them knows it: `windows+hunspell:PATH`.
+
+## Spelling eval
+
+```sh
+cargo run --release -p typealike_llm --example spelling_eval -- --dictionary windows --dictionary windows+hunspell:PATH --words tuning=crates/typealike_llm/examples/prompt_eval/cases/tuning.jsonl --words chat=chat.txt
+```
+
+- It needs no model. Each `--dictionary` takes the value of `--dictionary` of `prompt_eval`.
+- For each dictionary and each set of words, it gives the part of the words that the dictionary knows, and the most frequent unknown words, which the cut removes although the writer uses them.
+- It also gives the part of the made-up words that the dictionary knows (the cut keeps them), the time to read the dictionary, and the time of a check.
+- A `.jsonl` file of cases gives a set for each language of the case ids. Another file gives one set.
 
 ### Sections of the prompt
 

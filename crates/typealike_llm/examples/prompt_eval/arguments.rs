@@ -11,7 +11,7 @@ use typealike_core::settings::{
 use typealike_llm::BUILT_IN_BACKEND;
 
 pub const USAGE: &str = "usage: prompt_eval MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
+     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv|DICTIONARIES] [--notes TEXT] [--name TEXT] [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
      [--batch TOKENS] [--drafter on|off] [--word-choice off|light|medium|strong] [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] \
      [--typo-rule on|off] [--sentence-stop on|off] [--length very_short|short|medium|long|very_long] [--replay off|word|character] \
      [--screen on|off] [--clipboard on|off] [--history on|off] [--reply-words on|off] [--preparation on-focus|first-key] \
@@ -24,8 +24,9 @@ pub struct Arguments {
     pub baseline: Option<PathBuf>,
     pub save: Option<PathBuf>,
     pub prompts: Option<PathBuf>,
-    /// The answers of the dictionary of the OS, or `None` for an app without a dictionary.
-    pub dictionary: Option<PathBuf>,
+    /// The dictionary of the OS ([`crate::dictionary::FileDictionary::read`]), or `None` for an app
+    /// without a dictionary.
+    pub dictionary: Option<String>,
     pub notes: String,
     pub name: String,
     pub backend: Backend,
@@ -137,7 +138,7 @@ impl Arguments {
                 [name, path] if name == "--baseline" => parsed.baseline = Some(PathBuf::from(path)),
                 [name, path] if name == "--save" => parsed.save = Some(PathBuf::from(path)),
                 [name, path] if name == "--prompts" => parsed.prompts = Some(PathBuf::from(path)),
-                [name, path] if name == "--dictionary" => parsed.dictionary = Some(PathBuf::from(path)),
+                [name, spec] if name == "--dictionary" => parsed.dictionary = Some(spec.clone()),
                 [name, text] if name == "--notes" => parsed.notes.clone_from(text),
                 [name, text] if name == "--name" => parsed.name.clone_from(text),
                 [name, backend] if name == "--backend" => parsed.backend = backend_named(backend)?,
@@ -672,12 +673,12 @@ mod tests {
     }
 
     #[test]
-    fn dictionary_option_names_the_file_of_the_dictionary_answers() {
-        let arguments = parse(&["model.gguf", "cases.jsonl", "--dictionary", "dictionary.tsv"]);
+    fn dictionary_option_names_the_dictionary() {
+        let arguments = parse(&["model.gguf", "cases.jsonl", "--dictionary", "windows+hunspell:es"]);
 
         assert_eq!(
             arguments.map(|arguments| arguments.dictionary),
-            Some(Some(PathBuf::from("dictionary.tsv")))
+            Some(Some("windows+hunspell:es".to_owned()))
         );
     }
 

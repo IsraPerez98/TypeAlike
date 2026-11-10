@@ -15,6 +15,7 @@ use crate::uia::ComApartment;
 /// Language & region. They also know the words that the user added to the dictionary.
 #[derive(Debug)]
 pub struct SpellingDictionary {
+    languages: Vec<String>,
     checkers: Vec<ISpellChecker>,
     /// Declared after `checkers`, so that COM ends on this thread after the last dictionary goes.
     _apartment: Option<ComApartment>,
@@ -25,20 +26,36 @@ impl SpellingDictionary {
     /// thread that checks the words. Without a dictionary, it knows each word.
     #[must_use]
     pub fn new() -> Self {
-        let opened = ComApartment::join().and_then(|apartment| Ok((open_checkers()?, apartment)));
+        Self::with_languages(&preferred_languages())
+    }
+
+    /// Opens a dictionary for each of the `languages`, such as `es-CL`, that Windows can check: the
+    /// closest language that Windows has ([`closest_languages`]). Call it on the thread that checks
+    /// the words. Without a dictionary, it knows each word.
+    #[must_use]
+    pub fn with_languages(languages: &[String]) -> Self {
+        let opened = ComApartment::join().and_then(|apartment| Ok((open_checkers(languages)?, apartment)));
         match opened {
-            Ok((checkers, apartment)) => Self {
+            Ok(((languages, checkers), apartment)) => Self {
+                languages,
                 checkers,
                 _apartment: Some(apartment),
             },
             Err(error) => {
                 tracing::warn!(%error, "the spelling dictionaries are unavailable");
                 Self {
+                    languages: Vec::new(),
                     checkers: Vec::new(),
                     _apartment: None,
                 }
             }
         }
+    }
+
+    /// The languages of the open dictionaries, as Windows names them.
+    #[must_use]
+    pub fn languages(&self) -> &[String] {
+        &self.languages
     }
 }
 
@@ -72,19 +89,21 @@ fn has_no_error(checker: &ISpellChecker, word: &HSTRING) -> bool {
     next.is_err() || error.is_none()
 }
 
-/// Opens a dictionary for each language of the user that has one.
-fn open_checkers() -> Result<Vec<ISpellChecker>> {
+/// Opens a dictionary for each of the `languages` that has one, and returns the languages of the
+/// dictionaries with them.
+fn open_checkers(languages: &[String]) -> Result<(Vec<String>, Vec<ISpellChecker>)> {
     // SAFETY: plain call; COM is initialized on this thread.
     let factory: ISpellCheckerFactory =
         unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }?;
-    let preferred = preferred_languages();
     // SAFETY: plain call on a live factory.
     let available = strings_of(&unsafe { factory.SupportedLanguages() }?);
-    closest_languages(&preferred, &available)
+    let languages = closest_languages(languages, &available);
+    let checkers = languages
         .iter()
         // SAFETY: plain call on a live factory, with a language that it supports.
         .map(|language| unsafe { factory.CreateSpellChecker(&HSTRING::from(language)) })
-        .collect()
+        .collect::<Result<_>>()?;
+    Ok((languages, checkers))
 }
 
 /// Returns each string of `strings`, and frees it.

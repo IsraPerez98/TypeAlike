@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run --release -p typealike_llm --example prompt_eval -- \
 //!     MODEL.gguf CASES.jsonl [--baseline RESULTS.jsonl] [--save RESULTS.jsonl] \
-//!     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
+//!     [--prompts PROMPTS.jsonl] [--dictionary ANSWERS.tsv|DICTIONARIES] [--notes TEXT] [--name TEXT] [--backend BACKEND] [--cpu-cores PERFORMANCE,EFFICIENCY] [--batch TOKENS] \
 //!     [--drafter on|off] \
 //!     [--word-choice CHOICE] \
 //!     [--word-bias on|off] [--shared-history on|off] [--tail-cut on|off] [--typo-rule on|off] \
@@ -186,7 +186,10 @@
 //! Each line has a text, a tab, and `word` when the dictionary knows the text as a word, `start`
 //! when it knows the text only as the start of a word, or `none`. A text that the file does not
 //! hold is a known word and no start of a word. `--dictionary macos` and `--dictionary windows`
-//! give the dictionary of that OS that the app uses. With it, a stop for a typo in the start of a known
+//! give the dictionary of that OS that the app uses, and `windows:es-CL,en-US` the dictionaries of
+//! Windows for those languages. `hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and
+//! `PATH.dic`. A `+` joins live dictionaries, which then know a word when any of them knows it, as
+//! in `windows+hunspell:PATH`. With a dictionary, a stop for a typo in the start of a known
 //! word and a fix of a known word ask again without the rule, as in the app. Without it, the app of
 //! each case has no dictionary.
 //!
