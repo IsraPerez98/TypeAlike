@@ -9,7 +9,7 @@ related_targets: ["crates/typealike_windows/src/overlay.rs","crates/typealike_wi
 
 ## Scope
 
-What TypeAlike draws in the apps of the user: the suggestion after the caret, the card below the caret, the typo fix, the mirror next to a field without a caret (macOS) and the badge above the caret. Core decides what shows and where (`controller/ghost_view.rs`). The platforms draw it.
+What TypeAlike draws in the apps of the user: the suggestion after the caret, the card below the caret, the typo fix, the mirror next to a field without a caret (macOS) and the badge at the caret (at the end of the line of the caret on Windows, above the caret on macOS). Core decides what shows and where (`controller/ghost_view.rs`). The platforms draw it.
 
 ## Mode
 

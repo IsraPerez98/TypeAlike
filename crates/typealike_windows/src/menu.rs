@@ -8,7 +8,7 @@ use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, HMENU, MENU_ITEM_FLAGS, MF_CHECKED, MF_ENABLED, MF_GRAYED, MF_POPUP,
     MF_SEPARATOR, MF_STRING, SetForegroundWindow, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx, WM_NULL,
+    TPM_RIGHTALIGN, TPM_RIGHTBUTTON, TPM_TOPALIGN, TRACK_POPUP_MENU_FLAGS, TrackPopupMenuEx, WM_NULL,
 };
 use windows::core::{BOOL, HSTRING, Owned, PCWSTR, Result};
 
@@ -28,12 +28,13 @@ pub(crate) fn pick(owner: HWND, labels: &[&str], anchor: POINT) -> Result<Option
     track(owner, *menu, anchor, TPM_BOTTOMALIGN)
 }
 
-/// Shows the menu of the badge below `anchor`, and returns the index of the picked entry in
-/// [`BadgeMenu::items`], if any. The focus then goes back to the window that had it.
+/// Shows the menu of the badge below `anchor`, with its right edge at `anchor`, and returns the
+/// index of the picked entry in [`BadgeMenu::items`], if any. The focus then goes back to the
+/// window that had it.
 pub(crate) fn pick_badge_item(owner: HWND, view: &BadgeMenu, anchor: POINT) -> Result<Option<usize>> {
     let menu = badge_popup_menu(view)?;
     let focused = foreground_hwnd();
-    let picked = track(owner, *menu, anchor, TPM_TOPALIGN);
+    let picked = track(owner, *menu, anchor, TPM_TOPALIGN | TPM_RIGHTALIGN);
     if !focused.is_invalid() {
         // Best effort: when Windows refuses, the user clicks the field again.
         // SAFETY: the call takes no pointer, and a stale window only makes it fail.

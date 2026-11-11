@@ -25,6 +25,14 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - The ghost text is in the Fluent secondary text color in light mode and the tertiary one in dark mode (`CardText`).
 - In high contrast, they are `COLOR_WINDOWTEXT` and `COLOR_GRAYTEXT`.
 
+### Badge
+
+- The badge shows in the frame that core gives it, at the end of the line of the caret (`docs/core/ghost-text.md`, "Badge"). Without a frame, it hides.
+- The shell gives core the side of the badge (`Shell::badge_side`): the height of the line of the caret, from 16 to 24 DIPs on the monitor of the caret (`badge::side_on_line`).
+- The glyph is at most 16 DIPs and keeps 2 DIPs of room inside each edge. Thus a badge lower than 20 DIPs has a smaller glyph.
+- The badge menu opens below the badge, with its right edge at the right edge of the badge (`TPM_RIGHTALIGN`), so it opens toward the field.
+- With `TYPEALIKE_LOG=typealike_windows=debug`, the log at each render at the caret also gives the frame of the badge (`badge_frame`).
+
 ### Input and hooks
 
 - A replacement sends a Backspace key for each deleted character before the text.

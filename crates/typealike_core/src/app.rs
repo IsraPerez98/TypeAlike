@@ -755,6 +755,7 @@ impl App {
             BadgeView {
                 status,
                 label: translations.text(name),
+                frame: None,
             }
         })
     }

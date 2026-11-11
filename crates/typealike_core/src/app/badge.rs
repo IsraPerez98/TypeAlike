@@ -4,6 +4,7 @@ use std::slice;
 
 use super::Status;
 use super::field_place::FieldPlace;
+use crate::desktop::ScreenRect;
 use crate::localization::{MessageArgument, Translations, UiLanguage};
 use crate::settings::{
     HistoryAccess, HistoryScope, PersonalizationSettings, PrivateWindowRule, ScreenTextAccess,
@@ -11,13 +12,18 @@ use crate::settings::{
 };
 
 /// The badge at the caret of the field where the user types: a button that opens the
-/// [`BadgeMenu`]. It shows above the caret, on the side opposite to the ghost text.
+/// [`BadgeMenu`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BadgeView {
     /// Status the glyph must reflect: paused also in a place where suggestions are off.
     pub status: Status,
     /// The name of the app and its status, for assistive technology.
     pub label: String,
+    /// Where the badge shows: at the end of the line of the caret, inside the field. Only a shell
+    /// that gives the side of its badge
+    /// ([`Shell::badge_side`](crate::controller::Shell::badge_side)) gets a frame. `None` for a
+    /// shell that puts the badge at the caret by itself.
+    pub frame: Option<ScreenRect>,
 }
 
 /// The settings that the entries of the badge menu show and change.

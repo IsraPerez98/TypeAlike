@@ -2,6 +2,7 @@
 //! settings window and the answers of the services. The platform reports its events to the
 //! [`Controller`] and does what the controller asks through the [`Shell`].
 
+mod badge_place;
 mod caret_wait;
 mod ghost_view;
 mod services;
@@ -15,14 +16,15 @@ pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 use std::time::Duration;
 use std::{fmt, mem};
 
+use badge_place::line_end_badge;
 use caret_wait::{CaretWait, GhostTiming, LookOutcome, RestSight};
 use ghost_view::FieldRoom;
 use services::delivering_sink;
 use tab_hold::TabHold;
 
 use crate::app::{
-    App, BadgeCommand, BadgeMenu, BadgeSettings, INPUT_SETTLE_DELAY, SettledWork, TrayCommand, TrayOutcome,
-    TrayView,
+    App, BadgeCommand, BadgeMenu, BadgeSettings, BadgeView, INPUT_SETTLE_DELAY, SettledWork, TrayCommand,
+    TrayOutcome, TrayView,
 };
 use crate::desktop::{
     AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow,
@@ -467,7 +469,10 @@ impl Controller {
         };
         match outcome {
             LookOutcome::GhostAndBadge => self.render_at_caret(read, shell),
-            LookOutcome::BadgeOnly => shell.render_at_caret(None, self.app.badge_view(&self.translations)),
+            LookOutcome::BadgeOnly => {
+                let badge = self.badge_at(read, &*shell);
+                shell.render_at_caret(None, badge);
+            }
             LookOutcome::Nothing => {
                 shell.hide_ghost();
                 shell.hide_badge();
@@ -1281,13 +1286,15 @@ impl Controller {
     }
 
     /// Shows the waiting ghost text and the badge at the caret of `read`, with the ghost text fit
-    /// into the field of `read`. When the ghost text shows, its app and its website go into the
-    /// lists of the panes. Else an app whose suggestions are off by default goes into the list of
-    /// the Apps and websites pane.
+    /// into the field of `read` before the badge. When the ghost text shows, its app and its
+    /// website go into the lists of the panes. Else an app whose suggestions are off by default
+    /// goes into the list of the Apps and websites pane.
     fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
-        let ghost = self.ghost_view_at(read, &*shell);
+        let badge = self.badge_at(read, &*shell);
+        let badge_frame = badge.as_ref().and_then(|badge| badge.frame);
+        let ghost = self.ghost_view_at(read, badge_frame, &*shell);
         self.caret_wait.note_view(ghost.as_ref());
-        shell.render_at_caret(ghost.as_ref(), self.app.badge_view(&self.translations));
+        shell.render_at_caret(ghost.as_ref(), badge);
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {
             self.add_suggested_place();
@@ -1296,12 +1303,40 @@ impl Controller {
         }
     }
 
+    /// The badge at the caret of `read`, or `None` while no badge shows. A shell that gives the
+    /// side of its badge gets the badge at the end of the line of the caret, inside the field,
+    /// where it covers no text. Thus that badge hides while text can follow the caret on its line,
+    /// when the line has no room for it, and without a field frame. A shell without a badge side
+    /// puts the badge at the caret by itself.
+    fn badge_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<BadgeView> {
+        let view = self.app.badge_view(&self.translations)?;
+        let side = read.caret.and_then(|caret| shell.badge_side(caret));
+        let (Some(caret), Some(side)) = (read.caret, side) else {
+            return Some(view);
+        };
+        if !self.app.is_caret_at_line_end(read.after) {
+            return None;
+        }
+        let field = read.field.filter(ScreenRect::has_area)?;
+        let frame = line_end_badge(caret, field, side)?;
+        Some(BadgeView {
+            frame: Some(frame),
+            ..view
+        })
+    }
+
     /// The view of the waiting ghost text at the caret of `read`. The ghost text goes after the
-    /// caret, and below it only while text follows the caret on its line, as `read` sees it. It
-    /// wraps onto the lines below only while they have no text. It never shows while the app
-    /// selects text after the caret, because it would cover the suggestion of the app. `None` when
-    /// no ghost text waits.
-    fn ghost_view_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<GhostView> {
+    /// caret, and below it only while text follows the caret on its line, as `read` sees it. On
+    /// the line of the caret, it ends before `badge`, the frame of the badge at the end of that
+    /// line. It wraps onto the lines below only while they have no text. It never shows while the
+    /// app selects text after the caret, because it would cover the suggestion of the app. `None`
+    /// when no ghost text waits.
+    fn ghost_view_at(
+        &self,
+        read: CaretRead,
+        badge: Option<ScreenRect>,
+        shell: &dyn Shell,
+    ) -> Option<GhostView> {
         if read.after == AfterCaret::Selection {
             return None;
         }
@@ -1317,7 +1352,10 @@ impl Controller {
             AfterCaret::TextBelow => LinesBelow::WithText,
             _ => self.app.lines_below_caret(),
         };
-        Some(fit_to_field(view, read, lines_below, shell))
+        let Some(room) = field_room(read, lines_below, badge) else {
+            return Some(view);
+        };
+        Some(view.fit_to(&room, |ghost| shell.ghost_width(ghost)))
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
@@ -1326,14 +1364,13 @@ impl Controller {
     }
 }
 
-/// Fits `view` into the field of `read` after its caret, above the text of `lines_below`. Without
-/// a caret or a field frame with area, the view stays whole.
-fn fit_to_field(view: GhostView, read: CaretRead, lines_below: LinesBelow, shell: &dyn Shell) -> GhostView {
-    let (Some(caret), Some(field)) = (read.caret, read.field.filter(ScreenRect::has_area)) else {
-        return view;
-    };
+/// The room for a ghost text after the caret of `read` in its field, above the text of
+/// `lines_below`, with the line of the caret ending before `badge`. `None` without a caret or a
+/// field frame with area, and the ghost text then stays whole.
+fn field_room(read: CaretRead, lines_below: LinesBelow, badge: Option<ScreenRect>) -> Option<FieldRoom> {
+    let (caret, field) = (read.caret?, read.field.filter(ScreenRect::has_area)?);
     let room = FieldRoom::after(caret, field, lines_below);
-    view.fit_to(&room, |ghost| shell.ghost_width(ghost))
+    Some(badge.map_or(room, |badge| room.before(badge)))
 }
 
 /// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the

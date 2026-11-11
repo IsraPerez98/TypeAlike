@@ -113,6 +113,7 @@ fn typing_in_full_screen_shows_the_full_screen_badge() {
         Some(BadgeView {
             status: Status::Paused,
             label: "TypeAlike (off while an app fills the screen)".to_owned(),
+            frame: None,
         })
     );
 }

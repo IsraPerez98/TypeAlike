@@ -81,8 +81,18 @@ pub trait Shell: Desktop {
     /// when the shell cannot measure it, so that the ghost text stays whole.
     fn ghost_width(&self, ghost: &Ghost) -> i32;
 
+    /// Returns the side of the square badge at `caret`, in the units of [`ScreenRect`], for a
+    /// shell that shows the badge in the frame that the controller gives
+    /// ([`BadgeView::frame`]). The controller then puts the badge at the end of the line of the
+    /// caret, and the ghost text ends before it. `None` for a shell that puts the badge at the
+    /// caret by itself.
+    fn badge_side(&self, _caret: ScreenRect) -> Option<i32> {
+        None
+    }
+
     /// Shows the `ghost` text at its placement at the caret of the focused field, with its wrapped
-    /// lines below the line of the caret, and the `badge` at the caret. The caret is the caret of the read that the shell gave last to the
+    /// lines below the line of the caret, and the `badge` in its frame, or at the caret when it
+    /// has no frame. The caret is the caret of the read that the shell gave last to the
     /// controller. Hides the ghost text for no `ghost` and the badge for no `badge`. When the caret
     /// is not known, it can show the badge at the start of the focused field and the mirror of
     /// `ghost` next to the field, else it hides them.

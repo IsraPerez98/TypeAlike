@@ -71,6 +71,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 
 - Tab types only text that the user saw. Thus the words that do not fit in the field wait for the next Tab, and show after it.
 - When the ghost text after the caret does not fit before the right edge of the frame of its field, less 4 px (`FIELD_EDGE_GAP`), the rest wraps onto the lines below the line of the caret (`GhostView::fit_to`, `WrappedLines`), as the field wraps the text when the user types it.
+- When the badge shows at the end of the line of the caret, the ghost text on that line ends 4 px before the badge (`FieldRoom::before`). The wrapped lines keep the whole width of the field. Thus a first word that fits only behind the badge goes below the caret.
 - Each wrapped line starts 4 px inside the left edge of the frame, one caret height below the line above it.
 - A line breaks only after the whitespace between two words, so the closing punctuation stays with its word. The whitespace at the end of a line does not count in its width.
 - A first word that does not fit after the caret goes to the next line. The word of a fix always stays at the caret.
@@ -84,3 +85,17 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - The whole ghost text goes below the caret (`GhostPlacement::BelowCaret`) only when not even its first word, or the word of a fix, fits after the caret.
 - Without a frame with an area, the ghost text stays whole on the line of the caret.
 - After each Tab, core wraps the rest again at the new caret.
+
+## Badge
+
+- A shell that gives the side of its badge (`Shell::badge_side`: Windows) gets the frame of the badge from core (`BadgeView::frame`). A shell without a side puts the badge at the caret by itself (macOS: above the caret, on its left).
+- The badge shows at the end of the line of the caret, 4 px inside the right edge of the field (`FIELD_EDGE_GAP`), in the middle of the line and inside the field (`line_end_badge`).
+- A line that ends at the caret has no text there, and the ghost text after the caret ends before the badge. Thus the badge covers no text of the field and no ghost text.
+- The badge does not cover the lines above and below the caret, the menu bar above the first line, or the card below the caret.
+- While the user types at the end of a line, the badge stays at the same place. It moves only when the caret goes to another line.
+- The badge hides when it can cover text:
+  - while text can follow the caret on its line (`App::is_caret_at_line_end`): text after the caret, a selection, or a field that hides the line of the caret,
+  - when the line has no room for the badge 4 px after the caret,
+  - when the line of the caret is outside the field, or the field is lower than the badge,
+  - without a field frame with an area.
+- A real app test on 2026-11-10 found the old place above the caret on its left wrong. In Notepad, it covered a word of the line above, and on the first line it covered the menu bar.

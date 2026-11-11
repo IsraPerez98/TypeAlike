@@ -12,6 +12,7 @@ fn game_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
         label: "TypeAlike (off while you play a game)".to_owned(),
+        frame: None,
     }
 }
 

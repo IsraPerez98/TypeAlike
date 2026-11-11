@@ -13,7 +13,7 @@ use crate::controller::{
 };
 use crate::desktop::{
     CopiedText, Desktop, EnergySaver, Field, FieldText, FullScreenActivity, GameActivity, OcrAvailability,
-    Permission, PermissionState, ScreenReadId, ScreenSource, Surroundings, Timestamp,
+    Permission, PermissionState, ScreenReadId, ScreenRect, ScreenSource, Surroundings, Timestamp,
 };
 use crate::history::{HistoryEntry, WritingHistory};
 use crate::hub::{ByteSize, HubEvent, HubEventSink, HubRequest, ModelFile, ModelHub, SizedFile};
@@ -80,6 +80,11 @@ pub(super) struct FakeShell {
     calls: Vec<Call>,
     pub(super) ghost_view: Option<GhostView>,
     pub(super) is_ghost_shown: bool,
+    /// The badge that shows, until the controller hides it.
+    pub(super) shown_badge: Option<BadgeView>,
+    /// The side of the badge that the shell gives, or `None` for a shell that puts the badge at
+    /// the caret by itself.
+    pub(super) badge_side: Option<i32>,
     /// How the shell looks at the caret. A shell that looks later records each look as a call.
     pub(super) caret_look: CaretLook,
     pub(super) now: Option<Timestamp>,
@@ -139,8 +144,13 @@ impl Shell for FakeShell {
         i32::try_from(characters).expect("a test ghost text is short") * GHOST_CHAR_WIDTH
     }
 
+    fn badge_side(&self, _caret: ScreenRect) -> Option<i32> {
+        self.badge_side
+    }
+
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         self.ghost_view = ghost.cloned();
+        self.shown_badge.clone_from(&badge);
         self.calls.push(Call::RenderAtCaret {
             ghost: ghost.map(|view| view.ghost.clone()),
             badge,
@@ -153,6 +163,7 @@ impl Shell for FakeShell {
     }
 
     fn hide_badge(&mut self) {
+        self.shown_badge = None;
         self.calls.push(Call::HideBadge);
     }
 
@@ -502,6 +513,8 @@ impl Harness {
                 calls: Vec::new(),
                 ghost_view: None,
                 is_ghost_shown: true,
+                shown_badge: None,
+                badge_side: None,
                 caret_look: CaretLook::Now(CaretRead::default()),
                 now: None,
                 field_text_wakes: 0,

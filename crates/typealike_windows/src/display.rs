@@ -70,6 +70,16 @@ pub(crate) fn screen_rect(rect: RECT) -> ScreenRect {
     }
 }
 
+/// The rectangle of Win32 that covers `rect`, a rectangle of core in physical screen pixels.
+pub(crate) fn win32_rect(rect: ScreenRect) -> RECT {
+    RECT {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    }
+}
+
 /// Whether `rect` has a width and a height.
 pub(crate) fn has_area(rect: RECT) -> bool {
     rect.right > rect.left && rect.bottom > rect.top

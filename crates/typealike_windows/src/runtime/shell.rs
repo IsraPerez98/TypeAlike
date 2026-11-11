@@ -7,12 +7,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use typealike_core::app::{BadgeView, TrayView};
 use typealike_core::controller::{CaretLook, FocusChange, Ghost, GhostView, Shell, Timer};
 use typealike_core::desktop::{
-    CopiedText, Desktop, Field, OcrAvailability, Permission, ScreenReadId, ScreenSource, Surroundings,
-    Timestamp,
+    CopiedText, Desktop, Field, OcrAvailability, Permission, ScreenReadId, ScreenRect, ScreenSource,
+    Surroundings, Timestamp,
 };
 use typealike_core::settings::ClipboardAccess;
 use typealike_core::settings_window::view::SettingsView;
 use typealike_core::setup::SetupView;
+use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTimer};
 use windows::core::Error;
 
@@ -20,10 +21,11 @@ use super::{
     CARET_TIMER_ID, FIELD_PAUSE_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE, SCROLL_TIMER_ID,
     SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID, UPDATE_CHECK_TIMER_ID,
 };
-use crate::badge::Badge;
+use crate::badge::{self, Badge};
 use crate::caret::Caret;
 use crate::caret_reader::{CaretReader, KeptFieldText, NewestCaret};
 use crate::clipboard::ClipboardWatch;
+use crate::display::{monitor_dpi, win32_rect};
 use crate::focus::FocusTracker;
 use crate::injection::{Replacement, ReplacementQueue};
 use crate::ocr::OcrSupport;
@@ -112,12 +114,14 @@ impl Win32Shell {
         }
     }
 
-    fn show_badge(&mut self, badge: Option<BadgeView>, caret: Option<&Caret>) {
-        let (Some(view), Some(caret)) = (badge, caret) else {
+    /// Shows `badge` in the frame that core gives it. Core gives a frame for each badge, because
+    /// this shell gives the side of its badge, but not while the caret reader finds no caret.
+    fn show_badge(&mut self, badge: Option<BadgeView>) {
+        let Some((view, frame)) = badge.and_then(|view| view.frame.map(|frame| (view, frame))) else {
             self.badge.hide();
             return;
         };
-        if let Err(error) = self.badge.show(&view, caret) {
+        if let Err(error) = self.badge.show(&view, win32_rect(frame)) {
             tracing::warn!(%error, "failed to show the badge");
             self.badge.hide();
         }
@@ -187,18 +191,30 @@ impl Shell for Win32Shell {
         })
     }
 
-    /// Shows `ghost` and `badge` at the caret of the newest answer of the caret reader, and hides
-    /// them when that answer found no caret.
+    /// The badge is as high as the line of `caret`, from 16 to 24 DIPs on the monitor of the
+    /// caret.
+    fn badge_side(&self, caret: ScreenRect) -> Option<i32> {
+        let top_left = POINT {
+            x: caret.left,
+            y: caret.top,
+        };
+        let line_height = caret.bottom.saturating_sub(caret.top);
+        Some(badge::side_on_line(line_height, monitor_dpi(top_left)))
+    }
+
+    /// Shows `ghost` at the caret of the newest answer of the caret reader and `badge` in its
+    /// frame, and hides them when that answer found no caret.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let caret = self.newest_caret.caret().cloned();
         tracing::debug!(
             has_ghost = ghost.is_some(),
             has_badge = badge.is_some(),
+            badge_frame = ?badge.as_ref().and_then(|badge| badge.frame),
             has_caret = caret.is_some(),
             "rendered at the caret"
         );
         self.show_ghost(ghost, caret.as_ref());
-        self.show_badge(badge, caret.as_ref());
+        self.show_badge(badge);
     }
 
     fn hide_ghost(&mut self) {

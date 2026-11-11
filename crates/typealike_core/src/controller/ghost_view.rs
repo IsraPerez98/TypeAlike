@@ -7,8 +7,9 @@ use crate::engine::WordFix;
 
 /// The most characters of the word before the caret that the mirror shows.
 const MIRROR_WORD_CHARS: usize = 24;
-/// The room that the ghost text after the caret keeps free inside each side of its field.
-const FIELD_EDGE_GAP: i32 = 4;
+/// The room that the ghost text after the caret and the badge at the end of its line keep free
+/// inside each side of the field, and between the caret, the ghost text and the badge.
+pub(super) const FIELD_EDGE_GAP: i32 = 4;
 
 /// What the ghost text shows at the caret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +84,7 @@ impl GhostView {
     /// after them. When not even its first word fits there, the whole ghost text moves below the
     /// caret. A view below the caret stays whole.
     pub(super) fn fit_to(self, room: &FieldRoom, width_of: impl Fn(&Ghost) -> i32) -> Self {
-        if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room.caret_line {
+        if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room.caret_line() {
             return self;
         }
         if let Some((ghost, lines)) = room.wrap(&self.ghost, &width_of) {
@@ -120,8 +121,11 @@ impl GhostView {
 /// The room for a ghost text after the caret inside its field, between the gaps at its edges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct FieldRoom {
-    /// The width between the caret and the right edge.
-    caret_line: i32,
+    /// The right edge of the caret.
+    caret_right: i32,
+    /// Where the ghost text on the line of the caret must end: before the right edge of the
+    /// field, or before the badge at the end of that line.
+    caret_line_right: i32,
     /// The left edge of each line below the line of the caret.
     line_left: i32,
     /// The width of each line below the line of the caret.
@@ -138,7 +142,8 @@ impl FieldRoom {
         let line_left = field.left.saturating_add(FIELD_EDGE_GAP);
         let line_right = field.right.saturating_sub(FIELD_EDGE_GAP);
         Self {
-            caret_line: line_right.saturating_sub(caret.right),
+            caret_right: caret.right,
+            caret_line_right: line_right,
             line_left,
             line_width: line_right.saturating_sub(line_left),
             lines_below: match lines_below {
@@ -146,6 +151,22 @@ impl FieldRoom {
                 LinesBelow::WithText => 0,
             },
         }
+    }
+
+    /// This room with the line of the caret ending [`FIELD_EDGE_GAP`] before `badge`, the frame
+    /// of the badge at the end of that line. The lines below keep their width.
+    pub(super) fn before(self, badge: ScreenRect) -> Self {
+        Self {
+            caret_line_right: self
+                .caret_line_right
+                .min(badge.left.saturating_sub(FIELD_EDGE_GAP)),
+            ..self
+        }
+    }
+
+    /// The width between the caret and the end of the ghost text on the line of the caret.
+    fn caret_line(&self) -> i32 {
+        self.caret_line_right.saturating_sub(self.caret_right)
     }
 
     /// Splits `ghost` after the whitespace between its words into its part on the line of the
@@ -187,7 +208,7 @@ impl FieldRoom {
         width_of: impl Fn(&Ghost) -> i32,
     ) -> Option<usize> {
         longest_line(ghost.cuttable_text(), 0, breaks, |end| {
-            width_of(&ghost.cut_at(end)) <= self.caret_line
+            width_of(&ghost.cut_at(end)) <= self.caret_line()
         })
     }
 }
@@ -412,6 +433,27 @@ mod tests {
         assert_eq!(
             (fitted.ghost, fitted.wrapped),
             (Ghost::Text(" ".to_owned()), Some(wrapped(&["regards"])))
+        );
+    }
+
+    #[test]
+    fn fit_ends_the_line_of_the_caret_before_the_badge_and_wraps_the_rest_at_full_width() {
+        let badge = ScreenRect {
+            left: 170,
+            top: 0,
+            right: 190,
+            bottom: 20,
+        };
+        let view = inline_text(" see you next week to discuss the findings");
+
+        let fitted = view.fit_to(&room(100, FIELD, LinesBelow::Empty).before(badge), width_of);
+
+        assert_eq!(
+            (fitted.ghost, fitted.wrapped),
+            (
+                Ghost::Text(" see ".to_owned()),
+                Some(wrapped(&["you next week to ", "discuss the ", "findings"]))
+            )
         );
     }
 

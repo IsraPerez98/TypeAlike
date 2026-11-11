@@ -2,6 +2,7 @@
 
 mod about;
 mod badge;
+mod badge_place;
 mod caret;
 mod caret_look;
 mod energy_saving;

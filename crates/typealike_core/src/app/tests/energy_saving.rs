@@ -13,6 +13,7 @@ fn energy_saver_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
         label: "TypeAlike (off while the computer saves energy)".to_owned(),
+        frame: None,
     }
 }
 

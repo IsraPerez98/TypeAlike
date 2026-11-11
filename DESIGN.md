@@ -47,7 +47,7 @@ There are two kinds of UI:
 
 - Windows: a radius of 8 px for windows, menus and flyouts, and 4 px for controls, cards, the card below the caret and the badge.
 - macOS: the radii of the standard controls. A custom shape is concentric with the corners of its container.
-- Badge: a 24 x 24 square above the caret, at its left (DIPs on Windows, points on macOS).
+- Badge on Windows: a square as high as the line of the caret, from 16 to 24 DIPs, at the end of that line inside the field. Badge on macOS: a square of 24 points above the caret, at its left.
 
 ## Components
 
@@ -56,7 +56,7 @@ There are two kinds of UI:
 - **Suggestion.** Inline text after the caret. It never takes the focus or a click, and it hides at once when the caret moves or the focus changes.
 - **Card below the caret.** The end of the typed word, then the suggestion, when text follows the caret on its line.
 - **Typo fix.** The typed letters with a red line through them, then the fixed word in green.
-- **Badge.** A small button above the caret with the robot of the tray icon, which shows the status. A click opens the badge menu, a native popup menu.
+- **Badge.** A small button with the robot of the tray icon, which shows the status. On Windows, it shows at the end of the line of the caret, where it covers no text and the suggestion ends before it. On macOS, it shows above the caret. A click opens the badge menu, a native popup menu.
 - **App icon.** The logo. On macOS, on a dark rounded rectangle of the macOS icon grid. On Windows, without a plate, as the app icons of Windows 11. Small sizes show only the head of the robot (`docs/icons.md`).
 - **Tray icon and menu bar extra.** The robot of the logo as a one-color glyph that follows the theme of the taskbar or the menu bar. The status shows as a change of the face, never of the color only: happy eyes when active, an empty visor with a pause sign when paused. While a stop of the Energy saving pane applies, the paused robot is yellow, and the tooltip tells the reason.
 

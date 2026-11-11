@@ -31,6 +31,7 @@ pub(crate) fn active_badge() -> BadgeView {
     BadgeView {
         status: Status::Active,
         label: "TypeAlike".to_owned(),
+        frame: None,
     }
 }
 
@@ -38,6 +39,7 @@ pub(crate) fn paused_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
         label: "TypeAlike (paused)".to_owned(),
+        frame: None,
     }
 }
 
@@ -45,6 +47,7 @@ pub(crate) fn off_badge() -> BadgeView {
     BadgeView {
         status: Status::Paused,
         label: "TypeAlike (off here)".to_owned(),
+        frame: None,
     }
 }
 
