@@ -39,6 +39,13 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - Thus a correct word that the model did not expect, such as "Friday" after "before", gets a suggestion.
 - When the completion without the rule continues those letters but gives no suggestion, the fix of the first completion shows. For example, after "a day trip to Snit", the completion "ra" makes "Snitra", which the dictionary does not know, so the fix "Sintra" shows.
 - Core asks the dictionary only after such a stop, because a query of the start of a word costs some milliseconds on macOS.
+- For a fix, only the dictionaries of the language of the text count (`Dictionary::knows_typed_word`).
+  - The dictionary of a language fits the text when it knows at least half of the last 30 checked words that the writer finished before the caret. With fewer than 3 such words, or when no dictionary fits, the dictionary of each language counts.
+  - Thus "reunion" in a Spanish text, which only the English dictionary knows, keeps its fix "reunión".
+  - Fewer than 5 typed letters that another language knows as a word are often the start of a longer word of the text, such as "hart" for "harto" in a Spanish text. For them, the dictionary of each language counts.
+  - The rule needs no list of words: the dictionaries of the languages of the user tell the language of the text.
+  - Measured with Gemma 4 E4B (CUDA, Windows en-US and Hunspell es-CL, long, word choice medium): the rule gave 7 more right fixes in `typo_kinds` (35 to 42 of 52, none lost). It gave no wrong fix in 2341 places of `varieties` and 463 of `chat` with a request after each character. The other sets did not change.
+  - Without the minimum of 5 letters, it gave 9 more right fixes, but also 2 wrong fixes of the start of a word: "coo" to "contratado" and "hart" to "hasta".
 
 ## Where a suggestion stops
 
@@ -68,7 +75,7 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 
 - The user picks the languages that they write in the Languages and typos pane and in the second step of the setup (`LanguagesPane`, `SpellingSettings::languages`). Until the user changes the list, it follows the languages of the user in the settings of the OS that the OS has a dictionary for.
 - Each language is a tag of `WRITING_LANGUAGES`, with its name in that language.
-- The dictionaries of all the languages check a word together (`JoinedSpellCheckers`): a word is known when any of them knows it. Thus a change of language between two messages, or in one sentence, needs no other step.
+- The controller opens the dictionary of each language on its own, and the engine keeps them together (`Dictionary`): a word is known when any of them knows it. Thus a change of language between two messages, or in one sentence, needs no other step.
 - The dictionary of a language (`LanguagesPane::dictionaries`):
   1. The dictionary of the OS with the same tag (`OsDictionaries`). For the main entry of a language, such as "Español", the closest dictionary of the OS for that language also counts.
   2. Else a dictionary that the hub downloads (`DictionaryHub`), after the hub read it.

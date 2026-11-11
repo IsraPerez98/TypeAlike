@@ -211,11 +211,12 @@ impl App {
         }
     }
 
-    /// Cuts each suggestion of the model before a word that `spell_checker` does not know and that
-    /// the user did not write. Where the typo rule took typed letters that `spell_checker` knows
-    /// for a typo, asks again without the rule.
-    pub fn use_spell_checker(&mut self, spell_checker: Box<dyn SpellChecker>) {
-        self.engine.use_spell_checker(spell_checker);
+    /// Cuts each suggestion of the model before a word that no one of `spell_checkers`, the
+    /// dictionary of each language that the user writes, knows, and that the user did not write.
+    /// Where the typo rule took typed letters that they know for a typo, asks again without the
+    /// rule.
+    pub fn use_spell_checkers(&mut self, spell_checkers: Vec<Box<dyn SpellChecker>>) {
+        self.engine.use_spell_checkers(spell_checkers);
     }
 
     /// Uses `energy_saver`, the state of the energy saver of the computer, from now on. When the

@@ -82,6 +82,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `--dictionary windows:es-CL,en-US` gives the dictionaries of Windows for those languages. It fails when Windows has no dictionary for any of them.
 - `--dictionary hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and `PATH.dic` (UTF-8, for example from `wooorm/dictionaries`).
 - A `+` joins live dictionaries, which then know a word when any of them knows it: `windows+hunspell:PATH`.
+- The app gets each part as the dictionary of one language, as the app opens the dictionary of each language on its own. Thus give each language its own part, as in `windows:en-US+hunspell:PATH`, for a change that uses the language of a text.
 
 ## Spelling eval
 

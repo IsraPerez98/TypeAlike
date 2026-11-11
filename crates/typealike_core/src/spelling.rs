@@ -7,7 +7,6 @@ mod languages;
 
 use crate::history::is_apostrophe;
 
-pub(crate) use dictionaries::JoinedSpellCheckers;
 pub use dictionaries::{
     DictionaryEvent, DictionaryEventSink, DictionaryHub, DictionaryRequest, DownloadableDictionary,
     OsDictionaries,
