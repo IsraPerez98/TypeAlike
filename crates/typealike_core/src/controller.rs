@@ -356,6 +356,13 @@ impl Controller {
         disposition
     }
 
+    /// Handles a move of the focus that no key and no click caused, for example when the window
+    /// in front closes or another app opens a window. When another window has the focus, the ghost
+    /// text and the badge hide, as after a click.
+    pub fn on_focus_moved(&mut self, shell: &mut dyn Shell) {
+        self.refresh_focus(shell);
+    }
+
     /// Handles a caret that moved somewhere unknown: another window has the focus, the user
     /// clicked, or the screen changed.
     pub fn on_context_lost(&mut self, shell: &mut dyn Shell) {

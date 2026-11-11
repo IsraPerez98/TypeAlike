@@ -30,6 +30,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - The shell queues each replacement, and each inject message types the oldest one.
 - The mouse hook gives `WM_MOUSEWHEEL` and `WM_MOUSEHWHEEL` to `Controller::on_scroll`.
 - The keyboard hook does not mark the keys that Windows repeats, so a key-down of the key that went down last, without its key-up, is a repeat (`HeldKey`).
+- A WinEvent hook (`EVENT_OBJECT_FOCUS`, out of context, not for the own process) gives each focus move in another app to `Controller::on_focus_moved`. Thus the ghost text and the badge hide when another window comes to the front without a key, for example when the window in front closes.
 
 ## Caret reader
 

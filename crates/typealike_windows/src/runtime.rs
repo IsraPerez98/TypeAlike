@@ -524,7 +524,10 @@ extern "system" fn focus_event_procedure(
     _thread: u32,
     _time_ms: u32,
 ) {
-    with_runtime(|runtime| runtime.shell.forget_focused_field());
+    with_runtime(|runtime| {
+        runtime.shell.forget_focused_field();
+        runtime.controller.on_focus_moved(&mut runtime.shell);
+    });
 }
 
 extern "system" fn keyboard_procedure(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

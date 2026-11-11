@@ -638,6 +638,28 @@ fn focus_change_before_key_hides_ghost_and_badge() {
 }
 
 #[test]
+fn focus_move_to_another_window_without_a_key_hides_ghost_and_badge() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est");
+    harness.shell.focus_change = FocusChange::Changed;
+
+    harness.controller.on_focus_moved(&mut harness.shell);
+
+    assert_eq!(harness.take_calls(), hidden_ghost_and_badge());
+}
+
+#[test]
+fn focus_move_inside_the_same_window_keeps_ghost_and_badge() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est");
+    harness.take_calls();
+
+    harness.controller.on_focus_moved(&mut harness.shell);
+
+    assert_eq!(harness.take_calls(), []);
+}
+
+#[test]
 fn key_in_excluded_field_hides_ghost_and_badge() {
     let mut harness = Harness::new(Settings::default());
     harness.shell.field = Field::Excluded;

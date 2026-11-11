@@ -13,6 +13,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - The first key there still waits, because a terminal also gives the old caret at its right side until the program in it writes the key back.
 - Without this rule, in classic Notepad, the ghost text showed after 2 percent of the looks at the right side, against 95 percent inside the line, because each key started the looks again. With it, 92 percent of the looks at the right side showed the ghost text.
 - A focus change, a click and a screen change forget that caret (`Controller::on_context_lost`), so the first look in another field shows the ghost text also at the same place on the screen.
+- A move of the focus to another window hides the ghost text and the badge at once, also without a key or a click (`Controller::on_focus_moved`). Examples are a window that closes, and an app that opens a window in front.
 - A caret more than 4 caret heights outside the frame of its field counts as no caret, and core hides the ghost text and the badge.
 
 ## Timing
