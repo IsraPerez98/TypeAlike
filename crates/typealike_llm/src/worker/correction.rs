@@ -143,10 +143,12 @@ pub(super) struct TypoFix {
     pub(super) log_probability: LogProbability,
 }
 
-/// Returns the most likely token among the first [`FIX_CANDIDATES`] of `logits` whose text,
-/// `piece_of`, fixes the `typed` letters with one edit, with the fixed letters. The fixed letters
-/// must be at least as likely as `min`, so that the fix is not a typo too. `None` when no such
-/// token comes.
+/// Returns the fix of the `typed` letters with one edit whose fixed letters the model finds most
+/// likely, among the fixes that the texts (`piece_of`) of the first [`FIX_CANDIDATES`] tokens of
+/// `logits` give. A short token can fix the start of the letters and keep a typo after it, and
+/// such fixed letters are less likely than the letters of a longer token. Of two fixes with the
+/// same fixed letters, the fix of the more likely token comes. The fixed letters must be at least
+/// as likely as `min`, so that the fix is not a typo too. `None` when no such token comes.
 pub(super) fn typo_fix(
     logits: &[f32],
     pieces: &TokenPieces,
@@ -171,7 +173,14 @@ pub(super) fn typo_fix(
                 log_probability,
             })
         })
-        .find(|fix| fix.log_probability >= min)
+        .filter(|fix| fix.log_probability >= min)
+        .reduce(|best, fix| {
+            if fix.log_probability > best.log_probability {
+                fix
+            } else {
+                best
+            }
+        })
 }
 
 /// Returns `check` for the `typed` letters with their best `fix`. With [`TypoCheck::Fix`] and at
@@ -384,6 +393,22 @@ mod tests {
             fix.map(|fix| (fix.token, fix.letters)),
             Some((LlamaToken(1), " deli".to_owned()))
         );
+    }
+
+    #[test]
+    fn fix_with_the_most_likely_fixed_letters_wins_over_the_fix_of_a_more_likely_token() {
+        let pieces = [" par", " paro", " problema"];
+        let logits = [3.0, -5.0, 2.0];
+
+        let fix = typo_fix(
+            &logits,
+            &TokenPieces::from_texts(&pieces),
+            b" probelma",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix.map(|fix| fix.letters), Some(" problema".to_owned()));
     }
 
     #[test]
