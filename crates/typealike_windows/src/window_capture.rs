@@ -149,6 +149,11 @@ impl Capturer {
         })
     }
 
+    /// The device in the form that a pool of capture frames takes.
+    pub(crate) fn capture_device(&self) -> &IDirect3DDevice {
+        &self.capture_device
+    }
+
     /// Captures one frame of `window`.
     pub(crate) fn capture_window(&self, window: HWND) -> Result<WindowFrame, CaptureError> {
         let bounds = window_bounds(window)?;
@@ -248,7 +253,7 @@ pub(crate) struct WindowFrame {
 
 /// The frame of `window` on the screen without its invisible borders, which is the area that its
 /// capture shows.
-fn window_bounds(window: HWND) -> Result<ScreenRect, CaptureError> {
+pub(crate) fn window_bounds(window: HWND) -> Result<ScreenRect, CaptureError> {
     let mut bounds = RECT::default();
     // SAFETY: plain call. `bounds` is a local of the size that the call writes.
     unsafe {

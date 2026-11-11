@@ -70,6 +70,14 @@ pub(crate) struct ShownField {
     pub(crate) window_title: Option<String>,
 }
 
+impl ShownField {
+    /// Whether UIA hides what follows the caret of the field, as in the editor of VS Code and in
+    /// the input box of a terminal of xterm.js.
+    pub(crate) fn has_hidden_text_after_caret(&self) -> bool {
+        self.is_caret_line_hidden || self.has_unreadable_text
+    }
+}
+
 impl fmt::Debug for ShownField {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter

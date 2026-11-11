@@ -16,6 +16,7 @@
 mod account;
 mod badge;
 mod caret;
+mod caret_pixels;
 mod caret_reader;
 mod clipboard;
 mod cpu_cores;

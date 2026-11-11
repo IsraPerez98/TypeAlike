@@ -139,6 +139,7 @@ fn ghost_text_does_not_wrap_over_text_that_an_app_gives_without_a_line_break_aft
         caret: Some(caret_at(100)),
         field: Some(FIELD),
         after: AfterCaret::Nothing,
+        ..CaretRead::default()
     });
     harness.shell.surroundings = field_around("", "See you on Friday.");
 
@@ -158,6 +159,7 @@ fn ghost_text_does_not_wrap_over_the_text_below_that_a_look_sees() {
         caret: Some(caret_at(100)),
         field: Some(FIELD),
         after: AfterCaret::TextBelow,
+        ..CaretRead::default()
     });
 
     harness.show(SUGGESTION);

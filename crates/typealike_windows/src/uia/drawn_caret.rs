@@ -15,9 +15,12 @@ use windows::Win32::UI::Accessibility::{
 
 use super::com::SafeArray;
 use super::field::after_caret;
-use super::{Uia, WHOLE_RANGE, caret_range, frame_with_area, is_password, is_terminal_input, text_of};
+use super::{
+    Uia, WHOLE_RANGE, caret_range, frame_with_area, has_unreadable_text, is_password, is_terminal_input,
+    text_of,
+};
 use crate::caret::{self, Caret};
-use crate::display::round_to_pixel;
+use crate::display::{self, round_to_pixel};
 use crate::pixels::Rgb;
 use crate::utf16::whole_chars;
 
@@ -34,10 +37,15 @@ pub(crate) struct FocusedCaret {
     /// The caret, or `None` when the control shows no caret that TypeAlike can find.
     pub(crate) caret: Option<Caret>,
     /// The frame of the control in physical screen pixels, or `None` when UIA gives no frame with
-    /// an area.
+    /// an area. In a terminal of xterm.js, it is the frame of the screen of the terminal, because
+    /// the hidden input box is one cell.
     pub(crate) frame: Option<RECT>,
     /// What follows the caret now: selected text, or the text after it on its line.
     pub(crate) after: AfterCaret,
+    /// Whether UIA hides what follows the caret: the editor of VS Code gives a message in place of
+    /// its text, and the hidden input box of a terminal of xterm.js has none of the text of the
+    /// terminal. Then only the pixels after the caret tell what follows it.
+    pub(crate) has_hidden_text_after_caret: bool,
 }
 
 impl Uia {
@@ -46,16 +54,17 @@ impl Uia {
     /// control tells them. The frame of the control comes with it, and what follows the caret now.
     pub(crate) fn caret(&self) -> FocusedCaret {
         let element = self.focused_element();
+        let terminal = element.as_ref().and_then(|element| self.terminal_input(element));
+        let element_frame = || element.as_ref().and_then(frame_with_area);
         FocusedCaret {
-            caret: self.styled_caret(element.as_ref()),
-            frame: element.as_ref().and_then(frame_with_area),
+            caret: styled_caret(element.as_ref(), terminal),
+            frame: terminal
+                .and_then(TerminalInput::screen_frame)
+                .or_else(element_frame),
             after: element.as_ref().map_or(AfterCaret::Unknown, after_caret),
+            has_hidden_text_after_caret: terminal.is_some()
+                || element.as_ref().is_some_and(has_unreadable_text),
         }
-    }
-
-    fn styled_caret(&self, element: Option<&IUIAutomationElement>) -> Option<Caret> {
-        let caret = caret::system_caret().or_else(|| self.drawn_caret(element?))?;
-        Some(element.map(text_style).unwrap_or_default().apply_to(caret))
     }
 
     /// Locates the caret that `element`, the focused control, draws itself: the caret of the caret
@@ -63,14 +72,10 @@ impl Uia {
     /// of the line after a line break. In a terminal of xterm.js, the caret moves up to the row
     /// that holds it.
     pub(super) fn drawn_caret(&self, element: &IUIAutomationElement) -> Option<Caret> {
-        let caret = caret::accessible_caret().or_else(|| caret_of(element))?;
-        Some(match self.terminal_input(element) {
-            Some(input) => input.align(caret),
-            None => caret,
-        })
+        drawn_caret_in(element, self.terminal_input(element))
     }
 
-    /// Reads the hidden input box of a terminal of xterm.js and the top of its screen, when
+    /// Reads the hidden input box of a terminal of xterm.js and the frame of its screen, when
     /// `element` is that input box.
     fn terminal_input(&self, element: &IUIAutomationElement) -> Option<TerminalInput> {
         if !is_terminal_input(element) {
@@ -86,7 +91,7 @@ impl Uia {
         };
         Some(TerminalInput {
             frame,
-            screen_top: screen_frame.top,
+            screen: screen_frame,
         })
     }
 
@@ -106,6 +111,24 @@ impl Uia {
             (screen.CachedClassName().ok()? == XTERM_SCREEN_CLASS).then_some(screen)
         }
     }
+}
+
+/// The caret of `element`, the focused control, with the color and the font face of the text before
+/// it when the control tells them. `terminal` is the terminal of xterm.js that `element` is the
+/// input box of.
+fn styled_caret(element: Option<&IUIAutomationElement>, terminal: Option<TerminalInput>) -> Option<Caret> {
+    let caret = caret::system_caret().or_else(|| drawn_caret_in(element?, terminal))?;
+    Some(element.map(text_style).unwrap_or_default().apply_to(caret))
+}
+
+/// Locates the caret that `element` draws itself. In `terminal`, the terminal of xterm.js that
+/// `element` is the input box of, the caret moves up to the row that holds it.
+fn drawn_caret_in(element: &IUIAutomationElement, terminal: Option<TerminalInput>) -> Option<Caret> {
+    let caret = caret::accessible_caret().or_else(|| caret_of(element))?;
+    Some(match terminal {
+        Some(input) => input.align(caret),
+        None => caret,
+    })
 }
 
 /// Locates the caret in `element` at the right edge of the character before it. At the start of
@@ -316,11 +339,16 @@ fn pixel_edges([left, top, width, height]: [f64; VALUES_PER_RECTANGLE]) -> Optio
 struct TerminalInput {
     /// The frame of the input box, which is one row high.
     frame: RECT,
-    /// The top of the screen, where the first row starts.
-    screen_top: i32,
+    /// The frame of the screen, which holds the rows of the terminal from its top.
+    screen: RECT,
 }
 
 impl TerminalInput {
+    /// The frame of the screen of the terminal, or `None` when it has no area.
+    fn screen_frame(self) -> Option<RECT> {
+        display::has_area(self.screen).then_some(self.screen)
+    }
+
     /// Moves `caret`, the caret in the input box, up to the row that holds the input box. VS Code
     /// draws the input box below the top of that row.
     fn align(self, caret: Caret) -> Caret {
@@ -328,7 +356,7 @@ impl TerminalInput {
         let below_row = self
             .frame
             .top
-            .saturating_sub(self.screen_top)
+            .saturating_sub(self.screen.top)
             .checked_rem_euclid(row_height)
             .unwrap_or_default();
         Caret {
@@ -453,7 +481,12 @@ mod tests {
                 right: 452,
                 bottom,
             },
-            screen_top: 538,
+            screen: RECT {
+                left: 300,
+                top: 538,
+                right: 1200,
+                bottom: 1400,
+            },
         }
     }
 
@@ -482,6 +515,28 @@ mod tests {
         let caret = input.align(caret_at(1285));
 
         assert_eq!(caret, caret_at(1285));
+    }
+
+    #[test]
+    fn frame_of_a_terminal_input_is_the_screen_of_the_terminal() {
+        let input = terminal_input(1284, 1302);
+
+        assert_eq!(input.screen_frame(), Some(input.screen));
+    }
+
+    #[test]
+    fn screen_of_a_terminal_without_an_area_gives_no_frame() {
+        let input = TerminalInput {
+            screen: RECT {
+                left: 300,
+                top: 538,
+                right: 300,
+                bottom: 1400,
+            },
+            ..terminal_input(1284, 1302)
+        };
+
+        assert_eq!(input.screen_frame(), None);
     }
 
     #[test]

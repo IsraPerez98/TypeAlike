@@ -41,10 +41,11 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - The system caret, else the caret object of the focused window (`OBJID_CARET` of Microsoft Active Accessibility: Chromium browsers and Electron apps such as VS Code), else UI Automation (UIA) for apps that draw their own caret (WinUI).
 - Each read of the caret also gives the frame of the focused field: the UIA `CurrentBoundingRectangle` of the focused element when it has an area, else the client area of the focused window (`GetClientRect`, `ClientToScreen`).
+- In a terminal of xterm.js, the frame of the field is the frame of the screen of the terminal (the class `xterm-screen`), because the hidden input box is only one cell.
 - A UIA frame covers the whole element, also the part that the edge of the window or a scrolled page hides. Thus the frame of the field is only the part of the UIA frame inside the client area of the focused window (`display::visible_field_frame`), and the wrapped ghost text stays inside the window. A scroll container inside the window can still hide a part of the frame.
 - When the client area shows no part of the UIA frame (a hidden focus window without a size), the frame stays the whole UIA frame. A mirrored window (right to left) maps the corners of its client area in the opposite order (`display::rect_between`).
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
-- With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the time, the caret, the UIA frame, the client area, the frame of the field and what follows the caret of each read of the caret.
+- With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the time, the caret, the UIA frame, the client area, the frame of the field and what follows the caret of each read of the caret, and the area of its pixels after the caret.
 
 ### What follows the caret
 
@@ -54,6 +55,23 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The address bar of Chromium browsers gives its inline completion as the selection, so the ghost text hides while it shows.
 - Claude Code in Windows Terminal gives its placeholder as text after the caret in an empty field. The look sees that the placeholder is gone after the first key.
 - The answer is `Unknown` for a password field, for an element without a `TextPattern`, and for a read that fails. Core then uses the text that the session read at its start (`docs/core/ghost-text.md`, "Placement").
+
+### Pixels after the caret
+
+- UIA cannot tell what follows the caret in the editor of VS Code (class `native-edit-context`) and in the input box of a terminal of xterm.js. The editor gives a message in place of its text, and the input box has none of the text of the terminal.
+- In these two fields, each read of the caret also captures the pixels after the caret (`caret_pixels.rs`), in the area that core asks for (`ScreenPixels::area_after_caret`). Core decides what they show (`docs/core/ghost-text.md`, "Pixels after the caret").
+- `Windows.Graphics.Capture` captures only the foreground window (`CreateForWindow`), so the ghost text, the card and the badge of TypeAlike are never in the pixels.
+- Other ways that did not fit:
+  - A copy of the screen also holds the ghost text of the last look, because the ghost text stays at the old caret while the user types its letters.
+  - `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE` on the overlay would also hide the ghost text from screen sharing, recordings and screenshots.
+  - A GDI read of the window of VS Code gives no pixels, because Chromium draws with the GPU.
+- The start of a capture took 40 to 100 ms for VS Code on 2026-11-11, too long for each read. Thus the capture of the window stays open while the reads need its pixels.
+- The handler of the frames keeps only the newest frame, because a frame keeps its buffer, and a capture without a free buffer gives no new frames. Each read copies only the area after the caret from that frame: 0.5 to 4 ms in a release build.
+- A field read that finds one of these fields starts the capture, so that the first read of the caret does not wait for it.
+- A read of the caret in another window or another field stops the capture, and so do 60 s without a read (`IDLE_CAPTURE_TIMEOUT`).
+- When the window changes its size, the next read starts the capture again.
+- Windows 10 draws a border around the window at each capture, so there the reads give no pixels, and the ghost text stays below the caret.
+- The pixels go only to core, which does not keep them. With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the area of the pixels and the time of their capture at each read of the caret ("read the caret"), and the time of each start of a capture. It never gives the pixels.
 
 ### UIA caret
 

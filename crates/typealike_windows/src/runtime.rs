@@ -413,7 +413,7 @@ impl Runtime {
     fn take_caret_reads(&mut self) {
         for answer in self.caret_reads.try_iter() {
             if let Some(read) = self.shell.newest_caret.keep(answer) {
-                self.controller.on_caret_read(read, &mut self.shell);
+                self.controller.on_caret_read(&read, &mut self.shell);
             }
         }
     }

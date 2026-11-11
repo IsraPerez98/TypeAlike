@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::{Ghost, GhostView};
 use crate::app::{BadgeView, TrayView};
-use crate::desktop::{AfterCaret, Desktop, Permission, ScreenReadId, ScreenRect, ScreenSource};
+use crate::desktop::{AfterCaret, Desktop, Permission, ScreenPixels, ScreenReadId, ScreenRect, ScreenSource};
 use crate::settings::{ClipboardAccess, OcrLevel};
 use crate::settings_window::view::SettingsView;
 use crate::setup::SetupView;
@@ -41,7 +41,7 @@ pub enum FocusChange {
 }
 
 /// One look of the platform at the caret of the focused field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CaretRead {
     /// The caret, or `None` when the platform finds no caret.
     pub caret: Option<ScreenRect>,
@@ -50,11 +50,15 @@ pub struct CaretRead {
     pub field: Option<ScreenRect>,
     /// What the platform sees after the caret at this look.
     pub after: AfterCaret,
+    /// The pixels of the screen after the caret, in the area of
+    /// [`ScreenPixels::area_after_caret`], in a field where `after` cannot tell what follows the
+    /// caret. `None` in other fields, or when the platform cannot capture them.
+    pub pixels: Option<ScreenPixels>,
 }
 
 /// How a shell looks at the caret before the controller shows something at the caret. With each
 /// look, the controller keeps the ghost text off a caret that did not move after a key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaretLook {
     /// The shell starts the read of the caret now and gives the read later to
     /// [`Controller::on_caret_read`](super::Controller::on_caret_read). The controller then shows

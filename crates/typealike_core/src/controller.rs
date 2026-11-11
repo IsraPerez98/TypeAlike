@@ -460,7 +460,7 @@ impl Controller {
     /// After a key, a caret that did not move yet gets only the badge, and the controller looks
     /// again later. A caret far from the frame of its field counts as no caret. Drops `read` when
     /// a key came after the look started, because the key can move the caret.
-    pub fn on_caret_read(&mut self, read: CaretRead, shell: &mut dyn Shell) {
+    pub fn on_caret_read(&mut self, read: &CaretRead, shell: &mut dyn Shell) {
         let Some(outcome) = self.caret_wait.on_caret_read(read) else {
             return;
         };
@@ -825,7 +825,7 @@ impl Controller {
     fn render_waiting_ghost(&mut self, shell: &mut dyn Shell) {
         self.caret_wait.wait_for_look();
         if let CaretLook::Now(read) = shell.read_caret() {
-            self.on_caret_read(read, shell);
+            self.on_caret_read(&read, shell);
         }
     }
 
@@ -1283,7 +1283,7 @@ impl Controller {
     /// into the field of `read`. When the ghost text shows, its app and its website go into the
     /// lists of the panes. Else an app whose suggestions are off by default goes into the list of
     /// the Apps and websites pane.
-    fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
+    fn render_at_caret(&mut self, read: &CaretRead, shell: &mut dyn Shell) {
         let ghost = self.ghost_view_at(read, &*shell);
         self.caret_wait.note_view(ghost.as_ref());
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view(&self.translations));
@@ -1296,27 +1296,43 @@ impl Controller {
     }
 
     /// The view of the waiting ghost text at the caret of `read`. The ghost text goes after the
-    /// caret, and below it only while text follows the caret on its line, as `read` sees it. It
-    /// wraps onto the lines below only while they have no text. It never shows while the app
-    /// selects text after the caret, because it would cover the suggestion of the app. `None` when
-    /// no ghost text waits.
-    fn ghost_view_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<GhostView> {
+    /// caret, and below it only while text follows the caret on its line, as `read` sees it: in
+    /// its pixels after the caret when it has them. It wraps onto the lines below only while they
+    /// have no text. It never shows while the app selects text after the caret, because it would
+    /// cover the suggestion of the app. `None` when no ghost text waits.
+    fn ghost_view_at(&self, read: &CaretRead, shell: &dyn Shell) -> Option<GhostView> {
         if read.after == AfterCaret::Selection {
             return None;
         }
+        let room = RoomAfterCaret::seen_in_pixels(read).unwrap_or_else(|| self.room_as_read(read));
+        let view = self
+            .caret_wait
+            .ghost_view(self.app.text_before_caret(), room.placement)?;
+        Some(fit_to_field(
+            view,
+            read.caret,
+            room.field,
+            room.lines_below,
+            shell,
+        ))
+    }
+
+    /// The room after the caret of `read` as the look and the text of the session tell it.
+    fn room_as_read(&self, read: &CaretRead) -> RoomAfterCaret {
         let placement = if self.app.is_caret_at_line_end(read.after) {
             GhostPlacement::AfterCaret
         } else {
             GhostPlacement::BelowCaret
         };
-        let view = self
-            .caret_wait
-            .ghost_view(self.app.text_before_caret(), placement)?;
         let lines_below = match read.after {
             AfterCaret::TextBelow => LinesBelow::WithText,
             _ => self.app.lines_below_caret(),
         };
-        Some(fit_to_field(view, read, lines_below, shell))
+        RoomAfterCaret {
+            placement,
+            lines_below,
+            field: read.field,
+        }
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
@@ -1325,10 +1341,52 @@ impl Controller {
     }
 }
 
-/// Fits `view` into the field of `read` after its caret, above the text of `lines_below`. Without
-/// a caret or a field frame with area, the view stays whole.
-fn fit_to_field(view: GhostView, read: CaretRead, lines_below: LinesBelow, shell: &dyn Shell) -> GhostView {
-    let (Some(caret), Some(field)) = (read.caret, read.field.filter(ScreenRect::has_area)) else {
+/// Where a ghost text at the caret goes, and the room that it has there.
+struct RoomAfterCaret {
+    placement: GhostPlacement,
+    /// What the lines below the line of the caret show.
+    lines_below: LinesBelow,
+    /// The field that the ghost text after the caret fits into.
+    field: Option<ScreenRect>,
+}
+
+impl RoomAfterCaret {
+    /// The room after the caret of `read` as the pixels of the look show it: the ghost text goes
+    /// after the caret where the pixels show no text after the caret on its line, and it wraps
+    /// only onto the lines below that the pixels show without text. `None` without pixels that
+    /// show the line of the caret.
+    fn seen_in_pixels(read: &CaretRead) -> Option<Self> {
+        let (pixels, caret, field) = (read.pixels.as_ref()?, read.caret?, read.field?);
+        let after = pixels.after_caret(caret, field)?;
+        Some(Self {
+            placement: match after {
+                AfterCaret::Text | AfterCaret::Selection => GhostPlacement::BelowCaret,
+                AfterCaret::Nothing | AfterCaret::TextBelow | AfterCaret::Unknown => {
+                    GhostPlacement::AfterCaret
+                }
+            },
+            lines_below: match after {
+                AfterCaret::Nothing => LinesBelow::Empty,
+                _ => LinesBelow::WithText,
+            },
+            field: Some(ScreenRect {
+                bottom: field.bottom.min(pixels.frame().bottom),
+                ..field
+            }),
+        })
+    }
+}
+
+/// Fits `view` into `field` after `caret`, above the text of `lines_below`. Without a caret or a
+/// field frame with area, the view stays whole.
+fn fit_to_field(
+    view: GhostView,
+    caret: Option<ScreenRect>,
+    field: Option<ScreenRect>,
+    lines_below: LinesBelow,
+    shell: &dyn Shell,
+) -> GhostView {
+    let (Some(caret), Some(field)) = (caret, field.filter(ScreenRect::has_area)) else {
         return view;
     };
     view.fit_to(caret, field, lines_below, |ghost| shell.ghost_width(ghost))

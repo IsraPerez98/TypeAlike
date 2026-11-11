@@ -59,11 +59,12 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ### Placement
 
 - When text follows the caret on its line, the ghost text goes below the caret (`GhostPlacement::BelowCaret`), because at the caret it would cover that text.
-- A field that hides the text of that line (`Surroundings::is_caret_line_hidden`: the input box of a terminal of xterm.js) always gets the ghost text below the caret, and no phrases.
+- A field that hides the text of that line (`Surroundings::is_caret_line_hidden`: the input box of a terminal of xterm.js) gets no phrases. It gets the ghost text below the caret, except where the pixels after the caret show no text (see "Pixels after the caret").
 - Each look at the caret also tells what follows the caret now (`CaretRead::after`, `AfterCaret`: nothing, text on the line, text only on the lines below, selected text, or unknown).
 - The look decides the placement, because the text that the session read at its start can be stale. An empty field can show a placeholder that goes away at the first key, as Claude Code does.
 - Thus a look that sees no text after the caret puts the ghost text after the caret, also when the session read a placeholder there. A look that sees text puts it below the caret.
 - When the platform cannot tell (`AfterCaret::Unknown`), the text that the session read at its start counts.
+- A look with pixels after the caret decides with them, and not with `CaretRead::after` or the text of the session (see "Pixels after the caret").
 - While the app selects text after the caret, the ghost text hides. An example is the inline completion of the address bar of Chrome. The ghost text then never covers the suggestion of the app.
 - The ghost text waits, and core looks at the caret again as for each ghost text that does not show. It shows when the selection goes away.
 
@@ -84,3 +85,19 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - The whole ghost text goes below the caret (`GhostPlacement::BelowCaret`) only when not even its first word, or the word of a fix, fits after the caret.
 - Without a frame with an area, the ghost text stays whole on the line of the caret.
 - After each Tab, core wraps the rest again at the new caret.
+
+### Pixels after the caret
+
+- In some fields, the platform cannot read what follows the caret. Examples are the editor of VS Code (`Surroundings::has_unreadable_text`) and the input box of a terminal of xterm.js.
+- In these fields, each look also gives the pixels of the screen after the caret (`CaretRead::pixels`, `ScreenPixels`).
+- The pixels show the field from the top of the line of the caret to at most 4 lines below it (`ScreenPixels::area_after_caret`). The ghost text wraps only onto these lines.
+- Core reads them as the text after the caret (`ScreenPixels::after_caret`), only where a ghost text after the caret would show:
+  - The line of the caret has no text after the caret when each row of its pixels has one color. The row goes from the caret to 4 px before the right edge of the field (`FIELD_EDGE_GAP`).
+  - An empty line has one color in each row, and so does the highlight of the line of the caret, also with a border.
+  - The cursor does not count as text. The cursor is the run of columns of one color from the caret, at most one caret height wide: the bar of an editor, or the block of a terminal. The top and the bottom eighth of the line do not count in a column, because the highlight of the line can end there.
+  - The lines below have no text when all their pixels have one color. They start one third of a caret height below the caret, because the caret of a terminal of xterm.js is shorter than its line.
+  - One color can change by 12 of 255 in each channel (`SAME_COLOR_RANGE`). The highlight of the line in a dark theme can differ from the background by less. A rule line of a terminal differs by more.
+- When the line of the caret has no text after the caret, the ghost text goes after the caret, with the rules of "Fit in the field". It wraps when the lines below have no text. Else only the words that fit on the line of the caret show.
+- When the line of the caret has text after the caret, the ghost text goes below the caret.
+- A look without pixels, or with pixels that do not show the whole line of the caret, keeps the rules above. The ghost text of a field that hides its line then goes below the caret.
+- Checked on 2026-11-11 with the screenshots of the app tests: the rule agreed with a visual check of 11 of 11 looks in VS Code and 25 of 25 test carets on the same screens. In Windows Terminal, a background with a pattern counted as text on the lines below, so these lines got no wrap.
