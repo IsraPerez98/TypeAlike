@@ -10,7 +10,7 @@ use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 use typealike_core::inference::{Correction, InferenceError, TypoCheck};
 
-use super::correction::typo_fix;
+use super::correction::{TypoFix, typo_fix, with_fix_gap};
 use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
     AddedTokens, Choice, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
@@ -369,16 +369,50 @@ impl<'model> PromptCache<'model> {
         Ok(generation.into_added())
     }
 
-    /// Continues the prompt again when `added` stopped for a typo in the `healing` text and a fix
-    /// comes: the first step takes the token of the fix, and the added tokens continue the fixed
-    /// letters. Their parts do not go to `progress`, because they do not continue the prompt.
-    /// Returns `added` when it did not stop for a typo, the limits of the `decoder` ask for no fix,
-    /// or no fix comes.
-    pub(super) fn continue_fixed(
+    /// Continues the prompt after the `healing` text, as [`PromptCache::continue_prompt`] does. When
+    /// the limits of the `decoder` ask for fixes, the typed letters must also be not much less
+    /// likely than their best fix ([`with_fix_gap`]). When the completion stops for a typo and a
+    /// fix comes, the added tokens continue the fixed letters.
+    pub(super) fn continue_healed(
+        &mut self,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
+        progress: &mut Progress<'_>,
+    ) -> Result<AddedTokens, GenerateError> {
+        let fix = self.typo_fix(decoder, healing);
+        let decoder = Decoder {
+            limits: Limits {
+                typo_check: with_fix_gap(decoder.limits.typo_check, healing.text, fix.as_ref()),
+                ..decoder.limits
+            },
+            ..*decoder
+        };
+        let added = self.continue_prompt(&decoder, healing, progress)?;
+        self.continue_fixed(&decoder, healing, added, fix, progress)
+    }
+
+    /// Returns the best fix of the typed letters of the `healing` text after the prompt, when the
+    /// limits of the `decoder` ask for fixes.
+    fn typo_fix(&self, decoder: &Decoder<'_>, healing: Healing<'_>) -> Option<TypoFix> {
+        let TypoCheck::Fix(min) = decoder.limits.typo_check else {
+            return None;
+        };
+        typo_fix(&self.logits, decoder.pieces, healing.text, min, |token| {
+            decoder.vocab.token_to_piece(token, false, None)
+        })
+    }
+
+    /// Continues the prompt again with `fix` when `added` stopped for a typo in the `healing` text:
+    /// the first step takes the token of the fix, and the added tokens continue the fixed letters.
+    /// Their parts do not go to `progress`, because they do not continue the prompt. Returns
+    /// `added` when it did not stop for a typo, the limits of the `decoder` ask for no fix, or no
+    /// fix comes.
+    fn continue_fixed(
         &mut self,
         decoder: &Decoder<'_>,
         healing: Healing<'_>,
         added: AddedTokens,
+        fix: Option<TypoFix>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
         let limits = decoder.limits;
@@ -386,17 +420,12 @@ impl<'model> PromptCache<'model> {
             return Ok(added);
         };
         let has_stopped_for_typo = added.tokens.is_empty() && added.typed_log_probability < min;
-        if !has_stopped_for_typo {
-            return Ok(added);
-        }
-        let Some((token, fixed)) = typo_fix(&self.logits, decoder.pieces, healing.text, min, |token| {
-            decoder.vocab.token_to_piece(token, false, None)
-        }) else {
+        let Some(fix) = fix.filter(|_| has_stopped_for_typo) else {
             return Ok(added);
         };
         let fixed_healing = Healing {
-            text: fixed.as_bytes(),
-            first_token: Some(token),
+            text: fix.letters.as_bytes(),
+            first_token: Some(fix.token),
         };
         let mut quiet = Progress {
             is_outdated: &mut *progress.is_outdated,
@@ -414,7 +443,7 @@ impl<'model> PromptCache<'model> {
             typed_log_probability: added.typed_log_probability,
             correction: Some(Correction {
                 typed: String::from_utf8_lossy(healing.text).into_owned(),
-                fixed,
+                fixed: fix.letters,
             }),
             ..fixed_added
         })

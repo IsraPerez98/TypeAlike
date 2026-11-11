@@ -189,9 +189,9 @@
 //! give the dictionary of that OS that the app uses, and `windows:es-CL,en-US` the dictionaries of
 //! Windows for those languages. `hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and
 //! `PATH.dic`. A `+` joins live dictionaries, which then know a word when any of them knows it, as
-//! in `windows+hunspell:PATH`. With a dictionary, a stop for a typo in the start of a known
-//! word and a fix of a known word ask again without the rule, as in the app. Without it, the app of
-//! each case has no dictionary.
+//! in `windows+hunspell:PATH`. The app gets each part as the dictionary of one language. With a
+//! dictionary, a stop for a typo in the start of a known word and a fix of a known word ask again
+//! without the rule, as in the app. Without it, the app of each case has no dictionary.
 //!
 //! `--sentence-stop on` (the default, as in the app) stops each suggestion at the end of a
 //! sentence, as the app does with "Stop at the end of a sentence". `off` lets a suggestion
@@ -311,6 +311,12 @@ fn write_prompts(path: &Path, runs: &[CaseRun]) -> anyhow::Result<()> {
     write_json_lines(path, &prompts)
 }
 
+/// Reads the dictionary of each language that `spec`, the value of `--dictionary`, names: each
+/// part between `+` on its own, as the app opens the dictionary of each language on its own.
+fn language_dictionaries(spec: &str) -> anyhow::Result<Vec<FileDictionary>> {
+    spec.split('+').map(FileDictionary::read).collect()
+}
+
 fn main() -> anyhow::Result<()> {
     // SAFETY: no other thread runs yet.
     unsafe { typealike_llm::disable_metal_residency_sets() };
@@ -339,11 +345,12 @@ fn main() -> anyhow::Result<()> {
         .map(read_json_lines::<Outcome>)
         .transpose()?;
 
-    let dictionary = arguments
+    let dictionaries = arguments
         .dictionary
         .as_deref()
-        .map(FileDictionary::read)
-        .transpose()?;
+        .map(language_dictionaries)
+        .transpose()?
+        .unwrap_or_default();
 
     let settings = arguments.settings();
     let mut model = ModelSession::load(
@@ -362,7 +369,7 @@ fn main() -> anyhow::Result<()> {
                 case: &checkpoint,
                 history: &history,
                 settings: &settings,
-                dictionary: dictionary.as_ref(),
+                dictionaries: &dictionaries,
                 version,
             };
             runs.push(run_case(&mut model, setup, &arguments)?);

@@ -21,7 +21,7 @@ use super::support::{
 /// words.
 fn engine_typed(settings: &Settings, typed: &str, unknown: &[&'static str]) -> Engine {
     let mut engine = engine_waiting_with(settings, typed);
-    engine.use_spell_checker(Box::new(FakeSpellChecker::without(unknown)));
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(unknown))]);
     engine
 }
 
@@ -59,7 +59,7 @@ fn unknown_word_that_the_preface_holds_stays() {
         ..Settings::default()
     };
     let mut engine = engine_with(&settings);
-    engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["Turjal"])));
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(&["Turjal"]))]);
     let desktop = FakeDesktop::with_field_text("").with_copy("Turjal Road 12", Some(Duration::from_secs(1)));
     engine.on_key(Key::Char('I'), Press::First, &desktop);
 
@@ -185,7 +185,7 @@ fn unknown_word_of_the_earlier_writing_stays_with_any_word_choice() {
             &shared_pool_settings(word_choice),
             on_own_days(vec![mail_entry("Cachai the plan, cachai the time"); 3]),
         );
-        engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["cachai"])));
+        engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(&["cachai"]))]);
         engine.on_key(
             Key::Char(' '),
             Press::First,
@@ -203,7 +203,7 @@ fn unknown_word_that_the_earlier_writing_holds_once_stays() {
         &shared_pool_settings(WordChoice::Medium),
         on_own_days(vec![mail_entry("Porfa send me the file")]),
     );
-    engine.use_spell_checker(Box::new(FakeSpellChecker::without(&["porfa"])));
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(&["porfa"]))]);
     engine.on_key(
         Key::Char(' '),
         Press::First,
@@ -219,10 +219,10 @@ fn unknown_word_that_the_earlier_writing_holds_once_stays() {
 fn dictionary_checks_each_word_once_in_a_session() {
     let checked_words = Rc::new(Cell::new(0));
     let mut engine = engine_waiting_for("We ");
-    engine.use_spell_checker(Box::new(FakeSpellChecker {
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker {
         checked_words: Rc::clone(&checked_words),
         ..FakeSpellChecker::default()
-    }));
+    })]);
     engine.on_partial_completion("meet ");
     engine.on_partial_completion("meet today ");
 
@@ -273,10 +273,10 @@ fn typo_stop_in_the_start_of_a_known_word_asks_again_without_the_typo_rule() {
 #[test]
 fn typo_stop_in_letters_that_start_no_known_word_hides_the_suggestion() {
     let mut engine = engine_waiting_for("the dlei");
-    engine.use_spell_checker(Box::new(FakeSpellChecker {
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker {
         unknown_starts: vec!["dlei"],
         ..FakeSpellChecker::default()
-    }));
+    })]);
 
     let reaction = engine.on_completion(typo_stop());
 
@@ -286,10 +286,10 @@ fn typo_stop_in_letters_that_start_no_known_word_hides_the_suggestion() {
 #[test]
 fn typo_stop_in_fewer_than_three_letters_asks_again_without_the_typo_rule() {
     let mut engine = engine_waiting_for("before Fr");
-    engine.use_spell_checker(Box::new(FakeSpellChecker {
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker {
         unknown_starts: vec!["Fr"],
         ..FakeSpellChecker::default()
-    }));
+    })]);
 
     let reaction = engine.on_completion(typo_stop());
 
@@ -372,6 +372,70 @@ fn fix_of_letters_that_only_start_a_known_word_shows() {
             rest: String::new(),
         })
     );
+}
+
+/// Returns an engine that typed `typed` with two dictionaries: one that does not know "reunion"
+/// and "hart", and one that does not know the Spanish words "les", "recuerdo", "que", "mañana"
+/// and "tenemos".
+fn engine_with_two_languages(typed: &str) -> Engine {
+    let mut engine = engine_waiting_for(typed);
+    engine.use_spell_checkers(vec![
+        Box::new(FakeSpellChecker::without(&["reunion", "hart"])),
+        Box::new(FakeSpellChecker::without(&[
+            "les", "recuerdo", "que", "mañana", "tenemos",
+        ])),
+    ]);
+    engine
+}
+
+fn reunion_fix() -> Reaction {
+    Reaction::ShowFix(WordFix {
+        typo: "reunion".to_owned(),
+        word: "reunión".to_owned(),
+        rest: " de las nueve".to_owned(),
+    })
+}
+
+#[test]
+fn fix_of_a_word_that_only_the_dictionary_of_another_language_knows_shows() {
+    let mut engine = engine_with_two_languages("les recuerdo que mañana tenemos la reunion");
+
+    let reaction = engine.on_completion(correction(" reunion", " reunión", " de las nueve"));
+
+    assert_eq!(reaction, reunion_fix());
+}
+
+#[test]
+fn fix_of_a_word_that_a_dictionary_of_the_text_knows_asks_again_without_the_typo_rule() {
+    let mut engine = engine_with_two_languages("we will all meet at the reunion");
+
+    let reaction = engine.on_completion(correction(" reunion", " reunión", " de las nueve"));
+
+    assert_eq!(
+        reaction,
+        request_without_typo_rule("we will all meet at the reunion")
+    );
+}
+
+#[test]
+fn fix_of_fewer_than_five_letters_that_another_language_knows_asks_again_without_the_typo_rule() {
+    let mut engine = engine_with_two_languages("les recuerdo que mañana tenemos que esperar hart");
+
+    let reaction = engine.on_completion(correction(" hart", " hast", "a el lunes"));
+
+    assert_eq!(
+        reaction,
+        request_without_typo_rule("les recuerdo que mañana tenemos que esperar hart")
+    );
+}
+
+#[test]
+fn fix_of_a_word_after_too_few_words_for_a_language_asks_again_without_the_typo_rule() {
+    let mut engine = engine_with_two_languages("la reunion");
+
+    let reaction = engine.on_completion(correction(" reunion", " reunión", " de las nueve"));
+
+    assert_eq!(reaction, request_without_typo_rule("la reunion"));
 }
 
 #[test]

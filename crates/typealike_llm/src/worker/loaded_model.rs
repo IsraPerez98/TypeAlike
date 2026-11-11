@@ -259,8 +259,7 @@ impl<'model> LoadedModel<'model> {
         };
         let added = cache
             .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| cache.continue_prompt(&decoder, healing, progress))
-            .and_then(|added| cache.continue_fixed(&decoder, healing, added, progress));
+            .and_then(|()| cache.continue_healed(&decoder, healing, progress));
         match added {
             Ok(added) => {
                 let healed = added

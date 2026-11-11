@@ -1,7 +1,5 @@
-//! The seams to the dictionaries of the OS and to the dictionaries that TypeAlike downloads, and
-//! the spell checker that joins them.
+//! The seams to the dictionaries of the OS and to the dictionaries that TypeAlike downloads.
 
-use std::fmt;
 use std::sync::Arc;
 
 use super::SpellChecker;
@@ -105,54 +103,4 @@ pub trait DictionaryHub {
     /// A spell checker for the dictionaries of `languages` that the hub read. It knows no word of
     /// another language.
     fn open(&self, languages: &[String]) -> Box<dyn SpellChecker>;
-}
-
-/// Spell checkers that know a word when any of them knows it. Without a spell checker, it knows
-/// each word and no start of a word, as a platform that cannot check them.
-pub(crate) struct JoinedSpellCheckers(pub(crate) Vec<Box<dyn SpellChecker>>);
-
-impl fmt::Debug for JoinedSpellCheckers {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_tuple("JoinedSpellCheckers")
-            .field(&self.0.len())
-            .finish()
-    }
-}
-
-impl SpellChecker for JoinedSpellCheckers {
-    fn is_known_word(&self, word: &str) -> bool {
-        self.0.is_empty() || self.0.iter().any(|checker| checker.is_known_word(word))
-    }
-
-    fn is_word_start(&self, letters: &str) -> bool {
-        self.0.iter().any(|checker| checker.is_word_start(letters))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::FakeSpellChecker;
-
-    #[test]
-    fn joined_spell_checkers_know_a_word_that_any_of_them_knows() {
-        let joined = JoinedSpellCheckers(vec![
-            Box::new(FakeSpellChecker::without(&["casa", "zorbly"])),
-            Box::new(FakeSpellChecker::without(&["house", "zorbly"])),
-        ]);
-
-        let answers = ["casa", "house", "zorbly"].map(|word| joined.is_known_word(word));
-
-        assert_eq!(answers, [true, true, false]);
-    }
-
-    #[test]
-    fn no_spell_checker_knows_each_word_and_no_start_of_a_word() {
-        let joined = JoinedSpellCheckers(Vec::new());
-
-        let answers = (joined.is_known_word("zorbly"), joined.is_word_start("zor"));
-
-        assert_eq!(answers, (true, false));
-    }
 }

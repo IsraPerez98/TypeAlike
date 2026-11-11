@@ -82,6 +82,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `--dictionary windows:es-CL,en-US` gives the dictionaries of Windows for those languages. It fails when Windows has no dictionary for any of them.
 - `--dictionary hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and `PATH.dic` (UTF-8, for example from `wooorm/dictionaries`).
 - A `+` joins live dictionaries, which then know a word when any of them knows it: `windows+hunspell:PATH`.
+- The app gets each part as the dictionary of one language, as the app opens the dictionary of each language on its own. Thus give each language its own part, as in `windows:en-US+hunspell:PATH`, for a change that uses the language of a text.
 
 ## Spelling eval
 
@@ -122,6 +123,8 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
 - `cases/typos.jsonl`: a case matches when no suggestion finishes the word with the typo.
   - Each typo case has `fixed`, the text before the caret without the typo, and the report counts the fixes that write the meant word (`typo fixes`) and the fixes of words without a typo (`other fixes`).
   - A change to the prompt or to the context must show a gain here before it ships.
+- `cases/typo_kinds.jsonl` has typo cases in English and Spanish, most with the caret just after the whole word with the typo. Its groups: `swap` (two letters in the wrong order), `drop` (a dropped letter), `accent` (a missing accent, also on the first letter and inside the word) and `other` (a word that the dictionary of the other language knows, such as "reunion" in a Spanish text).
+  - Run it with the dictionaries of the user, as `varieties.jsonl`, for a change to the typo rule or to the fix.
 - `cases/varieties.jsonl` has the same kinds of cases in English (`en-`), standard Spanish without regional words (`es-`) and Chilean Spanish (`cl-`): common phrases and idioms, slang, voseo ("estái", "tenís") and Chilean office phrases ("junto con saludar").
   - The kind follows the language in the id: `chat`, `email`, `doc`, `form`, `word` (the caret inside a word of an idiom or of slang), `mem` (the earlier writing holds the next word) and `typo`.
   - The report has no score for each language. Save the run with `--save`, then split it by the prefix of the ids.

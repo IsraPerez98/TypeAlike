@@ -197,6 +197,18 @@ fn fix_with_a_bad_suggestion_after_it_hides() {
 }
 
 #[test]
+fn fix_with_only_signs_after_its_word_shows_the_fix_and_the_signs() {
+    let mut engine = engine_waiting_for("see you on Wenesday");
+
+    let reaction = engine.on_completion(correction(" Wenesday", " Wednesday", ".\n\n"));
+
+    assert_eq!(
+        reaction,
+        Reaction::ShowFix(word_fix("Wenesday", "Wednesday", "."))
+    );
+}
+
+#[test]
 fn fix_of_text_that_does_not_end_the_text_before_the_caret_hides() {
     let mut engine = engine_waiting_for("the dlei");
 

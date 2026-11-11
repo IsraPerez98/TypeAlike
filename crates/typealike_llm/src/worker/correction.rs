@@ -4,7 +4,7 @@
 use std::str;
 
 use llama_cpp_2::token::LlamaToken;
-use typealike_core::inference::LogProbability;
+use typealike_core::inference::{LogProbability, TypoCheck};
 
 use super::logits::{most_likely_tokens, typed_log_probability};
 use super::pieces::TokenPieces;
@@ -14,6 +14,12 @@ use super::pieces::TokenPieces;
 const MIN_FIXED_LETTERS: usize = 3;
 /// The most likely tokens at the start of a word with a typo that a fix looks at.
 const FIX_CANDIDATES: usize = 64;
+/// The most that the typed letters can be less likely than the letters of their best fix, in
+/// natural log units, before they count as a typo: the fix is then about 20 times as likely.
+const MAX_GAP_TO_FIX: f32 = 3.0;
+/// The fewest typed letters, without the whitespace before them, that the gap to their best fix
+/// can take for a typo. Fewer letters, such as the start of a word, have many words one edit away.
+const MIN_GAP_LETTERS: usize = 5;
 
 /// Returns how many edits turn `left` into `right`: a swap of two letters next to each other, a
 /// change, an extra or a missing letter count one edit each.
@@ -126,25 +132,70 @@ impl TypedLetters {
     }
 }
 
-/// Returns the most likely token among the first [`FIX_CANDIDATES`] of `logits` whose text,
-/// `piece_of`, fixes the `typed` letters with one edit, and the fixed letters. The fixed letters
-/// must be at least as likely as `min`, so that the fix is not a typo too. `None` when no such
-/// token comes.
+/// The fix of the typed letters of the last word with one edit.
+#[derive(Debug, PartialEq)]
+pub(super) struct TypoFix {
+    /// The token that starts the fixed letters.
+    pub(super) token: LlamaToken,
+    /// The fixed letters, with the whitespace before them.
+    pub(super) letters: String,
+    /// How likely the model finds the fixed letters, as the tokens that cover them.
+    pub(super) log_probability: LogProbability,
+}
+
+/// Returns the fix of the `typed` letters with one edit whose fixed letters the model finds most
+/// likely, among the fixes that the texts (`piece_of`) of the first [`FIX_CANDIDATES`] tokens of
+/// `logits` give. A short token can fix the start of the letters and keep a typo after it, and
+/// such fixed letters are less likely than the letters of a longer token. Of two fixes with the
+/// same fixed letters, the fix of the more likely token comes. The fixed letters must be at least
+/// as likely as `min`, so that the fix is not a typo too. `None` when no such token comes.
 pub(super) fn typo_fix(
     logits: &[f32],
     pieces: &TokenPieces,
     typed: &[u8],
     min: LogProbability,
     piece_of: impl Fn(LlamaToken) -> Vec<u8>,
-) -> Option<(LlamaToken, String)> {
+) -> Option<TypoFix> {
     let typed = str::from_utf8(typed).ok()?;
+    if typed.trim_start().chars().count() < MIN_FIXED_LETTERS {
+        return None;
+    }
     most_likely_tokens(logits, FIX_CANDIDATES)
         .into_iter()
         .filter_map(|token| {
             let piece = String::from_utf8(piece_of(token)).ok()?;
-            Some((token, fixed_letters(typed, &piece)?))
+            let letters = fixed_letters(typed, &piece)?;
+            let log_probability =
+                LogProbability(typed_log_probability(logits, pieces.covering(letters.as_bytes())));
+            Some(TypoFix {
+                token,
+                letters,
+                log_probability,
+            })
         })
-        .find(|(_, fixed)| typed_log_probability(logits, pieces.covering(fixed.as_bytes())) >= min.0)
+        .filter(|fix| fix.log_probability >= min)
+        .reduce(|best, fix| {
+            if fix.log_probability > best.log_probability {
+                fix
+            } else {
+                best
+            }
+        })
+}
+
+/// Returns `check` for the `typed` letters with their best `fix`. With [`TypoCheck::Fix`] and at
+/// least [`MIN_GAP_LETTERS`] typed letters, the letters must also be at most [`MAX_GAP_TO_FIX`]
+/// less likely than the fixed letters, when that minimum is higher. The fix is then much more
+/// likely than the typed letters, so they hold a typo, although the model can find a typo after
+/// the first token of a word fairly likely.
+pub(super) fn with_fix_gap(check: TypoCheck, typed: &[u8], fix: Option<&TypoFix>) -> TypoCheck {
+    let letters = str::from_utf8(typed).map_or(0, |text| text.trim_start().chars().count());
+    match (check, fix) {
+        (TypoCheck::Fix(min), Some(fix)) if letters >= MIN_GAP_LETTERS => {
+            TypoCheck::Fix(LogProbability(min.0.max(fix.log_probability.0 - MAX_GAP_TO_FIX)))
+        }
+        _ => check,
+    }
 }
 
 #[cfg(test)]
@@ -338,7 +389,26 @@ mod tests {
             |token| piece_of(&pieces, token),
         );
 
-        assert_eq!(fix, Some((LlamaToken(1), " deli".to_owned())));
+        assert_eq!(
+            fix.map(|fix| (fix.token, fix.letters)),
+            Some((LlamaToken(1), " deli".to_owned()))
+        );
+    }
+
+    #[test]
+    fn fix_with_the_most_likely_fixed_letters_wins_over_the_fix_of_a_more_likely_token() {
+        let pieces = [" par", " paro", " problema"];
+        let logits = [3.0, -5.0, 2.0];
+
+        let fix = typo_fix(
+            &logits,
+            &TokenPieces::from_texts(&pieces),
+            b" probelma",
+            LogProbability(-11.0),
+            |token| piece_of(&pieces, token),
+        );
+
+        assert_eq!(fix.map(|fix| fix.letters), Some(" problema".to_owned()));
     }
 
     #[test]
@@ -371,6 +441,52 @@ mod tests {
         );
 
         assert_eq!(fix, None);
+    }
+
+    fn fix_with(log_probability: f32) -> TypoFix {
+        TypoFix {
+            token: LlamaToken(1),
+            letters: " delivery".to_owned(),
+            log_probability: LogProbability(log_probability),
+        }
+    }
+
+    const FIX_CHECK: TypoCheck = TypoCheck::Fix(LogProbability(-11.0));
+
+    #[test]
+    fn fix_check_with_a_much_more_likely_fix_takes_letters_far_below_it_for_a_typo() {
+        let check = with_fix_gap(FIX_CHECK, b" delvery", Some(&fix_with(-1.0)));
+
+        assert_eq!(check, TypoCheck::Fix(LogProbability(-1.0 - MAX_GAP_TO_FIX)));
+    }
+
+    #[test]
+    fn fix_check_keeps_its_minimum_when_the_fix_is_less_likely() {
+        let check = with_fix_gap(FIX_CHECK, b" delvery", Some(&fix_with(-10.0)));
+
+        assert_eq!(check, FIX_CHECK);
+    }
+
+    #[test]
+    fn fix_check_of_fewer_than_five_typed_letters_keeps_its_minimum() {
+        let check = with_fix_gap(FIX_CHECK, b" dlei", Some(&fix_with(-1.0)));
+
+        assert_eq!(check, FIX_CHECK);
+    }
+
+    #[test]
+    fn check_without_a_fix_or_that_fixes_nothing_keeps_its_minimum() {
+        let cases = [
+            (FIX_CHECK, None),
+            (TypoCheck::Hide(LogProbability(-11.0)), Some(fix_with(-1.0))),
+            (TypoCheck::Off, Some(fix_with(-1.0))),
+        ];
+
+        let checks = cases
+            .each_ref()
+            .map(|(check, fix)| with_fix_gap(*check, b" delvery", fix.as_ref()));
+
+        assert_eq!(checks, cases.map(|(check, _)| check));
     }
 
     #[test]

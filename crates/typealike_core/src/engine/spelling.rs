@@ -19,31 +19,63 @@ const MIN_FIT_WORDS: usize = 3;
 /// The most checked words that the writer finished before the caret, from the last, that tell
 /// whether the dictionary fits the language of the writer.
 const MAX_FIT_WORDS: usize = 30;
+/// The fewest typed letters that only the dictionaries of the language of the text check after a
+/// fix. Fewer letters that another language knows as a word are often the start of a longer word
+/// of the text, such as "hart" for "harto" in a Spanish text.
+const MIN_LANGUAGE_LETTERS: usize = 5;
 
-/// The dictionary of the OS, with the answers that it gave.
+/// The dictionaries of the languages that the user writes, with the answers that they gave. A
+/// word is known when the dictionary of any language knows it. Without a dictionary, it knows each
+/// word and no start of a word, as a platform that cannot check them.
 pub(super) struct Dictionary {
-    spell_checker: Box<dyn SpellChecker>,
-    answers: HashMap<String, bool>,
+    languages: Vec<LanguageDictionary>,
     word_starts: HashMap<String, bool>,
     /// Whether the dictionary knew most words of the last text of the writer that had enough of
     /// them ([`Dictionary::fits_writer`]).
     fits_writer: bool,
 }
 
+/// The dictionary of one language that the user writes, with the answers that it gave.
+struct LanguageDictionary {
+    spell_checker: Box<dyn SpellChecker>,
+    answers: HashMap<String, bool>,
+}
+
+impl LanguageDictionary {
+    fn knows(&mut self, word: &str) -> bool {
+        let spell_checker = &self.spell_checker;
+        kept_answer(&mut self.answers, word, |word| spell_checker.is_known_word(word))
+    }
+
+    /// Whether the dictionary knows at least half of `words`.
+    fn knows_most(&mut self, words: &[&str]) -> bool {
+        let known = words.iter().filter(|word| self.knows(word)).count();
+        known * 2 >= words.len()
+    }
+}
+
 impl Dictionary {
+    fn new(spell_checkers: Vec<Box<dyn SpellChecker>>) -> Self {
+        Self {
+            languages: spell_checkers
+                .into_iter()
+                .map(|spell_checker| LanguageDictionary {
+                    spell_checker,
+                    answers: HashMap::new(),
+                })
+                .collect(),
+            word_starts: HashMap::new(),
+            fits_writer: true,
+        }
+    }
+
     /// Whether the dictionary fits the language of the writer: it knows at least half of the last
     /// [`MAX_FIT_WORDS`] checked words that the writer finished in `text_before`. With fewer than
     /// [`MIN_FIT_WORDS`] such words, the answer for the last text with enough of them counts, and
     /// before any such text the dictionary fits. A dictionary of another language does not know
     /// most words of the writer, so its cut would hide good suggestions.
     fn fits_writer(&mut self, text_before: &str) -> bool {
-        let finished = text_before.trim_end_matches(|character: char| !character.is_whitespace());
-        let typed_words = finished
-            .split_whitespace()
-            .rev()
-            .flat_map(checked_words)
-            .take(MAX_FIT_WORDS)
-            .collect::<Vec<_>>();
+        let typed_words = finished_words(text_before);
         if typed_words.len() >= MIN_FIT_WORDS {
             let known = typed_words.iter().filter(|word| self.knows(word)).count();
             self.fits_writer = known * 2 >= typed_words.len();
@@ -52,21 +84,46 @@ impl Dictionary {
     }
 
     fn knows(&mut self, word: &str) -> bool {
-        let spell_checker = &self.spell_checker;
-        kept_answer(&mut self.answers, word, |word| spell_checker.is_known_word(word))
+        self.languages.is_empty() || self.languages.iter_mut().any(|language| language.knows(word))
     }
 
     fn knows_start(&mut self, letters: &str) -> bool {
-        let spell_checker = &self.spell_checker;
+        let languages = &self.languages;
         kept_answer(&mut self.word_starts, letters, |letters| {
-            spell_checker.is_word_start(letters)
+            languages
+                .iter()
+                .any(|language| language.spell_checker.is_word_start(letters))
         })
     }
 
-    /// Whether the dictionary checks the typed letters of the last word of `text_before` and knows
-    /// them as a word.
+    /// Whether a dictionary of the language of `text_before` checks the typed letters of its last
+    /// word and knows them as a word. The dictionary of a language fits the text when it knows at
+    /// least half of the last [`MAX_FIT_WORDS`] checked words that the writer finished in
+    /// `text_before`. With fewer than [`MIN_FIT_WORDS`] such words, fewer than
+    /// [`MIN_LANGUAGE_LETTERS`] typed letters, or when no dictionary fits, the dictionary of each
+    /// language counts. Thus "reunion" in a Spanish text is no known word for an English and
+    /// Spanish writer.
     pub(super) fn knows_typed_word(&mut self, text_before: &str) -> bool {
-        typed_letters(text_before).is_some_and(|letters| self.knows(letters))
+        let Some(letters) = typed_letters(text_before) else {
+            return false;
+        };
+        if self.languages.is_empty() {
+            return true;
+        }
+        let typed_words = finished_words(text_before);
+        let has_language =
+            typed_words.len() >= MIN_FIT_WORDS && letters.chars().count() >= MIN_LANGUAGE_LETTERS;
+        let fits = self
+            .languages
+            .iter_mut()
+            .map(|language| !has_language || language.knows_most(&typed_words))
+            .collect::<Vec<_>>();
+        let has_fit = fits.contains(&true);
+        self.languages
+            .iter_mut()
+            .zip(fits)
+            .filter(|&(_, fits)| fits || !has_fit)
+            .any(|(language, _)| language.knows(letters))
     }
 
     /// Whether the dictionary knows the typed letters of the last word of `text_before` as a word
@@ -75,6 +132,18 @@ impl Dictionary {
     pub(super) fn knows_typed_start(&mut self, text_before: &str) -> bool {
         typed_letters(text_before).is_none_or(|letters| self.knows_start(letters))
     }
+}
+
+/// Returns the last [`MAX_FIT_WORDS`] checked words that the writer finished in `text_before`,
+/// from the last.
+fn finished_words(text_before: &str) -> Vec<&str> {
+    let finished = text_before.trim_end_matches(|character: char| !character.is_whitespace());
+    finished
+        .split_whitespace()
+        .rev()
+        .flat_map(checked_words)
+        .take(MAX_FIT_WORDS)
+        .collect()
 }
 
 /// Returns the typed letters of the last word of `text_before` that the dictionary checks.
@@ -119,16 +188,12 @@ impl WrittenWords<'_> {
 }
 
 impl Engine {
-    /// Cuts each suggestion of the model before a word that `spell_checker` does not know and that
-    /// the writer did not write. Where the typo rule took typed letters that `spell_checker` knows
-    /// for a typo, asks again without the rule.
-    pub(crate) fn use_spell_checker(&mut self, spell_checker: Box<dyn SpellChecker>) {
-        self.dictionary = Some(Dictionary {
-            spell_checker,
-            answers: HashMap::new(),
-            word_starts: HashMap::new(),
-            fits_writer: true,
-        });
+    /// Cuts each suggestion of the model before a word that no one of `spell_checkers`, the
+    /// dictionary of each language that the user writes, knows, and that the writer did not
+    /// write. Where the typo rule took typed letters that they know for a typo, asks again without
+    /// the rule.
+    pub(crate) fn use_spell_checkers(&mut self, spell_checkers: Vec<Box<dyn SpellChecker>>) {
+        self.dictionary = Some(Dictionary::new(spell_checkers));
     }
 }
 
@@ -189,12 +254,28 @@ mod tests {
     use crate::test_support::FakeSpellChecker;
 
     fn dictionary_of(spell_checker: FakeSpellChecker) -> Dictionary {
-        Dictionary {
-            spell_checker: Box::new(spell_checker),
-            answers: HashMap::new(),
-            word_starts: HashMap::new(),
-            fits_writer: true,
-        }
+        Dictionary::new(vec![Box::new(spell_checker)])
+    }
+
+    #[test]
+    fn dictionaries_know_a_word_that_any_of_them_knows() {
+        let mut dictionary = Dictionary::new(vec![
+            Box::new(FakeSpellChecker::without(&["casa", "zorbly"])),
+            Box::new(FakeSpellChecker::without(&["house", "zorbly"])),
+        ]);
+
+        let answers = ["casa", "house", "zorbly"].map(|word| dictionary.knows(word));
+
+        assert_eq!(answers, [true, true, false]);
+    }
+
+    #[test]
+    fn no_dictionary_knows_each_word_and_no_start_of_a_word() {
+        let mut dictionary = Dictionary::new(Vec::new());
+
+        let answers = (dictionary.knows("zorbly"), dictionary.knows_start("zor"));
+
+        assert_eq!(answers, (true, false));
     }
 
     #[test]

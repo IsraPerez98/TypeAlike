@@ -17,6 +17,7 @@ use typealike_core::inference::{
 };
 use typealike_core::key::{Key, Press};
 use typealike_core::settings::{HistoryAccess, ScreenTextAccess, Settings};
+use typealike_core::spelling::SpellChecker;
 use typealike_llm::LlamaCpp;
 
 use crate::arguments::{Arguments, DrafterUse, SessionStart, TailCut, WordBiasUse};
@@ -182,8 +183,8 @@ pub struct CaseSetup<'case> {
     /// The earlier writing of the case.
     pub history: &'case [HistoryEntry],
     pub settings: &'case Settings,
-    /// The answers of the dictionary of the OS, or `None` for an app without a dictionary.
-    pub dictionary: Option<&'case FileDictionary>,
+    /// The dictionary of each language of the OS, or none for an app without a dictionary.
+    pub dictionaries: &'case [FileDictionary],
     /// The version of the word bias. Each case starts a new app, and the runner prepares each
     /// version one time.
     pub version: u64,
@@ -241,7 +242,7 @@ struct Typing<'case> {
     case: &'case Case,
     history: &'case [HistoryEntry],
     settings: &'case Settings,
-    dictionary: Option<&'case FileDictionary>,
+    dictionaries: &'case [FileDictionary],
     /// The field before the last key.
     field: CaseField,
     last_key: Key,
@@ -266,8 +267,13 @@ impl Typing<'_> {
         let mut app = App::new();
         app.use_settings(self.settings);
         app.use_history(self.history.to_vec());
-        if let Some(dictionary) = self.dictionary {
-            app.use_spell_checker(Box::new(dictionary.clone()));
+        if !self.dictionaries.is_empty() {
+            app.use_spell_checkers(
+                self.dictionaries
+                    .iter()
+                    .map(|dictionary| Box::new(dictionary.clone()) as Box<dyn SpellChecker>)
+                    .collect(),
+            );
         }
         for (screen, field) in self.case.earlier_reads(&self.field) {
             Self::settle(model, &mut app, &field, Some(screen), Preparation::Skip)?;
@@ -478,7 +484,7 @@ pub fn run_case(
         case,
         history,
         settings,
-        dictionary,
+        dictionaries,
         version,
     } = setup;
     let (before_key, last_key) = case.last_key()?;
@@ -486,7 +492,7 @@ pub fn run_case(
         case,
         history,
         settings,
-        dictionary,
+        dictionaries,
         field: case.field(before_key),
         last_key,
         typed_field: case.field(case.before.clone()),

@@ -190,8 +190,9 @@ impl Engine {
 
     /// Returns the fix that the `correction` and the added `text` of the newest request give, when
     /// the user typed nothing since the request, the text before the caret ends with the typo and
-    /// the suggestion after the fixed letters is not bad. The dictionary cuts that suggestion
-    /// before a made-up word, and a made-up fixed word gives no fix.
+    /// the suggestion after the fixed letters is not bad. A suggestion with no word, such as a
+    /// period, is not bad there, because the fixed word comes before it. The dictionary cuts that
+    /// suggestion before a made-up word, and a made-up fixed word gives no fix.
     fn fix_of(&mut self, correction: &Correction, text: &str) -> Option<WordFix> {
         let is_untouched = matches!(&self.offer, Offer::Growing { typed, .. } if typed.is_empty());
         if !is_untouched || self.typo_fix == TypoFix::Off {
@@ -202,9 +203,8 @@ impl Engine {
         let before_typo = session.text_before.strip_suffix(correction.typed.as_str())?;
         let fixed_before = format!("{before_typo}{}", correction.fixed);
         let suggestion = suggestion_after(&fixed_before, text, &session.text_after).unwrap_or_default();
-        if !suggestion.is_empty()
-            && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after, &session.preface)
-        {
+        let has_word = suggestion.chars().any(char::is_alphanumeric);
+        if has_word && is_bad_suggestion(&suggestion, &fixed_before, &session.text_after, &session.preface) {
             return None;
         }
         let written = WrittenWords {

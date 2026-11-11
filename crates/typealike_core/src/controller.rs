@@ -14,7 +14,7 @@ pub use services::{BackendChoice, Delivery, DeliverySink, PlaygroundPage, Servic
 pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 
 use std::time::Duration;
-use std::{fmt, mem};
+use std::{fmt, mem, slice};
 
 use badge_place::line_end_badge;
 use caret_wait::{CaretWait, GhostTiming, LookOutcome, RestSight};
@@ -56,8 +56,7 @@ use crate::settings_window::suggestion_places::{SuggestionPlacesAction, Suggesti
 use crate::settings_window::view::{PageIcon, Row, SettingsInput, SettingsView};
 use crate::setup::{SetupAction, SetupContext, SetupFlow, SetupOutcome, SetupView, TrayPlace};
 use crate::spelling::{
-    DictionaryEvent, DictionaryEventSink, DictionaryHub, DictionaryRequest, JoinedSpellCheckers,
-    OsDictionaries,
+    DictionaryEvent, DictionaryEventSink, DictionaryHub, DictionaryRequest, OsDictionaries,
 };
 
 /// The time that a host app takes to move its caret after a key. The ghost text and the badge
@@ -254,23 +253,25 @@ impl Controller {
         }
     }
 
-    /// Opens the dictionaries of the languages that the user writes, and gives them to the app, so
-    /// that they check the words of the next suggestions.
+    /// Opens the dictionary of each language that the user writes on its own, and gives them to
+    /// the app, so that they check the words of the next suggestions. The app then also finds the
+    /// language of a text.
     fn use_dictionaries(&mut self) {
         let dictionaries = self.languages.dictionaries();
-        let mut spell_checkers = Vec::new();
-        if !dictionaries.os.is_empty() {
-            spell_checkers.push(self.os_dictionaries.open(&dictionaries.os));
+        let mut spell_checkers = dictionaries
+            .os
+            .iter()
+            .map(|language| self.os_dictionaries.open(slice::from_ref(language)))
+            .collect::<Vec<_>>();
+        if let Some(hub) = &self.dictionary_hub {
+            spell_checkers.extend(
+                dictionaries
+                    .downloaded
+                    .iter()
+                    .map(|language| hub.open(slice::from_ref(language))),
+            );
         }
-        if let Some(hub) = self
-            .dictionary_hub
-            .as_ref()
-            .filter(|_| !dictionaries.downloaded.is_empty())
-        {
-            spell_checkers.push(hub.open(&dictionaries.downloaded));
-        }
-        self.app
-            .use_spell_checker(Box::new(JoinedSpellCheckers(spell_checkers)));
+        self.app.use_spell_checkers(spell_checkers);
     }
 
     fn submit_dictionary_requests(&mut self, requests: Vec<DictionaryRequest>) {
