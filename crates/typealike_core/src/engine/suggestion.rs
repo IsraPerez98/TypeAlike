@@ -28,6 +28,16 @@ const FRAME_COPY_WORDS: usize = 5;
 const MIN_FRAME_COPY_WORDS: usize = 3;
 /// The signs that end a sentence.
 const SENTENCE_ENDS: [char; 7] = ['.', '!', '?', '…', '。', '！', '？'];
+/// The quotes and brackets that can come after the sign that ends a sentence.
+const CLOSING_QUOTES_AND_BRACKETS: [char; 11] = ['"', '\'', ')', ']', '}', '”', '’', '»', '」', '』', '）'];
+/// The fewest letters of the word before a period that ends a sentence. A period after one letter
+/// often ends an initial, as in "J. Novak".
+const MIN_LETTERS_BEFORE_PERIOD: usize = 2;
+/// The signs after the first words of a sentence that come before a name in a sign-off on the line
+/// of a message, as in "Thanks, Sara".
+const SIGN_OFF_COMMAS: [char; 3] = [',', '，', '、'];
+/// The most words of a sentence before the comma of a sign-off on the line of a message.
+const MAX_SIGN_OFF_WORDS: usize = 2;
 /// The brackets that open a note about a text, such as its translation, after the end of a sentence.
 const NOTE_BRACKETS: [char; 2] = ['(', '（'];
 
@@ -104,10 +114,10 @@ fn before_placeholder(text: &str) -> &str {
         .map_or(text, |(start, _)| &text[..start])
 }
 
-/// Returns the ghost text that `completion` gives after the `typed` text, which is empty for a
-/// bad suggestion, or `None` when it adds nothing after `typed`. `text_before`, the text before
-/// the caret, ends with `typed`, and the request continued the text before `typed` after
-/// `preface`.
+/// Returns the ghost text that `completion` gives after the `typed` text, without a sign-off with
+/// the name of the writer on the line of the text, which is empty for a bad suggestion, or `None`
+/// when it adds nothing after `typed`. `text_before`, the text before the caret, ends with
+/// `typed`, and the request continued the text before `typed` after `preface`.
 pub(super) fn suggestion_after_typed(
     text_before: &str,
     text_after: &str,
@@ -117,7 +127,8 @@ pub(super) fn suggestion_after_typed(
 ) -> Option<String> {
     let context = text_before.strip_suffix(typed)?;
     let suggestion = suggestion_after(context, completion, text_after)?;
-    if is_bad_suggestion(&suggestion, context, text_after, preface) {
+    let suggestion = without_sign_off(&suggestion, context, typed.len(), preface);
+    if is_bad_suggestion(suggestion, context, text_after, preface) {
         return Some(String::new());
     }
     let rest = suggestion.strip_prefix(typed).filter(|rest| !rest.is_empty())?;
@@ -163,6 +174,79 @@ fn greets_the_writer(suggestion: &str, context: &str, preface: &Preface) -> bool
         && text_words.get(1).is_some_and(|word| name_words.contains(word))
 }
 
+/// Returns `suggestion` after `context` without the name of the writer of `preface` at its end,
+/// when that name signs off a message on the line of the text: the end of a sentence comes just
+/// before it, or the first one or two words of a sentence and a comma, as in "Thanks, Sara". A
+/// writer signs on a line of their own. The name stays when the user typed its start, the first
+/// `typed` bytes of `suggestion`, and on a line without the end of a sentence before it.
+pub(super) fn without_sign_off<'text>(
+    suggestion: &'text str,
+    context: &str,
+    typed: usize,
+    preface: &Preface,
+) -> &'text str {
+    let Some(name) = preface.writer_name() else {
+        return suggestion;
+    };
+    let name_words = words(name).collect::<Vec<_>>();
+    let caret_line = context.rsplit('\n').next().unwrap_or_default();
+    let line = format!("{caret_line}{suggestion}");
+    let spans = word_spans(&line).collect::<Vec<_>>();
+    let name_start = spans
+        .iter()
+        .rev()
+        .take_while(|&&(start, end)| name_words.contains(&line[start..end].to_lowercase()))
+        .last()
+        .map(|&(start, _)| start)
+        .filter(|&start| start >= caret_line.len() + typed);
+    let Some(name_start) = name_start else {
+        return suggestion;
+    };
+    let before_name = line[..name_start].trim_end();
+    if ends_sentence(before_name) || ends_with_sign_off_words(before_name) {
+        suggestion[..name_start - caret_line.len()].trim_end()
+    } else {
+        suggestion
+    }
+}
+
+/// Whether `text` ends a sentence: it ends with one of the [`SENTENCE_ENDS`], before any of the
+/// [`CLOSING_QUOTES_AND_BRACKETS`]. A period ends it only after a word of at least
+/// [`MIN_LETTERS_BEFORE_PERIOD`] letters, so that an initial or a number does not end it.
+fn ends_sentence(text: &str) -> bool {
+    let closed = text.trim_end_matches(CLOSING_QUOTES_AND_BRACKETS);
+    match closed.strip_suffix('.') {
+        Some(before_period) => {
+            let letters = before_period
+                .chars()
+                .rev()
+                .take_while(|character| character.is_alphabetic())
+                .count();
+            letters >= MIN_LETTERS_BEFORE_PERIOD
+        }
+        None => closed.ends_with(SENTENCE_ENDS),
+    }
+}
+
+/// Whether `text` ends with the first one to [`MAX_SIGN_OFF_WORDS`] words of a sentence and one of
+/// the [`SIGN_OFF_COMMAS`], as "Thanks," in "See you. Thanks,", after the end of an earlier
+/// sentence on its line.
+fn ends_with_sign_off_words(text: &str) -> bool {
+    let Some(before_comma) = text.strip_suffix(SIGN_OFF_COMMAS) else {
+        return false;
+    };
+    let Some((sentence_end, end_sign)) = before_comma
+        .char_indices()
+        .rev()
+        .find(|(_, character)| SENTENCE_ENDS.contains(character))
+    else {
+        return false;
+    };
+    let (earlier, sign_off) = before_comma.split_at(sentence_end + end_sign.len_utf8());
+    let sign_off_words = word_spans(sign_off).count();
+    ends_sentence(earlier) && (1..=MAX_SIGN_OFF_WORDS).contains(&sign_off_words)
+}
+
 fn opens_note_after_sentence(suggestion: &str, context: &str) -> bool {
     context.trim_end().ends_with(SENTENCE_ENDS) && suggestion.trim_start().starts_with(NOTE_BRACKETS)
 }
@@ -189,9 +273,30 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
 pub(super) fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
-    text.split(|character: char| !(character.is_alphanumeric() || is_apostrophe(character)))
-        .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
+    word_spans(text).map(|(start, end)| text[start..end].to_lowercase())
+}
+
+/// Returns the start and the end of each word of `text`, as byte indices: its runs of letters,
+/// digits and apostrophes.
+fn word_spans(text: &str) -> impl DoubleEndedIterator<Item = (usize, usize)> {
+    let mut spans = Vec::new();
+    let mut word_start = None;
+    for (index, character) in text.char_indices() {
+        match (word_start, is_word_character(character)) {
+            (None, true) => word_start = Some(index),
+            (Some(start), false) => {
+                spans.push((start, index));
+                word_start = None;
+            }
+            _ => {}
+        }
+    }
+    spans.extend(word_start.map(|start| (start, text.len())));
+    spans.into_iter()
+}
+
+fn is_word_character(character: char) -> bool {
+    character.is_alphanumeric() || is_apostrophe(character)
 }
 
 /// Whether `suggested`, the words of a suggestion, and the words of `text_after` are the same up to

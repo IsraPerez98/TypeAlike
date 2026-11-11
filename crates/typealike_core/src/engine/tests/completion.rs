@@ -6,7 +6,9 @@ use crate::key::{Key, Press};
 use crate::settings::{Settings, WriterName, WriterNotes};
 use crate::test_support::completion;
 
-use super::support::{FakeDesktop, accept, engine_waiting_for, engine_waiting_with, press, request, show};
+use super::support::{
+    FakeDesktop, accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, show,
+};
 
 #[test]
 fn typing_requests_completion_of_context() {
@@ -244,6 +246,61 @@ fn name_of_the_writer_shows_where_no_greeting_comes_before_it() {
     });
 
     assert_eq!(reactions, cases.map(|(_, text)| show(text)));
+}
+
+#[test]
+fn completion_stops_before_the_name_of_the_writer_after_the_end_of_a_sentence() {
+    let cases = [
+        (
+            "The meeting is moved to ",
+            "3 PM. Please update your calendar. Thanks! Sara",
+            "3 PM. Please update your calendar. Thanks!",
+        ),
+        ("Te llamo más tarde. ", "Un beso. Sara Novak", "Un beso."),
+        (
+            "The meeting is moved to ",
+            "3 PM. Thanks, Sara Novak.",
+            "3 PM. Thanks,",
+        ),
+        ("明天见。", "谢谢！Sara", "谢谢！"),
+    ];
+
+    let reactions = cases.map(|(context, text, _)| {
+        engine_waiting_with(&named_writer(""), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+}
+
+#[test]
+fn name_of_the_writer_shows_in_a_sign_off_in_a_sentence_and_where_the_writer_typed_it() {
+    let cases = [
+        ("Best regards, ", "Sara Novak"),
+        ("Hello everyone. ", "I am Sara Novak."),
+        ("See you there! ", "Sara will send the notes."),
+        ("Thanks for your help. S", "ara"),
+        ("Our new editor is J. ", "Novak"),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer(""), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, text)| show(text)));
+}
+
+#[test]
+fn name_of_the_writer_shows_on_a_line_without_the_end_of_a_sentence_before_it() {
+    let mut engine = engine_with(&named_writer(""));
+    engine.on_key(
+        Key::Char(' '),
+        Press::First,
+        &FakeDesktop::with_field_text("Thanks for coming.\n"),
+    );
+
+    let reaction = engine.on_completion(completion("Sara Novak"));
+
+    assert_eq!(reaction, show("Sara Novak"));
 }
 
 #[test]

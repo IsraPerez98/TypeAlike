@@ -45,6 +45,13 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 
 - A suggestion also stops where it writes the text after the caret on its line again (`SHARED_UNITS`: from a word, or from the closing punctuation that starts that line, the words agree in at least 2 words and signs in a row, or up to the end of the shorter).
 
+### Name of the writer
+
+- A suggestion stops before the name of the writer at its end when the name signs off a message on the line of the text (`without_sign_off`). Then the end of a sentence comes just before the name ("…your calendar. Thanks! Sara"). Or the first one or two words of a sentence and a comma come before it, after the end of an earlier sentence ("…your calendar. Thanks, Sara").
+- A writer signs on a line of their own. Thus the name stays at the start of its line, after a sign-off at the start of the line ("Best regards, Sara") and inside a sentence ("I am Sara Novak."). A name that the user started to type also stays.
+- The name is the first name, the last name or the full name of the setting, in any case. Only the signs tell where a sentence ends: a period, "!", "?", "…", "。", "！" or "？", before any closing quotes and brackets. A period after one letter or after a number ends no sentence, because it ends an initial ("J. Novak") or a list number. Thus the rule is the same for each language.
+- With Gemma 4 E4B (CUDA, long, without the sentence stop, word replay), the rule made each leak case of `leaks.jsonl` pass (143 of 143 in place of 141). It helped 2 cases and harmed none of `new_line`, `recall`, `conversation`, `chat`, `tuning`, `mid_line` and the variety sets, and it removed up to 32 wrong words in a set.
+
 ### Unknown words
 
 - Each suggestion of the model also stops before its first word that no dictionary of the languages of the user knows (`SpellChecker`), unless the prompt, the text after the caret, the word bias of the pool or the earlier writing holds that word in any case (`engine/spelling.rs`).
