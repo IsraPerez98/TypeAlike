@@ -19,6 +19,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 ### Card below the caret
 
 - When text follows the caret on its line, the overlay shows the typed word and the ghost text on a card below the line of the caret, with the ghost text under the caret, or above the line at the bottom of the work area.
+- The card stays inside the frame of the window in front, in the work area (`display::part_inside`). Thus a card at a caret near the right edge or the bottom of its window moves left or above the line.
 - The card has the fill and the border of the Fluent tooltip, as the badge.
 - The typed word and the typo of a fix are in the Fluent primary text color and semibold.
 - The ghost text is in the Fluent secondary text color in light mode and the tertiary one in dark mode (`CardText`).

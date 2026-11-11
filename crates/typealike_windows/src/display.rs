@@ -91,13 +91,19 @@ pub(crate) fn rect_between(corner: POINT, opposite: POINT) -> RECT {
 /// window or a scrolled page hides. When the client area shows no part of the frame, as for a
 /// hidden focus window without a size, the whole frame. Without a frame, the client area.
 pub(crate) fn visible_field_frame(frame: Option<RECT>, client_area: Option<RECT>) -> Option<RECT> {
-    let Some(frame) = frame else {
-        return client_area;
-    };
-    let visible = client_area
-        .map(|client_area| intersection(frame, client_area))
-        .filter(|visible| has_area(*visible));
-    Some(visible.unwrap_or(frame))
+    match frame {
+        Some(frame) => Some(part_inside(frame, client_area)),
+        None => client_area,
+    }
+}
+
+/// The part of `rect` inside `bounds`. The whole `rect` without `bounds`, or when `bounds` holds
+/// no part of it.
+pub(crate) fn part_inside(rect: RECT, bounds: Option<RECT>) -> RECT {
+    bounds
+        .map(|bounds| intersection(rect, bounds))
+        .filter(|part| has_area(*part))
+        .unwrap_or(rect)
 }
 
 /// An edge of a rectangle.
@@ -301,5 +307,24 @@ mod tests {
         let visible = client_areas.map(|client_area| visible_field_frame(None, client_area));
 
         assert_eq!(visible, [Some(CLIENT_AREA), None]);
+    }
+
+    #[test]
+    fn part_inside_is_the_intersection_with_the_bounds() {
+        let bounds = rect(100, 100, 500, 400);
+
+        let part = part_inside(rect(300, 200, 700, 600), Some(bounds));
+
+        assert_eq!(part, rect(300, 200, 500, 400));
+    }
+
+    #[test]
+    fn part_inside_is_the_whole_rect_without_bounds_or_outside_them() {
+        let whole = rect(300, 200, 700, 600);
+        let bounds = [None, Some(rect(800, 700, 900, 800))];
+
+        let parts = bounds.map(|bounds| part_inside(whole, bounds));
+
+        assert_eq!(parts, [whole, whole]);
     }
 }

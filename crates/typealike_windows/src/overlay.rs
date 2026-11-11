@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, COLOR_HOTLIGHT, COLOR_WINDOW
 use windows::core::{Result, w};
 
 use crate::caret::Caret;
-use crate::display::{crossed_edges, monitor_dpi, rect_at, to_pixels, work_area};
+use crate::display::{crossed_edges, monitor_dpi, part_inside, rect_at, to_pixels, work_area};
 use crate::focus;
 use crate::gdi::{Font, FontWeight, TextBitmap, TextRun, line_width};
 use crate::pixels::{Ink, Rgb, RoundedRectangle};
@@ -158,8 +158,8 @@ fn inline_bitmap(
 
 /// Renders the typed word of `view` in a semibold font of the ghost text faces and the ghost text
 /// in `font` on a card below the line of `caret`, with the ghost text under the caret, or above
-/// the line when the card does not fit below. Returns the bitmap and its top left corner on the
-/// screen.
+/// the line when the card does not fit below. The card stays inside the window in front, in the
+/// work area. Returns the bitmap and its top left corner on the screen.
 fn card_bitmap(
     view: &GhostView,
     font: &Font,
@@ -187,12 +187,8 @@ fn card_bitmap(
         right: text_left,
         bottom: caret.origin.y.saturating_add(caret.height),
     };
-    let layout = CardLayout::new(
-        line,
-        text.size(),
-        work_area(caret.origin)?,
-        monitor_dpi(caret.origin),
-    );
+    let bounds = part_inside(work_area(caret.origin)?, focus::foreground_window_bounds());
+    let layout = CardLayout::new(line, text.size(), bounds, monitor_dpi(caret.origin));
     let mut bitmap = text.padded(layout.padding)?;
     bitmap.lay_over(&layout.plate(colors).pixels());
     let top_left = POINT {
@@ -332,8 +328,8 @@ struct CardLayout {
 impl CardLayout {
     /// Puts a card around text of `text_size` below `line`, the line of the caret at the left edge
     /// of the text, on a monitor of `dpi`. The card goes above the line when it does not fit below
-    /// in `work_area`, and stays inside `work_area`.
-    fn new(line: RECT, text_size: SIZE, work_area: RECT, dpi: i32) -> Self {
+    /// in `bounds`, and stays inside `bounds`.
+    fn new(line: RECT, text_size: SIZE, bounds: RECT, dpi: i32) -> Self {
         let padding = SIZE {
             cx: to_pixels(CARD_HORIZONTAL_PADDING_DIPS, dpi),
             cy: to_pixels(CARD_VERTICAL_PADDING_DIPS, dpi),
@@ -342,19 +338,19 @@ impl CardLayout {
         let width = text_size.cx + 2 * padding.cx;
         let height = text_size.cy + 2 * padding.cy;
         let below = line.bottom.saturating_add(gap);
-        let top = if below.saturating_add(height) <= work_area.bottom {
+        let top = if below.saturating_add(height) <= bounds.bottom {
             below
         } else {
             line.top
                 .saturating_sub(gap)
                 .saturating_sub(height)
-                .max(work_area.top)
+                .max(bounds.top)
         };
         let left = line
             .left
             .saturating_sub(padding.cx)
-            .min(work_area.right.saturating_sub(width))
-            .max(work_area.left);
+            .min(bounds.right.saturating_sub(width))
+            .max(bounds.left);
         Self {
             frame: RECT {
                 left,
@@ -502,6 +498,25 @@ mod tests {
         let layout = CardLayout::new(caret_line(1900, 200), TEXT_SIZE, WORK_AREA, 96);
 
         assert_eq!(layout.frame.right, 1920);
+    }
+
+    #[test]
+    fn card_stays_inside_the_window_in_front() {
+        let window = RECT {
+            left: 200,
+            top: 150,
+            right: 1000,
+            bottom: 600,
+        };
+        let bounds = part_inside(WORK_AREA, Some(window));
+
+        let layouts = [caret_line(950, 200), caret_line(600, 580)]
+            .map(|line| CardLayout::new(line, TEXT_SIZE, bounds, 96).frame);
+
+        assert_eq!(
+            layouts.map(|frame| (frame.right, frame.top)),
+            [(1000, 224), (728, 548)]
+        );
     }
 
     #[test]
