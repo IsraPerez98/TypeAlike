@@ -14,7 +14,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - The overlay draws in the face of the caret when it is installed, else in Segoe UI, always at the height of the caret.
 - The overlay draws each wrapped line of a ghost text in a bitmap of its own, then puts the lines in one bitmap: the first line at the caret, and each wrapped line at the left edge that core gives, one caret height below the line above it.
 - When the overlay cannot show a ghost text, it hides the old ghost text, so that Tab never types a suggestion that the user did not see.
-- With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the placement of each ghost text that shows, its number of wrapped lines and the rectangle that the overlay covers. It also gives the frame of the foreground window without its invisible borders (`DWMWA_EXTENDED_FRAME_BOUNDS`) and the edges of that frame that the overlay goes past (`leaves_window`, `crossed_edges`). It never gives the text.
+- With `TYPEALIKE_LOG=typealike_windows=debug`, the log tells at each render at the caret whether core gave a ghost text, a badge and a caret ("rendered at the caret"). It also gives the placement of each ghost text that shows, its number of wrapped lines and the rectangle that the overlay covers. It also gives the frame of the foreground window without its invisible borders (`DWMWA_EXTENDED_FRAME_BOUNDS`) and the edges of that frame that the overlay goes past (`leaves_window`, `crossed_edges`). It never gives the text.
 
 ### Card below the caret
 

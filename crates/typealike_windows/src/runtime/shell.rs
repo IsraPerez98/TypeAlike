@@ -191,6 +191,12 @@ impl Shell for Win32Shell {
     /// them when that answer found no caret.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
         let caret = self.newest_caret.caret().cloned();
+        tracing::debug!(
+            has_ghost = ghost.is_some(),
+            has_badge = badge.is_some(),
+            has_caret = caret.is_some(),
+            "rendered at the caret"
+        );
         self.show_ghost(ghost, caret.as_ref());
         self.show_badge(badge, caret.as_ref());
     }
