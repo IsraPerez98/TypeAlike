@@ -12,18 +12,22 @@ use windows::Foundation::Uri;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     IUIAutomationElement, IUIAutomationElement6, IUIAutomationTextRange, IUIAutomationTreeWalker,
-    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character,
-    UIA_ControlTypePropertyId, UIA_DocumentControlTypeId, UIA_FrameworkIdPropertyId,
+    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character, TreeScope_Children,
+    UIA_ClassNamePropertyId, UIA_ControlTypePropertyId, UIA_DocumentControlTypeId, UIA_FrameworkIdPropertyId,
     UIA_ValueValuePropertyId,
 };
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
 use super::{Uia, WHOLE_RANGE, caret_range, has_unreadable_text, is_password, is_terminal_input, text_of};
+use crate::focus::{foreground_hwnd, is_chromium_window};
 use crate::utf16::whole_chars;
 
 /// The frameworks of web pages in UIA: Chromium (Chrome, Edge, Electron apps and `WebView2`) and
 /// Gecko (Firefox). The document of a web page gives the URL of the page as its value.
 const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
+/// The class of the root view of a Chromium browser window in UIA. Its name is the accessible
+/// title of the window, which also holds the mark of a private window, such as "(Incognito)".
+const BROWSER_ROOT_VIEW_CLASS: &str = "BrowserRootView";
 /// The ARIA role of a search box, which a browser also gives an HTML `<input type="search">`.
 const SEARCH_BOX_ARIA_ROLE: &str = "searchbox";
 /// The characters of the selection that a look reads. One character tells that text is selected.
@@ -61,6 +65,9 @@ pub(crate) struct ShownField {
     pub(crate) is_search_field: bool,
     /// Whether the field can show text that UIA does not give, as the editor of VS Code does.
     pub(crate) has_unreadable_text: bool,
+    /// The accessible title of the browser window that holds the field, or `None` outside a
+    /// Chromium browser. Chromium writes the mark of a private window only in this title.
+    pub(crate) window_title: Option<String>,
 }
 
 impl fmt::Debug for ShownField {
@@ -73,6 +80,7 @@ impl fmt::Debug for ShownField {
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
             .field("has_unreadable_text", &self.has_unreadable_text)
+            .field("has_window_title", &self.window_title.is_some())
             .finish()
     }
 }
@@ -93,7 +101,33 @@ impl Uia {
             is_caret_line_hidden: is_terminal_input(&element),
             is_search_field: is_search_field(&element),
             has_unreadable_text: has_unreadable_text(&element),
+            window_title: self.browser_window_title(),
         }))
+    }
+
+    /// Reads the accessible title of the foreground window when it is a Chromium browser window:
+    /// the name of its root view. `None` for another window, such as the window of an app of
+    /// Electron, which has no such view.
+    fn browser_window_title(&self) -> Option<String> {
+        let window = foreground_hwnd();
+        if !is_chromium_window(window) {
+            return None;
+        }
+        // SAFETY: plain calls on interfaces of this thread. UIA reads the window of another
+        // process without messages to it.
+        let title = unsafe {
+            let root = self.automation.ElementFromHandle(window).ok()?;
+            let is_root_view = self
+                .automation
+                .CreatePropertyCondition(UIA_ClassNamePropertyId, &VARIANT::from(BROWSER_ROOT_VIEW_CLASS))
+                .ok()?;
+            root.FindFirst(TreeScope_Children, &is_root_view)
+                .ok()?
+                .CurrentName()
+                .ok()?
+        };
+        let title = title.to_string();
+        (!title.is_empty()).then_some(title)
     }
 
     /// Reads the host of the web page that holds `element`, from the URL of the nearest web

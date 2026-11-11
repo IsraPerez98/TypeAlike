@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GUITHREADINFO, GetClientRect, GetForegroundWindow, GetGUIThreadInfo, GetWindowTextW,
+    GUITHREADINFO, GetClassNameW, GetClientRect, GetForegroundWindow, GetGUIThreadInfo, GetWindowTextW,
     GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
 };
 use windows::core::{Owned, PWSTR, Result};
@@ -26,6 +26,11 @@ use crate::{display, struct_size};
 
 const REPLY_TIMEOUT_MS: u32 = 50;
 const MAX_WINDOW_TITLE_UNITS: usize = 256;
+/// The longest window class name that Windows allows, in UTF-16 units.
+const MAX_CLASS_NAME_UNITS: usize = 256;
+/// The class of the top-level windows of Chromium: the windows of Chrome, Edge, Brave, Opera,
+/// Vivaldi and the apps of Electron.
+const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
 const MAX_PATH_UNITS: usize = 1024;
 
 /// Follows the foreground window and classifies whether TypeAlike may observe and type into it.
@@ -177,6 +182,17 @@ pub(crate) fn process_id(window: HWND) -> u32 {
     // SAFETY: the output pointer refers to a local.
     unsafe { GetWindowThreadProcessId(window, Some(&raw mut process_id)) };
     process_id
+}
+
+/// Whether `window` is a top-level window of Chromium.
+pub(crate) fn is_chromium_window(window: HWND) -> bool {
+    let mut units = [0_u16; MAX_CLASS_NAME_UNITS];
+    // SAFETY: the buffer is valid for the call, and a window that closed only makes it fail.
+    let written = unsafe { GetClassNameW(window, &mut units) };
+    usize::try_from(written)
+        .ok()
+        .and_then(|written| units.get(..written))
+        .is_some_and(|class| String::from_utf16_lossy(class) == CHROMIUM_WINDOW_CLASS)
 }
 
 /// Reads the title of `window`. For a window of another process, the system reads the title

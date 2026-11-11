@@ -284,6 +284,9 @@ fn timer_id(timer: Timer) -> usize {
 /// shows its text, tells about itself. Without that field, the field parts stay empty.
 fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroundings {
     Surroundings {
+        window_title: field
+            .and_then(|field| field.window_title.clone())
+            .or(app.window_title),
         field_text: field.and_then(|field| field.text.clone()),
         field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
         domain: field.and_then(|field| field.domain.clone()),
@@ -323,6 +326,7 @@ mod tests {
             is_caret_line_hidden: false,
             is_search_field: false,
             has_unreadable_text: false,
+            window_title: None,
         };
 
         let surroundings = merged_surroundings(notepad(), Some(&field));
@@ -335,6 +339,21 @@ mod tests {
                 domain: field.domain.clone(),
                 ..notepad()
             }
+        );
+    }
+
+    #[test]
+    fn accessible_title_of_a_browser_window_replaces_the_window_title() {
+        let field = ShownField {
+            window_title: Some("Notes - Google Chrome (Incognito)".to_owned()),
+            ..ShownField::default()
+        };
+
+        let surroundings = merged_surroundings(notepad(), Some(&field));
+
+        assert_eq!(
+            surroundings.window_title.as_deref(),
+            Some("Notes - Google Chrome (Incognito)")
         );
     }
 

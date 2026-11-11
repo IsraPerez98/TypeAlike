@@ -496,6 +496,7 @@ mod tests {
             is_caret_line_hidden: false,
             is_search_field: false,
             has_unreadable_text: false,
+            window_title: None,
         }
     }
 
