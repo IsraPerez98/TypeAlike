@@ -122,6 +122,15 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
 - `cases/typos.jsonl`: a case matches when no suggestion finishes the word with the typo.
   - Each typo case has `fixed`, the text before the caret without the typo, and the report counts the fixes that write the meant word (`typo fixes`) and the fixes of words without a typo (`other fixes`).
   - A change to the prompt or to the context must show a gain here before it ships.
+- `cases/varieties.jsonl` has the same kinds of cases in English (`en-`), standard Spanish without regional words (`es-`) and Chilean Spanish (`cl-`): common phrases and idioms, slang, voseo ("estái", "tenís") and Chilean office phrases ("junto con saludar").
+  - The kind follows the language in the id: `chat`, `email`, `doc`, `form`, `word` (the caret inside a word of an idiom or of slang), `mem` (the earlier writing holds the next word) and `typo`.
+  - The report has no score for each language. Save the run with `--save`, then split it by the prefix of the ids.
+  - Run it with `--word-choice medium --replay word` and the dictionaries of the user, for example `--dictionary windows:en-US+hunspell:PATH` with the downloaded `es-CL` dictionary, for a change to the dictionary cut, the typo rule or the length of the suggestions.
+  - Run it also without `--dictionary`: the cases that match only without it show the slang that the cut of unknown words hides.
+- `cases/regional.jsonl` has 165 cases in 8 regional varieties: British (`engb-`) and Australian English (`enau-`), the Spanish of Mexico (`esmx-`), Argentina (`esar-`) and Spain (`eses-`), the Portuguese of Portugal (`ptpt-`), the French of Quebec (`frca-`) and the German of Switzerland (`dech-`).
+  - Most cases need a word of the region, such as "flat", "alberca", "courriel" or "Grüsse". The `ctl` cases need a word that all regions of the language use, so they show the harm of a change.
+  - Run it without `--name` and `--dictionary` for a change that gives the model the region of the writer. Save the run with `--save`, then compare the score of each prefix.
+  - A line of the prompt with the region of each spelling language helped 51 cases and harmed 22 here. It did not ship, because for an en-GB writer it made more leaks and harmed the general sets.
 - `cases/left_out.jsonl` has cases from the stores of the writers, each with one text of its store left out of the history (`left_out`). Run it with each `--word-choice` for a change to the word bias, and compare it with the run with `--word-choice off`.
 - `cases/repeats.jsonl` has the stores `writers/NAME_repeats.jsonl`, where the writer sent 3 messages 3 or 4 times, and one of them one more time with a typo. Run it with `--word-choice medium` and `off` for a change to the examples or to the word bias.
 - `cases/drift.jsonl` has the stores `writers/NAME_drift.jsonl`, where the writer had a long conversation about one topic two days before, and writes about another topic in the same app today.
