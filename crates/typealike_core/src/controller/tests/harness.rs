@@ -131,7 +131,7 @@ impl Shell for FakeShell {
         if self.caret_look == CaretLook::Later {
             self.calls.push(Call::ReadCaret);
         }
-        self.caret_look
+        self.caret_look.clone()
     }
 
     /// Measures the ghost text after the caret with the space that the platforms draw before the
@@ -558,13 +558,13 @@ impl Harness {
     }
 
     /// Gives `read` to the controller as the answer of the shell to its last look at the caret.
-    pub(super) fn answer_caret(&mut self, read: CaretRead) {
+    pub(super) fn answer_caret(&mut self, read: &CaretRead) {
         self.controller.on_caret_read(read, &mut self.shell);
     }
 
     /// Settles the caret and answers the look with `read`, once for each check that waits for the
     /// caret to move.
-    pub(super) fn run_out_caret_checks_at(&mut self, read: CaretRead) {
+    pub(super) fn run_out_caret_checks_at(&mut self, read: &CaretRead) {
         for _ in 0..MAX_CARET_MOVE_CHECKS {
             self.settle_caret();
             self.answer_caret(read);

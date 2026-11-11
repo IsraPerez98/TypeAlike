@@ -66,7 +66,7 @@ pub(super) fn harness_waiting_for_the_look(suggestion: &str) -> Harness {
 /// A harness that shows `suggestion` after "B" at the caret at [`OLD_CARET`].
 pub(super) fn harness_showing_at_the_old_caret(suggestion: &str) -> Harness {
     let mut harness = harness_waiting_for_the_look(suggestion);
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
     harness.take_calls();
     harness
 }
@@ -87,7 +87,7 @@ fn settled_caret_waits_for_the_look_of_the_shell() {
 fn look_shows_the_ghost_and_the_badge_at_its_caret() {
     let mut harness = harness_waiting_for_the_look("est");
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -101,7 +101,7 @@ fn look_after_a_key_is_dropped() {
     harness.press(Key::Char('x'));
     harness.take_calls();
 
-    harness.answer_caret(look_at(NEXT_CARET));
+    harness.answer_caret(&look_at(NEXT_CARET));
 
     assert_eq!(harness.take_calls(), Vec::new());
 }
@@ -112,7 +112,7 @@ fn look_that_nothing_waits_for_is_dropped() {
     harness.press(Key::Char('B'));
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(harness.take_calls(), Vec::new());
 }
@@ -124,7 +124,7 @@ fn caret_that_did_not_move_after_a_key_gets_only_the_badge_and_a_new_look() {
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -142,7 +142,7 @@ fn caret_that_moved_after_a_key_gets_the_ghost_at_once() {
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(NEXT_CARET));
+    harness.answer_caret(&look_at(NEXT_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -154,7 +154,7 @@ fn caret_that_moved_after_a_key_gets_the_ghost_at_once() {
 /// look after "e".
 fn harness_after_e_at_the_right_side(suggestion: &str) -> Harness {
     let mut harness = harness_waiting_for_the_look(suggestion);
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
     harness.press(Key::Char('e'));
     harness.settle_caret();
     harness.take_calls();
@@ -165,7 +165,7 @@ fn harness_after_e_at_the_right_side(suggestion: &str) -> Harness {
 fn caret_at_the_right_side_that_one_key_did_not_move_gets_only_the_badge_and_a_new_look() {
     let mut harness = harness_after_e_at_the_right_side("est");
 
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -179,12 +179,12 @@ fn caret_at_the_right_side_that_one_key_did_not_move_gets_only_the_badge_and_a_n
 #[test]
 fn caret_that_stays_at_the_right_side_over_a_whole_key_gets_the_ghost_at_once() {
     let mut harness = harness_after_e_at_the_right_side("est");
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
     harness.press(Key::Char('s'));
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -195,17 +195,17 @@ fn caret_that_stays_at_the_right_side_over_a_whole_key_gets_the_ghost_at_once() 
 #[test]
 fn caret_that_left_the_right_side_waits_again_for_a_caret_that_moved() {
     let mut harness = harness_after_e_at_the_right_side("esteem");
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
     harness.settle_caret();
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
     harness.press(Key::Char('s'));
     harness.settle_caret();
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
     harness.press(Key::Char('t'));
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(RIGHT_SIDE_CARET));
+    harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -220,11 +220,11 @@ fn caret_that_left_the_right_side_waits_again_for_a_caret_that_moved() {
 fn ghost_shows_at_the_caret_that_did_not_move_after_the_last_check() {
     let mut harness = harness_showing_at_the_old_caret("est regards");
     harness.press(Key::Tab);
-    harness.run_out_caret_checks_at(look_at(OLD_CARET));
+    harness.run_out_caret_checks_at(&look_at(OLD_CARET));
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -237,11 +237,11 @@ fn badge_look_at_the_old_caret_keeps_the_next_ghost_off_that_caret() {
     let mut harness = harness_showing_at_the_old_caret("est regards");
     harness.press(Key::Char('x'));
     harness.settle_caret();
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
     harness.answer(completed("ylophone"));
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -257,12 +257,12 @@ fn earlier_suggestion_after_a_backspace_shows_at_once_at_the_caret_where_it_show
     let mut harness = harness_showing_at_the_old_caret("est regards");
     harness.press(Key::Char('x'));
     harness.settle_caret();
-    harness.answer_caret(look_at(NEXT_CARET));
+    harness.answer_caret(&look_at(NEXT_CARET));
     harness.press(Key::Backspace);
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -277,12 +277,12 @@ fn rest_after_a_fix_of_the_same_length_shows_at_once_at_the_same_caret() {
     harness.press(Key::Char('h'));
     harness.answer(fixed(TYPO, "the", " end"));
     harness.settle_caret();
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
     harness.press(Key::Tab);
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -295,12 +295,12 @@ fn letter_after_a_dead_key_that_moved_the_caret_shows_the_ghost_at_once_at_the_s
     let mut harness = harness_showing_at_the_old_caret("ó soon");
     harness.press(Key::Dead);
     harness.settle_caret();
-    harness.answer_caret(look_at(NEXT_CARET));
+    harness.answer_caret(&look_at(NEXT_CARET));
     harness.press(Key::Char('ó'));
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(NEXT_CARET));
+    harness.answer_caret(&look_at(NEXT_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -312,14 +312,14 @@ fn letter_after_a_dead_key_that_moved_the_caret_shows_the_ghost_at_once_at_the_s
 fn letter_after_a_dead_key_that_did_not_move_the_caret_waits_for_a_caret_that_moved() {
     let mut harness = harness_showing_at_the_old_caret("ó soon");
     harness.press(Key::Dead);
-    harness.run_out_caret_checks_at(look_at(OLD_CARET));
+    harness.run_out_caret_checks_at(&look_at(OLD_CARET));
     harness.settle_caret();
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
     harness.press(Key::Char('ó'));
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -339,7 +339,7 @@ fn first_look_in_a_new_field_shows_the_ghost_at_the_caret_of_the_last_look() {
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -351,7 +351,7 @@ fn first_look_in_a_new_field_shows_the_ghost_at_the_caret_of_the_last_look() {
 fn caret_far_from_its_field_hides_the_ghost_and_the_badge_and_gets_a_new_look() {
     let mut harness = harness_waiting_for_the_look("est");
 
-    harness.answer_caret(look_at(FAR_CARET));
+    harness.answer_caret(&look_at(FAR_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -367,7 +367,7 @@ fn caret_far_from_its_field_hides_the_ghost_and_the_badge_and_gets_a_new_look() 
 fn look_without_a_caret_renders_the_ghost_and_the_badge() {
     let mut harness = harness_waiting_for_the_look("est");
 
-    harness.answer_caret(CaretRead {
+    harness.answer_caret(&CaretRead {
         caret: None,
         field: Some(FIELD),
         ..CaretRead::default()
@@ -383,7 +383,7 @@ fn look_without_a_caret_renders_the_ghost_and_the_badge() {
 fn look_without_a_field_frame_shows_a_far_caret() {
     let mut harness = harness_waiting_for_the_look("est");
 
-    harness.answer_caret(CaretRead {
+    harness.answer_caret(&CaretRead {
         caret: Some(caret_at(FAR_CARET)),
         field: None,
         ..CaretRead::default()
@@ -418,7 +418,7 @@ fn pause_shows_the_paused_badge_when_the_look_comes() {
     harness.toggle_pause();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),

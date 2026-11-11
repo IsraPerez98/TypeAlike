@@ -7,26 +7,22 @@ mod capture;
 mod geometry;
 
 use std::num::TryFromIntError;
-use std::sync::mpsc;
 use std::time::Instant;
 
 use typealike_core::desktop::{Confidence, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
-use windows::Foundation::Metadata::ApiInformation;
 use windows::Foundation::Rect;
-use windows::Graphics::Capture::GraphicsCaptureSession;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::{OcrEngine, OcrLine};
 use windows::Storage::Streams::DataWriter;
 use windows::Win32::Foundation::POINT;
-use windows::core::h;
 
-use self::capture::{Band, Capturer};
-use self::geometry::PixelRect;
+use self::capture::{Band, capture_band};
 use crate::display::round_to_pixel;
 use crate::energy_saver;
 use crate::focus::foreground_hwnd;
 use crate::uia::{FocusedField, Uia};
 use crate::window::WindowId;
+use crate::window_capture::{CaptureError, Capturer, PixelRect, can_capture_without_border};
 
 /// Whether this computer can do an OCR at all, apart from what changes while TypeAlike runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,16 +37,10 @@ impl OcrSupport {
     /// Finds out whether this computer can do an OCR. When Windows cannot hide the border that it
     /// draws around a window during each capture, TypeAlike does no OCR.
     pub(crate) fn detect() -> Self {
-        let can_capture = GraphicsCaptureSession::IsSupported().unwrap_or(false);
-        let can_hide_border = ApiInformation::IsPropertyPresent(
-            h!("Windows.Graphics.Capture.GraphicsCaptureSession"),
-            h!("IsBorderRequired"),
-        )
-        .unwrap_or(false);
         let has_language = OcrEngine::AvailableRecognizerLanguages()
             .and_then(|languages| languages.Size())
             .is_ok_and(|count| count > 0);
-        if can_capture && can_hide_border && has_language {
+        if can_capture_without_border() && has_language {
             Self::Supported
         } else {
             Self::Unsupported
@@ -74,12 +64,8 @@ enum OcrError {
     Windows(#[from] windows::core::Error),
     #[error("a size is out of range")]
     Size(#[from] TryFromIntError),
-    #[error("a byte count of the pixels does not fit in memory")]
-    PixelCount,
-    #[error("Direct3D gave no device")]
-    NoDevice,
-    #[error("the capture gave no frame in time")]
-    NoFrame(#[from] mpsc::RecvTimeoutError),
+    #[error("the capture of the window failed")]
+    Capture(#[from] CaptureError),
     #[error("the focused field is outside of the window")]
     FieldOutsideWindow,
 }
@@ -132,9 +118,7 @@ impl Ocr {
         }
         let tools = self.tools.as_ref()?;
         let started = Instant::now();
-        let mut band = tools
-            .capturer
-            .capture_band(window, field.frame, tools.max_side)
+        let mut band = capture_band(&tools.capturer, window, field.frame, tools.max_side)
             .inspect_err(|error| tracing::warn!(%error, "failed to capture the window"))
             .ok()?;
         let captured = Instant::now();
@@ -250,15 +234,7 @@ fn enclosing_rect(rects: impl Iterator<Item = Rect>) -> Option<PixelRect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    pub(super) fn rect(left: i32, top: i32, right: i32, bottom: i32) -> PixelRect {
-        PixelRect {
-            left,
-            top,
-            right,
-            bottom,
-        }
-    }
+    use crate::window_capture::tests::rect;
 
     #[test]
     fn line_frame_holds_each_word() {

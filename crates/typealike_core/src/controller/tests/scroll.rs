@@ -50,7 +50,7 @@ fn ghost_shows_again_at_a_caret_that_did_not_move_after_a_scroll() {
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(
         harness.take_calls(),
@@ -65,7 +65,7 @@ fn scroll_that_moves_the_caret_far_from_its_field_keeps_the_ghost_and_the_badge_
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(look_at(FAR_CARET));
+    harness.answer_caret(&look_at(FAR_CARET));
 
     assert_eq!(harness.take_calls(), vec![Call::HideGhost, Call::HideBadge]);
 }
@@ -76,7 +76,7 @@ fn look_that_started_before_a_scroll_is_dropped() {
     harness.scroll();
     harness.take_calls();
 
-    harness.answer_caret(look_at(OLD_CARET));
+    harness.answer_caret(&look_at(OLD_CARET));
 
     assert_eq!(harness.take_calls(), Vec::new());
 }

@@ -2,14 +2,11 @@
 
 use std::fmt;
 
-use crate::desktop::{LinesBelow, ScreenRect};
+use crate::desktop::{FIELD_EDGE_GAP, LinesBelow, ScreenRect};
 use crate::engine::WordFix;
 
 /// The most characters of the word before the caret that the mirror shows.
 const MIRROR_WORD_CHARS: usize = 24;
-/// The room that the ghost text after the caret and the badge at the end of its line keep free
-/// inside each side of the field, and between the caret, the ghost text and the badge.
-pub(super) const FIELD_EDGE_GAP: i32 = 4;
 
 /// What the ghost text shows at the caret.
 #[derive(Debug, Clone, PartialEq, Eq)]

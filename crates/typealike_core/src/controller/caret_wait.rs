@@ -173,7 +173,7 @@ impl CaretLooks {
 
     /// Ends the look that waits, and returns what the controller shows for `read`. `None` when no
     /// look waits.
-    fn on_read(&mut self, read: CaretRead) -> Option<LookOutcome> {
+    fn on_read(&mut self, read: &CaretRead) -> Option<LookOutcome> {
         if !mem::take(&mut self.is_pending) {
             return None;
         }
@@ -317,7 +317,7 @@ impl CaretWait {
     /// are left, because the host app did not move it yet. A caret that stayed at the right side of
     /// its field over a whole key gets the ghost text, because a field that scrolls its line
     /// sideways keeps the caret there.
-    pub(super) fn on_caret_read(&mut self, read: CaretRead) -> Option<LookOutcome> {
+    pub(super) fn on_caret_read(&mut self, read: &CaretRead) -> Option<LookOutcome> {
         self.looks.on_read(read)
     }
 

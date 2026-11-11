@@ -463,14 +463,14 @@ impl Controller {
     /// After a key, a caret that did not move yet gets only the badge, and the controller looks
     /// again later. A caret far from the frame of its field counts as no caret. Drops `read` when
     /// a key came after the look started, because the key can move the caret.
-    pub fn on_caret_read(&mut self, read: CaretRead, shell: &mut dyn Shell) {
+    pub fn on_caret_read(&mut self, read: &CaretRead, shell: &mut dyn Shell) {
         let Some(outcome) = self.caret_wait.on_caret_read(read) else {
             return;
         };
         match outcome {
             LookOutcome::GhostAndBadge => self.render_at_caret(read, shell),
             LookOutcome::BadgeOnly => {
-                let badge = self.badge_at(read, &*shell);
+                let badge = self.badge_at(read, &self.room_after_caret(read), &*shell);
                 shell.render_at_caret(None, badge);
             }
             LookOutcome::Nothing => {
@@ -831,7 +831,7 @@ impl Controller {
     fn render_waiting_ghost(&mut self, shell: &mut dyn Shell) {
         self.caret_wait.wait_for_look();
         if let CaretLook::Now(read) = shell.read_caret() {
-            self.on_caret_read(read, shell);
+            self.on_caret_read(&read, shell);
         }
     }
 
@@ -1286,13 +1286,14 @@ impl Controller {
     }
 
     /// Shows the waiting ghost text and the badge at the caret of `read`, with the ghost text fit
-    /// into the field of `read` before the badge. When the ghost text shows, its app and its
+    /// into the room after the caret before the badge. When the ghost text shows, its app and its
     /// website go into the lists of the panes. Else an app whose suggestions are off by default
     /// goes into the list of the Apps and websites pane.
-    fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
-        let badge = self.badge_at(read, &*shell);
+    fn render_at_caret(&mut self, read: &CaretRead, shell: &mut dyn Shell) {
+        let room = self.room_after_caret(read);
+        let badge = self.badge_at(read, &room, &*shell);
         let badge_frame = badge.as_ref().and_then(|badge| badge.frame);
-        let ghost = self.ghost_view_at(read, badge_frame, &*shell);
+        let ghost = self.ghost_view_at(read, &room, badge_frame, &*shell);
         self.caret_wait.note_view(ghost.as_ref());
         shell.render_at_caret(ghost.as_ref(), badge);
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
@@ -1304,20 +1305,20 @@ impl Controller {
     }
 
     /// The badge at the caret of `read`, or `None` while no badge shows. A shell that gives the
-    /// side of its badge gets the badge at the end of the line of the caret, inside the field,
-    /// where it covers no text. Thus that badge hides while text can follow the caret on its line,
-    /// when the line has no room for it, and without a field frame. A shell without a badge side
-    /// puts the badge at the caret by itself.
-    fn badge_at(&self, read: CaretRead, shell: &dyn Shell) -> Option<BadgeView> {
+    /// side of its badge gets the badge at the end of the line of the caret, inside the field of
+    /// `room`, where it covers no text. Thus that badge hides while text can follow the caret on
+    /// its line, as `room` tells it, when the line has no room for it, and without a field frame.
+    /// A shell without a badge side puts the badge at the caret by itself.
+    fn badge_at(&self, read: &CaretRead, room: &RoomAfterCaret, shell: &dyn Shell) -> Option<BadgeView> {
         let view = self.app.badge_view(&self.translations)?;
         let side = read.caret.and_then(|caret| shell.badge_side(caret));
         let (Some(caret), Some(side)) = (read.caret, side) else {
             return Some(view);
         };
-        if !self.app.is_caret_at_line_end(read.after) {
+        if read.after == AfterCaret::Selection || room.placement != GhostPlacement::AfterCaret {
             return None;
         }
-        let field = read.field.filter(ScreenRect::has_area)?;
+        let field = room.field.filter(ScreenRect::has_area)?;
         let frame = line_end_badge(caret, field, side)?;
         Some(BadgeView {
             frame: Some(frame),
@@ -1325,37 +1326,53 @@ impl Controller {
         })
     }
 
-    /// The view of the waiting ghost text at the caret of `read`. The ghost text goes after the
-    /// caret, and below it only while text follows the caret on its line, as `read` sees it. On
-    /// the line of the caret, it ends before `badge`, the frame of the badge at the end of that
-    /// line. It wraps onto the lines below only while they have no text. It never shows while the
-    /// app selects text after the caret, because it would cover the suggestion of the app. `None`
+    /// The view of the waiting ghost text at the caret of `read`, in `room`. The ghost text goes
+    /// after the caret, and below it only while text follows the caret on its line. On the line
+    /// of the caret, it ends before `badge`, the frame of the badge at the end of that line. It
+    /// wraps onto the lines below only while they have no text. It never shows while the app
+    /// selects text after the caret, because it would cover the suggestion of the app. `None`
     /// when no ghost text waits.
     fn ghost_view_at(
         &self,
-        read: CaretRead,
+        read: &CaretRead,
+        room: &RoomAfterCaret,
         badge: Option<ScreenRect>,
         shell: &dyn Shell,
     ) -> Option<GhostView> {
         if read.after == AfterCaret::Selection {
             return None;
         }
+        let view = self
+            .caret_wait
+            .ghost_view(self.app.text_before_caret(), room.placement)?;
+        let Some(field_room) = room.field_room(read.caret, badge) else {
+            return Some(view);
+        };
+        Some(view.fit_to(&field_room, |ghost| shell.ghost_width(ghost)))
+    }
+
+    /// The room after the caret of `read`: as its pixels after the caret show it when the look
+    /// has them, else as the look and the text of the session tell it.
+    fn room_after_caret(&self, read: &CaretRead) -> RoomAfterCaret {
+        RoomAfterCaret::seen_in_pixels(read).unwrap_or_else(|| self.room_as_read(read))
+    }
+
+    /// The room after the caret of `read` as the look and the text of the session tell it.
+    fn room_as_read(&self, read: &CaretRead) -> RoomAfterCaret {
         let placement = if self.app.is_caret_at_line_end(read.after) {
             GhostPlacement::AfterCaret
         } else {
             GhostPlacement::BelowCaret
         };
-        let view = self
-            .caret_wait
-            .ghost_view(self.app.text_before_caret(), placement)?;
         let lines_below = match read.after {
             AfterCaret::TextBelow => LinesBelow::WithText,
             _ => self.app.lines_below_caret(),
         };
-        let Some(room) = field_room(read, lines_below, badge) else {
-            return Some(view);
-        };
-        Some(view.fit_to(&room, |ghost| shell.ghost_width(ghost)))
+        RoomAfterCaret {
+            placement,
+            lines_below,
+            field: read.field,
+        }
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {
@@ -1364,13 +1381,49 @@ impl Controller {
     }
 }
 
-/// The room for a ghost text after the caret of `read` in its field, above the text of
-/// `lines_below`, with the line of the caret ending before `badge`. `None` without a caret or a
-/// field frame with area, and the ghost text then stays whole.
-fn field_room(read: CaretRead, lines_below: LinesBelow, badge: Option<ScreenRect>) -> Option<FieldRoom> {
-    let (caret, field) = (read.caret?, read.field.filter(ScreenRect::has_area)?);
-    let room = FieldRoom::after(caret, field, lines_below);
-    Some(badge.map_or(room, |badge| room.before(badge)))
+/// Where a ghost text at the caret goes, and the room that it has there.
+struct RoomAfterCaret {
+    placement: GhostPlacement,
+    /// What the lines below the line of the caret show.
+    lines_below: LinesBelow,
+    /// The field that the ghost text after the caret fits into.
+    field: Option<ScreenRect>,
+}
+
+impl RoomAfterCaret {
+    /// The room after the caret of `read` as the pixels of the look show it: the ghost text goes
+    /// after the caret where the pixels show no text after the caret on its line, and it wraps
+    /// only onto the lines below that the pixels show without text. `None` without pixels that
+    /// show the line of the caret.
+    fn seen_in_pixels(read: &CaretRead) -> Option<Self> {
+        let (pixels, caret, field) = (read.pixels.as_ref()?, read.caret?, read.field?);
+        let after = pixels.after_caret(caret, field)?;
+        Some(Self {
+            placement: match after {
+                AfterCaret::Text | AfterCaret::Selection => GhostPlacement::BelowCaret,
+                AfterCaret::Nothing | AfterCaret::TextBelow | AfterCaret::Unknown => {
+                    GhostPlacement::AfterCaret
+                }
+            },
+            lines_below: match after {
+                AfterCaret::Nothing => LinesBelow::Empty,
+                _ => LinesBelow::WithText,
+            },
+            field: Some(ScreenRect {
+                bottom: field.bottom.min(pixels.frame().bottom),
+                ..field
+            }),
+        })
+    }
+
+    /// The room for a ghost text after `caret` in the field of this room, above the text of its
+    /// lines below, with the line of the caret ending before `badge`. `None` without a caret or a
+    /// field frame with area, and the ghost text then stays whole.
+    fn field_room(&self, caret: Option<ScreenRect>, badge: Option<ScreenRect>) -> Option<FieldRoom> {
+        let (caret, field) = (caret?, self.field.filter(ScreenRect::has_area)?);
+        let room = FieldRoom::after(caret, field, self.lines_below);
+        Some(badge.map_or(room, |badge| room.before(badge)))
+    }
 }
 
 /// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the

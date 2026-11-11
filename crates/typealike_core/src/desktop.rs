@@ -1,7 +1,9 @@
 //! What TypeAlike reads from the desktop while the user types: the seam the platform implements.
 
+mod screen_pixels;
 mod text_color;
 
+pub use screen_pixels::{PixelColor, ScreenPixels};
 pub use text_color::{GHOST_TEXT_ALPHA, TextColor};
 
 use std::fmt;
@@ -17,6 +19,11 @@ pub const MAX_CHARS_BEFORE_CARET: usize = 9000;
 /// The most characters after the caret that a platform reads: enough text for the budget of the
 /// text after the caret in the prompt of an email.
 pub const MAX_CHARS_AFTER_CARET: usize = 900;
+
+/// The room that a ghost text after the caret and the badge at the end of its line keep free
+/// inside each side of the field, and between the caret, the ghost text and the badge, in the units
+/// of [`ScreenRect`].
+pub(crate) const FIELD_EDGE_GAP: i32 = 4;
 
 /// Whether `character` ends a line in the text of a field. Word ends a line inside a paragraph
 /// with a vertical tab.

@@ -46,6 +46,7 @@ fn notepad_look(caret: ScreenRect, after: AfterCaret) -> CaretRead {
         caret: Some(caret),
         field: Some(NOTEPAD),
         after,
+        ..CaretRead::default()
     }
 }
 
@@ -192,6 +193,7 @@ fn small_field_look(caret_left: i32, field: ScreenRect) -> CaretRead {
         caret: Some(rect(caret_left, 100, caret_left, 120)),
         field: Some(field),
         after: AfterCaret::Nothing,
+        ..CaretRead::default()
     }
 }
 

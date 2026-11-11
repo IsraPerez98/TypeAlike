@@ -10,18 +10,22 @@
 //! Each request of this thread to an app has a time limit, so that one app that does not answer
 //! cannot stop the reads in all apps. A read of the field that fails, also on a timeout, tells
 //! nothing about the field: the field keeps what the reads after the last move of the focus told.
+//!
+//! In a field whose text after the caret UIA hides, each read of the caret also captures the
+//! pixels after the caret ([`CaretPixels`]).
 
 use std::iter;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use typealike_core::controller::CaretRead;
-use typealike_core::desktop::{AfterCaret, FieldText};
+use typealike_core::desktop::{AfterCaret, FieldText, ScreenPixels};
 use windows::Win32::Foundation::RECT;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
+use crate::caret_pixels::{CaretPixels, IDLE_CAPTURE_TIMEOUT};
 use crate::mailbox::Mailbox;
 use crate::uia::{FocusedCaret, ShownField, Uia, UiaConnection, UiaField};
 use crate::window::WindowId;
@@ -50,6 +54,8 @@ pub(crate) struct CaretAnswer {
     pub(crate) field: Option<RECT>,
     /// What follows the caret at this read.
     pub(crate) after: AfterCaret,
+    /// The pixels after the caret, in a field whose text after the caret UIA hides.
+    pub(crate) pixels: Option<ScreenPixels>,
 }
 
 /// Identifies one read of the field text. A later read has a higher id.
@@ -155,22 +161,35 @@ impl CaretReader {
 }
 
 /// Answers the reads until the reader drops. Of the reads of one kind that wait together, only
-/// the newest gets an answer. The caret goes first, because the ghost text waits for it.
+/// the newest gets an answer. The caret goes first, because the ghost text waits for it. A capture
+/// of the pixels after the caret stops after a time without reads.
 fn answer_reads(
     requests: &mpsc::Receiver<Request>,
     carets: &Mailbox<CaretAnswer>,
     field_texts: &Mailbox<FieldRead>,
 ) {
     let mut connection = UiaConnection::connect(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT);
-    while let Ok(oldest) = requests.recv() {
+    let mut pixels = CaretPixels::default();
+    loop {
+        let oldest = match requests.recv_timeout(IDLE_CAPTURE_TIMEOUT) {
+            Ok(request) => request,
+            Err(RecvTimeoutError::Timeout) => {
+                pixels.stop();
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => return,
+        };
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         let uia = connection.connected();
         if let Some(id) = newest.caret {
-            carets.send(read_caret(id, uia));
+            carets.send(read_caret(id, uia, &mut pixels));
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
             let field = read_field(uia);
+            if field.shown().is_some_and(ShownField::has_hidden_text_after_caret) {
+                pixels.prepare(focus::foreground_hwnd());
+            }
             field_texts.send(FieldRead { id, window, field });
         }
     }
@@ -178,26 +197,37 @@ fn answer_reads(
 
 /// Reads the caret through `uia`, else the system caret. The frame of the focused field is the part
 /// of the frame that UIA gives inside the client area of the focused window, else that client area
-/// ([`display::visible_field_frame`]).
-fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
+/// ([`display::visible_field_frame`]). In a field whose text after the caret UIA hides, `pixels`
+/// reads the pixels after the caret, and else its capture stops.
+fn read_caret(id: ReadId, uia: Option<&Uia>, pixels: &mut CaretPixels) -> CaretAnswer {
     let started = Instant::now();
     let focused = uia.map_or_else(
         || FocusedCaret {
             caret: caret::system_caret(),
             frame: None,
             after: AfterCaret::Unknown,
+            has_hidden_text_after_caret: false,
         },
         Uia::caret,
     );
     let client_area = focus::focused_client_area();
     let field = display::visible_field_frame(focused.frame, client_area);
+    let read = started.elapsed();
+    let pixels_after_caret = if focused.has_hidden_text_after_caret {
+        read_pixels_after_caret(pixels, focused.caret.as_ref(), field)
+    } else {
+        pixels.stop();
+        None
+    };
     tracing::debug!(
-        duration = ?started.elapsed(),
+        duration = ?read,
         caret = ?focused.caret.as_ref().map(Caret::screen_rect),
         uia_frame = ?focused.frame,
         ?client_area,
         ?field,
         after = ?focused.after,
+        pixels = ?pixels_after_caret.as_ref().map(ScreenPixels::frame),
+        pixels_duration = ?started.elapsed().saturating_sub(read),
         "read the caret"
     );
     CaretAnswer {
@@ -205,7 +235,19 @@ fn read_caret(id: ReadId, uia: Option<&Uia>) -> CaretAnswer {
         caret: focused.caret,
         field,
         after: focused.after,
+        pixels: pixels_after_caret,
     }
+}
+
+/// Reads the pixels of the area after `caret` in `field` from the foreground window
+/// ([`ScreenPixels::area_after_caret`]).
+fn read_pixels_after_caret(
+    pixels: &mut CaretPixels,
+    caret: Option<&Caret>,
+    field: Option<RECT>,
+) -> Option<ScreenPixels> {
+    let area = ScreenPixels::area_after_caret(caret?.screen_rect(), display::screen_rect(field?))?;
+    pixels.read(focus::foreground_hwnd(), area)
 }
 
 /// Reads the focused field through `uia`, and its text from a classic edit control when UIA does
@@ -345,6 +387,7 @@ impl NewestCaret {
             caret: answer.caret.as_ref().map(Caret::screen_rect),
             field: answer.field.map(display::screen_rect),
             after: answer.after,
+            pixels: answer.pixels,
         };
         self.caret = answer.caret;
         Some(read)
@@ -360,7 +403,7 @@ impl NewestCaret {
 mod tests {
     use std::ptr;
 
-    use typealike_core::desktop::{FieldLabels, ScreenRect};
+    use typealike_core::desktop::{FieldLabels, PixelColor, ScreenRect};
     use windows::Win32::Foundation::{HWND, POINT};
 
     use super::*;
@@ -385,6 +428,7 @@ mod tests {
                 bottom: 70,
             }),
             after: AfterCaret::Unknown,
+            pixels: None,
         }
     }
 
@@ -411,6 +455,7 @@ mod tests {
                     bottom: 70,
                 }),
                 after: AfterCaret::Unknown,
+                pixels: None,
             })
         );
     }
@@ -427,6 +472,32 @@ mod tests {
         let look = newest.keep(answer);
 
         assert_eq!(look.map(|look| look.after), Some(AfterCaret::Selection));
+    }
+
+    #[test]
+    fn answer_to_the_newest_read_gives_the_pixels_after_the_caret_to_core() {
+        let mut newest = NewestCaret::default();
+        let read = newest.next_read();
+        let area = ScreenRect {
+            left: 0,
+            top: 40,
+            right: 2,
+            bottom: 41,
+        };
+        let color = PixelColor {
+            red: 1,
+            green: 2,
+            blue: 3,
+        };
+        let pixels = ScreenPixels::new(area, vec![color; 2]);
+        let answer = CaretAnswer {
+            pixels: pixels.clone(),
+            ..caret_answer(read, Some(caret_at(102)))
+        };
+
+        let look = newest.keep(answer);
+
+        assert_eq!(look.and_then(|look| look.pixels), pixels);
     }
 
     #[test]

@@ -1,8 +1,7 @@
 //! Where the badge at the caret shows: at the end of the line of the caret, inside its field. The
 //! ghost text after the caret ends before it, and a line that ends at the caret has no text there.
 
-use super::ghost_view::FIELD_EDGE_GAP;
-use crate::desktop::ScreenRect;
+use crate::desktop::{FIELD_EDGE_GAP, ScreenRect};
 
 /// Returns the frame of a square badge of `side` at the end of the line of `caret` in `field`:
 /// [`FIELD_EDGE_GAP`] inside the right edge of the field, in the middle of the line of the caret

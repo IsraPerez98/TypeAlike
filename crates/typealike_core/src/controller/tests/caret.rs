@@ -460,14 +460,14 @@ fn ghost_text_shows_when_the_selected_text_after_the_caret_goes_away() {
     let mut harness = harness_whose_look_sees("", AfterCaret::Selection);
     harness.shell.caret_look = CaretLook::Later;
     harness.settle_caret();
-    harness.answer_caret(CaretRead {
+    harness.answer_caret(&CaretRead {
         after: AfterCaret::Selection,
         ..CaretRead::default()
     });
     harness.settle_caret();
     harness.take_calls();
 
-    harness.answer_caret(CaretRead {
+    harness.answer_caret(&CaretRead {
         after: AfterCaret::Nothing,
         ..CaretRead::default()
     });

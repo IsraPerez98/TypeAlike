@@ -16,6 +16,7 @@
 mod account;
 mod badge;
 mod caret;
+mod caret_pixels;
 mod caret_reader;
 mod clipboard;
 mod cpu_cores;
@@ -47,6 +48,7 @@ mod uia;
 mod utf16;
 mod web_page;
 mod window;
+mod window_capture;
 
 use typealike_core::controller::Services;
 use typealike_core::settings::Settings;
