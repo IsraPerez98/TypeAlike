@@ -131,6 +131,9 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
   - Most cases need a word of the region, such as "flat", "alberca", "courriel" or "Grüsse". The `ctl` cases need a word that all regions of the language use, so they show the harm of a change.
   - Run it without `--name` and `--dictionary` for a change that gives the model the region of the writer. Save the run with `--save`, then compare the score of each prefix.
   - A line of the prompt with the region of each spelling language helped 51 cases and harmed 22 here. It did not ship, because for an en-GB writer it made more leaks and harmed the general sets.
+- `cases/terminal.jsonl` has 50 command lines of PowerShell and bash in Windows Terminal. In each case, `next` holds options (`opt-`), options with a value (`value-`), paths and file names (`path-`) or subcommands (`sub-`). In the `word-` cases, the caret is inside an option or a path.
+  - Run it with `--word-choice medium --replay word` and the dictionaries of the user for a change to the cut of unknown words or to the suggestions in a terminal.
+  - Run it also without `--dictionary`: the cases that match only without it show the terminal text that the cut hides.
 - `cases/left_out.jsonl` has cases from the stores of the writers, each with one text of its store left out of the history (`left_out`). Run it with each `--word-choice` for a change to the word bias, and compare it with the run with `--word-choice off`.
 - `cases/repeats.jsonl` has the stores `writers/NAME_repeats.jsonl`, where the writer sent 3 messages 3 or 4 times, and one of them one more time with a typo. Run it with `--word-choice medium` and `off` for a change to the examples or to the word bias.
 - `cases/drift.jsonl` has the stores `writers/NAME_drift.jsonl`, where the writer had a long conversation about one topic two days before, and writes about another topic in the same app today.
