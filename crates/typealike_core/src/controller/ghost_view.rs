@@ -79,7 +79,9 @@ impl GhostView {
     /// Fits the ghost text after `caret` into `field`, as `width_of` measures a ghost text after
     /// the caret. A ghost text that does not fit on the line of the caret wraps onto the lines
     /// below. When the field has no room for those lines, or `lines_below` has text that they
-    /// would cover, the whole ghost text moves below the caret. A view below the caret stays whole.
+    /// would cover, only the words that fit on the line of the caret show, and Tab shows the rest
+    /// after them. When not even its first word fits there, the whole ghost text moves below the
+    /// caret. A view below the caret stays whole.
     pub(super) fn fit_to(
         self,
         caret: ScreenRect,
@@ -91,20 +93,34 @@ impl GhostView {
         if self.placement == GhostPlacement::BelowCaret || width_of(&self.ghost) <= room.caret_line {
             return self;
         }
-        match room.wrap(&self.ghost, width_of) {
-            Some((ghost, lines)) => Self {
+        if let Some((ghost, lines)) = room.wrap(&self.ghost, &width_of) {
+            return Self {
                 ghost,
                 wrapped: Some(WrappedLines {
                     left: room.line_left,
                     lines,
                 }),
                 ..self
-            },
+            };
+        }
+        match room.caret_line_part(&self.ghost, &width_of) {
+            Some(ghost) => Self { ghost, ..self },
             None => Self {
                 placement: GhostPlacement::BelowCaret,
                 ..self
             },
         }
+    }
+
+    /// The length in bytes of the end of `whole`, the ghost text that this view fits, that the
+    /// view does not show, because it did not fit on the line of the caret.
+    pub(super) fn hidden_len(&self, whole: &Ghost) -> usize {
+        let wrapped_len: usize = self
+            .wrapped
+            .as_ref()
+            .map_or(0, |wrapped| wrapped.lines.iter().map(String::len).sum());
+        let shown_len = self.ghost.cuttable_text().len().saturating_add(wrapped_len);
+        whole.cuttable_text().len().saturating_sub(shown_len)
     }
 }
 
@@ -143,9 +159,7 @@ impl FieldRoom {
     fn wrap(&self, ghost: &Ghost, width_of: impl Fn(&Ghost) -> i32) -> Option<(Ghost, Vec<String>)> {
         let text = ghost.cuttable_text();
         let breaks = line_breaks(text);
-        let first_end = longest_line(text, 0, &breaks, |end| {
-            width_of(&ghost.cut_at(end)) <= self.caret_line
-        })?;
+        let first_end = self.caret_line_end(ghost, &breaks, &width_of)?;
         let mut lines = Vec::new();
         let mut start = first_end;
         while start < text.len() {
@@ -156,6 +170,29 @@ impl FieldRoom {
             start = end;
         }
         (lines.len() <= self.lines_below).then(|| (ghost.cut_at(first_end), lines))
+    }
+
+    /// The words of `ghost` that fit on the line of the caret, as `width_of` measures them,
+    /// without the whitespace after them. A fix always keeps its word. `None` when not even the
+    /// first word of a ghost text fits.
+    fn caret_line_part(&self, ghost: &Ghost, width_of: impl Fn(&Ghost) -> i32) -> Option<Ghost> {
+        let text = ghost.cuttable_text();
+        let end = self.caret_line_end(ghost, &line_breaks(text), width_of)?;
+        let part = text[..end].trim_end();
+        let has_word = !part.is_empty() || matches!(ghost, Ghost::Fix(_));
+        has_word.then(|| ghost.cut_at(part.len()))
+    }
+
+    /// The end of the part of `ghost` on the line of the caret, at one of `breaks`.
+    fn caret_line_end(
+        &self,
+        ghost: &Ghost,
+        breaks: &[usize],
+        width_of: impl Fn(&Ghost) -> i32,
+    ) -> Option<usize> {
+        longest_line(ghost.cuttable_text(), 0, breaks, |end| {
+            width_of(&ghost.cut_at(end)) <= self.caret_line
+        })
     }
 }
 
@@ -401,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn fit_moves_the_whole_ghost_text_below_the_caret_when_the_field_has_no_room_for_its_lines() {
+    fn fit_shows_only_the_words_that_fit_on_the_line_of_the_caret_when_the_field_has_no_room_for_its_lines() {
         let fields = [20, 60].map(|bottom| ScreenRect { bottom, ..FIELD });
         let view = inline_text(" see you next week to discuss the findings");
 
@@ -410,7 +447,16 @@ mod tests {
                 .fit_to(caret_at(100), field, LinesBelow::Empty, width_of)
         });
 
-        assert_eq!(fitted, [below_caret(view.clone()), below_caret(view)]);
+        assert_eq!(fitted, [inline_text(" see you"), inline_text(" see you")]);
+    }
+
+    #[test]
+    fn fit_shows_the_word_of_a_fix_and_the_words_of_its_rest_that_fit_on_the_line_of_the_caret() {
+        let view = inline_fix(" end of the story");
+
+        let fitted = view.fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
+
+        assert_eq!(fitted, inline_fix(" end"));
     }
 
     #[test]
@@ -436,14 +482,40 @@ mod tests {
     }
 
     #[test]
-    fn fit_moves_the_whole_ghost_text_below_the_caret_when_its_lines_would_cover_text_below() {
+    fn fit_shows_only_the_words_that_fit_on_the_line_of_the_caret_above_text_below() {
         let view = inline_text(" see you next week to discuss the findings");
 
-        let fitted = view
-            .clone()
-            .fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
+        let fitted = view.fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
 
-        assert_eq!(fitted, below_caret(view));
+        assert_eq!(fitted, inline_text(" see you"));
+    }
+
+    #[test]
+    fn hidden_len_is_the_length_of_the_words_that_do_not_fit_on_the_line_of_the_caret() {
+        let whole = Ghost::Text(" see you next week to discuss the findings".to_owned());
+        let view = inline_text(" see you next week to discuss the findings");
+
+        let fitted = view.fit_to(caret_at(100), FIELD, LinesBelow::WithText, width_of);
+
+        assert_eq!(
+            fitted.hidden_len(&whole),
+            " next week to discuss the findings".len()
+        );
+    }
+
+    #[test]
+    fn hidden_len_is_zero_for_a_ghost_text_that_shows_whole_on_its_lines() {
+        let whole = Ghost::Text(" see you next week to discuss the findings".to_owned());
+        let wide_field = ScreenRect { right: 1000, ..FIELD };
+        let fields = [wide_field, FIELD];
+
+        let fitted = fields.map(|field| {
+            inline_text(" see you next week to discuss the findings")
+                .fit_to(caret_at(100), field, LinesBelow::Empty, width_of)
+                .hidden_len(&whole)
+        });
+
+        assert_eq!(fitted, [0, 0]);
     }
 
     #[test]

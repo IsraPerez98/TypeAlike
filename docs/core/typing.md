@@ -119,6 +119,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - A word of only signs is one part.
 - Tab takes a suggestion only while the ghost text shows on the screen (`Desktop::is_ghost_shown`).
 - After a Tab, the rest of the suggestion also counts as shown while it waits for the caret, so that a quick Tab types its next part.
+- When the ghost text did not show the next word of the rest, because the field had no room for it, the rest does not count as shown. A quick Tab then waits for the rest, as after the last part of a suggestion ("Tab hold").
 - After the last part, core asks for the next suggestion as after a typed key (`AfterAccept::Next`). When the completion still runs, core asks when that completion ends without more text.
 - Tab on a typo fix: `docs/core/suggestions.md`, "Typos".
 

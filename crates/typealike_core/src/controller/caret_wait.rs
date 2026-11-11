@@ -47,10 +47,26 @@ pub(super) struct CaretWait {
     /// Whether the caret timer ran out after the last key. A stop of the wait keeps it, because
     /// the request when the input settles stops the wait but does not move the caret.
     has_caret_settled: bool,
-    /// Whether `ghost` is the rest of a suggestion that Tab took a part of. The rest counts as
-    /// shown, so that a quick Tab types its next part and does not reach the app.
+    /// Whether `ghost` is the rest of a suggestion that Tab took a part of, and the user saw its
+    /// next part. The rest counts as shown, so that a quick Tab types its next part and does not
+    /// reach the app.
     is_rest: bool,
+    /// The length in bytes of the end of the ghost text of the last view that the view did not
+    /// show, because it did not fit on the line of the caret. A Tab hides the ghost text before
+    /// it takes a part, so only the next view changes it.
+    hidden_len: usize,
     looks: CaretLooks,
+}
+
+/// Whether the user saw the next part of the rest of a suggestion that Tab took a part of.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RestSight {
+    /// The last view showed the next word of the rest.
+    Seen,
+    /// The last view showed only the parts that Tab took, because the rest did not fit on the
+    /// line of the caret.
+    Hidden,
 }
 
 impl fmt::Debug for CaretWait {
@@ -61,6 +77,7 @@ impl fmt::Debug for CaretWait {
             .field("is_timer_pending", &self.is_timer_pending)
             .field("has_caret_settled", &self.has_caret_settled)
             .field("is_rest", &self.is_rest)
+            .field("hidden_len", &self.hidden_len)
             .field("looks", &self.looks)
             .finish()
     }
@@ -253,11 +270,22 @@ impl CaretWait {
     }
 
     /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles
-    /// after the part that Tab typed. The user saw `rest`, so it counts as shown while it waits.
-    pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) {
+    /// after the part that Tab typed. When the user saw its next word, the rest counts as shown
+    /// while it waits. Returns whether the user saw it.
+    pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) -> RestSight {
+        let sight = sight_of(&rest, self.hidden_len);
         self.ghost = Some(Ghost::Text(rest));
         self.restart_timer(shell);
-        self.is_rest = true;
+        self.is_rest = sight == RestSight::Seen;
+        sight
+    }
+
+    /// Notes `view`, the view of the waiting ghost text that the controller shows now, or `None`
+    /// when no ghost text shows.
+    pub(super) fn note_view(&mut self, view: Option<&GhostView>) {
+        self.hidden_len = view
+            .zip(self.ghost.as_ref())
+            .map_or(0, |(view, ghost)| view.hidden_len(ghost));
     }
 
     /// Shows `ghost` in place of the waiting ghost text, and does not make the wait longer.
@@ -327,6 +355,16 @@ impl CaretWait {
         self.forget_ghost();
         shell.stop_timer(Timer::CaretSettle);
         self.is_timer_pending = false;
+    }
+}
+
+/// Whether the user saw the next word of `rest`, whose last `hidden_len` bytes did not show.
+fn sight_of(rest: &str, hidden_len: usize) -> RestSight {
+    let shown = rest.len().checked_sub(hidden_len).and_then(|end| rest.get(..end));
+    if shown.is_some_and(|shown| !shown.trim().is_empty()) {
+        RestSight::Seen
+    } else {
+        RestSight::Hidden
     }
 }
 

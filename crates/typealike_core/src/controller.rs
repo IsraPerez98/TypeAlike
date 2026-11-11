@@ -15,7 +15,7 @@ pub use shell::{CaretLook, CaretRead, FocusChange, Shell, Timer};
 use std::time::Duration;
 use std::{fmt, mem};
 
-use caret_wait::{CaretWait, GhostTiming, LookOutcome};
+use caret_wait::{CaretWait, GhostTiming, LookOutcome, RestSight};
 use services::delivering_sink;
 use tab_hold::TabHold;
 
@@ -1041,7 +1041,11 @@ impl Controller {
 
     fn apply_after_accept(&mut self, then: AfterAccept, shell: &mut dyn Shell) {
         match then {
-            AfterAccept::Rest(rest) => self.caret_wait.show_rest_after_settle(rest, shell),
+            AfterAccept::Rest(rest) => {
+                if self.caret_wait.show_rest_after_settle(rest, shell) == RestSight::Hidden {
+                    self.tab_hold.start(shell);
+                }
+            }
             AfterAccept::Next(reaction) => {
                 self.apply(*reaction, shell);
                 if self.app.has_offer() {
@@ -1274,6 +1278,7 @@ impl Controller {
     /// the Apps and websites pane.
     fn render_at_caret(&mut self, read: CaretRead, shell: &mut dyn Shell) {
         let ghost = self.ghost_view_at(read, &*shell);
+        self.caret_wait.note_view(ghost.as_ref());
         shell.render_at_caret(ghost.as_ref(), self.app.badge_view(&self.translations));
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {
