@@ -16,6 +16,7 @@ use std::time::Duration;
 use std::{fmt, mem};
 
 use caret_wait::{CaretWait, GhostTiming, LookOutcome, RestSight};
+use ghost_view::FieldRoom;
 use services::delivering_sink;
 use tab_hold::TabHold;
 
@@ -1331,7 +1332,8 @@ fn fit_to_field(view: GhostView, read: CaretRead, lines_below: LinesBelow, shell
     let (Some(caret), Some(field)) = (read.caret, read.field.filter(ScreenRect::has_area)) else {
         return view;
     };
-    view.fit_to(caret, field, lines_below, |ghost| shell.ghost_width(ghost))
+    let room = FieldRoom::after(caret, field, lines_below);
+    view.fit_to(&room, |ghost| shell.ghost_width(ghost))
 }
 
 /// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the
