@@ -128,6 +128,34 @@ fn words_with_digits_signs_inside_or_fewer_than_three_letters_need_no_dictionary
     assert_eq!(reaction, show("po, see example.com and useState on the 15th"));
 }
 
+#[test]
+fn command_options_need_no_dictionary() {
+    let reaction = reaction_after("git log ", &["oneline", "xzf"], "--oneline -xzf --graph");
+
+    assert_eq!(reaction, show("--oneline -xzf --graph"));
+}
+
+#[test]
+fn option_that_finishes_the_typed_letters_needs_no_dictionary() {
+    let reaction = reaction_after("git log --one", &["oneline"], "line --graph");
+
+    assert_eq!(reaction, show("line --graph"));
+}
+
+#[test]
+fn path_that_finishes_the_typed_letters_needs_no_dictionary() {
+    let reaction = reaction_after("cat ~/.bash", &["bashrc"], "rc");
+
+    assert_eq!(reaction, show("rc"));
+}
+
+#[test]
+fn unknown_word_after_a_command_option_ends_the_suggestion() {
+    let reaction = reaction_after("git log ", &["prostu"], "--oneline prostu");
+
+    assert_eq!(reaction, show("--oneline"));
+}
+
 const CHAT_APP: &str = "com.tinyspeck.slackmacgap";
 
 /// The settings of a pool of the mail app and a chat app with `word_choice`.
