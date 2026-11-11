@@ -1,59 +1,19 @@
 //! The geometry of the band that the OCR reads.
 //!
-//! It has the rectangles of pixels in a window or an image, and the band around the focused field.
+//! It has the band around the focused field, in the pixels of the window.
 
 use std::ops::Range;
 
-use typealike_core::desktop::ScreenRect;
 use windows::Graphics::SizeInt32;
 use windows::Win32::Foundation::POINT;
 
 use crate::display::DEFAULT_DPI;
+use crate::window_capture::PixelRect;
 
 /// The height of the window above and below the field that the OCR reads, in pixels at a scale
 /// of 100 %. Core keeps only the lines nearest to the caret, so an OCR of the lines farther away
 /// is wasted work.
 const BAND_DIPS: i32 = 600;
-
-/// A rectangle of pixels from the top left corner of an image or a window: the columns
-/// `left..right` of the rows `top..bottom`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct PixelRect {
-    pub(super) left: i32,
-    pub(super) top: i32,
-    pub(super) right: i32,
-    pub(super) bottom: i32,
-}
-
-impl PixelRect {
-    /// The rectangle `rect` of the screen, counted from `origin`.
-    pub(super) fn from_screen(rect: ScreenRect, origin: POINT) -> Self {
-        Self {
-            left: rect.left.saturating_sub(origin.x),
-            top: rect.top.saturating_sub(origin.y),
-            right: rect.right.saturating_sub(origin.x),
-            bottom: rect.bottom.saturating_sub(origin.y),
-        }
-    }
-
-    /// The rectangle of the screen where this rectangle, counted from `origin`, is.
-    pub(super) fn on_screen(self, origin: POINT) -> ScreenRect {
-        ScreenRect {
-            left: self.left.saturating_add(origin.x),
-            top: self.top.saturating_add(origin.y),
-            right: self.right.saturating_add(origin.x),
-            bottom: self.bottom.saturating_add(origin.y),
-        }
-    }
-
-    pub(super) fn width(self) -> i32 {
-        self.right.saturating_sub(self.left)
-    }
-
-    pub(super) fn height(self) -> i32 {
-        self.bottom.saturating_sub(self.top)
-    }
-}
 
 /// The reach of the band above and below the field, in pixels, for a window at `dpi`. Windows
 /// gives a `dpi` of zero when it cannot tell.
@@ -110,7 +70,7 @@ fn shrink_around(range: Range<i32>, middle: i32, max_length: i32) -> Range<i32> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ocr::tests::rect;
+    use crate::window_capture::tests::rect;
 
     const FRAME: SizeInt32 = SizeInt32 {
         Width: 1000,
@@ -162,23 +122,5 @@ mod tests {
         let reaches = [reach_for(96), reach_for(144), reach_for(0)];
 
         assert_eq!(reaches, [600, 900, 600]);
-    }
-
-    #[test]
-    fn frame_in_the_band_moves_to_the_screen_and_back() {
-        let origin = POINT { x: -1920, y: 300 };
-        let field = ScreenRect {
-            left: -1800,
-            top: 900,
-            right: -1200,
-            bottom: 930,
-        };
-
-        let in_band = PixelRect::from_screen(field, origin);
-
-        assert_eq!(
-            (in_band, in_band.on_screen(origin)),
-            (rect(120, 600, 720, 630), field)
-        );
     }
 }

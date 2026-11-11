@@ -47,6 +47,7 @@ mod uia;
 mod utf16;
 mod web_page;
 mod window;
+mod window_capture;
 
 use typealike_core::controller::Services;
 use typealike_core::settings::Settings;
