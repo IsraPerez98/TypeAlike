@@ -34,8 +34,8 @@ fn caret_is_at_the_line_end_while_its_line_has_no_text_after_it() {
 }
 
 #[test]
-fn lines_below_the_caret_have_text_while_a_line_after_the_line_of_the_caret_has_text() {
-    let texts_after = ["", " on Friday.", "\n  \n\t", "\nSee you", " on\n\nFriday."];
+fn lines_below_the_caret_have_text_while_any_text_follows_the_caret() {
+    let texts_after = ["", "\n  \n\t", " on Friday.", "\nSee you", " on\n\nFriday."];
 
     let lines_below = texts_after.map(|text_after| {
         let mut engine = Engine::default();
@@ -52,7 +52,7 @@ fn lines_below_the_caret_have_text_while_a_line_after_the_line_of_the_caret_has_
         [
             LinesBelow::Empty,
             LinesBelow::Empty,
-            LinesBelow::Empty,
+            LinesBelow::WithText,
             LinesBelow::WithText,
             LinesBelow::WithText,
         ]

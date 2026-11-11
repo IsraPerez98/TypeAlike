@@ -1305,7 +1305,11 @@ impl Controller {
         let view = self
             .caret_wait
             .ghost_view(self.app.text_before_caret(), placement)?;
-        Some(fit_to_field(view, read, self.app.lines_below_caret(), shell))
+        let lines_below = match read.after {
+            AfterCaret::TextBelow => LinesBelow::WithText,
+            _ => self.app.lines_below_caret(),
+        };
+        Some(fit_to_field(view, read, lines_below, shell))
     }
 
     fn hide_ghost(&mut self, shell: &mut dyn Shell) {

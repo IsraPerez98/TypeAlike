@@ -5,7 +5,7 @@
 
 use super::harness::{Call, Harness, field_around};
 use crate::controller::{CaretLook, CaretRead, Ghost, GhostPlacement, GhostView, WrappedLines};
-use crate::desktop::ScreenRect;
+use crate::desktop::{AfterCaret, ScreenRect};
 use crate::key::{Disposition, Key};
 use crate::settings::Settings;
 
@@ -122,6 +122,43 @@ fn ghost_text_whose_first_word_does_not_fit_in_a_single_line_field_shows_whole_b
 fn ghost_text_that_does_not_fit_above_a_line_with_text_shows_the_words_that_fit_after_the_caret() {
     let mut harness = harness_at(100, Some(FIELD));
     harness.shell.surroundings = field_around("", "\nSee you on Friday.");
+
+    harness.show(SUGGESTION);
+
+    let view = shown_view(&harness);
+    assert_eq!(
+        (view.ghost, view.wrapped, view.placement),
+        (text("est regards"), None, GhostPlacement::AfterCaret)
+    );
+}
+
+#[test]
+fn ghost_text_does_not_wrap_over_text_that_an_app_gives_without_a_line_break_after_the_caret() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.caret_look = CaretLook::Now(CaretRead {
+        caret: Some(caret_at(100)),
+        field: Some(FIELD),
+        after: AfterCaret::Nothing,
+    });
+    harness.shell.surroundings = field_around("", "See you on Friday.");
+
+    harness.show(SUGGESTION);
+
+    let view = shown_view(&harness);
+    assert_eq!(
+        (view.ghost, view.wrapped, view.placement),
+        (text("est regards"), None, GhostPlacement::AfterCaret)
+    );
+}
+
+#[test]
+fn ghost_text_does_not_wrap_over_the_text_below_that_a_look_sees() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.caret_look = CaretLook::Now(CaretRead {
+        caret: Some(caret_at(100)),
+        field: Some(FIELD),
+        after: AfterCaret::TextBelow,
+    });
 
     harness.show(SUGGESTION);
 

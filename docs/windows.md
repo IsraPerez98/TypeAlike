@@ -46,8 +46,9 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 ### What follows the caret
 
-- Each read of the caret also tells what follows the caret now (`AfterCaret`, from the UIA `TextPattern` of the focused element): selected text, else text after the caret on its line, else nothing.
-- The read takes one character of the selection and at most 160 characters after it (`CHARS_TO_FIND_LINE_TEXT`), so that a slow app does not hold the read. A line with only spaces in these characters has no text, because a terminal pads its lines with spaces.
+- Each read of the caret also tells what follows the caret now (`AfterCaret`, from the UIA `TextPattern` of the focused element): selected text, else text after the caret on its line, else text on the lines below, else nothing.
+- The read takes one character of the selection and at most 400 characters after it (`CHARS_TO_FIND_LINE_TEXT`), so that a slow app does not hold the read. A line with only spaces in these characters has no text, because a terminal pads its lines with spaces. 400 characters hold the padding of a line of a terminal on a wide monitor and the start of the line below.
+- Claude Code in Windows Terminal shows a rule and status lines below its input line, so its reads give text on the lines below, and a long ghost text does not wrap over them.
 - The address bar of Chromium browsers gives its inline completion as the selection, so the ghost text hides while it shows.
 - Claude Code in Windows Terminal gives its placeholder as text after the caret in an empty field. The look sees that the placeholder is gone after the first key.
 - The answer is `Unknown` for a password field, for an element without a `TextPattern`, and for a read that fails. Core then uses the text that the session read at its start (`docs/core/ghost-text.md`, "Placement").

@@ -73,10 +73,16 @@ pub enum LinesBelow {
 
 impl LinesBelow {
     /// What `text_after`, the text after the caret, shows on the lines after the line of the caret.
-    /// A line with only white space counts as empty, because a terminal pads its lines.
+    /// Any text after the caret counts, also on the line of the caret: some apps give the lines
+    /// below without line breaks, as Firefox does for the blocks of an editable web page, and a
+    /// look at the caret tells on its own whether text follows the caret on its line. White space
+    /// counts as no text, because a terminal pads its lines.
     pub(crate) fn of(text_after: &str) -> Self {
-        let has_text = text_after.lines().skip(1).any(|line| !line.trim().is_empty());
-        if has_text { Self::WithText } else { Self::Empty }
+        if text_after.trim().is_empty() {
+            Self::Empty
+        } else {
+            Self::WithText
+        }
     }
 }
 
@@ -89,8 +95,11 @@ pub enum AfterCaret {
     /// The platform cannot tell, so the text that the session read at its start counts.
     #[default]
     Unknown,
-    /// No text is selected, and the line of the caret has only white space after the caret.
+    /// No text is selected, and the look found only white space after the caret.
     Nothing,
+    /// No text is selected, and the line of the caret has only white space after the caret, but
+    /// the lines below have text, as the status lines below the input box of a terminal app do.
+    TextBelow,
     /// No text is selected, and text follows the caret on its line.
     Text,
     /// Text is selected, so it follows the caret. The app shows it as a suggestion of its own.
@@ -104,8 +113,10 @@ impl AfterCaret {
     pub fn seen(selected: &str, text_after: &str) -> Self {
         if !selected.is_empty() {
             Self::Selection
-        } else if line_after_caret(text_after).is_empty() {
+        } else if text_after.trim().is_empty() {
             Self::Nothing
+        } else if line_after_caret(text_after).is_empty() {
+            Self::TextBelow
         } else {
             Self::Text
         }
@@ -518,7 +529,8 @@ mod tests {
     fn look_sees_what_follows_the_caret() {
         let looks = [
             ("", "", AfterCaret::Nothing),
-            ("", "  \nSee you", AfterCaret::Nothing),
+            ("", "  \n \t\n", AfterCaret::Nothing),
+            ("", "  \nSee you", AfterCaret::TextBelow),
             ("", " on Friday.", AfterCaret::Text),
             ("", "Try \"create a util\"   \n", AfterCaret::Text),
             ("1", "", AfterCaret::Selection),

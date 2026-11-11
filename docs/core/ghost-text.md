@@ -59,7 +59,7 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 
 - When text follows the caret on its line, the ghost text goes below the caret (`GhostPlacement::BelowCaret`), because at the caret it would cover that text.
 - A field that hides the text of that line (`Surroundings::is_caret_line_hidden`: the input box of a terminal of xterm.js) always gets the ghost text below the caret, and no phrases.
-- Each look at the caret also tells what follows the caret now (`CaretRead::after`, `AfterCaret`: nothing, text on the line, selected text, or unknown).
+- Each look at the caret also tells what follows the caret now (`CaretRead::after`, `AfterCaret`: nothing, text on the line, text only on the lines below, selected text, or unknown).
 - The look decides the placement, because the text that the session read at its start can be stale. An empty field can show a placeholder that goes away at the first key, as Claude Code does.
 - Thus a look that sees no text after the caret puts the ghost text after the caret, also when the session read a placeholder there. A look that sees text puts it below the caret.
 - When the platform cannot tell (`AfterCaret::Unknown`), the text that the session read at its start counts.
@@ -74,7 +74,9 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - A line breaks only after the whitespace between two words, so the closing punctuation stays with its word. The whitespace at the end of a line does not count in its width.
 - A first word that does not fit after the caret goes to the next line. The word of a fix always stays at the caret.
 - The platform measures each line in the font of its overlay (`Shell::ghost_width`).
-- The ghost text does not wrap when a line after the line of the caret has text, so that the wrapped lines do not cover that text. Core finds this text in the text after the caret that the session read (`LinesBelow::WithText`).
+- The ghost text does not wrap when a line after the line of the caret has text, so that the wrapped lines do not cover that text (`LinesBelow::WithText`).
+- Core finds this text in the look at the caret (`AfterCaret::TextBelow`), or in the text after the caret that the session read.
+- Any text after the caret that the session read counts, because some apps give the lines below without line breaks. Firefox gives the blocks of an editable web page so.
 - A line with only whitespace counts as empty, because a terminal pads its lines with spaces.
 - When the rest cannot wrap, only the words that fit on the line of the caret show after the caret, and the next Tab shows the rest after them. The ghost text then covers no text of the app and no edge of its field.
 - Examples are the end of a line in the middle of a document, a field of one line, and the input line above the status line of a terminal app.

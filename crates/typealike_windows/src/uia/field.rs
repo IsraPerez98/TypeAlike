@@ -28,10 +28,12 @@ const WEB_FRAMEWORKS: [&str; 2] = ["Chrome", "Gecko"];
 const SEARCH_BOX_ARIA_ROLE: &str = "searchbox";
 /// The characters of the selection that a look reads. One character tells that text is selected.
 const CHARS_TO_FIND_SELECTION: i32 = 1;
-/// The characters after the caret that a look reads to find text on its line. It is far less than
-/// the text of a read of the field, which a slow app can need seconds to give. A terminal pads each
-/// line with spaces, so a line that has only spaces in these characters counts as empty.
-const CHARS_TO_FIND_LINE_TEXT: usize = 160;
+/// The characters after the caret that a look reads to find text on its line and on the lines
+/// below. It is far less than the text of a read of the field, which a slow app can need seconds
+/// to give. A terminal pads each line with spaces up to the width of its window, so it holds the
+/// padding of a line of a terminal on a wide monitor, and a line that has only spaces counts as
+/// empty.
+const CHARS_TO_FIND_LINE_TEXT: usize = 400;
 
 /// What UIA tells about the focused control.
 #[derive(Debug)]

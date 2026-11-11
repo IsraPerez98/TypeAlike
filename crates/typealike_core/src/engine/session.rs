@@ -200,7 +200,7 @@ impl Session {
             return false;
         }
         match after {
-            AfterCaret::Nothing => true,
+            AfterCaret::Nothing | AfterCaret::TextBelow => true,
             AfterCaret::Text | AfterCaret::Selection => false,
             AfterCaret::Unknown => self.line_after().is_empty(),
         }
