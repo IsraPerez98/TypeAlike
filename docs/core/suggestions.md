@@ -16,6 +16,7 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - The rule for typos (the Languages and typos pane, on by default) gives each request a minimum for the typed letters of the last word (`TypoRule::typed_letters_cut`, sent as `TypoCheck`).
 - With "Fix typos" (on by default, shown while the rule is on), the request also asks for a fix.
 - A completion with a `Correction` shows the typed letters struck through and the fixed word after the caret (`Reaction::ShowFix`, `Ghost::Fix`), and Tab deletes the typed letters and types the fixed word (`Reaction::Replace`).
+- A bad suggestion after the fixed letters hides the fix (`is_bad_suggestion`). A rest with no word, such as a period after the fixed word, is not bad there, because the fixed word comes before it.
 
 ### Space or sign after the typo
 
