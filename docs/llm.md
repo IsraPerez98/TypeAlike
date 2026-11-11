@@ -52,6 +52,10 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - It adds no text when the letters are less likely than the minimum of the request.
 - When the request asks for fixes, it looks among the 64 most likely tokens at the start of the word for one that fixes the letters with one edit (a swap of two letters, a changed, an extra or a missing letter: `correction`).
 - The fix keeps at least 3 letters and is not a typo itself.
+- It finds that fix before the first healing step. Then 5 or more typed letters must also be at most 3 natural log units less likely than the fixed letters (`with_fix_gap`): the fix is then about 20 times as likely as the letters.
+  - The reason: when no token writes all of the typed letters, the tokens that cover them give only the probability of the first token of the word. Thus a typo after that token, such as "documnet", or a missing accent, such as "despues", was often more likely than the minimum, and got no fix.
+  - Fewer letters have many words one edit away. With 3 or 4 letters, the gap gave wrong fixes of the correct start of a word, such as "pag" to "pase".
+  - Measured with Gemma 4 E4B (CUDA, Windows en-US and Hunspell es-CL, long, word choice medium): the rule gave 14 more right fixes in `typo_kinds` (21 to 35 of 52, none lost) and 1 more in `varieties`. It gave no wrong fix in 2341 places of `varieties` and 463 of `chat` with a request after each character. The other sets did not change.
 - Then the completion starts again from the fixed letters with that token, and sends no parts.
 
 ## Stops
