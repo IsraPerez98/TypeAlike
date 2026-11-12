@@ -34,6 +34,7 @@ impl FileDictionary {
     /// - `macos` and `windows` give the dictionary of that OS that the app uses, for the preferred
     ///   languages of the user.
     /// - `windows:es-CL,en-US` gives the dictionaries of Windows for those languages.
+    /// - `macos:en,es` gives the dictionaries of macOS for those languages.
     /// - `hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and `PATH.dic`.
     pub fn read(spec: &str) -> anyhow::Result<Self> {
         let live = spec
@@ -78,7 +79,8 @@ impl FileDictionary {
 /// `part` names no live dictionary.
 fn live_dictionary(part: &str) -> Option<anyhow::Result<Rc<dyn SpellChecker>>> {
     match part.split_once(':').unwrap_or((part, "")) {
-        ("macos", "") => Some(macos()),
+        ("macos", "") => Some(macos(None)),
+        ("macos", languages) => Some(macos(Some(languages))),
         ("windows", "") => Some(windows(None)),
         ("windows", languages) => Some(windows(Some(languages))),
         ("hunspell", path) if !path.is_empty() => Some(hunspell(Path::new(path))),
@@ -88,12 +90,17 @@ fn live_dictionary(part: &str) -> Option<anyhow::Result<Rc<dyn SpellChecker>>> {
 
 #[cfg(target_os = "macos")]
 #[expect(clippy::unnecessary_wraps, reason = "the other OSes have no dictionary")]
-fn macos() -> anyhow::Result<Rc<dyn SpellChecker>> {
-    Ok(Rc::new(typealike_macos::SpellingDictionary::new()))
+fn macos(languages: Option<&str>) -> anyhow::Result<Rc<dyn SpellChecker>> {
+    Ok(Rc::new(match languages {
+        Some(languages) => typealike_macos::SpellingDictionary::with_languages(
+            &languages.split(',').map(str::to_owned).collect::<Vec<_>>(),
+        ),
+        None => typealike_macos::SpellingDictionary::new(),
+    }))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn macos() -> anyhow::Result<Rc<dyn SpellChecker>> {
+fn macos(_languages: Option<&str>) -> anyhow::Result<Rc<dyn SpellChecker>> {
     bail!("the macOS dictionary is only on macOS")
 }
 

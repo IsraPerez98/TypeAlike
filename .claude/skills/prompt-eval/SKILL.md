@@ -80,6 +80,7 @@ cargo run --release -p typealike_llm --example prompt_eval -- MODEL.gguf crates/
 - `--dictionary FILE` gives the app the answers of the dictionary of the OS: each line has a text, a tab, and `word`, `start` or `none`. A text that the file does not hold is a known word and no start of a word. Without it, the app of the eval has no dictionary.
 - `--dictionary macos` and `--dictionary windows` give the live dictionary of that OS, for the preferred languages of the user. Use `windows` on a computer with only English to measure Spanish cases with a dictionary that does not fit them.
 - `--dictionary windows:es-CL,en-US` gives the dictionaries of Windows for those languages. It fails when Windows has no dictionary for any of them.
+- `--dictionary macos:en+macos:es` gives the dictionary of macOS for each language as its own part, as the app opens them. `macos` alone joins the languages in one part, so the rule of the language of a fix cannot apply: on `typo_kinds`, it gave 35 right fixes in place of 42.
 - `--dictionary hunspell:PATH` gives the Hunspell dictionary in `PATH.aff` and `PATH.dic` (UTF-8, for example from `wooorm/dictionaries`).
 - A `+` joins live dictionaries, which then know a word when any of them knows it: `windows+hunspell:PATH`.
 - The app gets each part as the dictionary of one language, as the app opens the dictionary of each language on its own. Thus give each language its own part, as in `windows:en-US+hunspell:PATH`, for a change that uses the language of a text.
