@@ -35,6 +35,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The Languages and typos pane (`settings_window::languages`, `LanguagesPane`) is the page after the General page.
 - The section "Your languages" has an item for each language, with "Remove", then the menu "Add a language". The first entry of the menu adds nothing, and the other entries are the languages that the user does not write yet and that have a dictionary, by name.
+- The menu sorts the names by their letters. A Latin letter with an accent sorts with the same letter without its accent (`name_order`), so "Čeština" comes after "Català" and before "Dansk", and "Íslenska" comes before "Italiano".
 - An item of a language whose dictionary downloads shows the progress and "Cancel download". A failed download shows why and "Try again". A language without any dictionary tells that TypeAlike cannot check its spelling.
 - Only with a hub (on Windows), the menu has a description: TypeAlike downloads a dictionary when the computer has none.
 - The section "Typos" has the switches of the rule for typos and of the typo fix of the General pane (`GeneralPane::typo_rows`).

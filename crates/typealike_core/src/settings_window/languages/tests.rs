@@ -356,6 +356,29 @@ fn menu_offers_the_other_languages_with_a_dictionary_by_name_after_its_first_ent
 }
 
 #[test]
+fn menu_sorts_a_name_with_an_accented_letter_with_the_letter_without_its_accent() {
+    let os = OsLanguages {
+        preferred: strings(&["en-US"]),
+        available: strings(&["en-US", "it", "is", "da", "cs", "ca"]),
+    };
+    let pane = LanguagesPane::new(SpellingSettings::default(), os, Vec::new());
+
+    let choices = add_picker(&pane).choices;
+
+    assert_eq!(
+        choices,
+        strings(&[
+            "Choose a language",
+            "Català",
+            "Čeština",
+            "Dansk",
+            "Íslenska",
+            "Italiano"
+        ])
+    );
+}
+
+#[test]
 fn pick_in_the_menu_adds_that_language_and_the_first_entry_adds_none() {
     let pane = pane_with(&["en-US"], &[]);
 

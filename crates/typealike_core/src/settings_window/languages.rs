@@ -413,7 +413,7 @@ impl LanguagesPane {
             .filter(|(tag, _)| !written.iter().any(|known| same_tag(known, tag)))
             .filter(|(tag, _)| self.os_dictionary(tag).is_some() || self.catalog_size(tag).is_some())
             .collect::<Vec<_>>();
-        offered.sort_by_key(|(_, name)| name.to_lowercase());
+        offered.sort_by_key(|(_, name)| name_order(name));
         offered.into_iter().map(|(tag, _)| *tag).collect()
     }
 
@@ -561,6 +561,39 @@ fn error_message(error: HubError) -> &'static str {
         | HubError::Server
         | HubError::InvalidResponse
         | HubError::Canceled => "languages-error-server",
+    }
+}
+
+/// The key that sorts `name`, the name of a language, by its letters: each Latin letter in
+/// lowercase and without its accent, so that "Čeština" comes after "Català" and before "Dansk".
+fn name_order(name: &str) -> String {
+    name.to_lowercase().chars().map(letter_without_accent).collect()
+}
+
+/// The letter of `letter`, a lowercase letter of Latin-1 or Latin Extended-A, without its accent.
+/// Other characters stay.
+fn letter_without_accent(letter: char) -> char {
+    match letter {
+        'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+        'ď' | 'đ' => 'd',
+        'è'..='ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
+        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
+        'ĥ' | 'ħ' => 'h',
+        'ì'..='ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => 'i',
+        'ĵ' => 'j',
+        'ķ' => 'k',
+        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => 'l',
+        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+        'ò'..='ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => 'o',
+        'ŕ' | 'ŗ' | 'ř' => 'r',
+        'ś' | 'ŝ' | 'ş' | 'š' => 's',
+        'ţ' | 'ť' | 'ŧ' => 't',
+        'ù'..='ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
+        'ŵ' => 'w',
+        'ý' | 'ÿ' | 'ŷ' => 'y',
+        'ź' | 'ż' | 'ž' => 'z',
+        other => other,
     }
 }
 
