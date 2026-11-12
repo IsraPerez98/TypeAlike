@@ -59,6 +59,17 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - Fewer letters have many words one edit away. With 3 or 4 letters, the gap gave wrong fixes of the correct start of a word, such as "pag" to "pase".
   - Measured with Gemma 4 E4B (CUDA, Windows en-US and Hunspell es-CL, long, word choice medium): the rule gave 14 more right fixes in `typo_kinds` (21 to 35 of 52, none lost) and 1 more in `varieties`. It gave no wrong fix in 2341 places of `varieties` and 463 of `chat` with a request after each character. The other sets did not change.
 - Then the completion starts again from the fixed letters with that token, and sends no parts.
+- A space or a sign after the letters ends the word: the fix keeps them after the fixed word, and the token of the fix writes no letters after that word.
+
+### Word before a typed space
+
+- When the healed text is only a typed space and the request asks for fixes, the runner first checks the finished word before that space (`continue_fixed_word`). It does this as the request of the word alone does: the minimum, the gap to the best fix and the fix.
+- When that word holds a typo with a fix, the completion continues from the fixed word and the typed space. The typed and the fixed letters then end with that space.
+- After a typed space, the token of the fix must write the whole fixed word. A short token that fixes only the start of the word often makes no word, such as "pulera" for "polera".
+- Else the completion continues after the space as without the check, so a suggestion without a fix does not change.
+- The reason: the user often types the space before the completion of the word ends. The next request then heals only the space, and no request checked the word.
+- Measured with Gemma 4 E4B (Metal), with the defaults and with long, without the sentence stop and the macOS English and Spanish dictionaries: 21 and 20 more right fixes in `typo_kinds` (46 to 67 and 43 to 63 of 76, none wrong). The 442 places after a space or a sign in `varieties` did not change, and the median time after a space stayed the same.
+- Without the rule of the whole word, 4 of these 442 places got a wrong fix without a dictionary, such as "polera" to "pulera".
 
 ## Stops
 

@@ -8,12 +8,13 @@ use llama_cpp_2::speculative::MtpSpeculativeError;
 use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
-use typealike_core::inference::{Correction, InferenceError, TypoCheck};
+use typealike_core::inference::{Correction, InferenceError, LogProbability, SentenceEnd, TypoCheck};
 
 use super::correction::{TypoFix, typo_fix, with_fix_gap};
 use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
     AddedTokens, Choice, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
+    last_word_start,
 };
 use super::logits::with_bias;
 use super::model_params::{ContextSetup, context_params, drafter_context_params};
@@ -415,14 +416,26 @@ impl<'model> PromptCache<'model> {
         fix: Option<TypoFix>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
-        let limits = decoder.limits;
-        let TypoCheck::Fix(min) = limits.typo_check else {
+        let TypoCheck::Fix(min) = decoder.limits.typo_check else {
             return Ok(added);
         };
         let has_stopped_for_typo = added.tokens.is_empty() && added.typed_log_probability < min;
         let Some(fix) = fix.filter(|_| has_stopped_for_typo) else {
             return Ok(added);
         };
+        self.continue_from_fix(decoder, healing.text, fix, added.typed_log_probability, progress)
+    }
+
+    /// Continues the prompt from the `fix` of the `typed` letters, as [`PromptCache::continue_fixed`]
+    /// does. `typed_log_probability` tells how likely the model found the typed letters.
+    fn continue_from_fix(
+        &mut self,
+        decoder: &Decoder<'_>,
+        typed: &[u8],
+        fix: TypoFix,
+        typed_log_probability: LogProbability,
+        progress: &mut Progress<'_>,
+    ) -> Result<AddedTokens, GenerateError> {
         let fixed_healing = Healing {
             text: fix.letters.as_bytes(),
             first_token: Some(fix.token),
@@ -434,19 +447,115 @@ impl<'model> PromptCache<'model> {
         let fixed_decoder = Decoder {
             limits: Limits {
                 typo_check: TypoCheck::Off,
-                ..limits
+                ..decoder.limits
             },
             ..*decoder
         };
         let fixed_added = self.continue_prompt(&fixed_decoder, fixed_healing, &mut quiet)?;
         Ok(AddedTokens {
-            typed_log_probability: added.typed_log_probability,
+            typed_log_probability,
             correction: Some(Correction {
-                typed: String::from_utf8_lossy(healing.text).into_owned(),
+                typed: String::from_utf8_lossy(typed).into_owned(),
                 fixed: fix.letters,
             }),
             ..fixed_added
         })
+    }
+
+    /// Continues the prompt after the typed `space` at its end from the fix of the `word` before
+    /// that space, when the limits of the `decoder` ask for fixes and that word holds a typo with a
+    /// fix, as the request of the word alone finds them. The fixed letters then end with the
+    /// space. `before_word` is the prompt without the word. Returns `None` otherwise, so that the
+    /// completion continues the prompt with the word as without this check.
+    pub(super) fn continue_fixed_word(
+        &mut self,
+        decoder: &Decoder<'_>,
+        before_word: &[LlamaToken],
+        word: &[u8],
+        space: &[u8],
+        progress: &mut Progress<'_>,
+    ) -> Result<Option<AddedTokens>, GenerateError> {
+        if !matches!(decoder.limits.typo_check, TypoCheck::Fix(_)) {
+            return Ok(None);
+        }
+        let word_start = last_word_start(decoder.vocab, before_word);
+        self.decode_prompt(before_word, word_start, progress.is_outdated)?;
+        let typed = [word, space].concat();
+        let Some(fix) = self.typo_fix(
+            decoder,
+            Healing {
+                text: &typed,
+                first_token: None,
+            },
+        ) else {
+            return Ok(None);
+        };
+        let check = with_fix_gap(decoder.limits.typo_check, word, Some(&fix));
+        let word_healing = Healing {
+            text: word,
+            first_token: None,
+        };
+        let Some(typed_log_probability) = check
+            .min_log_probability()
+            .map(|min| self.typo_stop(decoder, word_healing, min, progress))
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        self.continue_from_fix(decoder, &typed, fix, typed_log_probability, progress)
+            .map(Some)
+    }
+
+    /// Writes the `healing` text after the prompt as a completion does, without the text after it.
+    /// Returns how likely the model found the healed text when a healing step stops for a typo,
+    /// because the text got less likely than `min`, else `None`.
+    fn typo_stop(
+        &mut self,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
+        min: LogProbability,
+        progress: &mut Progress<'_>,
+    ) -> Result<Option<LogProbability>, GenerateError> {
+        self.start_completion()?;
+        let vocab = decoder.vocab;
+        let limits = Limits {
+            max_added: healing.text.len() + 1,
+            min_log_probability: None,
+            typo_check: TypoCheck::Off,
+            sentence_end: SentenceEnd::Continue,
+            line_after: b"",
+        };
+        let mut batch = LlamaBatch::new(1 + GUESSED_TOKENS, 1);
+        let mut logits = self.logits.as_slice();
+        let mut biased = Vec::new();
+        let mut generation = Generation::new(decoder.pieces, healing);
+        loop {
+            if generation.add_healing_step(logits, Some(min)) == Step::Stop {
+                return Ok(Some(generation.into_typo_stop().typed_log_probability));
+            }
+            let bias = decoder.token_bias.at(generation.tokens().len());
+            let scores = with_bias(logits, bias, &mut biased);
+            let Choice::Add(token, log_probability) =
+                generation.choose_next_token(scores, logits, limits, |token| text_of(vocab, token))
+            else {
+                return Ok(None);
+            };
+            let Some(piece) = text_of(vocab, token) else {
+                return Ok(None);
+            };
+            let step = generation.add_token(token, &piece, log_probability, logits, limits);
+            if step == Step::Stop || generation.is_healed() {
+                return Ok(None);
+            }
+            if (progress.is_outdated)() {
+                return Err(GenerateError::Superseded);
+            }
+            let token_position = position(self.tokens.len() + generation.tokens().len() - 1);
+            logits = self
+                .context
+                .decode_next(&mut batch, token, token_position, COMPLETION_SEQUENCE)?;
+        }
     }
 }
 

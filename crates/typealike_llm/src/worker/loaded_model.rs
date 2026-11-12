@@ -10,6 +10,7 @@ use typealike_core::inference::{Completion, InferenceError, NextWordBias, Prompt
 use super::drafter::GUESSED_TOKENS;
 use super::generation::{
     AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
+    word_before_typed_space,
 };
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
 use super::model_params::{ContextSetup, WarmUp};
@@ -257,9 +258,18 @@ impl<'model> LoadedModel<'model> {
             text: &healed_text,
             first_token: None,
         };
-        let added = cache
-            .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
-            .and_then(|()| cache.continue_healed(&decoder, healing, progress));
+        let fixed_word = match word_before_typed_space(&vocab, &prompt_tokens, &healed_text) {
+            Some((before_word, word)) => {
+                cache.continue_fixed_word(&decoder, &before_word, &word, &healed_text, progress)
+            }
+            None => Ok(None),
+        };
+        let added = fixed_word.and_then(|fixed_word| match fixed_word {
+            Some(added) => Ok(added),
+            None => cache
+                .decode_prompt(&prompt_tokens, last_word_start, progress.is_outdated)
+                .and_then(|()| cache.continue_healed(&decoder, healing, progress)),
+        });
         match added {
             Ok(added) => {
                 let healed = added

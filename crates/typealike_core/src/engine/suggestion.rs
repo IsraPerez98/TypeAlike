@@ -367,17 +367,38 @@ pub(super) fn complete_words(text: &str) -> &str {
     text.rfind(char::is_whitespace).map_or("", |end| &text[..end])
 }
 
-/// Returns the fix of the typo that `correction` gives, with `suggestion`, the ghost text after the
-/// fixed letters. The fixed word ends at the first whitespace of `suggestion`, before the
-/// [`CLOSING_SIGNS`] at its end.
-pub(super) fn word_fix(correction: &Correction, suggestion: &str) -> WordFix {
-    let word_end = suggestion.find(char::is_whitespace).unwrap_or(suggestion.len());
-    let unclosed_end = suggestion[..word_end].trim_end_matches(CLOSING_SIGNS).len();
-    let (word_rest, rest) = suggestion.split_at(unclosed_end);
-    WordFix {
-        typo: correction.typed.trim_start().to_owned(),
-        word: format!("{}{word_rest}", correction.fixed.trim_start()),
+/// Returns the fix of the typo that `correction` gives, with `fixed_text`, the fixed letters and
+/// the ghost text after them. The fixed word ends at the first whitespace after the fixed letters,
+/// before the [`CLOSING_SIGNS`] at its end. When the typed letters end with a space that the user
+/// typed after the word ([`typed_after_word`]), the typo and the fixed word end with that space
+/// and its sign, as [`fix_after_delimiter`] keeps them. `None` when `fixed_text` does not start
+/// with the fixed letters, or when [`fix_after_delimiter`] does not keep what the user typed.
+pub(super) fn word_fix(correction: &Correction, fixed_text: &str) -> Option<WordFix> {
+    let after_word = typed_after_word(&correction.typed);
+    let typed = &correction.typed[..correction.typed.len() - after_word.len()];
+    let fixed = correction.fixed.strip_suffix(after_word)?;
+    let after_fixed = fixed_text.strip_prefix(fixed)?;
+    let word_end = after_fixed.find(char::is_whitespace).unwrap_or(after_fixed.len());
+    let unclosed_end = after_fixed[..word_end].trim_end_matches(CLOSING_SIGNS).len();
+    let (word_rest, rest) = after_fixed.split_at(unclosed_end);
+    let fix = WordFix {
+        typo: typed.trim_start().to_owned(),
+        word: format!("{}{word_rest}", fixed.trim_start()),
         rest: rest.to_owned(),
+    };
+    after_word
+        .chars()
+        .try_fold(fix, |fix, character| fix_after_delimiter(&fix, character))
+}
+
+/// Returns the space at the end of the `typed` letters of a correction, with the
+/// [`FIX_KEEPING_SIGNS`] before it, which the user typed after the word with the typo. It is empty
+/// when `typed` does not end with a space.
+pub(super) fn typed_after_word(typed: &str) -> &str {
+    if typed.ends_with(' ') {
+        delimiter_at_end(typed)
+    } else {
+        ""
     }
 }
 
@@ -399,8 +420,13 @@ pub(super) fn fix_after_delimiter(fix: &WordFix, character: char) -> Option<Word
 /// Returns the space or the sign at the end of the typo of `fix` that the user typed after its
 /// letters, which is empty when the fix kept none.
 pub(super) fn kept_delimiter(fix: &WordFix) -> &str {
-    let letters = fix.typo.trim_end_matches(' ').trim_end_matches(FIX_KEEPING_SIGNS);
-    &fix.typo[letters.len()..]
+    delimiter_at_end(&fix.typo)
+}
+
+/// Returns the spaces at the end of `text`, with the [`FIX_KEEPING_SIGNS`] before them.
+fn delimiter_at_end(text: &str) -> &str {
+    let letters = text.trim_end_matches(' ').trim_end_matches(FIX_KEEPING_SIGNS);
+    &text[letters.len()..]
 }
 
 /// Whether `before_caret`, a read of the field text before the caret, ends with the typo of `fix`.

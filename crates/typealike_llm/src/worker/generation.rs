@@ -195,6 +195,11 @@ impl<'text> Generation<'text> {
         &self.tokens
     }
 
+    /// Whether the added tokens wrote all of the healed text.
+    pub(super) fn is_healed(&self) -> bool {
+        self.unwritten.is_empty()
+    }
+
     /// Whether the completion can add another token within the `limits`.
     pub(super) fn has_room(&self, limits: Limits<'_>) -> bool {
         self.tokens.len() < limits.max_added || self.pending_stop.is_some()
@@ -609,6 +614,23 @@ pub(super) fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Ve
         }
     }
     text
+}
+
+/// Returns `prompt_tokens` without their last word, and the text of that word, when the
+/// `healed_text` that healing took back after them is only a typed space. A line break before that
+/// space gives no word.
+pub(super) fn word_before_typed_space(
+    vocab: &LlamaVocab<'_>,
+    prompt_tokens: &[LlamaToken],
+    healed_text: &[u8],
+) -> Option<(Vec<LlamaToken>, Vec<u8>)> {
+    let is_typed_space = !healed_text.is_empty() && healed_text.iter().all(u8::is_ascii_whitespace);
+    if !is_typed_space {
+        return None;
+    }
+    let mut before_word = prompt_tokens.to_vec();
+    let word = take_back_last_word(vocab, &mut before_word);
+    (!word.is_empty()).then_some((before_word, word))
 }
 
 /// Returns the index of the token that starts the last word of `prompt_tokens`, as healing finds

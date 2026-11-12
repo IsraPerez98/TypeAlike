@@ -47,9 +47,14 @@ fn edit_distance(left: &[char], right: &[char]) -> usize {
 /// Returns the typed `letters` with one edit, so that the text of a token, `piece`, writes their
 /// start, or all of them with more after. `None` when `piece` already agrees with the letters,
 /// is more than one edit away, starts with other whitespace, changes the first letter, or the word
-/// or its fix is short.
+/// or its fix is short. A space or a sign after the letters ends the word: the fix keeps them, and
+/// `piece` must write no letters after the fixed word. After a typed space, `piece` must write the
+/// whole fixed word, because the start of a word that a short token fixes often keeps a typo, or
+/// makes no word.
 fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
-    let (space, typed) = split_space(letters);
+    let word = letters.trim_end_matches(|character: char| !character.is_alphanumeric());
+    let typed_end = &letters[word.len()..];
+    let (space, typed) = split_space(word);
     let (piece_space, written) = split_space(piece);
     if space != piece_space || typed.len() < MIN_FIXED_LETTERS || written.len() < MIN_FIXED_LETTERS {
         return None;
@@ -58,7 +63,10 @@ fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
         one_edit_away(typed.len(), written.len(), |length| {
             edit_distance(&typed, &written[..length])
         })
+        .filter(|&length| typed_end.is_empty() || length == written.len())
         .map(|length| collect_text(&written[..length]))
+    } else if typed_end.contains(char::is_whitespace) {
+        None
     } else {
         one_edit_away(written.len(), typed.len(), |length| {
             edit_distance(&typed[..length], &written)
@@ -67,7 +75,7 @@ fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
     };
     fixed
         .filter(|word| word.chars().count() >= MIN_FIXED_LETTERS && keeps_start(&typed, word))
-        .map(|word| format!("{space}{word}"))
+        .map(|word| format!("{space}{word}{typed_end}"))
 }
 
 /// Returns the first of `length`, one less and one more, up to `longest`, whose `edits` are one.
@@ -248,6 +256,50 @@ mod tests {
         let fixed = fixed_letters(" delvery", " delivery");
 
         assert_eq!(fixed.as_deref(), Some(" delivery"));
+    }
+
+    #[test]
+    fn fix_of_a_word_before_a_typed_space_or_sign_keeps_them() {
+        let cases = [
+            (" rpely ", " reply"),
+            (" rpely, ", " reply"),
+            (" adress,", " address"),
+            (" rpely  ", " re"),
+        ];
+
+        let fixed = cases.map(|(typed, piece)| fixed_letters(typed, piece));
+
+        assert_eq!(
+            fixed,
+            [
+                Some(" reply ".to_owned()),
+                Some(" reply, ".to_owned()),
+                Some(" address,".to_owned()),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn token_that_writes_past_a_word_before_a_typed_space_does_not_fix_it() {
+        let cases = [(" rpely ", " replying"), (" for ", " form"), (" ab ", " abc")];
+
+        let fixed = cases.map(|(typed, piece)| fixed_letters(typed, piece));
+
+        assert_eq!(fixed, [None, None, None]);
+    }
+
+    #[test]
+    fn short_token_does_not_fix_a_word_before_a_typed_space() {
+        let cases = [
+            (" polera ", " pul"),
+            (" porveed ", " prove"),
+            (" porveed,", " prove"),
+        ];
+
+        let fixed = cases.map(|(typed, piece)| fixed_letters(typed, piece));
+
+        assert_eq!(fixed, [None, None, Some(" proveed,".to_owned())]);
     }
 
     #[test]

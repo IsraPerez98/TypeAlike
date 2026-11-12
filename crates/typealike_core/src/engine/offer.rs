@@ -8,7 +8,7 @@ use crate::settings::TypoFix;
 use super::spelling::{WrittenWords, known_start};
 use super::suggestion::{
     before_frame_copy_start, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
-    word_fix,
+    typed_after_word, word_fix,
 };
 use super::{Engine, Reaction, WordFix};
 
@@ -116,11 +116,13 @@ impl Engine {
                 correction: Some(correction),
                 text,
                 ..
-            }) => {
-                if let Some(fix) = self.fix_of(&correction, &text) {
-                    self.offer = Offer::Fix(fix);
+            }) => match self.fix_of(&correction, &text) {
+                Some(fix) => self.offer = Offer::Fix(fix),
+                None if !has_typed && !typed_after_word(&correction.typed).is_empty() => {
+                    return self.request_completion(TypoCheck::Off);
                 }
-            }
+                None => {}
+            },
             Err(_) => {}
         }
         self.offer = mem::take(&mut self.offer).settle();
@@ -131,11 +133,13 @@ impl Engine {
     }
 
     /// Asks again without the typo rule, after the `completion` of the newest request took known
-    /// letters for a typo. The new request keeps the fix of that completion.
+    /// letters for a typo. The new request keeps the fix of that completion, unless the user typed
+    /// a space after the word, because the new request then starts the next word.
     fn request_without_typo_rule(&mut self, completion: &Completion) -> Reaction {
         let fix = completion
             .correction
             .as_ref()
+            .filter(|correction| typed_after_word(&correction.typed).is_empty())
             .and_then(|correction| self.fix_of(correction, &completion.text));
         let reaction = self.request_completion(TypoCheck::Off);
         if let Offer::Growing {
@@ -183,8 +187,11 @@ impl Engine {
             return false;
         };
         let text_before = &session.text_before;
-        match completion.correction {
-            Some(_) => dictionary.knows_typed_word(text_before),
+        match &completion.correction {
+            Some(correction) => {
+                let after_word = typed_after_word(&correction.typed);
+                dictionary.knows_typed_word(text_before.strip_suffix(after_word).unwrap_or(text_before))
+            }
             None => completion.typed_log_probability < min && dictionary.knows_typed_start(text_before),
         }
     }
@@ -215,8 +222,7 @@ impl Engine {
         };
         let fixed_text = format!("{}{suggestion}", correction.fixed);
         let known = known_start(self.dictionary.as_mut(), before_typo, &fixed_text, &written);
-        let rest = known.strip_prefix(correction.fixed.as_str())?;
-        Some(word_fix(correction, rest))
+        word_fix(correction, known)
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so

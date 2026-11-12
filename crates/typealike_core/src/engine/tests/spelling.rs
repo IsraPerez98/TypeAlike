@@ -359,6 +359,35 @@ fn fix_of_a_known_word_does_not_show_when_the_answer_without_the_typo_rule_keeps
 }
 
 #[test]
+fn fix_of_a_known_word_before_a_typed_space_asks_again_without_the_typo_rule() {
+    let mut engine = engine_typed(&Settings::default(), "fill in the form ", &[]);
+
+    let reaction = engine.on_completion(correction(" form ", " from ", "the bank"));
+
+    assert_eq!(reaction, request_without_typo_rule("fill in the form "));
+}
+
+#[test]
+fn fix_of_a_known_word_before_a_typed_space_does_not_show_when_the_answer_without_the_typo_rule_shows_nothing()
+ {
+    let mut engine = engine_typed(&Settings::default(), "fill in the form ", &["zorbly"]);
+    engine.on_completion(correction(" form ", " from ", "the bank"));
+
+    let reaction = engine.on_completion(completion("zorbly today"));
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
+fn fix_to_an_unknown_word_before_a_typed_space_asks_again_without_the_typo_rule() {
+    let mut engine = engine_typed(&Settings::default(), "una zorbla ", &["zorbla", "zarbla"]);
+
+    let reaction = engine.on_completion(correction(" zorbla ", " zarbla ", "y shorts"));
+
+    assert_eq!(reaction, request_without_typo_rule("una zorbla "));
+}
+
+#[test]
 fn fix_of_letters_that_only_start_a_known_word_shows() {
     let mut engine = engine_typed(&Settings::default(), "los premi", &["premi"]);
 

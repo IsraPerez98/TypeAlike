@@ -170,15 +170,22 @@ pub fn fixed_word(word: &str) -> &str {
 }
 
 /// Returns the word that the writer meant: the letters and digits at the end of `before`, the
-/// text before the caret without the typo, and at the start of `next`.
+/// text before the caret without the typo, and at the start of `next`. When `before` ends with a
+/// space or a sign after its last word, that word is finished, and `next` adds nothing.
 pub fn intended_word(before: &str, next: &str) -> String {
-    let end = before
+    let finished = before.trim_end_matches(|character: char| !character.is_alphanumeric());
+    let end = finished
         .char_indices()
         .rev()
         .take_while(|(_, character)| character.is_alphanumeric())
         .last()
-        .map_or(before.len(), |(start, _)| start);
-    format!("{}{}", &before[end..], word_start(next))
+        .map_or(finished.len(), |(start, _)| start);
+    let rest = if finished.len() == before.len() {
+        word_start(next)
+    } else {
+        ""
+    };
+    format!("{}{rest}", &finished[end..])
 }
 
 /// Returns the letters and digits at the start of `text`.
@@ -411,6 +418,18 @@ mod tests {
         let word = intended_word("the new deli", "very, soon");
 
         assert_eq!(word, "delivery");
+    }
+
+    #[test]
+    fn intended_word_before_a_space_or_a_sign_is_the_finished_last_word() {
+        let words = [
+            ("the new delivery ", "soon"),
+            ("the new delivery, ", "soon"),
+            ("the address?", " I"),
+        ]
+        .map(|(before, next)| intended_word(before, next));
+
+        assert_eq!(words, ["delivery", "delivery", "address"]);
     }
 
     #[test]

@@ -24,6 +24,9 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - The typo and the fixed word then end with that space or sign. Thus the red line goes through it, and Tab deletes it and types it again after the fixed word.
 - The rest of the suggestion keeps its text after that space or sign, and a rest that does not start with it goes.
 - Another key asks again.
+- The runner also fixes the word before a typed space, when no completion of that word ended before the space (`docs/llm.md`). Core then shows the fix in the same way: the typo and the fixed word end with the space and the sign before it (`word_fix`).
+- When the dictionary knows that word, core asks again without the rule, and the fix does not show, also when the answer gives no suggestion.
+- When core does not show such a fix, because the suggestion after it is bad or the dictionary does not know the fixed word, it also asks again without the rule. Thus the suggestion after the space still shows.
 
 ### Autocorrect of the app
 

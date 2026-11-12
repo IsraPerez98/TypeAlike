@@ -87,6 +87,29 @@ fn fix_that_finishes_its_word_shows_the_rest_after_it() {
 }
 
 #[test]
+fn fix_of_a_word_before_a_typed_space_or_sign_keeps_them_after_the_fixed_word() {
+    let cases = [
+        (
+            " recieve ",
+            " receive ",
+            word_fix("recieve ", "receive ", "the parcel"),
+        ),
+        (
+            " recieve, ",
+            " receive, ",
+            word_fix("recieve, ", "receive, ", "the parcel"),
+        ),
+    ];
+
+    let reactions = cases.each_ref().map(|(typed, fixed, _)| {
+        let mut engine = engine_waiting_for(&format!("I will{typed}"));
+        engine.on_completion(correction(typed, fixed, "the parcel"))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, fix)| Reaction::ShowFix(fix)));
+}
+
+#[test]
 fn tab_on_a_fix_replaces_the_typo_with_the_fixed_word() {
     let mut engine = engine_showing_a_fix();
 

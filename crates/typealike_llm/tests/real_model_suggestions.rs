@@ -422,6 +422,39 @@ fn word_with_a_typo_gets_a_fix_and_the_text_after_it() {
     );
 }
 
+/// Returns the typed and the fixed letters of the completion of `prompt` with the typo rule and
+/// fixes.
+fn correction_of(model: &mut ModelSession, prompt: &str) -> Option<(String, String)> {
+    model
+        .complete(request_of(prompt, TypoCheck::Fix(typo_cut())))
+        .expect("the model answers the prompt")
+        .correction
+        .map(|correction| (correction.typed, correction.fixed))
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn finished_word_with_a_typo_gets_a_fix_after_a_typed_space_or_sign() {
+    let mut model = ModelSession::load();
+    let prompts = [
+        "Thank you for the quick rpely ",
+        "Thank you for the quick rpely,",
+        "Thank you for the quick rpely, ",
+    ];
+
+    let corrections = prompts.map(|prompt| correction_of(&mut model, prompt));
+
+    assert_eq!(
+        corrections,
+        [
+            (" rpely ", " reply "),
+            (" rpely,", " reply,"),
+            (" rpely, ", " reply, ")
+        ]
+        .map(|(typed, fixed)| Some((typed.to_owned(), fixed.to_owned())))
+    );
+}
+
 #[test]
 #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
 fn word_without_a_typo_finishes_above_the_typo_cut() {
