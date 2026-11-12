@@ -5,7 +5,7 @@ use crate::language::{language_of, same_tag};
 /// The languages that TypeAlike can check, as a tag and the name of the language in that
 /// language. The first entry of a language is its main entry: the language without a region, or
 /// its most common region.
-pub const WRITING_LANGUAGES: [(&str, &str); 95] = [
+pub const WRITING_LANGUAGES: [(&str, &str); 98] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("en-AU", "English (Australia)"),
@@ -86,8 +86,11 @@ pub const WRITING_LANGUAGES: [(&str, &str); 95] = [
     ("ar", "العربية"),
     ("hi", "हिन्दी"),
     ("ne", "नेपाली"),
+    ("pa", "ਪੰਜਾਬੀ"),
+    ("te", "తెలుగు"),
     ("ko", "한국어"),
     ("vi", "Tiếng Việt"),
+    ("id", "Bahasa Indonesia"),
     ("mn", "Монгол"),
     ("ga", "Gaeilge"),
     ("gd", "Gàidhlig"),
@@ -197,5 +200,23 @@ mod tests {
                 None
             ]
         );
+    }
+
+    #[test]
+    fn each_language_that_macos_can_check_has_a_writing_language() {
+        // "ars" (Najdi Arabic) has a language tag of its own, without a writing language yet.
+        let macos_dictionaries = [
+            "en_GB", "en", "en_CA", "en_PH", "en_AU", "en_IN", "en_SG", "en_ZA", "en_NZ", "en_JP", "es",
+            "ar", "bg", "cs", "da", "de", "el", "fi", "fr", "ga", "he", "hi", "hu", "id", "is", "it", "ko",
+            "lt", "nb", "nl", "nn", "pa", "pl", "pt_BR", "pt_PT", "ro", "ru", "sl", "sv", "te", "tr", "uk",
+            "vi",
+        ];
+
+        let missing = macos_dictionaries
+            .into_iter()
+            .filter(|tag| writing_language_of(tag).is_none())
+            .collect::<Vec<_>>();
+
+        assert_eq!(missing, Vec::<&str>::new());
     }
 }
