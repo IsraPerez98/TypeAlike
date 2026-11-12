@@ -271,6 +271,43 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
     })
 }
 
+/// Returns `completion`, a part of a completion after `context`, without its last words while more
+/// words can make it a copy of one of the `frame_lines` for [`copies_frame_line`]: they start the
+/// line of the caret as a frame line starts, or they start a run of [`FRAME_COPY_WORDS`] words of a
+/// frame line. A part with a line break keeps its words, because its first line is complete.
+pub(super) fn before_frame_copy_start<'text>(
+    context: &str,
+    completion: &'text str,
+    frame_lines: &[String],
+) -> &'text str {
+    let spans = word_spans(completion).collect::<Vec<_>>();
+    if spans.is_empty() || completion.contains('\n') {
+        return completion;
+    }
+    let suggested = spans
+        .iter()
+        .map(|&(start, end)| completion[start..end].to_lowercase())
+        .collect::<Vec<_>>();
+    let caret_line = context.rsplit('\n').next().unwrap_or_default();
+    let line = words(&format!("{caret_line}{completion}")).collect::<Vec<_>>();
+    let first_held_word = frame_lines
+        .iter()
+        .filter_map(|frame_line| {
+            let frame_words = words(frame_line).collect::<Vec<_>>();
+            let start = frame_words.len().min(FRAME_COPY_WORDS);
+            if start >= MIN_FRAME_COPY_WORDS && line.len() < start && frame_words.starts_with(&line) {
+                return Some(0);
+            }
+            (suggested.len().saturating_sub(FRAME_COPY_WORDS - 1)..suggested.len()).find(|&index| {
+                frame_words
+                    .windows(FRAME_COPY_WORDS)
+                    .any(|run| run.starts_with(&suggested[index..]))
+            })
+        })
+        .min();
+    first_held_word.map_or(completion, |index| &completion[..spans[index].0])
+}
+
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.
 pub(super) fn words(text: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
     word_spans(text).map(|(start, end)| text[start..end].to_lowercase())

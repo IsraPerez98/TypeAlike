@@ -7,7 +7,8 @@ use crate::settings::TypoFix;
 
 use super::spelling::{WrittenWords, known_start};
 use super::suggestion::{
-    complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed, word_fix,
+    before_frame_copy_start, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
+    word_fix,
 };
 use super::{Engine, Reaction, WordFix};
 
@@ -219,14 +220,40 @@ impl Engine {
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
-    /// far. Only its complete words show, and only for the newest request. Returns the reaction
-    /// when the ghost text changes, or `None`.
+    /// far. Only its complete words show, and only for the newest request. The last words wait
+    /// while more words can make them a copy of the frame of the prompt. Returns the reaction when
+    /// the ghost text changes, or `None`.
     pub(crate) fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
         if self.unanswered_requests != 1 {
             return None;
         }
         self.record_partial_completion(text);
-        self.grow(complete_words(text)).then(|| self.offer.reaction())
+        let shown = self.before_frame_copy_start(complete_words(text));
+        self.grow(shown).then(|| self.offer.reaction())
+    }
+
+    /// Returns `text`, a part of the completion of the newest request, without its last words while
+    /// more words can make them a copy of a frame line of the preface of the session. A bad
+    /// suggestion keeps all its words, so that it hides.
+    fn before_frame_copy_start<'text>(&self, text: &'text str) -> &'text str {
+        let (Some(session), Offer::Growing { typed, .. }) = (&self.session, &self.offer) else {
+            return text;
+        };
+        let Some(context) = session.text_before.strip_suffix(typed.as_str()) else {
+            return text;
+        };
+        let is_bad = suggestion_after_typed(
+            &session.text_before,
+            &session.text_after,
+            typed,
+            text,
+            &session.preface,
+        )
+        .is_some_and(|rest| rest.is_empty());
+        if is_bad {
+            return text;
+        }
+        before_frame_copy_start(context, text, &session.preface.frame_lines)
     }
 
     /// Records `text`, the text that the completion of the oldest [`Reaction::Request`] added so

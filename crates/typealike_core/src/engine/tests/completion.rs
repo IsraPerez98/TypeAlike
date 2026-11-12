@@ -210,6 +210,66 @@ fn completion_that_shares_less_than_the_start_of_a_frame_line_shows() {
 }
 
 #[test]
+fn partial_completion_holds_back_the_words_that_can_start_a_copy_of_a_frame_line() {
+    let cases = [
+        ("Thanks. ", "Sure, for example an ", Some("Sure,")),
+        ("Hello ", "world, the part of my ", Some("world,")),
+        ("N", "otes about ", None),
+        ("My ", "name is ", None),
+    ];
+
+    let reactions = cases.map(|(context, text, _)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_partial_completion(text)
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, shown)| shown.map(show)));
+}
+
+#[test]
+fn partial_completion_that_completes_a_copy_of_a_frame_line_shows_none_of_it() {
+    let cases = [
+        (
+            "Thanks. ",
+            "Sure, for example an ",
+            "Sure, for example an email, a ",
+            true,
+        ),
+        ("T", "he part of my ", "he part of my writing ", false),
+    ];
+
+    let reactions = cases.map(|(context, held, copy, _)| {
+        let mut engine = engine_waiting_with(&named_writer("I am a nurse."), context);
+        engine.on_partial_completion(held);
+        engine.on_partial_completion(copy)
+    });
+
+    assert_eq!(
+        reactions,
+        cases.map(|(_, _, _, was_shown)| was_shown.then_some(Reaction::Hide))
+    );
+}
+
+#[test]
+fn partial_completion_shows_the_held_words_when_a_word_ends_the_copy() {
+    let mut engine = engine_waiting_with(&named_writer("I am a nurse."), "Thanks. ");
+    engine.on_partial_completion("Sure, for example an ");
+
+    let reaction = engine.on_partial_completion("Sure, for example an apple ");
+
+    assert_eq!(reaction, Some(show("Sure, for example an apple")));
+}
+
+#[test]
+fn completion_shows_the_frame_words_at_its_end() {
+    let mut engine = engine_waiting_with(&named_writer("I am a nurse."), "Thanks. ");
+    engine.on_partial_completion("Sure, for example an ");
+
+    let reaction = engine.on_completion(completion("Sure, for example an"));
+
+    assert_eq!(reaction, show("Sure, for example an"));
+}
+
+#[test]
 fn completion_that_greets_the_writer_by_name_hides() {
     let cases = [
         ("Querida ", "Sara,"),
