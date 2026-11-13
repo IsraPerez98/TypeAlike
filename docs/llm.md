@@ -28,6 +28,17 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 - Before, llama.cpp loaded CUDA on each backend. Then cuBLASLt held about 98 MB of private pages, and the CUDA driver context held about 100 MB of RAM and 190 MB of GPU memory.
 
+## cuBLAS
+
+- The CUDA installer delay-loads cuBLAS in `ggml-cuda.dll` (MSVC linker flags in `CMAKE_MODULE_LINKER_FLAGS`). Windows then loads `cublas64_13.dll` and `cublasLt64_13.dll` at the first cuBLAS call, not when llama.cpp loads the CUDA backend.
+- ggml-cuda calls cuBLAS only for a matrix product that its own kernels do not do. Examples are F16, BF16 or F32 weights in a batch of more than 16 tokens, and attention without flash attention.
+- Gemma 4 E4B (Q4_0 weights, flash attention) and its drafter never call cuBLAS on an RTX 5070 Ti. This is true when the app starts and warms up the model, in `first_key`, and in `prompt_eval` (also with a replay of each character).
+- Thus the private working set of the app after the warm-up goes from 587 MB to 482 MB, because the writable data of `cublasLt64_13.dll` (about 98 MB) stays out of the process. The suggestions and their log probabilities stay the same.
+- A model that calls cuBLAS loads it at the first call, and then uses the same memory as without the delay load.
+- At the first call, Windows looks for cuBLAS in the same folders as at load: the folder of the program, the system folders and `PATH`. It does not look in the folder of `ggml-cuda.dll`.
+- Risk: when Windows does not find cuBLAS at the first call, the process stops (exception `0xC06D007E`). Without the delay load, llama.cpp skips the CUDA backend when it loads. The CUDA installer puts the cuBLAS DLLs next to `TypeAlike.exe` (`stage.ps1` makes sure of them).
+- The CUDA job of `release.yml` sets the flags. For a local build, `.cargo/config.local.example.toml` sets them.
+
 ## GPU memory
 
 - The runner refuses a GPU load when the whole model does not fit in free GPU memory with the context of the backend (8192 tokens).
