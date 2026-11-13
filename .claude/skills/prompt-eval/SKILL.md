@@ -120,7 +120,10 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
 - `cases/leaks.jsonl` has leak cases in a new TextEdit document.
   - The `leaks` of a case are texts that no suggestion must show. A leak case matches when its suggestion holds none of them, and its words do not count.
   - The report gives them in the line `no leak:`.
-  - Run it with `--name "Sara Novak"` and `--word-choice medium` for a change to the prompt or to the filters of a suggestion.
+  - The `start-` cases have 1 to 3 typed characters at the start of a field: prompts to a coding agent in VS Code with a clipboard, and chats, emails and documents. The `clip-` cases are agent prompts that end before the object of a verb ("Compare "), with a clipboard. All of them have earlier writing.
+  - Run it with `--name "Sara Novak"` and `--word-choice medium` for a change to the prompt or to the filters of a suggestion. Run it also with `--session-start first-key --length long --sentence-stop off --replay character`: the clipboard echoes ("the environment variables in the clipboard") show there.
+  - A leak case counts a hidden suggestion as a match. Thus a copy of the frame that `copies_frame_line` hides does not show in the score.
+  - On the 34 `start-` and `clip-` cases with that replay (Gemma 4 E4B, `--name "Sara Novak" --notes TEXT --word-choice medium`), the baseline showed a clipboard echo in 2 cases and a note in brackets after the end of a sentence in 1 case. The clipboard label "Clipboard: " gave echoes in 5 cases. A frame without its list of kinds of text ("for example an email, …") gave leaks in 3 cases and notes in 2. Age labels without brackets ("9 days ago: ") gave echoes in 4 cases and notes in 2. No change gave fewer leaks, so none shipped. The replay repeats one leak at many places, so count the cases.
 - `cases/typos.jsonl`: a case matches when no suggestion finishes the word with the typo.
   - Each typo case has `fixed`, the text before the caret without the typo, and the report counts the fixes that write the meant word (`typo fixes`) and the fixes of words without a typo (`other fixes`).
   - A change to the prompt or to the context must show a gain here before it ships.
