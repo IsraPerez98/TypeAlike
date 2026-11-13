@@ -18,6 +18,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::{BSTR, HSTRING, Interface, Result};
 
+use super::caret_box::CaretBox;
 use super::{Uia, WHOLE_RANGE, caret_range, has_unreadable_text, is_password, is_terminal_input, text_of};
 use crate::focus::{foreground_hwnd, is_chromium_window};
 use crate::utf16::whole_chars;
@@ -199,9 +200,11 @@ fn text_around_selection(element: &IUIAutomationElement) -> Option<FieldText> {
 }
 
 /// Reads what follows the caret of `element` now: selected text, else the text after the caret on
-/// its line. `Unknown` when the field hides its text, or when UIA gives no selection or no text,
-/// so that the text that the session read at its start counts.
-pub(super) fn after_caret(element: &IUIAutomationElement) -> AfterCaret {
+/// its line. In `caret_box`, the box of a terminal app around the caret, the line ends at the end
+/// of the box, and the text after the box counts as the text below. `Unknown` when the field hides
+/// its text, or when UIA gives no selection or no text, so that the text that the session read at
+/// its start counts.
+pub(super) fn after_caret(element: &IUIAutomationElement, caret_box: Option<&CaretBox>) -> AfterCaret {
     if is_password(element) {
         return AfterCaret::Unknown;
     }
@@ -209,12 +212,29 @@ pub(super) fn after_caret(element: &IUIAutomationElement) -> AfterCaret {
         return AfterCaret::Unknown;
     };
     // SAFETY: plain call on an interface of this thread.
-    let selected = unsafe { selection.GetText(CHARS_TO_FIND_SELECTION) }.ok();
-    let after = text_beside(&selection, Side::After, CHARS_TO_FIND_LINE_TEXT);
-    match (selected, after) {
-        (Some(selected), Some(after)) => AfterCaret::seen(&selected.to_string(), &after),
-        _ => AfterCaret::Unknown,
-    }
+    let Ok(selected) = (unsafe { selection.GetText(CHARS_TO_FIND_SELECTION) }) else {
+        return AfterCaret::Unknown;
+    };
+    let selected = selected.to_string();
+    let seen = match caret_box {
+        Some(caret_box) => seen_in_box(&selected, caret_box.after_caret()),
+        None => text_beside(&selection, Side::After, CHARS_TO_FIND_LINE_TEXT)
+            .map(|after| AfterCaret::seen(&selected, &after)),
+    };
+    seen.unwrap_or(AfterCaret::Unknown)
+}
+
+/// What a look sees when `selected` is the start of the selected text and `box_after_caret` holds
+/// the cells of a box from the caret to the end of the box.
+fn seen_in_box(selected: &str, box_after_caret: &IUIAutomationTextRange) -> Option<AfterCaret> {
+    // SAFETY: plain call on an interface of this thread.
+    let line_after = unsafe { box_after_caret.GetText(WHOLE_RANGE) }.ok()?;
+    let text_below = text_beside(box_after_caret, Side::After, CHARS_TO_FIND_LINE_TEXT)?;
+    Some(AfterCaret::seen_on_line(
+        selected,
+        &whole_chars(&line_after),
+        &text_below,
+    ))
 }
 
 /// Reads the text next to `selection` on `side`: at most `max_chars` characters.

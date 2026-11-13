@@ -118,14 +118,25 @@ impl AfterCaret {
     /// selected, and `text_after` is the text after the selection.
     #[must_use]
     pub fn seen(selected: &str, text_after: &str) -> Self {
+        let (line_after, text_below) = text_after.split_once('\n').unwrap_or((text_after, ""));
+        Self::seen_on_line(selected, line_after, text_below)
+    }
+
+    /// What a look sees when `selected` is the start of the selected text, empty when nothing is
+    /// selected, `line_after` is the text after the selection on the line of the caret, and
+    /// `text_below` is the text after that line. A platform gives the line apart from the text
+    /// below when the text has no line break at the end of the line, as a terminal row that the
+    /// app fills up to its last column.
+    #[must_use]
+    pub fn seen_on_line(selected: &str, line_after: &str, text_below: &str) -> Self {
         if !selected.is_empty() {
             Self::Selection
-        } else if text_after.trim().is_empty() {
-            Self::Nothing
-        } else if line_after_caret(text_after).is_empty() {
+        } else if !line_after.trim().is_empty() {
+            Self::Text
+        } else if !text_below.trim().is_empty() {
             Self::TextBelow
         } else {
-            Self::Text
+            Self::Nothing
         }
     }
 }
@@ -547,6 +558,21 @@ mod tests {
         let seen = looks.map(|(selected, text_after, _)| AfterCaret::seen(selected, text_after));
 
         assert_eq!(seen, looks.map(|(_, _, expected)| expected));
+    }
+
+    #[test]
+    fn look_sees_the_line_of_the_caret_apart_from_the_text_after_that_line() {
+        let looks = [
+            ("", "    ", "  ┃  Build · local", AfterCaret::TextBelow),
+            ("", "    ", "  \n  ", AfterCaret::Nothing),
+            ("", "", "", AfterCaret::Nothing),
+            ("", " on Friday.", "", AfterCaret::Text),
+            ("o", "", "", AfterCaret::Selection),
+        ];
+
+        let seen = looks.map(|(selected, line, below, _)| AfterCaret::seen_on_line(selected, line, below));
+
+        assert_eq!(seen, looks.map(|(.., expected)| expected));
     }
 
     #[test]

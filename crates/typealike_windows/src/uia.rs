@@ -2,6 +2,7 @@
 //! web page that holds it, and its caret for apps that draw a caret of their own and have no
 //! system caret and no caret object (such as WinUI apps).
 
+mod caret_box;
 mod com;
 mod drawn_caret;
 mod field;

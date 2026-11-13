@@ -13,6 +13,7 @@ use windows::Win32::UI::Accessibility::{
     UIA_ForegroundColorAttributeId,
 };
 
+use super::caret_box::CaretBox;
 use super::com::SafeArray;
 use super::field::after_caret;
 use super::{
@@ -25,7 +26,7 @@ use crate::pixels::Rgb;
 use crate::utf16::whole_chars;
 
 /// The numbers that describe one bounding rectangle: left, top, width and height.
-const VALUES_PER_RECTANGLE: usize = 4;
+pub(super) const VALUES_PER_RECTANGLE: usize = 4;
 const CHARACTERS_BEFORE_CARET: i32 = -1;
 const CHARACTERS_AFTER_CARET: i32 = 1;
 /// The class of the screen of a terminal of xterm.js, which holds its rows.
@@ -38,9 +39,11 @@ pub(crate) struct FocusedCaret {
     pub(crate) caret: Option<Caret>,
     /// The frame of the control in physical screen pixels, or `None` when UIA gives no frame with
     /// an area. In a terminal of xterm.js, it is the frame of the screen of the terminal, because
-    /// the hidden input box is one cell.
+    /// the hidden input box is one cell. In Windows Terminal, it ends at the right edge of the box
+    /// that the terminal app draws around the caret.
     pub(crate) frame: Option<RECT>,
-    /// What follows the caret now: selected text, or the text after it on its line.
+    /// What follows the caret now: selected text, or the text after it on its line. In Windows
+    /// Terminal, the line ends at the end of the box around the caret.
     pub(crate) after: AfterCaret,
     /// Whether UIA hides what follows the caret: the editor of VS Code gives a message in place of
     /// its text, and the hidden input box of a terminal of xterm.js has none of the text of the
@@ -55,13 +58,23 @@ impl Uia {
     pub(crate) fn caret(&self) -> FocusedCaret {
         let element = self.focused_element();
         let terminal = element.as_ref().and_then(|element| self.terminal_input(element));
-        let element_frame = || element.as_ref().and_then(frame_with_area);
+        let caret_box = element.as_ref().and_then(CaretBox::of);
+        let element_frame = || {
+            let frame = element.as_ref().and_then(frame_with_area)?;
+            Some(
+                caret_box
+                    .as_ref()
+                    .map_or(frame, |caret_box| caret_box.narrow(frame)),
+            )
+        };
         FocusedCaret {
             caret: styled_caret(element.as_ref(), terminal),
             frame: terminal
                 .and_then(TerminalInput::screen_frame)
                 .or_else(element_frame),
-            after: element.as_ref().map_or(AfterCaret::Unknown, after_caret),
+            after: element.as_ref().map_or(AfterCaret::Unknown, |element| {
+                after_caret(element, caret_box.as_ref())
+            }),
             has_hidden_text_after_caret: terminal.is_some()
                 || element.as_ref().is_some_and(has_unreadable_text),
         }
@@ -257,7 +270,7 @@ fn text_style(element: &IUIAutomationElement) -> TextStyle {
 
 /// Reads a `COLORREF` attribute value. `None` when UIA gives a value of another type: the value
 /// for an attribute that the control does not support, or for colors that change in the range.
-fn colorref(value: &VARIANT) -> Option<u32> {
+pub(super) fn colorref(value: &VARIANT) -> Option<u32> {
     i32::try_from(value).ok().map(i32::cast_unsigned)
 }
 
@@ -274,7 +287,7 @@ fn shown_style(text: Option<u32>, background: Option<u32>, font_face: Option<Str
     }
 }
 
-fn bounding_rectangles(range: &IUIAutomationTextRange) -> Option<Vec<f64>> {
+pub(super) fn bounding_rectangles(range: &IUIAutomationTextRange) -> Option<Vec<f64>> {
     // SAFETY: plain call on an interface of this thread; the array is owned right after.
     let array = SafeArray(unsafe { range.GetBoundingRectangles() }.ok()?);
     array.doubles()
@@ -325,7 +338,7 @@ fn caret_at_line_start(rectangles: &[f64], line: MeasuredLine) -> Option<Caret> 
 
 /// The left, top, right and bottom edges in whole pixels of the rectangle with `left`, `top`,
 /// `width` and `height`. `None` when a value or an edge is not a finite number.
-fn pixel_edges([left, top, width, height]: [f64; VALUES_PER_RECTANGLE]) -> Option<[i32; 4]> {
+pub(super) fn pixel_edges([left, top, width, height]: [f64; VALUES_PER_RECTANGLE]) -> Option<[i32; 4]> {
     let edges = [left, top, left + width, top + height];
     edges
         .into_iter()
