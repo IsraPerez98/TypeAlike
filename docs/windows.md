@@ -76,6 +76,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - UIA cannot tell what follows the caret in the editor of VS Code (class `native-edit-context`) and in the input box of a terminal of xterm.js. The editor gives a message in place of its text, and the input box has none of the text of the terminal.
 - In these two fields, each read of the caret also captures the pixels after the caret (`caret_pixels.rs`), in the area that core asks for (`ScreenPixels::area_after_caret`). Core decides what they show (`docs/core/ghost-text.md`, "Pixels after the caret").
 - `Windows.Graphics.Capture` captures only the foreground window (`CreateForWindow`), so the ghost text, the card and the badge of TypeAlike are never in the pixels.
+- The capture uses a WARP device, as the OCR does, because a device of the graphics card keeps GPU memory after each capture ("Screen text reader").
 - Other ways that did not fit:
   - A copy of the screen also holds the ghost text of the last look, because the ghost text stays at the old caret while the user types its letters.
   - `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE` on the overlay would also hide the ghost text from screen sharing, recordings and screenshots.
@@ -119,6 +120,10 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ## Screen text reader
 
 - The screen text reader runs on its own thread with a low priority: the UIA text elements of the foreground window, else the OCR of a band of the window around the field (`Windows.Graphics.Capture` and `Windows.Media.Ocr`).
+- Each OCR starts a new capture of the window. The captures of the OCR and of the pixels after the caret use a WARP device, the software rasterizer of Direct3D, and not the graphics card (`window_capture.rs`).
+  - On a device of the graphics card, Windows kept one surface of the window's size in the GPU memory of TypeAlike for each capture. Each OCR of a window of 900 x 520 pixels added 2.2 MB, and the memory never went back.
+  - The close of the frame, the session and the pool did not free that memory. A flush, the removal of the handler of the frames and the drop of the device did not free it either (RTX 5070 Ti, Windows 11 24H2, 2026-11-13).
+  - With WARP, a capture keeps no GPU memory and takes as long: 30 to 60 ms for the capture of an OCR. Each WARP device also uses about 15 MB less RAM.
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
 - It stops while energy saver is on.

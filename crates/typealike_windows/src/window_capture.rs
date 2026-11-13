@@ -1,4 +1,4 @@
-//! The capture of a window with `Windows.Graphics.Capture`, on a Direct3D device of its own.
+//! The capture of a window with `Windows.Graphics.Capture`, on a WARP device of its own.
 //!
 //! The capture holds only that window, so the windows of TypeAlike, such as the ghost text and the
 //! badge, are never in it. A copy of a part of the window holds rows of BGRA pixels without
@@ -19,7 +19,7 @@ use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Graphics::SizeInt32;
 use windows::Win32::Foundation::{HMODULE, HWND, POINT, RECT};
-use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_WARP;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
     D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
@@ -112,7 +112,10 @@ impl PixelRect {
     }
 }
 
-/// Captures windows with `Windows.Graphics.Capture`, on a Direct3D device of its own.
+/// Captures windows with `Windows.Graphics.Capture`, on a Direct3D device of its own. The device is
+/// WARP, the software rasterizer of Direct3D, and not the graphics card: on a device of the graphics
+/// card, Windows keeps a surface of the window's size in the GPU memory of the process for each
+/// capture, also after the capture and the device drop.
 pub(crate) struct Capturer {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -126,7 +129,7 @@ impl Capturer {
         unsafe {
             D3D11CreateDevice(
                 None::<&IDXGIAdapter>,
-                D3D_DRIVER_TYPE_HARDWARE,
+                D3D_DRIVER_TYPE_WARP,
                 HMODULE::default(),
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 None,
