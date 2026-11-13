@@ -2,6 +2,7 @@
 //! not tell it.
 
 use std::fmt;
+use std::ops::Range;
 
 use super::{AfterCaret, FIELD_EDGE_GAP, ScreenRect};
 
@@ -36,6 +37,17 @@ impl PixelColor {
     fn channels(self) -> [u8; 3] {
         [self.red, self.green, self.blue]
     }
+}
+
+/// What the pixels after the caret show, and the field that a ghost text after the caret fits
+/// into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PixelsAfterCaret {
+    /// What follows the caret: text on its line, text only on the lines below, or nothing.
+    pub(crate) after: AfterCaret,
+    /// The field that a ghost text after the caret fits into. It ends at the edge of a box of the
+    /// app on the line of the caret.
+    pub(crate) field: ScreenRect,
 }
 
 /// The colors of the pixels of a rectangle of the screen, row by row, top row first. A platform
@@ -82,15 +94,17 @@ impl ScreenPixels {
     }
 
     /// What these pixels show after `caret` in `field`, where a ghost text after the caret would
-    /// show: on the line of the caret up to the right edge of the field, and on the lines below
-    /// that the pixels show. `None` when the pixels do not show the line of the caret.
+    /// show, and the field that this ghost text fits into: on the line of the caret up to the
+    /// right edge of the field, and on the lines below that the pixels show. `None` when the
+    /// pixels do not show the line of the caret.
     ///
     /// The line of the caret is empty when each row of its pixels has one color, as an empty line
     /// and a highlight of the line do. Near the caret, a column of one color is the cursor: a bar,
-    /// or the block of a terminal. The lines below are empty when all their pixels have one color.
+    /// or the block of a terminal. When each row changes its color at the same column, that
+    /// column is the edge of a box of the app: the line is empty before it, and the field ends
+    /// there. The lines below are empty when all their pixels in the field have one color.
     #[must_use]
-    pub fn after_caret(&self, caret: ScreenRect, field: ScreenRect) -> Option<AfterCaret> {
-        let line_height = caret.bottom.saturating_sub(caret.top);
+    pub(crate) fn after_caret(&self, caret: ScreenRect, field: ScreenRect) -> Option<PixelsAfterCaret> {
         let caret_line = ScreenRect {
             left: caret.right,
             top: caret.top,
@@ -100,9 +114,66 @@ impl ScreenPixels {
         if !self.shows(caret_line) {
             return None;
         }
-        if self.has_text_after_cursor(caret_line) {
-            return Some(AfterCaret::Text);
+        let field = match self.line_after_cursor(caret_line) {
+            LineAfterCursor::Text => {
+                return Some(PixelsAfterCaret {
+                    after: AfterCaret::Text,
+                    field,
+                });
+            }
+            LineAfterCursor::Empty => field,
+            LineAfterCursor::EdgeAt(edge) => ScreenRect { right: edge, ..field },
+        };
+        Some(PixelsAfterCaret {
+            after: self.lines_below(caret, field),
+            field,
+        })
+    }
+
+    /// What `line`, the line of the caret from the caret to the right edge of the field, shows
+    /// after the cursor, as the first column where each row stops having one color tells it.
+    fn line_after_cursor(&self, line: ScreenRect) -> LineAfterCursor {
+        let columns = self.column_after_cursor(line)..line.right;
+        let mut color_changes =
+            (line.top..line.bottom).map(|row| self.color_change_in_row(row, columns.clone()));
+        let Some(first_change) = color_changes.next() else {
+            return LineAfterCursor::Empty;
+        };
+        if !color_changes.all(|change| change == first_change) {
+            return LineAfterCursor::Text;
         }
+        first_change.map_or(LineAfterCursor::Empty, LineAfterCursor::EdgeAt)
+    }
+
+    /// The first column after the cursor at the left of `line`. The cursor is the run of columns
+    /// from the caret, at most as wide as the line is high, that each have one color between the
+    /// rows at the top and the bottom of the line where the highlight of the line can end.
+    fn column_after_cursor(&self, line: ScreenRect) -> i32 {
+        let line_height = line.bottom.saturating_sub(line.top);
+        let widest_cursor_end = line.left.saturating_add(line_height).min(line.right);
+        let end_rows = line_height / CURSOR_END_DIVISOR;
+        let inside_rows = line.top.saturating_add(end_rows)..line.bottom.saturating_sub(end_rows);
+        (line.left..widest_cursor_end)
+            .find(|&column| !is_one_color(inside_rows.clone().map(|row| self.color_at(column, row))))
+            .unwrap_or(widest_cursor_end)
+    }
+
+    /// The first of `columns` where `row` stops having one color, as [`is_one_color`] tells it for
+    /// the pixels of the row from the start of `columns`. `None` when the row has one color.
+    fn color_change_in_row(&self, row: i32, mut columns: Range<i32>) -> Option<i32> {
+        let mut channels = ChannelRange::EMPTY;
+        columns.find(|&column| {
+            channels = channels.with(self.color_at(column, row));
+            !channels.is_one_color()
+        })
+    }
+
+    /// What the lines below the line of `caret` in `field` show: [`AfterCaret::TextBelow`] when
+    /// they have text, or when the pixels do not show them all, else [`AfterCaret::Nothing`]. They
+    /// start one third of the caret height below the caret, where the text of the line of the
+    /// caret ends.
+    fn lines_below(&self, caret: ScreenRect, field: ScreenRect) -> AfterCaret {
+        let line_height = caret.bottom.saturating_sub(caret.top);
         let lines_below = ScreenRect {
             left: field.left.saturating_add(FIELD_EDGE_GAP),
             top: caret
@@ -113,27 +184,11 @@ impl ScreenPixels {
         };
         let is_below_empty =
             !lines_below.has_area() || self.shows(lines_below) && is_one_color(self.pixels_in(lines_below));
-        Some(if is_below_empty {
+        if is_below_empty {
             AfterCaret::Nothing
         } else {
             AfterCaret::TextBelow
-        })
-    }
-
-    /// Whether `line`, the line of the caret from the caret to the right edge of the field, has a
-    /// row of more than one color after the cursor. The cursor is the run of columns from the
-    /// caret, at most as wide as the line is high, that each have one color between the rows at
-    /// the top and the bottom of the line where the highlight of the line can end.
-    fn has_text_after_cursor(&self, line: ScreenRect) -> bool {
-        let line_height = line.bottom.saturating_sub(line.top);
-        let cursor_end = line.left.saturating_add(line_height).min(line.right);
-        let end_rows = line_height / CURSOR_END_DIVISOR;
-        let inside_rows = line.top.saturating_add(end_rows)..line.bottom.saturating_sub(end_rows);
-        let after_cursor = (line.left..cursor_end)
-            .find(|&column| !is_one_color(inside_rows.clone().map(|row| self.color_at(column, row))))
-            .unwrap_or(cursor_end);
-        (line.top..line.bottom)
-            .any(|row| !is_one_color((after_cursor..line.right).map(|column| self.color_at(column, row))))
+        }
     }
 
     /// Whether the pixels show all of `area`.
@@ -164,23 +219,58 @@ impl ScreenPixels {
     }
 }
 
+/// What the line of the caret shows after the cursor, up to the right edge of the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineAfterCursor {
+    /// Each row has one color: an empty line, or the highlight of the line.
+    Empty,
+    /// Each row has one color up to this column, where each row changes its color: the edge of a
+    /// box of the app, as the input box of opencode, which has its own background.
+    EdgeAt(i32),
+    /// The rows change their color at different columns, as the glyphs of a text do.
+    Text,
+}
+
+/// The lowest and the highest value of each channel of some colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChannelRange {
+    lowest: [u8; 3],
+    highest: [u8; 3],
+}
+
+impl ChannelRange {
+    /// The range of no colors, which counts as one color.
+    const EMPTY: Self = Self {
+        lowest: [u8::MAX; 3],
+        highest: [u8::MIN; 3],
+    };
+
+    /// This range, made wider to also hold `color`.
+    fn with(self, color: PixelColor) -> Self {
+        let channels = color.channels();
+        Self {
+            lowest: [0, 1, 2].map(|channel| self.lowest[channel].min(channels[channel])),
+            highest: [0, 1, 2].map(|channel| self.highest[channel].max(channels[channel])),
+        }
+    }
+
+    /// Whether the colors of this range count as one color: no channel changes by more than
+    /// [`SAME_COLOR_RANGE`].
+    fn is_one_color(self) -> bool {
+        self.lowest
+            .iter()
+            .zip(self.highest)
+            .all(|(low, high)| high <= low.saturating_add(SAME_COLOR_RANGE))
+    }
+}
+
 /// Whether `colors` count as one color: no channel changes by more than [`SAME_COLOR_RANGE`].
 /// No colors count as one color.
 fn is_one_color(colors: impl IntoIterator<Item = PixelColor>) -> bool {
-    let mut colors = colors.into_iter().map(PixelColor::channels);
-    let Some(first) = colors.next() else {
-        return true;
-    };
-    let (lowest, highest) = colors.fold((first, first), |(lowest, highest), channels| {
-        (
-            [0, 1, 2].map(|channel| lowest[channel].min(channels[channel])),
-            [0, 1, 2].map(|channel| highest[channel].max(channels[channel])),
-        )
-    });
-    lowest
-        .iter()
-        .zip(highest)
-        .all(|(low, high)| high.abs_diff(*low) <= SAME_COLOR_RANGE)
+    colors
+        .into_iter()
+        .fold(ChannelRange::EMPTY, ChannelRange::with)
+        .is_one_color()
 }
 
 impl fmt::Debug for ScreenPixels {
@@ -206,6 +296,11 @@ mod tests {
     const FIELD: ScreenRect = rect(0, 0, 120, 80);
     /// A caret 16 pixels high at 40, on the line from 10 to 26.
     const CARET: ScreenRect = rect(40, 10, 40, 26);
+    /// The background of a terminal around the box of a terminal app, darker than the box.
+    const TERMINAL_BACKGROUND: PixelColor = gray(10);
+    /// The part of the field inside a box of a terminal app that has its own background and no
+    /// border on the right, as the input box of opencode.
+    const FIELD_OF_THE_BOX: ScreenRect = rect(0, 0, 90, 80);
 
     const fn gray(level: u8) -> PixelColor {
         PixelColor {
@@ -256,8 +351,20 @@ mod tests {
         }
     }
 
-    fn after_caret_in(canvas: Canvas) -> Option<AfterCaret> {
+    /// The box of a terminal app in [`FIELD_OF_THE_BOX`], on the background of the terminal.
+    fn box_up_to_its_edge() -> Canvas {
+        Canvas::of(FIELD).paint(
+            rect(FIELD_OF_THE_BOX.right, 0, FIELD.right, FIELD.bottom),
+            TERMINAL_BACKGROUND,
+        )
+    }
+
+    fn seen_in(canvas: Canvas) -> Option<PixelsAfterCaret> {
         canvas.pixels().after_caret(CARET, FIELD)
+    }
+
+    fn after_caret_in(canvas: Canvas) -> Option<AfterCaret> {
+        seen_in(canvas).map(|seen| seen.after)
     }
 
     #[test]
@@ -347,8 +454,54 @@ mod tests {
     }
 
     #[test]
-    fn line_of_one_color_far_from_the_caret_follows_the_caret() {
+    fn line_of_one_color_across_the_line_of_the_caret_ends_the_field_before_it() {
         let canvas = Canvas::of(FIELD).paint(rect(100, 0, 101, 80), RULE);
+
+        assert_eq!(
+            seen_in(canvas),
+            Some(PixelsAfterCaret {
+                after: AfterCaret::Nothing,
+                field: rect(0, 0, 100, 80),
+            })
+        );
+    }
+
+    #[test]
+    fn edge_of_a_box_in_every_row_of_the_line_of_the_caret_ends_the_field_there() {
+        let seen = seen_in(box_up_to_its_edge());
+
+        assert_eq!(
+            seen,
+            Some(PixelsAfterCaret {
+                after: AfterCaret::Nothing,
+                field: FIELD_OF_THE_BOX,
+            })
+        );
+    }
+
+    #[test]
+    fn text_below_the_caret_inside_a_box_is_text_below_in_the_field_of_the_box() {
+        let canvas = box_up_to_its_edge().paint(rect(10, 46, 30, 54), TEXT);
+
+        assert_eq!(
+            seen_in(canvas),
+            Some(PixelsAfterCaret {
+                after: AfterCaret::TextBelow,
+                field: FIELD_OF_THE_BOX,
+            })
+        );
+    }
+
+    #[test]
+    fn text_before_the_edge_of_a_box_follows_the_caret() {
+        let canvas = box_up_to_its_edge().paint(rect(60, 14, 66, 22), TEXT);
+
+        assert_eq!(after_caret_in(canvas), Some(AfterCaret::Text));
+    }
+
+    #[test]
+    fn glyph_that_does_not_fill_every_row_of_the_line_follows_the_caret() {
+        let canvas = Canvas::of(FIELD).paint(rect(90, 11, 92, 25), TEXT);
 
         assert_eq!(after_caret_in(canvas), Some(AfterCaret::Text));
     }
@@ -392,7 +545,7 @@ mod tests {
     fn pixels_that_end_above_the_bottom_of_the_field_tell_about_the_lines_that_they_show() {
         let canvas = Canvas::of(rect(0, 10, 120, 42)).paint(rect(10, 36, 30, 42), TEXT);
 
-        let after = canvas.pixels().after_caret(CARET, FIELD);
+        let after = canvas.pixels().after_caret(CARET, FIELD).map(|seen| seen.after);
 
         assert_eq!(after, Some(AfterCaret::TextBelow));
     }
@@ -401,7 +554,7 @@ mod tests {
     fn pixels_narrower_than_the_lines_below_do_not_let_the_ghost_text_wrap() {
         let canvas = Canvas::of(rect(20, 10, 120, 80));
 
-        let after = canvas.pixels().after_caret(CARET, FIELD);
+        let after = canvas.pixels().after_caret(CARET, FIELD).map(|seen| seen.after);
 
         assert_eq!(after, Some(AfterCaret::TextBelow));
     }

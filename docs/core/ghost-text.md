@@ -96,12 +96,17 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
   - The line of the caret has no text after the caret when each row of its pixels has one color. The row goes from the caret to 4 px before the right edge of the field (`FIELD_EDGE_GAP`).
   - An empty line has one color in each row, and so does the highlight of the line of the caret, also with a border.
   - The cursor does not count as text. The cursor is the run of columns of one color from the caret, at most one caret height wide: the bar of an editor, or the block of a terminal. The top and the bottom eighth of the line do not count in a column, because the highlight of the line can end there.
-  - The lines below have no text when all their pixels have one color. They start one third of a caret height below the caret, because the caret of a terminal of xterm.js is shorter than its line.
+  - When each row of the line changes its color at the same column, this column is the edge of a box of the app. It is not text. The line then has no text after the caret, and the field ends at the edge (`PixelsAfterCaret::field`).
+  - An example is the input box of opencode in the integrated terminal of VS Code. The box has its own background and no border on the right.
+  - Glyphs do not fill each row of the line, so text stays text. A vertical line of one color across the whole line also ends the field, for example a ruler of an editor.
+  - The lines below have no text when all their pixels in the field have one color. They start one third of a caret height below the caret, because the caret of a terminal of xterm.js is shorter than its line.
   - One color can change by 12 of 255 in each channel (`SAME_COLOR_RANGE`). The highlight of the line in a dark theme can differ from the background by less. A rule line of a terminal differs by more.
 - When the line of the caret has no text after the caret, the ghost text goes after the caret, with the rules of "Fit in the field". It wraps when the lines below have no text. Else only the words that fit on the line of the caret show.
+- In a box of the app, the ghost text ends 4 px before the edge of the box. The wrapped lines also end there, and the badge shows 4 px inside the edge.
 - When the line of the caret has text after the caret, the ghost text goes below the caret.
 - A look without pixels, or with pixels that do not show the whole line of the caret, keeps the rules above. The ghost text of a field that hides its line then goes below the caret.
 - Checked on 2026-11-11 with the screenshots of the app tests: the rule agreed with a visual check of 11 of 11 looks in VS Code and 25 of 25 test carets on the same screens. In Windows Terminal, a background with a pattern counted as text on the lines below, so these lines got no wrap.
+- A real app test on 2026-11-13 found that the old rule read the edge of the input box of opencode as text. The ghost text then went below the caret and covered the status row of opencode.
 
 ## Badge
 

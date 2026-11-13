@@ -1398,21 +1398,21 @@ impl RoomAfterCaret {
     /// show the line of the caret.
     fn seen_in_pixels(read: &CaretRead) -> Option<Self> {
         let (pixels, caret, field) = (read.pixels.as_ref()?, read.caret?, read.field?);
-        let after = pixels.after_caret(caret, field)?;
+        let seen = pixels.after_caret(caret, field)?;
         Some(Self {
-            placement: match after {
+            placement: match seen.after {
                 AfterCaret::Text | AfterCaret::Selection => GhostPlacement::BelowCaret,
                 AfterCaret::Nothing | AfterCaret::TextBelow | AfterCaret::Unknown => {
                     GhostPlacement::AfterCaret
                 }
             },
-            lines_below: match after {
+            lines_below: match seen.after {
                 AfterCaret::Nothing => LinesBelow::Empty,
                 _ => LinesBelow::WithText,
             },
             field: Some(ScreenRect {
-                bottom: field.bottom.min(pixels.frame().bottom),
-                ..field
+                bottom: seen.field.bottom.min(pixels.frame().bottom),
+                ..seen.field
             }),
         })
     }
