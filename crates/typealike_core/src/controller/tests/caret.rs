@@ -13,7 +13,7 @@ use crate::engine::WordFix;
 use crate::inference::{InferenceError, InferenceEvent, InferenceRequest};
 use crate::key::{Disposition, Key, Press};
 use crate::settings::{Settings, SuggestionDisplay};
-use crate::test_support::{active_badge, suggestion_request};
+use crate::test_support::{active_badge, short_word_request, suggestion_request};
 
 #[test]
 fn key_in_open_field_requests_suggestion() {
@@ -131,7 +131,7 @@ fn completion_that_asks_again_during_caret_wait_submits_the_new_request() {
 
     let request = harness.last_request();
 
-    assert_eq!(request, Some(suggestion_request(&[], "Be")));
+    assert_eq!(request, Some(short_word_request(&[], "Be")));
 }
 
 #[test]

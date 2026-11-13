@@ -13,7 +13,7 @@ use crate::settings_window::general::CLIPBOARD;
 use crate::settings_window::personalization::{DELETE, HISTORY, REPLY_WORDS};
 use crate::settings_window::suggestion_places::PRIVATE_WINDOWS;
 use crate::test_support::{
-    MAIL_APP, history_app, mail_app, mail_entry, mail_history_app, suggestion_app, suggestion_request,
+    MAIL_APP, history_app, mail_app, mail_entry, mail_history_app, short_word_request, suggestion_app,
 };
 
 #[test]
@@ -302,7 +302,7 @@ fn earlier_writing_of_the_store_goes_into_the_prompt() {
 
     assert_eq!(
         harness.last_request(),
-        Some(suggestion_request(
+        Some(short_word_request(
             &[
                 "Where I am typing: Format: email; App: Mail",
                 "My earlier writing:\n“Cheers,\nTom\n”"

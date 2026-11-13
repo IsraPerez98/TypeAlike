@@ -96,6 +96,16 @@ pub(crate) fn suggestion_request(lines: &[&str], text_before: &str) -> Inference
     ExpectedRequest::framed(lines, text_before).into()
 }
 
+/// The request for a suggestion after `text_before` when its last word has fewer than 3
+/// characters, which has no typo rule with a dictionary.
+pub(crate) fn short_word_request(lines: &[&str], text_before: &str) -> InferenceRequest {
+    ExpectedRequest {
+        typo_check: TypoCheck::Off,
+        ..ExpectedRequest::framed(lines, text_before)
+    }
+    .into()
+}
+
 /// The request that only decodes the prompt with the `lines` of the preface and `text_before`.
 pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> InferenceRequest {
     InferenceRequest::Complete {

@@ -457,6 +457,19 @@ fn finished_word_with_a_typo_gets_a_fix_after_a_typed_space_or_sign() {
 
 #[test]
 #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn typo_with_a_capital_inside_that_no_dictionary_checks_gets_a_fix() {
+    let mut model = ModelSession::load();
+
+    let correction = correction_of(&mut model, "I will see you on WEdnesday");
+
+    assert_eq!(
+        correction,
+        Some((" WEdnesday".to_owned(), " Wednesday".to_owned()))
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
 fn word_without_a_typo_finishes_above_the_typo_cut() {
     let mut model = ModelSession::load();
 

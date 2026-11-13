@@ -4,14 +4,11 @@
 use std::str;
 
 use llama_cpp_2::token::LlamaToken;
-use typealike_core::inference::{LogProbability, TypoCheck};
+use typealike_core::inference::{LogProbability, MIN_FIXED_CHARACTERS, TypoCheck};
 
 use super::logits::{most_likely_tokens, typed_log_probability};
 use super::pieces::TokenPieces;
 
-/// The fewest letters of a word, without its leading whitespace, that a fix can change. A shorter
-/// word has many other words one edit away.
-const MIN_FIXED_LETTERS: usize = 3;
 /// The most likely tokens at the start of a word with a typo that a fix looks at.
 const FIX_CANDIDATES: usize = 64;
 /// The most that the typed letters can be less likely than the letters of their best fix, in
@@ -56,7 +53,7 @@ fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
     let typed_end = &letters[word.len()..];
     let (space, typed) = split_space(word);
     let (piece_space, written) = split_space(piece);
-    if space != piece_space || typed.len() < MIN_FIXED_LETTERS || written.len() < MIN_FIXED_LETTERS {
+    if space != piece_space || typed.len() < MIN_FIXED_CHARACTERS || written.len() < MIN_FIXED_CHARACTERS {
         return None;
     }
     let fixed = if written.len() >= typed.len() {
@@ -74,7 +71,7 @@ fn fixed_letters(letters: &str, piece: &str) -> Option<String> {
         .map(|length| collect_text(&written) + &collect_text(&typed[length..]))
     };
     fixed
-        .filter(|word| word.chars().count() >= MIN_FIXED_LETTERS && keeps_start(&typed, word))
+        .filter(|word| word.chars().count() >= MIN_FIXED_CHARACTERS && keeps_start(&typed, word))
         .map(|word| format!("{space}{word}{typed_end}"))
 }
 
@@ -165,7 +162,7 @@ pub(super) fn typo_fix(
     piece_of: impl Fn(LlamaToken) -> Vec<u8>,
 ) -> Option<TypoFix> {
     let typed = str::from_utf8(typed).ok()?;
-    if typed.trim_start().chars().count() < MIN_FIXED_LETTERS {
+    if typed.trim_start().chars().count() < MIN_FIXED_CHARACTERS {
         return None;
     }
     most_likely_tokens(logits, FIX_CANDIDATES)

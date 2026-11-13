@@ -14,7 +14,7 @@ use crate::test_support::{
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
-    show, type_waiting,
+    press, request, show, type_waiting,
 };
 
 /// Returns an engine with `settings` that typed `typed`, and a dictionary without the `unknown`
@@ -294,6 +294,45 @@ fn typo_stop_in_fewer_than_three_letters_asks_again_without_the_typo_rule() {
     let reaction = engine.on_completion(typo_stop());
 
     assert_eq!(reaction, request_without_typo_rule("before Fr"));
+}
+
+/// Types `typed` in an engine with the `dictionary`, if any, answers each request before the next
+/// key with an empty completion, and returns the reaction to the last key.
+fn reaction_to_the_last_key(typed: &str, dictionary: Option<FakeSpellChecker>) -> Reaction {
+    let mut characters = typed.chars();
+    let last = characters.next_back().expect("the typed text is not empty");
+    let mut engine = engine_with(&Settings::default());
+    if let Some(dictionary) = dictionary {
+        engine.use_spell_checkers(vec![Box::new(dictionary)]);
+    }
+    type_waiting(&mut engine, characters.as_str());
+    engine.on_completion(completion(""));
+    press(&mut engine, Key::Char(last))
+}
+
+#[test]
+fn request_for_fewer_than_three_typed_characters_with_a_dictionary_has_no_typo_rule() {
+    let texts = ["before F", "before Fr", "before (F"];
+
+    let reactions = texts.map(|text| reaction_to_the_last_key(text, Some(FakeSpellChecker::default())));
+
+    assert_eq!(reactions, texts.map(request_without_typo_rule));
+}
+
+#[test]
+fn request_for_three_unchecked_characters_or_after_a_typed_space_keeps_the_typo_rule() {
+    let texts = ["see you on WEd", "see you on 2O2", "before "];
+
+    let reactions = texts.map(|text| reaction_to_the_last_key(text, Some(FakeSpellChecker::default())));
+
+    assert_eq!(reactions, texts.map(request));
+}
+
+#[test]
+fn request_for_fewer_than_three_typed_characters_without_a_dictionary_keeps_the_typo_rule() {
+    let reaction = reaction_to_the_last_key("before Fr", None);
+
+    assert_eq!(reaction, request("before Fr"));
 }
 
 #[test]

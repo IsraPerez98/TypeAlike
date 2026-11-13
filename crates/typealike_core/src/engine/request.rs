@@ -5,7 +5,8 @@ use std::mem;
 use crate::desktop::{AfterCaret, Desktop};
 use crate::history::HistoryPool;
 use crate::inference::{
-    InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck, WordBias,
+    InferenceRequest, LogProbability, MIN_FIXED_CHARACTERS, NextWordBias, Prompt, SentenceEnd, TokenCount,
+    TypoCheck, WordBias,
 };
 use crate::key::Press;
 use crate::place::Place;
@@ -78,13 +79,31 @@ impl Engine {
         if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
             return self.show(rest);
         }
-        self.request_completion(self.typo_check)
+        self.request_completion(self.typo_check_at_caret())
     }
 
     /// Requests the suggestion for the text before the caret again, for when the preface of the
     /// session changed after the request of the suggestion that runs or shows.
     pub(crate) fn request_again(&mut self) -> Reaction {
-        self.request_completion(self.typo_check)
+        self.request_completion(self.typo_check_at_caret())
+    }
+
+    /// The typo check of a request for the text before the caret. With a dictionary, fewer than
+    /// [`MIN_FIXED_CHARACTERS`] typed characters of the last word get no typo rule: after a stop for
+    /// a typo there, core always asks again without the rule, because the dictionary does not
+    /// check them, and the runner gives such letters no fix.
+    fn typo_check_at_caret(&self) -> TypoCheck {
+        let typed = self
+            .text_before_caret()
+            .rsplit(|character: char| character.is_ascii_whitespace())
+            .next()
+            .unwrap_or_default();
+        let is_too_short = (1..MIN_FIXED_CHARACTERS).contains(&typed.chars().count());
+        if self.dictionary.is_some() && is_too_short {
+            TypoCheck::Off
+        } else {
+            self.typo_check
+        }
     }
 
     /// Requests a completion of the text before the caret with `typo_check`.

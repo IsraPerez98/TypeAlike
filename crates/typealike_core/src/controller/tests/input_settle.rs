@@ -7,7 +7,7 @@ use crate::desktop::{Field, Surroundings};
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, Settings, SuggestionPlaces};
-use crate::test_support::{MAIL_APP, active_badge, suggestion_app, suggestion_request};
+use crate::test_support::{MAIL_APP, active_badge, short_word_request, suggestion_app, suggestion_request};
 
 #[test]
 fn input_waits_for_input_to_settle() {
@@ -202,7 +202,7 @@ fn key_before_the_pause_after_enter_continues_the_new_line() {
 
     assert_eq!(
         harness.last_request(),
-        Some(suggestion_request(&[], "Best regards,\nS"))
+        Some(short_word_request(&[], "Best regards,\nS"))
     );
 }
 
@@ -318,7 +318,7 @@ fn settled_input_asks_again_when_the_session_takes_a_field_with_text() {
 
     assert_eq!(
         harness.last_request(),
-        Some(suggestion_request(&[], "Dear Ana,\nH"))
+        Some(short_word_request(&[], "Dear Ana,\nH"))
     );
 }
 

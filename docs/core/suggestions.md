@@ -40,6 +40,9 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - When a completion stops for a typo in typed letters that the dictionary of the OS knows as a word or as the start of a word (`SpellChecker::is_word_start`), or that it does not check (fewer than 3 letters, a digit or a sign inside), core asks again without the rule (`TypoCheck::Off`).
 - A fix of letters that the dictionary knows as a word also asks again.
 - Thus a correct word that the model did not expect, such as "Friday" after "before", gets a suggestion.
+- With a dictionary, a last word of fewer than 3 characters asks without the rule at once (`typo_check_at_caret`). A stop for a typo there always asks again, and the runner gives no fix for so few letters. Thus the answer is the same, without a second request.
+- Other letters that the dictionary does not check keep the rule, because the runner can fix them, such as "WEdnesday" to "Wednesday".
+- Measured with Gemma 4 E4B (Metal, long, macOS English and Spanish dictionaries): no fix changed in 808 such places of `varieties`, 178 of `chat` and in `typo_kinds`, and no suggestion changed because of the rule.
 - When the completion without the rule continues those letters but gives no suggestion, the fix of the first completion shows. For example, after "a day trip to Snit", the completion "ra" makes "Snitra", which the dictionary does not know, so the fix "Sintra" shows.
 - Core asks the dictionary only after such a stop, because a query of the start of a word costs some milliseconds on macOS.
 - For a fix, only the dictionaries of the language of the text count (`Dictionary::knows_typed_word`).

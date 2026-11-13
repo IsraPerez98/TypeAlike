@@ -127,6 +127,10 @@ pub enum InferenceRequest {
     },
 }
 
+/// The fewest typed characters of the last word, without the whitespace before them, that the
+/// runner fixes for a typo. A shorter word has many other words one edit away.
+pub const MIN_FIXED_CHARACTERS: usize = 3;
+
 /// What the runner does with the typed letters of the last word of a prompt. When the model finds
 /// them less likely than a minimum, they often hold a typo.
 #[derive(Debug, Clone, Copy, PartialEq)]
