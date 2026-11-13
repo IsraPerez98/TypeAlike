@@ -83,6 +83,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
   - A GDI read of the window of VS Code gives no pixels, because Chromium draws with the GPU.
 - The start of a capture took 40 to 100 ms for VS Code on 2026-11-11, too long for each read. Thus the capture of the window stays open while the reads need its pixels.
 - The handler of the frames keeps only the newest frame, because a frame keeps its buffer, and a capture without a free buffer gives no new frames. Each read copies only the area after the caret from that frame: 0.5 to 4 ms in a release build.
+- The stop of a capture removes the handler from the pool. The pool keeps the handler, the handler keeps the newest frame, and the frame keeps the pool. Without the removal, each stop kept the pool, its two buffers and the device in memory.
 - A field read that finds one of these fields starts the capture, so that the first read of the caret does not wait for it.
 - A read of the caret in another window or another field stops the capture, and so do 60 s without a read (`IDLE_CAPTURE_TIMEOUT`).
 - When the window changes its size, the next read starts the capture again.
