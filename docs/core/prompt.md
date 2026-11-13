@@ -68,6 +68,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 ### Times of chat messages
 
 - A chat header loses its time ("Laura Méndez 11:02" gives "Laura Méndez"). A line with only a time goes.
+- A time can have the half of the day joined to it, because text recognition reads "9:41 PM" as "9:41PM". The rules of this section also apply to that form.
 - Some chats show the time of each message at the end of its bubble, as Telegram and WhatsApp do. Text recognition reads that time as a line of its own when a gap divides it from the message, else as the end of the last line of the message.
 - In a chat or an email app, a line with only a time shows that the app gives these times. Then a time at the end of another line is the time of its message, and it goes. Thus the model does not copy these times into a suggestion.
 - A line keeps the time at its end when a line with only a time is on its row. That line is the time of the message, so the time at the end is a part of the message, as in "see you at 8:40".

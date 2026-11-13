@@ -8,12 +8,15 @@ text recognition joins the time of a message to the end of its last line.
 Telegram and WhatsApp show the time of a message at the end of its bubble. When a small gap divides
 the time from the message, the text recognition of macOS reads them as one line ("see you there
 9:57"), and it does not read the check marks after the time. Each case of the source sets with a
-time at the end of a bubble row gives two cases:
+time at the end of a bubble row gives four cases:
 
 - joined: the same caret and next word, with the times joined to their lines. Use it to measure
   the harm of a change.
 - end: the caret after the whole message, with the joined times as leaks. Use it to count the
   suggestions that copy a time of a message.
+- joinedpm and endpm: the same cases on a 12-hour clock, with the half of the day joined to each
+  time, as text recognition reads "9:41 PM" ("9:41PM"). The leaks are the times without the half of
+  the day.
 
 Run the eval with --name "Sara Novak" --word-choice medium.
 """
@@ -27,7 +30,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CASES_PATH = HERE / "message_times.jsonl"
 SOURCES = [HERE / "conversation.jsonl", HERE / "scrolled.jsonl"]
-MESSAGE_TIME = re.compile(r"^(\d{1,2}:\d{2})( ✓✓)?$")
+MESSAGE_TIME = re.compile(r"^(\d{1,2}:\d{2}(?:AM|PM)?)( ✓✓)?$")
+HALF_OF_DAY = re.compile(r"(AM|PM)$")
 END_SIGNS = " .!?"
 MIN_ROW_OVERLAP = 8
 MIN_COLUMN_LEFT = 400
@@ -72,6 +76,31 @@ def joined_screen(screen):
     return {**screen, "lines": lines}, joined_times
 
 
+def twelve_hour_time(time_text):
+    """Returns `time_text` on a 12-hour clock with the half of the day joined to it, as "9:41PM"."""
+    hours, minutes = time_text.split(":")
+    half = "AM" if int(hours) < 12 else "PM"
+    return f"{(int(hours) - 1) % 12 + 1}:{minutes}{half}"
+
+
+def twelve_hour_screen(screen):
+    """Returns `screen` with each message time on a 12-hour clock."""
+    lines = []
+    for line in screen["lines"]:
+        match = MESSAGE_TIME.match(line["text"])
+        text = twelve_hour_time(match.group(1)) + (match.group(2) or "") if match else line["text"]
+        lines.append(dict(line, text=text))
+    return {**screen, "lines": lines}
+
+
+def twelve_hour_case(case):
+    """Returns `case` with each message time of its reads on a 12-hour clock."""
+    twelve_hour = {**case, "screen": twelve_hour_screen(case["screen"])}
+    if "earlier_screens" in case:
+        twelve_hour["earlier_screens"] = [twelve_hour_screen(earlier) for earlier in case["earlier_screens"]]
+    return twelve_hour
+
+
 def joined_case(case):
     """Returns `case` with joined times in each of its reads, and the joined times of its last read."""
     screen, joined_times = joined_screen(case["screen"])
@@ -90,30 +119,30 @@ def content_text(case, joined_times):
     return text
 
 
-def cases_of(case):
+def cases_of(case, suffix=""):
     if not case["screen"]:
         return []
     joined, joined_times = joined_case(case)
     if not joined_times:
         return []
     content = content_text(joined, joined_times)
-    leaks = sorted({time_text for time_text in joined_times if time_text not in content})
+    clock_times = {HALF_OF_DAY.sub("", time_text) for time_text in joined_times}
+    leaks = sorted(time_text for time_text in clock_times if time_text not in content)
     end = {
         **joined,
-        "id": f"mt-end-{case['id']}",
+        "id": f"mt-end{suffix}-{case['id']}",
         "before": (case["before"] + case["next"]).rstrip(END_SIGNS) + " ",
         "next": "",
         "leaks": leaks,
     }
-    return [{**joined, "id": f"mt-joined-{case['id']}"}, end]
+    return [{**joined, "id": f"mt-joined{suffix}-{case['id']}"}, end]
 
 
 def built_cases():
-    cases = []
-    for source in SOURCES:
-        for raw in source.read_text(encoding="utf-8").splitlines():
-            cases.extend(cases_of(json.loads(raw)))
-    return cases
+    sources = [json.loads(raw) for source in SOURCES for raw in source.read_text(encoding="utf-8").splitlines()]
+    cases = [built for case in sources for built in cases_of(case)]
+    with_screen = [case for case in sources if case["screen"]]
+    return cases + [built for case in with_screen for built in cases_of(twelve_hour_case(case), "pm")]
 
 
 def build():
@@ -124,7 +153,7 @@ def build():
 
 
 def lines_with_time_at_end(case):
-    return sum(1 for line in case["screen"]["lines"] if re.search(r" \d{1,2}:\d{2}$", line["text"]))
+    return sum(1 for line in case["screen"]["lines"] if re.search(r" \d{1,2}:\d{2}(AM|PM)?$", line["text"]))
 
 
 def check():
@@ -141,7 +170,7 @@ def check():
         if unknown:
             problems.append(f"{case['id']}: unknown keys {sorted(unknown)}")
         groups.setdefault(case["id"].split("-")[1], []).append(case)
-    for case in groups.get("end", []):
+    for case in groups.get("end", []) + groups.get("endpm", []):
         if not case["leaks"]:
             problems.append(f"{case['id']}: no leaks")
         if any(leak in case["before"] for leak in case["leaks"]):

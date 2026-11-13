@@ -606,11 +606,15 @@ fn is_on_the_row_of(line: ScreenRect, row: ScreenRect) -> bool {
     (row.top..row.bottom).contains(&line.top.midpoint(line.bottom))
 }
 
-/// Whether `word` is a time such as "9:05" or "21:03".
+/// Whether `word` is a time such as "9:05" or "21:03", maybe with the half of the day joined to
+/// it, as text recognition reads "9:41PM".
 fn is_time(word: &str) -> bool {
-    word.split_once(':').is_some_and(|(hours, minutes)| {
+    word.split_once(':').is_some_and(|(hours, rest)| {
+        let Some((minutes, half_of_day)) = rest.split_at_checked(2) else {
+            return false;
+        };
         (1..=2).contains(&hours.len())
-            && minutes.len() == 2
+            && (half_of_day.is_empty() || is_any_of(half_of_day, &HALVES_OF_DAY))
             && hours
                 .chars()
                 .chain(minutes.chars())
@@ -1232,6 +1236,8 @@ mod tests {
             ("deploy-bot  APP  3:01 pm", "deploy-bot APP"),
             ("ferris_cl — Hoy a las 21:05", "ferris_cl"),
             ("Marco — Yesterday at 9:15 PM", "Marco"),
+            ("nova  10:43AM", "nova"),
+            ("Marco — Yesterday at 9:15pm", "Marco"),
         ];
 
         let kept = kept_texts(headers.map(|(header, _)| header));
@@ -1241,9 +1247,9 @@ mod tests {
 
     #[test]
     fn line_with_only_a_time_goes() {
-        let kept = kept_texts(["12:31", "Today at 08:02"]);
+        let kept = kept_texts(["12:31", "Today at 08:02", "4:15PM"]);
 
-        assert_eq!(kept, [Vec::<String>::new(), Vec::new()]);
+        assert_eq!(kept, [Vec::<String>::new(), Vec::new(), Vec::new()]);
     }
 
     #[test]
@@ -1268,6 +1274,22 @@ mod tests {
             above("Did you book the cabin by now?", 3),
             message_time("9:41 PM", 2),
             above("Yes, it is ours from Friday on 9:57 PM", 1),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["Did you book the cabin by now?", "Yes, it is ours from Friday on"])
+        );
+    }
+
+    #[test]
+    fn message_loses_the_time_with_the_half_of_the_day_joined_that_the_chat_shows_at_its_end() {
+        let screen = screen(vec![
+            above("Did you book the cabin by now?", 3),
+            message_time("9:41PM", 2),
+            above("Yes, it is ours from Friday on 9:57PM", 1),
         ]);
 
         let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
