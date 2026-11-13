@@ -89,6 +89,13 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - It gives no labels, because its label tells a screen reader how to read the text.
 - Its screen read always asks for an OCR, because the tree misses its text.
 
+### Budget of the lines
+
+- The nearest lines to the caret fill the budget of the screen text, up to the first line that does not fit.
+- That line keeps its part nearest to the caret that fits, from a whole word: above the caret its end after "… ", below the caret its start before " …". The mark tells the model that the line is longer.
+- The lines farther from the caret go, also a short line that fits. Such a line is often a label or a time of the app.
+- The accessibility tree of a chat app often gives a message as one long line. Thus the nearest part of a long message stays, and the labels farther up do not take its place.
+
 ### Order of the lines
 
 - The lines below come first, then the lines above, then the last line above the field one more time (`LAST_LINE_LABEL`), because that line is often the message that the user answers.
@@ -98,6 +105,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - A line counts as the same line when it has the same text, because the lines of a chat move when it scrolls.
 - The lines of the last prompt and the new lines can use 25 percent more than the budget of the screen text (`KEPT_LINES_SLACK_PERCENT`). When they need more, the prompt chooses the nearest lines again, as at a first read.
 - The prompt also chooses the nearest lines again when the lines of the last prompt leave out a near line. Examples are a new message between them, or an older line that fits after a scroll. A near line is a line that the nearest lines keep before their first line that does not fit.
+- A line of the last prompt that starts with the mark is the same line as a line on the screen that ends with its text after the mark.
 - The engine forgets the lines of the last prompt when the focus moves to another field or window. In other places, the prompt chooses the nearest lines at each read.
 
 ## Screen reads

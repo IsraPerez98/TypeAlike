@@ -739,5 +739,6 @@ fn lines_on_the_screen_fill_the_budget_before_the_lines_that_left_it() {
 
     let lines = lines_above_after_key(&mut engine, &chat_at(MINUTE));
 
-    assert_eq!(lines, lines_of_scrolled_down());
+    assert!(lines[0].starts_with("… word word"), "{lines:?}");
+    assert_eq!(lines[1..], lines_of_scrolled_down());
 }

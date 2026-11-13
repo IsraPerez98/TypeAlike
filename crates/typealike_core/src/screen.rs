@@ -6,11 +6,13 @@ mod conversation;
 
 pub(crate) use conversation::ConversationLines;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use crate::desktop::{Confidence, FieldText, OcrArea, ScreenLine, ScreenRect, ScreenText, Surroundings};
-use crate::excerpt::{estimated_tokens, icons_as_spaces, one_line};
+use crate::excerpt::{
+    estimated_tokens, first_tokens, from_word, icons_as_spaces, last_tokens, one_line, start_at_word,
+};
 use crate::inference::TokenCount;
 use crate::place::Format;
 
@@ -41,6 +43,9 @@ const MIN_TREE_WORDS: usize = 40;
 /// The tokens that the lines of the last prompt in a chat can use above the budget, in percent of
 /// the budget. Thus new messages do not change the start of the prompt at each read.
 const KEPT_LINES_SLACK_PERCENT: u32 = 25;
+/// The sign between the part of a line that the prompt keeps and the part that does not fit, so
+/// that the model reads the part as a part.
+const CUT_MARK: &str = "…";
 
 /// What the prompt knows of the text of the focused field, for the lines of the screen.
 #[derive(Debug, Clone, Copy)]
@@ -221,7 +226,9 @@ impl Column {
 
 /// Returns the text of the lines of `screen` in `scope` that the prompt shows, above and below the
 /// caret: the nearest lines to the caret that fit in `budget`, without the noise and the lines that
-/// repeat the text of `field`. The lines of a field that hides its text count as above the caret.
+/// repeat the text of `field`. Of the first line that does not fit, the part nearest to the caret
+/// that fits stays, after or before a [`CUT_MARK`]. The lines of a field that hides its text count
+/// as above the caret.
 pub(crate) fn nearby_lines(
     screen: &ScreenText,
     field: FieldContent<'_>,
@@ -229,8 +236,8 @@ pub(crate) fn nearby_lines(
     scope: LineScope,
 ) -> NearbyLines {
     let lines = in_reading_order(screen, field, candidates(screen, field, scope));
-    let nearest = within_budget(&lines, &by_distance(screen, field, &lines), budget);
-    split_at_caret(screen, field, lines, &nearest)
+    let nearest = within_budget(screen, field, &lines, budget);
+    split_at_caret(screen, field, &lines, nearest)
 }
 
 /// Returns the text of the lines of `screen` in the column of the field that the prompt shows,
@@ -238,8 +245,7 @@ pub(crate) fn nearby_lines(
 /// are still on the screen in the same order, and the lines of [`nearby_lines`] after them follow.
 /// Thus a new chat message does not change the start of the prompt. The lines of
 /// [`nearby_lines`] come again when these lines need more than [`KEPT_LINES_SLACK_PERCENT`] above
-/// `budget`. They also come again when these lines leave out a line that [`nearby_lines`] keeps
-/// before its first line that does not fit.
+/// `budget`. They also come again when these lines leave out a whole line of [`nearby_lines`].
 pub(crate) fn nearby_lines_from(
     shown_above: &[String],
     screen: &ScreenText,
@@ -247,13 +253,12 @@ pub(crate) fn nearby_lines_from(
     budget: TokenCount,
 ) -> NearbyLines {
     let lines = in_reading_order(screen, field, candidates(screen, field, LineScope::Column));
-    let ranked = by_distance(screen, field, &lines);
-    let nearest = within_budget(&lines, &ranked, budget);
+    let nearest = within_budget(screen, field, &lines, budget);
     let kept = shown_and_newer(shown_above, &lines, &nearest)
-        .filter(|kept| tokens_of(&lines, kept) <= with_slack(budget))
-        .filter(|kept| first_fitting(&lines, &ranked, budget).is_subset(kept))
+        .filter(|kept| tokens_of(kept) <= with_slack(budget))
+        .filter(|kept| keeps_whole_lines_of(kept, &nearest, &lines))
         .unwrap_or(nearest);
-    split_at_caret(screen, field, lines, &kept)
+    split_at_caret(screen, field, &lines, kept)
 }
 
 /// Returns the text of the lines of `screen` in the column of the field above the caret, in
@@ -378,61 +383,120 @@ fn by_distance(screen: &ScreenText, field: FieldContent<'_>, lines: &[Candidate]
     ranked
 }
 
-/// Returns the positions of `ranked` whose lines fit in what is left of `budget`, each in turn.
-fn within_budget(lines: &[Candidate], ranked: &[usize], budget: TokenCount) -> HashSet<usize> {
+/// Returns the text that the prompt shows of the nearest `lines` to the caret of `screen` that fit
+/// in `budget`, by their positions: each whole line up to the first line that does not fit, then
+/// the part of that line that fits ([`nearest_part`]).
+fn within_budget(
+    screen: &ScreenText,
+    field: FieldContent<'_>,
+    lines: &[Candidate],
+    budget: TokenCount,
+) -> BTreeMap<usize, String> {
+    let ranked = by_distance(screen, field, lines);
     let mut left = budget.0;
-    ranked
+    let whole_count = ranked
         .iter()
-        .copied()
-        .filter(|&position| {
-            let Some(rest) = left.checked_sub(estimated_tokens(&lines[position].text).0) else {
-                return false;
-            };
-            left = rest;
-            true
-        })
-        .collect()
-}
-
-/// Returns the first positions of `ranked` whose lines fit in `budget`, up to the first line that
-/// does not fit.
-fn first_fitting(lines: &[Candidate], ranked: &[usize], budget: TokenCount) -> HashSet<usize> {
-    let mut left = budget.0;
-    ranked
-        .iter()
-        .copied()
-        .map_while(|position| {
+        .map_while(|&position| {
             left = left.checked_sub(estimated_tokens(&lines[position].text).0)?;
             Some(position)
         })
-        .collect()
+        .count();
+    let caret = caret_of(screen, field);
+    let whole = ranked[..whole_count]
+        .iter()
+        .map(|&position| (position, lines[position].text.clone()));
+    let part = ranked.get(whole_count).and_then(|&position| {
+        let side = side_of(screen, field, caret, lines[position].frame);
+        nearest_part(&lines[position].text, side, TokenCount(left)).map(|part| (position, part))
+    });
+    whole.chain(part).collect()
 }
 
-/// Returns the positions of the `lines` that show `shown` again in the same order, and of the
-/// `nearest` lines after them. Each line of `shown` takes the last line with its text before the
-/// line that `shown` has after it. `None` when `shown` is empty or a line of it is not in `lines`.
+/// The side of the caret where the prompt shows a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Above,
+    Below,
+}
+
+/// Returns the side of `caret` where the prompt shows the line at `frame` of `screen`. The lines of
+/// a field that hides its text count as above the caret, also on the row of the caret, but the
+/// lines of the field below that row are below the caret.
+fn side_of(screen: &ScreenText, field: FieldContent<'_>, caret: ScreenRect, frame: ScreenRect) -> Side {
+    if is_above(frame, caret) || (field.holds(frame, screen.field) && !is_below_row(frame, caret)) {
+        Side::Above
+    } else {
+        Side::Below
+    }
+}
+
+/// Returns the part of `text` nearest to the caret that fits in `budget` with the [`CUT_MARK`],
+/// from a whole word: the end of a line above the caret, the start of a line below it. `None` when
+/// no whole word fits.
+fn nearest_part(text: &str, side: Side, budget: TokenCount) -> Option<String> {
+    let mark_tokens = estimated_tokens(&format!("{CUT_MARK} ")).0;
+    let room = TokenCount(budget.0.checked_sub(mark_tokens)?);
+    let part = match side {
+        Side::Above => from_word(text, last_tokens(text, room)),
+        Side::Below => start_at_word(text, first_tokens(text, room)),
+    };
+    (!part.is_empty()).then(|| match side {
+        Side::Above => format!("{CUT_MARK} {part}"),
+        Side::Below => format!("{part} {CUT_MARK}"),
+    })
+}
+
+/// Returns the text of the `lines` that show `shown` again in the same order, by their positions,
+/// and of the `nearest` lines after them. Each line of `shown` takes the last line that it shows
+/// ([`shows_line`]) before the line that `shown` has after it. `None` when `shown` is empty or a
+/// line of it is not in `lines`.
 fn shown_and_newer(
     shown: &[String],
     lines: &[Candidate],
-    nearest: &HashSet<usize>,
-) -> Option<HashSet<usize>> {
+    nearest: &BTreeMap<usize, String>,
+) -> Option<BTreeMap<usize, String>> {
     let mut end = lines.len();
     let shown_again = shown
         .iter()
         .rev()
         .map(|text| {
-            end = lines[..end].iter().rposition(|line| line.text == *text)?;
-            Some(end)
+            end = lines[..end]
+                .iter()
+                .rposition(|line| shows_line(text, &line.text))?;
+            Some((end, text.clone()))
         })
         .collect::<Option<Vec<_>>>()?;
-    let &last_shown = shown_again.first()?;
-    let newer = nearest.iter().copied().filter(|&position| position > last_shown);
+    let &(last_shown, _) = shown_again.first()?;
+    let newer = nearest
+        .range(last_shown + 1..)
+        .map(|(&position, text)| (position, text.clone()));
     Some(shown_again.into_iter().chain(newer).collect())
 }
 
-fn tokens_of(lines: &[Candidate], kept: &HashSet<usize>) -> u32 {
-    kept.iter()
-        .map(|&position| estimated_tokens(&lines[position].text).0)
+/// Whether `shown`, a line that a prompt showed above the caret, shows the line `text`: the same
+/// text, or the end of `text` after the [`CUT_MARK`].
+fn shows_line(shown: &str, text: &str) -> bool {
+    shown
+        .strip_prefix(CUT_MARK)
+        .and_then(|part| part.strip_prefix(' '))
+        .map_or(shown == text, |part| text.ends_with(part))
+}
+
+/// Whether `kept` shows each line that `nearest` shows whole, also whole.
+fn keeps_whole_lines_of(
+    kept: &BTreeMap<usize, String>,
+    nearest: &BTreeMap<usize, String>,
+    lines: &[Candidate],
+) -> bool {
+    nearest
+        .iter()
+        .filter(|&(&position, text)| *text == lines[position].text)
+        .all(|(position, text)| kept.get(position) == Some(text))
+}
+
+fn tokens_of(kept: &BTreeMap<usize, String>) -> u32 {
+    kept.values()
+        .map(|text| estimated_tokens(text).0)
         .fold(0, u32::saturating_add)
 }
 
@@ -443,27 +507,21 @@ fn with_slack(budget: TokenCount) -> u32 {
         .saturating_add(budget.0.saturating_mul(KEPT_LINES_SLACK_PERCENT) / 100)
 }
 
-/// Returns the text of the `kept` positions of `lines`, each side of the caret of `screen` in
-/// reading order. The lines of a field that hides its text count as above the caret, also on the
-/// row of the caret, but the lines of the field below that row are below the caret.
+/// Returns the `kept` text of `lines` by their positions, each side of the caret of `screen`
+/// ([`side_of`]) in reading order.
 fn split_at_caret(
     screen: &ScreenText,
     field: FieldContent<'_>,
-    lines: Vec<Candidate>,
-    kept: &HashSet<usize>,
+    lines: &[Candidate],
+    kept: BTreeMap<usize, String>,
 ) -> NearbyLines {
     let caret = caret_of(screen, field);
-    let (above, below) = lines
-        .into_iter()
-        .enumerate()
-        .filter_map(|(position, line)| kept.contains(&position).then_some(line))
-        .partition::<Vec<_>, _>(|line| {
-            is_above(line.frame, caret)
-                || (field.holds(line.frame, screen.field) && !is_below_row(line.frame, caret))
-        });
+    let (above, below) = kept.into_iter().partition::<Vec<_>, _>(|&(position, _)| {
+        side_of(screen, field, caret, lines[position].frame) == Side::Above
+    });
     NearbyLines {
-        above: above.into_iter().map(|line| line.text).collect(),
-        below: below.into_iter().map(|line| line.text).collect(),
+        above: above.into_iter().map(|(_, text)| text).collect(),
+        below: below.into_iter().map(|(_, text)| text).collect(),
     }
 }
 
@@ -662,6 +720,10 @@ mod tests {
     const DRIVER: &str = "Sure, who drives us on Friday?";
     const SIX: &str = "I can drive, I leave at six pm";
     const SEE_YOU: &str = "Perfect, see you all at six pm";
+    /// A chat message of 20 estimated tokens.
+    const SAUNA: &str = "Did you see that the lake cabin has a sauna and a boat now?";
+    /// A line of 22 estimated tokens.
+    const AIRPORT: &str = "Can someone pick me up at the airport or should I take the train?";
 
     const fn rect(left: i32, top: i32, right: i32, bottom: i32) -> ScreenRect {
         ScreenRect {
@@ -789,8 +851,8 @@ mod tests {
     }
 
     #[test]
-    fn line_that_does_not_fit_leaves_room_for_a_shorter_line() {
-        let screen = screen(vec![above(&"a".repeat(60), 1), above("See you at 7?", 2)]);
+    fn line_above_that_does_not_fit_keeps_its_end_after_a_cut_mark() {
+        let screen = screen(vec![above(AIRPORT, 1)]);
 
         let lines = nearby_lines(
             &screen,
@@ -799,7 +861,35 @@ mod tests {
             LineScope::Window,
         );
 
-        assert_eq!(lines, above_the_field(&["See you at 7?"]));
+        assert_eq!(lines, above_the_field(&["… should I take the train?"]));
+    }
+
+    #[test]
+    fn line_below_that_does_not_fit_keeps_its_start_before_a_cut_mark() {
+        let screen = screen(vec![line(AIRPORT, rect(300, 980, 900, 1010))]);
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(10),
+            LineScope::Window,
+        );
+
+        assert_eq!(lines, below_the_field(&["Can someone pick me up …"]));
+    }
+
+    #[test]
+    fn lines_farther_than_a_line_that_does_not_fit_go() {
+        let screen = screen(vec![above(AIRPORT, 1), above("See you", 2)]);
+
+        let lines = nearby_lines(
+            &screen,
+            FieldContent::Read(None),
+            TokenCount(3),
+            LineScope::Window,
+        );
+
+        assert_eq!(lines, NearbyLines::default());
     }
 
     #[test]
@@ -1437,7 +1527,23 @@ mod tests {
 
         let lines = chat_lines_after(&[FRIDAY, KAYAKS, COOLER, "Seen"], &messages);
 
-        assert_eq!(lines, above_the_field(&[KAYAKS, COOLER, DRIVER, "Seen"]));
+        assert_eq!(
+            lines,
+            above_the_field(&["… from Friday on", KAYAKS, COOLER, DRIVER, "Seen"])
+        );
+    }
+
+    #[test]
+    fn cut_line_of_the_last_prompt_stays_first_when_a_new_message_comes() {
+        let messages = [(SAUNA, 5), (KAYAKS, 4), (COOLER, 3), (DRIVER, 2), (SIX, 1)];
+        let shown = ["… sauna and a boat now?", KAYAKS, COOLER, DRIVER];
+
+        let lines = chat_lines_after(&shown, &messages);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["… sauna and a boat now?", KAYAKS, COOLER, DRIVER, SIX])
+        );
     }
 
     #[test]
@@ -1487,7 +1593,7 @@ mod tests {
         assert_eq!(
             lines,
             NearbyLines {
-                above: texts(&[KAYAKS, COOLER, DRIVER]),
+                above: texts(&["… from Friday on", KAYAKS, COOLER, DRIVER]),
                 below: texts(&["Sent"]),
             }
         );

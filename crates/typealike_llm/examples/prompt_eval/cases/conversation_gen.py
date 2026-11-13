@@ -974,6 +974,7 @@ CASE_KEYS = {"id", "app", "app_id", "window_title", "domain", "field_caption", "
 ENTRY_KEYS = {"text", "app_id", "domain", "written_at", "reply_to", "app", "window_title"}
 PLAIN_PUNCTUATION = set(".,;:!?'’\"“”()-…")
 HALVES_OF_DAY = {"am", "pm"}
+CUT_MARK = "…"
 DAY_WORDS = {"today", "yesterday", "hoy", "ayer"}
 DAY_TIME_JOINS = {"at", "a", "las", "la"}
 SPANISH_WORDS = {"el", "la", "las", "los", "es", "que", "se", "sí", "dile", "nos", "te", "hola", "gracias", "voy", "llamo", "claro", "listo", "jueves", "tía"}
@@ -1061,14 +1062,29 @@ def ranked_candidates(case):
 
 
 def kept_texts(ranked, budget):
+    """Returns the texts of `ranked` that the prompt keeps above the caret: the whole lines up to the
+    first line that does not fit, then the end of that line after the cut mark."""
     left = budget
     kept = []
     for text in ranked:
         tokens = estimated_tokens(text)
-        if tokens <= left:
-            left -= tokens
-            kept.append(text)
+        if tokens > left:
+            end = line_end(text, left - estimated_tokens(CUT_MARK + " "))
+            return kept + ([f"{CUT_MARK} {end}"] if end else [])
+        left -= tokens
+        kept.append(text)
     return kept
+
+
+def line_end(text, budget):
+    """Returns the end of `text` from a whole word that takes at most `budget` estimated tokens."""
+    end = ""
+    for word in reversed(text.split(" ")):
+        longer = f"{word} {end}".rstrip()
+        if estimated_tokens(longer) > budget:
+            break
+        end = longer
+    return end
 
 
 def fact_word(case):
