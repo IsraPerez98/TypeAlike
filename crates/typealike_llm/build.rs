@@ -3,11 +3,18 @@
 //! The `vulkan` and `cuda` features build llama.cpp as DLLs. On MSVC, llama-cpp-sys-2 0.1.159
 //! does not copy them to the target folder, because it looks for `.lib` files in their folder.
 //! Without the copies, Windows loads another `llama.dll` from `PATH`, or none, and the program
-//! stops before `main`. The GPU backends go next to the programs too, so that a target folder
-//! runs on another computer.
+//! stops before `main`.
+//!
+//! Each backend DLL goes into the folder of its backend in `backends` next to the bin:
+//! `backends\cpu`, `backends\vulkan` and `backends\cuda`. The model worker loads only the folders
+//! that a load needs. Thus a target folder also runs on another computer, as the installers do.
 
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+
+/// The folder next to the bin with a folder for each backend. The model worker reads the same
+/// folders.
+const BACKENDS_FOLDER: &str = "backends";
 
 fn main() {
     println!("cargo::rerun-if-env-changed=DEP_LLAMA_BACKENDS_DIR");
@@ -28,11 +35,16 @@ fn main() {
         .parent()
         .expect("the backends folder is in the llama.cpp output folder")
         .join("bin");
-    copy_dlls(&libraries, &[profile_dir.to_path_buf(), profile_dir.join("deps")]);
-    copy_dlls(&backends, &[profile_dir.to_path_buf()]);
+    for dll in dlls_in(&libraries) {
+        copy_dll(&dll, profile_dir);
+        copy_dll(&dll, &profile_dir.join("deps"));
+    }
+    for dll in dlls_in(&backends) {
+        copy_backend_dll(&dll, &profile_dir.join(BACKENDS_FOLDER));
+    }
 }
 
-fn copy_dlls(source: &Path, destinations: &[PathBuf]) {
+fn dlls_in(source: &Path) -> Vec<PathBuf> {
     let entries = match fs::read_dir(source) {
         Ok(entries) => entries,
         Err(error) => {
@@ -40,30 +52,50 @@ fn copy_dlls(source: &Path, destinations: &[PathBuf]) {
                 "cargo::warning=cannot read the llama.cpp DLLs in {}: {error}",
                 source.display()
             );
-            return;
+            return Vec::new();
         }
     };
-    let dlls = entries
+    entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
             path.extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
-        });
-    for dll in dlls {
-        copy_dll(&dll, destinations);
-    }
+        })
+        .collect()
 }
 
-fn copy_dll(dll: &Path, destinations: &[PathBuf]) {
+/// Copies the backend `dll` into the folder of its backend in `backends`.
+fn copy_backend_dll(dll: &Path, backends: &Path) {
+    let Some(backend) = backend_of(dll) else {
+        println!("cargo::warning={} is not a llama.cpp backend DLL", dll.display());
+        return;
+    };
+    let folder = backends.join(backend);
+    if let Err(error) = fs::create_dir_all(&folder) {
+        println!(
+            "cargo::warning=cannot make the folder {}: {error}",
+            folder.display()
+        );
+        return;
+    }
+    copy_dll(dll, &folder);
+}
+
+/// Returns the backend of a backend DLL, as llama.cpp finds it in the name: `cpu` for
+/// `ggml-cpu-haswell.dll`, and `cuda` for `ggml-cuda.dll`.
+fn backend_of(dll: &Path) -> Option<&str> {
+    let name = dll.file_stem()?.to_str()?.strip_prefix("ggml-")?;
+    name.split('-').next()
+}
+
+fn copy_dll(dll: &Path, destination: &Path) {
     let name = dll.file_name().expect("a directory entry has a name");
-    for destination in destinations {
-        if let Err(error) = fs::copy(dll, destination.join(name)) {
-            println!(
-                "cargo::warning=cannot copy {} to {}: {error}",
-                dll.display(),
-                destination.display()
-            );
-        }
+    if let Err(error) = fs::copy(dll, destination.join(name)) {
+        println!(
+            "cargo::warning=cannot copy {} to {}: {error}",
+            dll.display(),
+            destination.display()
+        );
     }
 }

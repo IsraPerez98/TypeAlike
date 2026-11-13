@@ -41,8 +41,10 @@ UninstallDisplayIcon={app}\TypeAlike.exe
 SetupIconFile=..\..\crates\typealike\TypeAlike.ico
 
 [InstallDelete]
-; Removes the DLLs of the other flavor, so llama.cpp does not load a backend of an older install.
+; Removes the DLLs and the backend folders of the other flavor and of an older install, so that
+; llama.cpp does not load a backend of an older install.
 Type: files; Name: "{app}\*.dll"
+Type: filesandordirs; Name: "{app}\backends"
 
 [Files]
 Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

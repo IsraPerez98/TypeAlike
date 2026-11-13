@@ -1,5 +1,6 @@
 //! The thread that owns llama.cpp: the backend, the loaded model and each completion.
 
+mod backend_dlls;
 mod correction;
 mod drafter;
 mod generation;
@@ -27,6 +28,7 @@ use typealike_core::inference::{
     Backend, CpuCores, DRAFTER_MEMORY, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
 };
 
+use crate::worker::backend_dlls::BackendDlls;
 use crate::worker::drafter::is_drafter_of;
 use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
@@ -168,6 +170,7 @@ pub(crate) fn run(
 ) {
     let mut queue = JobQueue::new(jobs);
     let mut llama = None;
+    let mut backend_dlls = BackendDlls::of_program_in(program_folder().as_deref(), Path::is_dir);
     while let Some(Job { request, mut reply }) = queue.next() {
         match request {
             InferenceRequest::Load { file, backend } => {
@@ -183,6 +186,7 @@ pub(crate) fn run(
                 let drafter_path = drafter_path(&file, backend, locate_model);
                 let loaded = load_with_drafter(
                     &mut llama,
+                    &mut backend_dlls,
                     locate_model(&file),
                     drafter_path,
                     backend,
@@ -196,7 +200,12 @@ pub(crate) fn run(
                         let mut loaded_model = LoadedModel::new(llama, &model, drafter.as_ref(), setup);
                         loaded_model.warm_up(&mut || queue.has_waiting_job());
                         reply.answer(InferenceEvent::Loaded { file, result: Ok(()) });
-                        serve(&mut loaded_model, &mut queue, context_idle_timeout(backend));
+                        serve(
+                            &mut loaded_model,
+                            &mut queue,
+                            &mut backend_dlls,
+                            context_idle_timeout(backend),
+                        );
                     }
                     (loaded, _) => reply.answer(InferenceEvent::Loaded {
                         file,
@@ -209,7 +218,7 @@ pub(crate) fn run(
             }
             InferenceRequest::Unload => {}
             InferenceRequest::ReadGpuMemory { backend } => {
-                let result = read_gpu_memory(&mut llama, backend);
+                let result = read_gpu_memory(&mut llama, &mut backend_dlls, backend);
                 reply.answer(InferenceEvent::GpuMemory { backend, result });
             }
         }
@@ -224,15 +233,25 @@ fn load(
     backend: Backend,
     batch_tokens: u32,
 ) -> Result<LlamaModel, InferenceError> {
-    load_with_drafter(llama, path, None, backend, batch_tokens).map(|(model, _)| model)
+    load_with_drafter(
+        llama,
+        &mut BackendDlls::found_by_llama_cpp(),
+        path,
+        None,
+        backend,
+        batch_tokens,
+    )
+    .map(|(model, _)| model)
 }
 
 /// Loads the model at `path` on `backend`, for a context that decodes `batch_tokens` at a time. On
 /// another thread at the same time, it loads the drafter at `drafter_path`, so that the drafter
-/// adds little time to the load. It starts llama.cpp in `llama` first, when it did not start
-/// before. The model runs without the drafter when the drafter fails to load or does not fit it.
+/// adds little time to the load. It starts llama.cpp in `llama` with the backends of `backend` in
+/// `backend_dlls` first, as [`start_backend`] does. The model runs without the drafter when the
+/// drafter fails to load or does not fit it.
 fn load_with_drafter(
     llama: &mut Option<LlamaBackend>,
+    backend_dlls: &mut BackendDlls,
     path: Option<PathBuf>,
     drafter_path: Option<PathBuf>,
     backend: Backend,
@@ -241,7 +260,7 @@ fn load_with_drafter(
     let path = path
         .filter(|path| path.is_file())
         .ok_or(InferenceError::ModelMissing)?;
-    let llama = start_backend(llama)?;
+    let llama = start_backend(llama, backend_dlls, backend)?;
     let (params, drafter_path) = params_with_room_for(drafter_path, &path, backend, batch_tokens)?;
     thread::scope(|scope| {
         let loading_drafter =
@@ -311,19 +330,34 @@ fn load_drafter(llama: &LlamaBackend, path: &Path, backend: Backend) -> Option<L
     Some(drafter)
 }
 
-/// Reads the free memory of the GPU that runs `backend`. For a GPU backend, it starts llama.cpp in
-/// `llama` first, when it did not start before.
-fn read_gpu_memory(llama: &mut Option<LlamaBackend>, backend: Backend) -> Result<ByteSize, InferenceError> {
+/// Reads the free memory of the GPU that runs `backend`. For a GPU backend, it first starts
+/// llama.cpp in `llama` with the backends of `backend` in `backend_dlls`, as [`start_backend`]
+/// does.
+fn read_gpu_memory(
+    llama: &mut Option<LlamaBackend>,
+    backend_dlls: &mut BackendDlls,
+    backend: Backend,
+) -> Result<ByteSize, InferenceError> {
     if backend == Backend::Cpu {
         return Err(InferenceError::BackendUnavailable);
     }
-    start_backend(llama)?;
+    start_backend(llama, backend_dlls, backend)?;
     free_gpu_memory(backend)
 }
 
-fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, InferenceError> {
-    if llama.is_none() {
+/// Starts llama.cpp in `llama` with the backends that a load on `backend` needs, from
+/// `backend_dlls`. When llama.cpp started before, it adds the backends of `backend` that did not
+/// load before. When `backend_dlls` gives no folder, llama.cpp loads each backend that it finds.
+fn start_backend<'llama>(
+    llama: &'llama mut Option<LlamaBackend>,
+    backend_dlls: &mut BackendDlls,
+    backend: Backend,
+) -> Result<&'llama LlamaBackend, InferenceError> {
+    if llama.is_some() {
+        add_backends(backend_dlls, backend);
+    } else {
         send_logs_to_tracing(LogOptions::default());
+        load_backend_dlls(backend_dlls, backend);
         let started = LlamaBackend::init().map_err(|error: LlamaCppError| {
             tracing::error!(%error, "failed to start llama.cpp");
             InferenceError::Failed
@@ -334,10 +368,67 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Infe
     Ok(llama.as_ref().expect("the backend started above"))
 }
 
+/// Adds the backends that a load on `backend` needs and that did not load before to the started
+/// llama.cpp, and logs the devices when a backend loaded.
+fn add_backends(backend_dlls: &mut BackendDlls, backend: Backend) {
+    if load_backend_dlls(backend_dlls, backend) {
+        log_devices();
+    }
+}
+
+/// Loads the folders of `backend_dlls` that a load on `backend` needs and that did not load
+/// before. Returns whether a folder loaded.
+fn load_backend_dlls(backend_dlls: &mut BackendDlls, backend: Backend) -> bool {
+    let mut is_loaded = false;
+    for folder in backend_dlls.folders_to_load(backend) {
+        is_loaded |= load_backend_folder(&folder);
+    }
+    is_loaded
+}
+
+/// Loads the best DLL of each backend in `folder`, and returns whether the folder exists.
+/// llama.cpp finds the DLLs that a backend DLL loads, such as `ggml-base.dll` and the CUDA
+/// runtime, next to the program.
+#[cfg(any(feature = "vulkan", feature = "cuda"))]
+fn load_backend_folder(folder: &Path) -> bool {
+    if !folder.is_dir() {
+        tracing::info!(folder = %folder.display(), "the program has no llama.cpp backend in this folder");
+        return false;
+    }
+    if folder.to_str().is_none() {
+        tracing::warn!(folder = %folder.display(), "llama.cpp cannot load a folder whose path is not Unicode");
+        return false;
+    }
+    tracing::info!(folder = %folder.display(), "loading the llama.cpp backend of a folder");
+    llama_cpp_2::llama_backend::load_backends_from_path(folder);
+    true
+}
+
+/// A build without the GPU features has the CPU backend of llama.cpp in the program, and no
+/// backend DLLs.
+#[cfg(not(any(feature = "vulkan", feature = "cuda")))]
+fn load_backend_folder(_folder: &Path) -> bool {
+    false
+}
+
+/// Returns the folder of the running program, or `None` when Windows or macOS does not give it.
+fn program_folder() -> Option<PathBuf> {
+    let program = std::env::current_exe()
+        .inspect_err(|error| tracing::warn!(%error, "cannot find the folder of the program"))
+        .ok()?;
+    program.parent().map(Path::to_path_buf)
+}
+
 /// Runs the completions and the reads of GPU memory for the `loaded` model until a job loads or
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
-/// before the next model loads. It frees the context when no job comes for `idle_timeout`.
-fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: Option<Duration>) {
+/// before the next model loads. It frees the context when no job comes for `idle_timeout`. A read
+/// of GPU memory first adds the backends of its backend from `backend_dlls`.
+fn serve(
+    loaded: &mut LoadedModel<'_>,
+    queue: &mut JobQueue<'_>,
+    backend_dlls: &mut BackendDlls,
+    idle_timeout: Option<Duration>,
+) {
     while let Some(mut job) = next_job_for(loaded, queue, idle_timeout) {
         let InferenceRequest::Complete {
             prompt,
@@ -351,6 +442,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         } = &job.request
         else {
             if let InferenceRequest::ReadGpuMemory { backend } = job.request {
+                add_backends(backend_dlls, backend);
                 let result = free_gpu_memory(backend);
                 job.reply.answer(InferenceEvent::GpuMemory { backend, result });
                 continue;
