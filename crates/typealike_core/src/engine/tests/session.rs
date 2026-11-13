@@ -211,6 +211,22 @@ fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
 }
 
 #[test]
+fn first_key_reads_each_icon_of_the_field_text_as_a_space() {
+    let icons = ['\u{e0b0}', '\u{f8ff}', '\u{f0000}', '\u{10fffd}'];
+
+    let reactions = icons.map(|icon| {
+        let mut engine = Engine::default();
+        engine.on_key(
+            Key::Char('l'),
+            Press::First,
+            &FakeDesktop::with_field_text(&format!("Hello{icon}wor")),
+        )
+    });
+
+    assert_eq!(reactions, icons.map(|_| request("Hello worl")));
+}
+
+#[test]
 fn first_key_reads_the_field_text_without_zero_width_spaces() {
     let mut engine = Engine::default();
 

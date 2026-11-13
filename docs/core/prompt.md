@@ -51,6 +51,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 
 - The scope of the lines (`LineScope`).
 - The noise: many signs, or a digit between two lowercase letters, as text recognition makes them. A code of capital letters and digits, such as a booking code, stays.
+- The icons: each character of a private-use area of Unicode becomes a space, as in the field text (`docs/core/typing.md`, "Field text"). The noise test counts the icons as signs, so a line that is mostly icons, such as a toolbar, still goes.
 - The copies: a line with the same text and frame as another line shows once, because the tree of an Electron app gives each line twice.
 - The lines without a letter beside the field, such as the line numbers of an editor.
 - The times of chat headers and of chat messages.

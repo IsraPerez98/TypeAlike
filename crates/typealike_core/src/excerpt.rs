@@ -14,6 +14,20 @@ pub(crate) fn plain_spaces(text: &str) -> String {
     text.replace(['\u{a0}', '\u{202f}', '\u{2007}'], " ")
 }
 
+/// Returns `text` with a plain space for each character of a private-use area of Unicode, which
+/// icon fonts draw as icons. The count of characters stays the same, so the Backspace keys of a
+/// replacement still delete the right characters.
+pub(crate) fn icons_as_spaces(text: &str) -> String {
+    text.replace(is_private_use, " ")
+}
+
+fn is_private_use(character: char) -> bool {
+    matches!(
+        character,
+        '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}'
+    )
+}
+
 /// Returns `text` without its zero-width spaces and word joiners. A web editor such as CodeMirror
 /// puts them around a widget, such as the mark of a list item, never inside a typed word, so the
 /// Backspace keys of the replacement of a word still delete the right characters.

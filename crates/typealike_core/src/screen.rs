@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 use crate::desktop::{Confidence, FieldText, OcrArea, ScreenLine, ScreenRect, ScreenText, Surroundings};
-use crate::excerpt::{estimated_tokens, one_line};
+use crate::excerpt::{estimated_tokens, icons_as_spaces, one_line};
 use crate::inference::TokenCount;
 use crate::place::Format;
 
@@ -301,12 +301,13 @@ fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) ->
         .filter(|line| line.confidence >= MIN_CONFIDENCE)
         .filter(|line| field.holds(line.frame, screen.field) || !is_inside(line.frame, screen.field))
         .filter(|line| !is_beside(line.frame, screen.field) || line.text.chars().any(char::is_alphabetic))
+        .filter(|line| !is_mostly_icons(&line.text))
         .collect::<Vec<_>>();
     let message_times = MessageTimes::of(&lines, scope);
     lines
         .into_iter()
         .map(|line| {
-            let text = message_times.without_time_of_message(one_line(&line.text), line.frame);
+            let text = message_times.without_time_of_message(plain_text(&line.text), line.frame);
             match header_name(&text) {
                 Some(name) => Candidate {
                     text: name,
@@ -518,6 +519,17 @@ fn is_inside(line: ScreenRect, field: ScreenRect) -> bool {
     (field.left..field.right).contains(&middle_x) && (field.top..field.bottom).contains(&middle_y)
 }
 
+/// Returns the text of a screen line on one line, with a space for each icon.
+fn plain_text(line: &str) -> String {
+    one_line(&icons_as_spaces(line))
+}
+
+/// Whether `line` holds icons and looks like noise when its icons count as signs, as a toolbar
+/// with short labels does.
+fn is_mostly_icons(line: &str) -> bool {
+    icons_as_spaces(line) != line && is_noise(line)
+}
+
 /// Whether `line` looks like noise: many signs, or a digit between two lowercase letters of a word,
 /// as text recognition makes them. A digit between capital letters is often a code, such as a
 /// booking code, which the user can need.
@@ -574,7 +586,9 @@ impl MessageTimes {
             LineScope::Window => Vec::new(),
             LineScope::Column => lines
                 .iter()
-                .filter(|line| without_time_at_end(&one_line(&line.text)).is_some_and(|rest| rest.is_empty()))
+                .filter(|line| {
+                    without_time_at_end(&plain_text(&line.text)).is_some_and(|rest| rest.is_empty())
+                })
                 .map(|line| line.frame)
                 .collect(),
         };
@@ -920,6 +934,37 @@ mod tests {
             above("he1lo w0rld", 2),
             above("#@%& tags", 3),
         ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
+
+        assert_eq!(lines, NearbyLines::default());
+    }
+
+    #[test]
+    fn icons_of_a_line_go() {
+        let screen = screen(vec![
+            above("\u{eb99} Did you book the cabin?\u{e000}", 1),
+            above("Lunch\u{f0000}today", 2),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
+
+        assert_eq!(
+            lines,
+            above_the_field(&["Lunch today", "Did you book the cabin?"])
+        );
+    }
+
+    #[test]
+    fn chat_header_with_icons_keeps_its_name_without_its_time() {
+        let kept = kept_texts(["\u{e0b0} Omar Haddad  9:12 AM", "Laura Méndez 11:02 \u{f101}"]);
+
+        assert_eq!(kept, [texts(&["Omar Haddad"]), texts(&["Laura Méndez"])]);
+    }
+
+    #[test]
+    fn line_of_icons_and_a_short_label_stays_noise() {
+        let screen = screen(vec![above("\u{ea60}\u{ea61} main", 1)]);
 
         let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Window);
 

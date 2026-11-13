@@ -51,6 +51,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - Core reads each no-break space of the field text (U+00A0, U+202F, U+2007) as a plain space (`excerpt::plain_spaces`), because a web editor shows a typed space at the end of a text as a no-break space.
 - Without this, the typo rule and the token healing take the space as a part of the last word.
 - Core also removes the zero-width spaces and the word joiners of the field text (U+200B, U+2060, U+FEFF, `excerpt::without_zero_width_spaces`). A web editor such as CodeMirror puts them around a widget, such as the mark of a list item, never inside a typed word.
+- Core reads each character of a private-use area of Unicode in the field text (U+E000 to U+F8FF, and the planes 15 and 16) as a plain space (`excerpt::icons_as_spaces`). An icon font draws these characters as icons, and the model reads them as noise. The count of characters stays the same, so the Backspace keys of a fix still delete the right characters.
 - The session reads the text after the caret one time, at its start. The request to the model uses the line of that text. Only the placement of the ghost text uses a newer look (`docs/core/ghost-text.md`, "Placement").
 
 ### Enter
