@@ -26,6 +26,8 @@ const FIX_KEEPING_SIGNS: [char; 5] = [',', ';', ':', '!', '?'];
 const FRAME_COPY_WORDS: usize = 5;
 /// The fewest words of a shorter frame line that count as a copy of it.
 const MIN_FRAME_COPY_WORDS: usize = 3;
+/// The sign at the end of a label of the prompt frame, such as "Text on my clipboard:".
+const LABEL_END: char = ':';
 /// The signs that end a sentence.
 const SENTENCE_ENDS: [char; 7] = ['.', '!', '?', '…', '。', '！', '？'];
 /// The quotes and brackets that can come after the sign that ends a sentence.
@@ -265,10 +267,10 @@ fn opens_note_after_sentence(suggestion: &str, context: &str) -> bool {
     context.trim_end().ends_with(SENTENCE_ENDS) && suggestion.trim_start().starts_with(NOTE_BRACKETS)
 }
 
-/// Whether `suggestion` after `context` copies one of the `frame_lines` of the preface: it holds
-/// [`FRAME_COPY_WORDS`] words of the line in a row, or it starts the line of the caret as the line
-/// starts, with its first [`FRAME_COPY_WORDS`] words or with all the words of a shorter line of at
-/// least [`MIN_FRAME_COPY_WORDS`]. In the second case, the suggestion must add one of these words.
+/// Whether `suggestion` after `context` copies one of the `frame_lines` of the preface: it holds a
+/// run of the line ([`copy_run_words`]), or it starts the line of the caret as the line starts,
+/// with its first [`FRAME_COPY_WORDS`] words or with all the words of a shorter line of at least
+/// [`MIN_FRAME_COPY_WORDS`]. In the second case, the suggestion must add one of these words.
 fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, frame_lines: &[String]) -> bool {
     let caret_line = context.rsplit('\n').next().unwrap_or_default();
     let typed_words = words(caret_line).count();
@@ -278,17 +280,32 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
         let start = frame_words.len().min(FRAME_COPY_WORDS);
         let starts_as_frame_line =
             start >= MIN_FRAME_COPY_WORDS && typed_words < start && line.starts_with(&frame_words[..start]);
+        let run_words = copy_run_words(frame_line, frame_words.len());
         starts_as_frame_line
             || frame_words
-                .windows(FRAME_COPY_WORDS)
-                .any(|run| suggested.windows(FRAME_COPY_WORDS).any(|copy| copy == run))
+                .windows(run_words)
+                .any(|run| suggested.windows(run_words).any(|copy| copy == run))
     })
+}
+
+/// Returns the words of `frame_line`, which has `frame_words` words, that make a copy of it when a
+/// suggestion holds them in a row: [`FRAME_COPY_WORDS`], or all the words of a shorter label of at
+/// least [`MIN_FRAME_COPY_WORDS`], which ends with [`LABEL_END`]. The other short lines hold text
+/// that the writer can type, such as the name of the writer or the age of an earlier text.
+fn copy_run_words(frame_line: &str, frame_words: usize) -> usize {
+    let is_short_label = frame_line.trim_end().ends_with(LABEL_END) && frame_words >= MIN_FRAME_COPY_WORDS;
+    if is_short_label {
+        frame_words.min(FRAME_COPY_WORDS)
+    } else {
+        FRAME_COPY_WORDS
+    }
 }
 
 /// Returns `completion`, a part of a completion after `context`, without its last words while more
 /// words can make it a copy of one of the `frame_lines` for [`copies_frame_line`]: they start the
-/// line of the caret as a frame line starts, or they start a run of [`FRAME_COPY_WORDS`] words of a
-/// frame line. A part with a line break keeps its words, because its first line is complete.
+/// line of the caret as a frame line starts, or they start a run of a frame line
+/// ([`copy_run_words`]). A part with a line break keeps its words, because its first line is
+/// complete.
 pub(super) fn before_frame_copy_start<'text>(
     context: &str,
     completion: &'text str,
@@ -312,9 +329,10 @@ pub(super) fn before_frame_copy_start<'text>(
             if start >= MIN_FRAME_COPY_WORDS && line.len() < start && frame_words.starts_with(&line) {
                 return Some(0);
             }
-            (suggested.len().saturating_sub(FRAME_COPY_WORDS - 1)..suggested.len()).find(|&index| {
+            let run_words = copy_run_words(frame_line, frame_words.len());
+            (suggested.len().saturating_sub(run_words - 1)..suggested.len()).find(|&index| {
                 frame_words
-                    .windows(FRAME_COPY_WORDS)
+                    .windows(run_words)
                     .any(|run| run.starts_with(&suggested[index..]))
             })
         })

@@ -3,11 +3,12 @@
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
 use crate::key::{Key, Press};
-use crate::settings::{Settings, WriterName, WriterNotes};
-use crate::test_support::completion;
+use crate::settings::{HistoryAccess, Settings, WriterName, WriterNotes};
+use crate::test_support::{at_hour, completion, mail_entry, on_day};
 
 use super::support::{
-    FakeDesktop, accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, show,
+    FakeDesktop, accept, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history,
+    history_settings, mail_field, press, request, show,
 };
 
 #[test]
@@ -210,10 +211,51 @@ fn completion_that_shares_less_than_the_start_of_a_frame_line_shows() {
 }
 
 #[test]
+fn completion_that_holds_all_the_words_of_a_short_label_of_the_prompt_frame_hides() {
+    let cases = [
+        ("Thanks. ", "Here are the notes about me for the form."),
+        ("Can you read", " the notes about me first?"),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_holds_a_short_name_line_of_the_prompt_frame_shows() {
+    let settings = Settings {
+        writer_name: WriterName("Sara".to_owned()),
+        ..Settings::default()
+    };
+    let mut engine = engine_waiting_with(&settings, "Hi Tom, ");
+
+    let reaction = engine.on_completion(completion("my name is Sara and I work with Ana."));
+
+    assert_eq!(reaction, show("my name is Sara and I work with Ana."));
+}
+
+#[test]
+fn completion_that_holds_the_age_of_an_earlier_text_shows() {
+    let mut engine = engine_with_history(
+        &history_settings(HistoryAccess::On, Vec::new()),
+        vec![on_day(mail_entry("See you on Monday."), 10)],
+    );
+    engine.on_key(Key::Char('I'), Press::First, &mail_field().at(at_hour(12, 9)));
+
+    let reaction = engine.on_completion(completion(" sent the invoice 2 days ago."));
+
+    assert_eq!(reaction, show(" sent the invoice 2 days ago."));
+}
+
+#[test]
 fn partial_completion_holds_back_the_words_that_can_start_a_copy_of_a_frame_line() {
     let cases = [
         ("Thanks. ", "Sure, for example an ", Some("Sure,")),
         ("Hello ", "world, the part of my ", Some("world,")),
+        ("Thanks. ", "Here are the notes about ", Some("Here are the")),
         ("N", "otes about ", None),
         ("My ", "name is ", None),
     ];
@@ -235,6 +277,12 @@ fn partial_completion_that_completes_a_copy_of_a_frame_line_shows_none_of_it() {
             true,
         ),
         ("T", "he part of my ", "he part of my writing ", false),
+        (
+            "Thanks. ",
+            "Here are the notes about ",
+            "Here are the notes about me for ",
+            true,
+        ),
     ];
 
     let reactions = cases.map(|(context, held, copy, _)| {

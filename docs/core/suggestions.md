@@ -114,10 +114,15 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 
 ## Suggestions that do not show
 
-- A suggestion of the model does not show when it copies the frame of its prompt (`copies_frame_line`): it holds 5 words in a row of a frame line, or the line of the caret starts as a frame line starts (its first 5 words, or all the words of a shorter line of at least 3).
+- A suggestion of the model does not show when it copies the frame of its prompt (`copies_frame_line`): it holds a run of a frame line, or the line of the caret starts as a frame line starts (its first 5 words, or all the words of a shorter line of at least 3).
+- A run is 5 words in a row of a frame line, or all the words of a label of 3 or 4 words, such as "Text on my clipboard:" (`copy_run_words`). Thus "…based on the text on my clipboard" does not show.
+- A label ends with a colon. The other short frame lines hold text that the writer can type: the name line with a name of one word ("My name is Sara.") and the age of an earlier text ("(2 days ago)"). Thus "I sent it 2 days ago" shows.
+- Measured with Gemma 4 E4B (Metal, character replay): on the 12 `clip-mid-` cases of `leaks.jsonl` with `--history off --screen off`, the rule hid the clipboard label in 3 cases (9 places, 191 to 200 of 228 without a leak) and harmed none.
+- The result was the same with the long length without the sentence stop, also with the earlier writing. Other echoes of the clipboard, such as "what is on my clipboard", still show.
+- The rule hid no suggestion in the 34 `start-` and `clip-` cases, in 60 cases of `tuning` (medium and long) and in `chat` (long).
 - The frame lines are the lines of the preface outside its texts (the quoted texts and the screen text), with only the label of the place line (a window title is text that the writer can type), and the heading (`Preface::frame_lines`), so a new label needs no other change.
 - The prompt keeps the frame lines when it writes the preface, so a quote sign without its pair in a quoted text (a clipboard text, an earlier text or the notes) does not change them. Thus the labels and the name of the writer stay, and no text of the preface becomes a frame line.
-- While the words of a completion come in, the last words wait when more words can make a copy of a frame line (`before_frame_copy_start`). These words start the line of the caret as a frame line starts, or they start a run of 5 words of a frame line.
+- While the words of a completion come in, the last words wait when more words can make a copy of a frame line (`before_frame_copy_start`). These words start the line of the caret as a frame line starts, or they start a run of a frame line.
 - Thus 1 to 4 words of a frame line do not show for a moment before the check can see the copy. A word that ends the run shows the words that waited, and so does the end of the completion. When the words make a copy, the whole suggestion hides.
 - A word that waits often shows one word later, because most short words of the frame, such as "the" or "my", can start a run.
 - A suggestion that opens a bracket just after the end of a sentence (`opens_note_after_sentence`) also does not show.
