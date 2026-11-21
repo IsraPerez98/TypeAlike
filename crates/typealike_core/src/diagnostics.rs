@@ -104,10 +104,29 @@ pub fn operation_times(
     times
 }
 
+/// The CPU time of a process between two records of its resources.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CpuWindow {
+    /// The time since the start and the CPU time of the process at the last record.
+    last: Option<(Duration, Duration)>,
+}
+
+impl CpuWindow {
+    /// The percent of one CPU core that the process used since the last record, from its `uptime`
+    /// and its `cpu_time` now. The first record has none, because the CPU time of the start would
+    /// count in a window of almost no time.
+    pub fn percent_at(&mut self, uptime: Duration, cpu_time: Duration) -> Option<f64> {
+        let (last_uptime, last_cpu_time) = self.last.replace((uptime, cpu_time))?;
+        cpu_percent(
+            cpu_time.saturating_sub(last_cpu_time),
+            uptime.saturating_sub(last_uptime),
+        )
+    }
+}
+
 /// The percent of one CPU core that the `cpu_time` of a window of `wall_time` used, or `None` for a
 /// window without time.
-#[must_use]
-pub fn cpu_percent(cpu_time: Duration, wall_time: Duration) -> Option<f64> {
+fn cpu_percent(cpu_time: Duration, wall_time: Duration) -> Option<f64> {
     (!wall_time.is_zero()).then(|| cpu_time.as_secs_f64() / wall_time.as_secs_f64() * 100.0)
 }
 
@@ -201,6 +220,18 @@ mod tests {
         let percents = windows.map(|(cpu_time, wall_time)| cpu_percent(cpu_time, wall_time));
 
         assert_eq!(percents, [Some(25.0), Some(150.0), Some(0.0), None]);
+    }
+
+    #[test]
+    fn cpu_window_gives_no_percent_at_the_first_record_and_then_the_percent_since_the_last() {
+        let mut window = CpuWindow::default();
+
+        let percents = [
+            window.percent_at(Duration::from_secs(1), Duration::from_secs(2)),
+            window.percent_at(Duration::from_secs(61), Duration::from_secs(17)),
+        ];
+
+        assert_eq!(percents, [None, Some(25.0)]);
     }
 
     #[test]

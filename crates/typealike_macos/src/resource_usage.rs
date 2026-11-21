@@ -9,7 +9,7 @@ use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use typealike_core::SUGGESTION_LOG_TARGET;
-use typealike_core::diagnostics::{KeptItems, cpu_percent, megabytes};
+use typealike_core::diagnostics::{CpuWindow, KeptItems, megabytes};
 
 /// The time between two `resource usage` records.
 pub(crate) const RECORD_INTERVAL: Duration = Duration::from_mins(1);
@@ -110,22 +110,20 @@ fn metal_allocated_bytes() -> Option<u64> {
     u64::try_from(bytes).ok()
 }
 
-/// Writes the `resource usage` records, each with the CPU percent since the record before.
+/// Writes the `resource usage` records, each but the first with the CPU percent since the record
+/// before.
 #[derive(Debug)]
 pub(crate) struct ResourceLog {
     started: Instant,
-    last_record: Instant,
-    last_cpu_time: Duration,
+    cpu: CpuWindow,
 }
 
 impl ResourceLog {
-    /// Starts the log now. The first record counts the CPU time from the start of the process.
+    /// Starts the log now.
     pub(crate) fn start() -> Self {
-        let now = Instant::now();
         Self {
-            started: now,
-            last_record: now,
-            last_cpu_time: Duration::ZERO,
+            started: Instant::now(),
+            cpu: CpuWindow::default(),
         }
     }
 
@@ -139,17 +137,11 @@ impl ResourceLog {
             tracing::debug!("failed to read the resource usage");
             return;
         };
-        let now = Instant::now();
-        let cpu_time = usage.user_time + usage.system_time;
-        let cpu_percent = cpu_percent(
-            cpu_time.saturating_sub(self.last_cpu_time),
-            now - self.last_record,
-        );
-        self.last_record = now;
-        self.last_cpu_time = cpu_time;
+        let uptime = self.started.elapsed();
+        let cpu_percent = self.cpu.percent_at(uptime, usage.user_time + usage.system_time);
         tracing::info!(
             target: SUGGESTION_LOG_TARGET,
-            uptime_s = (now - self.started).as_secs(),
+            uptime_s = uptime.as_secs(),
             footprint_mb = megabytes(usage.footprint),
             peak_footprint_mb = megabytes(usage.peak_footprint),
             resident_mb = megabytes(usage.resident),

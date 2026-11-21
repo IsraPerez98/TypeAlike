@@ -189,6 +189,6 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
   - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.
   - `resource usage`: the resources of the process when TypeAlike starts, then each minute (`RECORD_INTERVAL`, a window timer), and after each model load. It holds numbers only.
     - `private_mb` is the memory that only the process uses, which Task Manager shows. `working_set_mb` and `peak_working_set_mb` are the working set and its highest value since the start (`GetProcessMemoryInfo`). A megabyte has 1024 × 1024 bytes.
-    - `user_cpu_s` and `system_cpu_s` are the CPU times since the start (`GetProcessTimes`). `cpu_percent` is the percent of one core since the record before, so it can be above 100.
+    - `user_cpu_s` and `system_cpu_s` are the CPU times since the start (`GetProcessTimes`). `cpu_percent` is the percent of one core since the record before, so it can be above 100. The first record of a run has none (`CpuWindow`).
     - `uptime_s` counts the seconds since the start. The record has no thread count and no GPU memory.
     - The other fields count the items that core keeps in memory, as on macOS (`docs/macos.md`).
