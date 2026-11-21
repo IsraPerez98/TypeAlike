@@ -15,6 +15,9 @@ const MAX_LETTERS_AFTER_ROW_READ: usize = 20;
 /// The letters and digits typed after a row read that found no row, before the next row read. An
 /// OCR often gives no line for a prompt mark with only one or two typed letters.
 const LETTERS_BEFORE_ROW_RETRY: usize = 4;
+/// The row reads of a session in a row that found no row, after which the session starts no other
+/// one. The first row read of a prompt often finds none, because of a short line.
+const MAX_ROW_READS_WITHOUT_ROW: usize = 3;
 /// The last letters and digits of the typed line at the start of a row read that the screen can
 /// still miss, because the app writes the keys back after the read starts.
 const UNECHOED_LETTERS: usize = 2;
@@ -24,6 +27,8 @@ pub(super) struct CaretRowRead {
     text: Option<ScreenText>,
     /// The letters and digits of the line of the caret when the read started.
     typed_letters: usize,
+    /// The row reads of the session in a row up to this one that found no row.
+    reads_without_row: usize,
 }
 
 impl CaretRowRead {
@@ -36,12 +41,14 @@ impl CaretRowRead {
 
     /// Whether the row of the caret needs another read for the text `typed` before the caret in
     /// `field`: the typed line grew too far past a row that this read found, or the user typed a
-    /// few letters after a read that found no row.
+    /// few letters after a read that found no row, while few reads in a row found none.
     fn is_stale(&self, typed: &str, field: Option<ScreenRect>) -> bool {
         let typed_since = typed_letters(typed).abs_diff(self.typed_letters);
         match self.row(typed, field) {
             Some(_) => typed_since > MAX_LETTERS_AFTER_ROW_READ,
-            None => typed_since >= LETTERS_BEFORE_ROW_RETRY,
+            None => {
+                typed_since >= LETTERS_BEFORE_ROW_RETRY && self.reads_without_row < MAX_ROW_READS_WITHOUT_ROW
+            }
         }
     }
 }
@@ -104,12 +111,23 @@ impl Engine {
         let Some(typed_letters) = self.screen_reads.answer_row_read(read.id) else {
             return;
         };
-        if let Some(session) = &mut self.session {
-            session.caret_row_read = Some(CaretRowRead {
-                text: read.text,
-                typed_letters,
-            });
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let earlier_reads_without_row = session
+            .caret_row_read
+            .as_ref()
+            .map_or(0, |earlier| earlier.reads_without_row);
+        let mut answer = CaretRowRead {
+            text: read.text,
+            typed_letters,
+            reads_without_row: 0,
+        };
+        let read_field = answer.text.as_ref().map(|text| text.field);
+        if answer.row(&session.text_before, read_field).is_none() {
+            answer.reads_without_row = earlier_reads_without_row + 1;
         }
+        session.caret_row_read = Some(answer);
     }
 
     fn session_with_unreadable_text(&self) -> Option<&Session> {

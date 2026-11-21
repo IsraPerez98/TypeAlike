@@ -342,3 +342,29 @@ fn text_of_a_row_read_stays_out_of_the_prompt_of_the_next_session() {
     assert!(prompt.contains("Done, the tests pass."), "{prompt}");
     assert!(!prompt.contains(ROW_READ_LINE), "{prompt}");
 }
+
+/// Answers the row read `read` with rows that show none of the typed text, types `text`, and
+/// returns the reads of the screen that the next view asked for.
+fn answer_without_a_row_then_type(
+    harness: &mut Harness,
+    read: ScreenReadId,
+    text: &str,
+) -> Vec<(ScreenReadId, ScreenSource)> {
+    answer_screen_read(harness, read, input_rows(""));
+    harness.type_text(text);
+    harness.settle_caret();
+    screen_reads(harness)
+}
+
+#[test]
+fn session_stops_its_row_reads_after_three_reads_without_a_row() {
+    let mut harness = herdr_with_ocr();
+    let first =
+        show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server and the database");
+    let second = answer_without_a_row_then_type(&mut harness, first[0].0, "eploy");
+    let third = answer_without_a_row_then_type(&mut harness, second[0].0, " the s");
+
+    let fourth = answer_without_a_row_then_type(&mut harness, third[0].0, "taging");
+
+    assert_eq!([second.len(), third.len(), fourth.len()], [1, 1, 0]);
+}

@@ -63,6 +63,8 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 - A session reads the screen at its first key, often before the terminal shows that key. Thus that read often shows none of the typed text, and gives no row.
 - So a mirror without a caret starts an OCR read of its own, a row read (`App::start_caret_row_read`, `engine::caret_row`):
   - A row read starts when the session has no row read yet, and when its row read found no row and the user typed 4 more letters or digits since (`LETTERS_BEFORE_ROW_RETRY`). An OCR often gives no line for a prompt mark with one or two typed letters.
+  - After 3 row reads in a row that found no row, the session starts no other row read (`MAX_ROW_READS_WITHOUT_ROW`). Thus a field where the OCR never finds the typed text costs at most 3 more OCR reads for each session.
+  - On 2026-11-21, a live OCR of a Terminal window with the Fast level gave each row of an agent screen as one line inside the field, and no line for "❯ D". A warm read took about 100 ms.
   - It also starts when the typed line has more than 20 letters and digits more than at the start of the last row read (`MAX_LETTERS_AFTER_ROW_READ`). The typed line can wrap onto the next row, and the last row that shows it is then lower.
   - It starts only when the platform can do an OCR, the screen text is on for the app, and no other read of the screen runs. The platform answers only the newest of the reads that wait together.
   - When a newer read answers first, the platform dropped the row read, and the next mirror can start another one.
