@@ -145,6 +145,15 @@
 //! `--name "Sara Novak"` and `--word-choice medium` for a change to the prompt or to the filters
 //! of a suggestion, also with `--session-start first-key`.
 //!
+//! `cases/chat_end.jsonl` has chats in English and Spanish where the last line above the field is
+//! a message of the other person, and the field holds a finished reply without end punctuation,
+//! and then a space. Its leaks are the closing quotes that the model can copy from the quoted
+//! screen text before the heading. `cases/quotes_needed.jsonl` has cases where a quote sign is the
+//! next character or comes after some words: a quote that the writer opened, a string of code and
+//! an English contraction. Each of its cases has screen lines. Run both with `--name "Sara Novak"`,
+//! `--word-choice medium`, `--length long` and `--sentence-stop off` for a change to the quotes of
+//! the preface.
+//!
 //! `--save` writes the result of each case. `--baseline` reads the results of an earlier run and
 //! names the cases that the change helped or harmed, and the mean change of the log probability.
 //! Compare only runs on the same computer and backend. `baselines/` keeps the results of the main
