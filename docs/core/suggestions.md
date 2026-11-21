@@ -51,8 +51,14 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - With a dictionary, a last word of fewer than 3 characters asks without the rule at once (`typo_check_at_caret`). A stop for a typo there always asks again, and the runner gives no fix for so few letters. Thus the answer is the same, without a second request.
 - Other letters that the dictionary does not check keep the rule, because the runner can fix them, such as "WEdnesday" to "Wednesday".
 - Measured with Gemma 4 E4B (Metal, long, macOS English and Spanish dictionaries): no fix changed in 808 such places of `varieties`, 178 of `chat` and in `typo_kinds`, and no suggestion changed because of the rule.
-- When the completion without the rule continues those letters but gives no suggestion, the fix of the first completion shows. For example, after "a day trip to Snit", the completion "ra" makes "Snitra", which the dictionary does not know, so the fix "Sintra" shows.
-- Core asks the dictionary only after such a stop, because a query of the start of a word costs some milliseconds on macOS.
+- A last word that a dictionary that fits the text knows as a word also asks without the rule at once (`needs_no_typo_check`). A request also does not check such a finished word before a typed space. A stop for a typo or a fix there always asked again, so the answer is the same without a second request.
+  - A dictionary fits the text when it knows at least half of the last 30 checked words that the writer finished before the caret, and they are at least 3. With fewer words, or when no dictionary fits, the word keeps the rule.
+  - A short word of another language keeps the rule, such as "como" in an English text, unless the dictionary of that language also fits the text.
+- When the completion without the rule continues known letters but gives no suggestion, the fix of the completion with the rule shows (`KnownWord`). For example, after "a day trip to Snit", the completion "ra" makes "Snitra", which the dictionary does not know, so the fix "Sintra" shows.
+  - With the rule first, core keeps its fix of the known letters, asks again without the rule, and shows the kept fix.
+  - Without the rule first, core asks again with the rule, and shows its fix. This request asks nothing again.
+  - Thus the same fixes show in both orders, and only these rare answers need a second request.
+- Core asks for the start of a word only after such a stop, because that query costs some milliseconds on macOS. It asks for the last word as a whole word before each request, and keeps each answer. A new word costs about 0.16 ms on macOS with English and Spanish (`spelling_eval`).
 - For a fix, only the dictionaries of the language of the text count (`Dictionary::knows_typed_word`).
   - The dictionary of a language fits the text when it knows at least half of the last 30 checked words that the writer finished before the caret. With fewer than 3 such words, or when no dictionary fits, the dictionary of each language counts.
   - Thus "reunion" in a Spanish text, which only the English dictionary knows, keeps its fix "reunión".

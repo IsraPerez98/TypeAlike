@@ -12,7 +12,7 @@ use crate::key::Press;
 use crate::place::Place;
 use crate::prompt;
 
-use super::offer::Offer;
+use super::offer::{KnownWord, Offer};
 use super::session::Session;
 use super::suggestion::through_finished_word;
 use super::{Engine, Reaction};
@@ -81,27 +81,39 @@ impl Engine {
         if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
             return self.show(rest);
         }
-        self.request_completion(self.typo_check_at_caret(), self.finished_word_fix_at_caret())
+        self.request_at_caret()
     }
 
     /// Requests the suggestion for the text before the caret again, for when the preface of the
     /// session changed after the request of the suggestion that runs or shows.
     pub(crate) fn request_again(&mut self) -> Reaction {
-        self.request_completion(self.typo_check_at_caret(), self.finished_word_fix_at_caret())
+        self.request_at_caret()
     }
 
-    /// The typo check of a request for the text before the caret. With a dictionary, fewer than
-    /// [`MIN_FIXED_CHARACTERS`] typed characters of the last word get no typo rule: after a stop for
-    /// a typo there, core always asks again without the rule, because the dictionary does not
-    /// check them, and the runner gives such letters no fix.
-    fn typo_check_at_caret(&self) -> TypoCheck {
-        let typed = self
-            .text_before_caret()
+    /// Requests a completion of the text before the caret with the typo checks that it needs.
+    fn request_at_caret(&mut self) -> Reaction {
+        let typo_check = self.typo_check_at_caret();
+        let finished_word_fix = self.finished_word_fix_at_caret();
+        self.request_completion(typo_check, finished_word_fix)
+    }
+
+    /// The typo check of a request for the text before the caret. With a dictionary, the typed
+    /// characters of the last word get no typo rule when they are fewer than
+    /// [`MIN_FIXED_CHARACTERS`], or when a dictionary of the language of the text knows them as a
+    /// word. After a stop for a typo there, core always asks again without the rule, because the
+    /// dictionary does not check such letters or knows them, and the runner gives so few letters
+    /// no fix.
+    fn typo_check_at_caret(&mut self) -> TypoCheck {
+        let (Some(dictionary), Some(session)) = (self.dictionary.as_mut(), self.session.as_ref()) else {
+            return self.typo_check;
+        };
+        let typed = session
+            .text_before
             .rsplit(|character: char| character.is_ascii_whitespace())
             .next()
             .unwrap_or_default();
         let is_too_short = (1..MIN_FIXED_CHARACTERS).contains(&typed.chars().count());
-        if self.dictionary.is_some() && is_too_short {
+        if is_too_short || dictionary.needs_no_typo_check(&session.text_before) {
             TypoCheck::Off
         } else {
             self.typo_check
@@ -110,16 +122,21 @@ impl Engine {
 
     /// The minimum for the finished word before the last typed space of the text before the caret,
     /// when a request checks that word for a typo: the request asks for fixes, only that space or
-    /// the typed start of the next word follows the word ([`through_finished_word`]), and no
-    /// completed request checked the word. The user often types the next word before the request
-    /// after the space completes, and then no request checked it.
-    fn finished_word_fix_at_caret(&self) -> Option<LogProbability> {
+    /// the typed start of the next word follows the word ([`through_finished_word`]), no completed
+    /// request checked the word, and no dictionary of the language of the text knows it. The user
+    /// often types the next word before the request after the space completes, and then no
+    /// request checked it. Core shows no fix of a known word there.
+    fn finished_word_fix_at_caret(&mut self) -> Option<LogProbability> {
         let TypoCheck::Fix(min) = self.typo_check else {
             return None;
         };
         let session = self.session.as_ref()?;
         let through_word = through_finished_word(&session.text_before)?;
-        (through_word != session.checked_word).then_some(min)
+        let is_known = self
+            .dictionary
+            .as_mut()
+            .is_some_and(|dictionary| dictionary.needs_no_typo_check(through_word));
+        (through_word != session.checked_word && !is_known).then_some(min)
     }
 
     /// Requests a completion of the text before the caret with `typo_check` and
@@ -142,7 +159,7 @@ impl Engine {
             added: String::new(),
             typo_check,
             finished_word_fix,
-            fix_of_known_word: None,
+            known_word: KnownWord::First,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self

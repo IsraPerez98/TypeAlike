@@ -30,14 +30,29 @@ pub(super) enum Offer {
         /// The minimum for the finished word before the last typed space, when the request checks
         /// that word for a typo.
         finished_word_fix: Option<LogProbability>,
-        /// The fix that an earlier request gave for typed letters that the dictionary knows as a
-        /// word. It shows when this request, without the typo rule, continues those letters but
-        /// gives no ghost text.
-        fix_of_known_word: Option<WordFix>,
+        /// What the request does with typed letters that the dictionary knows as a word.
+        known_word: KnownWord,
     },
     Shown(String),
     /// The fix of a typo before the caret.
     Fix(WordFix),
+}
+
+/// The step of the requests for typed letters that the dictionary knows as a word. A typo there,
+/// such as "Snit" for "Sintra", needs two requests: one with the typo rule for the fix, and one
+/// without it for the suggestion. The fix shows only when the request without the rule continues
+/// the letters but gives no ghost text.
+#[derive(Default)]
+pub(super) enum KnownWord {
+    /// The first request for the letters.
+    #[default]
+    First,
+    /// The request without the rule after a request with the rule took the letters for a typo,
+    /// with the fix that it gave, if any.
+    WithoutRule(Option<WordFix>),
+    /// The request with the rule after a request without it, for letters that the dictionary of
+    /// the text knows. It asks nothing again.
+    WithRule,
 }
 
 impl Offer {
@@ -150,7 +165,9 @@ impl Engine {
                 text,
                 ..
             }) => {
-                self.grow_or_fix_known_word(&text);
+                if let Some(reaction) = self.grow_or_fix_known_word(&text) {
+                    return reaction;
+                }
             }
             Ok(Completion {
                 correction: Some(correction),
@@ -181,33 +198,55 @@ impl Engine {
             .as_ref()
             .filter(|correction| typed_after_word(&correction.typed).is_empty())
             .and_then(|correction| self.fix_of(correction, &completion.text));
-        let reaction = self.request_completion(TypoCheck::Off, None);
-        if let Offer::Growing {
-            fix_of_known_word, ..
-        } = &mut self.offer
-        {
-            *fix_of_known_word = fix;
+        self.request_with_known_word(TypoCheck::Off, KnownWord::WithoutRule(fix))
+    }
+
+    /// Requests a completion of the text before the caret with `typo_check`, as the `known_word`
+    /// step of the requests for typed letters that the dictionary knows.
+    fn request_with_known_word(&mut self, typo_check: TypoCheck, known_word: KnownWord) -> Reaction {
+        let reaction = self.request_completion(typo_check, None);
+        if let Offer::Growing { known_word: step, .. } = &mut self.offer {
+            *step = known_word;
         }
         reaction
     }
 
     /// Grows the ghost text from `text`, the completion of the newest request. When that request
-    /// kept the fix of known letters, continues them in `text` and shows nothing, the fix shows.
-    fn grow_or_fix_known_word(&mut self, text: &str) {
-        let fix_of_known_word = match &mut self.offer {
+    /// continues typed letters that the dictionary knows in `text` and shows nothing, the fix of
+    /// the request with the typo rule shows: the fix that an earlier request kept, else the fix of
+    /// a new request with the rule, which this returns.
+    fn grow_or_fix_known_word(&mut self, text: &str) -> Option<Reaction> {
+        let step = match &mut self.offer {
             Offer::Growing {
                 typed,
-                fix_of_known_word,
+                typo_check,
+                known_word,
                 ..
-            } if typed.is_empty() => fix_of_known_word.take(),
+            } if typed.is_empty() => Some((*typo_check, mem::take(known_word))),
             _ => None,
         };
         self.grow(text);
         let continues_without_ghost_text =
             self.offer.shown().is_empty() && text.starts_with(char::is_alphabetic);
-        if let Some(fix) = fix_of_known_word.filter(|_| continues_without_ghost_text) {
-            self.offer = Offer::Fix(fix);
+        match step.filter(|_| continues_without_ghost_text)? {
+            (_, KnownWord::WithoutRule(Some(fix))) => {
+                self.offer = Offer::Fix(fix);
+                None
+            }
+            (TypoCheck::Off, KnownWord::First) if self.has_known_word_without_typo_rule() => {
+                Some(self.request_with_known_word(self.typo_check, KnownWord::WithRule))
+            }
+            _ => None,
         }
+    }
+
+    /// Whether the typo rule is on, and the request for the text before the caret has no typo
+    /// rule because a dictionary of the text knows its last word.
+    fn has_known_word_without_typo_rule(&mut self) -> bool {
+        let (Some(dictionary), Some(session)) = (self.dictionary.as_mut(), self.session.as_ref()) else {
+            return false;
+        };
+        self.typo_check != TypoCheck::Off && dictionary.needs_no_typo_check(&session.text_before)
     }
 
     /// Whether the `completion` of the newest request, with nothing typed since, stopped for a typo
@@ -215,11 +254,17 @@ impl Engine {
     /// known word.
     fn has_typo_in_known_letters(&mut self, completion: &Completion) -> bool {
         let Offer::Growing {
-            typed, typo_check, ..
+            typed,
+            typo_check,
+            known_word,
+            ..
         } = &self.offer
         else {
             return false;
         };
+        if matches!(known_word, KnownWord::WithRule) {
+            return false;
+        }
         let Some(min) = typo_check.min_log_probability().filter(|_| typed.is_empty()) else {
             return false;
         };

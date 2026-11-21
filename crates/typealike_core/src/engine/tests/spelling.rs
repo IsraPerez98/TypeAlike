@@ -14,7 +14,7 @@ use crate::test_support::{
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
-    press, request, show, type_waiting, word_checking_request_for,
+    press, request, show, type_text, type_waiting, word_checking_request_for,
 };
 
 /// Returns an engine with `settings` that typed `typed`, and a dictionary without the `unknown`
@@ -340,6 +340,150 @@ fn request_for_fewer_than_three_typed_characters_without_a_dictionary_keeps_the_
     let reaction = reaction_to_the_last_key("before Fr", None);
 
     assert_eq!(reaction, request("before Fr"));
+}
+
+#[test]
+fn request_for_a_typed_word_that_the_dictionary_of_the_text_knows_has_no_typo_rule() {
+    let reaction = reaction_to_the_last_key("I will see you on Friday", Some(FakeSpellChecker::default()));
+
+    assert_eq!(reaction, request_without_typo_rule("I will see you on Friday"));
+}
+
+#[test]
+fn request_for_a_typed_word_that_the_dictionary_does_not_know_keeps_the_typo_rule() {
+    let texts = ["I will see you on Fridya", "I will see you on Frid"];
+
+    let reactions = texts.map(|text| {
+        let dictionary = FakeSpellChecker::without(&["Fridya", "Frid"]);
+        reaction_to_the_last_key(text, Some(dictionary))
+    });
+
+    assert_eq!(reactions, texts.map(request));
+}
+
+#[test]
+fn request_for_a_known_typed_word_after_fewer_than_three_checked_words_keeps_the_typo_rule() {
+    let reaction = reaction_to_the_last_key("see you on Friday", Some(FakeSpellChecker::default()));
+
+    assert_eq!(reaction, request("see you on Friday"));
+}
+
+/// Returns the reaction to the last key of `typed` in an engine with the two dictionaries of
+/// [`engine_with_two_languages`].
+fn reaction_with_two_languages(typed: &str) -> Reaction {
+    let mut characters = typed.chars();
+    let last = characters.next_back().expect("the typed text is not empty");
+    let mut engine = engine_with_two_languages(characters.as_str());
+    engine.on_completion(completion(""));
+    press(&mut engine, Key::Char(last))
+}
+
+#[test]
+fn request_for_a_typed_word_that_only_another_language_knows_keeps_the_typo_rule() {
+    let texts = [
+        "les recuerdo que mañana tenemos la reunion",
+        "les recuerdo que mañana tenemos que esperar hart",
+    ];
+
+    let reactions = texts.map(reaction_with_two_languages);
+
+    assert_eq!(reactions, texts.map(request));
+}
+
+#[test]
+fn request_with_a_dictionary_without_languages_keeps_the_typo_rule() {
+    let mut engine = engine_waiting_for("see you on Frida");
+    engine.use_spell_checkers(Vec::new());
+    engine.on_completion(completion(""));
+
+    let reaction = press(&mut engine, Key::Char('y'));
+
+    assert_eq!(reaction, request("see you on Friday"));
+}
+
+/// Returns an engine with a dictionary without "Snitra" that typed "We took a day trip to Snit",
+/// with an empty answer to each request before the last key.
+fn engine_after_a_known_word() -> Engine {
+    let mut engine = engine_with(&Settings::default());
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(&["Snitra"]))]);
+    type_waiting(&mut engine, "We took a day trip to Snit");
+    engine
+}
+
+#[test]
+fn known_word_that_the_answer_without_the_typo_rule_continues_without_a_suggestion_asks_again_with_the_rule()
+{
+    let mut engine = engine_after_a_known_word();
+
+    let reaction = engine.on_completion(completion("ra for the palaces"));
+
+    assert_eq!(reaction, request("We took a day trip to Snit"));
+}
+
+#[test]
+fn known_word_with_a_suggestion_without_the_typo_rule_shows_it() {
+    let mut engine = engine_after_a_known_word();
+
+    let reaction = engine.on_completion(completion(" for the palaces"));
+
+    assert_eq!(reaction, show(" for the palaces"));
+}
+
+#[test]
+fn fix_of_a_known_word_from_the_answer_with_the_typo_rule_shows() {
+    let mut engine = engine_after_a_known_word();
+    engine.on_completion(completion("ra for the palaces"));
+
+    let reaction = engine.on_completion(correction(" Snit", " Sint", "ra for the palaces"));
+
+    assert_eq!(
+        reaction,
+        Reaction::ShowFix(WordFix {
+            typo: "Snit".to_owned(),
+            word: "Sintra".to_owned(),
+            rest: " for the palaces".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn answer_with_the_typo_rule_after_a_known_word_asks_nothing_again() {
+    let answers = [typo_stop(), completion("ra for the palaces")];
+
+    let reactions = answers.map(|answer| {
+        let mut engine = engine_after_a_known_word();
+        engine.on_completion(completion("ra for the palaces"));
+        engine.on_completion(answer)
+    });
+
+    assert_eq!(reactions, [Reaction::Hide, Reaction::Hide]);
+}
+
+/// Types `typed` in an engine with a dictionary without the `unknown` words, without an answer to
+/// any request, and returns the reaction to the last key.
+fn reaction_to_fast_typing(typed: &str, unknown: &[&'static str]) -> Reaction {
+    let mut engine = engine_with(&Settings::default());
+    engine.use_spell_checkers(vec![Box::new(FakeSpellChecker::without(unknown))]);
+    type_text(&mut engine, typed)
+}
+
+#[test]
+fn request_does_not_check_a_finished_word_that_the_dictionary_knows() {
+    let reaction = reaction_to_fast_typing("We will meet and check the", &[]);
+
+    assert_eq!(reaction, request_without_typo_rule("We will meet and check the"));
+}
+
+#[test]
+fn request_checks_an_unknown_finished_word_also_when_the_dictionary_knows_the_typed_word() {
+    let reaction = reaction_to_fast_typing("We will meet and chekc the", &["chekc"]);
+
+    let expected = ExpectedRequest {
+        typo_check: TypoCheck::Off,
+        finished_word_fix: Settings::default().typo_check().min_log_probability(),
+        ..ExpectedRequest::framed(&[], "We will meet and chekc the")
+    };
+    assert_eq!(reaction, Reaction::from(expected));
 }
 
 #[test]

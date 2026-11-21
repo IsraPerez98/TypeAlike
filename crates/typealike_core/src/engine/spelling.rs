@@ -126,6 +126,24 @@ impl Dictionary {
             .any(|(language, _)| language.knows(letters))
     }
 
+    /// Whether a dictionary that fits the language of `text_before` knows the typed letters of its
+    /// last word as a word. A dictionary fits when it knows at least half of the last
+    /// [`MAX_FIT_WORDS`] checked words that the writer finished there, and they are at least
+    /// [`MIN_FIT_WORDS`]. A request for such letters needs no typo rule: a stop for a typo or a fix
+    /// there asks again without the rule. A short word of another language, such as "como" in an
+    /// English text, keeps the rule, because its fix can still show.
+    pub(super) fn needs_no_typo_check(&mut self, text_before: &str) -> bool {
+        let Some(letters) = typed_letters(text_before) else {
+            return false;
+        };
+        let typed_words = finished_words(text_before);
+        typed_words.len() >= MIN_FIT_WORDS
+            && self
+                .languages
+                .iter_mut()
+                .any(|language| language.knows_most(&typed_words) && language.knows(letters))
+    }
+
     /// Whether the dictionary knows the typed letters of the last word of `text_before` as a word
     /// or the start of a word. Letters that it does not check ([`checked_words`]), such as a word
     /// with fewer than 3 letters, count as known.
