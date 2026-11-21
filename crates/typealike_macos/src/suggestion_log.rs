@@ -9,6 +9,7 @@ use tracing::Span;
 use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::controller::{Delivery, Ghost, GhostView};
 use typealike_core::desktop::{ScreenRead, ScreenReadId, ScreenSource, Surroundings};
+use typealike_core::inference::InferenceEvent;
 
 use crate::accessibility::{ROLE_ATTRIBUTE, SUBROLE_ATTRIBUTE, copy_string, frame};
 use crate::mirror::Mirror;
@@ -90,6 +91,20 @@ impl Drawn {
     }
 }
 
+/// Whether the suggestion `event` gives text that a ghost text can show: a part of a completion, or
+/// a completion with text or a fix.
+fn gives_text(event: &InferenceEvent) -> bool {
+    match event {
+        InferenceEvent::Partial(_) => true,
+        InferenceEvent::Completed(Ok(completion)) => {
+            !completion.text.is_empty() || completion.correction.is_some()
+        }
+        InferenceEvent::Completed(Err(_))
+        | InferenceEvent::Loaded { .. }
+        | InferenceEvent::GpuMemory { .. } => false,
+    }
+}
+
 /// Writes the records of the shell: the ghost text and the text that Tab inserts, each with the
 /// completion and the screen read that came last before it.
 #[derive(Debug)]
@@ -114,10 +129,12 @@ impl Default for ShellRecords {
 
 impl ShellRecords {
     /// Notes `delivery` before the shell gives it to core. `span` is the span of the thread that
-    /// sent it, which for a suggestion event names its completion.
+    /// sent it, which for a suggestion event names its completion. Only an event with text names
+    /// the completion of the ghost text: the empty answer of a prompt that core only prepares can
+    /// come while an earlier ghost text shows.
     pub(crate) fn note_delivery(&mut self, delivery: &Delivery, span: Span) {
         match delivery {
-            Delivery::Suggestion(_) => self.completion = span,
+            Delivery::Suggestion(event) if gives_text(event) => self.completion = span,
             Delivery::Screen(read) => self.screen_read = Some(read.id),
             _ => {}
         }
@@ -186,9 +203,34 @@ impl ShellRecords {
 #[cfg(test)]
 mod tests {
     use typealike_core::controller::GhostPlacement;
-    use typealike_core::inference::InferenceEvent;
+    use typealike_core::inference::{Completion, InferenceError, LogProbability, TokenCount};
 
     use super::*;
+
+    fn completed(text: &str) -> InferenceEvent {
+        InferenceEvent::Completed(Ok(Completion {
+            text: text.to_owned(),
+            tokens: TokenCount(0),
+            duration: Duration::ZERO,
+            word_log_probabilities: Vec::new(),
+            typed_log_probability: LogProbability(0.0),
+            correction: None,
+        }))
+    }
+
+    #[test]
+    fn only_an_event_with_text_names_the_completion_of_the_ghost_text() {
+        let events = [
+            InferenceEvent::Partial(" soon".to_owned()),
+            completed(" soon"),
+            completed(""),
+            InferenceEvent::Completed(Err(InferenceError::Superseded)),
+        ];
+
+        let names_completion = events.each_ref().map(gives_text);
+
+        assert_eq!(names_completion, [true, true, false, false]);
+    }
 
     #[test]
     fn records_name_the_newest_screen_read_that_core_got() {
