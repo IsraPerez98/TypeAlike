@@ -21,9 +21,14 @@ pub(super) struct Prefill {
 }
 
 impl Prefill {
-    /// Adds the decode of `decoded_tokens` of a prompt of `prompt_tokens`, which took `duration`.
-    pub(super) fn add_batch(&mut self, prompt_tokens: usize, decoded_tokens: usize, duration: Duration) {
+    /// Starts the decodes of a prompt of `prompt_tokens`. Its tokens in the cache need no decode.
+    pub(super) fn start_prompt(&mut self, prompt_tokens: usize) {
         self.prompt_tokens = prompt_tokens;
+    }
+
+    /// Adds the decode of `decoded_tokens` of the prompt. Its `duration` must end after a read of
+    /// the logits: a GPU backend decodes after the decode call returns, and the read waits for it.
+    pub(super) fn add_batch(&mut self, decoded_tokens: usize, duration: Duration) {
         self.decoded_tokens += decoded_tokens;
         self.duration += duration;
     }
@@ -189,7 +194,8 @@ mod tests {
 
     fn timing(duration_ms: u64, prefill_ms: u64) -> Timing {
         let mut prefill = Prefill::default();
-        prefill.add_batch(100, 30, Duration::from_millis(prefill_ms));
+        prefill.start_prompt(100);
+        prefill.add_batch(30, Duration::from_millis(prefill_ms));
         Timing {
             queue_wait: Duration::ZERO,
             duration: Duration::from_millis(duration_ms),
@@ -199,15 +205,15 @@ mod tests {
 
     #[test]
     fn prompt_tokens_that_no_decode_added_came_from_the_cache() {
-        let mut prefill = Prefill::default();
+        let mut decoded = Prefill::default();
+        let mut cached = Prefill::default();
 
-        prefill.add_batch(90, 40, Duration::from_millis(5));
-        prefill.add_batch(100, 20, Duration::from_millis(5));
+        decoded.start_prompt(100);
+        decoded.add_batch(40, Duration::from_millis(5));
+        decoded.add_batch(20, Duration::from_millis(5));
+        cached.start_prompt(100);
 
-        assert_eq!(
-            (prefill.cached_tokens(), prefill.duration),
-            (40, Duration::from_millis(10))
-        );
+        assert_eq!([decoded.cached_tokens(), cached.cached_tokens()], [40, 100]);
     }
 
     #[test]

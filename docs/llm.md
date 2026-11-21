@@ -168,7 +168,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - The times, in milliseconds:
     - `queue_wait_ms`: from the request to the start of the completion. A load before the completion is part of it.
     - `duration_ms`: from the start of the completion to its answer, also for a completion that a newer request replaced (`Superseded`).
-    - `prefill_ms`: the decodes of the prompt. `prompt_tokens` counts the tokens of the prompt, and `cached_tokens` the tokens that the cache kept from an earlier prompt. The decodes of the warm-up do not count.
+    - `prefill_ms`: the decodes of the prompt. The time of each decode ends after the read of its logits, because a GPU backend decodes after the call returns. `prompt_tokens` counts the tokens of the prompt, and `cached_tokens` the tokens that the cache kept from an earlier prompt. The decodes of the warm-up do not count.
     - `decode_ms`: `duration_ms` without `prefill_ms`. `tokens_per_second` divides the added tokens by it.
 - `loaded a model`: the file, the backend, the time (`duration_ms`) and the error of each load. The warm-up after the load does not count.
 - `new word bias`: the words of each new table of the word bias.

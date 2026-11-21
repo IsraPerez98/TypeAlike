@@ -224,6 +224,8 @@ impl<'model> PromptCache<'model> {
         is_outdated: &mut dyn FnMut() -> bool,
     ) -> Result<(), GenerateError> {
         let batch_size = usize::try_from(self.context.target().n_batch()).expect("a u32 fits in usize");
+        #[cfg(feature = "suggestion-log")]
+        self.prefill.start_prompt(prompt.len());
         for batch_tokens in prompt[self.tokens.len()..].chunks(batch_size) {
             if is_outdated() {
                 return Err(GenerateError::Superseded);
@@ -241,13 +243,13 @@ impl<'model> PromptCache<'model> {
             #[cfg(feature = "suggestion-log")]
             let decode_started = std::time::Instant::now();
             self.context.target_mut().decode(&mut batch)?;
-            #[cfg(feature = "suggestion-log")]
-            self.prefill
-                .add_batch(prompt.len(), batch_tokens.len(), decode_started.elapsed());
             self.tokens.extend_from_slice(batch_tokens);
             self.logits.clear();
             self.logits
                 .extend_from_slice(self.context.target().get_logits_ith(LAST_OUTPUT));
+            #[cfg(feature = "suggestion-log")]
+            self.prefill
+                .add_batch(batch_tokens.len(), decode_started.elapsed());
         }
         Ok(())
     }
