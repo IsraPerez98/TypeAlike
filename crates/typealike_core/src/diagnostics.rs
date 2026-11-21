@@ -1,6 +1,8 @@
-//! The numbers of the debug records about the resources that TypeAlike uses. The platform measures
-//! and writes the records, and these pure types and functions only count and convert.
+//! The numbers of the debug records about the resources and the times that TypeAlike uses. The
+//! platform measures and writes the records, and these pure types and functions only count, add up
+//! and convert.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use crate::controller::Delivery;
@@ -20,6 +22,86 @@ pub struct KeptItems {
     pub shown_suggestions: usize,
     /// The chat lines that the user scrolled past.
     pub conversation_lines: usize,
+}
+
+/// The time above which an input in the keyboard and mouse watch is slow: the app gets the input
+/// only after it, so the user feels it as lag.
+const SLOW_INPUT: Duration = Duration::from_millis(20);
+/// The time above which another operation is slow.
+const SLOW_OPERATION: Duration = Duration::from_millis(200);
+
+/// An operation of the platform whose times the suggestion log adds up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Operation {
+    /// A key down in the keyboard watch, with all the work for the key in it.
+    KeyDown,
+    /// A key up, a click or a scroll in the keyboard and mouse watch.
+    OtherInput,
+    /// A read of the focused field and its app.
+    FieldRead,
+    /// A read of the caret and the frame of the focused field.
+    CaretRead,
+    /// A draw of the ghost text and the badge.
+    GhostDraw,
+    /// A read of the copied text.
+    ClipboardRead,
+    /// A question to a dictionary about a word or the start of a word.
+    WordCheck,
+    /// A question to a dictionary for the words in place of a word.
+    WordGuesses,
+    /// A save of the earlier writing.
+    HistorySave,
+    /// A save of the settings.
+    SettingsSave,
+    /// A read of the screen text, from the Accessibility tree or by OCR.
+    ScreenRead,
+}
+
+impl Operation {
+    /// Whether a run of the operation that took `duration` is slow: more than 20 ms for an input,
+    /// else more than 200 ms.
+    #[must_use]
+    pub fn is_slow(self, duration: Duration) -> bool {
+        let limit = match self {
+            Self::KeyDown | Self::OtherInput => SLOW_INPUT,
+            Self::FieldRead
+            | Self::CaretRead
+            | Self::GhostDraw
+            | Self::ClipboardRead
+            | Self::WordCheck
+            | Self::WordGuesses
+            | Self::HistorySave
+            | Self::SettingsSave
+            | Self::ScreenRead => SLOW_OPERATION,
+        };
+        duration > limit
+    }
+}
+
+/// The count, the total time and the longest time of the runs of one operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OperationTime {
+    /// The number of the runs.
+    pub count: u32,
+    /// The sum of the times of the runs.
+    pub total: Duration,
+    /// The time of the longest run.
+    pub longest: Duration,
+}
+
+/// Adds up the `runs`, each an operation and the time of one of its runs, for each operation.
+#[must_use]
+pub fn operation_times(
+    runs: impl IntoIterator<Item = (Operation, Duration)>,
+) -> BTreeMap<Operation, OperationTime> {
+    let mut times = BTreeMap::<Operation, OperationTime>::new();
+    for (operation, duration) in runs {
+        let time = times.entry(operation).or_default();
+        time.count = time.count.saturating_add(1);
+        time.total = time.total.saturating_add(duration);
+        time.longest = time.longest.max(duration);
+    }
+    times
 }
 
 /// The percent of one CPU core that the `cpu_time` of a window of `wall_time` used, or `None` for a
@@ -53,6 +135,59 @@ mod tests {
     use crate::desktop::{ScreenRead, ScreenReadId};
     use crate::inference::InferenceError;
     use crate::test_support::model_file;
+
+    const fn milliseconds(count: u64) -> Duration {
+        Duration::from_millis(count)
+    }
+
+    #[test]
+    fn operation_times_add_the_count_the_total_and_the_longest_run_of_each_operation() {
+        let runs = [
+            (Operation::CaretRead, milliseconds(3)),
+            (Operation::KeyDown, milliseconds(2)),
+            (Operation::CaretRead, milliseconds(9)),
+            (Operation::CaretRead, milliseconds(4)),
+        ];
+
+        let times = operation_times(runs);
+
+        assert_eq!(
+            times.into_iter().collect::<Vec<_>>(),
+            [
+                (
+                    Operation::KeyDown,
+                    OperationTime {
+                        count: 1,
+                        total: milliseconds(2),
+                        longest: milliseconds(2),
+                    }
+                ),
+                (
+                    Operation::CaretRead,
+                    OperationTime {
+                        count: 3,
+                        total: milliseconds(16),
+                        longest: milliseconds(9),
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_an_input_above_20_ms_or_another_operation_above_200_ms_is_slow() {
+        let runs = [
+            (Operation::KeyDown, milliseconds(20)),
+            (Operation::KeyDown, milliseconds(21)),
+            (Operation::OtherInput, milliseconds(21)),
+            (Operation::CaretRead, milliseconds(200)),
+            (Operation::HistorySave, milliseconds(201)),
+        ];
+
+        let slow = runs.map(|(operation, duration)| operation.is_slow(duration));
+
+        assert_eq!(slow, [false, true, true, false, true]);
+    }
 
     #[test]
     fn cpu_percent_is_the_cpu_time_of_one_core_in_the_window() {

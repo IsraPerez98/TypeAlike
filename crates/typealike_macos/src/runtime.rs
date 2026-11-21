@@ -24,6 +24,7 @@ use typealike_core::desktop::{
     CopiedText, Desktop, EnergySaver, Field, OcrAvailability, OcrLevels, Permission, PermissionState,
     ScreenReadId, ScreenSource, Surroundings, Timestamp,
 };
+use typealike_core::diagnostics::Operation;
 use typealike_core::inference::Backend;
 use typealike_core::key::{BadgeClickFilter, Disposition, Key, ReleaseFilter};
 use typealike_core::settings::{ClipboardAccess, OcrLevel, Settings};
@@ -50,6 +51,7 @@ use crate::main_menu;
 use crate::menu_bar::{self, MenuBarItem};
 use crate::mirror::Mirror;
 use crate::ocr::{self, AccurateWarmUp};
+use crate::operation_clock::OperationClock;
 use crate::overlay::{self, Overlay};
 use crate::permissions;
 use crate::runtime::target::{RuntimeTarget, observe_workspace};
@@ -72,6 +74,12 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let tap = EventTap::install(on_tap_event);
     let target = RuntimeTarget::new(main_thread);
     let deliver: DeliverySink = Arc::new(deliver_on_main_thread);
+    #[cfg(feature = "suggestion-log")]
+    let (operations, clock) = crate::operation_clock::OperationTotals::start();
+    #[cfg(not(feature = "suggestion-log"))]
+    let clock = OperationClock::default();
+    #[cfg(feature = "suggestion-log")]
+    let services = crate::operation_clock::timed_services(services, &clock);
     let energy_saver_observer = EnergySaverObserver::start(on_energy_saver_change);
     let startup = Startup {
         backend_choice: BackendChoice::Platform(Backend::Metal),
@@ -96,7 +104,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         controller,
         shell: AppKitShell {
             focus: FocusTracker::new(),
-            screen_text: ScreenTextReader::new(Arc::clone(&deliver)),
+            screen_text: ScreenTextReader::new(Arc::clone(&deliver), clock.clone()),
             ocr_warm_up,
             clipboard: ClipboardWatch::start(),
             menu_bar,
@@ -117,6 +125,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             pending_injections: VecDeque::new(),
             settings: None,
             setup: None,
+            clock,
             #[cfg(feature = "suggestion-log")]
             records: crate::suggestion_log::ShellRecords::default(),
         },
@@ -127,9 +136,11 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         badge_menu: None,
         #[cfg(feature = "suggestion-log")]
         resources: crate::resource_usage::ResourceLog::start(),
+        #[cfg(feature = "suggestion-log")]
+        operations,
     }));
     #[cfg(feature = "suggestion-log")]
-    schedule_resource_records();
+    schedule_usage_records();
     with_runtime(Runtime::read_game);
     with_runtime(Runtime::read_full_screen);
     with_runtime(|runtime| runtime.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(finishLaunch:)));
@@ -168,18 +179,18 @@ fn deliver_on_main_thread(delivery: Delivery) {
     });
 }
 
-/// Writes a `resource usage` record now and then once each [`RECORD_INTERVAL`], while the
-/// suggestion log is on.
+/// Writes a `resource usage` record now, and then the `resource usage` and the `operation times`
+/// records once each [`RECORD_INTERVAL`], while the suggestion log is on.
 ///
 /// [`RECORD_INTERVAL`]: crate::resource_usage::RECORD_INTERVAL
 #[cfg(feature = "suggestion-log")]
-fn schedule_resource_records() {
+fn schedule_usage_records() {
     if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
         return;
     }
     with_runtime(Runtime::write_resource_usage);
     let write = block2::RcBlock::new(|_timer: std::ptr::NonNull<NSTimer>| {
-        with_runtime(Runtime::write_resource_usage);
+        with_runtime(Runtime::write_usage_records);
     });
     // SAFETY: the block holds nothing, and the timer runs it on the run loop of the main thread.
     unsafe {
@@ -208,6 +219,9 @@ struct Runtime {
     badge_menu: Option<BadgeMenu>,
     #[cfg(feature = "suggestion-log")]
     resources: crate::resource_usage::ResourceLog,
+    /// The sums of the times of the operations, while the suggestion log is on.
+    #[cfg(feature = "suggestion-log")]
+    operations: Option<crate::operation_clock::OperationTotals>,
 }
 
 impl Runtime {
@@ -400,6 +414,14 @@ impl Runtime {
         self.resources.write(self.controller.kept_items());
     }
 
+    #[cfg(feature = "suggestion-log")]
+    fn write_usage_records(&mut self) {
+        self.write_resource_usage();
+        if let Some(operations) = &mut self.operations {
+            operations.write();
+        }
+    }
+
     fn on_delivery(&mut self, delivery: Delivery) {
         self.controller.on_delivery(delivery, &mut self.shell);
     }
@@ -463,6 +485,7 @@ struct AppKitShell {
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
     setup: Option<SetupWindow>,
+    clock: OperationClock,
     #[cfg(feature = "suggestion-log")]
     records: crate::suggestion_log::ShellRecords,
 }
@@ -500,6 +523,22 @@ impl AppKitShell {
         }
     }
 
+    /// Shows the `badge` at the caret of the last look, and the `ghost` text at that caret, else in
+    /// the mirror. Hides each that is `None`.
+    fn draw_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
+        let caret = self.caret;
+        let badge_caret = caret.or_else(|| self.field_frame.and_then(Caret::at_start_of));
+        match (badge, badge_caret) {
+            (Some(badge), Some(badge_caret)) => self.badge.show(&badge, badge_caret),
+            _ => self.badge.hide(),
+        }
+        match (ghost, caret) {
+            (Some(view), Some(caret)) => self.show_at_caret(view, caret),
+            (Some(view), None) => self.show_mirror(view),
+            (None, _) => self.hide_ghost(),
+        }
+    }
+
     fn schedule(&self, delay: NSTimeInterval, action: Sel) -> Retained<NSTimer> {
         // SAFETY: every action passed here is a method of the target that takes the timer.
         unsafe {
@@ -532,11 +571,13 @@ impl Desktop for AppKitShell {
     }
 
     fn surroundings(&self) -> Surroundings {
-        self.focus.surroundings()
+        self.clock
+            .time(Operation::FieldRead, || self.focus.surroundings())
     }
 
     fn copied_text(&self) -> Option<CopiedText> {
-        self.clipboard.copied_text()
+        self.clock
+            .time(Operation::ClipboardRead, || self.clipboard.copied_text())
     }
 
     fn ocr_availability(&self) -> OcrAvailability {
@@ -575,9 +616,10 @@ impl Shell for AppKitShell {
     /// Reads the caret and the frame of the focused field through Accessibility, and keeps them
     /// for the draw. The style of the text before the caret waits for its first use.
     fn read_caret(&mut self) -> CaretLook {
-        self.caret = self.focus.caret();
+        (self.caret, self.field_frame) = self.clock.time(Operation::CaretRead, || {
+            (self.focus.caret(), self.focus.field_frame())
+        });
         self.caret_text_style = OnceCell::new();
-        self.field_frame = self.focus.field_frame();
         CaretLook::Now(CaretRead {
             caret: self.caret.map(Caret::to_screen_rect),
             field: self.field_frame.map(screen_rect),
@@ -594,17 +636,8 @@ impl Shell for AppKitShell {
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
-        let caret = self.caret;
-        let badge_caret = caret.or_else(|| self.field_frame.and_then(Caret::at_start_of));
-        match (badge, badge_caret) {
-            (Some(badge), Some(badge_caret)) => self.badge.show(&badge, badge_caret),
-            _ => self.badge.hide(),
-        }
-        match (ghost, caret) {
-            (Some(view), Some(caret)) => self.show_at_caret(view, caret),
-            (Some(view), None) => self.show_mirror(view),
-            (None, _) => self.hide_ghost(),
-        }
+        let clock = self.clock.clone();
+        clock.time(Operation::GhostDraw, || self.draw_at_caret(ghost, badge));
         #[cfg(feature = "suggestion-log")]
         if let Some(view) = ghost {
             let drawn = crate::suggestion_log::Drawn::of(&self.overlay, &self.mirror);
@@ -743,5 +776,18 @@ impl Shell for AppKitShell {
 }
 
 fn on_tap_event(kind: CGEventType, event: &CGEvent) -> Disposition {
-    with_runtime(|runtime| runtime.on_event(kind, event)).unwrap_or(Disposition::Pass)
+    with_runtime(|runtime| {
+        let clock = runtime.shell.clock.clone();
+        clock.time(input_operation(kind), || runtime.on_event(kind, event))
+    })
+    .unwrap_or(Disposition::Pass)
+}
+
+/// The operation of an event of `kind` in the event tap: a key down, or another input.
+fn input_operation(kind: CGEventType) -> Operation {
+    if kind == CGEventType::KeyDown {
+        Operation::KeyDown
+    } else {
+        Operation::OtherInput
+    }
 }

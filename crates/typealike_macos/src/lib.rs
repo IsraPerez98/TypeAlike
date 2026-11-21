@@ -28,6 +28,7 @@ mod main_menu;
 mod menu_bar;
 mod mirror;
 mod ocr;
+mod operation_clock;
 mod overlay;
 mod panel;
 mod permissions;

@@ -234,3 +234,15 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
     - `user_cpu_s` and `system_cpu_s` are the CPU times since the start. `cpu_percent` is the percent of one core since the record before, so it can be above 100.
     - `threads` counts the threads of the process, and `uptime_s` the seconds since the start.
     - The other fields count the items that core keeps in memory (`Controller::kept_items`): `history_entries`, `history_words`, `dictionary_answers`, `shown_suggestions` and `conversation_lines`. A count that grows without end shows a leak.
+  - `operation times`: each minute, one record for each operation that ran in that minute, with `count`, `total_ms`, `max_ms` and `window_s`, the seconds since the records before. An operation that did not run gets no record. The clock (`OperationClock`) measures only while the suggestion log is on. The operations:
+    - `KeyDown`: the whole time of a key down in the event tap, with all the work for the key, such as the reads, the draw and the dictionary questions. The app gets the key only after it.
+    - `OtherInput`: a key up, a click or a scroll in the event tap.
+    - `FieldRead`: the read of the focused field and its app through Accessibility.
+    - `CaretRead`: the read of the caret and the frame of the field.
+    - `GhostDraw`: the draw of the ghost text and the badge, with the read of the font before the caret.
+    - `ClipboardRead`: the read of the copied text.
+    - `WordCheck` and `WordGuesses`: the questions to the spelling dictionary of macOS. Core keeps the answers, so only a new word asks macOS.
+    - `HistorySave` and `SettingsSave`: the saves of the earlier writing and of the settings.
+    - `ScreenRead`: each read of the screen text on the queue of the screen reads, from the Accessibility tree or by OCR.
+    - An operation inside another operation counts for both. Thus the totals of a minute can add up to more than the minute.
+  - `slow operation`: one run of an operation above its limit, at once, with `operation` and `duration_ms`. The limit is 20 ms for `KeyDown` and `OtherInput`, and 200 ms for the others (`Operation::is_slow`).

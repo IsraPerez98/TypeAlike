@@ -14,6 +14,7 @@ use typealike_core::controller::{Delivery, DeliverySink};
 use typealike_core::desktop::{
     Confidence, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText,
 };
+use typealike_core::diagnostics::Operation;
 
 use crate::accessibility::{
     self, ROLE_ATTRIBUTE, VALUE_ATTRIBUTE, WINDOW_ATTRIBUTE, WINDOW_ROLE, children, is_same, parent,
@@ -21,6 +22,7 @@ use crate::accessibility::{
 use crate::focus::focused_field;
 use crate::geometry::screen_rect;
 use crate::ocr::Ocr;
+use crate::operation_clock::OperationClock;
 
 const STATIC_TEXT_ROLE: &str = "AXStaticText";
 /// The most elements that one read looks at, so that the read of a large window ends soon.
@@ -48,12 +50,13 @@ struct ScreenRequest {
 }
 
 impl ScreenTextReader {
-    /// Starts the reads on a queue with a low priority. Each answer goes to `deliver`.
-    pub(crate) fn new(deliver: DeliverySink) -> Self {
+    /// Starts the reads on a queue with a low priority. Each answer goes to `deliver`, and `clock`
+    /// times each read.
+    pub(crate) fn new(deliver: DeliverySink, clock: OperationClock) -> Self {
         let (requests, received) = mpsc::channel();
         let queue =
             DispatchQueue::global_queue(GlobalQueueIdentifier::QualityOfService(DispatchQoS::Utility));
-        queue.exec_async(move || answer_reads(&received, &deliver));
+        queue.exec_async(move || answer_reads(&received, &deliver, &clock));
         Self { requests }
     }
 
@@ -76,22 +79,24 @@ impl ScreenTextReader {
 /// Answers the reads until the reader drops. Of the reads that wait together, only the newest
 /// gets an answer, because core uses only the newest. The queue block never returns, so each read
 /// drains its own autorelease pool.
-fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink) {
+fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink, clock: &OperationClock) {
     let mut ocr = Ocr::default();
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
-        let text = autoreleasepool(|_| {
-            #[cfg(feature = "suggestion-log")]
-            let _read = tracing::info_span!(
-                target: typealike_core::SUGGESTION_LOG_TARGET,
-                "screen read",
-                read = ?newest.read
-            )
-            .entered();
-            newest.process.and_then(|process| match newest.source {
-                ScreenSource::Accessibility => read_screen_text(process),
-                ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),
+        let text = clock.time(Operation::ScreenRead, || {
+            autoreleasepool(|_| {
+                #[cfg(feature = "suggestion-log")]
+                let _read = tracing::info_span!(
+                    target: typealike_core::SUGGESTION_LOG_TARGET,
+                    "screen read",
+                    read = ?newest.read
+                )
+                .entered();
+                newest.process.and_then(|process| match newest.source {
+                    ScreenSource::Accessibility => read_screen_text(process),
+                    ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),
+                })
             })
         });
         tracing::debug!(
