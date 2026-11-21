@@ -12,6 +12,16 @@ read is another chat of the same app with a conflicting fact, and the fact of th
 on the screen), stale (as scrolled, but the earlier read came 15 minutes before) and visible
 (control, the fact is in the last read, after an earlier read of the same chat).
 
+Three groups give the same message twice, as text recognition reads it in some reads:
+
+- timed: the bubble chats of scrolled, with each message time joined to the end of the last row of
+  its message in some reads, and as a line of its own in the other reads. In timed-01 to timed-04
+  the earlier reads join the times, in timed-05 to timed-08 the last read joins them.
+- topcut: the cases of scrolled, where the last read shows only the end of its top row, without
+  its first words, as if the top edge of the chat cut it.
+- quote: a reply quotes the start of an earlier message, which the earlier reads show, and the next
+  word needs the fact of that message.
+
 The layout and the port of the line pick of the prompt come from conversation_gen.py.
 """
 
@@ -26,16 +36,19 @@ HERE = Path(__file__).resolve().parent
 CASES_PATH = HERE / "scrolled.jsonl"
 
 
-def load_conversation_gen():
-    spec = importlib.util.spec_from_file_location("conversation_gen", HERE / "conversation_gen.py")
+def load_module(name):
+    spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-conversation = load_conversation_gen()
+conversation = load_module("conversation_gen")
+message_times = load_module("message_times_gen")
 
 FIELD_TOP = 900
+TOP_CUT_WORDS = 3
+MIN_TOP_ROW_WORDS = 6
 CHAT_BOTTOM = FIELD_TOP - 24
 FACT_MARGIN = 60
 OVERLAP = 120
@@ -271,8 +284,64 @@ def visible_cases():
     ]
 
 
+def joined_reads(case, is_last_joined):
+    """Returns `case` with the message times joined in its last read or in its earlier reads."""
+    if is_last_joined:
+        return {**case, "screen": message_times.joined_screen(case["screen"])[0]}
+    return {**case, "earlier_screens": [message_times.joined_screen(earlier)[0] for earlier in case["earlier_screens"]]}
+
+
+def timed_cases():
+    cases = [case for case in scrolled_cases() if case["app"] != "Messages" and case["app"] != "Slack"]
+    return [
+        {**joined_reads(case, index >= 4), "id": f"scr-timed-{index + 1:02}"}
+        for index, case in enumerate(cases)
+    ]
+
+
+def top_cut_screen(screen):
+    """Returns `screen` with only the end of its top row in the chat, without its first words."""
+    rows = [
+        line for line in screen["lines"]
+        if line["frame"][1] >= conversation.CHAT_TOP and line["frame"][0] >= conversation.COLUMN_LEFT
+        and len(line["text"].split()) >= MIN_TOP_ROW_WORDS
+    ]
+    top = min(rows, key=lambda line: (line["frame"][1], line["frame"][0]))
+    cut_words = top["text"].split(" ")[:TOP_CUT_WORDS]
+    cut_px = (top["frame"][2] - top["frame"][0]) * len(" ".join(cut_words) + " ") // len(top["text"])
+    cut = {"text": top["text"].split(" ", TOP_CUT_WORDS)[-1], "frame": [top["frame"][0] + cut_px, *top["frame"][1:]]}
+    return {**screen, "lines": [cut if line is top else line for line in screen["lines"]]}
+
+
+def top_cut_cases():
+    return [
+        {**case, "id": case["id"].replace("scrolled", "topcut"), "screen": top_cut_screen(case["screen"])}
+        for case in scrolled_cases()
+    ]
+
+
+def quote(sender, text):
+    return {"preview": [sender, text]}
+
+
+def quote_cases():
+    flight, birthday, moving, swim = conversation.FLIGHT, conversation.BIRTHDAY, conversation.MOVING, conversation.SWIM
+    landing = quote("Jonas Weber", "It is KL 1394 on Friday, it lands at 14:25.")
+    reservation = quote("Beatriz Solano", "Reservé en La Higuera, calle Olmedo 214, a las 21:30,")
+    truck = quote("Felipe Araya", "Llega a las 8:30 a tu depa.")
+    pool = quote("Hana Okafor", "It is at the Corwin Aquatic Center this time,")
+    return [
+        scrolled_case("scr-quote-01", FLIGHT, flight + [("in", "10:40", "Wait, is this still right? Mom wants to know when to leave home", landing)], "Yes, it still lands at ", "14:25"),
+        scrolled_case("scr-quote-02", FLIGHT, flight + [("in", "10:40", "Mom asks for the flight number, which one was it?", landing)], "It is ", "KL 1394"),
+        scrolled_case("scr-quote-03", BIRTHDAY, birthday + [("in", "19:20", "¿Sigue a esa hora? El Marco quiere saber", reservation)], "Sí, sigue a las ", "21:30"),
+        scrolled_case("scr-quote-04", BIRTHDAY, birthday + [("in", "19:20", "¿Cómo se llamaba el lugar? No lo encuentro en el mapa", reservation)], "Se llama ", "La Higuera"),
+        scrolled_case("scr-quote-05", MOVING, moving + [("in", "11:30", "¿Esto sigue en pie para el sábado? El conserje pregunta la hora", truck)], "Sí, llega a las ", "8:30"),
+        scrolled_case("scr-quote-06", SWIM, swim + [("in", "9:40", "Wait, which pool was it again? The Petrov kids are asking", pool)], "It is at the ", "Corwin Aquatic Center"),
+    ]
+
+
 def build():
-    cases = scrolled_cases() + switched_cases() + stale_cases() + visible_cases()
+    cases = scrolled_cases() + switched_cases() + stale_cases() + visible_cases() + timed_cases() + top_cut_cases() + quote_cases()
     with CASES_PATH.open("w", encoding="utf-8") as file:
         for case in cases:
             file.write(json.dumps(case, ensure_ascii=False) + "\n")
@@ -356,6 +425,9 @@ def check_case(group, case, problems):
         "switched": is_in_last and not is_in_earlier and not any(continued) and not adds_lines,
         "stale": not is_in_last and is_in_earlier and gap > MAX_LINE_AGE and not adds_lines,
         "visible": is_in_last and all(continued) and adds_lines and kept,
+        "timed": not is_in_last and is_in_earlier and all(continued) and kept,
+        "topcut": not is_in_last and is_in_earlier and all(continued) and kept,
+        "quote": is_in_last and is_in_earlier and all(continued) and adds_lines and kept,
     }[group]
     if not earlier or not expected:
         problems.append(f"{case['id']}: in last {is_in_last}, in earlier {is_in_earlier}, continued {continued}, adds lines {adds_lines}, kept at {SCREEN_TOKENS} {kept}")

@@ -34,6 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CASES_PATH = HERE / "message_times.jsonl"
 SOURCES = [HERE / "conversation.jsonl", HERE / "scrolled.jsonl"]
+SOURCE_SKIPPED_GROUPS = {"timed", "topcut", "quote"}
 MESSAGE_TIME = re.compile(r"^(\d{1,2}:\d{2}(?:AM|PM)?)( ✓✓)?$")
 HALF_OF_DAY = re.compile(r"(AM|PM)$")
 END_SIGNS = " .!?"
@@ -175,6 +176,7 @@ def cases_of(case, suffix=""):
 
 def built_cases():
     sources = [json.loads(raw) for source in SOURCES for raw in source.read_text(encoding="utf-8").splitlines()]
+    sources = [case for case in sources if case["id"].split("-")[1] not in SOURCE_SKIPPED_GROUPS]
     cases = [built for case in sources for built in cases_of(case)]
     with_screen = [case for case in sources if case["screen"]]
     twelve_hour = [built for case in with_screen for built in cases_of(twelve_hour_case(case), "pm")]

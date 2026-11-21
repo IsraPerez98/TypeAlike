@@ -175,6 +175,11 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
   - The optional field `earlier_screens` of a case holds those reads of the same window, oldest first, in the format of `screen`. The input settles once for each of them before it settles for `screen`, and a scroll follows each of them, so that the session reads the screen again.
   - The reads are 20 seconds apart, or `screen_gap_seconds` apart when the case gives it. A case without `earlier_screens` runs as before.
   - Its groups: `scrolled` (an earlier read showed the fact, and the last read shows the bottom of the chat without it, with at least 2 long lines in common), `switched` (the earlier read is another chat of the same app with a conflicting fact), `stale` (as `scrolled`, but 15 minutes before the last read) and `visible` (control, the fact is in the last read).
+  - Three groups show the same message twice:
+    - `timed`: the bubble chats of `scrolled`, with the time of each message joined to its last row in the earlier reads (01 to 04) or in the last read (05 to 08).
+    - `topcut`: the cases of `scrolled`, where the last read shows only the end of its top row, as if the top edge of the chat cut it.
+    - `quote`: a reply quotes the start of an earlier message, and the next word needs the fact of that message.
+  - `message_times.jsonl` does not use these three groups.
   - Run it with `--name "Sara Novak"` on a graphics card for a change to the screen reads or to the chat lines that the user scrolled past.
   - `cases/scrolled_gen.py` writes the set again, and `--check` makes sure of the reads of each group.
 - `cases/message_times.jsonl` has the Telegram and WhatsApp chats of `conversation.jsonl` and `scrolled.jsonl`, where text recognition joins the time of a message to the end of its last line ("see you there 9:57"), as macOS does when a small gap divides them.
