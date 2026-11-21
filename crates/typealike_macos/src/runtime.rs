@@ -125,7 +125,11 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
         release_filter: ReleaseFilter::default(),
         badge_click: BadgeClickFilter::default(),
         badge_menu: None,
+        #[cfg(feature = "suggestion-log")]
+        resources: crate::resource_usage::ResourceLog::start(),
     }));
+    #[cfg(feature = "suggestion-log")]
+    schedule_resource_records();
     with_runtime(Runtime::read_game);
     with_runtime(Runtime::read_full_screen);
     with_runtime(|runtime| runtime.shell.schedule(NEXT_RUN_LOOP_PASS, sel!(finishLaunch:)));
@@ -152,10 +156,39 @@ fn deliver_on_main_thread(delivery: Delivery) {
         }
         with_runtime(|runtime| {
             #[cfg(feature = "suggestion-log")]
+            let is_model_load = typealike_core::diagnostics::is_model_load(&delivery);
+            #[cfg(feature = "suggestion-log")]
             runtime.shell.records.note_delivery(&delivery, span);
             runtime.on_delivery(delivery);
+            #[cfg(feature = "suggestion-log")]
+            if is_model_load {
+                runtime.write_resource_usage();
+            }
         });
     });
+}
+
+/// Writes a `resource usage` record now and then once each [`RECORD_INTERVAL`], while the
+/// suggestion log is on.
+///
+/// [`RECORD_INTERVAL`]: crate::resource_usage::RECORD_INTERVAL
+#[cfg(feature = "suggestion-log")]
+fn schedule_resource_records() {
+    if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        return;
+    }
+    with_runtime(Runtime::write_resource_usage);
+    let write = block2::RcBlock::new(|_timer: std::ptr::NonNull<NSTimer>| {
+        with_runtime(Runtime::write_resource_usage);
+    });
+    // SAFETY: the block holds nothing, and the timer runs it on the run loop of the main thread.
+    unsafe {
+        NSTimer::scheduledTimerWithTimeInterval_repeats_block(
+            crate::resource_usage::RECORD_INTERVAL.as_secs_f64(),
+            true,
+            &write,
+        );
+    }
 }
 
 fn with_runtime<Output>(action: impl FnOnce(&mut Runtime) -> Output) -> Option<Output> {
@@ -173,6 +206,8 @@ struct Runtime {
     badge_click: BadgeClickFilter,
     /// The badge menu that shows now, whose entries a pick names by their index.
     badge_menu: Option<BadgeMenu>,
+    #[cfg(feature = "suggestion-log")]
+    resources: crate::resource_usage::ResourceLog,
 }
 
 impl Runtime {
@@ -358,6 +393,11 @@ impl Runtime {
         if let Some(command) = command {
             self.controller.on_badge_command(command, &mut self.shell);
         }
+    }
+
+    #[cfg(feature = "suggestion-log")]
+    fn write_resource_usage(&mut self) {
+        self.resources.write(self.controller.kept_items());
     }
 
     fn on_delivery(&mut self, delivery: Delivery) {

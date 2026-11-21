@@ -168,6 +168,11 @@ impl ScreenReads {
         Some(taller.map_or(Cow::Borrowed(text), Cow::Owned))
     }
 
+    /// The number of the lines of the conversation that the reads keep.
+    pub(super) fn conversation_lines(&self) -> usize {
+        self.conversation.count()
+    }
+
     fn forget(&mut self) {
         self.screen = Screen::Unknown;
         self.row_read = None;

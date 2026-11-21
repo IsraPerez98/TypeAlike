@@ -101,6 +101,15 @@ impl Dictionary {
         self.fits_writer
     }
 
+    /// The number of the answers, the guesses and the starts of a word that the dictionary keeps.
+    pub(super) fn kept_answers(&self) -> usize {
+        let language_answers = self
+            .languages
+            .iter()
+            .map(|language| language.answers.len() + language.guesses.len());
+        self.word_starts.len() + language_answers.sum::<usize>()
+    }
+
     fn knows(&mut self, word: &str) -> bool {
         self.languages.is_empty() || self.languages.iter_mut().any(|language| language.knows(word))
     }
@@ -488,6 +497,21 @@ mod tests {
         let answers = texts.map(|text| dictionary.knows_typed_word(text));
 
         assert_eq!(answers, [true, false, false, false]);
+    }
+
+    #[test]
+    fn dictionary_counts_each_kept_answer_and_start() {
+        let mut dictionary = Dictionary::new(vec![
+            Box::new(FakeSpellChecker::without(&["casa"])),
+            Box::new(FakeSpellChecker::default()),
+        ]);
+        dictionary.knows("casa");
+        dictionary.knows("zorbly");
+        dictionary.knows_start("zor");
+
+        let kept = dictionary.kept_answers();
+
+        assert_eq!(kept, 4);
     }
 
     #[test]

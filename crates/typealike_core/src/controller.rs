@@ -30,6 +30,7 @@ use crate::desktop::{
     AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow,
     OcrAvailability, OcrLevels, Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
 };
+use crate::diagnostics::KeptItems;
 use crate::engine::{AfterAccept, Reaction};
 use crate::history::WritingHistory;
 use crate::hub::ModelFile;
@@ -299,6 +300,13 @@ impl Controller {
         let outcome = self.languages.on_event(event);
         self.apply_languages_outcome(outcome);
         self.render_settings(shell);
+    }
+
+    /// The number of the items in each collection in memory that grows while TypeAlike runs, for
+    /// the suggestion log.
+    #[must_use]
+    pub fn kept_items(&self) -> KeptItems {
+        self.app.kept_items()
     }
 
     /// Returns what the tray icon and its menu must show now.

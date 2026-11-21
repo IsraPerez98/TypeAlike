@@ -222,3 +222,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
     - `caret_row` is the row of the caret on the screen that core gave for the mirror (`GhostView::caret_row`), if any. Without it, the mirror shows next to the field.
     - `screen_read` is the id of the newest screen read that macOS gave to core before the draw. Core drops a read that is not the newest that it started, and a session keeps the screen text that it got first. Thus the prompt can use an earlier read.
   - `Tab inserted text`: the text that Tab types, the number of characters that it deletes first, and the `span` of the completion of the newest suggestion event with text.
+  - `resource usage`: the resources of the process when TypeAlike starts, then each minute (`RECORD_INTERVAL`), and after each model load. It holds numbers only.
+    - `footprint_mb` is the memory that Activity Monitor shows (`phys_footprint`), and `peak_footprint_mb` its highest value since the start. `resident_mb` is the resident memory. A megabyte has 1024 × 1024 bytes.
+    - `metal_mb` is the memory of all the buffers of the default Metal device (`currentAllocatedSize`). llama.cpp keeps the model and its context there.
+    - `user_cpu_s` and `system_cpu_s` are the CPU times since the start. `cpu_percent` is the percent of one core since the record before, so it can be above 100.
+    - `threads` counts the threads of the process, and `uptime_s` the seconds since the start.
+    - The other fields count the items that core keeps in memory (`Controller::kept_items`): `history_entries`, `history_words`, `dictionary_answers`, `shown_suggestions` and `conversation_lines`. A count that grows without end shows a leak.

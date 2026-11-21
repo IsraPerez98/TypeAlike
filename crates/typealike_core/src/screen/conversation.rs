@@ -56,6 +56,11 @@ impl ConversationLines {
         }));
     }
 
+    /// The number of the kept lines.
+    pub(crate) fn count(&self) -> usize {
+        self.lines.len()
+    }
+
     /// Returns `screen` with the lines of the earlier reads that it does not show, above all its
     /// lines in their order. Returns `None` without a clock, or when `screen` shows each line that
     /// is younger than [`MAX_LINE_AGE`] at `now`.

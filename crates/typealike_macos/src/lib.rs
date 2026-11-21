@@ -31,6 +31,8 @@ mod ocr;
 mod overlay;
 mod panel;
 mod permissions;
+#[cfg(feature = "suggestion-log")]
+mod resource_usage;
 mod runtime;
 mod screen_text;
 mod settings;

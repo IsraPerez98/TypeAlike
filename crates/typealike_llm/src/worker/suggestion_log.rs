@@ -76,6 +76,17 @@ pub(super) fn loaded(file: &ModelFile, backend: Backend, duration: Duration, err
     );
 }
 
+/// Writes that the worker dropped the model and its context, so that the memory of the next
+/// `resource usage` record of the platform is without them.
+pub(super) fn unloaded() {
+    tracing::info!(target: SUGGESTION_LOG_TARGET, "unloaded the model");
+}
+
+/// Writes that the worker freed the context of the model after a time without a request.
+pub(super) fn freed_context() {
+    tracing::info!(target: SUGGESTION_LOG_TARGET, "freed the context");
+}
+
 fn milliseconds(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }

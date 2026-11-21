@@ -231,7 +231,10 @@ pub(crate) fn run(
             InferenceRequest::Complete { .. } => {
                 reply.answer(InferenceEvent::Completed(Err(InferenceError::NoModel)));
             }
-            InferenceRequest::Unload => {}
+            InferenceRequest::Unload => {
+                #[cfg(feature = "suggestion-log")]
+                suggestion_log::unloaded();
+            }
             InferenceRequest::ReadGpuMemory { backend } => {
                 let result = read_gpu_memory(&mut llama, backend);
                 reply.answer(InferenceEvent::GpuMemory { backend, result });
@@ -445,6 +448,8 @@ fn next_job_for(
         Waited::Closed => None,
         Waited::Idle => {
             loaded.free_context();
+            #[cfg(feature = "suggestion-log")]
+            suggestion_log::freed_context();
             queue.next()
         }
     }

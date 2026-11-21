@@ -763,3 +763,15 @@ fn session_on_the_new_line_after_enter_stays_one_text_after_the_reads_of_the_set
         Some(vec![mail_entry(&format!("Hi Ana,\n{TYPED_TEXT}"))])
     );
 }
+
+#[test]
+fn kept_items_count_the_texts_and_the_words_of_the_earlier_writing() {
+    let engine = engine_with_history(
+        &history_settings(HistoryAccess::On, Vec::new()),
+        vec![mail_entry("Cheers,\nTom"), mail_entry("Cheers, Ana")],
+    );
+
+    let kept = engine.kept_items();
+
+    assert_eq!((kept.history_entries, kept.history_words), (2, 3));
+}

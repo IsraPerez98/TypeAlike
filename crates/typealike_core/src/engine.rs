@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 use crate::desktop::{AfterCaret, Desktop, LinesBelow, Surroundings, Timestamp};
+use crate::diagnostics::KeptItems;
 use crate::excerpt::{icons_as_spaces, plain_spaces, without_zero_width_spaces};
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TokenCount, TypoCheck};
@@ -244,6 +245,21 @@ impl Engine {
     /// again.
     pub(crate) fn end_field_pause(&mut self) {
         self.is_field_paused = false;
+    }
+
+    /// The number of the items in each collection of the engine that grows while TypeAlike runs.
+    #[must_use]
+    pub(crate) fn kept_items(&self) -> KeptItems {
+        KeptItems {
+            history_entries: self.history.len(),
+            history_words: self.history_words.len(),
+            dictionary_answers: self.dictionary.as_ref().map_or(0, Dictionary::kept_answers),
+            shown_suggestions: self
+                .session
+                .as_ref()
+                .map_or(0, |session| session.shown_suggestions.count()),
+            conversation_lines: self.screen_reads.conversation_lines(),
+        }
     }
 
     /// Whether a session runs.

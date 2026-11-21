@@ -188,3 +188,14 @@ fn escape_at_the_end_of_a_typed_out_suggestion_keeps_it_for_a_backspace() {
 
     assert_eq!(reaction, show("d"));
 }
+
+#[test]
+fn kept_items_count_the_suggestions_that_the_session_keeps() {
+    let mut engine = engine_showing("hel", "lo world");
+    press(&mut engine, Key::Char('p'));
+    engine.on_completion(completion(" me"));
+
+    let kept = engine.kept_items();
+
+    assert_eq!(kept.shown_suggestions, 2);
+}

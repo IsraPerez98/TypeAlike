@@ -11,11 +11,12 @@ publish.workspace = true
 [features]
 # Writes the records of the suggestion log (target `typealike_suggestions`), which hold the text of
 # the user. The bin enables it with its own `suggestion-log` feature.
-suggestion-log = []
+suggestion-log = ["dep:libc"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2.workspace = true
 dispatch2.workspace = true
+libc = { workspace = true, optional = true }
 typealike_core.workspace = true
 objc2.workspace = true
 objc2-app-kit.workspace = true

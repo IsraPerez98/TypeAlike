@@ -6,6 +6,7 @@
 pub mod app;
 pub mod controller;
 pub mod desktop;
+pub mod diagnostics;
 pub mod engine;
 mod excerpt;
 pub mod history;

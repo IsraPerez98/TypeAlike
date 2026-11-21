@@ -91,6 +91,9 @@ windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev =
 # Compiles the icon resource of TypeAlike.exe with the resource compiler of the Windows SDK.
 embed-resource = { version = "3.0.12", default-features = false }
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+# The process memory, the CPU time and the threads of the macOS suggestion log (`proc_pid_rusage`,
+# `getrusage`, `proc_pidinfo`). Other crates of the build already depend on it.
+libc = { version = "0.2.190", default-features = false }
 objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "std",

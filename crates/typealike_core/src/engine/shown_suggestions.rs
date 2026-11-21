@@ -47,6 +47,11 @@ impl ShownSuggestions {
             .find_map(|shown| shown.rest_after(text_before))
     }
 
+    /// The number of the kept suggestions.
+    pub(super) fn count(&self) -> usize {
+        self.kept.len()
+    }
+
     /// Forgets each kept suggestion that `text_before`, the text before the caret, continues, so
     /// that none of them shows there again.
     pub(super) fn forget_at(&mut self, text_before: &str) {

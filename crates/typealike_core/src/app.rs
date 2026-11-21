@@ -19,6 +19,7 @@ use crate::desktop::{
     AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow, OcrAvailability,
     OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, Surroundings,
 };
+use crate::diagnostics::KeptItems;
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
@@ -397,6 +398,12 @@ impl App {
             host: self.engine.session_domain().map(str::to_owned),
             is_private_window: self.engine.is_session_in_private_window(),
         })
+    }
+
+    /// The number of the items in each collection of the app that grows while TypeAlike runs.
+    #[must_use]
+    pub fn kept_items(&self) -> KeptItems {
+        self.engine.kept_items()
     }
 
     /// Uses `entries`, the earlier writing of the user, oldest first, from the next key in a new

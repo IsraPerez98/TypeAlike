@@ -185,6 +185,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
     - `decode_ms`: `duration_ms` without `prefill_ms`. `tokens_per_second` divides the added tokens by it.
 - `loaded a model`: the file, the backend, the time (`duration_ms`) and the error of each load. The warm-up after the load does not count.
 - `new word bias`: the words of each new table of the word bias.
+- `unloaded the model`: the worker dropped the model and its context. `freed the context`: the worker freed the context after a time without a request (`CONTEXT_IDLE_TIMEOUT`). The next `resource usage` record of the platform shows the memory without them.
 
 ## Shutdown
 
