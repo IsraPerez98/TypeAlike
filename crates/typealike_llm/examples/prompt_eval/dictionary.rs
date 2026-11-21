@@ -153,6 +153,15 @@ impl SpellChecker for HunspellDictionary {
         // Hunspell gives no completions, so only letters that are a whole word count, as on Windows.
         self.0.check(letters)
     }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        let mut guesses = Vec::new();
+        self.0
+            .suggester()
+            .with_ngram_suggestions(false)
+            .suggest(word, &mut guesses);
+        guesses
+    }
 }
 
 impl std::fmt::Debug for FileDictionary {
@@ -178,6 +187,10 @@ impl SpellChecker for FileDictionary {
             Some(knowledge) => *knowledge != Knowledge::Nothing,
             None => self.live.iter().any(|live| live.is_word_start(letters)),
         }
+    }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        self.live.iter().flat_map(|live| live.guesses(word)).collect()
     }
 }
 
@@ -205,9 +218,10 @@ mod tests {
         assert!(parsed.is_err());
     }
 
-    #[test]
-    fn joined_hunspell_dictionaries_know_the_words_of_each() {
-        let folder = std::env::temp_dir().join(format!("prompt_eval_hunspell_{}", std::process::id()));
+    /// Runs `check` on the live dictionary of two Hunspell dictionaries: one with "casa", and one
+    /// with "house".
+    fn with_joined_hunspell_dictionaries<T>(name: &str, check: impl Fn(&FileDictionary) -> T) -> T {
+        let folder = std::env::temp_dir().join(format!("prompt_eval_{name}_{}", std::process::id()));
         fs::create_dir_all(&folder).expect("temp folder");
         for (name, word) in [("one", "casa"), ("two", "house")] {
             fs::write(folder.join(format!("{name}.aff")), "SET UTF-8\n").expect("aff");
@@ -218,11 +232,26 @@ mod tests {
             folder.join("one").display(),
             folder.join("two").display()
         );
-
-        let dictionary = FileDictionary::read(&spec).expect("valid");
-        let answers = ["casa", "house", "zorbly"].map(|word| dictionary.is_known_word(word));
-
+        let checked = check(&FileDictionary::read(&spec).expect("valid"));
         fs::remove_dir_all(&folder).expect("remove temp folder");
+        checked
+    }
+
+    #[test]
+    fn joined_hunspell_dictionaries_know_the_words_of_each() {
+        let answers = with_joined_hunspell_dictionaries("know", |dictionary| {
+            ["casa", "house", "zorbly"].map(|word| dictionary.is_known_word(word))
+        });
+
         assert_eq!(answers, [true, true, false]);
+    }
+
+    #[test]
+    fn joined_hunspell_dictionaries_guess_the_words_of_each() {
+        let guesses = with_joined_hunspell_dictionaries("guess", |dictionary| {
+            ["csaa", "hosue"].map(|word| dictionary.guesses(word))
+        });
+
+        assert_eq!(guesses, [vec!["casa".to_owned()], vec!["house".to_owned()]]);
     }
 }

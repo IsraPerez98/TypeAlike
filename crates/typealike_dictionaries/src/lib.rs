@@ -157,6 +157,24 @@ impl SpellChecker for HunspellChecker {
         // Hunspell gives no completions, so only letters that are a whole word count.
         self.is_known_word(letters)
     }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        self.0
+            .iter()
+            .flat_map(|dictionary| hunspell_guesses(dictionary, word))
+            .collect()
+    }
+}
+
+/// Returns the words that `dictionary` offers in place of `word`, without the guesses of letter
+/// groups (n-grams), which take longer and differ from `word` in more than one edit.
+fn hunspell_guesses(dictionary: &spellbook::Dictionary, word: &str) -> Vec<String> {
+    let mut guesses = Vec::new();
+    dictionary
+        .suggester()
+        .with_ngram_suggestions(false)
+        .suggest(word, &mut guesses);
+    guesses
 }
 
 #[cfg(test)]
@@ -212,6 +230,19 @@ mod tests {
         let event = next_event(&receiver);
         fs::remove_dir_all(&dir).ok();
         assert_eq!(event, DictionaryEvent::Installed(vec!["eo".to_owned()]));
+    }
+
+    #[test]
+    fn checker_offers_the_words_of_each_dictionary_in_place_of_an_unknown_word() {
+        let dictionaries = ["saluton", "domo"].map(|word| {
+            let dictionary = spellbook::Dictionary::new("SET UTF-8\n", &format!("1\n{word}\n"));
+            Arc::new(dictionary.expect("the dictionary is valid"))
+        });
+        let checker = HunspellChecker(dictionaries.to_vec());
+
+        let guesses = ["salutno", "dmoo"].map(|word| checker.guesses(word));
+
+        assert_eq!(guesses, [vec!["saluton".to_owned()], vec!["domo".to_owned()]]);
     }
 
     #[test]

@@ -120,4 +120,22 @@ impl SpellChecker for SpellingDictionary {
                 .is_some_and(|completions| completions.count() > 0)
         })
     }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        let word = NSString::from_str(word);
+        let range = NSRange::new(0, word.length());
+        self.languages
+            .iter()
+            .filter_map(|language| {
+                self.checker
+                    .guessesForWordRange_inString_language_inSpellDocumentWithTag(
+                        range,
+                        &word,
+                        Some(language),
+                        0,
+                    )
+            })
+            .flat_map(|guesses| guesses.iter().map(|guess| guess.to_string()).collect::<Vec<_>>())
+            .collect()
+    }
 }

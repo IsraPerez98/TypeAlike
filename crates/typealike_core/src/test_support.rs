@@ -256,12 +256,15 @@ pub(crate) fn suggestion_site(host: &str, is_on: bool) -> SuggestionSite {
 }
 
 /// A dictionary that knows each word but the `unknown` ones, and each start of a word but the
-/// `unknown_starts`. It counts the words and the starts that it checks.
+/// `unknown_starts`. It offers the `guesses` of a word in place of it. It counts the words and the
+/// starts that it checks, and the words that it gives guesses for.
 #[derive(Debug, Default)]
 pub(crate) struct FakeSpellChecker {
     pub(crate) unknown: Vec<&'static str>,
     pub(crate) unknown_starts: Vec<&'static str>,
+    pub(crate) guesses: Vec<(&'static str, Vec<&'static str>)>,
     pub(crate) checked_words: Rc<Cell<usize>>,
+    pub(crate) guessed_words: Rc<Cell<usize>>,
 }
 
 impl FakeSpellChecker {
@@ -282,5 +285,14 @@ impl SpellChecker for FakeSpellChecker {
     fn is_word_start(&self, letters: &str) -> bool {
         self.checked_words.set(self.checked_words.get() + 1);
         !self.unknown_starts.contains(&letters)
+    }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        self.guessed_words.set(self.guessed_words.get() + 1);
+        self.guesses
+            .iter()
+            .filter(|(guessed, _)| *guessed == word)
+            .flat_map(|(_, guesses)| guesses.iter().map(|&guess| guess.to_owned()))
+            .collect()
     }
 }

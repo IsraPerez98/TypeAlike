@@ -75,6 +75,16 @@ impl SpellChecker for SpellingDictionary {
         // ISpellChecker gives no completions, so only letters that are a whole word count.
         !self.checkers.is_empty() && self.is_known_word(letters)
     }
+
+    fn guesses(&self, word: &str) -> Vec<String> {
+        let word = HSTRING::from(word);
+        self.checkers
+            .iter()
+            // SAFETY: COM is initialized on this thread, and `word` lives for the call.
+            .filter_map(|checker| unsafe { checker.Suggest(&word) }.ok())
+            .flat_map(|guesses| strings_of(&guesses))
+            .collect()
+    }
 }
 
 /// Whether `checker` finds no error in `word`. A check that fails finds none.
