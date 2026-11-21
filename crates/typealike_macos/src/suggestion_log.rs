@@ -2,11 +2,13 @@
 //! the ghost text and the text that Tab inserts. They hold what the user wrote, so only a build
 //! with the `suggestion-log` feature has them.
 
+use std::time::{Duration, Instant};
+
 use objc2_application_services::AXUIElement;
 use tracing::Span;
 use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::controller::{Delivery, Ghost, GhostView};
-use typealike_core::desktop::{ScreenReadId, ScreenSource, ScreenText, Surroundings};
+use typealike_core::desktop::{ScreenRead, ScreenReadId, ScreenSource, Surroundings};
 
 use crate::accessibility::{ROLE_ATTRIBUTE, SUBROLE_ATTRIBUTE, copy_string, frame};
 use crate::mirror::Mirror;
@@ -48,13 +50,16 @@ pub(crate) fn field(
     );
 }
 
-/// Writes the lines of the screen `text` that the read `read` from `source` gave.
-pub(crate) fn screen_read(read: ScreenReadId, source: ScreenSource, text: Option<&ScreenText>) {
+/// Writes the lines of the screen read `answer` from `source`, which waited `waited` in the queue
+/// of the reader and then took `duration`.
+pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Duration, duration: Duration) {
     tracing::info!(
         target: SUGGESTION_LOG_TARGET,
-        ?read,
+        read = ?answer.id,
         ?source,
-        lines = text.map(|text| {
+        waited_ms = waited.as_secs_f64() * 1000.0,
+        duration_ms = duration.as_secs_f64() * 1000.0,
+        lines = answer.text.as_ref().map(|text| {
             tracing::field::debug(text.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>())
         }),
         "read the screen"
@@ -93,6 +98,8 @@ pub(crate) struct ShellRecords {
     completion: Span,
     /// The newest screen read that the shell gave to core.
     screen_read: Option<ScreenReadId>,
+    /// The time of the last key down that no ghost text showed after yet.
+    key_down: Option<Instant>,
 }
 
 impl Default for ShellRecords {
@@ -100,6 +107,7 @@ impl Default for ShellRecords {
         Self {
             completion: Span::none(),
             screen_read: None,
+            key_down: None,
         }
     }
 }
@@ -115,8 +123,19 @@ impl ShellRecords {
         }
     }
 
-    /// Writes the ghost text of `view`, and where it shows after the draw.
-    pub(crate) fn ghost(&self, view: &GhostView, drawn: Drawn) {
+    /// Notes a key down, so that the next ghost text that shows tells the time since it.
+    pub(crate) fn note_key_down(&mut self) {
+        self.key_down = Some(Instant::now());
+    }
+
+    /// Writes the ghost text of `view`, and where it shows after the draw. The first ghost text
+    /// that shows after a key down also tells the time since that key.
+    pub(crate) fn ghost(&mut self, view: &GhostView, drawn: Drawn) {
+        let key_to_ghost = match drawn {
+            Drawn::Overlay | Drawn::Mirror => self.key_down.take().map(|key_down| key_down.elapsed()),
+            Drawn::Nothing => None,
+        };
+        let key_to_ghost_ms = key_to_ghost.map(|time| time.as_secs_f64() * 1000.0);
         let wrapped = view
             .wrapped
             .as_ref()
@@ -133,6 +152,7 @@ impl ShellRecords {
                 placement,
                 drawn,
                 screen_read,
+                key_to_ghost_ms,
                 "showed the ghost text"
             ),
             Ghost::Fix(fix) => tracing::info!(
@@ -145,6 +165,7 @@ impl ShellRecords {
                 placement,
                 drawn,
                 screen_read,
+                key_to_ghost_ms,
                 "showed a fix"
             ),
         }
@@ -164,7 +185,7 @@ impl ShellRecords {
 
 #[cfg(test)]
 mod tests {
-    use typealike_core::desktop::ScreenRead;
+    use typealike_core::controller::GhostPlacement;
     use typealike_core::inference::InferenceEvent;
 
     use super::*;
@@ -182,5 +203,25 @@ mod tests {
         records.note_delivery(&suggestion, Span::none());
 
         assert_eq!(records.screen_read, Some(ScreenReadId::default()));
+    }
+
+    #[test]
+    fn key_time_waits_for_a_ghost_text_that_shows() {
+        let mut records = ShellRecords::default();
+        let view = GhostView::new(
+            Ghost::Text(" soon".to_owned()),
+            "See you",
+            GhostPlacement::AfterCaret,
+        );
+
+        records.note_key_down();
+        records.ghost(&view, Drawn::Nothing);
+        let is_waiting_after_nothing = records.key_down.is_some();
+        records.ghost(&view, Drawn::Overlay);
+
+        assert_eq!(
+            (is_waiting_after_nothing, records.key_down.is_some()),
+            (true, false)
+        );
     }
 }

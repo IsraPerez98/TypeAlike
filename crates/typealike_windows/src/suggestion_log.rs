@@ -2,17 +2,22 @@
 //! text that Tab inserts. They hold what the user wrote, so only a build with the `suggestion-log`
 //! feature has them.
 
+use std::time::Duration;
+
 use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::controller::{Ghost, GhostView};
-use typealike_core::desktop::{ScreenReadId, ScreenSource, ScreenText};
+use typealike_core::desktop::{ScreenRead, ScreenSource};
 
-/// Writes the lines of the screen `text` that the read `read` from `source` gave.
-pub(crate) fn screen_read(read: ScreenReadId, source: ScreenSource, text: Option<&ScreenText>) {
+/// Writes the lines of the screen read `answer` from `source`, which waited `waited` in the queue
+/// of the reader and then took `duration`.
+pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Duration, duration: Duration) {
     tracing::info!(
         target: SUGGESTION_LOG_TARGET,
-        ?read,
+        read = ?answer.id,
         ?source,
-        lines = text.map(|text| {
+        waited_ms = waited.as_secs_f64() * 1000.0,
+        duration_ms = duration.as_secs_f64() * 1000.0,
+        lines = answer.text.as_ref().map(|text| {
             tracing::field::debug(text.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>())
         }),
         "read the screen"

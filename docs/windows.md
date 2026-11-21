@@ -183,6 +183,6 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ## Suggestion log
 
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
-  - `read the screen`: the id, the source and the lines of each screen read.
+  - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`).
   - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines.
   - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.

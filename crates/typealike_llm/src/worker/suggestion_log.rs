@@ -1,11 +1,79 @@
 //! The records of the suggestion log that the worker writes for each completion. They hold the
 //! prompt and the text of the model, so only a build with the `suggestion-log` feature has them.
 
+use std::time::Duration;
+
 use tracing::span::EnteredSpan;
 use typealike_core::SUGGESTION_LOG_TARGET;
-use typealike_core::inference::{Completion, InferenceError, InferenceRequest};
+use typealike_core::hub::ModelFile;
+use typealike_core::inference::{Backend, Completion, InferenceError, InferenceRequest};
 
 use super::generation::Stop;
+
+/// The prompt tokens that a cache decoded for a completion, and the time that their decode took.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(super) struct Prefill {
+    /// The tokens of the last prompt.
+    prompt_tokens: usize,
+    /// The tokens that the decodes added. The cache kept the other tokens of the prompt.
+    decoded_tokens: usize,
+    duration: Duration,
+}
+
+impl Prefill {
+    /// Adds the decode of `decoded_tokens` of a prompt of `prompt_tokens`, which took `duration`.
+    pub(super) fn add_batch(&mut self, prompt_tokens: usize, decoded_tokens: usize, duration: Duration) {
+        self.prompt_tokens = prompt_tokens;
+        self.decoded_tokens += decoded_tokens;
+        self.duration += duration;
+    }
+
+    /// The tokens of the prompt that came from the cache.
+    fn cached_tokens(self) -> usize {
+        self.prompt_tokens.saturating_sub(self.decoded_tokens)
+    }
+}
+
+/// How long a completion waited in the queue and took, and its prompt decodes.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Timing {
+    pub(super) queue_wait: Duration,
+    /// The time from the start of the completion to its answer, also for a completion that a
+    /// newer request replaced.
+    pub(super) duration: Duration,
+    pub(super) prefill: Prefill,
+}
+
+impl Timing {
+    /// The time of the completion after its prompt decodes.
+    fn decode(self) -> Duration {
+        self.duration.saturating_sub(self.prefill.duration)
+    }
+
+    /// The tokens that the completion added in each second after its prompt decodes, or `None`
+    /// without that time.
+    fn tokens_per_second(self, tokens: u32) -> Option<f64> {
+        let seconds = self.decode().as_secs_f64();
+        (seconds > 0.0).then(|| f64::from(tokens) / seconds)
+    }
+}
+
+/// Writes the load of the model of `file` on `backend`, which took `duration`, and its `error`.
+pub(super) fn loaded(file: &ModelFile, backend: Backend, duration: Duration, error: Option<&InferenceError>) {
+    tracing::info!(
+        target: SUGGESTION_LOG_TARGET,
+        repo = %file.repo,
+        name = %file.name,
+        ?backend,
+        duration_ms = milliseconds(duration),
+        error = error.map(tracing::field::debug),
+        "loaded a model"
+    );
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
 
 /// What the records of the completions keep from one completion to the next.
 #[derive(Debug, Default)]
@@ -34,6 +102,7 @@ impl CompletionLog {
         &mut self,
         request: &InferenceRequest,
         result: Result<&(Completion, Stop), &InferenceError>,
+        timing: Timing,
     ) {
         if !tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
             return;
@@ -70,7 +139,13 @@ impl CompletionLog {
             next_words = ?next_word_bias.0,
             text = completion.map(|completion| completion.text.as_str()),
             tokens = completion.map(|completion| completion.tokens.0),
-            duration_ms = completion.map(|completion| completion.duration.as_secs_f64() * 1000.0),
+            queue_wait_ms = milliseconds(timing.queue_wait),
+            duration_ms = milliseconds(timing.duration),
+            prompt_tokens = timing.prefill.prompt_tokens,
+            cached_tokens = timing.prefill.cached_tokens(),
+            prefill_ms = milliseconds(timing.prefill.duration),
+            decode_ms = milliseconds(timing.decode()),
+            tokens_per_second = completion.and_then(|completion| timing.tokens_per_second(completion.tokens.0)),
             word_log_probabilities = completion.map(|completion| {
                 tracing::field::debug(
                     completion.word_log_probabilities.iter().map(|word| word.0).collect::<Vec<_>>(),
@@ -111,6 +186,38 @@ fn shared_start_chars(text: &str, earlier: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn timing(duration_ms: u64, prefill_ms: u64) -> Timing {
+        let mut prefill = Prefill::default();
+        prefill.add_batch(100, 30, Duration::from_millis(prefill_ms));
+        Timing {
+            queue_wait: Duration::ZERO,
+            duration: Duration::from_millis(duration_ms),
+            prefill,
+        }
+    }
+
+    #[test]
+    fn prompt_tokens_that_no_decode_added_came_from_the_cache() {
+        let mut prefill = Prefill::default();
+
+        prefill.add_batch(90, 40, Duration::from_millis(5));
+        prefill.add_batch(100, 20, Duration::from_millis(5));
+
+        assert_eq!(
+            (prefill.cached_tokens(), prefill.duration),
+            (40, Duration::from_millis(10))
+        );
+    }
+
+    #[test]
+    fn tokens_per_second_count_only_the_time_after_the_prompt_decodes() {
+        let cases = [(timing(500, 100), Some(50.0)), (timing(100, 100), None)];
+
+        let rates = cases.map(|(timing, _)| timing.tokens_per_second(20));
+
+        assert_eq!(rates, cases.map(|(_, rate)| rate));
+    }
 
     #[test]
     fn logged_prompt_takes_the_shared_start_only_when_it_is_at_least_half_of_the_prompt() {

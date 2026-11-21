@@ -45,6 +45,9 @@ const CONTEXT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
 pub(crate) struct Job {
     request: InferenceRequest,
     reply: Reply,
+    /// When the runner got the request, for the time that it waited in the queue.
+    #[cfg(feature = "suggestion-log")]
+    submitted: Instant,
 }
 
 impl Job {
@@ -54,7 +57,12 @@ impl Job {
             failure: failure_answer(&request).map(Box::new),
             sink,
         };
-        Self { request, reply }
+        Self {
+            request,
+            reply,
+            #[cfg(feature = "suggestion-log")]
+            submitted: Instant::now(),
+        }
     }
 }
 
@@ -179,7 +187,10 @@ pub(crate) fn run(
 ) {
     let mut queue = JobQueue::new(jobs);
     let mut llama = None;
-    while let Some(Job { request, mut reply }) = queue.next() {
+    while let Some(Job {
+        request, mut reply, ..
+    }) = queue.next()
+    {
         match request {
             InferenceRequest::Load { file, backend } => {
                 let batch_tokens = prompt_batch.tokens_on(backend);
@@ -188,14 +199,6 @@ pub(crate) fn run(
                     name = %file.name,
                     ?backend,
                     batch_tokens,
-                    "loading a model"
-                );
-                #[cfg(feature = "suggestion-log")]
-                tracing::info!(
-                    target: typealike_core::SUGGESTION_LOG_TARGET,
-                    repo = %file.repo,
-                    name = %file.name,
-                    ?backend,
                     "loading a model"
                 );
                 let started = Instant::now();
@@ -209,6 +212,8 @@ pub(crate) fn run(
                 )
                 .inspect(|_| tracing::info!(duration = ?started.elapsed(), "loaded the model"))
                 .inspect_err(|error| tracing::warn!(?error, "failed to load the model"));
+                #[cfg(feature = "suggestion-log")]
+                suggestion_log::loaded(&file, backend, started.elapsed(), loaded.as_ref().err());
                 match (loaded, &llama) {
                     (Ok((model, drafter)), Some(llama)) => {
                         let setup = ContextSetup::on(backend, cpu_cores, batch_tokens);
@@ -379,6 +384,8 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         };
         #[cfg(feature = "suggestion-log")]
         let _completion = queue.log.start_completion();
+        #[cfg(feature = "suggestion-log")]
+        let started = Instant::now();
         let sink = &job.reply.sink;
         let mut progress = Progress {
             is_outdated: &mut || queue.has_newer_completion(sink),
@@ -394,7 +401,15 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
         #[cfg(feature = "suggestion-log")]
-        queue.log.completed(&job.request, result.as_ref());
+        queue.log.completed(
+            &job.request,
+            result.as_ref(),
+            suggestion_log::Timing {
+                queue_wait: started.duration_since(job.submitted),
+                duration: started.elapsed(),
+                prefill: loaded.take_prefill(),
+            },
+        );
         job.reply.answer(InferenceEvent::Completed(
             result.map(|(completion, _)| completion),
         ));

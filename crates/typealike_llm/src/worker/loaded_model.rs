@@ -183,6 +183,15 @@ impl<'model> LoadedModel<'model> {
         Ok((completion, added.stop))
     }
 
+    /// Returns the prompt decodes of the cache since the last take, and starts a new count.
+    #[cfg(feature = "suggestion-log")]
+    pub(super) fn take_prefill(&mut self) -> super::suggestion_log::Prefill {
+        self.cache
+            .as_mut()
+            .map(PromptCache::take_prefill)
+            .unwrap_or_default()
+    }
+
     /// Returns the logits that `word_bias` adds to each token, and that `next_word_bias` adds to
     /// the first token. It finds the tokens of each version of `word_bias` one time.
     pub(super) fn token_bias(

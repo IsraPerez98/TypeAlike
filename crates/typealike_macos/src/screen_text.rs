@@ -95,12 +95,18 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
             lines = text.as_ref().map(|text| text.lines.len()),
             "screen read answered"
         );
-        #[cfg(feature = "suggestion-log")]
-        crate::suggestion_log::screen_read(newest.read, newest.source, text.as_ref());
-        deliver(Delivery::Screen(ScreenRead {
+        let answer = ScreenRead {
             id: newest.read,
             text,
-        }));
+        };
+        #[cfg(feature = "suggestion-log")]
+        crate::suggestion_log::screen_read(
+            &answer,
+            newest.source,
+            started - newest.requested,
+            started.elapsed(),
+        );
+        deliver(Delivery::Screen(answer));
     }
 }
 

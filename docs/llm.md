@@ -165,7 +165,12 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - `stop` tells why the model stopped: `ModelEnd`, `LineAfter`, `SentenceEnd`, `LineBreak`, `TailCut`, `TokenLimit` or `Typo`.
   - `chosen_tokens` counts the tokens that the completion chose. `dropped_text` gives the chosen text that it did not keep, because it went back to an earlier end.
   - After a `Typo` stop without a fix, `fix_candidate` gives the most likely fix with one edit among the fix candidates, and `fix_candidate_log_probability` how likely the model found it. A fix needs at least the typo minimum (`typo_check`), so a candidate below it shows how near a fix was. With fewer than `MIN_FIXED_CHARACTERS` typed letters, or no candidate one edit away, it is empty.
-- `loading a model`: the file and the backend of each load.
+  - The times, in milliseconds:
+    - `queue_wait_ms`: from the request to the start of the completion. A load before the completion is part of it.
+    - `duration_ms`: from the start of the completion to its answer, also for a completion that a newer request replaced (`Superseded`).
+    - `prefill_ms`: the decodes of the prompt. `prompt_tokens` counts the tokens of the prompt, and `cached_tokens` the tokens that the cache kept from an earlier prompt. The decodes of the warm-up do not count.
+    - `decode_ms`: `duration_ms` without `prefill_ms`. `tokens_per_second` divides the added tokens by it.
+- `loaded a model`: the file, the backend, the time (`duration_ms`) and the error of each load. The warm-up after the load does not count.
 - `new word bias`: the words of each new table of the word bias.
 
 ## Shutdown

@@ -91,13 +91,19 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
             lines = text.as_ref().map(|text| text.lines.len()),
             "screen read answered"
         );
+        let read = ScreenRead {
+            id: newest.read,
+            text,
+        };
         #[cfg(feature = "suggestion-log")]
-        crate::suggestion_log::screen_read(newest.read, newest.source, text.as_ref());
+        crate::suggestion_log::screen_read(
+            &read,
+            newest.source,
+            started - newest.requested,
+            started.elapsed(),
+        );
         answers.send(ScreenAnswer {
-            read: ScreenRead {
-                id: newest.read,
-                text,
-            },
+            read,
             sent: Instant::now(),
         });
     }

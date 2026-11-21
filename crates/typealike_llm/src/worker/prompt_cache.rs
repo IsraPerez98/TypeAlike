@@ -18,6 +18,8 @@ use super::generation::{
 };
 use super::logits::with_bias;
 use super::model_params::{ContextSetup, context_params, drafter_context_params};
+#[cfg(feature = "suggestion-log")]
+use super::suggestion_log::Prefill;
 
 /// The sequence that keeps the last prompt between completions.
 const PROMPT_SEQUENCE: i32 = 1;
@@ -79,6 +81,9 @@ pub(super) struct PromptCache<'model> {
     /// keeps one running state, so it cannot remove only the end of a sequence. `None` for a model
     /// that can.
     snapshots: Option<Vec<Snapshot>>,
+    /// The prompt decodes since the last take, for the suggestion log.
+    #[cfg(feature = "suggestion-log")]
+    prefill: Prefill,
 }
 
 /// A saved state of the prompt sequence after its first `token_count` tokens.
@@ -119,6 +124,8 @@ impl<'model> PromptCache<'model> {
             tokens: Vec::new(),
             logits: Vec::new(),
             snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
+            #[cfg(feature = "suggestion-log")]
+            prefill: Prefill::default(),
         }
     }
 
@@ -198,6 +205,16 @@ impl<'model> PromptCache<'model> {
         if let Some(snapshots) = &mut self.snapshots {
             snapshots.clear();
         }
+        #[cfg(feature = "suggestion-log")]
+        {
+            self.prefill = Prefill::default();
+        }
+    }
+
+    /// Returns the prompt decodes since the last take, and starts a new count.
+    #[cfg(feature = "suggestion-log")]
+    pub(super) fn take_prefill(&mut self) -> Prefill {
+        std::mem::take(&mut self.prefill)
     }
 
     /// Decodes the tokens of `prompt` after the cached tokens in batches of the context.
@@ -221,7 +238,12 @@ impl<'model> PromptCache<'model> {
                     is_last,
                 )?;
             }
+            #[cfg(feature = "suggestion-log")]
+            let decode_started = std::time::Instant::now();
             self.context.target_mut().decode(&mut batch)?;
+            #[cfg(feature = "suggestion-log")]
+            self.prefill
+                .add_batch(prompt.len(), batch_tokens.len(), decode_started.elapsed());
             self.tokens.extend_from_slice(batch_tokens);
             self.logits.clear();
             self.logits

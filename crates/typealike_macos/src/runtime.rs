@@ -207,6 +207,8 @@ impl Runtime {
     }
 
     fn on_key_down(&mut self, event: &CGEvent) -> Disposition {
+        #[cfg(feature = "suggestion-log")]
+        self.shell.records.note_key_down();
         let code = keys::key_code(event);
         let chord = keys::chord_from_flags(CGEvent::flags(Some(event)));
         let key = code.map(|code| {
