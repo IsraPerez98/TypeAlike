@@ -140,6 +140,10 @@ jobs:
           "CUDACXX=$cuda\bin\nvcc.exe" >> $env:GITHUB_ENV
           # Only the GPUs of Windows desktops. For a data-center GPU, the driver compiles the Turing code.
           "CMAKE_CUDA_ARCHITECTURES=75-virtual;86-real;89-real;120a-real" >> $env:GITHUB_ENV
+          # Delay-load cuBLAS in ggml-cuda.dll. Windows then loads it at the first cuBLAS call, and Gemma 4 makes none (docs/llm.md).
+          # The flags apply to each llama.cpp backend DLL, but only ggml-cuda.dll uses cuBLAS.
+          $cudaMajor = $env:CUDA_VERSION.Split('.')[0]
+          "CMAKE_MODULE_LINKER_FLAGS=/machine:x64 /DELAYLOAD:cublas64_$cudaMajor.dll delayimp.lib" >> $env:GITHUB_ENV
           "$cuda\bin" >> $env:GITHUB_PATH
 
       - name: Build

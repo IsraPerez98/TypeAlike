@@ -1,7 +1,8 @@
 //! Tests of the ghost text in a field whose text after the caret the platform cannot read, as the
 //! editor of VS Code and the input box of a terminal of xterm.js: the pixels after the caret tell
 //! what follows the caret. The ghost text shows after the caret where the pixels show no text, with
-//! the rules of the room in the field, and below the caret where they show text.
+//! the rules of the room in the field, and below the caret where they show text. The edge of a box
+//! of the app on the line of the caret ends the field.
 
 use super::harness::{Harness, field_around};
 use crate::controller::{CaretLook, CaretRead, Ghost, GhostPlacement, WrappedLines};
@@ -52,21 +53,50 @@ fn code_editor() -> Surroundings {
     }
 }
 
-/// The pixels after the caret, on the background, with `text` painted in each of its rectangles.
-fn pixels_with(text: &[ScreenRect]) -> ScreenPixels {
+/// The background of a terminal around the box of a terminal app, darker than the box.
+const TERMINAL_BACKGROUND: PixelColor = PixelColor {
+    red: 10,
+    green: 10,
+    blue: 10,
+};
+/// The part of the terminal right of a box of a terminal app that has its own background and no
+/// border on the right, as the input box of opencode in the integrated terminal of VS Code. A caret
+/// at 100 has room for 7 characters of ghost text before the edge of the box, and each line below
+/// has room for 12 inside the box.
+const OUTSIDE_THE_BOX: ScreenRect = ScreenRect { left: 180, ..FIELD };
+/// The status row of a terminal app inside its box, below the line of the caret.
+const STATUS_ROW: ScreenRect = ScreenRect {
+    left: 54,
+    top: 146,
+    right: 140,
+    bottom: 154,
+};
+
+/// The pixels after the caret, on the background, with each rectangle of `areas` painted in its
+/// color. A later rectangle paints over an earlier one.
+fn pixels_painted(areas: &[(ScreenRect, PixelColor)]) -> ScreenPixels {
     let area = ScreenPixels::area_after_caret(CARET, FIELD).expect("an area after the caret");
     let width = area.right - area.left;
     let height = area.bottom - area.top;
     let colors = (0..height)
         .flat_map(|row| (0..width).map(move |column| (area.left + column, area.top + row)))
         .map(|(x, y)| {
-            let is_text = text
+            areas
                 .iter()
-                .any(|rect| (rect.left..rect.right).contains(&x) && (rect.top..rect.bottom).contains(&y));
-            if is_text { TEXT } else { BACKGROUND }
+                .rev()
+                .find(|(rect, _)| {
+                    (rect.left..rect.right).contains(&x) && (rect.top..rect.bottom).contains(&y)
+                })
+                .map_or(BACKGROUND, |&(_, color)| color)
         })
         .collect();
     ScreenPixels::new(area, colors).expect("a color for each pixel")
+}
+
+/// The pixels after the caret, on the background, with `text` painted in each of its rectangles.
+fn pixels_with(text: &[ScreenRect]) -> ScreenPixels {
+    let areas: Vec<_> = text.iter().map(|&rect| (rect, TEXT)).collect();
+    pixels_painted(&areas)
 }
 
 /// A harness in `field`, whose look at the caret sees `after` and `pixels`, after the controller
@@ -157,6 +187,34 @@ fn ghost_text_in_a_terminal_shows_the_words_that_fit_above_the_status_line_that_
 }
 
 #[test]
+fn ghost_text_in_a_terminal_shows_the_words_that_fit_before_the_edge_of_the_box_of_the_app() {
+    let pixels = pixels_painted(&[(OUTSIDE_THE_BOX, TERMINAL_BACKGROUND), (STATUS_ROW, TEXT)]);
+
+    let harness = harness_showing(terminal_input(), AfterCaret::Text, Some(pixels));
+
+    assert_eq!(shown(&harness), (text("est"), None, GhostPlacement::AfterCaret));
+}
+
+#[test]
+fn ghost_text_in_a_terminal_wraps_inside_the_box_of_the_app() {
+    let pixels = pixels_painted(&[(OUTSIDE_THE_BOX, TERMINAL_BACKGROUND)]);
+
+    let harness = harness_showing(terminal_input(), AfterCaret::Text, Some(pixels));
+
+    assert_eq!(
+        shown(&harness),
+        (
+            text("est "),
+            Some(WrappedLines {
+                left: 54,
+                lines: vec!["regards to ".to_owned(), "you".to_owned()],
+            }),
+            GhostPlacement::AfterCaret
+        )
+    );
+}
+
+#[test]
 fn ghost_text_in_a_terminal_stays_below_the_caret_without_pixels() {
     let harness = harness_showing(terminal_input(), AfterCaret::Nothing, None);
 
@@ -211,13 +269,13 @@ fn ghost_text_does_not_wrap_past_the_lines_that_the_pixels_show() {
     );
 }
 
-/// The badges that show in the editor of VS Code, for a shell that gives badges of 20 pixels,
-/// when the look sees text after the caret (the message that the editor gives in place of its
-/// text) and `pixels`.
-fn editor_badge_with(pixels: ScreenPixels) -> Option<ScreenRect> {
+/// The badges that show in `field`, for a shell that gives badges of 20 pixels, when the look
+/// sees text after the caret (in the editor of VS Code, the message that the editor gives in
+/// place of its text) and `pixels`.
+fn badge_with(field: Surroundings, pixels: ScreenPixels) -> Option<ScreenRect> {
     let mut harness = Harness::new(Settings::default());
     harness.shell.badge_side = Some(20);
-    harness.shell.surroundings = code_editor();
+    harness.shell.surroundings = field;
     harness.shell.caret_look = CaretLook::Now(CaretRead {
         caret: Some(CARET),
         field: Some(FIELD),
@@ -230,7 +288,7 @@ fn editor_badge_with(pixels: ScreenPixels) -> Option<ScreenRect> {
 
 #[test]
 fn badge_shows_at_the_end_of_the_line_of_the_caret_where_the_pixels_show_no_text() {
-    let frame = editor_badge_with(pixels_with(&[]));
+    let frame = badge_with(code_editor(), pixels_with(&[]));
 
     assert_eq!(
         frame,
@@ -252,7 +310,24 @@ fn badge_hides_where_the_pixels_show_text_after_the_caret() {
         bottom: 116,
     };
 
-    let frame = editor_badge_with(pixels_with(&[word_after_caret]));
+    let frame = badge_with(code_editor(), pixels_with(&[word_after_caret]));
 
     assert_eq!(frame, None);
+}
+
+#[test]
+fn badge_shows_before_the_edge_of_the_box_of_a_terminal_app() {
+    let pixels = pixels_painted(&[(OUTSIDE_THE_BOX, TERMINAL_BACKGROUND)]);
+
+    let frame = badge_with(terminal_input(), pixels);
+
+    assert_eq!(
+        frame,
+        Some(ScreenRect {
+            left: 156,
+            top: 100,
+            right: 176,
+            bottom: 120,
+        })
+    );
 }

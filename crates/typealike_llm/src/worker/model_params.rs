@@ -360,6 +360,7 @@ mod tests {
     use typealike_core::inference::DRAFTER_MEMORY;
 
     use super::*;
+    use crate::worker::backend_dlls::BackendDlls;
     use crate::worker::start_backend;
 
     fn device(index: usize, backend: &str, device_type: LlamaBackendDeviceType) -> LlamaBackendDevice {
@@ -649,7 +650,12 @@ mod tests {
         let path =
             PathBuf::from(std::env::var_os("TYPEALIKE_TEST_MODEL").expect("TYPEALIKE_TEST_MODEL is set"));
         let mut llama = None;
-        start_backend(&mut llama).expect("llama.cpp starts");
+        start_backend(
+            &mut llama,
+            &mut BackendDlls::found_by_llama_cpp(),
+            Backend::Vulkan,
+        )
+        .expect("llama.cpp starts");
         let devices = list_llama_ggml_backend_devices();
         let device = gpu_device(&devices, Backend::Vulkan)
             .or_else(|| gpu_device(&devices, Backend::Cuda))

@@ -50,6 +50,11 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The system caret, else the caret object of the focused window (`OBJID_CARET` of Microsoft Active Accessibility: Chromium browsers and Electron apps such as VS Code), else UI Automation (UIA) for apps that draw their own caret (WinUI).
 - Each read of the caret also gives the frame of the focused field: the UIA `CurrentBoundingRectangle` of the focused element when it has an area, else the client area of the focused window (`GetClientRect`, `ClientToScreen`).
 - In a terminal of xterm.js, the frame of the field is the frame of the screen of the terminal (the class `xterm-screen`), because the hidden input box is only one cell.
+- In Windows Terminal (the UIA class `TermControl`), the frame of the field ends at the right edge of the box around the caret (`CaretBox`). Thus the ghost text, its wrapped lines and the badge stay inside that box.
+  - A terminal app such as opencode draws its input box as cells with a background of their own. The box often has no border character on the right, so the text of the row cannot show its edge.
+  - The box is the run of cells on the row of the caret, from the caret, with the background of the cell before the caret (UIA `BackgroundColor`). The cell at the caret is always in the box, because an app can draw its own cursor there in other colors.
+  - Windows Terminal has no `FindAttribute`, so a binary search with `GetAttributeValue` finds the end of the box. For a range of several cells, Windows Terminal gives the background without the last cell. Thus the read also checks the last cell of the box alone.
+  - When the box goes to the end of the row, as in a shell, the frame stays the frame of the terminal.
 - A UIA frame covers the whole element, also the part that the edge of the window or a scrolled page hides. Thus the frame of the field is only the part of the UIA frame inside the client area of the focused window (`display::visible_field_frame`), and the wrapped ghost text stays inside the window. A scroll container inside the window can still hide a part of the frame.
 - When the client area shows no part of the UIA frame (a hidden focus window without a size), the frame stays the whole UIA frame. A mirrored window (right to left) maps the corners of its client area in the opposite order (`display::rect_between`).
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
@@ -59,6 +64,8 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - Each read of the caret also tells what follows the caret now (`AfterCaret`, from the UIA `TextPattern` of the focused element): selected text, else text after the caret on its line, else text on the lines below, else nothing.
 - The read takes one character of the selection and at most 400 characters after it (`CHARS_TO_FIND_LINE_TEXT`), so that a slow app does not hold the read. A line with only spaces in these characters has no text, because a terminal pads its lines with spaces. 400 characters hold the padding of a line of a terminal on a wide monitor and the start of the line below.
+- In Windows Terminal, the line of the caret ends at the end of the box around the caret, and the text after the box counts as the lines below (`AfterCaret::seen_on_line`).
+- An app that fills each row up to its last column, as opencode does in a narrow window, makes Windows Terminal join the rows without line breaks. Thus the read ends the line at the end of the box, and not at a line break. Else the left border of the next row counts as text after the caret, and the ghost text goes below the caret, over the lower border of the box.
 - Claude Code in Windows Terminal shows a rule and status lines below its input line, so its reads give text on the lines below, and a long ghost text does not wrap over them.
 - The address bar of Chromium browsers gives its inline completion as the selection, so the ghost text hides while it shows.
 - Claude Code in Windows Terminal gives its placeholder as text after the caret in an empty field. The look sees that the placeholder is gone after the first key.
@@ -69,12 +76,14 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - UIA cannot tell what follows the caret in the editor of VS Code (class `native-edit-context`) and in the input box of a terminal of xterm.js. The editor gives a message in place of its text, and the input box has none of the text of the terminal.
 - In these two fields, each read of the caret also captures the pixels after the caret (`caret_pixels.rs`), in the area that core asks for (`ScreenPixels::area_after_caret`). Core decides what they show (`docs/core/ghost-text.md`, "Pixels after the caret").
 - `Windows.Graphics.Capture` captures only the foreground window (`CreateForWindow`), so the ghost text, the card and the badge of TypeAlike are never in the pixels.
+- The capture uses a WARP device, as the OCR does, because a device of the graphics card keeps GPU memory after each capture ("Screen text reader").
 - Other ways that did not fit:
   - A copy of the screen also holds the ghost text of the last look, because the ghost text stays at the old caret while the user types its letters.
   - `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE` on the overlay would also hide the ghost text from screen sharing, recordings and screenshots.
   - A GDI read of the window of VS Code gives no pixels, because Chromium draws with the GPU.
 - The start of a capture took 40 to 100 ms for VS Code on 2026-11-11, too long for each read. Thus the capture of the window stays open while the reads need its pixels.
 - The handler of the frames keeps only the newest frame, because a frame keeps its buffer, and a capture without a free buffer gives no new frames. Each read copies only the area after the caret from that frame: 0.5 to 4 ms in a release build.
+- The stop of a capture removes the handler from the pool. The pool keeps the handler, the handler keeps the newest frame, and the frame keeps the pool. Without the removal, each stop kept the pool, its two buffers and the device in memory.
 - A field read that finds one of these fields starts the capture, so that the first read of the caret does not wait for it.
 - A read of the caret in another window or another field stops the capture, and so do 60 s without a read (`IDLE_CAPTURE_TIMEOUT`).
 - When the window changes its size, the next read starts the capture again.
@@ -112,6 +121,10 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ## Screen text reader
 
 - The screen text reader runs on its own thread with a low priority: the UIA text elements of the foreground window, else the OCR of a band of the window around the field (`Windows.Graphics.Capture` and `Windows.Media.Ocr`).
+- Each OCR starts a new capture of the window. The captures of the OCR and of the pixels after the caret use a WARP device, the software rasterizer of Direct3D, and not the graphics card (`window_capture.rs`).
+  - On a device of the graphics card, Windows kept one surface of the window's size in the GPU memory of TypeAlike for each capture. Each OCR of a window of 900 x 520 pixels added 2.2 MB, and the memory never went back.
+  - The close of the frame, the session and the pool did not free that memory. A flush, the removal of the handler of the frames and the drop of the device did not free it either (RTX 5070 Ti, Windows 11 24H2, 2026-11-13).
+  - With WARP, a capture keeps no GPU memory and takes as long: 30 to 60 ms for the capture of an OCR. Each WARP device also uses about 15 MB less RAM.
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
 - It stops while energy saver is on.

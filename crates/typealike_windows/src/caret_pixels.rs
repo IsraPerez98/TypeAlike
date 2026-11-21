@@ -159,6 +159,8 @@ struct LiveCapture {
     newest: NewestFrame,
     session: GraphicsCaptureSession,
     pool: Direct3D11CaptureFramePool,
+    /// The token of the handler of the frames, which the drop removes from the pool.
+    frame_handler: i64,
 }
 
 impl LiveCapture {
@@ -178,7 +180,7 @@ impl LiveCapture {
         let newest = NewestFrame::default();
         let (arrived, arrivals) = mpsc::sync_channel(1);
         let newest_of_handler = Arc::clone(&newest);
-        pool.FrameArrived(&TypedEventHandler::new(
+        let frame_handler = pool.FrameArrived(&TypedEventHandler::new(
             move |pool: windows::core::Ref<Direct3D11CaptureFramePool>, _| {
                 let Some(pool) = pool.as_ref() else {
                     return Ok(());
@@ -200,6 +202,7 @@ impl LiveCapture {
             newest,
             session,
             pool,
+            frame_handler,
         };
         arrivals.recv_timeout(FIRST_FRAME_TIMEOUT)?;
         Ok(capture)
@@ -236,7 +239,10 @@ impl LiveCapture {
 
 impl Drop for LiveCapture {
     fn drop(&mut self) {
-        // A failed close leaves nothing to recover, and the release also stops the capture.
+        // The pool keeps the handler, the handler keeps the newest frame, and the frame keeps the
+        // pool. Without the removal, the pool, its buffers and the device stay in memory.
+        // A failed removal or close leaves nothing to recover, and the release also stops the capture.
+        let _ = self.pool.RemoveFrameArrived(self.frame_handler);
         let _ = self.session.Close();
         let _ = self.pool.Close();
     }

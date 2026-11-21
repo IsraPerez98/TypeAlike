@@ -18,3 +18,6 @@ CUDACXX = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/nvcc.exe
 # `nvidia-smi --query-gpu=compute_cap --format=csv` shows the compute capability.
 # Examples: 8.6 is "86-real", 8.9 is "89-real", 12.0 is "120a-real".
 CMAKE_CUDA_ARCHITECTURES = "120a-real"
+# Load cuBLAS in ggml-cuda.dll only at its first call, as the CUDA installer does. This saves about 100 MB of RAM
+# (docs/llm.md). The number in the DLL name is the major version of the CUDA Toolkit. Windows (MSVC) only.
+CMAKE_MODULE_LINKER_FLAGS = "/machine:x64 /DELAYLOAD:cublas64_13.dll delayimp.lib"

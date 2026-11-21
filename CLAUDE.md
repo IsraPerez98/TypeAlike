@@ -25,6 +25,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - `CUDACXX`
   - a short target folder (the Vulkan shader build goes past `MAX_PATH`)
   - `CMAKE_CUDA_ARCHITECTURES` for the local GPU only (much faster CUDA build)
+  - the delay load of cuBLAS in `ggml-cuda.dll` (`CMAKE_MODULE_LINKER_FLAGS`, `docs/llm.md`). With it, a program that does not find cuBLAS stops at the first cuBLAS call. Without it, llama.cpp skips the CUDA backend.
 - CMake configures llama.cpp only once. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
 - The llama.cpp build needs CMake and libclang. It does not use OpenSSL (`.cargo/config.toml`), because llama-common.dll then needs OpenSSL DLLs that Windows does not have.
 - Windows settings window: WinUI 3 through `windows-reactor`, a git dependency on windows-rs `master` at a fixed commit (the release 0.100.0 has no `AppProxy` and no public `App::run_with`).

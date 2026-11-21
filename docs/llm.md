@@ -7,7 +7,37 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - macOS always loads on Metal.
 - On the CPU, a prompt runs one thread on each performance core of the `CpuCores` that the bin gives (at least 4 threads when the CPU has 4 cores), and each added token runs on at most 4 threads.
 - Without `CpuCores` (macOS, tests, eval), and on the GPU backends, llama.cpp keeps its threads.
-- When llama.cpp starts, it logs each device that llama.cpp found, because a release build of llama.cpp loads its GPU backends without a log.
+- When llama.cpp starts, and when it loads another backend, the worker logs each device that llama.cpp found, because a release build of llama.cpp loads its GPU backends without a log.
+
+## Backend DLLs
+
+- On Windows, a GPU build has the DLLs of each llama.cpp backend in a folder next to the program: `backends\cpu` (a DLL for each kind of CPU), `backends\vulkan` and `backends\cuda`.
+- `llama.dll`, `ggml.dll`, `ggml-base.dll`, `llama-common.dll`, the CUDA runtime and cuBLAS stay next to `TypeAlike.exe`. Windows looks there for the DLLs that a backend DLL loads, not in the folder of the backend DLL.
+- Before llama.cpp starts, the worker loads only the CPU folder and the folder of the GPU backend that the first load or read of GPU memory names (`BackendDlls`). llama.cpp loads the best DLL of each folder.
+- Thus TypeAlike from the CUDA installer does not load CUDA on Vulkan or on the CPU.
+- A later load or read of GPU memory on another GPU backend loads the folder of that backend then. Each folder loads once, and a loaded backend stays until TypeAlike stops.
+- Without the folder `backends\cpu` next to the program, llama.cpp loads each backend that it finds when it starts: in the folder of its build, next to the program and in the current folder. This applies to the tests, the examples, macOS and a build without GPU features.
+- The build script writes the same folders into `target/<profile>`, so `cargo run` loads the backends as an installed copy does.
+- Measured on 2026-11-13 with the files of the CUDA installer (RTX 5070 Ti, Gemma 4 E4B), 12 s after the load of the model, in MB, two runs each. The private working set on Vulkan changes much from run to run.
+
+  | Backend | Private working set before | Private working set after | Dedicated GPU memory before | Dedicated GPU memory after |
+  |---|---|---|---|---|
+  | CPU | 2834, 2834 | 2630, 2630 | 260, 260 | 66, 66 |
+  | Vulkan | 778, 633 | 605, 324 | 3582, 3633 | 3441, 3441 |
+  | CUDA | 578, 577 | 574, 574 | 3570, 3570 | 3570, 3570 |
+
+- Before, llama.cpp loaded CUDA on each backend. Then cuBLASLt held about 98 MB of private pages, and the CUDA driver context held about 100 MB of RAM and 190 MB of GPU memory.
+
+## cuBLAS
+
+- The CUDA installer delay-loads cuBLAS in `ggml-cuda.dll` (MSVC linker flags in `CMAKE_MODULE_LINKER_FLAGS`). Windows then loads `cublas64_13.dll` and `cublasLt64_13.dll` at the first cuBLAS call, not when llama.cpp loads the CUDA backend.
+- ggml-cuda calls cuBLAS only for a matrix product that its own kernels do not do. Examples are F16, BF16 or F32 weights in a batch of more than 16 tokens, and attention without flash attention.
+- Gemma 4 E4B (Q4_0 weights, flash attention) and its drafter never call cuBLAS on an RTX 5070 Ti. This is true when the app starts and warms up the model, in `first_key`, and in `prompt_eval` (also with a replay of each character).
+- Thus the private working set of the app after the warm-up goes from 587 MB to 482 MB, because the writable data of `cublasLt64_13.dll` (about 98 MB) stays out of the process. The suggestions and their log probabilities stay the same.
+- A model that calls cuBLAS loads it at the first call, and then uses the same memory as without the delay load.
+- At the first call, Windows looks for cuBLAS in the same folders as at load: the folder of the program, the system folders and `PATH`. It does not look in the folder of `ggml-cuda.dll`.
+- Risk: when Windows does not find cuBLAS at the first call, the process stops (exception `0xC06D007E`). Without the delay load, llama.cpp skips the CUDA backend when it loads. The CUDA installer puts the cuBLAS DLLs next to `TypeAlike.exe` (`stage.ps1` makes sure of them).
+- The CUDA job of `release.yml` sets the flags. For a local build, `.cargo/config.local.example.toml` sets them.
 
 ## GPU memory
 
