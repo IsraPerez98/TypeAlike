@@ -2,6 +2,8 @@
 # Puts a release build of TypeAlike in TypeAlike.app, and the app in a disk image.
 # Usage: build-dmg.sh VERSION PROGRAM OUTPUT_FOLDER
 # With SIGNING_KEYCHAIN, the release certificate in that keychain signs the app. Else an ad-hoc signature does.
+# With BUILD_FEATURES, the script first makes the release build with these cargo features, for a local
+# build such as BUILD_FEATURES=suggestion-log. PROGRAM is then the program of that build (target/release/TypeAlike).
 set -eu
 
 version=$1
@@ -11,6 +13,11 @@ output=$3
 release_certificate=1dbecadbd7d25fa6a7c7780cbdaa05b23ada75fd
 
 packaging=$(cd "$(dirname "$0")" && pwd)
+
+if [ -n "${BUILD_FEATURES:-}" ]; then
+    (cd "$packaging/../.." && cargo build --release --locked --features "$BUILD_FEATURES")
+fi
+
 staging=$(mktemp -d)
 app="$staging/TypeAlike.app"
 
