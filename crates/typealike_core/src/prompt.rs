@@ -90,8 +90,8 @@ pub(crate) struct ScreenPart<'text> {
 #[derive(PartialEq, Eq)]
 pub(crate) struct Preface {
     pub(crate) text: String,
-    /// The lines that the prompt writes itself around the quoted texts of `text`, such as the
-    /// [`FRAME`] and the labels, then the [`TEXT_HEADING`]. A quoted text holds what the writer
+    /// The lines that the prompt writes itself around the texts of `text`, such as the [`FRAME`]
+    /// and the labels, then the [`TEXT_HEADING`]. A text of the preface holds what the writer
     /// wrote or saw, so no line holds it. The place line keeps only its [`PLACE_LABEL`], because
     /// the window title and the labels of the field are text that the writer can type.
     pub(crate) frame_lines: Vec<String>,
@@ -223,6 +223,8 @@ fn after_caret_tokens(surroundings: &Surroundings) -> TokenCount {
 /// parts. Each line starts with the part that the prompt writes itself, its frame line.
 fn preface_of(parts: PrefaceParts<'_>) -> Preface {
     let quoted = |label: &str, text: &str| (label.to_owned(), format!("“{text}”"));
+    // A closing quote of the screen text before the heading makes the model close the typed text.
+    let under = |label: &str, text: &str| (label.to_owned(), format!("\n{text}"));
     // A quote just after an earlier text makes the model end the typed text with a quote.
     let examples = parts.examples.iter().map(|&(text, days_ago)| {
         let age = days_ago.map_or_else(String::new, |days_ago| format!("({}) ", age_label(days_ago)));
@@ -246,13 +248,9 @@ fn preface_of(parts: PrefaceParts<'_>) -> Preface {
                 .and_then(non_empty)
                 .map(|text| quoted("Text on my clipboard: ", text)),
         )
-        .chain(non_empty(&parts.below).map(|text| quoted("Below the field on my screen: ", text)))
-        .chain(non_empty(&parts.above.join("\n")).map(|text| quoted("Above the field on my screen: ", text)))
-        .chain(
-            parts
-                .last_line_above
-                .map(|line| quoted(&format!("{LAST_LINE_LABEL} "), &line)),
-        )
+        .chain(non_empty(&parts.below).map(|text| under("Below the field on my screen:", text)))
+        .chain(non_empty(&parts.above.join("\n")).map(|text| under("Above the field on my screen:", text)))
+        .chain(parts.last_line_above.map(|line| under(LAST_LINE_LABEL, &line)))
         .chain(parts.after_caret.and_then(non_empty).map(|text| {
             quoted(
                 "The text that comes right after the part that I am typing now: ",

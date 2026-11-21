@@ -314,8 +314,8 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             "H"
         )))
@@ -324,8 +324,8 @@ fn answer_during_a_session_prepares_its_prompt_with_the_screen_text() {
 
 /// The request for a suggestion after `text_before` in the mail field, with `line` above the field.
 fn suggestion_below(line: &str, text_before: &str) -> SettledWork {
-    let above = format!("Above the field on my screen: “{line}”");
-    let last_line = format!("The last line above the field on my screen: “{line}”");
+    let above = format!("Above the field on my screen:\n{line}");
+    let last_line = format!("The last line above the field on my screen:\n{line}");
     SettledWork::Suggest(Reaction::Request(suggestion_request(
         &["Where I am typing: Format: email", &above, &last_line],
         text_before,
@@ -695,8 +695,8 @@ fn ocr_line_of_the_caret_in_a_field_that_hides_its_text_goes_into_the_prompt() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “49. Parking is free after six.\nThe build is 2.4.0-rc3, and QA signs off on”",
-                "The last line above the field on my screen: “The build is 2.4.0-rc3, and QA signs off on”"
+                "Above the field on my screen:\n49. Parking is free after six.\nThe build is 2.4.0-rc3, and QA signs off on",
+                "The last line above the field on my screen:\nThe build is 2.4.0-rc3, and QA signs off on"
             ],
             ""
         )))
@@ -720,8 +720,8 @@ fn answer_of_the_ocr_without_lines_keeps_the_lines_of_the_tree() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             ""
         )))
@@ -768,8 +768,8 @@ fn answer_of_the_ocr_goes_into_the_prompt() {
         Some(SettledWork::Prepare(preparation_request(
             &[
                 "Where I am typing: Format: email",
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             ""
         )))

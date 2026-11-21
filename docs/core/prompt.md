@@ -31,6 +31,22 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 
 The examples of the earlier writing are in `docs/core/earlier-writing.md`. The frame lines (the lines that a suggestion must not copy) are in `docs/core/suggestions.md`, "Suggestions that do not show".
 
+### Quotes
+
+- The notes, the earlier writing, the clipboard and the text after the caret are in curly quotes after their labels. Each earlier text has a line break before its closing quote (`docs/core/earlier-writing.md`).
+- The screen text has no quotes. Each of its parts (below the field, above the field, the last line above the field) starts on the line after its label.
+- The reason: the screen text is often the last part before the heading. With quotes, the model often ended the typed text with the closing quote of that part, and the quote then showed at the end of the suggestion.
+- Measured with Gemma 4 E4B on Metal (2026-11-21), with a name, notes, the medium word choice, the long length and without the sentence stop:
+  - The sets: 81 chats where the field holds a finished reply (`chat_end.jsonl` and the `mt-end` cases of `message_times.jsonl`).
+  - The mean probability of a closing quote (”, ", », ' or ´) after a period at the end of the reply went from 2.0 percent to 0.03 percent. In 11 chats, it was more than 5 percent before, and in none after.
+  - The `mt-end` cases showed a closing quote at the end of 3 of 56 suggestions, and then of none. `chat_end.jsonl` showed none before and after.
+  - Other marks gave these probabilities: a line break before the closing quote, as in the earlier writing, 1.5 percent. Straight quotes 3.1 percent, «» 0.45 percent, single quotes 0.9 percent and ´ 0.03 percent.
+  - `quotes_needed.jsonl` (22 cases where a quote sign comes next or soon) showed the right quote at the caret in 9 cases, against 7 with quotes.
+  - With the word replay, `quotes_needed.jsonl` gave 55 right next words of 117, against 58: 2 helped and 5 harmed (p = 0.45). Each harmed case is a later word after the quote. Two of them were also harmed with a line break before the closing quote, with «» and with ´.
+  - `chat.jsonl`: 7 helped and 0 harmed (p = 0.016), and the log probability of the next word went up by 0.69. With the default length and stop: 5 helped and 0 harmed. A closing quote showed in 1 case before and in none after.
+  - The `use` cases of `recall.jsonl` gave 1 helped and 1 harmed, 28 `joined` cases of `message_times.jsonl` none, and 41 cases of `conversation.jsonl` 1 helped and 0 harmed.
+  - The 45 cases of `leaks.jsonl` with screen lines showed no leak of a label before and after, also with the first key as the start of the session and the word replay.
+
 ## Text before the caret
 
 - A platform reads at most 9000 characters before the caret (`MAX_CHARS_BEFORE_CARET`). The backend sets how much of that text a session keeps (`Settings::text_limits`).

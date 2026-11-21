@@ -136,10 +136,13 @@ fn lines_above_in(reaction: &Reaction) -> Vec<String> {
     };
     let (_, above) = prompt
         .0
-        .split_once("Above the field on my screen: “")
+        .split_once("Above the field on my screen:\n")
         .expect("the prompt has screen text");
-    let (lines, _) = above.split_once('”').expect("the screen text ends with a quote");
-    lines.lines().map(str::to_owned).collect()
+    above
+        .lines()
+        .take_while(|line| !line.is_empty() && !line.starts_with("The last line above the field"))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Returns the estimated tokens of the lines above the field in the prompt of `reaction`.
@@ -255,8 +258,8 @@ fn session_shows_the_screen_text_of_the_read_before_it() {
         reaction,
         request_with(
             &[
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             "S"
         )
@@ -311,8 +314,8 @@ fn read_that_comes_during_a_session_goes_into_it() {
         reaction,
         request_with(
             &[
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             "Su"
         )
@@ -381,8 +384,8 @@ fn new_screen_text_replaces_the_stored_text_one_time() {
         (
             request_with(
                 &[
-                    "Above the field on my screen: “Lunch at 1?”",
-                    "The last line above the field on my screen: “Lunch at 1?”"
+                    "Above the field on my screen:\nLunch at 1?",
+                    "The last line above the field on my screen:\nLunch at 1?"
                 ],
                 "Su"
             ),
@@ -406,8 +409,8 @@ fn same_screen_text_keeps_the_prompt() {
         reaction,
         request_with(
             &[
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             "Su"
         )
@@ -429,8 +432,8 @@ fn failed_read_keeps_the_stored_screen_text() {
         reaction,
         request_with(
             &[
-                "Above the field on my screen: “Dinner at 7?”",
-                "The last line above the field on my screen: “Dinner at 7?”"
+                "Above the field on my screen:\nDinner at 7?",
+                "The last line above the field on my screen:\nDinner at 7?"
             ],
             "Su"
         )
@@ -540,7 +543,7 @@ fn new_chat_message_keeps_the_start_of_the_screen_text() {
     let (before, after) = prompts_around_a_read(&chat_field(), chat_screen(80), chat_screen(81));
 
     let (old_lines, _) = before
-        .split_once("”\nThe last line above the field")
+        .split_once("\nThe last line above the field")
         .expect("the prompt has screen text above the field");
     assert!(after.starts_with(old_lines), "{before}\n\n{after}");
 }

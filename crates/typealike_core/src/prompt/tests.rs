@@ -387,7 +387,26 @@ fn text_after_the_caret_goes_last_after_the_screen_text_below_and_above_the_fiel
     assert_eq!(
         preface,
         framed(
-            "Text on my clipboard: “1Z999”\nBelow the field on my screen: “Sent from my phone”\nAbove the field on my screen: “From: Sam\nSee you at 7?”\nThe last line above the field on my screen: “See you at 7?”\nThe text that comes right after the part that I am typing now: “Best, Ana”"
+            "Text on my clipboard: “1Z999”\nBelow the field on my screen:\nSent from my phone\nAbove the field on my screen:\nFrom: Sam\nSee you at 7?\nThe last line above the field on my screen:\nSee you at 7?\nThe text that comes right after the part that I am typing now: “Best, Ana”"
+        )
+    );
+}
+
+#[test]
+fn screen_text_stands_without_quotes_on_the_lines_after_its_label() {
+    let screen = screen(&[("See you at 7?", 400), ("Sent from my phone", 600)]);
+
+    let preface = preface(
+        &Writer::default(),
+        &Surroundings::default(),
+        None,
+        Some(screen_part(&screen)),
+    );
+
+    assert_eq!(
+        preface,
+        framed(
+            "Below the field on my screen:\nSent from my phone\nAbove the field on my screen:\nSee you at 7?\nThe last line above the field on my screen:\nSee you at 7?"
         )
     );
 }
@@ -406,7 +425,7 @@ fn last_line_above_the_field_comes_again_after_the_screen_text() {
     assert_eq!(
         preface,
         framed(
-            "Above the field on my screen: “From: Sam\nSee you at 7?”\nThe last line above the field on my screen: “See you at 7?”"
+            "Above the field on my screen:\nFrom: Sam\nSee you at 7?\nThe last line above the field on my screen:\nSee you at 7?"
         )
     );
 }
@@ -424,7 +443,7 @@ fn screen_text_below_the_field_has_no_last_line_above_the_field() {
 
     assert_eq!(
         preface,
-        framed("Below the field on my screen: “Sent from my phone”")
+        framed("Below the field on my screen:\nSent from my phone")
     );
 }
 
@@ -440,7 +459,7 @@ fn last_line_above_the_field_comes_again_only_when_it_fits() {
     );
 
     assert!(
-        preface.ends_with("\nAbove the field on my screen: “Hi”"),
+        preface.ends_with("\nAbove the field on my screen:\nHi"),
         "{preface}"
     );
 }
@@ -458,7 +477,7 @@ fn screen_text_fits_in_what_the_preface_has_left() {
 
     assert!(
         preface.ends_with(
-            "\nAbove the field on my screen: “Hi”\nThe last line above the field on my screen: “Hi”"
+            "\nAbove the field on my screen:\nHi\nThe last line above the field on my screen:\nHi"
         ),
         "{preface}"
     );
@@ -476,7 +495,7 @@ fn screen_text_keeps_whole_lines() {
     );
 
     assert!(
-        preface.ends_with("\nAbove the field on my screen: “abc\ndef”"),
+        preface.ends_with("\nAbove the field on my screen:\nabc\ndef"),
         "{preface}"
     );
 }
