@@ -61,9 +61,77 @@ pub fn checked_words(run: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// Returns how many edits turn `left` into `right`: a swap of two letters next to each other, a
+/// change, an extra or a missing letter count one edit each.
+#[must_use]
+pub fn edit_distance(left: &[char], right: &[char]) -> usize {
+    let mut rows = vec![(0..=right.len()).collect::<Vec<_>>()];
+    for (row, &left_char) in left.iter().enumerate() {
+        let mut current = vec![row + 1; right.len() + 1];
+        for (column, &right_char) in right.iter().enumerate() {
+            let above = &rows[row];
+            let change = above[column] + usize::from(left_char != right_char);
+            let is_swap =
+                row > 0 && column > 0 && left_char == right[column - 1] && left[row - 1] == right_char;
+            let cost = change.min(above[column + 1] + 1).min(current[column] + 1);
+            let swap = is_swap.then(|| rows[row - 1][column - 1] + 1);
+            current[column + 1] = swap.map_or(cost, |swap| swap.min(cost));
+        }
+        rows.push(current);
+    }
+    rows.last()
+        .and_then(|row| row.last())
+        .copied()
+        .unwrap_or_default()
+}
+
+/// Whether the `fixed` word starts with the first letter of the `typed` letters, or with their
+/// first two letters swapped. A fix of the first letter more often turns a name into another word.
+#[must_use]
+pub fn keeps_start(typed: &[char], fixed: &str) -> bool {
+    let mut start = fixed.chars();
+    let (first, second) = (start.next(), start.next());
+    first == typed.first().copied() || (first == typed.get(1).copied() && second == typed.first().copied())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn edits_between(left: &str, right: &str) -> usize {
+        edit_distance(
+            &left.chars().collect::<Vec<_>>(),
+            &right.chars().collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn one_swap_change_extra_or_missing_letter_is_one_edit() {
+        let pairs = [
+            ("dlei", "deli"),
+            ("delu", "deli"),
+            ("dleli", "deli"),
+            ("del", "deli"),
+        ];
+
+        let distances = pairs.map(|(left, right)| edits_between(left, right));
+
+        assert_eq!(distances, [1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn two_changes_are_two_edits() {
+        assert_eq!(edits_between("dxlx", "deli"), 2);
+    }
+
+    #[test]
+    fn fix_keeps_the_start_with_the_same_first_letter_or_the_first_two_letters_swapped() {
+        let pairs = [("dlei", "deli"), ("hte", "the"), ("Car", "parte")];
+
+        let answers = pairs.map(|(typed, fixed)| keeps_start(&typed.chars().collect::<Vec<_>>(), fixed));
+
+        assert_eq!(answers, [true, true, false]);
+    }
 
     #[test]
     fn only_plain_words_of_three_letters_or_more_are_checked() {

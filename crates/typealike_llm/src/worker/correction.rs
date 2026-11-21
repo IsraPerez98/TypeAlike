@@ -5,6 +5,7 @@ use std::str;
 
 use llama_cpp_2::token::LlamaToken;
 use typealike_core::inference::{LogProbability, MIN_FIXED_CHARACTERS, TypoCheck};
+use typealike_core::spelling::{edit_distance, keeps_start};
 
 use super::logits::{most_likely_tokens, typed_log_probability};
 use super::pieces::TokenPieces;
@@ -17,29 +18,6 @@ const MAX_GAP_TO_FIX: f32 = 3.0;
 /// The fewest typed letters, without the whitespace before them, that the gap to their best fix
 /// can take for a typo. Fewer letters, such as the start of a word, have many words one edit away.
 const MIN_GAP_LETTERS: usize = 5;
-
-/// Returns how many edits turn `left` into `right`: a swap of two letters next to each other, a
-/// change, an extra or a missing letter count one edit each.
-fn edit_distance(left: &[char], right: &[char]) -> usize {
-    let mut rows = vec![(0..=right.len()).collect::<Vec<_>>()];
-    for (row, &left_char) in left.iter().enumerate() {
-        let mut current = vec![row + 1; right.len() + 1];
-        for (column, &right_char) in right.iter().enumerate() {
-            let above = &rows[row];
-            let change = above[column] + usize::from(left_char != right_char);
-            let is_swap =
-                row > 0 && column > 0 && left_char == right[column - 1] && left[row - 1] == right_char;
-            let cost = change.min(above[column + 1] + 1).min(current[column] + 1);
-            let swap = is_swap.then(|| rows[row - 1][column - 1] + 1);
-            current[column + 1] = swap.map_or(cost, |swap| swap.min(cost));
-        }
-        rows.push(current);
-    }
-    rows.last()
-        .and_then(|row| row.last())
-        .copied()
-        .unwrap_or_default()
-}
 
 /// Returns the typed `letters` with one edit, so that the text of a token, `piece`, writes their
 /// start, or all of them with more after. `None` when `piece` already agrees with the letters,
@@ -91,14 +69,6 @@ fn one_edit_away(length: usize, longest: usize, edits: impl Fn(usize) -> usize) 
         .into_iter()
         .find(|&(_, count)| count == 1)
         .map(|(candidate, _)| candidate)
-}
-
-/// Whether the `fixed` word starts with the first letter of the `typed` letters, or with their
-/// first two letters swapped. A fix of the first letter more often turns a name into another word.
-fn keeps_start(typed: &[char], fixed: &str) -> bool {
-    let mut start = fixed.chars();
-    let (first, second) = (start.next(), start.next());
-    first == typed.first().copied() || (first == typed.get(1).copied() && second == typed.first().copied())
 }
 
 /// Splits the whitespace at the start of `text` from the characters of the rest.
@@ -207,32 +177,6 @@ pub(super) fn with_fix_gap(check: TypoCheck, typed: &[u8], fix: Option<&TypoFix>
 mod tests {
     use super::*;
     use crate::worker::test_support::assert_near;
-
-    fn edits_between(left: &str, right: &str) -> usize {
-        edit_distance(
-            &left.chars().collect::<Vec<_>>(),
-            &right.chars().collect::<Vec<_>>(),
-        )
-    }
-
-    #[test]
-    fn one_swap_change_extra_or_missing_letter_is_one_edit() {
-        let pairs = [
-            ("dlei", "deli"),
-            ("delu", "deli"),
-            ("dleli", "deli"),
-            ("del", "deli"),
-        ];
-
-        let distances = pairs.map(|(left, right)| edits_between(left, right));
-
-        assert_eq!(distances, [1, 1, 1, 1]);
-    }
-
-    #[test]
-    fn two_changes_are_two_edits() {
-        assert_eq!(edits_between("dxlx", "deli"), 2);
-    }
 
     #[test]
     fn token_that_writes_all_of_the_letters_fixes_them_with_its_start() {
