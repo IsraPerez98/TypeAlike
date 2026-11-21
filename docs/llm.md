@@ -63,11 +63,13 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 ### Word before a typed space
 
-- When the healed text is only a typed space and the request asks for fixes, the runner first checks the finished word before that space (`continue_fixed_word`). It does this as the request of the word alone does: the minimum, the gap to the best fix and the fix.
-- When that word holds a typo with a fix, the completion continues from the fixed word and the typed space. The typed and the fixed letters then end with that space.
+- When the request gives a minimum for the finished word (`finished_word_fix`) and the healed text starts with a typed space, the runner first checks the finished word before that space (`continue_fixed_word`). The healed text is only that space, or that space and the typed start of the next word. Core decides when a request checks that word (`docs/core/suggestions.md`).
+- The runner checks the word as the request of the word alone does: the minimum, the gap to the best fix and the fix.
+- When that word holds a typo with a fix, the completion continues from the fixed word, the typed space and the typed letters after it. The typed and the fixed letters then end with that space and those letters.
 - After a typed space, the token of the fix must write the whole fixed word. A short token that fixes only the start of the word often makes no word, such as "pulera" for "polera".
 - Else the completion continues after the space as without the check, so a suggestion without a fix does not change.
-- The reason: the user often types the space before the completion of the word ends. The next request then heals only the space, and no request checked the word.
+- The cache keeps the output of the model before its last decode of the prompt (`EarlierLogits`). Thus, after the typed start of the next word, the check of a word without a fix needs no decode. Without it, each such check took about 2 decodes more (about 40 to 55 ms on Metal).
+- The reason: the user often types the space, and the start of the next word, before the completion of the word ends. The next request then heals only the space or the next word, and no request checked the word.
 - Measured with Gemma 4 E4B (Metal), with the defaults and with long, without the sentence stop and the macOS English and Spanish dictionaries: 21 and 20 more right fixes in `typo_kinds` (46 to 67 and 43 to 63 of 76, none wrong). The 442 places after a space or a sign in `varieties` did not change, and the median time after a space stayed the same.
 - Without the rule of the whole word, 4 of these 442 places got a wrong fix without a dictionary, such as "polera" to "pulera".
 
@@ -164,6 +166,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - A `max_tokens` of 0 only prepares a prompt.
   - `stop` tells why the model stopped: `ModelEnd`, `LineAfter`, `SentenceEnd`, `LineBreak`, `TailCut`, `TokenLimit` or `Typo`.
   - `chosen_tokens` counts the tokens that the completion chose. `dropped_text` gives the chosen text that it did not keep, because it went back to an earlier end.
+  - `finished_word_fix` is the typo minimum for the finished word before the last typed space, when the request checks that word. It is empty when the request does not check it.
   - After a `Typo` stop without a fix, `fix_candidate` gives the most likely fix with one edit among the fix candidates, and `fix_candidate_log_probability` how likely the model found it. A fix needs at least the typo minimum (`typo_check`), so a candidate below it shows how near a fix was. With fewer than `MIN_FIXED_CHARACTERS` typed letters, or no candidate one edit away, it is empty.
   - The times, in milliseconds:
     - `queue_wait_ms`: from the request to the start of the completion. A load before the completion is part of it.

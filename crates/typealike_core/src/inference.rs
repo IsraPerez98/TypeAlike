@@ -110,6 +110,11 @@ pub enum InferenceRequest {
         /// What the runner does when the typed letters of the last word of `prompt` look like a
         /// typo.
         typo_check: TypoCheck,
+        /// The minimum for the finished word before the last typed space of `prompt`, when the
+        /// runner checks that word for a typo and fixes it, as [`TypoCheck::Fix`] does for the last
+        /// word. Only that space, or that space and the typed start of the next word, follow it.
+        /// `None` when the runner does not check that word.
+        finished_word_fix: Option<LogProbability>,
         /// Whether the runner stops at the end of a sentence that it adds.
         sentence_end: SentenceEnd,
         /// The text after the caret on its line, or empty when the caret is at the end of its

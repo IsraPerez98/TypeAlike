@@ -7,7 +7,7 @@ use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, KeptTexts, Settings};
 use crate::test_support::{MAIL_APP, mail_entry};
 
-use super::support::{FakeDesktop, engine_with, history_settings, request};
+use super::support::{FakeDesktop, engine_with, history_settings, word_checking_request_for};
 
 /// Types each character of `text` in `desktop`.
 fn type_in(engine: &mut Engine, desktop: &FakeDesktop, text: &str) {
@@ -35,7 +35,7 @@ fn next_request_continues_the_word_that_the_app_corrected() {
 
     let reaction = request_after_read(&mut engine, "I receive ");
 
-    assert_eq!(reaction, request("I receive t"));
+    assert_eq!(reaction, word_checking_request_for("I receive t"));
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn text_that_the_field_held_before_the_session_stays_when_the_app_corrects_a_wor
 
     let reaction = request_after_read(&mut engine, "Dear Ana,\nI receive ");
 
-    assert_eq!(reaction, request("Dear Ana,\nI receive t"));
+    assert_eq!(reaction, word_checking_request_for("Dear Ana,\nI receive t"));
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn later_read_takes_the_next_word_that_the_app_corrected() {
 
     let reaction = request_after_read(&mut engine, "I receive the ");
 
-    assert_eq!(reaction, request("I receive the t"));
+    assert_eq!(reaction, word_checking_request_for("I receive the t"));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn later_read_takes_the_caret_word_of_an_earlier_read_that_the_app_corrected() {
 
     let reaction = request_after_read(&mut engine, "I receive ");
 
-    assert_eq!(reaction, request("I receive t"));
+    assert_eq!(reaction, word_checking_request_for("I receive t"));
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn caret_word_of_the_field_at_the_start_takes_the_correction_of_the_app() {
 
     let reaction = request_after_read(&mut engine, "I receive ");
 
-    assert_eq!(reaction, request("I receive t"));
+    assert_eq!(reaction, word_checking_request_for("I receive t"));
 }
 
 #[test]
@@ -93,7 +93,10 @@ fn typed_text_stays_when_the_field_shows_no_correction_of_finished_words() {
         request_after_read(&mut engine, field_before)
     });
 
-    assert_eq!(reactions, field_reads.map(|_| request("I recieve thet")));
+    assert_eq!(
+        reactions,
+        field_reads.map(|_| word_checking_request_for("I recieve thet"))
+    );
 }
 
 #[test]

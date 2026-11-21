@@ -7,7 +7,9 @@ use crate::desktop::{Field, Surroundings};
 use crate::inference::{InferenceRequest, TokenCount};
 use crate::key::Key;
 use crate::settings::{PromptPreparation, Settings, SuggestionPlaces};
-use crate::test_support::{MAIL_APP, active_badge, short_word_request, suggestion_app, suggestion_request};
+use crate::test_support::{
+    MAIL_APP, active_badge, short_word_request, suggestion_app, suggestion_request, word_checking_request,
+};
 
 #[test]
 fn input_waits_for_input_to_settle() {
@@ -303,7 +305,7 @@ fn settled_input_asks_again_for_the_word_that_the_app_corrected() {
 
     assert_eq!(
         harness.last_request(),
-        Some(suggestion_request(&[], "I receive "))
+        Some(word_checking_request(&[], "I receive "))
     );
 }
 

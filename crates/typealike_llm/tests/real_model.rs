@@ -40,6 +40,7 @@ fn real_model_continues_text() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         },

@@ -8,7 +8,7 @@ use crate::engine::{AfterAccept, Engine, Reaction};
 use crate::history::HistoryEntry;
 use crate::key::{Key, Press};
 use crate::settings::{HistoryAccess, HistoryApp, PersonalizationSettings, Settings, TextLimits, WordChoice};
-use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
+use crate::test_support::{ExpectedRequest, MAIL_APP, completion, word_checking_request};
 
 #[derive(Default)]
 pub(super) struct FakeDesktop {
@@ -124,6 +124,12 @@ pub(super) fn request_with(lines: &[&str], text_before: &str) -> Reaction {
 
 pub(super) fn request(text_before: &str) -> Reaction {
     request_with(&[], text_before)
+}
+
+/// The request for a suggestion after `text_before` that also checks the finished word before its
+/// last typed space for a typo.
+pub(super) fn word_checking_request_for(text_before: &str) -> Reaction {
+    Reaction::Request(word_checking_request(&[], text_before))
 }
 
 pub(super) fn show(text: &str) -> Reaction {

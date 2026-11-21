@@ -370,6 +370,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
             next_word_bias,
             min_log_probability,
             typo_check,
+            finished_word_fix,
             sentence_end,
             line_after,
         } = &job.request
@@ -395,6 +396,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
             max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
             min_log_probability: *min_log_probability,
             typo_check: *typo_check,
+            finished_word_fix: *finished_word_fix,
             sentence_end: *sentence_end,
             line_after: line_after.as_bytes(),
         };
@@ -466,6 +468,7 @@ mod tests {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         }

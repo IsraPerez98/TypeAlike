@@ -14,7 +14,7 @@ use crate::test_support::{
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_waiting_with, engine_with, engine_with_history, history_settings,
-    press, request, show, type_waiting,
+    press, request, show, type_waiting, word_checking_request_for,
 };
 
 /// Returns an engine with `settings` that typed `typed`, and a dictionary without the `unknown`
@@ -325,7 +325,14 @@ fn request_for_three_unchecked_characters_or_after_a_typed_space_keeps_the_typo_
 
     let reactions = texts.map(|text| reaction_to_the_last_key(text, Some(FakeSpellChecker::default())));
 
-    assert_eq!(reactions, texts.map(request));
+    assert_eq!(
+        reactions,
+        [
+            request("see you on WEd"),
+            request("see you on 2O2"),
+            word_checking_request_for("before ")
+        ]
+    );
 }
 
 #[test]

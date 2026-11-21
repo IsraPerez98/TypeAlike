@@ -24,7 +24,15 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - The typo and the fixed word then end with that space or sign. Thus the red line goes through it, and Tab deletes it and types it again after the fixed word.
 - The rest of the suggestion keeps its text after that space or sign, and a rest that does not start with it goes.
 - Another key asks again.
-- The runner also fixes the word before a typed space, when no completion of that word ended before the space (`docs/llm.md`). Core then shows the fix in the same way: the typo and the fixed word end with the space and the sign before it (`word_fix`).
+
+### Word before the typed space
+
+- A request also asks the runner to check the finished word before the last typed space and to fix it (`finished_word_fix`, `docs/llm.md`).
+- This occurs when only that space, or that space and the typed start of the next word, follow the word, with at most one sign before the space (`through_finished_word`). The word needs at least 3 characters, and the request must ask for fixes.
+- A request does not check a word that a completed request checked (`Session::checked_word`), except while the fix of that word shows. Thus the next key after such a fix checks the word again, and the fix can show again with that key.
+- The reason: the user often types the space and the start of the next word before a request after the space completes. Then no request checked the word.
+- Core then shows the fix in the same way: the typo and the fixed word end with the space, the sign before it and the typed letters after it (`word_fix`). Tab deletes them and types them again after the fixed word.
+- A key after the typed letters of such a fix asks again.
 - When the dictionary knows that word, core asks again without the rule, and the fix does not show, also when the answer gives no suggestion.
 - When core does not show such a fix, because the suggestion after it is bad or the dictionary does not know the fixed word, it also asks again without the rule. Thus the suggestion after the space still shows.
 
@@ -32,7 +40,7 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 
 - At Tab on such a fix, core reads the field.
 - When the text before the caret does not end with the typo, the app changed the word (an autocorrect). Then Tab replaces nothing (`Reaction::Swallow`) and the session ends.
-- A read that ends with less of the space or the sign, or no field text, allows the replace.
+- A read that ends with less of the space, the sign or the typed letters after the space, or no field text, allows the replace.
 
 ### Dictionary of the OS
 

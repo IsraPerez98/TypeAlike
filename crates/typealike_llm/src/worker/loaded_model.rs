@@ -17,7 +17,7 @@ use super::generation::{
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
 use super::model_params::{ContextSetup, WarmUp};
 use super::pieces::TokenPieces;
-use super::prompt_cache::{GenerateError, PromptCache};
+use super::prompt_cache::{FinishedWord, GenerateError, PromptCache};
 
 /// The text that the warm-up repeats to fill its prompt. The kernels do not depend on the text.
 const WARM_UP_TEXT: &str = "The quick brown fox jumps over the lazy dog. ";
@@ -276,10 +276,23 @@ impl<'model> LoadedModel<'model> {
             text: &healed_text,
             first_token: None,
         };
-        let fixed_word = match word_before_typed_space(&vocab, &prompt_tokens, &healed_text) {
-            Some((before_word, word)) => {
-                cache.continue_fixed_word(&decoder, &before_word, &word, &healed_text, progress)
-            }
+        let finished_word = limits.finished_word_fix.and_then(|min| {
+            Some((
+                min,
+                word_before_typed_space(&vocab, &prompt_tokens, &healed_text)?,
+            ))
+        });
+        let fixed_word = match finished_word {
+            Some((min, (before_word, word))) => cache.continue_fixed_word(
+                &decoder,
+                min,
+                FinishedWord {
+                    before: &before_word,
+                    word: &word,
+                    after: &healed_text,
+                },
+                progress,
+            ),
             None => Ok(None),
         };
         let added = fixed_word.and_then(|fixed_word| match fixed_word {
@@ -337,6 +350,7 @@ mod tests {
             max_added: 12,
             min_log_probability: Some(LogProbability(-6.0)),
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
         };

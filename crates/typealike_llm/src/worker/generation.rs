@@ -40,6 +40,9 @@ pub(super) struct Limits<'text> {
     pub(super) min_log_probability: Option<LogProbability>,
     /// What the completion does when the healed text looks like a typo.
     pub(super) typo_check: TypoCheck,
+    /// The minimum for the finished word before the healed text, when the completion checks that
+    /// word for a typo and fixes it, else `None`.
+    pub(super) finished_word_fix: Option<LogProbability>,
     /// Whether the completion stops at the end of a sentence that it adds.
     pub(super) sentence_end: SentenceEnd,
     /// The text after the caret on its line, which the added text leads into, or empty.
@@ -683,15 +686,14 @@ pub(super) fn take_back_last_word(vocab: &LlamaVocab<'_>, prompt_tokens: &mut Ve
 }
 
 /// Returns `prompt_tokens` without their last word, and the text of that word, when the
-/// `healed_text` that healing took back after them is only a typed space. A line break before that
-/// space gives no word.
+/// `healed_text` that healing took back after them starts with a typed space: only that space, or
+/// that space and the typed start of the next word. A line break before that space gives no word.
 pub(super) fn word_before_typed_space(
     vocab: &LlamaVocab<'_>,
     prompt_tokens: &[LlamaToken],
     healed_text: &[u8],
 ) -> Option<(Vec<LlamaToken>, Vec<u8>)> {
-    let is_typed_space = !healed_text.is_empty() && healed_text.iter().all(u8::is_ascii_whitespace);
-    if !is_typed_space {
+    if !healed_text.first().is_some_and(u8::is_ascii_whitespace) {
         return None;
     }
     let mut before_word = prompt_tokens.to_vec();
@@ -899,6 +901,7 @@ mod tests {
             max_added,
             min_log_probability: min_log_probability.map(LogProbability),
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
         }

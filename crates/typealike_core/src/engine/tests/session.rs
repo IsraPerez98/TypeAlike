@@ -13,7 +13,7 @@ use crate::test_support::{ExpectedRequest, MAIL_APP, completion};
 
 use super::support::{
     FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request,
-    request_with,
+    request_with, word_checking_request_for,
 };
 
 #[test]
@@ -191,7 +191,7 @@ fn first_key_continues_the_field_text_before_the_caret() {
         &FakeDesktop::with_field_text("Hello wor"),
     );
 
-    assert_eq!(reaction, request("Hello worl"));
+    assert_eq!(reaction, word_checking_request_for("Hello worl"));
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn first_key_reads_each_no_break_space_of_the_field_text_as_a_space() {
         )
     });
 
-    assert_eq!(reactions, spaces.map(|_| request("Hello worl")));
+    assert_eq!(reactions, spaces.map(|_| word_checking_request_for("Hello worl")));
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn first_key_reads_each_icon_of_the_field_text_as_a_space() {
         )
     });
 
-    assert_eq!(reactions, icons.map(|_| request("Hello worl")));
+    assert_eq!(reactions, icons.map(|_| word_checking_request_for("Hello worl")));
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn first_key_reads_the_field_text_without_zero_width_spaces() {
         &FakeDesktop::with_field_text("\u{200b}-\u{200b} Hello\u{2060}\u{feff} wor"),
     );
 
-    assert_eq!(reaction, request("- Hello worl"));
+    assert_eq!(reaction, word_checking_request_for("- Hello worl"));
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn reset_reads_the_field_again() {
         &FakeDesktop::with_field_text("New wor"),
     );
 
-    assert_eq!(reaction, request("New word"));
+    assert_eq!(reaction, word_checking_request_for("New word"));
 }
 
 #[test]

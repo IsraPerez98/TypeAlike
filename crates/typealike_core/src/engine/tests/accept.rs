@@ -6,6 +6,7 @@ use crate::test_support::completion;
 
 use super::support::{
     FakeDesktop, accept, engine_showing, engine_waiting_for, press, request, show, type_text,
+    word_checking_request_for,
 };
 
 fn accept_last(text: &str, next: Reaction) -> Reaction {
@@ -89,7 +90,10 @@ fn tab_types_the_closing_punctuation_at_the_end_of_a_suggestion_alone() {
 
     let reaction = press(&mut engine, Key::Tab);
 
-    assert_eq!(reaction, accept_last(",", request("Best regards,")));
+    assert_eq!(
+        reaction,
+        accept_last(",", word_checking_request_for("Best regards,"))
+    );
 }
 
 #[test]

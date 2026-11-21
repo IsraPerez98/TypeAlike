@@ -123,7 +123,13 @@ fn completion_request(prompt: &str) -> Reaction {
     request_of(prompt, TypoCheck::Off)
 }
 
+/// Returns the request of a completion of `prompt` with `typo_check`, which also checks the
+/// finished word before the last typed space with the same minimum when it asks for fixes.
 fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
+    let finished_word_fix = match typo_check {
+        TypoCheck::Fix(min) => Some(min),
+        TypoCheck::Off | TypoCheck::Hide(_) => None,
+    };
     Reaction::Request(InferenceRequest::Complete {
         prompt: Prompt(prompt.to_owned()),
         max_tokens: TokenCount(16),
@@ -131,6 +137,7 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check,
+        finished_word_fix,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     })
@@ -182,6 +189,7 @@ fn next_word_bias_picks_only_the_first_word() {
         next_word_bias: NextWordBias(vec![("zebra".to_owned(), 30.0)]),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     });
@@ -297,6 +305,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }));
@@ -457,6 +466,93 @@ fn finished_word_with_a_typo_gets_a_fix_after_a_typed_space_or_sign() {
 
 #[test]
 #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn finished_word_with_a_typo_gets_a_fix_before_the_typed_start_of_the_next_word() {
+    let mut model = ModelSession::load();
+    let prompts = [
+        "Thank you for the quick rpely th",
+        "Thank you for the quick rpely, I",
+    ];
+
+    let corrections = prompts.map(|prompt| correction_of(&mut model, prompt));
+
+    assert_eq!(
+        corrections,
+        [(" rpely th", " reply th"), (" rpely, I", " reply, I")]
+            .map(|(typed, fixed)| Some((typed.to_owned(), fixed.to_owned())))
+    );
+}
+
+/// Returns the text and the correction of the completion of `prompt` with the typo rule and fixes,
+/// after the model completed each of the `earlier` prompts.
+fn answer_after(
+    model: &mut ModelSession,
+    earlier: &[&str],
+    prompt: &str,
+) -> (String, Option<(String, String)>) {
+    for earlier_prompt in earlier {
+        model
+            .complete(request_of(earlier_prompt, TypoCheck::Off))
+            .expect("the model completes the earlier prompt");
+    }
+    let completion = model
+        .complete(request_of(prompt, TypoCheck::Fix(typo_cut())))
+        .expect("the model answers the prompt");
+    let correction = completion
+        .correction
+        .map(|correction| (correction.typed, correction.fixed));
+    (completion.text, correction)
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn finished_word_check_after_earlier_prompts_of_the_same_text_gives_the_same_answer() {
+    let mut model = ModelSession::load();
+    let words = ["rpely", "reply"];
+
+    let answers = words.map(|word| {
+        let prompt = format!("Thank you for the quick {word} th");
+        let earlier = [
+            format!("Thank you for the quick {word}"),
+            format!("Thank you for the quick {word} "),
+        ];
+        let cold = answer_after(&mut model, &[SHORT_PROMPT], &prompt);
+        let warm = answer_after(&mut model, &[earlier[0].as_str(), earlier[1].as_str()], &prompt);
+        (cold, warm)
+    });
+
+    assert_eq!(
+        answers.each_ref().map(|(cold, _)| cold),
+        answers.each_ref().map(|(_, warm)| warm)
+    );
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn finished_word_gets_a_fix_without_a_typo_check_of_the_typed_start_of_the_next_word() {
+    let mut model = ModelSession::load();
+    let request = Reaction::Request(InferenceRequest::Complete {
+        prompt: Prompt("Thank you for the quick rpely th".to_owned()),
+        max_tokens: TokenCount(16),
+        word_bias: None,
+        next_word_bias: NextWordBias::default(),
+        min_log_probability: None,
+        typo_check: TypoCheck::Off,
+        finished_word_fix: Some(typo_cut()),
+        sentence_end: SentenceEnd::Continue,
+        line_after: String::new(),
+    });
+
+    let correction = model
+        .complete(request)
+        .expect("the model answers the prompt")
+        .correction
+        .map(|correction| (correction.typed, correction.fixed));
+
+    assert_eq!(correction, Some((" rpely th".to_owned(), " reply th".to_owned())));
+}
+
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
 fn typo_with_a_capital_inside_that_no_dictionary_checks_gets_a_fix() {
     let mut model = ModelSession::load();
 
@@ -498,6 +594,7 @@ fn completion_of_no_tokens_adds_no_text() {
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }));

@@ -32,7 +32,7 @@ use offer::Offer;
 use preface::ScreenReads;
 use session::Session;
 use spelling::Dictionary;
-use suggestion::{ends_with_typo, fix_after_delimiter, kept_delimiter};
+use suggestion::{ends_with_typo, fix_after_delimiter, typed_after_letters};
 
 pub(crate) use preface::ScreenAnswer;
 pub use reaction::{AfterAccept, Reaction, WordFix};
@@ -397,9 +397,10 @@ impl Engine {
 
 /// Whether the field of `desktop` shows other text than the typo of `fix`, because the app changed
 /// the word at the space or the sign that the fix kept, as an autocorrect does. It reads the field
-/// only for a fix that kept a space or a sign. A field without text counts as unchanged.
+/// only for a fix that kept a space or a sign, also with the typed start of the next word after
+/// that space. A field without text counts as unchanged.
 fn is_typo_changed_in(desktop: &dyn Desktop, fix: &WordFix) -> bool {
-    !kept_delimiter(fix).is_empty()
+    !typed_after_letters(fix).is_empty()
         && read_surroundings(desktop)
             .field_text
             .is_some_and(|field_text| !ends_with_typo(&field_text.before_caret, fix))

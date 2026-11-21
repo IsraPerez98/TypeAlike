@@ -136,6 +136,10 @@ pub(super) struct Session {
     /// The step of the text before the caret when the session picked its examples
     /// ([`Session::example_step_now`]).
     pub(super) example_step: u32,
+    /// The text before the caret up to the end of the last finished word that a completed request
+    /// checked for a typo, while no fix of it shows. A request after the space after that word does
+    /// not check it again.
+    pub(super) checked_word: String,
 }
 
 impl Session {
@@ -176,6 +180,7 @@ impl Session {
             reply_to: Vec::new(),
             has_untouched_request: false,
             example_step: 0,
+            checked_word: String::new(),
         };
         session.example_step = session.example_step_now();
         session

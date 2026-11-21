@@ -58,6 +58,7 @@ pub(crate) struct ExpectedRequest {
     pub(crate) max_tokens: TokenCount,
     pub(crate) min_log_probability: Option<LogProbability>,
     pub(crate) typo_check: TypoCheck,
+    pub(crate) finished_word_fix: Option<LogProbability>,
     pub(crate) sentence_end: SentenceEnd,
 }
 
@@ -70,6 +71,7 @@ impl ExpectedRequest {
             max_tokens: settings.suggestion_length_in_use().max_tokens(),
             min_log_probability: Some(settings.suggestion_length_in_use().tail_cut()),
             typo_check: settings.typo_check(),
+            finished_word_fix: None,
             sentence_end: settings.sentence_end,
         }
     }
@@ -84,6 +86,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             next_word_bias: NextWordBias::default(),
             min_log_probability: expected.min_log_probability,
             typo_check: expected.typo_check,
+            finished_word_fix: expected.finished_word_fix,
             sentence_end: expected.sentence_end,
             line_after: String::new(),
         }
@@ -96,11 +99,22 @@ pub(crate) fn suggestion_request(lines: &[&str], text_before: &str) -> Inference
     ExpectedRequest::framed(lines, text_before).into()
 }
 
+/// The request for a suggestion with the default settings, after the `lines` of the preface and
+/// `text_before`, which also checks the finished word before its last typed space for a typo.
+pub(crate) fn word_checking_request(lines: &[&str], text_before: &str) -> InferenceRequest {
+    ExpectedRequest {
+        finished_word_fix: Settings::default().typo_check().min_log_probability(),
+        ..ExpectedRequest::framed(lines, text_before)
+    }
+    .into()
+}
+
 /// The request for a suggestion after `text_before` when its last word has fewer than 3
 /// characters, which has no typo rule with a dictionary.
 pub(crate) fn short_word_request(lines: &[&str], text_before: &str) -> InferenceRequest {
     ExpectedRequest {
         typo_check: TypoCheck::Off,
+        finished_word_fix: None,
         ..ExpectedRequest::framed(lines, text_before)
     }
     .into()
@@ -115,6 +129,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         next_word_bias: NextWordBias::default(),
         min_log_probability: None,
         typo_check: TypoCheck::Off,
+        finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
     }

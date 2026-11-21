@@ -1,5 +1,7 @@
 //! The context that keeps the last prompt, and the decode loop that continues a copy of it.
 
+use std::mem;
+
 use llama_cpp_2::context::kv_cache::KvCacheConversionError;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::{BatchAddError, LlamaBatch};
@@ -77,6 +79,9 @@ pub(super) struct PromptCache<'model> {
     tokens: Vec<LlamaToken>,
     /// The output of the model after the last of `tokens`.
     logits: Vec<f32>,
+    /// The output of the model after the start of `tokens`, before the last decode added the rest,
+    /// while `tokens` still start with those tokens.
+    earlier: Option<EarlierLogits>,
     /// The saved states of the prompt sequence, oldest first, for a recurrent model. Such a model
     /// keeps one running state, so it cannot remove only the end of a sequence. `None` for a model
     /// that can.
@@ -84,6 +89,12 @@ pub(super) struct PromptCache<'model> {
     /// The prompt decodes since the last take, for the suggestion log.
     #[cfg(feature = "suggestion-log")]
     prefill: Prefill,
+}
+
+/// The output of the model after the first `token_count` tokens of the prompt sequence.
+struct EarlierLogits {
+    token_count: usize,
+    logits: Vec<f32>,
 }
 
 /// A saved state of the prompt sequence after its first `token_count` tokens.
@@ -123,6 +134,7 @@ impl<'model> PromptCache<'model> {
             context,
             tokens: Vec::new(),
             logits: Vec::new(),
+            earlier: None,
             snapshots: (model.is_recurrent() || model.is_hybrid()).then(Vec::new),
             #[cfg(feature = "suggestion-log")]
             prefill: Prefill::default(),
@@ -202,6 +214,7 @@ impl<'model> PromptCache<'model> {
         self.context.target_mut().clear_kv_cache();
         self.tokens.clear();
         self.logits.clear();
+        self.earlier = None;
         if let Some(snapshots) = &mut self.snapshots {
             snapshots.clear();
         }
@@ -243,6 +256,12 @@ impl<'model> PromptCache<'model> {
             #[cfg(feature = "suggestion-log")]
             let decode_started = std::time::Instant::now();
             self.context.target_mut().decode(&mut batch)?;
+            if !self.logits.is_empty() {
+                self.earlier = Some(EarlierLogits {
+                    token_count: self.tokens.len(),
+                    logits: mem::take(&mut self.logits),
+                });
+            }
             self.tokens.extend_from_slice(batch_tokens);
             self.logits.clear();
             self.logits
@@ -277,6 +296,25 @@ impl<'model> PromptCache<'model> {
         if let Some(snapshots) = &mut self.snapshots {
             snapshots.retain(|snapshot| snapshot.token_count <= self.tokens.len());
         }
+        if self
+            .earlier
+            .as_ref()
+            .is_some_and(|earlier| earlier.token_count > self.tokens.len())
+        {
+            self.earlier = None;
+        }
+    }
+
+    /// Returns the output of the model after `prefix` without a decode, when the cached tokens
+    /// start with `prefix` and the cache kept that output.
+    fn logits_after(&self, prefix: &[LlamaToken]) -> Option<&[f32]> {
+        if self.tokens == prefix {
+            return Some(&self.logits);
+        }
+        self.earlier
+            .as_ref()
+            .filter(|earlier| earlier.token_count == prefix.len() && self.tokens.starts_with(prefix))
+            .map(|earlier| earlier.logits.as_slice())
     }
 
     /// Saves the state of the prompt sequence for a recurrent model, when it has no saved state for
@@ -484,6 +522,7 @@ impl<'model> PromptCache<'model> {
         let fixed_decoder = Decoder {
             limits: Limits {
                 typo_check: TypoCheck::Off,
+                finished_word_fix: None,
                 ..decoder.limits
             },
             ..*decoder
@@ -499,35 +538,38 @@ impl<'model> PromptCache<'model> {
         })
     }
 
-    /// Continues the prompt after the typed `space` at its end from the fix of the `word` before
-    /// that space, when the limits of the `decoder` ask for fixes and that word holds a typo with a
-    /// fix, as the request of the word alone finds them. The fixed letters then end with the
-    /// space. `before_word` is the prompt without the word. Returns `None` otherwise, so that the
-    /// completion continues the prompt with the word as without this check.
+    /// Continues the prompt after the `finished` word from the fix of that word, when it holds a
+    /// typo with a fix, as the request of the word alone with [`TypoCheck::Fix`] and `min` finds
+    /// them. The fixed letters then end with the typed text after the word. Returns `None`
+    /// otherwise, so that the completion continues the prompt with the word as without this check.
     pub(super) fn continue_fixed_word(
         &mut self,
         decoder: &Decoder<'_>,
-        before_word: &[LlamaToken],
-        word: &[u8],
-        space: &[u8],
+        min: LogProbability,
+        finished: FinishedWord<'_>,
         progress: &mut Progress<'_>,
     ) -> Result<Option<AddedTokens>, GenerateError> {
-        if !matches!(decoder.limits.typo_check, TypoCheck::Fix(_)) {
-            return Ok(None);
-        }
-        let word_start = last_word_start(decoder.vocab, before_word);
-        self.decode_prompt(before_word, word_start, progress.is_outdated)?;
-        let typed = [word, space].concat();
-        let Some(fix) = self.typo_fix(
-            decoder,
-            Healing {
-                text: &typed,
-                first_token: None,
-            },
-        ) else {
+        let FinishedWord { before, word, after } = finished;
+        let word_start = last_word_start(decoder.vocab, before);
+        let next_start = after.len() - after.trim_ascii_start().len();
+        let (space, next_letters) = after.split_at(next_start);
+        let typed_word = [word, space].concat();
+        let fix_after = |logits: &[f32]| {
+            typo_fix(logits, decoder.pieces, &typed_word, min, |token| {
+                decoder.vocab.token_to_piece(token, false, None)
+            })
+        };
+        let fix = if let Some(logits) = self.logits_after(before) {
+            fix_after(logits)
+        } else {
+            self.decode_prompt(before, word_start, progress.is_outdated)?;
+            fix_after(&self.logits)
+        };
+        let Some(mut fix) = fix else {
             return Ok(None);
         };
-        let check = with_fix_gap(decoder.limits.typo_check, word, Some(&fix));
+        self.decode_prompt(before, word_start, progress.is_outdated)?;
+        let check = with_fix_gap(TypoCheck::Fix(min), word, Some(&fix));
         let word_healing = Healing {
             text: word,
             first_token: None,
@@ -540,6 +582,8 @@ impl<'model> PromptCache<'model> {
         else {
             return Ok(None);
         };
+        fix.letters.push_str(&String::from_utf8_lossy(next_letters));
+        let typed = [word, after].concat();
         self.continue_from_fix(decoder, &typed, fix, typed_log_probability, progress)
             .map(Some)
     }
@@ -560,6 +604,7 @@ impl<'model> PromptCache<'model> {
             max_added: healing.text.len() + 1,
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
         };
@@ -594,6 +639,15 @@ impl<'model> PromptCache<'model> {
                 .decode_next(&mut batch, token, token_position, COMPLETION_SEQUENCE)?;
         }
     }
+}
+
+/// The last finished word of a prompt: the prompt without it, its text, and the typed text after
+/// it, which starts with a space.
+#[derive(Clone, Copy)]
+pub(super) struct FinishedWord<'text> {
+    pub(super) before: &'text [LlamaToken],
+    pub(super) word: &'text [u8],
+    pub(super) after: &'text [u8],
 }
 
 /// Returns the text of `token`, or `None` when it ends the text or is markup.

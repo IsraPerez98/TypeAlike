@@ -9,6 +9,7 @@ use crate::test_support::{MAIL_APP, completion, mail_entry, on_own_days};
 
 use super::support::{
     FakeDesktop, engine_waiting_for, engine_with_history, history_settings, press, request, show, type_text,
+    word_checking_request_for,
 };
 
 fn engine_running(context: &str, added: &str) -> Engine {
@@ -62,7 +63,7 @@ fn key_after_all_the_added_text_requests_the_new_text() {
 
     let reaction = press(&mut engine, Key::Char(' '));
 
-    assert_eq!(reaction, request("hello "));
+    assert_eq!(reaction, word_checking_request_for("hello "));
 }
 
 #[test]
@@ -75,7 +76,10 @@ fn completion_without_text_after_the_kept_keys_requests_the_text_before_the_care
         engine.on_completion(completion(text))
     });
 
-    assert_eq!(reactions, final_texts.map(|_| request("hello b")));
+    assert_eq!(
+        reactions,
+        final_texts.map(|_| word_checking_request_for("hello b"))
+    );
 }
 
 #[test]

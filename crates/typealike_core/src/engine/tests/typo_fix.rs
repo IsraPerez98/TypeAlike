@@ -8,6 +8,7 @@ use crate::test_support::{ExpectedRequest, completion};
 
 use super::support::{
     FakeDesktop, accept, engine_waiting_for, engine_waiting_with, engine_with, press, request, type_text,
+    word_checking_request_for,
 };
 
 #[expect(clippy::unnecessary_wraps, reason = "on_completion takes a Result")]
@@ -340,7 +341,7 @@ fn tab_after_a_kept_delimiter_without_a_rest_requests_the_next_suggestion() {
         Reaction::Replace {
             deleted: 6,
             text: "delivery, ".to_owned(),
-            then: AfterAccept::Next(Box::new(request("the delivery, "))),
+            then: AfterAccept::Next(Box::new(word_checking_request_for("the delivery, "))),
         }
     );
 }
@@ -369,7 +370,7 @@ fn sign_after_a_kept_space_asks_again() {
 
     let reaction = type_text(&mut engine, " ,");
 
-    assert_eq!(reaction, request("the dlei ,"));
+    assert_eq!(reaction, word_checking_request_for("the dlei ,"));
 }
 
 #[test]
@@ -378,7 +379,7 @@ fn letter_after_a_kept_delimiter_asks_again() {
 
     let reaction = type_text(&mut engine, " d");
 
-    assert_eq!(reaction, request("the dlei d"));
+    assert_eq!(reaction, word_checking_request_for("the dlei d"));
 }
 
 #[test]
@@ -431,7 +432,7 @@ fn tab_on_a_kept_fix_replaces_the_typo_when_the_field_read_is_older_than_its_del
     let replace = Reaction::Replace {
         deleted: 6,
         text: "delivery, ".to_owned(),
-        then: AfterAccept::Next(Box::new(request("the delivery, "))),
+        then: AfterAccept::Next(Box::new(word_checking_request_for("the delivery, "))),
     };
     assert_eq!(reactions, [replace.clone(), replace]);
 }
@@ -474,7 +475,7 @@ fn key_after_a_refused_fix_continues_the_text_of_the_field() {
         &FakeDesktop::with_field_text("the deli "),
     );
 
-    assert_eq!(reaction, request("the deli s"));
+    assert_eq!(reaction, word_checking_request_for("the deli s"));
 }
 
 #[test]
@@ -508,4 +509,133 @@ fn tab_on_a_fix_after_the_app_changed_the_typo_keeps_one_word_in_the_session() {
     engine.on_key(Key::Tab, Press::First, &FakeDesktop::default());
 
     assert_eq!(engine.text_before_caret(), "the delivery ");
+}
+
+#[test]
+fn request_after_a_space_or_the_start_of_the_next_word_checks_the_finished_word_before_it() {
+    let texts = ["I will chekc ", "I will chekc th", "I will chekc, th"];
+
+    let reactions = texts.map(|text| type_text(&mut engine_with(&Settings::default()), text));
+
+    assert_eq!(reactions, texts.map(word_checking_request_for));
+}
+
+#[test]
+fn request_after_a_short_word_two_spaces_or_two_signs_checks_no_finished_word() {
+    let texts = ["I am th", "I will chekc  th", "I will chekc,, th"];
+
+    let reactions = texts.map(|text| type_text(&mut engine_with(&Settings::default()), text));
+
+    assert_eq!(reactions, texts.map(request));
+}
+
+#[test]
+fn request_does_not_check_a_finished_word_that_a_completed_request_checked() {
+    let mut engine = engine_waiting_for("I will chekc ");
+    engine.on_completion(completion("the numbers"));
+
+    let reaction = type_text(&mut engine, "x");
+
+    assert_eq!(reaction, request("I will chekc x"));
+}
+
+#[test]
+fn request_checks_a_finished_word_again_after_its_fix_showed() {
+    let mut engine = engine_waiting_for("I will chekc ");
+    engine.on_completion(correction(" chekc ", " check ", "the numbers"));
+
+    let reaction = press(&mut engine, Key::Char('x'));
+
+    assert_eq!(reaction, word_checking_request_for("I will chekc x"));
+}
+
+#[test]
+fn request_checks_a_finished_word_after_a_completion_that_prepared_the_prompt() {
+    let mut engine = engine_with(&Settings::default());
+    let desktop = FakeDesktop::with_field_text("I will chekc ");
+    engine.prepare(&desktop);
+    engine.on_completion(completion(""));
+
+    let reaction = engine.on_key(Key::Char('t'), Press::First, &desktop);
+
+    assert_eq!(reaction, word_checking_request_for("I will chekc t"));
+}
+
+#[test]
+fn request_with_typo_fixes_off_checks_no_finished_word() {
+    let settings = Settings {
+        typo_fix: TypoFix::Off,
+        ..Settings::default()
+    };
+
+    let reaction = type_text(&mut engine_with(&settings), "I will chekc th");
+
+    let expected = ExpectedRequest {
+        typo_check: settings.typo_check(),
+        ..ExpectedRequest::framed(&[], "I will chekc th")
+    };
+    assert_eq!(reaction, Reaction::from(expected));
+}
+
+#[test]
+fn fix_of_a_word_before_the_typed_start_of_the_next_word_keeps_the_typed_letters() {
+    let cases = [
+        (
+            " chekc th",
+            " check th",
+            word_fix("chekc th", "check th", "e numbers"),
+        ),
+        (
+            " chekc, th",
+            " check, th",
+            word_fix("chekc, th", "check, th", "e numbers"),
+        ),
+    ];
+
+    let reactions = cases.each_ref().map(|(typed, fixed, _)| {
+        let mut engine = engine_waiting_for(&format!("I will{typed}"));
+        engine.on_completion(correction(typed, fixed, "e numbers"))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, fix)| Reaction::ShowFix(fix)));
+}
+
+/// Returns an engine that shows the fix of "chekc" in "I will chekc th".
+fn engine_showing_a_fix_before_the_next_word() -> Engine {
+    let mut engine = engine_waiting_for("I will chekc th");
+    engine.on_completion(correction(" chekc th", " check th", "e numbers"));
+    engine
+}
+
+#[test]
+fn tab_on_a_fix_before_the_next_word_replaces_the_typo_and_the_typed_letters() {
+    let reads = ["I will chekc th", "I will chekc t", "I will chekc"];
+
+    let reactions =
+        reads.map(|read| press_tab_in_field(&mut engine_showing_a_fix_before_the_next_word(), read));
+
+    let replace = Reaction::Replace {
+        deleted: 8,
+        text: "check th".to_owned(),
+        then: AfterAccept::Rest("e numbers".to_owned()),
+    };
+    assert_eq!(reactions, [replace.clone(), replace.clone(), replace]);
+}
+
+#[test]
+fn tab_on_a_fix_before_the_next_word_that_the_app_changed_swallows_the_tab() {
+    let mut engine = engine_showing_a_fix_before_the_next_word();
+
+    let reaction = press_tab_in_field(&mut engine, "I will check th");
+
+    assert_eq!(reaction, Reaction::Swallow);
+}
+
+#[test]
+fn space_after_the_next_letters_of_a_fix_asks_again() {
+    let mut engine = engine_showing_a_fix_before_the_next_word();
+
+    let reaction = press(&mut engine, Key::Char(' '));
+
+    assert_eq!(reaction, request("I will chekc th "));
 }

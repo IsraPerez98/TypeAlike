@@ -14,6 +14,7 @@ use crate::prompt;
 
 use super::offer::Offer;
 use super::session::Session;
+use super::suggestion::through_finished_word;
 use super::{Engine, Reaction};
 
 const PREPARATION_TOKENS: TokenCount = TokenCount(0);
@@ -44,6 +45,7 @@ impl Engine {
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
             typo_check: TypoCheck::Off,
+            finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after,
         })
@@ -79,13 +81,13 @@ impl Engine {
         if let Some(rest) = self.rest_of_shown_suggestion().or_else(|| self.repeated_phrase()) {
             return self.show(rest);
         }
-        self.request_completion(self.typo_check_at_caret())
+        self.request_completion(self.typo_check_at_caret(), self.finished_word_fix_at_caret())
     }
 
     /// Requests the suggestion for the text before the caret again, for when the preface of the
     /// session changed after the request of the suggestion that runs or shows.
     pub(crate) fn request_again(&mut self) -> Reaction {
-        self.request_completion(self.typo_check_at_caret())
+        self.request_completion(self.typo_check_at_caret(), self.finished_word_fix_at_caret())
     }
 
     /// The typo check of a request for the text before the caret. With a dictionary, fewer than
@@ -106,8 +108,27 @@ impl Engine {
         }
     }
 
-    /// Requests a completion of the text before the caret with `typo_check`.
-    pub(super) fn request_completion(&mut self, typo_check: TypoCheck) -> Reaction {
+    /// The minimum for the finished word before the last typed space of the text before the caret,
+    /// when a request checks that word for a typo: the request asks for fixes, only that space or
+    /// the typed start of the next word follows the word ([`through_finished_word`]), and no
+    /// completed request checked the word. The user often types the next word before the request
+    /// after the space completes, and then no request checked it.
+    fn finished_word_fix_at_caret(&self) -> Option<LogProbability> {
+        let TypoCheck::Fix(min) = self.typo_check else {
+            return None;
+        };
+        let session = self.session.as_ref()?;
+        let through_word = through_finished_word(&session.text_before)?;
+        (through_word != session.checked_word).then_some(min)
+    }
+
+    /// Requests a completion of the text before the caret with `typo_check` and
+    /// `finished_word_fix`.
+    pub(super) fn request_completion(
+        &mut self,
+        typo_check: TypoCheck,
+        finished_word_fix: Option<LogProbability>,
+    ) -> Reaction {
         let Some(prompt) = self.prompt() else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
@@ -120,6 +141,7 @@ impl Engine {
             shown: String::new(),
             added: String::new(),
             typo_check,
+            finished_word_fix,
             fix_of_known_word: None,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
@@ -136,6 +158,7 @@ impl Engine {
             next_word_bias: self.session_next_word_bias(),
             min_log_probability,
             typo_check,
+            finished_word_fix,
             sentence_end: self.sentence_end,
             line_after,
         })

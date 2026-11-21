@@ -10,6 +10,7 @@ use crate::test_support::{ExpectedRequest, completion, preparation_request};
 
 use super::support::{
     FakeDesktop, cpu_text_limits, engine_showing, engine_waiting_for, engine_with, press, request, show,
+    word_checking_request_for,
 };
 
 #[test]
@@ -197,7 +198,7 @@ fn first_key_after_preparing_continues_the_prepared_session() {
 
     assert_eq!(
         (reaction, desktop.surroundings_reads.get()),
-        (request("Hello worl"), 1)
+        (word_checking_request_for("Hello worl"), 1)
     );
 }
 

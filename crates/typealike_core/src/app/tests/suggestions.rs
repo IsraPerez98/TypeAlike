@@ -15,7 +15,7 @@ use crate::settings::{
     HistoryAccess, KeptTexts, PersonalizationSettings, PromptPreparation, ScreenTextAccess,
     ScreenTextSettings, Settings, SuggestionDisplay, WriterNotes,
 };
-use crate::test_support::{completion, preparation_request};
+use crate::test_support::{completion, preparation_request, word_checking_request};
 
 /// A field of an unknown app with this text before the caret.
 struct EditedField(&'static str);
@@ -155,6 +155,7 @@ fn settings_give_the_writer_notes() {
             next_word_bias: NextWordBias::default(),
             min_log_probability: Some(Settings::default().suggestion_length_in_use().tail_cut()),
             typo_check: Settings::default().typo_check(),
+            finished_word_fix: None,
             sentence_end: Settings::default().sentence_end,
             line_after: String::new(),
         })
@@ -219,7 +220,10 @@ fn settled_input_takes_the_word_that_the_app_corrected() {
 
     let reaction = app.on_key(Key::Char('t'), Press::First, &EditedField("I receive "));
 
-    assert_eq!(reaction, request("I receive t"));
+    assert_eq!(
+        reaction,
+        Reaction::Request(word_checking_request(&[], "I receive t"))
+    );
 }
 
 #[test]

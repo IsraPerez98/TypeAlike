@@ -2,13 +2,13 @@
 
 use std::mem;
 
-use crate::inference::{Completion, Correction, InferenceError, TypoCheck};
+use crate::inference::{Completion, Correction, InferenceError, LogProbability, TypoCheck};
 use crate::settings::TypoFix;
 
 use super::spelling::{WrittenWords, known_start};
 use super::suggestion::{
     before_frame_copy_start, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
-    typed_after_word, word_fix,
+    through_finished_word, typed_after_word, word_fix,
 };
 use super::{Engine, Reaction, WordFix};
 
@@ -27,6 +27,9 @@ pub(super) enum Offer {
         added: String,
         /// The typo check of the request.
         typo_check: TypoCheck,
+        /// The minimum for the finished word before the last typed space, when the request checks
+        /// that word for a typo.
+        finished_word_fix: Option<LogProbability>,
         /// The fix that an earlier request gave for typed letters that the dictionary knows as a
         /// word. It shows when this request, without the typo rule, continues those letters but
         /// gives no ghost text.
@@ -97,6 +100,43 @@ impl Engine {
         if self.unanswered_requests > 0 {
             return self.offer.reaction();
         }
+        if result.is_ok() {
+            self.note_checked_word();
+        }
+        let reaction = self.answer_completion(result);
+        if let (Offer::Fix(fix), Some(session)) = (&self.offer, &mut self.session)
+            && !typed_after_word(&fix.typo).is_empty()
+        {
+            session.checked_word.clear();
+        }
+        reaction
+    }
+
+    /// Notes the finished word that the newest request checked for a typo, so that the next
+    /// requests do not check it again.
+    fn note_checked_word(&mut self) {
+        let (
+            Some(session),
+            Offer::Growing {
+                typed,
+                finished_word_fix: Some(_),
+                ..
+            },
+        ) = (&mut self.session, &self.offer)
+        else {
+            return;
+        };
+        let through_word = session
+            .text_before
+            .strip_suffix(typed.as_str())
+            .and_then(through_finished_word);
+        if let Some(through_word) = through_word {
+            session.checked_word = through_word.to_owned();
+        }
+    }
+
+    /// Handles the completion of the newest request, as [`Engine::on_completion`] tells.
+    fn answer_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
         if let Ok(completion) = &result
             && self.has_typo_in_known_letters(completion)
         {
@@ -119,7 +159,7 @@ impl Engine {
             }) => match self.fix_of(&correction, &text) {
                 Some(fix) => self.offer = Offer::Fix(fix),
                 None if !has_typed && !typed_after_word(&correction.typed).is_empty() => {
-                    return self.request_completion(TypoCheck::Off);
+                    return self.request_completion(TypoCheck::Off, None);
                 }
                 None => {}
             },
@@ -141,7 +181,7 @@ impl Engine {
             .as_ref()
             .filter(|correction| typed_after_word(&correction.typed).is_empty())
             .and_then(|correction| self.fix_of(correction, &completion.text));
-        let reaction = self.request_completion(TypoCheck::Off);
+        let reaction = self.request_completion(TypoCheck::Off, None);
         if let Offer::Growing {
             fix_of_known_word, ..
         } = &mut self.offer

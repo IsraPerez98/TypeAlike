@@ -119,6 +119,7 @@ impl CompletionLog {
             next_word_bias,
             min_log_probability,
             typo_check,
+            finished_word_fix,
             sentence_end,
             line_after,
         } = request
@@ -138,6 +139,7 @@ impl CompletionLog {
             max_tokens = max_tokens.0,
             min_log_probability = min_log_probability.map(|min| min.0),
             ?typo_check,
+            finished_word_fix = finished_word_fix.map(|min| min.0),
             ?sentence_end,
             line_after = line_after.as_str(),
             word_bias_version = word_bias.as_ref().map(|bias| bias.version),
