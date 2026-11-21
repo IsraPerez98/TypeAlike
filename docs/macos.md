@@ -10,7 +10,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - When that window gives no title or an empty title, the window title comes from the `AXTitle` of the field when its role is `AXWindow`. Else it is the `AXTitle` of the focused window of the app in front (`AXFocusedWindow`). Zed and Mac Catalyst apps, such as Home Assistant, focus an element without a window. The in-cell editor of Excel has a window without a title. The OCR uses the same window title.
 - The static text of the focused window, else the OCR of a band of the window around the field (`ScreenCaptureKit` and Vision, only with the Screen & System Audio Recording permission).
 - Overlay panel.
-- The mirror, for a field that gives no caret through AX (the editor of VS Code while its screen reader mode is off: an empty EditContext element).
+- The mirror, for a field that gives no caret through AX (the editor of VS Code while its screen reader mode is off: an empty EditContext element, the terminal of Ghostty, and Herdr).
 - CGEvent injection.
 - Menu bar extra: the robot of the logo as a template image, and a yellow image while a stop of the Energy saving pane applies (`docs/icons.md`).
 - Settings window: a sidebar of the panes, each with its symbol on a colored tile, as in System Settings.
@@ -83,10 +83,13 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
 - A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.
-- The terminal of Ghostty gives its mouse selection as its selection, never its cursor, and gives no caret (`gives_mouse_selection_only`).
-  - Its text then does not tell where the caret is. The value would put the whole screen after the caret.
-  - Thus a field of Ghostty without a caret gives no field text and has unreadable text, and core reads its text from the OCR of the screen (`docs/core/prompt.md`, "Field that hides its text").
-  - When Ghostty gives a caret, its field text counts again.
+- Some apps give no caret through AX (`gives_no_caret`, `NO_CARET_BUNDLE_PREFIXES`). They match by the start of their bundle identifier, never by the shape of their tree, because a game can also give only its window.
+  - The terminal of Ghostty gives its mouse selection as its selection, never its cursor. Its text then does not tell where the caret is. The value would put the whole screen after the caret.
+  - Herdr (`dev.herdr.`, an app for coding agents with gpui and libghostty) draws its whole window itself. Its focused element is the `AXWindow`, whose content is one `AXGroup` without children, value or selection. `AXManualAccessibility` and `AXEnhancedUserInterface` change nothing (checked with Herdr 0.1.16 on 2026-11-21).
+  - Thus a field of these apps without a caret gives no field text and has unreadable text, and core reads its text from the OCR of the screen (`docs/core/prompt.md`, "Field that hides its text").
+  - Its field frame is the frame of the focused element, also without a text selection. In Herdr, that is the frame of the window. The OCR, the mirror and the badge use it.
+  - When such an app gives a caret, its field text counts again.
+  - Herdr is not in the terminals of the settings, so the earlier writing keeps its text by default.
 - The hidden input box of a terminal of xterm.js (the terminal of VS Code) never holds the text of the terminal. Thus it also gives no field text and has unreadable text, and core reads the terminal from the OCR.
   - For a screen read, its field frame is the frame of the terminal screen (`xterm-screen`), so that the lines of the terminal are the lines of the field.
   - The tree of VS Code holds the text of the terminal only while its screen reader mode is on. Without the OCR, the prompt got only the side bar and the status bar.
@@ -168,7 +171,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Mirror
 
 - The mirror is a panel below the frame of the field, or above it, with the typed word in `labelColor` and the semibold system font, and the ghost text in `labelColor` at 60% opacity (`secondaryLabelColor` with Increase Contrast).
-- A control without a text selection gets no mirror.
+- A control without a text selection gets no mirror, except in an app that gives no caret ("Fields").
 - When text follows the caret on its line, the mirror shows the typed word and the ghost text below the line of the caret, with the first letter of the ghost text under the caret, or above the line.
 
 ## Injection

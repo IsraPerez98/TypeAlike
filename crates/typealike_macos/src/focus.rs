@@ -32,7 +32,10 @@ const CHROMIUM_BROWSER_BUNDLE_PREFIXES: [&str; 7] = [
     "com.vivaldi.vivaldi",
     "com.operasoftware.opera",
 ];
-const GHOSTTY_BUNDLE_PREFIX: &str = "com.mitchellh.ghostty";
+/// The apps whose focused element gives no caret through Accessibility, by the start of their
+/// bundle identifier in lowercase. The terminal of Ghostty gives its mouse selection as its
+/// selection. Herdr draws its whole window itself and gives no element with text.
+const NO_CARET_BUNDLE_PREFIXES: [&str; 2] = ["com.mitchellh.ghostty", "dev.herdr."];
 
 /// Follows the frontmost app and classifies whether TypeAlike may observe and type into it.
 #[derive(Debug)]
@@ -133,10 +136,14 @@ impl FocusTracker {
     }
 
     /// The frame of the focused control when it holds text, as a field does, even when it gives
-    /// no caret.
+    /// no caret. In an app that gives no caret, the focused element holds the text that the
+    /// screen shows, also without a text selection.
     pub(crate) fn field_frame(&self) -> Option<CGRect> {
         let element = self.focused_element()?;
-        selected_range(&element)?;
+        let app_id = self.frontmost.as_ref().and_then(|app| app.app_id.as_deref());
+        if selected_range(&element).is_none() && !gives_no_caret(app_id) {
+            return None;
+        }
         frame(&element).filter(is_finite_frame)
     }
 
@@ -240,17 +247,21 @@ fn web_accessibility_attribute(bundle_identifier: Option<&str>) -> &'static str 
 
 /// Whether `element`, the focused field of the app `app_id`, shows its text only on the screen. The
 /// input box of a terminal of xterm.js never holds the text of the terminal, and the text of a
-/// field that gives its mouse selection and no caret does not tell where the caret is.
+/// field of an app that gives no caret does not tell where the caret is.
 fn shows_text_only_on_screen(element: &AXUIElement, app_id: Option<&str>) -> bool {
-    is_terminal_input(element) || (gives_mouse_selection_only(app_id) && caret_bounds(element).is_none())
+    is_terminal_input(element) || (gives_no_caret(app_id) && caret_bounds(element).is_none())
 }
 
-/// Whether the app with `bundle_identifier` gives the mouse selection of its focused field through
-/// Accessibility, never its caret, as the terminal of Ghostty does. Without a caret, the text of
-/// such a field does not tell where the caret is, so TypeAlike reads it from the screen.
-fn gives_mouse_selection_only(bundle_identifier: Option<&str>) -> bool {
-    bundle_identifier
-        .is_some_and(|identifier| identifier.to_ascii_lowercase().starts_with(GHOSTTY_BUNDLE_PREFIX))
+/// Whether the app with `bundle_identifier` gives no caret through Accessibility
+/// ([`NO_CARET_BUNDLE_PREFIXES`]). Without a caret, the text of its focused element does not tell
+/// where the caret is, so TypeAlike reads it from the screen.
+fn gives_no_caret(bundle_identifier: Option<&str>) -> bool {
+    bundle_identifier.is_some_and(|identifier| {
+        let identifier = identifier.to_ascii_lowercase();
+        NO_CARET_BUNDLE_PREFIXES
+            .iter()
+            .any(|prefix| identifier.starts_with(prefix))
+    })
 }
 
 /// The AX element of the app of `process`, whose queries are bounded.
@@ -331,21 +342,31 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_gives_only_its_mouse_selection() {
-        let bundle_identifiers = [Some("com.mitchellh.ghostty"), Some("com.mitchellh.ghostty.debug")];
+    fn ghostty_and_herdr_give_no_caret() {
+        let bundle_identifiers = [
+            Some("com.mitchellh.ghostty"),
+            Some("com.mitchellh.ghostty.debug"),
+            Some("dev.herdr.app"),
+            Some("dev.herdr.app.preview"),
+        ];
 
-        let answers = bundle_identifiers.map(gives_mouse_selection_only);
+        let answers = bundle_identifiers.map(gives_no_caret);
 
-        assert_eq!(answers, [true; 2]);
+        assert_eq!(answers, [true; 4]);
     }
 
     #[test]
     fn other_apps_give_their_caret_as_the_selection() {
-        let bundle_identifiers = [Some("com.apple.Terminal"), Some("com.microsoft.VSCode"), None];
+        let bundle_identifiers = [
+            Some("com.apple.Terminal"),
+            Some("com.microsoft.VSCode"),
+            Some("dev.zed.Zed"),
+            None,
+        ];
 
-        let answers = bundle_identifiers.map(gives_mouse_selection_only);
+        let answers = bundle_identifiers.map(gives_no_caret);
 
-        assert_eq!(answers, [false; 3]);
+        assert_eq!(answers, [false; 4]);
     }
 
     #[test]
