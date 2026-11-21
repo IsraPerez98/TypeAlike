@@ -169,10 +169,27 @@ pub fn fixed_word(word: &str) -> &str {
     word_start(word.trim_start())
 }
 
-/// Returns the word that the writer meant: the letters and digits at the end of `before`, the
-/// text before the caret without the typo, and at the start of `next`. When `before` ends with a
-/// space or a sign after its last word, that word is finished, and `next` adds nothing.
-pub fn intended_word(before: &str, next: &str) -> String {
+/// Returns the word that the writer meant, from `typed`, the text before the caret, and `fixed`,
+/// that text without the typo. When the typo is in a word that whitespace in `fixed` finishes,
+/// such as a typo before the typed start of the next word, it is that word of `fixed`. Else it is
+/// the last word of `fixed` and its rest in `next`, as [`last_word`] gives it.
+pub fn intended_word(typed: &str, fixed: &str, next: &str) -> String {
+    let same: usize = typed
+        .chars()
+        .zip(fixed.chars())
+        .take_while(|(typed, fixed)| typed == fixed)
+        .map(|(character, _)| character.len_utf8())
+        .sum();
+    match fixed[same..].find(char::is_whitespace) {
+        Some(word_end) => last_word(&fixed[..same + word_end], ""),
+        None => last_word(fixed, next),
+    }
+}
+
+/// Returns the letters and digits at the end of `before` and at the start of `next`. When
+/// `before` ends with a space or a sign after its last word, that word is finished, and `next`
+/// adds nothing.
+fn last_word(before: &str, next: &str) -> String {
     let finished = before.trim_end_matches(|character: char| !character.is_alphanumeric());
     let end = finished
         .char_indices()
@@ -415,7 +432,7 @@ mod tests {
 
     #[test]
     fn intended_word_is_the_last_word_without_the_typo_and_its_rest() {
-        let word = intended_word("the new deli", "very, soon");
+        let word = intended_word("the new dlei", "the new deli", "very, soon");
 
         assert_eq!(word, "delivery");
     }
@@ -423,13 +440,31 @@ mod tests {
     #[test]
     fn intended_word_before_a_space_or_a_sign_is_the_finished_last_word() {
         let words = [
-            ("the new delivery ", "soon"),
-            ("the new delivery, ", "soon"),
-            ("the address?", " I"),
+            ("the new delviery ", "the new delivery ", "soon"),
+            ("the new delviery, ", "the new delivery, ", "soon"),
+            ("the adress?", "the address?", " I"),
         ]
-        .map(|(before, next)| intended_word(before, next));
+        .map(|(typed, fixed, next)| intended_word(typed, fixed, next));
 
         assert_eq!(words, ["delivery", "delivery", "address"]);
+    }
+
+    #[test]
+    fn intended_word_of_a_typo_before_the_typed_start_of_the_next_word_is_the_fixed_word() {
+        let words = [
+            ("the new delviery so", "the new delivery so", "on"),
+            ("the new delviery, s", "the new delivery, s", "oon"),
+        ]
+        .map(|(typed, fixed, next)| intended_word(typed, fixed, next));
+
+        assert_eq!(words, ["delivery", "delivery"]);
+    }
+
+    #[test]
+    fn intended_word_without_a_typo_is_the_last_word_and_its_rest() {
+        let word = intended_word("the new deli", "the new deli", "very, soon");
+
+        assert_eq!(word, "delivery");
     }
 
     #[test]

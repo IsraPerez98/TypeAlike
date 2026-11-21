@@ -141,7 +141,12 @@ impl CaseRun {
                     .typed_log_probability
                     .map(|log_probability| f64::from(log_probability.0)),
                 is_fix_right: cold.answer.fixed_word.as_ref().map(|word| {
-                    *word == intended_word(case.fixed.as_deref().unwrap_or(&case.before), &case.next)
+                    *word
+                        == intended_word(
+                            &case.before,
+                            case.fixed.as_deref().unwrap_or(&case.before),
+                            &case.next,
+                        )
                 }),
                 fixed_word: cold.answer.fixed_word,
                 suggestion,
