@@ -42,6 +42,9 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - Fewer letters have many words one edit away. With 3 or 4 letters, the guesses gave 2 right fixes ("atne" to "antemano", "pni" to "pino") and 1 wrong fix ("pge" through "pre" to "preterir").
 - The model rates each guess, and takes the most likely one as the fix, with the same minimum and gap as the fix of a token (`docs/llm.md`).
 - A typed space after a word that the dictionary does not know gives the model no guesses. The model then rated a regional word below a guess: the Chilean "polera" became "pollera".
+- Measured with Gemma 4 E4B (Metal, macOS English and Spanish dictionaries), after the fix of the accents: 7 more right fixes in `typo_kinds` (74 to 81 of 96, none wrong), with the defaults and with long and without the sentence stop. 3 of them are in the 76 older cases ("goverment", "siguente" and "adress,"), and 4 in the `inner` cases, which come from stops without a fix. The eval marked no case as helped or harmed, because a stop and a fix both show no wrong suggestion. `typos` and, with a request after each character and word choice medium, the Spanish and Chilean cases of `varieties` and the Argentine cases of `regional` did not change.
+- With the Hunspell dictionaries of English and of Spanish of Chile, `typo_kinds` got the same 7 more right fixes. But 38 Spanish and Chilean cases of `varieties` with a request after each character got 1 wrong fix: "polola," to "pololo". macOS does not know "polola" either, but it offers only "polo" in its place, so no guess is one edit away.
+- A stop that gets a fix now waits for a second request and the decodes of the guesses: in `typo_kinds`, such keys took about 400 to 770 ms in place of about 120 ms without a suggestion.
 
 ### Accents of a finished word
 
@@ -50,8 +53,11 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - The request then has the fixed word in its prompt and no typo rule. Its completion shows as the fix of a typo (`Ghost::Fix`), and its parts do not show.
 - The model does not rate this fix. It often finds the word without the accent likely, because the first token of the word agrees with the typed letters, and the runner then finds no fix (`docs/llm.md`).
 - A typed word with a mark gets no such fix. A voseo form that the dictionary does not know, such as "tenís" or "sabés", would else lose its accent, because the dictionary offers "tenis" and "sabes".
-- The dictionaries of macOS know most names without their accents, such as "Jose", "Ramon" or "Lopez", so a name seldom gets such a fix.
-- A request for the guesses runs on the main thread. On macOS, it took about 5 ms (median) and at most 10 to 20 ms for each language. Core keeps each answer, and asks only after a finished word that the dictionary does not know.
+- The dictionaries of macOS know most names without their accents, such as "Jose", "Ramon" or "Lopez", so a name seldom gets such a fix there. The Hunspell dictionary of Spanish of Chile knows none of them, and offers only "Ramón", "Andrés" and "López" with the same letters. Thus in a Spanish text, such a name of 5 or more letters gets the accent. A shorter name, such as "Jose" or "Raul", gets none, because the English dictionary knows it.
+- Core asks for the guesses while it handles the space, which runs in the keyboard hook of the OS. On macOS, a request took about 5 ms (median) and at most 10 to 20 ms for each language. With Hunspell without its guesses of letter groups, it took 0.2 ms for English and 2 ms for Spanish of Chile (median), and at most 57 ms. Core keeps each answer, and asks only after a finished word that the dictionary does not know.
+- A word that the dictionary of the other language knows gets no fix, such as "camion" (an English word) after "Hola Carla, El". A word before a period or a line break also gets no fix.
+- A space that shows the rest of a suggestion, or that the running completion continues, asks no request, so the word gets no fix. Thus after "comi", a suggestion " con mis primos" keeps "comi".
+- Measured with Gemma 4 E4B (Metal, macOS English and Spanish dictionaries): 4 more right fixes in `typo_kinds` (70 to 74 of 96, none wrong): "comí", "acá", "según" and "fiancé", all in the `end` cases. The 76 older cases did not change, and the eval gave 3 helped cases, none harmed (sign test p = 0.25). With a request after each character and word choice medium, the Spanish and Chilean cases of `varieties` (75) and the Argentine cases of `regional` (21) did not change. With the Hunspell dictionaries of English and of Spanish of Chile, `typo_kinds` also got 4 more right fixes.
 
 ### Autocorrect of the app
 
