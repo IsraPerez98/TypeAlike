@@ -137,7 +137,9 @@
 //! the prompt or the name of the writer. The `name` cases start with a greeting, and must not show
 //! the name of the writer. The `signed` ones have earlier emails that end with that name. The
 //! `note` cases end with a full sentence and a space, and must not show an opening parenthesis,
-//! as a note about the text or a translation. The `start` cases have 1 to 3 typed characters at
+//! as a note about the text or a translation. The `note-en-inside` and `note-es-inside` cases are
+//! chats that end inside a sentence, where a long suggestion can end the sentence and then open
+//! such a note. The `start` cases have 1 to 3 typed characters at
 //! the start of a field, in prompts to a coding agent in VS Code with a clipboard, and in chats,
 //! emails and documents, all with earlier writing. The `clip` cases are prompts to the agent that
 //! end with a verb before its object, such as "Compare ", with a clipboard. They must not show a
