@@ -5,6 +5,7 @@ mod badge;
 mod badge_place;
 mod caret;
 mod caret_look;
+mod caret_row;
 mod energy_saving;
 mod field_pause;
 mod field_room;

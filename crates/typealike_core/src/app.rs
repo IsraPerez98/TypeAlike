@@ -17,7 +17,7 @@ use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
     AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow, OcrAvailability,
-    OcrRead, ScreenRead, ScreenReadId, ScreenSource,
+    OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
 };
 use crate::engine::{Engine, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
@@ -709,6 +709,16 @@ impl App {
     #[must_use]
     pub fn text_before_caret(&self) -> &str {
         self.engine.text_before_caret()
+    }
+
+    /// The row of the caret on the screen in the field of the session, when the field gives no text
+    /// but shows text that the platform cannot read: the line of the newest screen read that shows
+    /// the typed text. `None` without such a
+    /// line, and when the newest read is of another frame than `field`, the frame of the field
+    /// now, because the window then moved since the read.
+    #[must_use]
+    pub fn caret_row_on_screen(&self, field: Option<ScreenRect>) -> Option<ScreenRect> {
+        self.engine.caret_row_on_screen(field)
     }
 
     /// Whether the line of the caret has no text after the caret, also without a session, as a look

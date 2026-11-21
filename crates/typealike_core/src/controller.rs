@@ -1346,6 +1346,10 @@ impl Controller {
         let view = self
             .caret_wait
             .ghost_view(self.app.text_before_caret(), room.placement)?;
+        if read.caret.is_none() {
+            let caret_row = self.app.caret_row_on_screen(read.field);
+            return Some(GhostView { caret_row, ..view });
+        }
         let Some(field_room) = room.field_room(read.caret, badge) else {
             return Some(view);
         };

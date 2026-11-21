@@ -46,6 +46,9 @@ const KEPT_LINES_SLACK_PERCENT: u32 = 25;
 /// The sign between the part of a line that the prompt keeps and the part that does not fit, so
 /// that the model reads the part as a part.
 const CUT_MARK: &str = "…";
+/// The fewest letters and digits of the typed line that a screen line can end with after other
+/// text, such as the prompt of a shell, and still show the typed line.
+const MIN_TYPED_END_CHARS: usize = 4;
 
 /// What the prompt knows of the text of the focused field, for the lines of the screen.
 #[derive(Debug, Clone, Copy)]
@@ -106,6 +109,42 @@ impl<'text> FieldContent<'text> {
             .map(|line| line.frame)
             .max_by_key(|frame| (frame.top, frame.left))
     }
+}
+
+/// Returns the frame of the row of the caret in a field that hides its text and gives no caret: the
+/// last line of `screen` inside its field that shows the line of `typed` where the caret is. A line
+/// shows it when its letters and digits are a part of the letters and digits of that typed line,
+/// or end with all of them. Thus a line of an OCR that splits or joins words counts, and so does a
+/// line with a prompt mark, the prompt of a shell or the border of a box around the typed line.
+pub(crate) fn caret_row(screen: &ScreenText, typed: &str) -> Option<ScreenRect> {
+    let typed_line = letters_and_digits(typed.rsplit('\n').next().unwrap_or_default());
+    if typed_line.is_empty() {
+        return None;
+    }
+    screen
+        .lines
+        .iter()
+        .filter(|line| is_inside(line.frame, screen.field))
+        .filter(|line| shows_typed_line(&letters_and_digits(&line.text), &typed_line))
+        .map(|line| line.frame)
+        .max_by_key(|frame| (frame.top, frame.left))
+}
+
+/// Whether `line` shows `typed_line`, both as their letters and digits. A line that ends with a
+/// typed line of fewer than [`MIN_TYPED_END_CHARS`] often only ends with the same word.
+fn shows_typed_line(line: &str, typed_line: &str) -> bool {
+    let ends_with_typed_line =
+        typed_line.chars().count() >= MIN_TYPED_END_CHARS && line.ends_with(typed_line);
+    !line.is_empty() && (typed_line.contains(line) || ends_with_typed_line)
+}
+
+/// Returns the letters and the digits of `text` in lowercase, because an OCR reads some capital
+/// letters as small letters.
+fn letters_and_digits(text: &str) -> String {
+    text.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// A line of text that the prompt can show.
@@ -1262,6 +1301,50 @@ mod tests {
             lines,
             above_the_field(&["The newest answer is just above the prompt."])
         );
+    }
+
+    #[test]
+    fn caret_row_is_the_last_row_that_shows_the_typed_text() {
+        let screen = terminal(vec![
+            terminal_row("I changed login.rs and the tests pass.", 0),
+            terminal_row("❯ fix the login bug in the auth module and then", 1),
+            terminal_row("add a test for it", 2),
+            terminal_row("auto mode on", 3),
+        ]);
+
+        let row = caret_row(&screen, TYPED_PROMPT);
+
+        assert_eq!(row, Some(terminal_row("", 2).frame));
+    }
+
+    #[test]
+    fn caret_row_shows_the_typed_text_without_its_spaces_and_signs() {
+        let rows = [
+            "> deploythe stag ing server",
+            "│ > Deploy the staging server   │",
+            "dev@laptop ~/shop % deploy the staging server",
+        ];
+
+        let found =
+            rows.map(|row| caret_row(&terminal(vec![terminal_row(row, 1)]), "deploy the staging server"));
+
+        assert_eq!(found, [Some(terminal_row("", 1).frame); 3]);
+    }
+
+    #[test]
+    fn caret_row_is_unknown_when_no_row_shows_the_line_of_the_caret() {
+        let screens = [
+            (
+                "fix the login bug\nand then",
+                vec![terminal_row("❯ fix the login bug", 1)],
+            ),
+            ("go", vec![terminal_row("type /help to go", 1)]),
+            ("deploy", vec![terminal_row("❯", 1)]),
+        ];
+
+        let found = screens.map(|(typed, rows)| caret_row(&terminal(rows), typed));
+
+        assert_eq!(found, [None; 3]);
     }
 
     #[test]

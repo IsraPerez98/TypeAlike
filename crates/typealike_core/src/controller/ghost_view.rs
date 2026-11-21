@@ -40,7 +40,8 @@ pub struct WrappedLines {
 }
 
 /// What the platform shows for a suggestion: the ghost text at the caret or in the mirror below
-/// it, else, when it finds no caret, the mirror next to the focused field.
+/// it, else, when it finds no caret, the mirror below the row of the caret on the screen or next to
+/// the focused field.
 #[derive(Clone, PartialEq, Eq)]
 pub struct GhostView {
     /// The ghost text, or with [`wrapped`](Self::wrapped) lines only its part on the line of the
@@ -53,6 +54,11 @@ pub struct GhostView {
     pub typed_word: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
+    /// The row of the caret on the screen, when the platform finds no caret in a field that gives
+    /// no text but shows text that the platform cannot read: the line of the newest screen read
+    /// that shows the typed text. The mirror shows below it. `None` when no line shows the typed
+    /// text, and the mirror then shows next to the focused field.
+    pub caret_row: Option<ScreenRect>,
 }
 
 impl GhostView {
@@ -71,6 +77,7 @@ impl GhostView {
             ghost,
             wrapped: None,
             placement,
+            caret_row: None,
         }
     }
 
@@ -274,6 +281,7 @@ impl fmt::Debug for GhostView {
                 &format_args!("{} chars", self.typed_word.chars().count()),
             )
             .field("placement", &self.placement)
+            .field("caret_row", &self.caret_row)
             .finish()
     }
 }

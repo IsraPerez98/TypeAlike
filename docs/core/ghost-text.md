@@ -52,6 +52,15 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ### Mirror and card below the caret
 
 - When the platform finds no caret, it can show the ghost text in the mirror next to the focused field.
+- In a field that shows text that the platform cannot read and gives no field text (`FieldTextAccess::Unreadable`), core also gives the row of the caret on the screen (`GhostView::caret_row`, `screen::caret_row`). Examples are the terminal of Ghostty and the window of Herdr. The mirror then shows below that row at its left edge, or above it when it does not fit below.
+  - Thus in a terminal that fills its window, such as Ghostty or Herdr, the mirror shows next to the input line of a coding agent, and not below or above the window.
+  - The row is the last line of the newest screen read inside the field that shows the line of the typed text where the caret is. Only the letters and the digits count, in lowercase.
+  - A line shows the typed line when its letters and digits are a part of the letters and digits of the typed line, or end with all of them. Thus a line still matches when the OCR splits or joins words, or when it has a prompt mark, the prompt of a shell before the command, or the border of a box around the input.
+  - A line that ends with a typed line of fewer than 4 letters and digits does not count (`MIN_TYPED_END_CHARS`), because it often only ends with the same word, as "type /help to go" for "go".
+  - Only the typed text after its last line break counts. A read before an Enter shows only the line above the caret.
+  - The row comes only from a read of the field frame of the look. A window that moved or changed its size since the read gives no row.
+  - Without a row, the mirror shows next to the field.
+  - A session reads the screen at its first key, often before the terminal shows that key, and a read that runs gives no row. Then the mirror shows next to the field until the answer, and also after it when the answer shows none of the typed text.
 - The mirror (also the card below the caret) shows the end of the typed word before the ghost text (`GhostView::typed_word`: the text after the last space, at most 24 characters, without the typo of a fix).
 - The typed word has the primary text color and a semibold font.
 - The ghost text has a lighter color with a contrast of at least 4.5:1.

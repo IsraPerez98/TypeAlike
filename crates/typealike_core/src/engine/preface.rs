@@ -4,13 +4,14 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use crate::desktop::{
-    Desktop, OcrRead, ScreenRead, ScreenReadId, ScreenSource, ScreenText, Surroundings, Timestamp,
+    Desktop, OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText, Surroundings, Timestamp,
 };
 use crate::history;
 use crate::prompt::{self, Example, Preface, ScreenPart, Writer};
-use crate::screen::{ConversationLines, LineScope};
+use crate::screen::{self, ConversationLines, LineScope};
 use crate::settings::{ClipboardAccess, ReplyWords, ScreenTextSettings};
 
+use super::session::FieldTextAccess;
 use super::{Engine, read_surroundings};
 
 /// The age after which a copy has no relation to the text that the user types.
@@ -272,6 +273,21 @@ impl Engine {
             session.use_preface(preface);
         }
         is_changed
+    }
+
+    /// The row of the caret on the screen in the field of the session, when the field gives no text
+    /// but shows text that the platform cannot read ([`screen::caret_row`]). `None` when the newest
+    /// read is of another frame than `field`.
+    pub(crate) fn caret_row_on_screen(&self, field: Option<ScreenRect>) -> Option<ScreenRect> {
+        let session = self
+            .session
+            .as_ref()
+            .filter(|session| session.field.text == FieldTextAccess::Unreadable)?;
+        let screen = self
+            .screen_reads
+            .text()
+            .filter(|screen| Some(screen.field) == field)?;
+        screen::caret_row(screen, &session.text_before)
     }
 
     /// Lets the session read the screen once more, for when a scroll moved the text on the screen.

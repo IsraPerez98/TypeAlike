@@ -170,7 +170,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 ## Mirror
 
-- The mirror is a panel below the frame of the field, or above it, with the typed word in `labelColor` and the semibold system font, and the ghost text in `labelColor` at 60% opacity (`secondaryLabelColor` with Increase Contrast).
+- The mirror is a panel below the row of the caret that core gives (`GhostView::caret_row`), else below the frame of the field, or above it, with the typed word in `labelColor` and the semibold system font, and the ghost text in `labelColor` at 60% opacity (`secondaryLabelColor` with Increase Contrast).
 - A control without a text selection gets no mirror, except in an app that gives no caret ("Fields").
 - When text follows the caret on its line, the mirror shows the typed word and the ghost text below the line of the caret, with the first letter of the ghost text under the caret, or above the line.
 
