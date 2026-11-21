@@ -314,7 +314,7 @@ notes-example-study-text = Je fais des études. J’écris des dissertations, de
 notes-example-software = Développement logiciel
 notes-example-software-text = Je travaille dans le développement logiciel. J’écris des revues de code, des rapports de bugs et des documents techniques. J’utilise les noms exacts du code et des outils.
 
-## The setup, which shows when TypeAlike starts for the first time and after a reset of the settings. $number is the number of the step, and $count is the number of steps. The demo shows the typed text, then the suggestion after it in gray, then the key that types its next word.
+## The setup, which shows when TypeAlike starts for the first time and after a reset of the settings. After the setup, it shows only the permission step when TypeAlike lacks a permission. $number is the number of the step, and $count is the number of steps. The demo shows the typed text, then the suggestion after it in gray, then the key that types its next word.
 
 setup-window-title = Configuration de TypeAlike
 setup-progress = Étape { $number } sur { $count }
@@ -322,6 +322,8 @@ setup-back = Retour
 setup-continue = Continuer
 setup-start = Commencer
 setup-finish = Terminer
+# The default button of the setup that shows only the permission step. It closes the window after the user gave the permission.
+setup-done = Terminé
 setup-welcome-title = Bienvenue dans TypeAlike
 setup-welcome-body = TypeAlike suggère les mots suivants pendant que vous tapez, dans n’importe quelle app. Appuyez sur Tab pour insérer le mot suivant, ou continuez à taper pour ignorer la suggestion.
 setup-demo-typed = Merci pour votre réponse rapide. Je vous envoie le

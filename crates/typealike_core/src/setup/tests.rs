@@ -179,11 +179,11 @@ fn welcome_shows_what_typealike_does_with_a_demo() {
         SetupView {
             window_title: "TypeAlike setup".to_owned(),
             step: SetupStep::Welcome,
-            progress: StepProgress {
+            progress: Some(StepProgress {
                 number: 1,
                 count: 6,
                 text: "Step 1 of 6".to_owned(),
-            },
+            }),
             title: "Welcome to TypeAlike".to_owned(),
             body: Some("TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.".to_owned()),
             demo: Some(Demo {
@@ -231,9 +231,14 @@ fn demo_key_types_only_the_next_word_as_tab_does() {
 fn os_that_asks_for_accessibility_adds_the_permission_step() {
     let cases = [Fixture::new(), Fixture::without_accessibility()];
 
-    let counts = cases.map(|fixture| fixture.view(&SetupFlow::new()).progress.count);
+    let counts = cases.map(|fixture| {
+        fixture
+            .view(&SetupFlow::new())
+            .progress
+            .map(|progress| progress.count)
+    });
 
-    assert_eq!(counts, [6, 7]);
+    assert_eq!(counts, [Some(6), Some(7)]);
 }
 
 #[test]
@@ -281,7 +286,10 @@ fn step_that_the_os_does_not_have_counts_as_the_step_before_it() {
 
     let progress = fixture.view(&flow_at(SetupStep::Permission)).progress;
 
-    assert_eq!((progress.number, progress.count), (4, 6));
+    assert_eq!(
+        progress.map(|progress| (progress.number, progress.count)),
+        Some((4, 6))
+    );
 }
 
 #[test]
@@ -516,6 +524,53 @@ fn permission_step_does_not_wait_for_screen_recording() {
 }
 
 #[test]
+fn permission_only_setup_shows_the_permission_step_without_progress_and_back() {
+    let fixture = Fixture::without_accessibility();
+
+    let view = fixture.view(&SetupFlow::permission_only());
+
+    assert_eq!(
+        (
+            view.step,
+            view.title.as_str(),
+            view.progress,
+            view.back,
+            view.next
+        ),
+        (
+            SetupStep::Permission,
+            "Give TypeAlike access to text fields",
+            None,
+            None,
+            button(NEXT, "Done", false)
+        )
+    );
+}
+
+#[test]
+fn done_waits_for_accessibility() {
+    let fixture = Fixture::without_accessibility();
+    let mut flow = SetupFlow::permission_only();
+
+    let outcome = fixture.act(&mut flow, SetupAction::Next);
+
+    assert_eq!(outcome, SetupOutcome::Shown);
+}
+
+#[test]
+fn done_with_accessibility_ends_the_permission_only_setup() {
+    let fixture = Fixture {
+        permissions: vec![(Permission::Accessibility, PermissionState::Granted)],
+        ..Fixture::without_accessibility()
+    };
+    let mut flow = SetupFlow::permission_only();
+
+    let outcome = fixture.act(&mut flow, SetupAction::Next);
+
+    assert_eq!(outcome, SetupOutcome::Done);
+}
+
+#[test]
 fn about_step_shows_only_the_name_and_the_notes() {
     let fixture = Fixture::new();
 
@@ -668,10 +723,10 @@ fn each_step_follows_the_writing_rules() {
     let texts: Vec<_> = fixtures
         .iter()
         .flat_map(|fixture| {
-            steps
-                .map(|step| fixture.view(&flow_at(step)))
-                .into_iter()
-                .chain([fixture.view(&other_models)])
+            steps.map(|step| fixture.view(&flow_at(step))).into_iter().chain([
+                fixture.view(&other_models),
+                fixture.view(&SetupFlow::permission_only()),
+            ])
         })
         .flat_map(|view| view.texts())
         .collect();
@@ -689,10 +744,14 @@ fn setup_shows_in_spanish() {
     let view = fixture.view(&SetupFlow::new());
 
     assert_eq!(
-        (view.title.as_str(), view.progress.text.as_str(), view.language),
+        (
+            view.title.as_str(),
+            view.progress.map(|progress| progress.text),
+            view.language
+        ),
         (
             "Te damos la bienvenida a TypeAlike",
-            "Paso 1 de 6",
+            Some("Paso 1 de 6".to_owned()),
             UiLanguage::Spanish
         )
     );

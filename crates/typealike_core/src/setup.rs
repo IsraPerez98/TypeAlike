@@ -4,6 +4,9 @@
 //! the user, lets the user pick what suggestions use, asks for the permissions of the OS, and
 //! downloads the model. Its rows are the rows of the settings window, so each platform
 //! renders them as in the settings window and sends back each [`SettingsInput`].
+//!
+//! After the setup, the same window shows only the permission step when TypeAlike lacks a
+//! permission.
 
 use crate::desktop::{Permission, PermissionState};
 use crate::engine::split_next_part;
@@ -34,8 +37,8 @@ pub struct SetupView {
     pub window_title: String,
     /// The step that the window shows. Each platform shows the picture of the step above its title.
     pub step: SetupStep,
-    /// Which step of how many the window shows.
-    pub progress: StepProgress,
+    /// Which step of how many the window shows, or `None` for a setup with only one step.
+    pub progress: Option<StepProgress>,
     /// The title of the step, in sentence case.
     pub title: String,
     /// One to three sentences below the title, on a step whose rows do not tell what the step is
@@ -48,10 +51,10 @@ pub struct SetupView {
     /// A short line at the bottom of the step, such as the promise that the text stays on the
     /// computer.
     pub footnote: Option<String>,
-    /// The button that goes back to the step before. The first step has none.
+    /// The button that goes back to the step before. The first step of the setup has none.
     pub back: Option<Button>,
-    /// The button that goes to the next step, or that finishes the setup on the last step. It is
-    /// the default button of the window.
+    /// The button that goes to the next step, or that ends the setup on its last step. It is the
+    /// default button of the window.
     pub next: Button,
     /// The language of the texts.
     pub language: UiLanguage,
@@ -131,6 +134,9 @@ pub(crate) enum SetupOutcome {
     /// The user finished the setup, and the setup window closes. The action applies the choice of
     /// the autostart switch.
     Finished(GeneralAction),
+    /// The user gave the permission again in the setup with only the permission step, and the
+    /// setup window closes. No setting changes.
+    Done,
     /// The user turned on or off the check of typos: the rule for typos and the typo fix.
     Typos(bool),
 }
@@ -158,11 +164,21 @@ enum ModelChoice {
     Other,
 }
 
-/// The state of an open setup window: the step that it shows, the models that the step of the
-/// model shows, and the choice of the autostart switch, which applies when the user finishes the
-/// setup. The switch is on by default.
+/// Which steps a setup shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupScope {
+    /// Each step, from the welcome to the ready step.
+    Full,
+    /// Only the permission step, when TypeAlike lacks a permission after the setup.
+    Permission,
+}
+
+/// The state of an open setup window: its steps, the step that it shows, the models that the step
+/// of the model shows, and the choice of the autostart switch, which applies when the user
+/// finishes the setup. The switch is on by default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SetupFlow {
+    scope: SetupScope,
     step: SetupStep,
     model_choice: ModelChoice,
     is_autostart_on: bool,
@@ -172,9 +188,20 @@ impl SetupFlow {
     /// A setup at its first step.
     pub(crate) fn new() -> Self {
         Self {
+            scope: SetupScope::Full,
             step: SetupStep::Welcome,
             model_choice: ModelChoice::Recommended,
             is_autostart_on: true,
+        }
+    }
+
+    /// A setup with only the permission step, which asks again for a permission that TypeAlike
+    /// lacks after the setup.
+    pub(crate) fn permission_only() -> Self {
+        Self {
+            scope: SetupScope::Permission,
+            step: SetupStep::Permission,
+            ..Self::new()
         }
     }
 
@@ -197,17 +224,14 @@ impl SetupFlow {
     /// Handles `action`. The next button goes on only while the step allows it. A new step shows
     /// the recommended model again.
     pub(crate) fn on_action(&mut self, action: SetupAction, context: &SetupContext<'_>) -> SetupOutcome {
-        let steps = steps(context.permissions);
+        let steps = self.steps(context.permissions);
         let index = step_index(&steps, self.step);
         match action {
             SetupAction::Back => self.go_to(steps[index.saturating_sub(1)]),
             SetupAction::Next if !can_continue(self.step, context) => {}
             SetupAction::Next => match steps.get(index + 1) {
                 Some(&next) => self.go_to(next),
-                None if self.is_autostart_on => {
-                    return SetupOutcome::Finished(GeneralAction::EnableAutostart);
-                }
-                None => return SetupOutcome::Finished(GeneralAction::DisableAutostart),
+                None => return self.end(),
             },
             SetupAction::SwitchAutostart(is_on) => self.is_autostart_on = is_on,
             SetupAction::ShowOtherModels => self.model_choice = ModelChoice::Other,
@@ -221,11 +245,46 @@ impl SetupFlow {
         self.model_choice = ModelChoice::Recommended;
     }
 
+    /// What the next button does on the last step.
+    fn end(&self) -> SetupOutcome {
+        match self.scope {
+            SetupScope::Permission => SetupOutcome::Done,
+            SetupScope::Full if self.is_autostart_on => {
+                SetupOutcome::Finished(GeneralAction::EnableAutostart)
+            }
+            SetupScope::Full => SetupOutcome::Finished(GeneralAction::DisableAutostart),
+        }
+    }
+
+    /// The steps of the setup: the welcome and the languages, the steps about the user, then the
+    /// permission step only on an OS that asks for the Accessibility permission, the model, and
+    /// the last step. A setup with only the permission step has no other step.
+    fn steps(&self, permissions: &[(Permission, PermissionState)]) -> Vec<SetupStep> {
+        if self.scope == SetupScope::Permission {
+            return vec![SetupStep::Permission];
+        }
+        let permission = permissions
+            .iter()
+            .any(|&(permission, _)| permission == Permission::Accessibility)
+            .then_some(SetupStep::Permission);
+        [
+            SetupStep::Welcome,
+            SetupStep::Languages,
+            SetupStep::About,
+            SetupStep::Sources,
+        ]
+        .into_iter()
+        .chain(permission)
+        .chain([SetupStep::Model, SetupStep::Ready])
+        .collect()
+    }
+
     /// The view of the step that the setup shows.
     pub(crate) fn view(&self, context: &SetupContext<'_>) -> SetupView {
         let translations = context.translations;
-        let steps = steps(context.permissions);
-        let number = step_index(&steps, self.step) + 1;
+        let steps = self.steps(context.permissions);
+        let index = step_index(&steps, self.step);
+        let number = index + 1;
         let count = steps.len();
         let step_content = match self.step {
             SetupStep::Welcome => welcome(context),
@@ -236,19 +295,23 @@ impl SetupFlow {
             SetupStep::Model => self.model(context),
             SetupStep::Ready => self.ready(context),
         };
-        let next_label = match self.step {
-            SetupStep::Welcome => "setup-start",
-            SetupStep::Ready => "setup-finish",
-            SetupStep::Languages
-            | SetupStep::About
-            | SetupStep::Sources
-            | SetupStep::Permission
-            | SetupStep::Model => "setup-continue",
+        let next_label = match (self.scope, self.step) {
+            (SetupScope::Permission, _) => "setup-done",
+            (SetupScope::Full, SetupStep::Welcome) => "setup-start",
+            (SetupScope::Full, SetupStep::Ready) => "setup-finish",
+            (
+                SetupScope::Full,
+                SetupStep::Languages
+                | SetupStep::About
+                | SetupStep::Sources
+                | SetupStep::Permission
+                | SetupStep::Model,
+            ) => "setup-continue",
         };
         SetupView {
             window_title: translations.text("setup-window-title"),
             step: self.step,
-            progress: StepProgress {
+            progress: (count > 1).then(|| StepProgress {
                 number,
                 count,
                 text: translations.text_with(
@@ -258,13 +321,13 @@ impl SetupFlow {
                         ("count", count_argument(count)),
                     ],
                 ),
-            },
+            }),
             title: translations.text(step_content.title),
             body: step_content.body.map(|body| translations.text(body)),
             demo: step_content.demo,
             sections: step_content.sections,
             footnote: step_content.footnote,
-            back: (self.step != SetupStep::Welcome).then(|| button(BACK, "setup-back", true, translations)),
+            back: (index > 0).then(|| button(BACK, "setup-back", true, translations)),
             next: button(NEXT, next_label, can_continue(self.step, context), translations),
             language: translations.language(),
         }
@@ -354,26 +417,6 @@ impl StepContent {
 
 fn has_model(context: &SetupContext<'_>) -> bool {
     context.general.settings().suggestion_model.is_some() || !context.installed.is_empty()
-}
-
-/// The steps of the setup: the welcome and the languages, the steps about the user, then the
-/// permission step only on an OS that asks for the Accessibility permission, the model, and the
-/// last step.
-fn steps(permissions: &[(Permission, PermissionState)]) -> Vec<SetupStep> {
-    let permission = permissions
-        .iter()
-        .any(|&(permission, _)| permission == Permission::Accessibility)
-        .then_some(SetupStep::Permission);
-    [
-        SetupStep::Welcome,
-        SetupStep::Languages,
-        SetupStep::About,
-        SetupStep::Sources,
-    ]
-    .into_iter()
-    .chain(permission)
-    .chain([SetupStep::Model, SetupStep::Ready])
-    .collect()
 }
 
 /// The index of `step` in `steps`. A step that the OS does not have, such as the permission step,

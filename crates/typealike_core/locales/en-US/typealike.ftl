@@ -306,7 +306,7 @@ notes-example-study-text = I am a student. I write essays, notes and emails to m
 notes-example-software = Software development
 notes-example-software-text = I am a software developer. I write code reviews, bug reports and technical documents. I use the exact names of code and tools.
 
-## The setup, which shows when TypeAlike starts for the first time and after a reset of the settings. $number is the number of the step, and $count is the number of steps. The demo shows the typed text, then the suggestion after it in gray, then the key that types its next word.
+## The setup, which shows when TypeAlike starts for the first time and after a reset of the settings. After the setup, it shows only the permission step when TypeAlike lacks a permission. $number is the number of the step, and $count is the number of steps. The demo shows the typed text, then the suggestion after it in gray, then the key that types its next word.
 
 setup-window-title = TypeAlike setup
 setup-progress = Step { $number } of { $count }
@@ -314,6 +314,8 @@ setup-back = Back
 setup-continue = Continue
 setup-start = Start setup
 setup-finish = Finish setup
+# The default button of the setup that shows only the permission step. It closes the window after the user gave the permission.
+setup-done = Done
 setup-welcome-title = Welcome to TypeAlike
 setup-welcome-body = TypeAlike suggests the next words while you type, in any app. Press Tab to type the next word, or keep typing to ignore the suggestion.
 setup-demo-typed = Thanks for the quick reply. I will send you the

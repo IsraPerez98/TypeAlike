@@ -544,15 +544,14 @@ impl Controller {
         shell.quit();
     }
 
-    /// Opens the settings window at the Permissions pane, because TypeAlike lacks a permission that
-    /// it needs to show suggestions. Until the user finishes the setup, it opens the setup, which
-    /// asks for the permission.
+    /// Opens the setup with only the permission step, because TypeAlike lacks a permission that it
+    /// needs to show suggestions. Until the user finishes the setup, it opens the whole setup, which
+    /// also asks for the permission.
     pub fn on_missing_permission(&mut self, shell: &mut dyn Shell) {
-        if self.needs_setup() {
-            self.open_setup(shell);
-        } else {
-            self.open_settings(Some(PageIcon::Hand), shell);
+        if !self.needs_setup() {
+            self.setup.get_or_insert_with(SetupFlow::permission_only);
         }
+        self.open_setup(shell);
     }
 
     /// Shows the new state of the permissions in the settings window, after the user gave or took
@@ -720,6 +719,7 @@ impl Controller {
                 self.on_general_action(autostart, shell);
                 self.on_general_action(GeneralAction::FinishSetup, shell);
             }
+            SetupOutcome::Done => shell.close_setup(),
         }
     }
 

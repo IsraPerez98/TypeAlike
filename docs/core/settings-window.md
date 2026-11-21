@@ -180,7 +180,8 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The Permissions pane (`settings_window::permissions`) shows each permission that the OS asks the user for (`Desktop::permissions`: Accessibility and Screen & System Audio Recording on macOS).
 - Windows asks for none, so it has no Permissions pane.
 - Each row shows "Allowed" or a "Give access" button (`Shell::ask_for_permission`).
-- `Controller::on_missing_permission` opens the settings window at that pane (`Shell::show_settings` with the index of the page), and `Controller::on_permission_change` shows a new state.
+- `Controller::on_missing_permission` opens the setup with only the permission step (see "Setup"). The pane stays in the settings window, where the user can open it.
+- `Controller::on_permission_change` shows a new state in the pane and in the setup.
 
 ## About pane
 
@@ -218,7 +219,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - A failed download or install shows that TypeAlike cannot install the version, with "Try again", which checks again.
 - When the user turns the switch off during the download, the version does not install, and the row shows that it is available.
 - Each start of TypeAlike removes `TypeAlike-update`. A file that the installer still holds stays until the next start.
-- On macOS, each release has the same self-signed certificate (`packaging/macos/build-dmg.sh`), so the permissions stay after an update. After an update from a release with an ad-hoc signature, the new version opens the Permissions pane.
+- On macOS, each release has the same self-signed certificate (`packaging/macos/build-dmg.sh`), so the permissions stay after an update. After an update from a release with an ad-hoc signature, the new version opens the setup with only the permission step.
 
 ### Third-party software
 
@@ -233,6 +234,10 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The setup (`setup`) is a window of its own that shows at each start while `Settings::setup` is `Setup::Needed` (`Controller::on_launch`).
 - Until the user finishes it, "Settings" of the tray and a missing permission also open it.
+- After the setup, a missing permission opens the setup with only the permission step (`SetupFlow::permission_only`), with the same title, body and rows.
+  - It shows no step progress (`SetupView::progress` is `None`) and no Back button.
+  - Its default button is "Done". Done works only after the user gives Accessibility. It closes the window and changes no setting (`SetupOutcome::Done`).
+  - A close by the user also ends it. The next missing permission opens it again.
 - Next waits until a model is on the computer, so a download must finish, and for the Accessibility permission.
 - A close by the user (`Controller::on_setup_closed`) keeps the setup to do, and the setup starts again at its first step.
 - Each platform renders `SetupView` with the row renderers of the settings window.

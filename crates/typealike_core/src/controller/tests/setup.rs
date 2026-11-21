@@ -11,7 +11,7 @@ use crate::localization::UiLanguage;
 use crate::settings::{HistoryAccess, Settings, Setup, WriterNotes};
 use crate::settings_window::general::UI_LANGUAGE;
 use crate::settings_window::personalization::HISTORY;
-use crate::settings_window::view::{ControlId, PageIcon, Row, SettingsInput};
+use crate::settings_window::view::{ControlId, Row, SettingsInput};
 use crate::setup::SetupStep;
 
 const NEXT: &str = "setup-next";
@@ -77,18 +77,69 @@ fn missing_permission_opens_the_setup_until_the_user_finishes_it() {
     assert_eq!(shown_step(&mut harness), Some(SetupStep::Welcome));
 }
 
-#[test]
-fn missing_permission_after_the_setup_opens_the_permissions_pane() {
+fn missing_accessibility() -> Harness {
     let mut harness = Harness::new(Settings::default());
     harness.shell.permissions = vec![(Permission::Accessibility, PermissionState::Missing)];
+    harness
+}
+
+#[test]
+fn missing_permission_after_the_setup_shows_only_the_permission_step() {
+    let mut harness = missing_accessibility();
 
     harness.controller.on_missing_permission(&mut harness.shell);
 
-    let shown = harness.take_calls().into_iter().find_map(|call| match call {
-        Call::ShowSettings(view, page) => page.map(|index| view.pages[index].icon),
+    let calls = harness.take_calls();
+    let shown = calls.iter().find_map(|call| match call {
+        Call::ShowSetup(view) => Some((view.step, view.progress.is_none())),
         _ => None,
     });
-    assert_eq!(shown, Some(PageIcon::Hand));
+    assert_eq!(
+        (
+            shown,
+            calls.iter().any(|call| matches!(call, Call::ShowSettings(..)))
+        ),
+        (Some((SetupStep::Permission, true)), false)
+    );
+}
+
+#[test]
+fn given_permission_turns_on_done() {
+    let mut harness = missing_accessibility();
+    harness.controller.on_missing_permission(&mut harness.shell);
+    harness.shell.permissions[0].1 = PermissionState::Granted;
+
+    harness.controller.on_permission_change(&mut harness.shell);
+
+    let done = harness.last_setup().map(|view| view.next.is_enabled);
+    assert_eq!(done, Some(true));
+}
+
+#[test]
+fn done_closes_the_setup_and_changes_no_setting() {
+    let mut harness = missing_accessibility();
+    harness.controller.on_missing_permission(&mut harness.shell);
+    harness.shell.permissions[0].1 = PermissionState::Granted;
+
+    harness.press_button(NEXT);
+
+    assert_eq!(
+        (harness.take_calls().contains(&Call::CloseSetup), harness.saved()),
+        (true, Vec::new())
+    );
+}
+
+#[test]
+fn done_does_nothing_while_accessibility_is_missing() {
+    let mut harness = missing_accessibility();
+    harness.controller.on_missing_permission(&mut harness.shell);
+
+    harness.press_button(NEXT);
+
+    assert_eq!(
+        harness.last_setup().map(|view| view.step),
+        Some(SetupStep::Permission)
+    );
 }
 
 #[test]

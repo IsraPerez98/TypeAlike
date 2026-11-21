@@ -645,19 +645,6 @@ fn give_access_button_asks_the_os_for_the_permission() {
 }
 
 #[test]
-fn missing_permission_opens_the_settings_at_the_permissions_pane() {
-    let mut harness = harness_with_permissions(PermissionState::Missing);
-
-    harness.controller.on_missing_permission(&mut harness.shell);
-
-    let opened = harness.take_calls().into_iter().find_map(|call| match call {
-        Call::ShowSettings(view, Some(page)) => Some(view.pages[page].icon),
-        _ => None,
-    });
-    assert_eq!(opened, Some(PageIcon::Hand));
-}
-
-#[test]
 fn permission_change_shows_the_new_state_in_the_settings() {
     let mut harness = harness_with_permissions(PermissionState::Missing);
     harness.shell.permissions[0].1 = PermissionState::Granted;

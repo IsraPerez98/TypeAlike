@@ -1,6 +1,7 @@
 //! The footer of the setup window: the progress dots at the leading edge, then the back button and
 //! the default button that goes on, at the trailing edge, below a separator. An accent pill marks
-//! the step that shows, and slides to the next step while the dots make room for it.
+//! the step that shows, and slides to the next step while the dots make room for it. A setup with
+//! only one step shows no dots.
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
@@ -90,7 +91,8 @@ impl Footer {
             None => self.back.setHidden(true),
         }
         show_push_button(&self.next, &view.next, None, binder);
-        self.dots.render(&view.progress, motion, binder.main_thread);
+        self.dots
+            .render(view.progress.as_ref(), motion, binder.main_thread);
     }
 }
 
@@ -170,7 +172,16 @@ impl ProgressDots {
         }
     }
 
-    fn render(&mut self, progress: &StepProgress, motion: Motion, main_thread: MainThreadMarker) {
+    /// Shows `progress`, or no dots and no pill for `None`. The root stays in the footer, because
+    /// the footer takes its height from the root.
+    fn render(&mut self, progress: Option<&StepProgress>, motion: Motion, main_thread: MainThreadMarker) {
+        self.pill.setHidden(progress.is_none());
+        self.root.setAccessibilityElement(progress.is_some());
+        let Some(progress) = progress else {
+            self.rebuild(0, main_thread);
+            self.shown = None;
+            return;
+        };
         if self.slots.len() != progress.count {
             self.rebuild(progress.count, main_thread);
             self.shown = None;

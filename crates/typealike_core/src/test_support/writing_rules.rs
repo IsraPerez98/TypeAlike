@@ -128,11 +128,8 @@ impl SettingsView {
 impl SetupView {
     /// The texts of the step, without the text of the user, of a model and of the demo.
     pub(crate) fn texts(&self) -> Vec<UiText> {
-        let mut texts = vec![
-            UiText::name(&self.window_title),
-            UiText::name(&self.progress.text),
-            UiText::name(&self.title),
-        ];
+        let mut texts = vec![UiText::name(&self.window_title), UiText::name(&self.title)];
+        texts.extend(self.progress.iter().map(|progress| UiText::name(&progress.text)));
         texts.extend(self.body.iter().map(UiText::prose));
         texts.extend(self.sections.iter().flat_map(section_texts));
         texts.extend(self.footnote.iter().map(UiText::prose));

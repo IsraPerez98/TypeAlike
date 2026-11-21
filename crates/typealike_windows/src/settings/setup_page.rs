@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use typealike_core::settings_window::view::SettingsInput;
-use typealike_core::setup::{Demo, SetupView};
+use typealike_core::setup::{Demo, SetupView, StepProgress};
 use windows_reactor::{
     AutomationHeadingLevel, Border, ButtonStyle, Component, ComponentContext, ComponentTimer, EncodedImage,
     FontIcon, FontWeight, Grid, GridLength, HorizontalAlignment, Image, KeyedView, ScrollBarVisibility,
@@ -135,9 +135,7 @@ enum Entrance {
 fn entrance(old: Option<&SetupView>, new: &SetupView, motion: Motion) -> Option<Entrance> {
     match old {
         Some(old) if old.step == new.step => None,
-        Some(old) if motion == Motion::Animated && new.progress.number > old.progress.number => {
-            Some(Entrance::FromEnd)
-        }
+        Some(old) if motion == Motion::Animated && new.step > old.step => Some(Entrance::FromEnd),
         Some(_) if motion == Motion::Animated => Some(Entrance::FromStart),
         Some(_) | None => Some(Entrance::Entered),
     }
@@ -424,7 +422,8 @@ impl SetupPage {
             .into()
     }
 
-    /// The bar at the bottom: the progress, then the back and the next buttons.
+    /// The bar at the bottom: the progress, then the back and the next buttons. A setup with only
+    /// one step shows no progress.
     fn footer(&self, renderer: &Renderer<'_, '_, Self>, view: &SetupView) -> View {
         let back = view.back.as_ref().map(|back| {
             keyed(
@@ -440,7 +439,10 @@ impl SetupPage {
                 .grid_column(3)
                 .content(renderer.button(&view.next, ButtonStyle::Accent)),
         );
-        let progress = self.progress(view).grid_column(0);
+        let progress = view
+            .progress
+            .as_ref()
+            .map(|progress| keyed("progress", self.progress(progress).grid_column(0)));
         let bar = Grid::new()
             .columns([
                 GridLength::Auto,
@@ -449,12 +451,7 @@ impl SetupPage {
                 GridLength::Auto,
             ])
             .column_spacing(FOOTER_GAP)
-            .keyed_children(
-                [keyed("progress", progress)]
-                    .into_iter()
-                    .chain(back)
-                    .chain([next]),
-            );
+            .keyed_children(progress.into_iter().chain(back).chain([next]));
         Border::new()
             .background(ThemeBrush::CardBackground)
             .border_brush(ThemeBrush::CardStroke)
@@ -474,9 +471,9 @@ impl SetupPage {
     /// after that step move away by the width that the pill adds, so the gaps between the dots
     /// stay the same. When the step changes, the pill and the dots slide to their new places,
     /// unless the animation effects are off.
-    fn progress(&self, view: &SetupView) -> Border {
-        let shown = view.progress.number;
-        let dots = (1..=view.progress.count).map(|number| {
+    fn progress(&self, progress: &StepProgress) -> Border {
+        let shown = progress.number;
+        let dots = (1..=progress.count).map(|number| {
             keyed(
                 number,
                 self.slide(
@@ -498,9 +495,9 @@ impl SetupPage {
             ),
         );
         Border::new()
-            .width(progress_width(view.progress.count))
+            .width(progress_width(progress.count))
             .vertical_alignment(VerticalAlignment::Center)
-            .automation_name(&view.progress.text)
+            .automation_name(&progress.text)
             .content(Grid::new().keyed_children(dots.chain([pill])))
     }
 
@@ -636,7 +633,8 @@ impl Component for SetupPage {
         };
         // The key of the step makes a new scroll viewer for each step, so each step starts at its
         // top, and the step before fades out while the new one slides in.
-        let step = keyed(view.progress.number, self.step(&renderer, view));
+        let step_number = view.progress.as_ref().map_or(0, |progress| progress.number);
+        let step = keyed(step_number, self.step(&renderer, view));
         let footer = keyed(
             "footer",
             Border::new().grid_row(1).content(self.footer(&renderer, view)),
@@ -661,17 +659,17 @@ impl Drop for SetupPage {
 mod tests {
     use super::*;
     use typealike_core::settings_window::view::ControlId;
-    use typealike_core::setup::{SetupStep, StepProgress};
+    use typealike_core::setup::SetupStep;
 
     fn view_at(step: SetupStep, number: usize) -> SetupView {
         SetupView {
             window_title: String::new(),
             step,
-            progress: StepProgress {
+            progress: Some(StepProgress {
                 number,
                 count: 4,
                 text: String::new(),
-            },
+            }),
             title: String::new(),
             body: None,
             demo: None,
