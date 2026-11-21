@@ -36,6 +36,13 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - When the dictionary knows that word, core asks again without the rule, and the fix does not show, also when the answer gives no suggestion.
 - When core does not show such a fix, because the suggestion after it is bad or the dictionary does not know the fixed word, it also asks again without the rule. Thus the suggestion after the space still shows.
 
+### Guesses of the dictionary
+
+- After a stop for a typo without a fix, in 5 or more typed letters that the dictionary does not know as a word or as the start of a word, core asks the dictionaries of the language of the text for their guesses (`SpellChecker::guesses`). It then asks the model again once, with the guesses that are one edit away from the typed letters and keep their start, at most 3 (`typed_letters_fix`, `DictionaryGuesses`).
+- Fewer letters have many words one edit away. With 3 or 4 letters, the guesses gave 2 right fixes ("atne" to "antemano", "pni" to "pino") and 1 wrong fix ("pge" through "pre" to "preterir").
+- The model rates each guess, and takes the most likely one as the fix, with the same minimum and gap as the fix of a token (`docs/llm.md`).
+- A typed space after a word that the dictionary does not know gives the model no guesses. The model then rated a regional word below a guess: the Chilean "polera" became "pollera".
+
 ### Accents of a finished word
 
 - When the user types a space after a word, with one of `, ; : ! ?` before it or none, and the dictionaries of the language of the text do not know that word, core asks them for the words that they offer in its place (`SpellChecker::guesses`, `accent_fix`).

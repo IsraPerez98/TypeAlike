@@ -353,6 +353,7 @@ mod tests {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
+            guesses: &[],
         };
         let token_bias = loaded.token_bias(None, &NextWordBias::default());
         let mut progress = Progress {

@@ -9,8 +9,8 @@ use crate::desktop::Timestamp;
 use crate::history::HistoryEntry;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Completion, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt, SentenceEnd,
-    TokenCount, TypoCheck,
+    Completion, DictionaryGuesses, InferenceError, InferenceRequest, LogProbability, NextWordBias, Prompt,
+    SentenceEnd, TokenCount, TypoCheck,
 };
 use crate::localization::{Translations, UiLanguage};
 use crate::prompt::framed_prompt;
@@ -60,6 +60,7 @@ pub(crate) struct ExpectedRequest {
     pub(crate) typo_check: TypoCheck,
     pub(crate) finished_word_fix: Option<LogProbability>,
     pub(crate) sentence_end: SentenceEnd,
+    pub(crate) dictionary_guesses: DictionaryGuesses,
 }
 
 impl ExpectedRequest {
@@ -73,6 +74,7 @@ impl ExpectedRequest {
             typo_check: settings.typo_check(),
             finished_word_fix: None,
             sentence_end: settings.sentence_end,
+            dictionary_guesses: DictionaryGuesses::default(),
         }
     }
 }
@@ -89,6 +91,7 @@ impl From<ExpectedRequest> for InferenceRequest {
             finished_word_fix: expected.finished_word_fix,
             sentence_end: expected.sentence_end,
             line_after: String::new(),
+            dictionary_guesses: expected.dictionary_guesses,
         }
     }
 }
@@ -132,6 +135,7 @@ pub(crate) fn preparation_request(lines: &[&str], text_before: &str) -> Inferenc
         finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     }
 }
 

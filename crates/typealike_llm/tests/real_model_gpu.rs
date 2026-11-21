@@ -7,8 +7,8 @@ use std::sync::{Arc, mpsc};
 
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Backend, Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias,
-    Prompt, SentenceEnd, TokenCount, TypoCheck,
+    Backend, Completion, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest,
+    ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::LlamaCpp;
 
@@ -35,6 +35,7 @@ fn completion_events_on(backend: Backend) -> (InferenceEvent, InferenceEvent) {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         },
         &sink,
     );

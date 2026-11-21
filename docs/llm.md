@@ -59,6 +59,15 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - Fewer letters have many words one edit away. With 3 or 4 letters, the gap gave wrong fixes of the correct start of a word, such as "pag" to "pase".
   - Measured with Gemma 4 E4B (CUDA, Windows en-US and Hunspell es-CL, long, word choice medium): the rule gave 14 more right fixes in `typo_kinds` (21 to 35 of 52, none lost) and 1 more in `varieties`. It gave no wrong fix in 2341 places of `varieties` and 463 of `chat` with a request after each character. The other sets did not change.
 - Then the completion starts again from the fixed letters with that token, and sends no parts.
+
+### Guesses of the dictionary
+
+- A request can give the guesses of the dictionary for the typed letters (`DictionaryGuesses`, `docs/core/suggestions.md`).
+- When no token of the 64 most likely fixes the letters, the runner takes each guess as the fixed letters, with the whitespace before the letters and a space or a sign after them, when it is one edit away and keeps the start (`guessed_letters`).
+- It writes the letters of each guess again after the prompt as a completion does, and the higher of the healing path and the cover of the first step tells how likely the model finds them (`TypedLetters`). The guess that the model finds most likely, at least as likely as the minimum, is the fix, and the gap to the fix applies as for the fix of a token.
+- The completion then starts again from the fixed letters with the most likely tokens that write them.
+- The reason: when the first token of the word agrees with the typed letters, no token of the 64 most likely gives a fix of a typo after that token.
+- Each guess costs the decodes of its tokens, but the last.
 - A space or a sign after the letters ends the word: the fix keeps them after the fixed word, and the token of the fix writes no letters after that word.
 
 ### Word before a typed space
@@ -167,6 +176,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
   - `stop` tells why the model stopped: `ModelEnd`, `LineAfter`, `SentenceEnd`, `LineBreak`, `TailCut`, `TokenLimit` or `Typo`.
   - `chosen_tokens` counts the tokens that the completion chose. `dropped_text` gives the chosen text that it did not keep, because it went back to an earlier end.
   - `finished_word_fix` is the typo minimum for the finished word before the last typed space, when the request checks that word. It is empty when the request does not check it.
+  - `dictionary_guesses` lists the guesses of the dictionary that the request gives the runner after a typo stop without a fix. It is empty for the other requests.
   - After a `Typo` stop without a fix, `fix_candidate` gives the most likely fix with one edit among the fix candidates, and `fix_candidate_log_probability` how likely the model found it. A fix needs at least the typo minimum (`typo_check`), so a candidate below it shows how near a fix was. With fewer than `MIN_FIXED_CHARACTERS` typed letters, or no candidate one edit away, it is empty.
   - The times, in milliseconds:
     - `queue_wait_ms`: from the request to the start of the completion. A load before the completion is part of it.

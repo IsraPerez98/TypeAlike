@@ -8,7 +8,7 @@ use crate::app::{App, SettledWork, TrayCommand};
 use crate::desktop::{CopiedText, Desktop, Field, FieldText, ScreenRead, Surroundings};
 use crate::engine::Reaction;
 use crate::history::HistoryEntry;
-use crate::inference::{InferenceError, InferenceRequest, NextWordBias};
+use crate::inference::{DictionaryGuesses, InferenceError, InferenceRequest, NextWordBias};
 use crate::key::{Key, Press};
 use crate::prompt::prompt_with_notes;
 use crate::settings::{
@@ -158,6 +158,7 @@ fn settings_give_the_writer_notes() {
             finished_word_fix: None,
             sentence_end: Settings::default().sentence_end,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         })
     );
 }

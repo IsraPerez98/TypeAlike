@@ -6,8 +6,8 @@ use std::sync::{Arc, mpsc};
 
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Completion, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias, Prompt,
-    SentenceEnd, TokenCount, TypoCheck,
+    Completion, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -43,6 +43,7 @@ fn real_model_continues_text() {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         },
         &sink,
     );

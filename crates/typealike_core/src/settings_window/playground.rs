@@ -6,8 +6,8 @@ use crate::app::StopReason;
 use crate::desktop::Surroundings;
 use crate::hub::ModelFile;
 use crate::inference::{
-    Backend, Completion, InferenceError, InferenceEvent, InferenceRequest, NextWordBias, SentenceEnd,
-    TokenCount, TypoCheck,
+    Backend, Completion, DictionaryGuesses, InferenceError, InferenceEvent, InferenceRequest, NextWordBias,
+    SentenceEnd, TokenCount, TypoCheck,
 };
 use crate::localization::{MessageArgument, Translations};
 use crate::prompt::{self, Writer};
@@ -291,6 +291,7 @@ impl PlaygroundPane {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         })
     }
 

@@ -8,7 +8,7 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
 use crate::inference::{Correction, WordBias};
-use crate::spelling::{SpellChecker, checked_words};
+use crate::spelling::{SpellChecker, checked_words, edit_distance, keeps_start};
 
 use super::Engine;
 use super::session::Session;
@@ -26,6 +26,13 @@ const MAX_FIT_WORDS: usize = 30;
 /// fix. Fewer letters that another language knows as a word are often the start of a longer word
 /// of the text, such as "hart" for "harto" in a Spanish text.
 const MIN_LANGUAGE_LETTERS: usize = 5;
+/// The most guesses of the dictionary that a request gives the runner. The runner decodes the
+/// letters of each guess, so each guess costs a few decodes.
+const MAX_TYPO_GUESSES: usize = 3;
+/// The fewest typed letters that get the guesses of the dictionary after a stop for a typo. Fewer
+/// letters have many words one edit away, and the model can continue a short guess into another
+/// word, such as "pge" through "pre" to "preterir".
+const MIN_GUESSED_LETTERS: usize = 5;
 
 /// The dictionaries of the languages that the user writes, with the answers that they gave. A
 /// word is known when the dictionary of any language knows it. Without a dictionary, it knows each
@@ -220,6 +227,19 @@ fn kept_answer<T: Clone>(answers: &mut HashMap<String, T>, text: &str, ask: impl
         .clone()
 }
 
+/// What the dictionary gives a request for a typo in the word before the caret.
+#[derive(Default)]
+pub(super) enum DictionaryFix {
+    #[default]
+    None,
+    /// The fix of the accents of the finished word before a typed space, whose fixed text the
+    /// prompt of the request holds.
+    Accent(Correction),
+    /// The guesses one edit away from the typed letters of the last word, which the runner can take
+    /// as a fix, after a stop for a typo without a fix.
+    Guesses(Vec<String>),
+}
+
 /// Returns the fix of the accents of the finished word before the space that the user typed at
 /// the end of `text_before`, with one of `, ; : ! ?` before that space or none. The fix comes when
 /// the dictionaries of the language of the text do not know the word, and they offer one word
@@ -245,6 +265,40 @@ pub(super) fn accent_fix(dictionary: &mut Dictionary, text_before: &str) -> Opti
         typed: format!("{word}{after_word}"),
         fixed: format!("{fixed}{after_word}"),
     })
+}
+
+/// Returns the guesses of the dictionaries of the language of `text_before` for the typed letters
+/// of its last word, when they do not know these letters: at most [`MAX_TYPO_GUESSES`] words one
+/// edit away from them that keep their start. Fewer than [`MIN_GUESSED_LETTERS`] typed letters
+/// get none.
+pub(super) fn typed_letters_fix(dictionary: &mut Dictionary, text_before: &str) -> DictionaryFix {
+    let Some(letters) =
+        typed_letters(text_before).filter(|letters| letters.chars().count() >= MIN_GUESSED_LETTERS)
+    else {
+        return DictionaryFix::None;
+    };
+    let guesses = one_edit_guesses(letters, dictionary.guesses_for_typed_word(text_before));
+    if guesses.is_empty() {
+        DictionaryFix::None
+    } else {
+        DictionaryFix::Guesses(guesses)
+    }
+}
+
+/// Returns the first [`MAX_TYPO_GUESSES`] of `guesses` that are one edit away from `word` and keep
+/// its start ([`keeps_start`]), each once.
+fn one_edit_guesses(word: &str, guesses: Vec<String>) -> Vec<String> {
+    let typed = word.chars().collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    let mut kept = guesses
+        .into_iter()
+        .filter(|guess| {
+            edit_distance(&typed, &guess.chars().collect::<Vec<_>>()) == 1 && keeps_start(&typed, guess)
+        })
+        .filter(|guess| seen.insert(guess.clone()))
+        .collect::<Vec<_>>();
+    kept.truncate(MAX_TYPO_GUESSES);
+    kept
 }
 
 /// Returns the one word of `guesses` that differs from `word` only in more marks on its letters,
@@ -502,6 +556,24 @@ mod tests {
         let accented = cases.map(|(word, words)| accented_guess(word, &guesses(words)));
 
         assert_eq!(accented, [None, None]);
+    }
+
+    #[test]
+    fn guesses_one_edit_away_that_keep_the_start_come_once_in_their_order_up_to_three() {
+        let words = [
+            "goverments",
+            "government",
+            "governed",
+            "foverment",
+            "government",
+            "goverment",
+            "governmint",
+            "goveRment",
+        ];
+
+        let kept = one_edit_guesses("goverment", guesses(&words));
+
+        assert_eq!(kept, guesses(&["goverments", "government", "goveRment"]));
     }
 
     fn cut_without(unknown: &[&str], typed_letters: &str, suggestion: &str) -> String {

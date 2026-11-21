@@ -373,6 +373,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
             finished_word_fix,
             sentence_end,
             line_after,
+            dictionary_guesses,
         } = &job.request
         else {
             if let InferenceRequest::ReadGpuMemory { backend } = job.request {
@@ -399,6 +400,7 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
             finished_word_fix: *finished_word_fix,
             sentence_end: *sentence_end,
             line_after: line_after.as_bytes(),
+            guesses: &dictionary_guesses.0,
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
@@ -452,7 +454,9 @@ fn next_job_for(
 mod tests {
     use std::sync::mpsc;
 
-    use typealike_core::inference::{NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck};
+    use typealike_core::inference::{
+        DictionaryGuesses, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
+    };
 
     use super::*;
 
@@ -471,6 +475,7 @@ mod tests {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         }
     }
 

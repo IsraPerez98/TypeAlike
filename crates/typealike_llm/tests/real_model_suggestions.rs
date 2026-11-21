@@ -10,8 +10,8 @@ use typealike_core::desktop::{CopiedText, Desktop, Field, Surroundings};
 use typealike_core::engine::Reaction;
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Completion, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest, LogProbability,
-    ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
+    Completion, DictionaryGuesses, InferenceError, InferenceEvent, InferenceEventSink, InferenceRequest,
+    LogProbability, ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_core::key::{Key, Press};
 use typealike_core::settings::{PromptPreparation, Settings, TypoRule};
@@ -140,6 +140,7 @@ fn request_of(prompt: &str, typo_check: TypoCheck) -> Reaction {
         finished_word_fix,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     })
 }
 
@@ -192,6 +193,7 @@ fn next_word_bias_picks_only_the_first_word() {
         finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     });
 
     let text = model
@@ -308,6 +310,7 @@ fn long_prompt_after_another_long_prompt_completes() {
         finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     }));
 
     assert!(completion.is_ok(), "unexpected {completion:?}");
@@ -540,6 +543,7 @@ fn finished_word_gets_a_fix_without_a_typo_check_of_the_typed_start_of_the_next_
         finished_word_fix: Some(typo_cut()),
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     });
 
     let correction = model
@@ -597,6 +601,7 @@ fn completion_of_no_tokens_adds_no_text() {
         finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     }));
 
     assert!(

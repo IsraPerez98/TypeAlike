@@ -5,8 +5,8 @@ use std::mem;
 use crate::desktop::{AfterCaret, Desktop};
 use crate::history::HistoryPool;
 use crate::inference::{
-    Correction, InferenceRequest, LogProbability, MIN_FIXED_CHARACTERS, NextWordBias, Prompt, SentenceEnd,
-    TokenCount, TypoCheck, WordBias,
+    Correction, DictionaryGuesses, InferenceRequest, LogProbability, MIN_FIXED_CHARACTERS, NextWordBias,
+    Prompt, SentenceEnd, TokenCount, TypoCheck, WordBias,
 };
 use crate::key::Press;
 use crate::place::Place;
@@ -14,7 +14,7 @@ use crate::prompt;
 
 use super::offer::{KnownWord, Offer};
 use super::session::Session;
-use super::spelling::accent_fix;
+use super::spelling::{DictionaryFix, accent_fix};
 use super::suggestion::through_finished_word;
 use super::{Engine, Reaction};
 
@@ -49,6 +49,7 @@ impl Engine {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after,
+            dictionary_guesses: DictionaryGuesses::default(),
         })
     }
 
@@ -149,13 +150,28 @@ impl Engine {
         typo_check: TypoCheck,
         finished_word_fix: Option<LogProbability>,
     ) -> Reaction {
-        let accent_fix = self.accent_fix_at_caret(typo_check);
-        let (typo_check, finished_word_fix) = if accent_fix.is_some() {
-            (TypoCheck::Off, None)
-        } else {
-            (typo_check, finished_word_fix)
+        let dictionary_fix = self
+            .accent_fix_at_caret(typo_check)
+            .map_or(DictionaryFix::None, DictionaryFix::Accent);
+        self.request_with_fix(typo_check, finished_word_fix, dictionary_fix)
+    }
+
+    /// Requests a completion of the text before the caret with `typo_check`, `finished_word_fix`
+    /// and `dictionary_fix`. With a fix of the accents, the prompt holds the fixed word, and the
+    /// request has no typo rule and no check of the finished word. With guesses, the request gives
+    /// them to the runner.
+    pub(super) fn request_with_fix(
+        &mut self,
+        typo_check: TypoCheck,
+        finished_word_fix: Option<LogProbability>,
+        dictionary_fix: DictionaryFix,
+    ) -> Reaction {
+        let (typo_check, finished_word_fix, accent, guesses) = match &dictionary_fix {
+            DictionaryFix::Accent(fix) => (TypoCheck::Off, None, Some(fix), Vec::new()),
+            DictionaryFix::Guesses(guesses) => (typo_check, finished_word_fix, None, guesses.clone()),
+            DictionaryFix::None => (typo_check, finished_word_fix, None, Vec::new()),
         };
-        let Some(prompt) = self.prompt(accent_fix.as_ref()) else {
+        let Some(prompt) = self.prompt(accent) else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
         };
@@ -169,7 +185,7 @@ impl Engine {
             typo_check,
             finished_word_fix,
             known_word: KnownWord::First,
-            accent_fix,
+            dictionary_fix,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self
@@ -188,6 +204,7 @@ impl Engine {
             finished_word_fix,
             sentence_end: self.sentence_end,
             line_after,
+            dictionary_guesses: DictionaryGuesses(guesses),
         })
     }
 

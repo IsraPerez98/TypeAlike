@@ -12,7 +12,7 @@ use llama_cpp_2::vocab::LlamaVocab;
 use llama_cpp_2::{DecodeError, LlamaContextLoadError, LlamaStateSeqFlags, SeqState, StateSeqError};
 use typealike_core::inference::{Correction, InferenceError, LogProbability, SentenceEnd, TypoCheck};
 
-use super::correction::{TypoFix, typo_fix, with_fix_gap};
+use super::correction::{TypoFix, guessed_letters, typo_fix, with_fix_gap};
 use super::drafter::{DrafterError, GUESSED_TOKENS, ModelContext};
 use super::generation::{
     AddedTokens, Choice, Decoder, Generation, Healing, Limits, Progress, Step, added_text, is_markup,
@@ -442,7 +442,10 @@ impl<'model> PromptCache<'model> {
         healing: Healing<'_>,
         progress: &mut Progress<'_>,
     ) -> Result<AddedTokens, GenerateError> {
-        let fix = self.typo_fix(decoder, healing);
+        let fix = match self.typo_fix(decoder, healing) {
+            Some(fix) => Some(fix),
+            None => self.guess_fix(decoder, healing, progress)?,
+        };
         let decoder = Decoder {
             limits: Limits {
                 typo_check: with_fix_gap(decoder.limits.typo_check, healing.text, fix.as_ref()),
@@ -476,6 +479,43 @@ impl<'model> PromptCache<'model> {
         typo_fix(&self.logits, decoder.pieces, healing.text, min, |token| {
             decoder.vocab.token_to_piece(token, false, None)
         })
+    }
+
+    /// Returns the fix of the typed letters of the `healing` text with a guess of the dictionary in
+    /// the limits of the `decoder` ([`guessed_letters`]), when they ask for fixes: the guess whose
+    /// letters the model finds most likely as a completion writes them again, when they are at
+    /// least as likely as the minimum. Each guess costs the decodes of its tokens.
+    fn guess_fix(
+        &mut self,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
+        progress: &mut Progress<'_>,
+    ) -> Result<Option<TypoFix>, GenerateError> {
+        let TypoCheck::Fix(min) = decoder.limits.typo_check else {
+            return Ok(None);
+        };
+        let mut best: Option<TypoFix> = None;
+        for letters in guessed_letters(healing.text, decoder.limits.guesses) {
+            let written = Healing {
+                text: letters.as_bytes(),
+                first_token: None,
+            };
+            let Some((log_probability, _)) = self.heal(decoder, written, None, progress)? else {
+                continue;
+            };
+            let is_better = log_probability >= min
+                && best
+                    .as_ref()
+                    .is_none_or(|best| log_probability > best.log_probability);
+            if is_better {
+                best = Some(TypoFix {
+                    token: None,
+                    letters,
+                    log_probability,
+                });
+            }
+        }
+        Ok(best)
     }
 
     /// Continues the prompt again with `fix` when `added` stopped for a typo in the `healing` text:
@@ -513,7 +553,7 @@ impl<'model> PromptCache<'model> {
     ) -> Result<AddedTokens, GenerateError> {
         let fixed_healing = Healing {
             text: fix.letters.as_bytes(),
-            first_token: Some(fix.token),
+            first_token: fix.token,
         };
         let mut quiet = Progress {
             is_outdated: &mut *progress.is_outdated,
@@ -598,6 +638,21 @@ impl<'model> PromptCache<'model> {
         min: LogProbability,
         progress: &mut Progress<'_>,
     ) -> Result<Option<LogProbability>, GenerateError> {
+        let healed = self.heal(decoder, healing, Some(min), progress)?;
+        Ok(healed.and_then(|(log_probability, step)| (step == Step::Stop).then_some(log_probability)))
+    }
+
+    /// Writes the `healing` text after the prompt as a completion does, without the text after it.
+    /// Returns how likely the model found the healed text, with [`Step::Stop`] when a healing step
+    /// stopped for a typo because the text got less likely than `min`, or with [`Step::Continue`]
+    /// when the tokens wrote all of it. `None` when the completion leaves the healed text first.
+    fn heal(
+        &mut self,
+        decoder: &Decoder<'_>,
+        healing: Healing<'_>,
+        min: Option<LogProbability>,
+        progress: &mut Progress<'_>,
+    ) -> Result<Option<(LogProbability, Step)>, GenerateError> {
         self.start_completion()?;
         let vocab = decoder.vocab;
         let limits = Limits {
@@ -607,14 +662,15 @@ impl<'model> PromptCache<'model> {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
+            guesses: &[],
         };
         let mut batch = LlamaBatch::new(1 + GUESSED_TOKENS, 1);
         let mut logits = self.logits.as_slice();
         let mut biased = Vec::new();
         let mut generation = Generation::new(decoder.pieces, healing);
         loop {
-            if generation.add_healing_step(logits, Some(min)) == Step::Stop {
-                return Ok(Some(generation.into_typo_stop().typed_log_probability));
+            if generation.add_healing_step(logits, min) == Step::Stop {
+                return Ok(Some((generation.typed_log_probability(), Step::Stop)));
             }
             let bias = decoder.token_bias.at(generation.tokens().len());
             let scores = with_bias(logits, bias, &mut biased);
@@ -627,7 +683,10 @@ impl<'model> PromptCache<'model> {
                 return Ok(None);
             };
             let step = generation.add_token(token, &piece, log_probability, logits, limits);
-            if step == Step::Stop || generation.is_healed() {
+            if generation.is_healed() {
+                return Ok(Some((generation.typed_log_probability(), Step::Continue)));
+            }
+            if step == Step::Stop {
                 return Ok(None);
             }
             if (progress.is_outdated)() {

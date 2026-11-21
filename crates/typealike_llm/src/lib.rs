@@ -130,7 +130,8 @@ mod tests {
     use std::path::Path;
 
     use typealike_core::inference::{
-        InferenceError, InferenceEvent, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
+        DictionaryGuesses, InferenceError, InferenceEvent, NextWordBias, Prompt, SentenceEnd, TokenCount,
+        TypoCheck,
     };
 
     use super::*;
@@ -311,6 +312,7 @@ mod tests {
                 finished_word_fix: None,
                 sentence_end: SentenceEnd::Continue,
                 line_after: String::new(),
+                dictionary_guesses: DictionaryGuesses::default(),
             },
         );
 

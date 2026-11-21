@@ -40,8 +40,8 @@ use std::time::{Duration, Instant};
 use anyhow::bail;
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Backend, CpuCores, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias,
-    Prompt, SentenceEnd, TokenCount, TypoCheck,
+    Backend, CpuCores, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -250,6 +250,7 @@ impl Session {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Stop,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         });
     }
 

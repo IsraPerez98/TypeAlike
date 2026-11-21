@@ -10,8 +10,8 @@ use std::sync::{Arc, mpsc};
 
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias, Prompt,
-    SentenceEnd, TokenCount, TypoCheck,
+    Backend, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
+    NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::LlamaCpp;
 
@@ -40,6 +40,7 @@ fn completion_event(backend: Backend, request: Request) -> InferenceEvent {
         finished_word_fix: None,
         sentence_end: SentenceEnd::Continue,
         line_after: String::new(),
+        dictionary_guesses: DictionaryGuesses::default(),
     };
     let mut runner = LlamaCpp::new(move |_| Some(path.clone()), None);
     let (sender, events) = mpsc::channel();

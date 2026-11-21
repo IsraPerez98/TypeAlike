@@ -5,7 +5,7 @@ use std::mem;
 use crate::inference::{Completion, Correction, InferenceError, LogProbability, TypoCheck};
 use crate::settings::TypoFix;
 
-use super::spelling::{WrittenWords, known_start};
+use super::spelling::{DictionaryFix, WrittenWords, known_start, typed_letters_fix};
 use super::suggestion::{
     before_frame_copy_start, complete_words, is_bad_suggestion, suggestion_after, suggestion_after_typed,
     through_finished_word, typed_after_word, word_fix,
@@ -32,10 +32,9 @@ pub(super) enum Offer {
         finished_word_fix: Option<LogProbability>,
         /// What the request does with typed letters that the dictionary knows as a word.
         known_word: KnownWord,
-        /// The fix of the accents of the finished word before the caret, whose fixed text the
-        /// prompt of this request holds. Its completion then shows as this fix, and its parts do
-        /// not show.
-        accent_fix: Option<Correction>,
+        /// What the dictionary gave this request. With a fix of the accents, the completion shows
+        /// as this fix, and its parts do not show.
+        dictionary_fix: DictionaryFix,
     },
     Shown(String),
     /// The fix of a typo before the caret.
@@ -92,7 +91,7 @@ impl Offer {
         matches!(
             self,
             Self::Growing {
-                accent_fix: Some(_),
+                dictionary_fix: DictionaryFix::Accent(_),
                 ..
             }
         )
@@ -174,6 +173,11 @@ impl Engine {
         {
             return self.request_without_typo_rule(completion);
         }
+        if let Ok(completion) = &result
+            && let Some((typo_check, guesses)) = self.guesses_after_typo_stop(completion)
+        {
+            return self.request_with_fix(typo_check, None, guesses);
+        }
         let has_typed = matches!(&self.offer, Offer::Growing { typed, .. } if !typed.is_empty());
         let is_answered = result.is_ok();
         match result {
@@ -211,7 +215,7 @@ impl Engine {
     fn with_accent_fix(&self, completion: Completion) -> Completion {
         match &self.offer {
             Offer::Growing {
-                accent_fix: Some(fix),
+                dictionary_fix: DictionaryFix::Accent(fix),
                 ..
             } => Completion {
                 correction: Some(fix.clone()),
@@ -310,6 +314,31 @@ impl Engine {
                 dictionary.knows_typed_word(text_before.strip_suffix(after_word).unwrap_or(text_before))
             }
             None => completion.typed_log_probability < min && dictionary.knows_typed_start(text_before),
+        }
+    }
+
+    /// Returns the typo check of the newest request and the guesses of the dictionary for the typed
+    /// letters ([`typed_letters_fix`]), when the `completion` of that request, with nothing typed
+    /// since, stopped for a typo without a fix, and the request had no help of the dictionary.
+    fn guesses_after_typo_stop(&mut self, completion: &Completion) -> Option<(TypoCheck, DictionaryFix)> {
+        let Offer::Growing {
+            typed,
+            typo_check: typo_check @ TypoCheck::Fix(min),
+            dictionary_fix: DictionaryFix::None,
+            ..
+        } = &self.offer
+        else {
+            return None;
+        };
+        let is_stop_without_fix =
+            typed.is_empty() && completion.correction.is_none() && completion.typed_log_probability < *min;
+        if !is_stop_without_fix {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        match typed_letters_fix(self.dictionary.as_mut()?, &session.text_before) {
+            DictionaryFix::None => None,
+            guesses => Some((*typo_check, guesses)),
         }
     }
 

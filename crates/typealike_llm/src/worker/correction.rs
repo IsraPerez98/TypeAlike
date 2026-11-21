@@ -110,8 +110,9 @@ impl TypedLetters {
 /// The fix of the typed letters of the last word with one edit.
 #[derive(Debug, PartialEq)]
 pub(super) struct TypoFix {
-    /// The token that starts the fixed letters.
-    pub(super) token: LlamaToken,
+    /// The token that starts the fixed letters, or `None` when the completion takes the most likely
+    /// tokens that write them, as for a guess of the dictionary.
+    pub(super) token: Option<LlamaToken>,
     /// The fixed letters, with the whitespace before them.
     pub(super) letters: String,
     /// How likely the model finds the fixed letters, as the tokens that cover them.
@@ -143,7 +144,7 @@ pub(super) fn typo_fix(
             let log_probability =
                 LogProbability(typed_log_probability(logits, pieces.covering(letters.as_bytes())));
             Some(TypoFix {
-                token,
+                token: Some(token),
                 letters,
                 log_probability,
             })
@@ -156,6 +157,21 @@ pub(super) fn typo_fix(
                 best
             }
         })
+}
+
+/// Returns the fixed letters that the `guesses` of the dictionary give for the `typed` letters, as
+/// the text of a token that writes each guess after the whitespace of the letters gives them
+/// ([`fixed_letters`]): each guess must be one edit away from the typed word and keep its start.
+/// A space or a sign after the letters stays after the fixed word.
+pub(super) fn guessed_letters(typed: &[u8], guesses: &[String]) -> Vec<String> {
+    let Ok(typed) = str::from_utf8(typed) else {
+        return Vec::new();
+    };
+    let space = &typed[..typed.len() - typed.trim_start().len()];
+    guesses
+        .iter()
+        .filter_map(|guess| fixed_letters(typed, &format!("{space}{guess}")))
+        .collect()
 }
 
 /// Returns `check` for the `typed` letters with their best `fix`. With [`TypoCheck::Fix`] and at
@@ -294,6 +310,35 @@ mod tests {
         assert_eq!(fixed, [None, None, None]);
     }
 
+    #[test]
+    fn guess_one_edit_away_fixes_the_whole_word_and_keeps_the_typed_space_or_sign() {
+        let cases = [
+            (" adress,", "address"),
+            (" presupeusto ", "presupuesto"),
+            ("tomorow", "tomorrow"),
+        ];
+
+        let letters = cases.map(|(typed, guess)| guessed_letters(typed.as_bytes(), &[guess.to_owned()]));
+
+        assert_eq!(
+            letters,
+            [
+                vec![" address,".to_owned()],
+                vec![" presupuesto ".to_owned()],
+                vec!["tomorrow".to_owned()]
+            ]
+        );
+    }
+
+    #[test]
+    fn guess_that_is_no_fix_of_the_typed_word_gives_no_letters() {
+        let guesses = ["tenía", "venis", "sabes"].map(str::to_owned);
+
+        let letters = guessed_letters(b" tenis", &guesses);
+
+        assert_eq!(letters, Vec::<String>::new());
+    }
+
     fn space_and_cost_pieces() -> TokenPieces {
         TokenPieces::from_texts(&[" ", " cost", " costume", "cost", " cat"])
     }
@@ -384,7 +429,7 @@ mod tests {
 
         assert_eq!(
             fix.map(|fix| (fix.token, fix.letters)),
-            Some((LlamaToken(1), " deli".to_owned()))
+            Some((Some(LlamaToken(1)), " deli".to_owned()))
         );
     }
 
@@ -438,7 +483,7 @@ mod tests {
 
     fn fix_with(log_probability: f32) -> TypoFix {
         TypoFix {
-            token: LlamaToken(1),
+            token: Some(LlamaToken(1)),
             letters: " delivery".to_owned(),
             log_probability: LogProbability(log_probability),
         }

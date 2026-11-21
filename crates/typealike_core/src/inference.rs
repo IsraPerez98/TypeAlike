@@ -122,6 +122,9 @@ pub enum InferenceRequest {
         /// write this text, and ends the added text where the model finds this text most likely
         /// after it.
         line_after: String,
+        /// The words of the dictionary that can fix a typo in the typed letters of the last word
+        /// of `prompt`.
+        dictionary_guesses: DictionaryGuesses,
     },
     /// Unloads the loaded model to free its memory.
     Unload,
@@ -167,6 +170,28 @@ impl TypoCheck {
             Self::Off => None,
             Self::Hide(min) | Self::Fix(min) => Some(min),
         }
+    }
+}
+
+/// The words that the dictionary offers in place of the typed letters of the last word of a
+/// prompt, each one edit away from them. With [`TypoCheck::Fix`], when no token that the model
+/// expects fixes the letters, the runner takes the guess that the model finds most likely as the
+/// fix, with the same minimum and gap as the fix of a token. `Debug` shows only the number of
+/// words, so logs never hold what the user wrote.
+///
+/// ```
+/// use typealike_core::inference::DictionaryGuesses;
+///
+/// let guesses = DictionaryGuesses(vec!["address".to_owned()]);
+///
+/// assert_eq!(format!("{guesses:?}"), "DictionaryGuesses(1 words)");
+/// ```
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct DictionaryGuesses(pub Vec<String>);
+
+impl fmt::Debug for DictionaryGuesses {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "DictionaryGuesses({} words)", self.0.len())
     }
 }
 

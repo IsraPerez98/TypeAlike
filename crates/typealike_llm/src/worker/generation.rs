@@ -47,6 +47,9 @@ pub(super) struct Limits<'text> {
     pub(super) sentence_end: SentenceEnd,
     /// The text after the caret on its line, which the added text leads into, or empty.
     pub(super) line_after: &'text [u8],
+    /// The words of the dictionary that can fix a typo in the healed text, when no token that the
+    /// model expects fixes it.
+    pub(super) guesses: &'text [String],
 }
 
 impl Limits<'_> {
@@ -236,6 +239,11 @@ impl<'text> Generation<'text> {
     /// The tokens that the completion added so far.
     pub(super) fn tokens(&self) -> &[LlamaToken] {
         &self.tokens
+    }
+
+    /// How likely the model found the healed text up to the last healing step.
+    pub(super) fn typed_log_probability(&self) -> LogProbability {
+        self.typed.log_probability()
     }
 
     /// Whether the added tokens wrote all of the healed text.
@@ -904,6 +912,7 @@ mod tests {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: b"",
+            guesses: &[],
         }
     }
 
@@ -1512,6 +1521,7 @@ mod tests {
     fn only_a_completion_before_a_line_can_add_tokens_to_reach_the_end_of_a_phrase() {
         let inside_a_line = Limits {
             line_after: b" on Monday.",
+            guesses: &[],
             ..limits(10, None)
         };
 
@@ -1524,6 +1534,7 @@ mod tests {
     fn tail_cut_inside_a_line_stops_without_the_end_of_a_phrase() {
         let limits = Limits {
             line_after: b" on Monday.",
+            guesses: &[],
             ..limits(10, Some(-3.0))
         };
 
@@ -1544,6 +1555,7 @@ mod tests {
         let pieces = TokenPieces::from_texts(&[" on", " for"]);
         let limits = Limits {
             line_after,
+            guesses: &[],
             ..limits(16, None)
         };
         let mut generation = Generation::new(&pieces, healing(b""));

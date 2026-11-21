@@ -122,6 +122,7 @@ impl CompletionLog {
             finished_word_fix,
             sentence_end,
             line_after,
+            dictionary_guesses,
         } = request
         else {
             return;
@@ -140,6 +141,7 @@ impl CompletionLog {
             min_log_probability = min_log_probability.map(|min| min.0),
             ?typo_check,
             finished_word_fix = finished_word_fix.map(|min| min.0),
+            dictionary_guesses = ?dictionary_guesses.0,
             ?sentence_end,
             line_after = line_after.as_str(),
             word_bias_version = word_bias.as_ref().map(|bias| bias.version),

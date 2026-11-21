@@ -6,8 +6,8 @@ use std::sync::{Arc, mpsc};
 
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias, Prompt, SentenceEnd,
-    TokenCount, TypoCheck,
+    DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner, NextWordBias,
+    Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
@@ -49,6 +49,7 @@ fn read_of_gpu_memory_keeps_the_model_loaded() {
             finished_word_fix: None,
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
+            dictionary_guesses: DictionaryGuesses::default(),
         },
         &sink,
     );
