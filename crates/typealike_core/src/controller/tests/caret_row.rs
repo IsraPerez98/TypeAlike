@@ -3,7 +3,11 @@
 
 use super::harness::{Call, Harness, completed};
 use crate::controller::{CaretLook, CaretRead, Delivery};
-use crate::desktop::{Confidence, ScreenLine, ScreenRead, ScreenRect, ScreenText, Surroundings};
+use crate::desktop::{
+    Confidence, OcrAvailability, ScreenLine, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, ScreenText,
+    Surroundings,
+};
+use crate::inference::InferenceRequest;
 use crate::key::Key;
 use crate::settings::Settings;
 
@@ -102,4 +106,239 @@ fn view_gets_no_row_from_a_read_of_a_field_frame_that_moved_since() {
     let row = caret_row_after_a_read_in(moved);
 
     assert_eq!(row, None);
+}
+
+/// A harness in the window of Herdr, which shows its text only on the screen and gives no caret,
+/// on a platform that can do an OCR.
+fn herdr_with_ocr() -> Harness {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.surroundings = Surroundings {
+        app_id: Some("dev.herdr.app".to_owned()),
+        app_name: Some("Herdr".to_owned()),
+        has_unreadable_text: true,
+        ..Surroundings::default()
+    };
+    harness.shell.caret_look = CaretLook::Now(CaretRead {
+        field: Some(WINDOW),
+        ..CaretRead::default()
+    });
+    harness.shell.ocr = OcrAvailability::Ready;
+    harness
+}
+
+/// The reads of the screen that the controller asked for since the last call, with their sources.
+fn screen_reads(harness: &mut Harness) -> Vec<(ScreenReadId, ScreenSource)> {
+    harness
+        .take_calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            Call::ReadScreen(read, source) => Some((read, source)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The id of the only read of the screen that the controller asked for since the last call.
+fn only_screen_read(harness: &mut Harness) -> ScreenReadId {
+    let reads = screen_reads(harness);
+    assert_eq!(reads.len(), 1, "{reads:?}");
+    reads[0].0
+}
+
+fn answer_screen_read(harness: &mut Harness, read: ScreenReadId, rows: Vec<ScreenLine>) {
+    let text = ScreenText {
+        lines: rows,
+        caret: None,
+        field: WINDOW,
+    };
+    harness.controller.on_delivery(
+        Delivery::Screen(ScreenRead {
+            id: read,
+            text: Some(text),
+        }),
+        &mut harness.shell,
+    );
+}
+
+/// Answers the read of the screen at the first key of a session, as the platform does when it
+/// captures the window before the app writes the key back: the tree has no lines, and the OCR
+/// after it shows the input row of a coding agent without the typed text.
+fn answer_session_read_before_the_echo(harness: &mut Harness) {
+    let tree_read = only_screen_read(harness);
+    answer_screen_read(harness, tree_read, Vec::new());
+    let ocr_read = only_screen_read(harness);
+    answer_screen_read(
+        harness,
+        ocr_read,
+        vec![
+            row("Done, the tests pass.", ANSWER_ROW),
+            row("❯", INPUT_ROW),
+            row("? for shortcuts", STATUS_ROW),
+        ],
+    );
+}
+
+fn input_rows(typed: &str) -> Vec<ScreenLine> {
+    vec![
+        row("Done, the tests pass.", ANSWER_ROW),
+        row(&format!("❯ {typed}"), INPUT_ROW),
+        row("? for shortcuts", STATUS_ROW),
+    ]
+}
+
+/// Types "D" in the window of Herdr, answers its suggestion, then the session read before the echo,
+/// which asks for the suggestion again, and shows `completion`. Returns the reads of the screen
+/// that the shown suggestion asked for.
+fn show_after_a_session_read_before_the_echo(
+    harness: &mut Harness,
+    completion: &str,
+) -> Vec<(ScreenReadId, ScreenSource)> {
+    harness.press(Key::Char('D'));
+    harness.answer(completed(completion));
+    answer_session_read_before_the_echo(harness);
+    harness.answer(completed(completion));
+    harness.settle_caret();
+    screen_reads(harness)
+}
+
+fn shown_row(harness: &Harness) -> Option<ScreenRect> {
+    harness
+        .shell
+        .ghost_view
+        .clone()
+        .expect("a shown ghost text")
+        .caret_row
+}
+
+#[test]
+fn mirror_without_a_row_asks_for_an_ocr_read_of_the_row() {
+    let mut harness = herdr_with_ocr();
+
+    let reads = show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+
+    assert!(
+        matches!(reads.as_slice(), [(_, ScreenSource::Ocr(_))]),
+        "{reads:?}"
+    );
+}
+
+#[test]
+fn answer_of_the_row_read_moves_the_mirror_below_the_input_row() {
+    let mut harness = herdr_with_ocr();
+    let reads = show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+
+    answer_screen_read(&mut harness, reads[0].0, input_rows("D"));
+
+    assert_eq!(shown_row(&harness), Some(INPUT_ROW));
+}
+
+#[test]
+fn answer_of_the_row_read_asks_for_no_other_suggestion() {
+    let mut harness = herdr_with_ocr();
+    let reads = show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+    let requests = harness.requests().len();
+
+    answer_screen_read(&mut harness, reads[0].0, input_rows("D"));
+
+    assert_eq!(harness.requests().len(), requests);
+}
+
+#[test]
+fn found_row_needs_no_other_read_while_the_typed_line_stays_short() {
+    let mut harness = herdr_with_ocr();
+    let reads =
+        show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server and the database");
+    answer_screen_read(&mut harness, reads[0].0, input_rows("D"));
+    harness.take_calls();
+
+    harness.type_text("eploy");
+    harness.settle_caret();
+
+    assert_eq!(screen_reads(&mut harness), []);
+    assert_eq!(shown_row(&harness), Some(INPUT_ROW));
+}
+
+#[test]
+fn found_row_gets_another_read_after_the_typed_line_grows_past_the_read() {
+    let mut harness = herdr_with_ocr();
+    let reads =
+        show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server and the database");
+    answer_screen_read(&mut harness, reads[0].0, input_rows("D"));
+    harness.take_calls();
+
+    harness.type_text("eploy the staging server and ");
+    harness.settle_caret();
+
+    let reads = screen_reads(&mut harness);
+    assert!(
+        matches!(reads.as_slice(), [(_, ScreenSource::Ocr(_))]),
+        "{reads:?}"
+    );
+    assert_eq!(shown_row(&harness), Some(INPUT_ROW));
+}
+
+#[test]
+fn no_row_read_starts_while_the_session_read_runs() {
+    let mut harness = herdr_with_ocr();
+    harness.press(Key::Char('D'));
+    harness.take_calls();
+
+    harness.answer(completed("eploy the staging server"));
+    harness.settle_caret();
+
+    assert_eq!(screen_reads(&mut harness), []);
+}
+
+#[test]
+fn mirror_without_an_ocr_asks_for_no_row_read() {
+    let mut harness = herdr_with_ocr();
+    harness.shell.ocr = OcrAvailability::NotPermitted;
+    harness.press(Key::Char('D'));
+    let tree_read = only_screen_read(&mut harness);
+    answer_screen_read(&mut harness, tree_read, input_rows(""));
+
+    harness.answer(completed("eploy the staging server"));
+    harness.settle_caret();
+
+    assert_eq!(screen_reads(&mut harness), []);
+}
+
+#[test]
+fn row_read_that_got_no_answer_does_not_stop_the_row_reads_of_the_next_session() {
+    let mut harness = herdr_with_ocr();
+    show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+    harness.press(Key::Enter);
+    harness.take_calls();
+
+    let reads = show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+
+    assert!(
+        matches!(reads.as_slice(), [(_, ScreenSource::Ocr(_))]),
+        "{reads:?}"
+    );
+}
+
+/// The prompt of the last request for a suggestion.
+fn last_prompt(harness: &Harness) -> String {
+    match harness.last_request() {
+        Some(InferenceRequest::Complete { prompt, .. }) => prompt.0,
+        request => panic!("no request for a suggestion: {request:?}"),
+    }
+}
+
+#[test]
+fn text_of_a_row_read_stays_out_of_the_prompt_of_the_next_session() {
+    const ROW_READ_LINE: &str = "Only the row read shows this line.";
+    let mut harness = herdr_with_ocr();
+    let reads = show_after_a_session_read_before_the_echo(&mut harness, "eploy the staging server");
+    let mut rows = input_rows("D");
+    rows.push(row(ROW_READ_LINE, rect(620, 636)));
+    answer_screen_read(&mut harness, reads[0].0, rows);
+    harness.press(Key::Enter);
+
+    harness.press(Key::Char('N'));
+
+    let prompt = last_prompt(&harness);
+    assert!(prompt.contains("Done, the tests pass."), "{prompt}");
+    assert!(!prompt.contains(ROW_READ_LINE), "{prompt}");
 }

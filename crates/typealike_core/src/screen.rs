@@ -111,31 +111,56 @@ impl<'text> FieldContent<'text> {
     }
 }
 
+/// How much of the line of the caret a read of the screen shows, at least.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShownTyping {
+    /// The whole typed line, as far as core knows.
+    WholeLine,
+    /// The first letters and digits of the typed line, at least this many. A read that started
+    /// before the last keys shows only the start of the line that the user typed since.
+    Start(usize),
+}
+
 /// Returns the frame of the row of the caret in a field that hides its text and gives no caret: the
 /// last line of `screen` inside its field that shows the line of `typed` where the caret is. A line
 /// shows it when its letters and digits are a part of the letters and digits of that typed line,
-/// or end with all of them. Thus a line of an OCR that splits or joins words counts, and so does a
-/// line with a prompt mark, the prompt of a shell or the border of a box around the typed line.
-pub(crate) fn caret_row(screen: &ScreenText, typed: &str) -> Option<ScreenRect> {
-    let typed_line = letters_and_digits(typed.rsplit('\n').next().unwrap_or_default());
+/// or end with the start of them that the read shows (`shown`). Thus a line of an OCR that splits
+/// or joins words counts, and so does a line with a prompt mark, the prompt of a shell or the
+/// border of a box around the typed line.
+pub(crate) fn caret_row(screen: &ScreenText, typed: &str, shown: ShownTyping) -> Option<ScreenRect> {
+    let typed_line = typed_line_letters(typed);
     if typed_line.is_empty() {
         return None;
     }
+    let shown_letters = match shown {
+        ShownTyping::WholeLine => typed_line.chars().count(),
+        ShownTyping::Start(letters) => letters,
+    };
     screen
         .lines
         .iter()
         .filter(|line| is_inside(line.frame, screen.field))
-        .filter(|line| shows_typed_line(&letters_and_digits(&line.text), &typed_line))
+        .filter(|line| shows_typed_line(&letters_and_digits(&line.text), &typed_line, shown_letters))
         .map(|line| line.frame)
         .max_by_key(|frame| (frame.top, frame.left))
 }
 
-/// Whether `line` shows `typed_line`, both as their letters and digits. A line that ends with a
-/// typed line of fewer than [`MIN_TYPED_END_CHARS`] often only ends with the same word.
-fn shows_typed_line(line: &str, typed_line: &str) -> bool {
-    let ends_with_typed_line =
-        typed_line.chars().count() >= MIN_TYPED_END_CHARS && line.ends_with(typed_line);
-    !line.is_empty() && (typed_line.contains(line) || ends_with_typed_line)
+/// Returns the letters and the digits of the line of `typed` where the caret is.
+pub(crate) fn typed_line_letters(typed: &str) -> String {
+    letters_and_digits(typed.rsplit('\n').next().unwrap_or_default())
+}
+
+/// Whether `line` shows `typed_line`, both as their letters and digits: `line` is a part of
+/// `typed_line`, or ends with its first `shown_letters`, or more. A line that ends with fewer than
+/// [`MIN_TYPED_END_CHARS`] often only ends with the same word.
+fn shows_typed_line(line: &str, typed_line: &str, shown_letters: usize) -> bool {
+    let min_letters = shown_letters.max(MIN_TYPED_END_CHARS);
+    let mut typed_start = String::new();
+    let ends_with_typed_start = typed_line.chars().enumerate().any(|(index, character)| {
+        typed_start.push(character);
+        index + 1 >= min_letters && line.ends_with(typed_start.as_str())
+    });
+    !line.is_empty() && (typed_line.contains(line) || ends_with_typed_start)
 }
 
 /// Returns the letters and the digits of `text` in lowercase, because an OCR reads some capital
@@ -1312,7 +1337,7 @@ mod tests {
             terminal_row("auto mode on", 3),
         ]);
 
-        let row = caret_row(&screen, TYPED_PROMPT);
+        let row = caret_row(&screen, TYPED_PROMPT, ShownTyping::WholeLine);
 
         assert_eq!(row, Some(terminal_row("", 2).frame));
     }
@@ -1325,8 +1350,13 @@ mod tests {
             "dev@laptop ~/shop % deploy the staging server",
         ];
 
-        let found =
-            rows.map(|row| caret_row(&terminal(vec![terminal_row(row, 1)]), "deploy the staging server"));
+        let found = rows.map(|row| {
+            caret_row(
+                &terminal(vec![terminal_row(row, 1)]),
+                "deploy the staging server",
+                ShownTyping::WholeLine,
+            )
+        });
 
         assert_eq!(found, [Some(terminal_row("", 1).frame); 3]);
     }
@@ -1342,9 +1372,31 @@ mod tests {
             ("deploy", vec![terminal_row("❯", 1)]),
         ];
 
-        let found = screens.map(|(typed, rows)| caret_row(&terminal(rows), typed));
+        let found = screens.map(|(typed, rows)| caret_row(&terminal(rows), typed, ShownTyping::WholeLine));
 
         assert_eq!(found, [None; 3]);
+    }
+
+    #[test]
+    fn caret_row_shows_the_start_of_the_typed_line_that_an_older_read_shows() {
+        let screen = terminal(vec![terminal_row("dev@laptop ~/shop % deploy the", 1)]);
+        let typed = "deploy the staging";
+
+        let found =
+            [ShownTyping::Start(9), ShownTyping::WholeLine].map(|shown| caret_row(&screen, typed, shown));
+
+        assert_eq!(found, [Some(terminal_row("", 1).frame), None]);
+    }
+
+    #[test]
+    fn caret_row_needs_a_line_that_ends_with_the_typed_start_that_the_read_shows() {
+        let screen = terminal(vec![terminal_row("$ cargo test", 1)]);
+        let typed = "test the login";
+
+        let found =
+            [ShownTyping::Start(8), ShownTyping::Start(0)].map(|shown| caret_row(&screen, typed, shown));
+
+        assert_eq!(found, [None, Some(terminal_row("", 1).frame)]);
     }
 
     #[test]

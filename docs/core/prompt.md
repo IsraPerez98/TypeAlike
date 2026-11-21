@@ -100,7 +100,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - Its lines on the screen are its text, so they stay and count as above the caret. In VS Code, that is the line of the caret.
 - A line of such a field that shows a part of the text that the user typed in the session goes, because the prompt has that text already (`FieldContent::shows_typed_text`). The signs at the start of the line do not count, such as the prompt mark of an agent in a terminal ("❯ ").
 - When the platform does not know the caret, the last such line is the line of the caret. The lines nearest to the caret fill the budget first.
-- The mirror finds the row of the caret with a looser match: only letters and digits, and also a line that ends with the typed line (`docs/core/ghost-text.md`, "Mirror and card below the caret"). The prompt does not use that match.
+- The mirror finds the row of the caret with a looser match: only letters and digits, and also a line that ends with the start of the typed line (`docs/core/ghost-text.md`, "Mirror and card below the caret"). The prompt does not use that match.
 - The lines of the field below the row of the caret, such as the status lines of an agent, are below the caret. The other lines of the field count as above it, also a line on the row of the caret that does not match the typed text, such as text that the user typed before the session.
 - The lines of the field come after the other lines above the caret, so that they lead to the caret. In the terminal of VS Code, the side bar has lines between the last answer of the terminal and the caret row.
 - On 12 synthetic prompts to coding agents in a terminal (Gemma 4 E4B), these two rules gave the right next word in 11 cases, against 6 with the whole screen after the caret and 6 with all the lines above the caret. With all the lines above, the model copied the status lines.
@@ -145,6 +145,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
   - A focus change drops the kept lines, as it drops the screen text. Without a clock, TypeAlike keeps no lines.
   - The kept lines that the newest read does not show go above all its lines, in their old order, as if the chat were taller. They are farther from the caret, so they fill the budget of the screen text after the lines on the screen.
   - After a single read, the prompt shows only the lines of that read. In other places, it shows only the newest read.
+- The row reads of the mirror in a field that shows its text only on the screen are OCR reads of their own (`docs/core/ghost-text.md`, "Mirror and card below the caret"). Their text never goes into a prompt, also not into the prompt of the next session. Thus a row read does not change the suggestion.
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
 - An OCR reads the whole window only in a chat or an email app (`OcrArea::Window`). Elsewhere, and in a browser also for a chat or an email page, it reads the content that holds the field (`OcrArea::Content`, `screen::ocr_area`):
