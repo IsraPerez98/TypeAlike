@@ -142,8 +142,10 @@
 //! such a note. The `start` cases have 1 to 3 typed characters at
 //! the start of a field, in prompts to a coding agent in VS Code with a clipboard, and in chats,
 //! emails and documents, all with earlier writing. The `clip` cases are prompts to the agent that
-//! end with a verb before its object, such as "Compare ", with a clipboard. They must not show a
-//! label of the prompt, such as "the clipboard", or an age of the earlier writing. Run it with
+//! end with a verb before its object, such as "Compare ", with a clipboard. The `clip-mid` cases
+//! are prompts to an agent or a chat that end before a word that refers to the clipboard text, as
+//! in "Summarize the main points of ". They must not show a label of the prompt, such as "the
+//! clipboard", or an age of the earlier writing. Run it with
 //! `--name "Sara Novak"` and `--word-choice medium` for a change to the prompt or to the filters
 //! of a suggestion, also with `--session-start first-key`.
 //!
