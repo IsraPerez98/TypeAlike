@@ -36,6 +36,16 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - When the dictionary knows that word, core asks again without the rule, and the fix does not show, also when the answer gives no suggestion.
 - When core does not show such a fix, because the suggestion after it is bad or the dictionary does not know the fixed word, it also asks again without the rule. Thus the suggestion after the space still shows.
 
+### Accents of a finished word
+
+- When the user types a space after a word, with one of `, ; : ! ?` before it or none, and the dictionaries of the language of the text do not know that word, core asks them for the words that they offer in its place (`SpellChecker::guesses`, `accent_fix`).
+- When exactly one of these words differs from the typed word only in more marks on its letters, that word is the fix, with the capital letters of the typed word. Examples: "comí" for "comi", "también" for "tambien" and "pequeño" for "pequeno". The letters compare after Unicode NFD without the combining marks.
+- The request then has the fixed word in its prompt and no typo rule. Its completion shows as the fix of a typo (`Ghost::Fix`), and its parts do not show.
+- The model does not rate this fix. It often finds the word without the accent likely, because the first token of the word agrees with the typed letters, and the runner then finds no fix (`docs/llm.md`).
+- A typed word with a mark gets no such fix. A voseo form that the dictionary does not know, such as "tenís" or "sabés", would else lose its accent, because the dictionary offers "tenis" and "sabes".
+- The dictionaries of macOS know most names without their accents, such as "Jose", "Ramon" or "Lopez", so a name seldom gets such a fix.
+- A request for the guesses runs on the main thread. On macOS, it took about 5 ms (median) and at most 10 to 20 ms for each language. Core keeps each answer, and asks only after a finished word that the dictionary does not know.
+
 ### Autocorrect of the app
 
 - At Tab on such a fix, core reads the field.

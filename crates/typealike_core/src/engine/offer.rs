@@ -32,6 +32,10 @@ pub(super) enum Offer {
         finished_word_fix: Option<LogProbability>,
         /// What the request does with typed letters that the dictionary knows as a word.
         known_word: KnownWord,
+        /// The fix of the accents of the finished word before the caret, whose fixed text the
+        /// prompt of this request holds. Its completion then shows as this fix, and its parts do
+        /// not show.
+        accent_fix: Option<Correction>,
     },
     Shown(String),
     /// The fix of a typo before the caret.
@@ -80,6 +84,18 @@ impl Offer {
                 };
             }
         }
+    }
+
+    /// Whether the newest request continues a fix of the accents of the finished word before the
+    /// caret.
+    fn has_accent_fix(&self) -> bool {
+        matches!(
+            self,
+            Self::Growing {
+                accent_fix: Some(_),
+                ..
+            }
+        )
     }
 
     /// Returns the reaction that shows the ghost text, or hides it when it is empty.
@@ -152,6 +168,7 @@ impl Engine {
 
     /// Handles the completion of the newest request, as [`Engine::on_completion`] tells.
     fn answer_completion(&mut self, result: Result<Completion, InferenceError>) -> Reaction {
+        let result = result.map(|completion| self.with_accent_fix(completion));
         if let Ok(completion) = &result
             && self.has_typo_in_known_letters(completion)
         {
@@ -187,6 +204,21 @@ impl Engine {
             return self.suggest();
         }
         self.offer.reaction()
+    }
+
+    /// Returns `completion` of the newest request with the fix of the accents that the prompt of
+    /// that request holds, if any.
+    fn with_accent_fix(&self, completion: Completion) -> Completion {
+        match &self.offer {
+            Offer::Growing {
+                accent_fix: Some(fix),
+                ..
+            } => Completion {
+                correction: Some(fix.clone()),
+                ..completion
+            },
+            _ => completion,
+        }
     }
 
     /// Asks again without the typo rule, after the `completion` of the newest request took known
@@ -311,11 +343,12 @@ impl Engine {
     }
 
     /// Handles `text`, the text that the completion of the oldest [`Reaction::Request`] added so
-    /// far. Only its complete words show, and only for the newest request. The last words wait
+    /// far. Only its complete words show, and only for the newest request, unless that request
+    /// continues a fix of the accents of the finished word before the caret. The last words wait
     /// while more words can make them a copy of the frame of the prompt. Returns the reaction when
     /// the ghost text changes, or `None`.
     pub(crate) fn on_partial_completion(&mut self, text: &str) -> Option<Reaction> {
-        if self.unanswered_requests != 1 {
+        if self.unanswered_requests != 1 || self.offer.has_accent_fix() {
             return None;
         }
         self.record_partial_completion(text);
@@ -348,10 +381,10 @@ impl Engine {
     }
 
     /// Records `text`, the text that the completion of the oldest [`Reaction::Request`] added so
-    /// far, when that request is the newest. The ghost text does not change. While the typed keys
-    /// continue this text, the request keeps running.
+    /// far, when that request is the newest and continues no fix of the accents. The ghost text
+    /// does not change. While the typed keys continue this text, the request keeps running.
     pub(crate) fn record_partial_completion(&mut self, text: &str) {
-        if self.unanswered_requests != 1 {
+        if self.unanswered_requests != 1 || self.offer.has_accent_fix() {
             return;
         }
         if let Offer::Growing { added, .. } = &mut self.offer {

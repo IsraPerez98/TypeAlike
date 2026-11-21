@@ -306,40 +306,46 @@ pub(crate) const LIBRARIES: &[Library] = &[
         texts: &[TEXT_45],
     },
     Library {
+        name: "tinyvec",
+        version: "1.13.3",
+        license: "Zlib OR Apache-2.0 OR MIT",
+        texts: &[TEXT_38, TEXT_46, TEXT_47],
+    },
+    Library {
         name: "tracing",
         version: "0.1.44",
         license: "MIT",
-        texts: &[TEXT_46],
+        texts: &[TEXT_48],
     },
     Library {
         name: "tracing-attributes",
         version: "0.1.31",
         license: "MIT",
-        texts: &[TEXT_46],
+        texts: &[TEXT_48],
     },
     Library {
         name: "tracing-core",
         version: "0.1.36",
         license: "MIT",
-        texts: &[TEXT_46],
+        texts: &[TEXT_48],
     },
     Library {
         name: "tracing-serde",
         version: "0.2.0",
         license: "MIT",
-        texts: &[TEXT_46],
+        texts: &[TEXT_48],
     },
     Library {
         name: "tracing-subscriber",
         version: "0.3.23",
         license: "MIT",
-        texts: &[TEXT_46],
+        texts: &[TEXT_48],
     },
     Library {
         name: "type-map",
         version: "0.5.1",
         license: "MIT/Apache-2.0",
-        texts: &[TEXT_47, TEXT_48],
+        texts: &[TEXT_49, TEXT_50],
     },
     Library {
         name: "unic-langid",
@@ -357,25 +363,31 @@ pub(crate) const LIBRARIES: &[Library] = &[
         name: "unicode-ident",
         version: "1.0.27",
         license: "(MIT OR Apache-2.0) AND Unicode-3.0",
-        texts: &[TEXT_0, TEXT_1, TEXT_49],
+        texts: &[TEXT_0, TEXT_1, TEXT_51],
+    },
+    Library {
+        name: "unicode-normalization",
+        version: "0.1.26",
+        license: "(MIT OR Apache-2.0) AND Unicode-3.0",
+        texts: &[TEXT_52, TEXT_2, TEXT_53, TEXT_51],
     },
     Library {
         name: "untrusted",
         version: "0.9.0",
         license: "ISC",
-        texts: &[TEXT_50],
+        texts: &[TEXT_54],
     },
     Library {
         name: "ureq",
         version: "3.4.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_38, TEXT_51],
+        texts: &[TEXT_38, TEXT_55],
     },
     Library {
         name: "ureq-proto",
         version: "0.6.4",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_38, TEXT_52],
+        texts: &[TEXT_38, TEXT_56],
     },
     Library {
         name: "utf8-zero",
@@ -387,145 +399,145 @@ pub(crate) const LIBRARIES: &[Library] = &[
         name: "webpki-roots",
         version: "1.0.9",
         license: "CDLA-Permissive-2.0",
-        texts: &[TEXT_53],
+        texts: &[TEXT_57],
     },
     Library {
         name: "windows",
         version: "0.62.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-collections",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-collections",
         version: "0.3.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-core",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-core",
         version: "0.62.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-future",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-future",
         version: "0.3.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-implement",
         version: "0.60.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-interface",
         version: "0.59.3",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-link",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-link",
         version: "0.2.1",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-numerics",
         version: "0.3.1",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-reactor",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-reference",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-result",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-result",
         version: "0.4.1",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-strings",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-strings",
         version: "0.5.1",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-sys",
         version: "0.61.2",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-threading",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-threading",
         version: "0.2.1",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-time",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "windows-window",
         version: "0.100.0",
         license: "MIT OR Apache-2.0",
-        texts: &[TEXT_54, TEXT_55],
+        texts: &[TEXT_58, TEXT_59],
     },
     Library {
         name: "zerofrom",
@@ -537,7 +549,7 @@ pub(crate) const LIBRARIES: &[Library] = &[
         name: "zeroize",
         version: "1.9.1",
         license: "Apache-2.0 OR MIT",
-        texts: &[TEXT_38, TEXT_56],
+        texts: &[TEXT_38, TEXT_60],
     },
     Library {
         name: "zerovec",
@@ -4009,7 +4021,25 @@ SPDX-License-Identifier: Unicode-3.0
 Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.";
 
-const TEXT_46: &str = "Copyright (c) 2019 Tokio Contributors
+const TEXT_46: &str = "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.";
+
+const TEXT_47: &str = "Copyright (c) 2019 Daniel \"Lokathor\" Gee.
+
+This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.";
+
+const TEXT_48: &str = "Copyright (c) 2019 Tokio Contributors
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -4035,7 +4065,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.";
 
-const TEXT_47: &str = "Apache License
+const TEXT_49: &str = "Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
 
@@ -4441,7 +4471,7 @@ limitations under the License.
    See the License for the specific language governing permissions and
    limitations under the License.";
 
-const TEXT_48: &str = "Copyright (c) 2022 Jacob Brown
+const TEXT_50: &str = "Copyright (c) 2022 Jacob Brown
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -4521,7 +4551,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.";
 
-const TEXT_49: &str = "UNICODE LICENSE V3
+const TEXT_51: &str = "UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
 
@@ -4561,7 +4591,41 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.";
 
-const TEXT_50: &str = "// Copyright 2015-2016 Brian Smith.
+const TEXT_52: &str = "Licensed under the Apache License, Version 2.0
+<LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+at your option. All files in the project carrying such
+notice may not be copied, modified, or distributed except
+according to those terms.";
+
+const TEXT_53: &str = "Copyright (c) 2015 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the \"Software\"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.";
+
+const TEXT_54: &str = "// Copyright 2015-2016 Brian Smith.
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
@@ -4575,7 +4639,7 @@ const TEXT_50: &str = "// Copyright 2015-2016 Brian Smith.
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.";
 
-const TEXT_51: &str = "MIT License
+const TEXT_55: &str = "MIT License
 
 Copyright (c) 2019 Martin Algesten
 
@@ -4597,7 +4661,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.";
 
-const TEXT_52: &str = "Copyright 2022 Martin Algesten
+const TEXT_56: &str = "Copyright 2022 Martin Algesten
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -4605,7 +4669,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.";
 
-const TEXT_53: &str = "# Community Data License Agreement - Permissive - Version 2.0
+const TEXT_57: &str = "# Community Data License Agreement - Permissive - Version 2.0
 
 This is the Community Data License Agreement - Permissive, Version
 2.0 (the \"agreement\"). Data Provider(s) and Data Recipient(s) agree
@@ -4667,7 +4731,7 @@ agreement.
 of Data, including for example machine learning models and models'
 insights.";
 
-const TEXT_54: &str = "Apache License
+const TEXT_58: &str = "Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
 
@@ -4869,7 +4933,7 @@ const TEXT_54: &str = "Apache License
    See the License for the specific language governing permissions and
    limitations under the License.";
 
-const TEXT_55: &str = "MIT License
+const TEXT_59: &str = "MIT License
 
     Copyright (c) Microsoft Corporation.
 
@@ -4891,7 +4955,7 @@ const TEXT_55: &str = "MIT License
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE";
 
-const TEXT_56: &str = "Copyright (c) 2018-2026 The RustCrypto Project Developers
+const TEXT_60: &str = "Copyright (c) 2018-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated

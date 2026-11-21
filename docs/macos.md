@@ -186,6 +186,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - macOS has a dictionary for many languages, also for a language that the user did not add in Language & Region. Thus TypeAlike downloads no dictionary on macOS.
 - Each language that macOS 27 can check has an entry of `WRITING_LANGUAGES`, or uses the main entry of its language (`en_NZ` uses English (United States)). Thus the user can pick it, and it is in the list of the user's languages when it is a language of Language & Region. Only Najdi Arabic (`ars`) has no entry.
 - A start of a word (`is_word_start`) is a known word, else a word that `completionsForPartialWordRange` gives in a language (it also gives "después" for "despues").
+- The guesses of a word (`guesses`) are the words that `guessesForWordRange` gives in each language.
 
 ## Setup window
 

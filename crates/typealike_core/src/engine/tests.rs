@@ -3,6 +3,7 @@
 mod accept;
 mod autocorrect;
 mod completion;
+mod dictionary_fix;
 mod earlier_writing;
 mod field_pause;
 mod kept_completion;

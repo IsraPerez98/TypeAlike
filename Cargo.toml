@@ -37,6 +37,7 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 spellbook = { version = "0.4.2", default-features = false, features = ["default-hasher"] }
+unicode-normalization = { version = "0.1.26", default-features = false }
 windows = { version = "=0.62.2", default-features = false, features = [
     "std",
     "Foundation",

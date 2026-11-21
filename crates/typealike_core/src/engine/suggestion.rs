@@ -493,7 +493,7 @@ pub(super) fn typed_after_letters(fix: &WordFix) -> &str {
 }
 
 /// Returns the spaces at the end of `text`, with the [`FIX_KEEPING_SIGNS`] before them.
-fn delimiter_at_end(text: &str) -> &str {
+pub(super) fn delimiter_at_end(text: &str) -> &str {
     let letters = text.trim_end_matches(' ').trim_end_matches(FIX_KEEPING_SIGNS);
     &text[letters.len()..]
 }

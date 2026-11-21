@@ -1,15 +1,18 @@
 //! Cuts a suggestion before a word that the model made up: a word that the dictionary of the OS
 //! does not know and that the writer did not write. Also tells the typed letters that the typo
-//! rule must not take for a typo.
+//! rule must not take for a typo, and fixes the accents of a finished word.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::inference::WordBias;
+use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
+
+use crate::inference::{Correction, WordBias};
 use crate::spelling::{SpellChecker, checked_words};
 
 use super::Engine;
 use super::session::Session;
-use super::suggestion::{word_starts, words};
+use super::suggestion::{delimiter_at_end, word_starts, words};
 
 /// The most answers of the dictionary that the engine keeps. Each answer costs a call to the OS.
 const MAX_KEPT_ANSWERS: usize = 10_000;
@@ -35,16 +38,23 @@ pub(super) struct Dictionary {
     fits_writer: bool,
 }
 
-/// The dictionary of one language that the user writes, with the answers that it gave.
+/// The dictionary of one language that the user writes, with the answers and the guesses that it
+/// gave.
 struct LanguageDictionary {
     spell_checker: Box<dyn SpellChecker>,
     answers: HashMap<String, bool>,
+    guesses: HashMap<String, Vec<String>>,
 }
 
 impl LanguageDictionary {
     fn knows(&mut self, word: &str) -> bool {
         let spell_checker = &self.spell_checker;
         kept_answer(&mut self.answers, word, |word| spell_checker.is_known_word(word))
+    }
+
+    fn guesses(&mut self, word: &str) -> Vec<String> {
+        let spell_checker = &self.spell_checker;
+        kept_answer(&mut self.guesses, word, |word| spell_checker.guesses(word))
     }
 
     /// Whether the dictionary knows at least half of `words`.
@@ -62,6 +72,7 @@ impl Dictionary {
                 .map(|spell_checker| LanguageDictionary {
                     spell_checker,
                     answers: HashMap::new(),
+                    guesses: HashMap::new(),
                 })
                 .collect(),
             word_starts: HashMap::new(),
@@ -107,9 +118,38 @@ impl Dictionary {
         let Some(letters) = typed_letters(text_before) else {
             return false;
         };
-        if self.languages.is_empty() {
-            return true;
+        self.languages.is_empty()
+            || self
+                .languages_of_typed_word(text_before, letters)
+                .any(|language| language.knows(letters))
+    }
+
+    /// Returns the words that the dictionaries of the language of `text_before` offer in place of
+    /// the typed letters of its last word, when they check these letters and none of them knows
+    /// them. The language counts as for [`Dictionary::knows_typed_word`].
+    fn guesses_for_typed_word(&mut self, text_before: &str) -> Vec<String> {
+        let Some(letters) = typed_letters(text_before) else {
+            return Vec::new();
+        };
+        let mut languages = self
+            .languages_of_typed_word(text_before, letters)
+            .collect::<Vec<_>>();
+        if languages.iter_mut().any(|language| language.knows(letters)) {
+            return Vec::new();
         }
+        languages
+            .into_iter()
+            .flat_map(|language| language.guesses(letters))
+            .collect()
+    }
+
+    /// Returns the dictionaries that fit the language of `text_before` for its typed `letters`, as
+    /// [`Dictionary::knows_typed_word`] tells, else the dictionary of each language.
+    fn languages_of_typed_word(
+        &mut self,
+        text_before: &str,
+        letters: &str,
+    ) -> impl Iterator<Item = &mut LanguageDictionary> {
         let typed_words = finished_words(text_before);
         let has_language =
             typed_words.len() >= MIN_FIT_WORDS && letters.chars().count() >= MIN_LANGUAGE_LETTERS;
@@ -122,8 +162,7 @@ impl Dictionary {
         self.languages
             .iter_mut()
             .zip(fits)
-            .filter(|&(_, fits)| fits || !has_fit)
-            .any(|(language, _)| language.knows(letters))
+            .filter_map(move |(language, fits)| (fits || !has_fit).then_some(language))
     }
 
     /// Whether a dictionary that fits the language of `text_before` knows the typed letters of its
@@ -171,11 +210,82 @@ fn typed_letters(text_before: &str) -> Option<&str> {
 }
 
 /// Returns the answer in `answers` for `text`, else asks for it and keeps it.
-fn kept_answer(answers: &mut HashMap<String, bool>, text: &str, ask: impl FnOnce(&str) -> bool) -> bool {
+fn kept_answer<T: Clone>(answers: &mut HashMap<String, T>, text: &str, ask: impl FnOnce(&str) -> T) -> T {
     if answers.len() >= MAX_KEPT_ANSWERS {
         answers.clear();
     }
-    *answers.entry(text.to_owned()).or_insert_with(|| ask(text))
+    answers
+        .entry(text.to_owned())
+        .or_insert_with(|| ask(text))
+        .clone()
+}
+
+/// Returns the fix of the accents of the finished word before the space that the user typed at
+/// the end of `text_before`, with one of `, ; : ! ?` before that space or none. The fix comes when
+/// the dictionaries of the language of the text do not know the word, and they offer one word
+/// that differs from it only in the marks on its letters ([`accented_guess`]). The typed and the
+/// fixed text of the fix end with that space and its sign.
+pub(super) fn accent_fix(dictionary: &mut Dictionary, text_before: &str) -> Option<Correction> {
+    let after_word = delimiter_at_end(text_before);
+    let is_one_delimiter = match after_word.as_bytes() {
+        [b' '] => true,
+        [sign, b' '] => *sign != b' ',
+        _ => false,
+    };
+    if !is_one_delimiter {
+        return None;
+    }
+    let before_space = &text_before[..text_before.len() - after_word.len()];
+    let word = before_space.rsplit(char::is_whitespace).next()?;
+    if !checked_words(word).eq([word]) {
+        return None;
+    }
+    let fixed = accented_guess(word, &dictionary.guesses_for_typed_word(before_space))?;
+    Some(Correction {
+        typed: format!("{word}{after_word}"),
+        fixed: format!("{fixed}{after_word}"),
+    })
+}
+
+/// Returns the one word of `guesses` that differs from `word` only in more marks on its letters,
+/// such as an accent or the tilde of "ñ", with the capital letters of `word`. `None` when no guess
+/// or more than one guess differs in this way, or when `word` has a mark. A typed mark is often
+/// right in a form that the dictionary does not know, such as the voseo "tenís", and the guess
+/// "tenis" would remove it.
+fn accented_guess(word: &str, guesses: &[String]) -> Option<String> {
+    let lowercase = word.to_lowercase();
+    if without_marks(&lowercase) != lowercase {
+        return None;
+    }
+    let mut accented = guesses
+        .iter()
+        .map(|guess| guess.nfc().collect::<String>().to_lowercase())
+        .filter(|guess| {
+            *guess != lowercase
+                && guess.chars().count() == lowercase.chars().count()
+                && without_marks(guess) == lowercase
+        })
+        .collect::<Vec<_>>();
+    accented.sort_unstable();
+    accented.dedup();
+    let [guess] = accented.as_slice() else {
+        return None;
+    };
+    let with_case = word.chars().zip(guess.chars()).map(|(typed, guessed)| {
+        if typed.is_uppercase() {
+            guessed.to_uppercase().collect()
+        } else {
+            guessed.to_string()
+        }
+    });
+    Some(with_case.collect())
+}
+
+/// Returns `text` without the marks on its letters, such as accents.
+fn without_marks(text: &str) -> String {
+    text.nfd()
+        .filter(|&character| !is_combining_mark(character))
+        .collect()
 }
 
 /// The words that the writer wrote or prefers: the words of the prompt and of the text after the
@@ -338,6 +448,60 @@ mod tests {
         dictionary.knows_typed_start("before Frid");
 
         assert_eq!(checked_words.get(), 1);
+    }
+
+    fn guesses(words: &[&str]) -> Vec<String> {
+        words.iter().map(|&word| word.to_owned()).collect()
+    }
+
+    #[test]
+    fn one_guess_with_only_more_marks_on_the_letters_is_the_accented_word() {
+        let cases = [
+            ("comi", &["como", "comí", "comió", "Comí"][..]),
+            ("pequeno", &["pequeño", "pequeña"]),
+            ("corazon", &["corazón", "Corazon"]),
+            ("mas", &["más", "mas", "mes"]),
+        ];
+
+        let accented = cases.map(|(word, words)| accented_guess(word, &guesses(words)));
+
+        assert_eq!(
+            accented,
+            [
+                Some("comí".to_owned()),
+                Some("pequeño".to_owned()),
+                Some("corazón".to_owned()),
+                Some("más".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn accented_word_keeps_the_capital_letters_of_the_typed_word() {
+        let accented = ["Tambien", "TAMBIEN"].map(|word| accented_guess(word, &guesses(&["también"])));
+
+        assert_eq!(accented, [Some("También".to_owned()), Some("TAMBIÉN".to_owned())]);
+    }
+
+    #[test]
+    fn guesses_with_other_letters_or_two_accented_guesses_give_no_accented_word() {
+        let cases = [
+            ("sabis", &["sabes", "sabía", "sabías"][..]),
+            ("ano", &["año", "anó"]),
+        ];
+
+        let accented = cases.map(|(word, words)| accented_guess(word, &guesses(words)));
+
+        assert_eq!(accented, [None, None]);
+    }
+
+    #[test]
+    fn typed_word_with_a_mark_gives_no_accented_word() {
+        let cases = [("tenís", &["tenis", "teñís"][..]), ("sabés", &["sabes"])];
+
+        let accented = cases.map(|(word, words)| accented_guess(word, &guesses(words)));
+
+        assert_eq!(accented, [None, None]);
     }
 
     fn cut_without(unknown: &[&str], typed_letters: &str, suggestion: &str) -> String {

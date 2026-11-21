@@ -5,8 +5,8 @@ use std::mem;
 use crate::desktop::{AfterCaret, Desktop};
 use crate::history::HistoryPool;
 use crate::inference::{
-    InferenceRequest, LogProbability, MIN_FIXED_CHARACTERS, NextWordBias, Prompt, SentenceEnd, TokenCount,
-    TypoCheck, WordBias,
+    Correction, InferenceRequest, LogProbability, MIN_FIXED_CHARACTERS, NextWordBias, Prompt, SentenceEnd,
+    TokenCount, TypoCheck, WordBias,
 };
 use crate::key::Press;
 use crate::place::Place;
@@ -14,6 +14,7 @@ use crate::prompt;
 
 use super::offer::{KnownWord, Offer};
 use super::session::Session;
+use super::spelling::accent_fix;
 use super::suggestion::through_finished_word;
 use super::{Engine, Reaction};
 
@@ -140,13 +141,21 @@ impl Engine {
     }
 
     /// Requests a completion of the text before the caret with `typo_check` and
-    /// `finished_word_fix`.
+    /// `finished_word_fix`. When `typo_check` asks for fixes and the dictionary fixes the accents
+    /// of the finished word before a typed space ([`accent_fix`]), the prompt holds the fixed word,
+    /// and the request has no typo rule and no check of that word.
     pub(super) fn request_completion(
         &mut self,
         typo_check: TypoCheck,
         finished_word_fix: Option<LogProbability>,
     ) -> Reaction {
-        let Some(prompt) = self.prompt() else {
+        let accent_fix = self.accent_fix_at_caret(typo_check);
+        let (typo_check, finished_word_fix) = if accent_fix.is_some() {
+            (TypoCheck::Off, None)
+        } else {
+            (typo_check, finished_word_fix)
+        };
+        let Some(prompt) = self.prompt(accent_fix.as_ref()) else {
             self.offer = Offer::Idle;
             return Reaction::Hide;
         };
@@ -160,6 +169,7 @@ impl Engine {
             typo_check,
             finished_word_fix,
             known_word: KnownWord::First,
+            accent_fix,
         };
         self.unanswered_requests = self.unanswered_requests.saturating_add(1);
         let line_after = self
@@ -179,6 +189,16 @@ impl Engine {
             sentence_end: self.sentence_end,
             line_after,
         })
+    }
+
+    /// The fix of the accents of the finished word before a typed space at the caret, when
+    /// `typo_check` asks for fixes and a dictionary gives one.
+    fn accent_fix_at_caret(&mut self, typo_check: TypoCheck) -> Option<Correction> {
+        let TypoCheck::Fix(_) = typo_check else {
+            return None;
+        };
+        let session = self.session.as_ref()?;
+        accent_fix(self.dictionary.as_mut()?, &session.text_before)
     }
 
     /// The most tokens and the cut of the tail of a suggestion before `line_after`, the text after
@@ -251,14 +271,23 @@ impl Engine {
             .map(str::to_owned)
     }
 
-    /// Returns the prompt for the text before the caret, or `None` when that text has no words or
-    /// the field gets no suggestions.
-    fn prompt(&self) -> Option<Prompt> {
+    /// Returns the prompt for the text before the caret, with the fixed text of `accent_fix` in
+    /// place of its typed text, if any. `None` when that text has no words or the field gets no
+    /// suggestions.
+    fn prompt(&self, accent_fix: Option<&Correction>) -> Option<Prompt> {
         let session = self
             .session
             .as_ref()
             .filter(|session| !session.field.is_excluded)?;
         let has_words = !session.text_before.trim().is_empty();
-        has_words.then(|| prompt::prompt(&session.preface.text, &session.text_before))
+        let text_before = match accent_fix {
+            Some(fix) => format!(
+                "{}{}",
+                session.text_before.strip_suffix(fix.typed.as_str())?,
+                fix.fixed
+            ),
+            None => session.text_before.clone(),
+        };
+        has_words.then(|| prompt::prompt(&session.preface.text, &text_before))
     }
 }
