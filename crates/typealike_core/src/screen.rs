@@ -351,7 +351,7 @@ fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) ->
     lines
         .into_iter()
         .map(|line| {
-            let text = message_times.without_time_of_message(plain_text(&line.text), line.frame);
+            let text = plain_text(&line.text);
             match header_name(&text) {
                 Some(name) => Candidate {
                     text: name,
@@ -359,7 +359,7 @@ fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) ->
                     is_header: true,
                 },
                 None => Candidate {
-                    text,
+                    text: message_times.without_time_of_message(text, line.frame),
                     frame: line.frame,
                     is_header: false,
                 },
@@ -1538,6 +1538,47 @@ mod tests {
         let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
 
         assert_eq!(lines, above_the_field(&["nos vemos en la plaza a las 21:30"]));
+    }
+
+    #[test]
+    fn chat_header_keeps_its_name_in_a_chat_that_shows_message_times() {
+        let screen = screen(vec![
+            above("chips_dev — Today at 21:03", 6),
+            above("alguien probó la nueva versión?", 5),
+            above("Today at 21:04", 4),
+            above("Laura Méndez 21:05", 3),
+            above("yo sí, anda bien", 2),
+            message_time("21:05", 2),
+            above("see you there 21:06", 1),
+        ]);
+
+        let lines = nearby_lines(&screen, FieldContent::Read(None), BUDGET, LineScope::Column);
+
+        assert_eq!(
+            lines,
+            above_the_field(&[
+                "chips_dev",
+                "alguien probó la nueva versión?",
+                "Laura Méndez",
+                "yo sí, anda bien",
+                "see you there",
+            ])
+        );
+    }
+
+    #[test]
+    fn message_lines_leave_out_the_headers_in_a_chat_that_shows_message_times() {
+        let screen = screen(vec![
+            above("Dana Kim 9:58", 4),
+            above("Standup in 5? Same room as yesterday", 3),
+            message_time("9:58", 3),
+            above("Today at 9:59", 2),
+            above("Leo Park 9:59", 1),
+        ]);
+
+        let lines = message_lines_above(&screen, FieldContent::Read(None));
+
+        assert_eq!(lines, texts(&["Standup in 5? Same room as yesterday"]));
     }
 
     #[test]
