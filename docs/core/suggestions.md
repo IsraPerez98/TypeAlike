@@ -66,6 +66,15 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - The name is the first name, the last name or the full name of the setting, in any case. Only the signs tell where a sentence ends: a period, "!", "?", "…", "。", "！" or "？", before any closing quotes and brackets. A period after one letter or after a number ends no sentence, because it ends an initial ("J. Novak") or a list number. Thus the rule is the same for each language.
 - With Gemma 4 E4B (CUDA, long, without the sentence stop, word replay), the rule made each leak case of `leaks.jsonl` pass (143 of 143 in place of 141). It helped 2 cases and harmed none of `new_line`, `recall`, `conversation`, `chat`, `tuning`, `mid_line` and the variety sets, and it removed up to 32 wrong words in a set.
 
+### Note after a sentence
+
+- A suggestion stops before a bracket that opens a note after the end of a sentence inside the suggestion (`before_note`), as in "Thanks. (This is the part that I…". Such a note is about the text, often a translation, and it shows mostly when a long suggestion without the sentence stop goes on after the end of a sentence.
+- The end of a sentence is the same as for the name of the writer, and the letters before the caret count for it. Thus "seve" and "n. (This is…" stop after "n.", but "5 p.m. (Pacific time)" and "step 2. (the form)" keep their brackets.
+- A real aside after the end of a sentence also goes, but the sentence before it stays.
+- A bracket just after the end of a sentence before the caret hides the whole suggestion (see "Suggestions that do not show").
+- Measured with Gemma 4 E4B (Metal, long, without the sentence stop): on the 28 `note-` cases of `leaks.jsonl` (`--session-start first-key`, character replay), the cut removed the note in the 2 cases that showed one (9 places, 370 to 379 of 379 without a leak) and harmed none.
+- In 60 cases of `tuning` (word replay), it cut one note, a translation after a Spanish chat message, and changed no score. In `chat`, no suggestion had such a bracket. It also cut the translations after 2 Spanish prompts to an agent in the `clip-mid-` cases.
+
 ### Unknown words
 
 - Each suggestion of the model also stops before its first word that no dictionary of the languages of the user knows (`SpellChecker`), unless the prompt, the text after the caret, the word bias of the pool or the earlier writing holds that word in any case (`engine/spelling.rs`).

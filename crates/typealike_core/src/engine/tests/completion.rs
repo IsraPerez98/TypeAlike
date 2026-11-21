@@ -383,6 +383,7 @@ fn completion_that_opens_a_parenthesis_after_the_end_of_a_sentence_hides() {
         ("Llamar al banco y pagar la luz. ", "(Call the bank and pay"),
         ("Are you coming?", " (Just checking"),
         ("明天见。", "（See you tomorrow"),
+        ("I can pick you up at seven", ". (This is a casual message"),
     ];
 
     let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));
@@ -391,11 +392,41 @@ fn completion_that_opens_a_parenthesis_after_the_end_of_a_sentence_hides() {
 }
 
 #[test]
+fn completion_stops_before_a_parenthesis_after_the_end_of_a_sentence_inside_it() {
+    let cases = [
+        (
+            "I can pick you up at",
+            " seven. (This is a casual message",
+            " seven.",
+        ),
+        (
+            "Mañana te devuelvo la plata del",
+            " almuerzo. ¿Te parece? (Translation: Tomorrow I",
+            " almuerzo. ¿Te parece?",
+        ),
+        ("See you", " soon!（See you soon", " soon!"),
+        ("I can pick you up at seve", "n. (This is a casual message", "n."),
+        (
+            "We should do it more",
+            " often. (I will bring the cake.)",
+            " often.",
+        ),
+    ];
+
+    let reactions =
+        cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+}
+
+#[test]
 fn completion_with_a_parenthesis_inside_a_sentence_shows() {
     let cases = [
         ("I bought a new", " sweater (it might be"),
         ("The total is 40 euros", " (before tax)."),
         ("See you at 5. ", "I will bring snacks (and drinks)."),
+        ("Meet me at", " 5 p.m. (Pacific time) at the gate."),
+        ("Do it in this order: step", " 2. (the form) and then step 3."),
     ];
 
     let reactions = cases.map(|(context, text)| engine_waiting_for(context).on_completion(completion(text)));

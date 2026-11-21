@@ -41,9 +41,10 @@ const MAX_SIGN_OFF_WORDS: usize = 2;
 /// The brackets that open a note about a text, such as its translation, after the end of a sentence.
 const NOTE_BRACKETS: [char; 2] = ['(', '（'];
 
-/// Returns the first line of `completion` up to a placeholder, and up to where it writes
-/// `text_after` again, as ghost text after `context`, or `None` when it has no text. Spaces that
-/// would double the space at the end of `context`, or trail, are dropped.
+/// Returns the first line of `completion` up to a placeholder, up to a note after the end of a
+/// sentence, and up to where it writes `text_after` again, as ghost text after `context`, or
+/// `None` when it has no text. Spaces that would double the space at the end of `context`, or
+/// trail, are dropped.
 pub(super) fn suggestion_after(context: &str, completion: &str, text_after: &str) -> Option<String> {
     let first_line = completion.lines().next().unwrap_or_default();
     let line = if context.ends_with(char::is_whitespace) {
@@ -51,7 +52,9 @@ pub(super) fn suggestion_after(context: &str, completion: &str, text_after: &str
     } else {
         first_line
     };
-    let suggestion = before_text_after(before_placeholder(line), text_after).trim_end();
+    let caret_line = context.rsplit('\n').next().unwrap_or_default();
+    let suggestion =
+        before_text_after(before_note(caret_line, before_placeholder(line)), text_after).trim_end();
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
 }
 
@@ -112,6 +115,17 @@ fn before_placeholder(text: &str) -> &str {
     text.match_indices('[')
         .find(|&(start, _)| text[start + 1..].starts_with(char::is_alphanumeric))
         .map_or(text, |(start, _)| &text[..start])
+}
+
+/// Returns `text`, a suggestion after `caret_line`, up to the first bracket that opens a note after
+/// the end of a sentence inside `text`, such as a translation of the text. The letters of
+/// `caret_line` count for the end of that sentence. A bracket at the start of `text` follows the
+/// end of a sentence of the context, which [`opens_note_after_sentence`] checks.
+fn before_note<'text>(caret_line: &str, text: &'text str) -> &'text str {
+    text.match_indices(NOTE_BRACKETS)
+        .map(|(start, _)| text[..start].trim_end())
+        .find(|before| !before.is_empty() && ends_sentence(&format!("{caret_line}{before}")))
+        .unwrap_or(text)
 }
 
 /// Returns the ghost text that `completion` gives after the `typed` text, without a sign-off with
