@@ -147,41 +147,104 @@ impl Ocr {
     /// of `ocr` in its window, at the level of `ocr`. `None` for a password field, or when the
     /// capture or the OCR fails.
     pub(crate) fn read(&mut self, process: i32, ocr: OcrRead) -> Option<ScreenText> {
-        let OcrRead { level, area } = ocr;
         let field = focus::focused_field(process)?;
+        let field_window = FieldWindow::of(&field, ocr.area);
+        let mut run = OcrRun::new(ocr);
+        let text = self.read_window(process, &field, field_window, &mut run);
+        run.log();
+        text
+    }
+
+    /// Captures the band of `field_window` around `field`, and recognizes its text unless the
+    /// last OCR had the same pixels at the same level. Notes the time of each step in `run`.
+    fn read_window(
+        &mut self,
+        process: i32,
+        field: &FocusedField,
+        field_window: FieldWindow,
+        run: &mut OcrRun,
+    ) -> Option<ScreenText> {
         let started = Instant::now();
-        let capture = capture_band(process, FieldWindow::of(&field, area))?;
-        let captured = Instant::now();
+        let capture = capture_band(process, field_window);
+        run.capture = Some(started.elapsed());
+        let capture = capture?;
+        run.pixels = Some((
+            CGImage::width(Some(&capture.image)),
+            CGImage::height(Some(&capture.image)),
+        ));
+        let hash_started = Instant::now();
+        let typing_area = (!field.shows_text_only_on_screen).then_some(field.frame);
         let input = RecognitionInput {
             window: capture.window,
-            pixels_hash: pixels_hash(
-                &capture,
-                (!field.shows_text_only_on_screen).then_some(field.frame),
-            )?,
-            level,
+            pixels_hash: pixels_hash(&capture, typing_area)?,
+            level: run.ocr.level,
         };
-        let hashed = Instant::now();
-        let is_known = self.last.as_ref().is_some_and(|last| last.input == input);
-        if !is_known {
-            self.last = Some(Recognition {
-                lines: recognize(&capture.image, capture.band.size, level)?,
-                input,
-            });
+        run.hash = Some(hash_started.elapsed());
+        run.is_unchanged = self.last.as_ref().is_some_and(|last| last.input == input);
+        if !run.is_unchanged {
+            let vision_started = Instant::now();
+            let lines = recognize(&capture.image, capture.band.size, run.ocr.level);
+            run.vision = Some(vision_started.elapsed());
+            self.last = Some(Recognition { lines: lines?, input });
         }
-        tracing::debug!(
-            capture = ?captured - started,
-            hash = ?hashed - captured,
-            vision = ?hashed.elapsed(),
-            is_cache_hit = is_known,
-            width = CGImage::width(Some(&capture.image)),
-            height = CGImage::height(Some(&capture.image)),
-            ?level,
-            ?area,
-            "OCR read"
-        );
-        let lines = self.last.as_ref()?.lines.iter();
-        Some(screen_text_of(lines, capture.band.origin, &field))
+        let lines = &self.last.as_ref()?.lines;
+        run.lines = Some(lines.len());
+        Some(screen_text_of(lines.iter(), capture.band.origin, field))
     }
+}
+
+/// The steps of one OCR and their times, for the logs. A step that did not run has no value.
+#[derive(Debug)]
+struct OcrRun {
+    ocr: OcrRead,
+    /// The time of the capture by `ScreenCaptureKit`, also when it failed.
+    capture: Option<Duration>,
+    /// The width and the height of the captured image, in pixels.
+    pixels: Option<(usize, usize)>,
+    hash: Option<Duration>,
+    /// Whether the last OCR had the same pixels at the same level, so that Vision did not run.
+    is_unchanged: bool,
+    /// The time of the recognition by Vision, also when it failed.
+    vision: Option<Duration>,
+    lines: Option<usize>,
+}
+
+impl OcrRun {
+    fn new(ocr: OcrRead) -> Self {
+        Self {
+            ocr,
+            capture: None,
+            pixels: None,
+            hash: None,
+            is_unchanged: false,
+            vision: None,
+            lines: None,
+        }
+    }
+
+    /// Writes the run to the log and, with the `suggestion-log` feature, to the suggestion log.
+    fn log(&self) {
+        tracing::debug!(run = ?self, "OCR read");
+        #[cfg(feature = "suggestion-log")]
+        tracing::info!(
+            target: typealike_core::SUGGESTION_LOG_TARGET,
+            level = ?self.ocr.level,
+            area = ?self.ocr.area,
+            capture_ms = self.capture.map(milliseconds),
+            width = self.pixels.map(|(width, _)| width),
+            height = self.pixels.map(|(_, height)| height),
+            hash_ms = self.hash.map(milliseconds),
+            is_unchanged = self.is_unchanged,
+            vision_ms = self.vision.map(milliseconds),
+            lines = self.lines,
+            "ran OCR"
+        );
+    }
+}
+
+#[cfg(feature = "suggestion-log")]
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
 }
 
 /// The warm-up of the Accurate level, once in each process. Vision loads the model of that level
@@ -215,8 +278,15 @@ fn warm_up_accurate() {
     let lines = warm_up_image().and_then(|image| recognize(&image, CGSize::ZERO, OcrLevel::Accurate));
     tracing::debug!(
         duration = ?started.elapsed(),
-        lines = lines.map(|lines| lines.len()),
+        lines = lines.as_ref().map(Vec::len),
         "OCR warm-up of the accurate level"
+    );
+    #[cfg(feature = "suggestion-log")]
+    tracing::info!(
+        target: typealike_core::SUGGESTION_LOG_TARGET,
+        duration_ms = milliseconds(started.elapsed()),
+        lines = lines.as_ref().map(Vec::len),
+        "warmed up OCR"
     );
 }
 

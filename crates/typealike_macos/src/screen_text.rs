@@ -82,6 +82,13 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
         let text = autoreleasepool(|_| {
+            #[cfg(feature = "suggestion-log")]
+            let _read = tracing::info_span!(
+                target: typealike_core::SUGGESTION_LOG_TARGET,
+                "screen read",
+                read = ?newest.read
+            )
+            .entered();
             newest.process.and_then(|process| match newest.source {
                 ScreenSource::Accessibility => read_screen_text(process),
                 ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),

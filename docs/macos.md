@@ -215,6 +215,12 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
   - `read the field`: the app, the window title, the domain, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
   - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`). The source tells whether the time is for the Accessibility tree or for the OCR.
+  - `ran OCR`: the steps of each OCR, before the `read the screen` record of its read. Its `span` names that read: `"span":{"read":"ScreenReadId(N)","name":"screen read"}`. It holds numbers only.
+    - `level` and `area` are the level of Vision and the part of the window.
+    - `capture_ms` is the time of the capture by ScreenCaptureKit, also when it failed. `width` and `height` give the size of the image in pixels. Without them, the capture failed, for example after its limit of 3 s.
+    - `hash_ms` is the time of the hash of the pixels. `is_unchanged` tells that the last OCR had the same pixels at the same level, so that Vision did not run.
+    - `vision_ms` is the time of the recognition by Vision, also when it failed. `lines` counts the lines that the OCR gives. Without it, the OCR gave no text.
+  - `warmed up OCR`: the time (`duration_ms`) and the lines of the warm-up of the Accurate level, which loads the model of Vision once.
   - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines and its placement. Each record comes after the draw:
     - `drawn` tells where the text shows: `Overlay`, `Mirror` (also the card below the caret), or `Nothing` when the field gave no caret and no frame.
     - `span` names the completion of the newest suggestion event with text (`docs/llm.md`): a part of a completion, or a completion with text or a fix. The empty answer of a prompt that core only prepares can come while an earlier ghost text shows, so it does not count. The delivery to the main thread keeps the span of the worker thread that sent the event.
