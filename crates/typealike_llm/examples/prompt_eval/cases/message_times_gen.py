@@ -17,6 +17,10 @@ time at the end of a bubble row gives four cases:
 - joinedpm and endpm: the same cases on a 12-hour clock, with the half of the day joined to each
   time, as text recognition reads "9:41 PM" ("9:41PM"). The leaks are the times without the half of
   the day.
+- hover: the chats with a header for each message (Slack, Teams and Discord), with each header in
+  the form of Discord ("Owen Marsh — Today at 9:02 AM") and the time of the newest message in the
+  left gutter of its row, as the app shows it under the pointer. That time is a line with only a
+  time, so the column shows the times of its messages. Use it to measure the names of the headers.
 
 Run the eval with --name "Sara Novak" --word-choice medium.
 """
@@ -35,6 +39,10 @@ HALF_OF_DAY = re.compile(r"(AM|PM)$")
 END_SIGNS = " .!?"
 MIN_ROW_OVERLAP = 8
 MIN_COLUMN_LEFT = 400
+HEADER = re.compile(r"^(\S+(?: \S+)?)(?:  | — Today at )(\d{1,2}:\d{2}(?: [AP]M)?)$")
+HEADER_APPS = {"Slack", "Microsoft Teams", "Discord"}
+GUTTER_GAP = 8
+GUTTER_CHAR_PX = 7
 
 
 def load_conversation_gen():
@@ -110,6 +118,33 @@ def joined_case(case):
     return joined, joined_times
 
 
+def hover_screen(screen):
+    """Returns `screen` with each header in the form of Discord, and the time of the last header in
+    the left gutter of the last message row above the field."""
+    lines = []
+    for line in screen["lines"]:
+        match = HEADER.match(line["text"])
+        text = f"{match.group(1)} — Today at {match.group(2)}" if match else line["text"]
+        lines.append(dict(line, text=text))
+    times = [HEADER.match(line["text"]).group(2) for line in screen["lines"] if HEADER.match(line["text"])]
+    field = screen["field"]
+    rows = [line for line in lines if line["frame"][0] >= field[0] and line["frame"][3] <= field[1] and not HEADER.match(line["text"])]
+    if times and rows:
+        row = max(rows, key=lambda line: line["frame"][1])
+        right = row["frame"][0] - GUTTER_GAP
+        top, bottom = row["frame"][1], row["frame"][3]
+        lines.append({"text": times[-1], "frame": [right - len(times[-1]) * GUTTER_CHAR_PX, top, right, bottom]})
+        lines.sort(key=lambda line: (line["frame"][1], line["frame"][0]))
+    return {**screen, "lines": lines}
+
+
+def hover_case(case):
+    hover = {**case, "id": f"mt-hover-{case['id']}", "screen": hover_screen(case["screen"])}
+    if "earlier_screens" in case:
+        hover["earlier_screens"] = [hover_screen(earlier) for earlier in case["earlier_screens"]]
+    return hover
+
+
 def content_text(case, joined_times):
     """Returns the text of `case` that the writer and the messages give, without the joined times."""
     texts = [case["before"], case["next"]] + [line["text"] for line in case["screen"]["lines"]]
@@ -142,7 +177,8 @@ def built_cases():
     sources = [json.loads(raw) for source in SOURCES for raw in source.read_text(encoding="utf-8").splitlines()]
     cases = [built for case in sources for built in cases_of(case)]
     with_screen = [case for case in sources if case["screen"]]
-    return cases + [built for case in with_screen for built in cases_of(twelve_hour_case(case), "pm")]
+    twelve_hour = [built for case in with_screen for built in cases_of(twelve_hour_case(case), "pm")]
+    return cases + twelve_hour + [hover_case(case) for case in with_screen if case["app"] in HEADER_APPS]
 
 
 def build():

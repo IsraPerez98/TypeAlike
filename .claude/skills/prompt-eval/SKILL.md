@@ -180,6 +180,7 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
 - `cases/message_times.jsonl` has the Telegram and WhatsApp chats of `conversation.jsonl` and `scrolled.jsonl`, where text recognition joins the time of a message to the end of its last line ("see you there 9:57"), as macOS does when a small gap divides them.
   - Its groups: `joined` (the same caret and next word, for the harm of a change) and `end` (the caret after the whole message, a leak case whose leaks are the joined times).
   - The groups `joinedpm` and `endpm` have the same cases on a 12-hour clock, with the half of the day joined to each time ("9:41PM"), as text recognition reads it.
+  - The group `hover` has the Slack, Teams and Discord chats with each header in the form of Discord ("Owen Marsh — Today at 9:02 AM"), and the time of the newest message in a line of its own in the left gutter, as the app shows it under the pointer. Thus the column has a line with only a time. Run it for a change to the headers of a chat.
   - Run it with `--name "Sara Novak" --word-choice medium` for a change to the screen lines of a chat or to the times of messages.
   - `cases/message_times_gen.py` writes the set again from the two source sets, and `--check` makes sure that the set is the same as the sets give.
 - `cases/window_chrome.jsonl` has the cases of `recall.jsonl` and `tuning.jsonl` with screen text in a browser, Word or Notion, with made-up lines of the app around the page, as an OCR of the whole window reads them.
