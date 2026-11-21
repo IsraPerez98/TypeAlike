@@ -117,6 +117,8 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             pending_injections: VecDeque::new(),
             settings: None,
             setup: None,
+            #[cfg(feature = "suggestion-log")]
+            records: crate::suggestion_log::ShellRecords::default(),
         },
         tap,
         dead_key: DeadKeyState::default(),
@@ -142,11 +144,17 @@ fn on_energy_saver_change(energy_saver: EnergySaver) {
 /// Gives `delivery` to the runtime on the main thread, from any thread.
 fn deliver_on_main_thread(delivery: Delivery) {
     let sent = Instant::now();
+    #[cfg(feature = "suggestion-log")]
+    let span = tracing::Span::current();
     DispatchQueue::main().exec_async(move || {
         if let Delivery::Screen(read) = &delivery {
             tracing::debug!(read = ?read.id, trip = ?sent.elapsed(), "screen read reached the main thread");
         }
-        with_runtime(|runtime| runtime.on_delivery(delivery));
+        with_runtime(|runtime| {
+            #[cfg(feature = "suggestion-log")]
+            runtime.shell.records.note_delivery(&delivery, span);
+            runtime.on_delivery(delivery);
+        });
     });
 }
 
@@ -406,6 +414,8 @@ struct AppKitShell {
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
     setup: Option<SetupWindow>,
+    #[cfg(feature = "suggestion-log")]
+    records: crate::suggestion_log::ShellRecords,
 }
 
 impl AppKitShell {
@@ -535,10 +545,6 @@ impl Shell for AppKitShell {
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
-        #[cfg(feature = "suggestion-log")]
-        if let Some(view) = ghost {
-            crate::suggestion_log::ghost(view);
-        }
         let caret = self.caret;
         let badge_caret = caret.or_else(|| self.field_frame.and_then(Caret::at_start_of));
         match (badge, badge_caret) {
@@ -549,6 +555,11 @@ impl Shell for AppKitShell {
             (Some(view), Some(caret)) => self.show_at_caret(view, caret),
             (Some(view), None) => self.show_mirror(view),
             (None, _) => self.hide_ghost(),
+        }
+        #[cfg(feature = "suggestion-log")]
+        if let Some(view) = ghost {
+            let drawn = crate::suggestion_log::Drawn::of(&self.overlay, &self.mirror);
+            self.records.ghost(view, drawn);
         }
     }
 
@@ -563,7 +574,7 @@ impl Shell for AppKitShell {
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
         #[cfg(feature = "suggestion-log")]
-        crate::suggestion_log::tab(deleted, &text);
+        self.records.tab(deleted, &text);
         self.pending_injections.push_back(Replacement { deleted, text });
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
     }

@@ -213,5 +213,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
   - `read the field`: the app, the window title, the domain, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
   - `read the screen`: the id, the source and the lines of each screen read.
-  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines.
-  - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.
+  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines and its placement. Each record comes after the draw:
+    - `drawn` tells where the text shows: `Overlay`, `Mirror` (also the card below the caret), or `Nothing` when the field gave no caret and no frame.
+    - `span` names the completion of the newest suggestion event (`docs/llm.md`). The delivery to the main thread keeps the span of the worker thread that sent the event.
+    - `screen_read` is the id of the newest screen read that macOS gave to core before the draw. Core drops a read that is not the newest that it started, and a session keeps the screen text that it got first. Thus the prompt can use an earlier read.
+  - `Tab inserted text`: the text that Tab types, the number of characters that it deletes first, and the `span` of the completion of the newest suggestion event.

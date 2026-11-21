@@ -8,7 +8,7 @@ use llama_cpp_2::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use llama_cpp_2::vocab::LlamaVocab;
 use typealike_core::inference::{Correction, LogProbability, SentenceEnd, TypoCheck};
 
-use super::correction::TypedLetters;
+use super::correction::{TypedLetters, TypoFix};
 use super::logits::{
     TokenBias, agreeing_log_probability, choose_token, log_probability_of, most_likely_tokens,
     typed_log_probability,
@@ -129,12 +129,15 @@ pub(super) enum StopReason {
 }
 
 /// Why a completion stopped, and how many tokens it chose before it went back to an earlier end.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(super) struct Stop {
     pub(super) reason: StopReason,
     pub(super) chosen_tokens: usize,
     /// The text of the chosen tokens that the completion did not keep. The loaded model fills it.
     pub(super) dropped_text: String,
+    /// For a stop for a typo without a fix, the most likely fix with one edit, also when it is
+    /// less likely than the minimum of a fix. The loaded model fills it for the suggestion log.
+    pub(super) fix_candidate: Option<TypoFix>,
 }
 
 /// The tokens that a completion added, how likely the model found each word of them, and how likely
@@ -585,6 +588,7 @@ impl<'text> Generation<'text> {
                 reason: StopReason::Typo,
                 chosen_tokens: self.chosen.len(),
                 dropped_text: String::new(),
+                fix_candidate: None,
             },
             dropped: self.chosen,
         }
@@ -616,6 +620,7 @@ impl<'text> Generation<'text> {
                 reason: self.stop,
                 chosen_tokens,
                 dropped_text: String::new(),
+                fix_candidate: None,
             },
             dropped,
         }

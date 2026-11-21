@@ -8,6 +8,8 @@ use llama_cpp_2::model::LlamaModel;
 use typealike_core::inference::{Completion, InferenceError, NextWordBias, Prompt, TokenCount, WordBias};
 
 use super::drafter::GUESSED_TOKENS;
+#[cfg(feature = "suggestion-log")]
+use super::generation::StopReason;
 use super::generation::{
     AddedTokens, Decoder, Healing, Limits, Progress, Stop, added_text, last_word_start, take_back_last_word,
     word_before_typed_space,
@@ -285,6 +287,10 @@ impl<'model> LoadedModel<'model> {
                     .flat_map(|&token| vocab.token_to_piece(token, false, None))
                     .collect::<Vec<_>>();
                 added.stop.dropped_text = String::from_utf8_lossy(&dropped_bytes).into_owned();
+                #[cfg(feature = "suggestion-log")]
+                if added.stop.reason == StopReason::Typo && added.correction.is_none() {
+                    added.stop.fix_candidate = cache.best_fix_candidate(&decoder, &healed_text);
+                }
                 let healed = added
                     .correction
                     .as_ref()

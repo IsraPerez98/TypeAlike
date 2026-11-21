@@ -158,11 +158,13 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 ## Suggestion log
 
 - With the `suggestion-log` feature, the worker writes records with the target `typealike_suggestions` (`SUGGESTION_LOG_TARGET`). The bin sends them only to `suggestions.jsonl` (`CLAUDE.md`, Debugging).
+- Each completion gets a number, which stays unique after another model loads. Its records, and the events that it sends to the platform, are in its span: `"span":{"completion":N,"name":"completion"}`. Thus a ghost record of macOS names the completion of its text, also when it comes before the `completed` record.
 - `completed`: the request and the outcome of each completion.
   - The prompt is the first `prompt_shared_chars` characters of the prompt of the `completed` record before, then `prompt_tail`. When the shared start is less than half of the prompt, the record holds the full prompt, so that each session starts with a full prompt.
   - A `max_tokens` of 0 only prepares a prompt.
   - `stop` tells why the model stopped: `ModelEnd`, `LineAfter`, `SentenceEnd`, `LineBreak`, `TailCut`, `TokenLimit` or `Typo`.
   - `chosen_tokens` counts the tokens that the completion chose. `dropped_text` gives the chosen text that it did not keep, because it went back to an earlier end.
+  - After a `Typo` stop without a fix, `fix_candidate` gives the most likely fix with one edit among the fix candidates, and `fix_candidate_log_probability` how likely the model found it. A fix needs at least the typo minimum (`typo_check`), so a candidate below it shows how near a fix was. With fewer than `MIN_FIXED_CHARACTERS` typed letters, or no candidate one edit away, it is empty.
 - `loading a model`: the file and the backend of each load.
 - `new word bias`: the words of each new table of the word bias.
 

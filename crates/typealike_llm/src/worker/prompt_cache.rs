@@ -392,6 +392,19 @@ impl<'model> PromptCache<'model> {
         self.continue_fixed(&decoder, healing, added, fix, progress)
     }
 
+    /// Returns the most likely fix with one edit of the `typed` letters after the prompt, without
+    /// the minimum of a fix, for the suggestion log.
+    #[cfg(feature = "suggestion-log")]
+    pub(super) fn best_fix_candidate(&self, decoder: &Decoder<'_>, typed: &[u8]) -> Option<TypoFix> {
+        typo_fix(
+            &self.logits,
+            decoder.pieces,
+            typed,
+            LogProbability(f32::NEG_INFINITY),
+            |token| decoder.vocab.token_to_piece(token, false, None),
+        )
+    }
+
     /// Returns the best fix of the typed letters of the `healing` text after the prompt, when the
     /// limits of the `decoder` ask for fixes.
     fn typo_fix(&self, decoder: &Decoder<'_>, healing: Healing<'_>) -> Option<TypoFix> {

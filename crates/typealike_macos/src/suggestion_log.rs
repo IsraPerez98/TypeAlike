@@ -3,11 +3,14 @@
 //! with the `suggestion-log` feature has them.
 
 use objc2_application_services::AXUIElement;
+use tracing::Span;
 use typealike_core::SUGGESTION_LOG_TARGET;
-use typealike_core::controller::{Ghost, GhostView};
+use typealike_core::controller::{Delivery, Ghost, GhostView};
 use typealike_core::desktop::{ScreenReadId, ScreenSource, ScreenText, Surroundings};
 
 use crate::accessibility::{ROLE_ATTRIBUTE, SUBROLE_ATTRIBUTE, copy_string, frame};
+use crate::mirror::Mirror;
+use crate::overlay::Overlay;
 
 /// Writes what the app knows about the focused field: the `surroundings` of `element` and its
 /// Accessibility role.
@@ -58,28 +61,126 @@ pub(crate) fn screen_read(read: ScreenReadId, source: ScreenSource, text: Option
     );
 }
 
-/// Writes the ghost text of `view`.
-pub(crate) fn ghost(view: &GhostView) {
-    let wrapped = view
-        .wrapped
-        .as_ref()
-        .map(|wrapped| tracing::field::debug(&wrapped.lines));
-    match &view.ghost {
-        Ghost::Text(text) => {
-            tracing::info!(target: SUGGESTION_LOG_TARGET, text = text.as_str(), wrapped, "showed the ghost text");
+/// Where a ghost text shows after a draw.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Drawn {
+    /// The overlay at the caret.
+    Overlay,
+    /// The mirror next to the field, or the card below the caret.
+    Mirror,
+    /// Nothing: the field gave no caret and no frame, or the overlay could not show the text.
+    Nothing,
+}
+
+impl Drawn {
+    /// Where the ghost text of `overlay` and `mirror` shows now.
+    pub(crate) fn of(overlay: &Overlay, mirror: &Mirror) -> Self {
+        if overlay.is_shown() {
+            Self::Overlay
+        } else if mirror.is_shown() {
+            Self::Mirror
+        } else {
+            Self::Nothing
         }
-        Ghost::Fix(fix) => tracing::info!(
-            target: SUGGESTION_LOG_TARGET,
-            typo = fix.typo.as_str(),
-            word = fix.word.as_str(),
-            rest = fix.rest.as_str(),
-            wrapped,
-            "showed a fix"
-        ),
     }
 }
 
-/// Writes the `text` that Tab types in place of the `deleted` characters before the caret.
-pub(crate) fn tab(deleted: usize, text: &str) {
-    tracing::info!(target: SUGGESTION_LOG_TARGET, deleted, text, "Tab inserted text");
+/// Writes the records of the shell: the ghost text and the text that Tab inserts, each with the
+/// completion and the screen read that came last before it.
+#[derive(Debug)]
+pub(crate) struct ShellRecords {
+    /// The span of the completion of the newest suggestion event.
+    completion: Span,
+    /// The newest screen read that the shell gave to core.
+    screen_read: Option<ScreenReadId>,
+}
+
+impl Default for ShellRecords {
+    fn default() -> Self {
+        Self {
+            completion: Span::none(),
+            screen_read: None,
+        }
+    }
+}
+
+impl ShellRecords {
+    /// Notes `delivery` before the shell gives it to core. `span` is the span of the thread that
+    /// sent it, which for a suggestion event names its completion.
+    pub(crate) fn note_delivery(&mut self, delivery: &Delivery, span: Span) {
+        match delivery {
+            Delivery::Suggestion(_) => self.completion = span,
+            Delivery::Screen(read) => self.screen_read = Some(read.id),
+            _ => {}
+        }
+    }
+
+    /// Writes the ghost text of `view`, and where it shows after the draw.
+    pub(crate) fn ghost(&self, view: &GhostView, drawn: Drawn) {
+        let wrapped = view
+            .wrapped
+            .as_ref()
+            .map(|wrapped| tracing::field::debug(&wrapped.lines));
+        let screen_read = self.screen_read.map(tracing::field::debug);
+        let placement = tracing::field::debug(view.placement);
+        let drawn = tracing::field::debug(drawn);
+        match &view.ghost {
+            Ghost::Text(text) => tracing::info!(
+                target: SUGGESTION_LOG_TARGET,
+                parent: &self.completion,
+                text = text.as_str(),
+                wrapped,
+                placement,
+                drawn,
+                screen_read,
+                "showed the ghost text"
+            ),
+            Ghost::Fix(fix) => tracing::info!(
+                target: SUGGESTION_LOG_TARGET,
+                parent: &self.completion,
+                typo = fix.typo.as_str(),
+                word = fix.word.as_str(),
+                rest = fix.rest.as_str(),
+                wrapped,
+                placement,
+                drawn,
+                screen_read,
+                "showed a fix"
+            ),
+        }
+    }
+
+    /// Writes the `text` that Tab types in place of the `deleted` characters before the caret.
+    pub(crate) fn tab(&self, deleted: usize, text: &str) {
+        tracing::info!(
+            target: SUGGESTION_LOG_TARGET,
+            parent: &self.completion,
+            deleted,
+            text,
+            "Tab inserted text"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use typealike_core::desktop::ScreenRead;
+    use typealike_core::inference::InferenceEvent;
+
+    use super::*;
+
+    #[test]
+    fn records_name_the_newest_screen_read_that_core_got() {
+        let mut records = ShellRecords::default();
+        let screen = Delivery::Screen(ScreenRead {
+            id: ScreenReadId::default(),
+            text: None,
+        });
+        let suggestion = Delivery::Suggestion(InferenceEvent::Partial("Dear".to_owned()));
+
+        records.note_delivery(&screen, Span::none());
+        records.note_delivery(&suggestion, Span::none());
+
+        assert_eq!(records.screen_read, Some(ScreenReadId::default()));
+    }
 }
