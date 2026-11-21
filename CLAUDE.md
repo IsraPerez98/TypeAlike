@@ -62,6 +62,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - To start it, make an empty `suggestions.jsonl` next to `settings.json` (a symlink to a file also works), then start TypeAlike. TypeAlike looks for the file only when it starts. To stop it, delete the file.
   - Each line is one JSON object, and the file has no size limit. It holds what the user writes, the screen text and the prompts, so keep it out of bug reports. `TypeAlike.log` never gets its records, also with `TYPEALIKE_LOG`.
   - The records of each area are in its doc: `docs/llm.md`, `docs/macos.md`, `docs/windows.md` and `docs/core/settings-window.md`.
+  - For memory leaks and slow parts, read the `resource usage` records (each minute, both OSes) and, on macOS, `operation times`, `slow operation` and `ran OCR`.
 - Earlier writing: `history.bin` next to `settings.json`. To reset the history, delete it and its key (`docs/core/earlier-writing.md`).
 
 ## Architecture

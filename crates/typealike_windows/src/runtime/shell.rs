@@ -88,7 +88,7 @@ impl Win32Shell {
     }
 
     /// Starts the window timer `id`, or starts it again when it runs.
-    fn start_window_timer(&self, id: usize, delay: Duration) {
+    pub(super) fn start_window_timer(&self, id: usize, delay: Duration) {
         let delay_ms = u32::try_from(delay.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: plain call on our own window.
         let is_started = unsafe { SetTimer(Some(self.window.handle()), id, delay_ms, None) } != 0;

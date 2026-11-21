@@ -58,6 +58,8 @@ const IDLE_TIMER_ID: usize = 5;
 const FIELD_PAUSE_TIMER_ID: usize = 6;
 const SCROLL_TIMER_ID: usize = 7;
 const UPDATE_CHECK_TIMER_ID: usize = 8;
+#[cfg(feature = "suggestion-log")]
+const RESOURCE_TIMER_ID: usize = 9;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -172,11 +174,13 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             clipboard_reads,
             energy_saver_changes,
             front_app_changes,
+            #[cfg(feature = "suggestion-log")]
+            resources: crate::resource_usage::ResourceLog::start(),
         }))
     });
     // The focused field counts as a password field until a read of it tells otherwise.
     with_runtime(|runtime| runtime.shell.read_field_text());
-    with_runtime(|runtime| runtime.controller.on_launch(&mut runtime.shell));
+    with_runtime(Runtime::on_launch);
     tracing::info!("running in the tray");
     let run_outcome = pump_messages();
     drop((
@@ -272,6 +276,8 @@ struct Runtime {
     clipboard_reads: mpsc::Receiver<ClipboardRead>,
     energy_saver_changes: mpsc::Receiver<EnergySaver>,
     front_app_changes: mpsc::Receiver<FrontApp>,
+    #[cfg(feature = "suggestion-log")]
+    resources: crate::resource_usage::ResourceLog,
 }
 
 impl Runtime {
@@ -340,6 +346,12 @@ impl Runtime {
         }
     }
 
+    fn on_launch(&mut self) {
+        self.controller.on_launch(&mut self.shell);
+        #[cfg(feature = "suggestion-log")]
+        self.schedule_resource_records();
+    }
+
     /// Window timers repeat, and the controller asks for one call for each start.
     fn on_timer(&mut self, timer: Timer) {
         self.shell.stop_timer(timer);
@@ -362,6 +374,8 @@ impl Runtime {
             WM_TIMER if wparam.0 == FIELD_PAUSE_TIMER_ID => self.on_timer(Timer::FieldPause),
             WM_TIMER if wparam.0 == SCROLL_TIMER_ID => self.on_timer(Timer::ScrollSettle),
             WM_TIMER if wparam.0 == UPDATE_CHECK_TIMER_ID => self.on_timer(Timer::UpdateCheck),
+            #[cfg(feature = "suggestion-log")]
+            WM_TIMER if wparam.0 == RESOURCE_TIMER_ID => self.write_resource_usage(),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }
@@ -395,8 +409,33 @@ impl Runtime {
 
     fn take_deliveries(&mut self) {
         for delivery in self.deliveries.try_iter() {
+            #[cfg(feature = "suggestion-log")]
+            let is_model_load = typealike_core::diagnostics::is_model_load(&delivery);
             self.controller.on_delivery(delivery, &mut self.shell);
+            #[cfg(feature = "suggestion-log")]
+            if is_model_load {
+                self.resources.write(self.controller.kept_items());
+            }
         }
+    }
+
+    /// Writes a `resource usage` record now, and then once each [`RECORD_INTERVAL`] with a window
+    /// timer that repeats, while the suggestion log is on.
+    ///
+    /// [`RECORD_INTERVAL`]: crate::resource_usage::RECORD_INTERVAL
+    #[cfg(feature = "suggestion-log")]
+    fn schedule_resource_records(&mut self) {
+        if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+            return;
+        }
+        self.write_resource_usage();
+        self.shell
+            .start_window_timer(RESOURCE_TIMER_ID, crate::resource_usage::RECORD_INTERVAL);
+    }
+
+    #[cfg(feature = "suggestion-log")]
+    fn write_resource_usage(&mut self) {
+        self.resources.write(self.controller.kept_items());
     }
 
     fn take_settings_inputs(&mut self) {
