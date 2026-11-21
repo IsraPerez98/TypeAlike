@@ -40,6 +40,17 @@ impl SettingsFile {
     /// when the file is damaged.
     #[must_use]
     pub fn load(&mut self) -> Settings {
+        let settings = self.read();
+        #[cfg(feature = "suggestion-log")]
+        tracing::info!(
+            target: typealike_core::SUGGESTION_LOG_TARGET,
+            settings = to_json(&settings),
+            "loaded the settings"
+        );
+        settings
+    }
+
+    fn read(&mut self) -> Settings {
         let json = match fs::read_to_string(&self.path) {
             Ok(json) => json,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return self.first_start.clone(),
@@ -85,6 +96,12 @@ fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 impl SettingsStore for SettingsFile {
     fn save(&mut self, settings: &Settings) {
+        #[cfg(feature = "suggestion-log")]
+        tracing::info!(
+            target: typealike_core::SUGGESTION_LOG_TARGET,
+            settings = to_json(settings),
+            "saved the settings"
+        );
         if let Err(error) = self.write(settings) {
             tracing::warn!(%error, "failed to save the settings");
         }

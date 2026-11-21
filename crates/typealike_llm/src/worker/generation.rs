@@ -107,6 +107,36 @@ pub(super) struct Healing<'text> {
     pub(super) first_token: Option<LlamaToken>,
 }
 
+/// Why a completion stopped adding tokens. A stop that waits for the end of a phrase keeps the
+/// reason that started the wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum StopReason {
+    /// The model ended the text or wrote markup.
+    #[default]
+    ModelEnd,
+    /// The next token starts the line after the caret, or a placeholder before it.
+    LineAfter,
+    /// The next token starts a new sentence, and the limits stop at the end of a sentence.
+    SentenceEnd,
+    /// The last token ended the line.
+    LineBreak,
+    /// The minimum probability cut the next token.
+    TailCut,
+    /// The completion added the most tokens of the limits.
+    TokenLimit,
+    /// The typed letters before the caret got less likely than the typo minimum.
+    Typo,
+}
+
+/// Why a completion stopped, and how many tokens it chose before it went back to an earlier end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Stop {
+    pub(super) reason: StopReason,
+    pub(super) chosen_tokens: usize,
+    /// The text of the chosen tokens that the completion did not keep. The loaded model fills it.
+    pub(super) dropped_text: String,
+}
+
 /// The tokens that a completion added, how likely the model found each word of them, and how likely
 /// it found the healed text.
 pub(super) struct AddedTokens {
@@ -116,6 +146,9 @@ pub(super) struct AddedTokens {
     pub(super) typed_log_probability: LogProbability,
     /// The fix of a typo in the healed text, which the tokens continue, if any.
     pub(super) correction: Option<Correction>,
+    /// The chosen tokens after the kept ones.
+    pub(super) dropped: Vec<LlamaToken>,
+    pub(super) stop: Stop,
 }
 
 /// What a completion does with the next token that it chose.
@@ -156,6 +189,8 @@ pub(super) struct Generation<'text> {
     /// The last end after a word where the added text ends a phrase, if any.
     phrase_end: Option<TextEnd>,
     pending_stop: Option<PendingStop>,
+    stop: StopReason,
+    chosen: Vec<LlamaToken>,
     /// The most likely first token that writes a word after a typed space, and the natural log of
     /// its probability, when the first token wrote only whitespace.
     first_word: Option<(LlamaToken, f32)>,
@@ -186,6 +221,8 @@ impl<'text> Generation<'text> {
             best_end: None,
             phrase_end: None,
             pending_stop: None,
+            stop: StopReason::ModelEnd,
+            chosen: Vec::new(),
             first_word: None,
         }
     }
@@ -254,7 +291,8 @@ impl<'text> Generation<'text> {
     /// ends a phrase or the `limits` allow no tokens to reach the end of a phrase. Else the
     /// completion goes on, and goes back to the last end of a phrase, or to `stop`, when no end of
     /// a phrase comes.
-    fn stop_at(&mut self, stop: TextEnd, limits: Limits<'_>) -> Step {
+    fn stop_at(&mut self, stop: TextEnd, reason: StopReason, limits: Limits<'_>) -> Step {
+        self.stop = reason;
         let extra_tokens = limits.phrase_end_tokens();
         if self.phrase_end == Some(stop) || extra_tokens == 0 {
             self.truncate_to(stop);
@@ -271,6 +309,7 @@ impl<'text> Generation<'text> {
     /// last word, as [`Generation::stop_at`] does.
     fn stop_at_token_limit(&mut self, limits: Limits<'_>) -> Step {
         if ends_sentence(self.healing.text, &self.written) {
+            self.stop = StopReason::TokenLimit;
             return Step::Stop;
         }
         let dropped = self.words.last_word_tokens_to_drop();
@@ -278,7 +317,7 @@ impl<'text> Generation<'text> {
             tokens: self.tokens.len() - dropped,
             words: self.words.count() - usize::from(dropped > 0),
         };
-        self.stop_at(stop, limits)
+        self.stop_at(stop, StopReason::TokenLimit, limits)
     }
 
     /// Adds a join step with `logits`, which follow the added text: it keeps the end of the added
@@ -468,10 +507,14 @@ impl<'text> Generation<'text> {
     ) -> Step {
         let text = added_after(piece, self.unwritten);
         let starts_sentence = starts_next_sentence(self.healing.text, &self.written, text);
-        if self.starts_line_after(text, limits.line_after)
-            || (!limits.line_after.is_empty() && opens_placeholder(text))
-            || (limits.sentence_end == SentenceEnd::Stop && starts_sentence)
-        {
+        let ends_before_line = self.starts_line_after(text, limits.line_after)
+            || (!limits.line_after.is_empty() && opens_placeholder(text));
+        if ends_before_line || (limits.sentence_end == SentenceEnd::Stop && starts_sentence) {
+            self.stop = if ends_before_line {
+                StopReason::LineAfter
+            } else {
+                StopReason::SentenceEnd
+            };
             return Step::Stop;
         }
         let ends_phrase_here = limits.line_after.is_empty() && self.note_word_end(text, logits);
@@ -489,8 +532,12 @@ impl<'text> Generation<'text> {
         self.written.extend_from_slice(text);
         self.unwritten = after_prefix(self.unwritten, piece);
         self.tokens.push(token);
+        self.chosen.push(token);
         match self.pending_stop {
-            _ if ends_line => Step::Stop,
+            _ if ends_line => {
+                self.stop = StopReason::LineBreak;
+                Step::Stop
+            }
             Some(stop) if self.tokens.len() < stop.max_tokens => Step::Continue,
             Some(_) => Step::Stop,
             None if self.tokens.len() == limits.max_added => self.stop_at_token_limit(limits),
@@ -524,7 +571,7 @@ impl<'text> Generation<'text> {
             tokens: self.tokens.len() - dropped,
             words: self.words.count() - usize::from(dropped > 0),
         };
-        self.stop_at(stop, limits)
+        self.stop_at(stop, StopReason::TailCut, limits)
     }
 
     /// Returns no tokens, after a healing step stopped for a typo.
@@ -534,6 +581,12 @@ impl<'text> Generation<'text> {
             word_log_probabilities: Vec::new(),
             typed_log_probability: self.typed.log_probability(),
             correction: None,
+            stop: Stop {
+                reason: StopReason::Typo,
+                chosen_tokens: self.chosen.len(),
+                dropped_text: String::new(),
+            },
+            dropped: self.chosen,
         }
     }
 
@@ -550,6 +603,8 @@ impl<'text> Generation<'text> {
         let typed_log_probability = self.typed.log_probability();
         let mut added = self.tokens;
         added.truncate(tokens);
+        let chosen_tokens = self.chosen.len();
+        let dropped = self.chosen.split_off(tokens.min(chosen_tokens));
         let mut word_log_probabilities = self.words.into_vec();
         word_log_probabilities.truncate(words);
         AddedTokens {
@@ -557,6 +612,12 @@ impl<'text> Generation<'text> {
             word_log_probabilities,
             typed_log_probability,
             correction: None,
+            stop: Stop {
+                reason: self.stop,
+                chosen_tokens,
+                dropped_text: String::new(),
+            },
+            dropped,
         }
     }
 
@@ -1064,6 +1125,86 @@ mod tests {
         });
 
         assert_eq!(tokens, [Some(DINNER), Some(LINE_BREAK)]);
+    }
+
+    #[test]
+    fn stop_reason_names_the_limit_that_ended_the_completion() {
+        let sentence_stop = Limits {
+            sentence_end: SentenceEnd::Stop,
+            ..limits(16, None)
+        };
+        let before_line = Limits {
+            line_after: b" soon",
+            ..limits(16, None)
+        };
+        let cases = [
+            (
+                &[("very", -1.0), (" soon", -1.0)][..],
+                limits(16, None),
+                StopReason::ModelEnd,
+            ),
+            (
+                &[("very", -1.0), (" soon\n", -1.0)],
+                limits(16, None),
+                StopReason::LineBreak,
+            ),
+            (
+                &[("Sure.", -1.0), (" Then", -1.0)],
+                sentence_stop,
+                StopReason::SentenceEnd,
+            ),
+            (
+                &[("very", -1.0), (" soon", -1.0)],
+                before_line,
+                StopReason::LineAfter,
+            ),
+            (
+                &[("very", -1.0), (" soon", -9.0)],
+                limits(16, Some(-3.0)),
+                StopReason::TailCut,
+            ),
+            (
+                &[("very", -1.0), (" soon", -1.0)],
+                limits(1, None),
+                StopReason::TokenLimit,
+            ),
+        ];
+
+        let reasons = cases.map(|(tokens, limits, _)| {
+            let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+            let steps = tokens
+                .iter()
+                .map(|&(text, log_probability)| (text, log_probability, PHRASE_END_NEXT))
+                .collect::<Vec<_>>();
+            generation_of(&pieces, &steps, limits).0.into_added().stop.reason
+        });
+
+        assert_eq!(reasons, cases.map(|(_, _, reason)| reason));
+    }
+
+    #[test]
+    fn typo_stop_names_the_typo() {
+        let pieces = TokenPieces::from_texts(&[" cost"]);
+
+        let added = Generation::new(&pieces, healing(b" cost")).into_typo_stop();
+
+        assert_eq!(added.stop.reason, StopReason::Typo);
+    }
+
+    #[test]
+    fn stop_counts_the_chosen_tokens_before_a_cut_inside_a_word_goes_back() {
+        let pieces = TokenPieces::from_texts(&WORD_AND_PERIOD);
+        let steps = [
+            ("very", -1.0, PHRASE_END_NEXT),
+            (" so", -1.0, PHRASE_END_NEXT),
+            ("on", -9.0, PHRASE_END_NEXT),
+        ];
+
+        let added = generation_of(&pieces, &steps, limits(16, Some(-3.0)))
+            .0
+            .into_added();
+
+        assert_eq!((added.tokens.len(), added.stop.chosen_tokens), (1, 2));
     }
 
     #[test]

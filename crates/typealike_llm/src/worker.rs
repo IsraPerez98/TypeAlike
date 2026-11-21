@@ -179,6 +179,14 @@ pub(crate) fn run(
                     batch_tokens,
                     "loading a model"
                 );
+                #[cfg(feature = "suggestion-log")]
+                tracing::info!(
+                    target: typealike_core::SUGGESTION_LOG_TARGET,
+                    repo = %file.repo,
+                    name = %file.name,
+                    ?backend,
+                    "loading a model"
+                );
                 let started = Instant::now();
                 let drafter_path = drafter_path(&file, backend, locate_model);
                 let loaded = load_with_drafter(
@@ -338,6 +346,8 @@ fn start_backend(llama: &mut Option<LlamaBackend>) -> Result<&LlamaBackend, Infe
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
 /// before the next model loads. It frees the context when no job comes for `idle_timeout`.
 fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: Option<Duration>) {
+    #[cfg(feature = "suggestion-log")]
+    let mut logged_prompt = String::new();
     while let Some(mut job) = next_job_for(loaded, queue, idle_timeout) {
         let InferenceRequest::Complete {
             prompt,
@@ -372,7 +382,86 @@ fn serve(loaded: &mut LoadedModel<'_>, queue: &mut JobQueue<'_>, idle_timeout: O
         };
         let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
         let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
-        job.reply.answer(InferenceEvent::Completed(result));
+        #[cfg(feature = "suggestion-log")]
+        log_completion(&job.request, result.as_ref(), &mut logged_prompt);
+        job.reply.answer(InferenceEvent::Completed(
+            result.map(|(completion, _)| completion),
+        ));
+    }
+}
+
+/// Writes the completion `request` and its `result` to the suggestion log, when the log is on. The
+/// prompt of each record is the start of `logged_prompt`, the prompt of the `completed` record
+/// before, up to `prompt_shared_chars` characters, and then `prompt_tail`. A request with a
+/// `max_tokens` of zero only prepares a prompt.
+#[cfg(feature = "suggestion-log")]
+fn log_completion(
+    request: &InferenceRequest,
+    result: Result<&(typealike_core::inference::Completion, generation::Stop), &InferenceError>,
+    logged_prompt: &mut String,
+) {
+    if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        return;
+    }
+    let InferenceRequest::Complete {
+        prompt,
+        max_tokens,
+        word_bias,
+        next_word_bias,
+        min_log_probability,
+        typo_check,
+        sentence_end,
+        line_after,
+    } = request
+    else {
+        return;
+    };
+    let shared_chars = shared_start_chars(&prompt.0, logged_prompt);
+    let prompt_tail = prompt.0.chars().skip(shared_chars).collect::<String>();
+    prompt.0.clone_into(logged_prompt);
+    let completion = result.ok().map(|(completion, _)| completion);
+    tracing::info!(
+        target: typealike_core::SUGGESTION_LOG_TARGET,
+        prompt_shared_chars = shared_chars,
+        prompt_tail,
+        max_tokens = max_tokens.0,
+        min_log_probability = min_log_probability.map(|min| min.0),
+        ?typo_check,
+        ?sentence_end,
+        line_after = line_after.as_str(),
+        word_bias_version = word_bias.as_ref().map(|bias| bias.version),
+        next_words = ?next_word_bias.0,
+        text = completion.map(|completion| completion.text.as_str()),
+        tokens = completion.map(|completion| completion.tokens.0),
+        duration_ms = completion.map(|completion| completion.duration.as_secs_f64() * 1000.0),
+        word_log_probabilities = completion.map(|completion| {
+            tracing::field::debug(completion.word_log_probabilities.iter().map(|word| word.0).collect::<Vec<_>>())
+        }),
+        typed_log_probability = completion.map(|completion| completion.typed_log_probability.0),
+        correction_typed = completion.and_then(|completion| Some(completion.correction.as_ref()?.typed.as_str())),
+        correction_fixed = completion.and_then(|completion| Some(completion.correction.as_ref()?.fixed.as_str())),
+        stop = result.ok().map(|(_, stop)| tracing::field::debug(stop.reason)),
+        chosen_tokens = result.ok().map(|(_, stop)| stop.chosen_tokens),
+        dropped_text = result.ok().map(|(_, stop)| stop.dropped_text.as_str()),
+        error = result.err().map(tracing::field::debug),
+        "completed"
+    );
+}
+
+/// The number of characters at the start of `text` that a record takes from `earlier`: those that
+/// both start with. Zero when they are less than half of `text`, so that the record of a new
+/// session holds its full prompt, and a lost line does not change the prompts of later sessions.
+#[cfg(feature = "suggestion-log")]
+fn shared_start_chars(text: &str, earlier: &str) -> usize {
+    let shared = text
+        .chars()
+        .zip(earlier.chars())
+        .take_while(|(character, earlier_character)| character == earlier_character)
+        .count();
+    if shared * 2 < text.chars().count() {
+        0
+    } else {
+        shared
     }
 }
 
@@ -429,6 +518,17 @@ mod tests {
             sentence_end: SentenceEnd::Continue,
             line_after: String::new(),
         }
+    }
+
+    #[cfg(feature = "suggestion-log")]
+    #[test]
+    fn logged_prompt_takes_the_shared_start_only_when_it_is_at_least_half_of_the_prompt() {
+        let earlier = "Notas: café con leche";
+        let cases = [("Notas: café con pan", 16), ("Notas: otra cosa", 0), ("", 0)];
+
+        let shared = cases.map(|(prompt, _)| shared_start_chars(prompt, earlier));
+
+        assert_eq!(shared, cases.map(|(_, expected)| expected));
     }
 
     fn has_newer_completion(

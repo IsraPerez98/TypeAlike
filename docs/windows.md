@@ -179,3 +179,10 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - The General pane writes the `TypeAlike` value in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. It starts the program that wrote it.
 - To turn it on also removes the `TypeAlike` value in `...\Explorer\StartupApproved\Run`, so a stop from Task Manager does not stay (`typealike_windows::StartupEntry`).
+
+## Suggestion log
+
+- With the `suggestion-log` feature, `suggestion_log` writes these records:
+  - `read the screen`: the id, the source and the lines of each screen read.
+  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines.
+  - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.

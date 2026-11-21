@@ -23,6 +23,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
   - The next save first copies the file to `settings.json.backup`. A save after that keeps the copy. A newer copy replaces an older one.
 - A settings file that starts with a UTF-8 byte order mark (BOM) loads as the same file without the BOM.
 - Each save writes `settings.json.new`, waits until its bytes are on the disk, then replaces `settings.json` with it. Thus a power loss cannot leave an empty file.
+- With the `suggestion-log` feature, each load and each save also write the settings as stored JSON to the suggestion log (`loaded the settings`, `saved the settings`). The writer notes are in it.
 
 ## General pane
 

@@ -55,8 +55,12 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info`), for example `debug` or `info,typealike_llm=debug`.
   - The llama.cpp logs have the target `llama-cpp-2`.
   - A panic also goes to the log.
-  - The first log line of each run shows the version and the GPU features of the build.
+  - The first log line of each run shows the version, the GPU features of the build and whether the suggestion log is on.
 - Settings file: `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS. The default settings are in `docs/core/settings-window.md`.
+- Suggestion log: only a build with the `suggestion-log` feature has it, for example `cargo run --features suggestion-log`. The release builds do not.
+  - To start it, make an empty `suggestions.jsonl` next to `settings.json` (a symlink to a file also works), then start TypeAlike. TypeAlike looks for the file only when it starts. To stop it, delete the file.
+  - Each line is one JSON object, and the file has no size limit. It holds what the user writes, the screen text and the prompts, so keep it out of bug reports. `TypeAlike.log` never gets its records, also with `TYPEALIKE_LOG`.
+  - The records of each area are in its doc: `docs/llm.md`, `docs/macos.md`, `docs/windows.md` and `docs/core/settings-window.md`.
 - Earlier writing: `history.bin` next to `settings.json`. To reset the history, delete it and its key (`docs/core/earlier-writing.md`).
 
 ## Architecture

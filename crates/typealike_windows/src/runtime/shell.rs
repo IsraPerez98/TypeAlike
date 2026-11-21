@@ -213,6 +213,10 @@ impl Shell for Win32Shell {
             has_caret = caret.is_some(),
             "rendered at the caret"
         );
+        #[cfg(feature = "suggestion-log")]
+        if let Some(view) = ghost {
+            crate::suggestion_log::ghost(view);
+        }
         self.show_ghost(ghost, caret.as_ref());
         self.show_badge(badge);
     }
@@ -226,6 +230,8 @@ impl Shell for Win32Shell {
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
+        #[cfg(feature = "suggestion-log")]
+        crate::suggestion_log::tab(deleted, &text);
         let window = self.window.handle();
         let posting = self.pending_injections.queue(Replacement { deleted, text }, || {
             post_message(window, INJECT_MESSAGE)

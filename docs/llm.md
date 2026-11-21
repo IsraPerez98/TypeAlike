@@ -155,6 +155,17 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - That text joins the text of each added token (`token_to_piece`) and uses no detokenize, because the detokenize of llama.cpp removes the space before `? ! . ,` for Gemma 4 (`clean_spaces`). Thus a French "Merci !" keeps its space.
 - With the "Show words early" setting, the engine shows its complete words at once.
 
+## Suggestion log
+
+- With the `suggestion-log` feature, the worker writes records with the target `typealike_suggestions` (`SUGGESTION_LOG_TARGET`). The bin sends them only to `suggestions.jsonl` (`CLAUDE.md`, Debugging).
+- `completed`: the request and the outcome of each completion.
+  - The prompt is the first `prompt_shared_chars` characters of the prompt of the `completed` record before, then `prompt_tail`. When the shared start is less than half of the prompt, the record holds the full prompt, so that each session starts with a full prompt.
+  - A `max_tokens` of 0 only prepares a prompt.
+  - `stop` tells why the model stopped: `ModelEnd`, `LineAfter`, `SentenceEnd`, `LineBreak`, `TailCut`, `TokenLimit` or `Typo`.
+  - `chosen_tokens` counts the tokens that the completion chose. `dropped_text` gives the chosen text that it did not keep, because it went back to an earlier end.
+- `loading a model`: the file and the backend of each load.
+- `new word bias`: the words of each new table of the word bias.
+
 ## Shutdown
 
 - A drop of `LlamaCpp` waits until the worker frees the model, because on Metal llama.cpp stops the process with an assert when the process exits with a loaded model (macOS quits through `exit`).

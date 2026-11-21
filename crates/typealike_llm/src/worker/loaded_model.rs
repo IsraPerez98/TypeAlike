@@ -9,7 +9,7 @@ use typealike_core::inference::{Completion, InferenceError, NextWordBias, Prompt
 
 use super::drafter::GUESSED_TOKENS;
 use super::generation::{
-    AddedTokens, Decoder, Healing, Limits, Progress, added_text, last_word_start, take_back_last_word,
+    AddedTokens, Decoder, Healing, Limits, Progress, Stop, added_text, last_word_start, take_back_last_word,
     word_before_typed_space,
 };
 use super::logits::{LogitBias, TokenBias, first_word_tokens};
@@ -145,14 +145,14 @@ impl<'model> LoadedModel<'model> {
     }
 
     /// Completes `prompt`, and sends the text to `progress` while it grows. It stops early when
-    /// `progress` tells that a newer completion waits.
+    /// `progress` tells that a newer completion waits. Also returns why the completion stopped.
     pub(super) fn complete(
         &mut self,
         prompt: &Prompt,
         limits: Limits<'_>,
         token_bias: &TokenBias,
         progress: &mut Progress<'_>,
-    ) -> Result<Completion, InferenceError> {
+    ) -> Result<(Completion, Stop), InferenceError> {
         let started = Instant::now();
         let (text, added) = self
             .generate(prompt, limits, token_bias, progress)
@@ -178,7 +178,7 @@ impl<'model> LoadedModel<'model> {
             is_corrected = completion.correction.is_some(),
             "completed the prompt"
         );
-        Ok(completion)
+        Ok((completion, added.stop))
     }
 
     /// Returns the logits that `word_bias` adds to each token, and that `next_word_bias` adds to
@@ -203,6 +203,13 @@ impl<'model> LoadedModel<'model> {
             .as_ref()
             .is_some_and(|known| known.version == word_bias.version);
         if !is_known {
+            #[cfg(feature = "suggestion-log")]
+            tracing::info!(
+                target: typealike_core::SUGGESTION_LOG_TARGET,
+                version = word_bias.version,
+                words = ?word_bias.words,
+                "new word bias"
+            );
             self.word_tokens = Some(WordTokens {
                 version: word_bias.version,
                 biases: first_word_tokens(&self.model.vocab(), &word_bias.words),
@@ -271,7 +278,13 @@ impl<'model> LoadedModel<'model> {
                 .and_then(|()| cache.continue_healed(&decoder, healing, progress)),
         });
         match added {
-            Ok(added) => {
+            Ok(mut added) => {
+                let dropped_bytes = added
+                    .dropped
+                    .iter()
+                    .flat_map(|&token| vocab.token_to_piece(token, false, None))
+                    .collect::<Vec<_>>();
+                added.stop.dropped_text = String::from_utf8_lossy(&dropped_bytes).into_owned();
                 let healed = added
                     .correction
                     .as_ref()
@@ -320,6 +333,7 @@ mod tests {
         loaded
             .complete(&Prompt(prompt.to_owned()), limits, &token_bias, &mut progress)
             .expect("the model completes the prompt")
+            .0
             .text
     }
 

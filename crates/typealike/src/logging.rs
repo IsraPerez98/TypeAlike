@@ -1,13 +1,16 @@
-//! Sends the logs to the terminal and to a file in the temp folder.
+//! Sends the logs to the terminal and to a file in the temp folder. A build with the
+//! `suggestion-log` feature also sends the records of the suggestion log to their own file.
 
 use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use std::{env, io, panic};
 
+use tracing_subscriber::Layer as _;
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use typealike_core::SUGGESTION_LOG_TARGET;
 
 /// The environment variable that sets the log levels, for example `debug` or
 /// `info,typealike_llm=debug,llama-cpp-2=warn`.
@@ -20,22 +23,26 @@ const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Sends the logs to the terminal and appends them to `TypeAlike.log` in the temp folder, with the
-/// levels of `TYPEALIKE_LOG`, else `info`. A panic also goes to the logs.
+/// levels of `TYPEALIKE_LOG`, else `info`. A panic also goes to the logs. With the `suggestion-log`
+/// feature, it also appends the records of the suggestion log to `suggestions.jsonl` in the data
+/// folder, when that file exists.
 pub(crate) fn start() {
     let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVEL.to_string());
-    let filter = levels.parse::<Targets>();
-    let filter_error = filter.as_ref().err().map(ToString::to_string);
+    let (main_targets, filter_error) = main_targets(&levels);
     let path = env::temp_dir().join(LOG_FILE);
     let file = open_log_file(&path);
     let file_error = file.as_ref().err().map(ToString::to_string);
-    tracing_subscriber::registry()
-        .with(filter.unwrap_or_else(|_| Targets::new().with_default(DEFAULT_LEVEL)))
-        .with(fmt::layer())
-        .with(
-            file.ok()
-                .map(|file| fmt::layer().with_ansi(false).with_writer(file)),
-        )
-        .init();
+    let registry = tracing_subscriber::registry()
+        .with(fmt::layer().with_filter(main_targets.clone()))
+        .with(file.ok().map(|file| {
+            fmt::layer()
+                .with_ansi(false)
+                .with_writer(file)
+                .with_filter(main_targets)
+        }));
+    #[cfg(feature = "suggestion-log")]
+    let registry = registry.with(suggestion_log::layer());
+    registry.init();
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         tracing::error!(%info, "TypeAlike panicked");
@@ -47,6 +54,7 @@ pub(crate) fn start() {
         vulkan = cfg!(feature = "vulkan"),
         cuda = cfg!(feature = "cuda"),
         log = %path.display(),
+        suggestion_log = tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO),
         "TypeAlike started"
     );
     if let Some(error) = filter_error {
@@ -55,6 +63,23 @@ pub(crate) fn start() {
     if let Some(error) = file_error {
         tracing::warn!(%error, "failed to open the log file");
     }
+}
+
+/// The levels of the terminal and of `TypeAlike.log` from `levels`, else `info`, and why `levels`
+/// is not valid. They never take the records of the suggestion log, which hold what the user
+/// wrote, also when `levels` names their target.
+fn main_targets(levels: &str) -> (Targets, Option<String>) {
+    let (targets, error) = match levels.parse::<Targets>() {
+        Ok(targets) => (targets, None),
+        Err(error) => (
+            Targets::new().with_default(DEFAULT_LEVEL),
+            Some(error.to_string()),
+        ),
+    };
+    (
+        targets.with_target(SUGGESTION_LOG_TARGET, LevelFilter::OFF),
+        error,
+    )
 }
 
 /// Opens the log at `path` to append to it, so a start after a crash keeps the log of the crash.
@@ -68,6 +93,146 @@ fn open_log_file(path: &Path) -> io::Result<File> {
     OpenOptions::new().create(true).append(true).open(path)
 }
 
+/// The suggestion log: `suggestions.jsonl` in the data folder, one JSON object for each record.
+#[cfg(feature = "suggestion-log")]
+mod suggestion_log {
+    use std::fs::{File, OpenOptions};
+    use std::path::Path;
+
+    use tracing::Subscriber;
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::filter::{LevelFilter, Targets};
+    use tracing_subscriber::fmt;
+    use tracing_subscriber::registry::LookupSpan;
+    use typealike_core::SUGGESTION_LOG_TARGET;
+
+    const FILE: &str = "suggestions.jsonl";
+
+    /// The layer that appends the records of the suggestion log to its file, or `None` when the
+    /// file does not exist in the data folder: the user makes the file to start the log, and
+    /// deletes it to stop the log. TypeAlike looks for the file only when it starts.
+    pub(super) fn layer<S>() -> Option<impl Layer<S>>
+    where
+        S: Subscriber + for<'span> LookupSpan<'span>,
+    {
+        let data_dir = crate::platform::data_dir().ok()?;
+        open(&data_dir.join(FILE)).map(json_layer)
+    }
+
+    /// Writes each record of the suggestion log to `file` as one line of JSON, with its fields at
+    /// the top level and the fields of its span, such as the number of its completion, in `span`.
+    fn json_layer<S>(file: File) -> impl Layer<S>
+    where
+        S: Subscriber + for<'span> LookupSpan<'span>,
+    {
+        fmt::layer()
+            .json()
+            .flatten_event(true)
+            .with_current_span(true)
+            .with_span_list(false)
+            .with_writer(file)
+            .with_filter(Targets::new().with_target(SUGGESTION_LOG_TARGET, LevelFilter::TRACE))
+    }
+
+    /// Opens the suggestion log at `path` to append to it, or `None` when the file does not exist.
+    fn open(path: &Path) -> Option<File> {
+        OpenOptions::new().append(true).open(path).ok()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::fs;
+        use std::io::Write as _;
+
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        use super::*;
+        use crate::logging::tests::temporary_folder;
+        use crate::logging::{LOG_FILE, main_targets};
+
+        /// Runs `log` with the main log and the suggestion log in a new folder, and returns the
+        /// lines of each.
+        fn logged_lines(name: &str, log: impl FnOnce()) -> (String, String) {
+            let folder = temporary_folder(name);
+            let [main_path, suggestion_path] = [LOG_FILE, FILE].map(|file| folder.join(file));
+            let [main_file, suggestion_file] =
+                [&main_path, &suggestion_path].map(|path| File::create(path).expect("temp dir is writable"));
+            let subscriber = tracing_subscriber::registry()
+                .with(
+                    fmt::layer()
+                        .with_writer(main_file)
+                        .with_filter(main_targets("trace").0),
+                )
+                .with(json_layer(suggestion_file));
+
+            tracing::subscriber::with_default(subscriber, log);
+            let [main_log, suggestion_log] =
+                [&main_path, &suggestion_path].map(|path| fs::read_to_string(path).unwrap_or_default());
+
+            fs::remove_dir_all(&folder).ok();
+            (main_log, suggestion_log)
+        }
+
+        #[test]
+        fn record_goes_to_the_suggestion_log_as_one_json_line_and_not_to_the_main_log() {
+            let (main_log, suggestion_log) = logged_lines("suggestion-json", || {
+                tracing::info!(target: SUGGESTION_LOG_TARGET, text = "Dear\nSir", "showed the ghost text");
+            });
+
+            assert_eq!(
+                (
+                    main_log.as_str(),
+                    suggestion_log.lines().count(),
+                    suggestion_log.contains(r#""text":"Dear\nSir""#)
+                ),
+                ("", 1, true)
+            );
+        }
+
+        #[test]
+        fn record_names_the_completion_of_its_parent_span() {
+            let (main_log, suggestion_log) = logged_lines("suggestion-span", || {
+                let span = tracing::info_span!(target: SUGGESTION_LOG_TARGET, "completion", completion = 7);
+                tracing::info!(target: SUGGESTION_LOG_TARGET, parent: &span, "showed the ghost text");
+            });
+
+            assert_eq!(
+                (
+                    main_log.as_str(),
+                    suggestion_log.contains(r#""span":{"completion":7"#)
+                ),
+                ("", true)
+            );
+        }
+
+        #[test]
+        fn suggestion_log_is_off_without_its_file() {
+            let folder = temporary_folder("no-suggestion-log");
+
+            let log = open(&folder.join(FILE));
+
+            fs::remove_dir_all(&folder).ok();
+            assert!(log.is_none());
+        }
+
+        #[test]
+        fn suggestion_log_appends_to_its_file() {
+            let folder = temporary_folder("suggestion-log");
+            let path = folder.join(FILE);
+            fs::write(&path, "earlier\n").expect("temp dir is writable");
+
+            open(&path)
+                .expect("the file exists")
+                .write_all(b"this run\n")
+                .expect("the log is writable");
+            let lines = fs::read_to_string(&path).ok();
+
+            fs::remove_dir_all(&folder).ok();
+            assert_eq!(lines.as_deref(), Some("earlier\nthis run\n"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
@@ -75,10 +240,28 @@ mod tests {
 
     use super::*;
 
-    fn temporary_folder(name: &str) -> PathBuf {
+    pub(super) fn temporary_folder(name: &str) -> PathBuf {
         let folder = std::env::temp_dir().join(format!("typealike-logging-{}-{name}", std::process::id()));
         fs::create_dir_all(&folder).expect("temp dir is writable");
         folder
+    }
+
+    #[test]
+    fn main_log_leaves_out_the_suggestion_log_at_each_level() {
+        let levels = [
+            "trace",
+            "typealike=trace",
+            "typealike_suggestions=trace",
+            "trace,typealike_suggestions=trace",
+        ];
+
+        let is_enabled = levels.map(|levels| {
+            main_targets(levels)
+                .0
+                .would_enable(SUGGESTION_LOG_TARGET, &tracing::Level::ERROR)
+        });
+
+        assert_eq!(is_enabled, [false; 4]);
     }
 
     #[test]

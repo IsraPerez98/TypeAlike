@@ -36,6 +36,8 @@ mod screen_text;
 mod settings;
 mod single_instance;
 mod spelling;
+#[cfg(feature = "suggestion-log")]
+mod suggestion_log;
 mod symbol;
 
 pub use account::account_name;

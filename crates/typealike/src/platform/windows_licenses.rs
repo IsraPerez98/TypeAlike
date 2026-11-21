@@ -324,6 +324,12 @@ pub(crate) const LIBRARIES: &[Library] = &[
         texts: &[TEXT_46],
     },
     Library {
+        name: "tracing-serde",
+        version: "0.2.0",
+        license: "MIT",
+        texts: &[TEXT_46],
+    },
+    Library {
         name: "tracing-subscriber",
         version: "0.3.23",
         license: "MIT",

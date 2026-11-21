@@ -207,3 +207,11 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - The General pane writes the launchd agent `~/Library/LaunchAgents/io.github.israperez98.typealike.plist` (`typealike_macos::LaunchAgent`). It starts the program that wrote it.
 - The autostart switch is on only when the agent starts the program that runs now, and that program is still at its path. An agent from a moved copy or from `cargo run` counts as off.
+
+## Suggestion log
+
+- With the `suggestion-log` feature, `suggestion_log` writes these records:
+  - `read the field`: the app, the window title, the domain, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
+  - `read the screen`: the id, the source and the lines of each screen read.
+  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines.
+  - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.

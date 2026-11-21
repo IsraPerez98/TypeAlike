@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Writes the records of the suggestion log (target `typealike_suggestions`), which hold the text of
+# the user. The bin enables it with its own `suggestion-log` feature.
+suggestion-log = []
+
 [dependencies]
 typealike_core.workspace = true
 serde.workspace = true

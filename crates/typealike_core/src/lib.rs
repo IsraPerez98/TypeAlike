@@ -25,3 +25,9 @@ pub mod setup;
 pub mod spelling;
 #[cfg(test)]
 mod test_support;
+
+/// The `tracing` target of the records that hold what the user wrote, what the screen shows and
+/// what the model suggests. Only a build with the `suggestion-log` feature writes them, and only
+/// to the suggestion log, which is off until the user makes its file. The other logs never take
+/// this target.
+pub const SUGGESTION_LOG_TARGET: &str = "typealike_suggestions";

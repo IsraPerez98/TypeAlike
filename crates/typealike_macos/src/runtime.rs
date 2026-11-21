@@ -535,6 +535,10 @@ impl Shell for AppKitShell {
     }
 
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>) {
+        #[cfg(feature = "suggestion-log")]
+        if let Some(view) = ghost {
+            crate::suggestion_log::ghost(view);
+        }
         let caret = self.caret;
         let badge_caret = caret.or_else(|| self.field_frame.and_then(Caret::at_start_of));
         match (badge, badge_caret) {
@@ -558,6 +562,8 @@ impl Shell for AppKitShell {
     }
 
     fn replace_before_caret(&mut self, deleted: usize, text: String) {
+        #[cfg(feature = "suggestion-log")]
+        crate::suggestion_log::tab(deleted, &text);
         self.pending_injections.push_back(Replacement { deleted, text });
         self.schedule(NEXT_RUN_LOOP_PASS, sel!(injectPendingText:));
     }

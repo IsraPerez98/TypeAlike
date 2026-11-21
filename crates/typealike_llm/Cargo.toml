@@ -9,6 +9,9 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
+# Writes the records of the suggestion log (target `typealike_suggestions`), which hold the text of
+# the user. The bin enables it with its own `suggestion-log` feature.
+suggestion-log = []
 # Each GPU backend builds as a DLL that llama.cpp loads at start. The app still starts and runs on
 # the CPU when the GPU driver or runtime is missing.
 vulkan = ["llama-cpp-2/vulkan", "llama-cpp-2/dynamic-backends"]

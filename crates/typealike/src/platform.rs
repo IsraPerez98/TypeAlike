@@ -5,15 +5,20 @@ mod macos_licenses;
 #[cfg(target_os = "windows")]
 mod windows_licenses;
 
+/// The folder of the settings, the earlier writing, the models and the suggestion log.
+#[cfg(target_os = "windows")]
+pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
+    use anyhow::Context as _;
+    let local_app_data = std::env::var_os("LOCALAPPDATA").context("no local app data directory")?;
+    Ok(std::path::PathBuf::from(local_app_data).join("TypeAlike"))
+}
+
 /// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
 #[cfg(target_os = "windows")]
 pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
     use typealike_core::settings::{Settings, Setup, WriterNotes};
-    let data_dir = std::env::var_os("LOCALAPPDATA")
-        .map(std::path::PathBuf::from)
-        .context("no local app data directory")?
-        .join("TypeAlike");
+    let data_dir = data_dir()?;
     let models_dir = data_dir.join("Models");
     let first_start = Settings {
         backend: typealike_llm::DEFAULT_BACKEND,
@@ -62,16 +67,23 @@ const fn installer_suffix() -> &'static str {
     }
 }
 
+/// The folder of the settings, the earlier writing, the models and the suggestion log.
+#[cfg(target_os = "macos")]
+pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
+    use anyhow::Context as _;
+    const DATA_DIR: &str = "Library/Application Support/TypeAlike";
+    Ok(std::env::home_dir().context("no home directory")?.join(DATA_DIR))
+}
+
 /// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
 /// user quits.
 #[cfg(target_os = "macos")]
 pub(crate) fn run() -> anyhow::Result<()> {
     use anyhow::Context as _;
     use typealike_core::settings::{Settings, Setup, WriterNotes};
-    const DATA_DIR: &str = "Library/Application Support/TypeAlike";
     const LAUNCH_AGENTS_DIR: &str = "Library/LaunchAgents";
     let home_dir = std::env::home_dir().context("no home directory")?;
-    let data_dir = home_dir.join(DATA_DIR);
+    let data_dir = data_dir()?;
     let models_dir = data_dir.join("Models");
     let first_start = Settings {
         writer_name: typealike_macos::account_name(),
@@ -102,6 +114,15 @@ pub(crate) fn run() -> anyhow::Result<()> {
         libraries: macos_licenses::LIBRARIES,
     };
     typealike_macos::run(settings, services).context("typealike stopped unexpectedly")
+}
+
+/// Fails: TypeAlike keeps no data on this OS yet.
+#[cfg(all(
+    feature = "suggestion-log",
+    not(any(target_os = "windows", target_os = "macos"))
+))]
+pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
+    anyhow::bail!("typealike does not support this operating system yet")
 }
 
 /// Fails: no platform layer exists for this OS yet.

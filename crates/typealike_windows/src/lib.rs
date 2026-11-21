@@ -42,6 +42,8 @@ mod settings;
 mod single_instance;
 mod spelling;
 mod startup;
+#[cfg(feature = "suggestion-log")]
+mod suggestion_log;
 mod system_theme;
 mod tray;
 mod uia;

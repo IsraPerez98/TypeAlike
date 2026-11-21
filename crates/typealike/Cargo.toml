@@ -22,6 +22,16 @@ cuda = ["typealike_llm/cuda"]
 self-contained = ["dep:windows-reactor-setup"]
 # Shows the Playground pane in the settings window, where a developer tries the model.
 playground = ["typealike_core/playground"]
+# Writes what the user types, the screen text, the prompts and the suggestions to
+# `suggestions.jsonl` in the data folder, when that file exists at start. Only for a local build
+# that debugs the suggestions: the release builds leave it out.
+suggestion-log = [
+    "tracing-subscriber/json",
+    "typealike_llm/suggestion-log",
+    "typealike_settings/suggestion-log",
+    "typealike_macos/suggestion-log",
+    "typealike_windows/suggestion-log",
+]
 
 [dependencies]
 anyhow.workspace = true
