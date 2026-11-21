@@ -666,6 +666,32 @@ fn frame_lines_leave_out_a_clipboard_text_with_a_closing_quote_alone() {
     assert_eq!(lines, [FRAME, "Text on my clipboard: ", TEXT_HEADING]);
 }
 
+#[test]
+fn frame_lines_leave_out_screen_lines_that_end_with_a_colon_as_a_label_does() {
+    let screen = screen(&[("Notes for tomorrow:", 300), ("Plan for the week:", 600)]);
+
+    let lines = preface_with_screen_lines(
+        &Writer::default(),
+        &with_text_after("Best, Ana"),
+        None,
+        Some(screen_part(&screen)),
+    )
+    .0
+    .frame_lines;
+
+    assert_eq!(
+        lines,
+        [
+            FRAME,
+            "Below the field on my screen:",
+            "Above the field on my screen:",
+            LAST_LINE_LABEL,
+            "The text that comes right after the part that I am typing now: ",
+            TEXT_HEADING
+        ]
+    );
+}
+
 /// Returns the frame lines of the preface for the `writer`, the `surroundings` and the
 /// `clipboard` text.
 fn frame_lines(writer: &Writer<'_>, surroundings: &Surroundings, clipboard: Option<&str>) -> Vec<String> {
