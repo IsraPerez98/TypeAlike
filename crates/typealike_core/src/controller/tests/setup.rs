@@ -133,6 +133,7 @@ fn done_closes_the_setup_and_changes_no_setting() {
 fn done_does_nothing_while_accessibility_is_missing() {
     let mut harness = missing_accessibility();
     harness.controller.on_missing_permission(&mut harness.shell);
+    harness.take_calls();
 
     harness.press_button(NEXT);
 

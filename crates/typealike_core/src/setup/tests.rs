@@ -548,6 +548,19 @@ fn permission_only_setup_shows_the_permission_step_without_progress_and_back() {
 }
 
 #[test]
+fn permission_only_setup_shows_the_texts_and_rows_of_the_permission_step() {
+    let fixture = Fixture::without_accessibility();
+    let full = fixture.view(&flow_at(SetupStep::Permission));
+
+    let only = fixture.view(&SetupFlow::permission_only());
+
+    assert_eq!(
+        (only.title, only.body, only.sections),
+        (full.title, full.body, full.sections)
+    );
+}
+
+#[test]
 fn done_waits_for_accessibility() {
     let fixture = Fixture::without_accessibility();
     let mut flow = SetupFlow::permission_only();
