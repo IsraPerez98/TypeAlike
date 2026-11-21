@@ -180,6 +180,9 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
     - `topcut`: the cases of `scrolled`, where the last read shows only the end of its top row, as if the top edge of the chat cut it.
     - `quote`: a reply quotes the start of an earlier message, and the next word needs the fact of that message.
   - `message_times.jsonl` does not use these three groups.
+  - Two rules for these copies did not ship (Gemma 4 E4B on Metal, `--name "Sara Novak" --word-choice medium`, with `--length long --sentence-stop off` and with the defaults, 2026-11-21):
+    - A chat line of 5 or more words that is the start or the end of another line of the prompt goes. On `topcut` and `quote` (18 cases), no case changed its match, and the log probability of the next word changed by −0.016 (95% interval −0.032 to −0.000). The loss was on `quote` (−0.046), where the quote near the caret went. With a floor of 3 words, the rule also dropped the name of a company under an email signature, because that name ended the subject line.
+    - A kept line of an earlier read matches a line of the newest read with or without a time at its end. On `timed` (8 cases), no case changed its match, and the log probability changed by −0.008 (−0.030 to +0.015).
   - Run it with `--name "Sara Novak"` on a graphics card for a change to the screen reads or to the chat lines that the user scrolled past.
   - `cases/scrolled_gen.py` writes the set again, and `--check` makes sure of the reads of each group.
 - `cases/message_times.jsonl` has the Telegram and WhatsApp chats of `conversation.jsonl` and `scrolled.jsonl`, where text recognition joins the time of a message to the end of its last line ("see you there 9:57"), as macOS does when a small gap divides them.
