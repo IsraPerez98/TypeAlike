@@ -246,4 +246,4 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
     - `HistorySave` and `SettingsSave`: the saves of the earlier writing and of the settings.
     - `ScreenRead`: each read of the screen text on the queue of the screen reads, from the Accessibility tree or by OCR.
     - An operation inside another operation counts for both. Thus the totals of a minute can add up to more than the minute.
-  - `slow operation`: one run of an operation above its limit, at once, with `operation` and `duration_ms`. The limit is 20 ms for `KeyDown` and `OtherInput`, and 200 ms for the others (`Operation::is_slow`).
+  - `slow operation`: one run of an operation above its limit, at once, with `operation` and `duration_ms`. The limit is 20 ms for `KeyDown` and `OtherInput`, 1 s for `ScreenRead`, and 200 ms for the others (`Operation::is_slow`). A screen read runs off the main thread, and an OCR often takes more than 200 ms.

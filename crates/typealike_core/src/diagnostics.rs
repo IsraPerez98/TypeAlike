@@ -27,6 +27,9 @@ pub struct KeptItems {
 /// The time above which an input in the keyboard and mouse watch is slow: the app gets the input
 /// only after it, so the user feels it as lag.
 const SLOW_INPUT: Duration = Duration::from_millis(20);
+/// The time above which a screen read is slow. It runs off the main thread, so it adds no lag, and
+/// an OCR often takes more than [`SLOW_OPERATION`].
+const SLOW_SCREEN_READ: Duration = Duration::from_secs(1);
 /// The time above which another operation is slow.
 const SLOW_OPERATION: Duration = Duration::from_millis(200);
 
@@ -61,11 +64,12 @@ pub enum Operation {
 
 impl Operation {
     /// Whether a run of the operation that took `duration` is slow: more than 20 ms for an input,
-    /// else more than 200 ms.
+    /// more than 1 s for a screen read, else more than 200 ms.
     #[must_use]
     pub fn is_slow(self, duration: Duration) -> bool {
         let limit = match self {
             Self::KeyDown | Self::OtherInput => SLOW_INPUT,
+            Self::ScreenRead => SLOW_SCREEN_READ,
             Self::FieldRead
             | Self::WindowWalk
             | Self::CaretRead
@@ -74,8 +78,7 @@ impl Operation {
             | Self::WordCheck
             | Self::WordGuesses
             | Self::HistorySave
-            | Self::SettingsSave
-            | Self::ScreenRead => SLOW_OPERATION,
+            | Self::SettingsSave => SLOW_OPERATION,
         };
         duration > limit
     }
@@ -197,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn only_an_input_above_20_ms_or_another_operation_above_200_ms_is_slow() {
+    fn only_an_input_above_20_ms_a_screen_read_above_1_s_or_another_operation_above_200_ms_is_slow() {
         let runs = [
             (Operation::KeyDown, milliseconds(20)),
             (Operation::KeyDown, milliseconds(21)),
@@ -205,11 +208,13 @@ mod tests {
             (Operation::CaretRead, milliseconds(200)),
             (Operation::HistorySave, milliseconds(201)),
             (Operation::WindowWalk, milliseconds(201)),
+            (Operation::ScreenRead, milliseconds(1000)),
+            (Operation::ScreenRead, milliseconds(1001)),
         ];
 
         let slow = runs.map(|(operation, duration)| operation.is_slow(duration));
 
-        assert_eq!(slow, [false, true, true, false, true, true]);
+        assert_eq!(slow, [false, true, true, false, true, true, false, true]);
     }
 
     #[test]
