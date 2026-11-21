@@ -238,6 +238,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
     - `KeyDown`: the whole time of a key down in the event tap, with all the work for the key, such as the reads, the draw and the dictionary questions. The app gets the key only after it.
     - `OtherInput`: a key up, a click or a scroll in the event tap.
     - `FieldRead`: the read of the focused field and its app through Accessibility.
+    - `WindowWalk`: the read of the whole tree of the focused window, which wakes the text area of Word, once for each window. Each later call for the same window ends at once.
     - `CaretRead`: the read of the caret and the frame of the field.
     - `GhostDraw`: the draw of the ghost text and the badge, with the read of the font before the caret.
     - `ClipboardRead`: the read of the copied text.

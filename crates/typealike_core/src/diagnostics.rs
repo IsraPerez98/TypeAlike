@@ -39,6 +39,8 @@ pub enum Operation {
     OtherInput,
     /// A read of the focused field and its app.
     FieldRead,
+    /// A read of the whole tree of the focused window, which wakes the text area of some apps.
+    WindowWalk,
     /// A read of the caret and the frame of the focused field.
     CaretRead,
     /// A draw of the ghost text and the badge.
@@ -65,6 +67,7 @@ impl Operation {
         let limit = match self {
             Self::KeyDown | Self::OtherInput => SLOW_INPUT,
             Self::FieldRead
+            | Self::WindowWalk
             | Self::CaretRead
             | Self::GhostDraw
             | Self::ClipboardRead
@@ -201,11 +204,12 @@ mod tests {
             (Operation::OtherInput, milliseconds(21)),
             (Operation::CaretRead, milliseconds(200)),
             (Operation::HistorySave, milliseconds(201)),
+            (Operation::WindowWalk, milliseconds(201)),
         ];
 
         let slow = runs.map(|(operation, duration)| operation.is_slow(duration));
 
-        assert_eq!(slow, [false, true, true, false, true]);
+        assert_eq!(slow, [false, true, true, false, true, true]);
     }
 
     #[test]

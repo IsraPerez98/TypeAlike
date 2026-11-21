@@ -610,7 +610,8 @@ impl Shell for AppKitShell {
     }
 
     fn wake_field_text(&mut self) {
-        self.focus.wake_field_text();
+        self.clock
+            .time(Operation::WindowWalk, || self.focus.wake_field_text());
     }
 
     /// Reads the caret and the frame of the focused field through Accessibility, and keeps them
