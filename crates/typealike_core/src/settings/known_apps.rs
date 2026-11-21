@@ -76,10 +76,11 @@ fn starts_with_any(app_id: &str, starts: &[&str]) -> bool {
 
 /// The terminals that TypeAlike knows, by the start of their app id in lowercase: the bundle
 /// identifier on macOS and the program file name on Windows.
-const TERMINALS: [&str; 27] = [
+const TERMINALS: [&str; 28] = [
     "com.apple.terminal",
     "com.googlecode.iterm2",
     "com.mitchellh.ghostty",
+    "dev.herdr.",
     "dev.warp.",
     "net.kovidgoyal.kitty",
     "io.alacritty",
