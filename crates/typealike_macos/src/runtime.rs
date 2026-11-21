@@ -270,12 +270,19 @@ impl Runtime {
         self.controller.on_input(&mut self.shell);
     }
 
+    /// Reads the app in front and the permissions again. When the user removed the Accessibility
+    /// permission while TypeAlike runs, it removes the event tap and waits for the permission.
     fn on_app_activation(&mut self) {
         self.read_game();
         self.read_full_screen();
         self.controller.on_input(&mut self.shell);
         if NSApplication::sharedApplication(self.shell.target.mtm()).isActive() {
             self.controller.on_permission_change(&mut self.shell);
+        }
+        if self.tap.is_some() && !accessibility::is_trusted() {
+            tracing::warn!("accessibility access removed, so the keyboard is not watched");
+            self.tap = None;
+            self.wait_for_accessibility();
         }
     }
 
@@ -290,8 +297,8 @@ impl Runtime {
         }
     }
 
-    /// Opens the setup or the Permissions pane, and looks for the Accessibility permission until
-    /// the user gives it.
+    /// Opens the setup, or only its permission step after the setup, and looks for the
+    /// Accessibility permission until the user gives it.
     fn wait_for_accessibility(&mut self) {
         self.controller.on_missing_permission(&mut self.shell);
         self.shell

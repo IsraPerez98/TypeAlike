@@ -25,6 +25,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - "Give access" first runs `tccutil reset Accessibility|ScreenCapture <bundle id>` (`permissions::ask`), because a build with an ad-hoc signature (a release before 0.7.0, a build from the source code) changes its signature, and macOS refuses the grant of an older build while System Settings shows it on. Then the prompt of macOS adds TypeAlike to the list again.
 - A program without a bundle (`cargo run`) skips the reset.
 - Each activation of TypeAlike reads the permissions again.
+- Each activation of an app also reads the Accessibility permission while the event tap runs. When the user removed the permission while TypeAlike runs, TypeAlike removes the tap and waits for the permission as at a start without it.
 - The OCR also needs Screen & System Audio Recording, which `cargo run` also takes from the terminal app.
 - The runtime calls `Controller::on_launch` in the first pass of the run loop, before it waits for the Accessibility permission.
 
