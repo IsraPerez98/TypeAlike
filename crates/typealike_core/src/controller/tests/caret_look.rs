@@ -188,7 +188,10 @@ fn caret_that_stays_at_the_right_side_over_a_whole_key_gets_the_ghost_at_once() 
 
     assert_eq!(
         harness.take_calls(),
-        vec![ghost_at_caret(Some("t"), Some(active_badge()))]
+        vec![
+            ghost_at_caret(Some("t"), Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
     );
 }
 
@@ -213,6 +216,65 @@ fn caret_that_left_the_right_side_waits_again_for_a_caret_that_moved() {
             ghost_at_caret(None, Some(active_badge())),
             Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
         ]
+    );
+}
+
+/// A harness that shows "t regards" at [`NEXT_CARET`] after the fast keys "e" and "s", where the
+/// app shows only "e" yet.
+fn harness_showing_after_fast_keys_at_the_next_caret() -> Harness {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.press(Key::Char('s'));
+    harness.settle_caret();
+    harness.answer_caret(&look_at(NEXT_CARET));
+    harness.settle_caret();
+    harness.take_calls();
+    harness
+}
+
+#[test]
+fn ghost_after_fast_keys_gets_a_new_look_at_the_caret() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.press(Key::Char('s'));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(&look_at(NEXT_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(Some("t regards"), Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn ghost_after_fast_keys_moves_to_the_caret_that_moved_later_and_gets_a_new_look() {
+    let mut harness = harness_showing_after_fast_keys_at_the_next_caret();
+
+    harness.answer_caret(&look_at(NEXT_CARET + 8));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(Some("t regards"), Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn ghost_after_fast_keys_stays_when_the_new_look_finds_the_same_caret() {
+    let mut harness = harness_showing_after_fast_keys_at_the_next_caret();
+
+    harness.answer_caret(&look_at(NEXT_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("t regards"), Some(active_badge()))]
     );
 }
 

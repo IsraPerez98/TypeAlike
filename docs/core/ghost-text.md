@@ -19,6 +19,9 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ## Timing
 
 - The ghost text and the badge show 40 ms after a key (`CARET_SETTLE_DELAY`), at the caret that the key moved.
+- Each key hides the ghost text that shows at once, also a key that keeps a suggestion. Examples are a letter of the suggestion, a dead key and a Backspace to an earlier suggestion.
+- The app writes the key over the old ghost text, and in another font the letters do not align. The suggestion shows again 40 ms after the last key, at the caret that the key moved.
+- Thus the ghost text does not show while the user types fast through a suggestion. The rest still counts as shown for Tab (`docs/core/typing.md`, "Tab").
 - After Enter, core also reads the field at the end of this wait, so that the suggestion for the new line does not wait for the input to settle (`docs/core/typing.md`, "Enter").
 - A suggestion that comes after this wait shows at once (`GhostTiming::Now`).
 - A completion does not move the caret, so it does not change this wait. A suggestion that comes during the wait shows when the wait ends.
@@ -27,6 +30,10 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
   - A completion that ends before the text that the user typed while it ran. Core asks again (`docs/core/typing.md`, "Keys while a completion runs").
   - A completion that stops for a typo in letters that the dictionary knows. Core asks again without the typo rule (`docs/core/suggestions.md`).
 - While the ghost text does not show, core looks at the caret again every 20 ms, at most 20 times, and then shows the ghost text at the caret where it is.
+- When the user types fast, an app can show only some of the keys at a look. Thus a look after more than one key can find a caret that moved only a part of the way. Core counts the keys since the last look that found a caret that moved.
+- After such a look shows the ghost text, core looks at the caret again 20 ms later. When the caret moved, the ghost text moves to it, and core looks again.
+- These looks end at a caret that did not move since the look before. They count in the 20 looks after a key.
+- Without them, the ghost text stays at the first caret until the next key, and the app writes the other keys over it.
 - The fix of a typo of the same length does not move the caret, so the rest after it shows at once.
 - Some apps show the accent of a dead key as marked text, so the caret moves after the dead key (`DeadKeyAccent::Marked`). The letter after it takes the place of the accent and does not move the caret. Thus the ghost text after that letter shows at once at the same caret.
 - After a dead key that did not move the caret, the next letter moves the caret, so its ghost text waits for a caret that moved.

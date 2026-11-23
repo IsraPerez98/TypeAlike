@@ -1456,8 +1456,8 @@ impl RoomAfterCaret {
     }
 }
 
-/// The desktop of a shell while the rest of a suggestion that Tab took a part of waits for the
-/// caret. The rest counts as shown, because the user saw it before Tab.
+/// The desktop of a shell while the rest of a suggestion that Tab or a typed key took a part of
+/// waits for the caret. The rest counts as shown, because the user saw it before the key.
 struct DesktopWithPendingRest<'shell>(&'shell dyn Shell);
 
 impl Desktop for DesktopWithPendingRest<'_> {

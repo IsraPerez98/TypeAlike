@@ -47,9 +47,9 @@ pub(super) struct CaretWait {
     /// Whether the caret timer ran out after the last key. A stop of the wait keeps it, because
     /// the request when the input settles stops the wait but does not move the caret.
     has_caret_settled: bool,
-    /// Whether `ghost` is the rest of a suggestion that Tab took a part of, and the user saw its
-    /// next part. The rest counts as shown, so that a quick Tab types its next part and does not
-    /// reach the app.
+    /// Whether `ghost` is the rest of a suggestion that Tab or a typed key took a part of, and the
+    /// user saw its next part. The rest counts as shown, so that a quick Tab types its next part
+    /// and does not reach the app.
     is_rest: bool,
     /// The length in bytes of the end of the ghost text of the last view that the view did not
     /// show, because it did not fit on the line of the caret. A Tab hides the ghost text before
@@ -97,6 +97,12 @@ struct CaretLooks {
     is_pending: bool,
     /// The caret of the last look that found a caret that moved.
     last_caret: Option<ScreenRect>,
+    /// The keys after the last look that found a caret that moved. At a look after more than one
+    /// key, an app can show only some of the keys yet.
+    keys_after_look: u8,
+    /// Whether the caret can still move without a key: the last look came after more than one key,
+    /// or it followed such a look and found the caret at another place.
+    is_caret_catching_up: bool,
     /// The accent of a dead key, when the last key was a dead key.
     accent: DeadKeyAccent,
     /// Whether the caret stays at the right side of its field while the user types.
@@ -149,6 +155,7 @@ impl CaretLooks {
         self.checks_left = MAX_CARET_MOVE_CHECKS;
         self.is_after_edit = !replaces_marked_accent;
         self.is_pending = false;
+        self.keys_after_look = self.keys_after_look.saturating_add(1);
     }
 
     /// Whether a key changed the text after the ghost text showed last, while checks are left.
@@ -178,6 +185,7 @@ impl CaretLooks {
             return None;
         }
         let Some(caret) = read.caret else {
+            self.is_caret_catching_up = false;
             return Some(LookOutcome::GhostAndBadge);
         };
         if read.field.is_some_and(|field| !is_plausible_caret(caret, field)) {
@@ -186,9 +194,12 @@ impl CaretLooks {
         if self.is_stale(caret, read.field) {
             return Some(LookOutcome::BadgeOnly);
         }
-        if self.last_caret != Some(caret) {
+        let has_moved = self.last_caret != Some(caret);
+        if has_moved {
             self.right_side = RightSideCaret::Unseen;
         }
+        self.is_caret_catching_up = self.keys_after_look > 1 || (self.is_caret_catching_up && has_moved);
+        self.keys_after_look = 0;
         let has_moved_after_edit =
             self.is_after_edit() && self.last_caret.is_some_and(|last_caret| last_caret != caret);
         if has_moved_after_edit && self.accent == DeadKeyAccent::Unseen {
@@ -248,7 +259,8 @@ impl CaretWait {
         }
     }
 
-    /// Whether the waiting ghost text is the rest of a suggestion that Tab took a part of.
+    /// Whether the waiting ghost text is the rest of a suggestion that Tab or a typed key took a
+    /// part of, and the user saw its next part.
     pub(super) fn is_rest(&self) -> bool {
         self.is_rest
     }
@@ -259,14 +271,37 @@ impl CaretWait {
     }
 
     /// Shows `ghost` at the settled caret. When the caret settled after the last key, the
-    /// controller shows `ghost` at once. Else the caret timer starts again.
+    /// controller shows `ghost` at once. Else the shown ghost text hides, because the app writes
+    /// the key over it, and the caret timer starts again. When the user saw the next part of
+    /// `ghost` before the key, it counts as shown while it waits.
     pub(super) fn show_at_settled_caret(&mut self, ghost: Ghost, shell: &mut dyn Shell) -> GhostTiming {
-        self.ghost = Some(ghost);
         if self.has_caret_settled {
+            self.ghost = Some(ghost);
             return GhostTiming::Now;
+        }
+        let is_shown = shell.is_ghost_shown();
+        self.is_rest = (self.is_rest || is_shown) && self.shows_next_part_of(&ghost);
+        self.ghost = Some(ghost);
+        if is_shown {
+            shell.hide_ghost();
         }
         self.restart_timer(shell);
         GhostTiming::AfterSettle
+    }
+
+    /// Whether the last view of the waiting ghost text showed the next part of `ghost`, which
+    /// stays of it after a typed key: the end of its text, or its fix with the typed key after the
+    /// typo.
+    fn shows_next_part_of(&self, ghost: &Ghost) -> bool {
+        match (&self.ghost, ghost) {
+            (Some(Ghost::Text(earlier)), Ghost::Text(rest)) => {
+                earlier.ends_with(rest.as_str()) && sight_of(rest, self.hidden_len) == RestSight::Seen
+            }
+            (Some(Ghost::Fix(earlier)), Ghost::Fix(fix)) => {
+                fix.typo.starts_with(&earlier.typo) && earlier.rest.ends_with(&fix.rest)
+            }
+            _ => false,
+        }
     }
 
     /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles
@@ -322,12 +357,13 @@ impl CaretWait {
     }
 
     /// After the controller showed the waiting ghost text, looks at the caret again later when the
-    /// shell did not show it at the caret. The wait ends after the last look, or when it shows.
+    /// shell did not show it at the caret, or when the caret can still move after fast keys. The
+    /// wait ends after the last look, or when it shows at a caret that does not catch up.
     pub(super) fn after_render(&mut self, shell: &mut dyn Shell) {
         if self.ghost.is_none() {
             return;
         }
-        if shell.is_ghost_shown() {
+        if shell.is_ghost_shown() && !self.looks.is_caret_catching_up {
             self.looks.on_ghost_shown();
         } else if self.looks.take_check() {
             shell.start_timer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY);

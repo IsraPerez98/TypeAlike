@@ -317,6 +317,90 @@ fn tab_while_the_rest_waits_for_the_caret_swallows_the_key() {
 }
 
 #[test]
+fn letter_that_continues_the_shown_ghost_hides_it_until_the_caret_settles() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+
+    harness.press(Key::Char('e'));
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
+fn rest_after_a_letter_that_continued_the_shown_ghost_shows_when_the_caret_settles() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+    harness.press(Key::Char('e'));
+    harness.take_calls();
+
+    harness.settle_caret();
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("st regards to you"), Some(active_badge()))]
+    );
+}
+
+#[test]
+fn tab_after_letters_that_continue_the_shown_ghost_types_its_next_part() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+    harness.press(Key::Char('e'));
+    harness.press(Key::Char('s'));
+    harness.take_calls();
+
+    harness.press(Key::Tab);
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::ReplaceText(0, "t".to_owned()))
+    );
+}
+
+#[test]
+fn tab_after_a_letter_that_continues_a_ghost_that_did_not_show_passes_to_the_app() {
+    let mut harness = Harness::new(Settings::default());
+    harness.shell.is_ghost_shown = false;
+    harness.show("est regards to you");
+    harness.press(Key::Char('e'));
+
+    let disposition = harness.press(Key::Tab);
+
+    assert_eq!(disposition, Disposition::Pass);
+}
+
+#[test]
+fn tab_after_a_backspace_to_an_earlier_suggestion_that_did_not_show_last_passes_to_the_app() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+    harness.press(Key::Char('x'));
+    harness.answer(completed("ylophone"));
+    harness.settle_caret();
+    harness.press(Key::Backspace);
+
+    let disposition = harness.press(Key::Tab);
+
+    assert_eq!(disposition, Disposition::Pass);
+}
+
+#[test]
+fn tab_after_a_space_that_keeps_the_shown_fix_replaces_the_typo() {
+    let mut harness = harness_showing_a_fix();
+    harness.settle_caret();
+    harness.press(Key::Char(' '));
+    harness.take_calls();
+
+    harness.press(Key::Tab);
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::ReplaceText(2, "Best ".to_owned()))
+    );
+}
+
+#[test]
 fn tab_after_the_rest_did_not_show_at_the_caret_passes_to_the_app() {
     let mut harness = Harness::new(Settings::default());
     harness.show("est regards to you");

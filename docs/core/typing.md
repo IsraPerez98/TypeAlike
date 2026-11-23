@@ -30,7 +30,8 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 ### Dead key
 
 - A dead key (`Key::Dead`) types nothing, and the next key types the accented letter, such as ´ and then o for ó. The platform gives core the composed letter (`docs/macos.md`, "Dead keys").
-- A dead key does not end the session. It keeps the ghost text and a completion that runs. The composed letter then continues them or not, as any typed key does.
+- A dead key does not end the session. It keeps the suggestion and a completion that runs. The composed letter then continues them or not, as any typed key does.
+- The ghost text hides at the dead key, as at each key, and shows again when the caret settles (`docs/core/ghost-text.md`, "Timing").
 - The key after a dead key goes to the waiting accent in the app. Thus Tab after a dead key does not take the ghost text, and Escape does not pause the field.
 
 ### Field without text at the start
@@ -120,6 +121,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 - A word of only signs is one part.
 - Tab takes a suggestion only while the ghost text shows on the screen (`Desktop::is_ghost_shown`).
 - After a Tab, the rest of the suggestion also counts as shown while it waits for the caret, so that a quick Tab types its next part.
+- The same applies after a typed key that continues the ghost text that showed: a letter of the suggestion, or a space or a sign that keeps a fix.
 - When the ghost text did not show the next word of the rest, because the field had no room for it, the rest does not count as shown. A quick Tab then waits for the rest, as after the last part of a suggestion ("Tab hold").
 - After the last part, core asks for the next suggestion as after a typed key (`AfterAccept::Next`). When the completion still runs, core asks when that completion ends without more text.
 - Tab on a typo fix: `docs/core/suggestions.md`, "Typos".
