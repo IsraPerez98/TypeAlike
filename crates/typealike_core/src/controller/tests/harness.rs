@@ -52,6 +52,10 @@ pub(super) enum Call {
         ghost: Option<Ghost>,
         badge: Option<BadgeView>,
     },
+    RedrawGhost {
+        ghost: Ghost,
+        taken_part: String,
+    },
     HideGhost,
     HideBadge,
     ReplaceText(usize, String),
@@ -154,6 +158,14 @@ impl Shell for FakeShell {
         self.calls.push(Call::RenderAtCaret {
             ghost: ghost.map(|view| view.ghost.clone()),
             badge,
+        });
+    }
+
+    fn redraw_ghost(&mut self, ghost: &GhostView) {
+        self.ghost_view = Some(ghost.clone());
+        self.calls.push(Call::RedrawGhost {
+            ghost: ghost.ghost.clone(),
+            taken_part: ghost.taken_part.clone(),
         });
     }
 
@@ -544,6 +556,11 @@ impl Harness {
 
     pub(super) fn settle_caret(&mut self) {
         self.controller.on_timer(Timer::CaretSettle, &mut self.shell);
+    }
+
+    /// Runs the timer that runs out after the last key reached the app.
+    pub(super) fn finish_key(&mut self) {
+        self.controller.on_timer(Timer::AfterKey, &mut self.shell);
     }
 
     pub(super) fn scroll(&mut self) {

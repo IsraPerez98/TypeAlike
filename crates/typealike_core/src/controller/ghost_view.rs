@@ -47,6 +47,11 @@ pub struct GhostView {
     /// The ghost text, or with [`wrapped`](Self::wrapped) lines only its part on the line of the
     /// caret.
     pub ghost: Ghost,
+    /// The start of the ghost text that the user typed or that Tab took after the last look at
+    /// the caret, which the app now shows in its place. The platform draws it clear right after
+    /// the caret of that look, before the ghost text, so that the ghost text stays where it
+    /// showed. Empty when the user typed nothing after that look.
+    pub taken_part: String,
     /// The rest of a ghost text after the caret that does not fit on the line of the caret.
     pub wrapped: Option<WrappedLines>,
     /// The end of the word before the caret, without the typo of a fix. The mirror shows it
@@ -75,6 +80,7 @@ impl GhostView {
         Self {
             typed_word: mirrored_word(text_before_typo),
             ghost,
+            taken_part: String::new(),
             wrapped: None,
             placement,
             caret_row: None,
@@ -108,6 +114,23 @@ impl GhostView {
                 ..self
             },
         }
+    }
+
+    /// This view after `typed`, the start of its ghost text that the app now shows in its place,
+    /// with `typed` as the taken part. `None` when the line of the caret has no visible text of
+    /// the ghost text after `typed`, because the user then sees no next part there.
+    pub(super) fn after_typed(&self, typed: &str) -> Option<Self> {
+        let Ghost::Text(line) = &self.ghost else {
+            return None;
+        };
+        let line_rest = line
+            .strip_prefix(typed)
+            .filter(|line_rest| !line_rest.trim().is_empty())?;
+        Some(Self {
+            ghost: Ghost::Text(line_rest.to_owned()),
+            taken_part: typed.to_owned(),
+            ..self.clone()
+        })
     }
 
     /// The length in bytes of the end of `whole`, the ghost text that this view fits, that the
@@ -275,6 +298,10 @@ impl fmt::Debug for GhostView {
         formatter
             .debug_struct("GhostView")
             .field("ghost", &self.ghost)
+            .field(
+                "taken_part",
+                &format_args!("{} chars", self.taken_part.chars().count()),
+            )
             .field("wrapped", &self.wrapped)
             .field(
                 "typed_word",

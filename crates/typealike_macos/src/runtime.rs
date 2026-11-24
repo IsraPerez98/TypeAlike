@@ -122,6 +122,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             field_pause_timer: None,
             scroll_timer: None,
             update_check_timer: None,
+            after_key_timer: None,
             pending_injections: VecDeque::new(),
             settings: None,
             setup: None,
@@ -308,6 +309,11 @@ impl Runtime {
         self.controller.on_timer(Timer::UpdateCheck, &mut self.shell);
     }
 
+    fn on_key_finished(&mut self) {
+        self.shell.after_key_timer = None;
+        self.controller.on_timer(Timer::AfterKey, &mut self.shell);
+    }
+
     fn on_energy_saver(&mut self, energy_saver: EnergySaver) {
         tracing::info!(?energy_saver, "Low Power Mode changed");
         self.controller.on_energy_saver(energy_saver, &mut self.shell);
@@ -481,6 +487,7 @@ struct AppKitShell {
     field_pause_timer: Option<Retained<NSTimer>>,
     scroll_timer: Option<Retained<NSTimer>>,
     update_check_timer: Option<Retained<NSTimer>>,
+    after_key_timer: Option<Retained<NSTimer>>,
     /// The replacements that Tab accepted, oldest first. Each scheduled inject pass types one.
     pending_injections: VecDeque<Replacement>,
     settings: Option<SettingsWindow>,
@@ -501,7 +508,7 @@ impl AppKitShell {
         let style = self.caret_text_style();
         let wrapped = view.wrapped.as_ref();
         match &view.ghost {
-            Ghost::Text(text) => self.overlay.show(text, wrapped, caret, style),
+            Ghost::Text(text) => self.overlay.show(text, &view.taken_part, wrapped, caret, style),
             Ghost::Fix(fix) => self.overlay.show_fix(fix, wrapped, caret, style),
         }
     }
@@ -561,6 +568,7 @@ impl AppKitShell {
             Timer::FieldPause => &mut self.field_pause_timer,
             Timer::ScrollSettle => &mut self.scroll_timer,
             Timer::UpdateCheck => &mut self.update_check_timer,
+            Timer::AfterKey => &mut self.after_key_timer,
         }
     }
 }
@@ -646,6 +654,16 @@ impl Shell for AppKitShell {
         }
     }
 
+    /// Draws `ghost` at the caret of the last look, where the ghost text shows: the looks at the
+    /// caret come at once, so that look is also the look of the shown ghost text.
+    fn redraw_ghost(&mut self, ghost: &GhostView) {
+        let Some(caret) = self.caret else {
+            return;
+        };
+        let clock = self.clock.clone();
+        clock.time(Operation::GhostDraw, || self.show_at_caret(ghost, caret));
+    }
+
     fn hide_ghost(&mut self) {
         self.overlay.hide();
         self.mirror.hide();
@@ -672,6 +690,7 @@ impl Shell for AppKitShell {
             Timer::FieldPause => sel!(fieldPauseDidEnd:),
             Timer::ScrollSettle => sel!(scrollDidSettle:),
             Timer::UpdateCheck => sel!(updateCheckDidCome:),
+            Timer::AfterKey => sel!(keyDidFinish:),
         };
         let scheduled = self.schedule(delay.as_secs_f64(), action);
         *self.timer_slot(timer) = Some(scheduled);

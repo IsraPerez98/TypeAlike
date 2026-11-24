@@ -19,9 +19,13 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ## Timing
 
 - The ghost text and the badge show 40 ms after a key (`CARET_SETTLE_DELAY`), at the caret that the key moved.
-- Each key hides the ghost text that shows at once, also a key that keeps a suggestion. Examples are a letter of the suggestion, a dead key and a Backspace to an earlier suggestion.
-- The app writes the key over the old ghost text, and in another font the letters do not align. The suggestion shows again 40 ms after the last key, at the caret that the key moved.
-- Thus the ghost text does not show while the user types fast through a suggestion. The rest still counts as shown for Tab (`docs/core/typing.md`, "Tab").
+- Letters of the suggestion and the parts that Tab takes keep the ghost text of the last look while the caret moves. Thus the suggestion does not blink at each key.
+- A ghost text right after the caret shows again after the key (`Timer::AfterKey`), with the typed text clear in its place (`GhostView::taken_part`). The app writes that text there, so the rest of the ghost text does not move.
+- A ghost text below the caret or in the mirror stays as it shows, because the keys do not reach it.
+- The ghost text stays only while the keys and Tab typed the exact start of the ghost text of the last look, and the line of the caret still shows a next part.
+- Each other key hides the ghost text that shows at once, also a key that keeps a suggestion. Examples are a dead key, a letter in place of a marked accent, a Backspace to an earlier suggestion, a space that keeps a fix and the last part that Tab takes. The app writes such a key over the old ghost text.
+- When the app draws in another font than the overlay, the clear text is not as wide as the typed text. Until the next look, the rest is then a little off its place.
+- The rest also counts as shown for Tab while it waits (`docs/core/typing.md`, "Tab").
 - After Enter, core also reads the field at the end of this wait, so that the suggestion for the new line does not wait for the input to settle (`docs/core/typing.md`, "Enter").
 - A suggestion that comes after this wait shows at once (`GhostTiming::Now`).
 - A completion does not move the caret, so it does not change this wait. A suggestion that comes during the wait shows when the wait ends.
@@ -29,7 +33,8 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
   - The completion of a request that the next key replaced.
   - A completion that ends before the text that the user typed while it ran. Core asks again (`docs/core/typing.md`, "Keys while a completion runs").
   - A completion that stops for a typo in letters that the dictionary knows. Core asks again without the typo rule (`docs/core/suggestions.md`).
-- While the ghost text does not show, core looks at the caret again every 20 ms, at most 20 times, and then shows the ghost text at the caret where it is.
+- While the ghost text does not show, or the ghost text of the last look stays after keys, core looks at the caret again every 20 ms, at most 20 times. Then it shows the ghost text at the caret where it is.
+- A look that finds the caret that the keys did not move yet keeps the ghost text that stays. A look that finds the caret that the keys moved shows the rest there.
 - When the user types fast, an app can show only some of the keys at a look. Thus a look after more than one key can find a caret that moved only a part of the way. Core counts the keys since the last look that found a caret that moved.
 - After such a look shows the ghost text, core looks at the caret again 20 ms later. When the caret moved, the ghost text moves to it, and core looks again.
 - These looks end at a caret that did not move since the look before. They count in the 20 looks after a key.

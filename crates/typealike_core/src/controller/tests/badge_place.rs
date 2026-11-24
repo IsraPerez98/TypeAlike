@@ -2,7 +2,7 @@
 //! badge shows at the end of the line of the caret, inside its field, and the ghost text after the
 //! caret ends before it. The badge then covers no text of the field and no ghost text.
 
-use super::harness::{Call, Harness, field_around, ghost_at_caret};
+use super::harness::{Call, Harness, completed, field_around, ghost_at_caret};
 use crate::app::BadgeView;
 use crate::controller::{
     CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, Ghost, GhostPlacement, Timer, WrappedLines,
@@ -112,7 +112,8 @@ fn caret_that_did_not_move_after_a_key_gets_only_the_badge_at_the_end_of_its_lin
         notepad_look(caret(280, FIRST_LINE), AfterCaret::Nothing),
     );
     harness.show("est regards");
-    harness.press(Key::Tab);
+    harness.press(Key::Char('x'));
+    harness.answer(completed("ylophone"));
     harness.take_calls();
 
     harness.settle_caret();

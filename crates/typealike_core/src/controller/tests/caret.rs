@@ -317,11 +317,24 @@ fn tab_while_the_rest_waits_for_the_caret_swallows_the_key() {
 }
 
 #[test]
-fn letter_that_continues_the_shown_ghost_hides_it_until_the_caret_settles() {
+fn letter_that_continues_the_ghost_in_the_mirror_leaves_it_as_it_shows() {
     let mut harness = Harness::new(Settings::default());
     harness.show("est regards to you");
 
     harness.press(Key::Char('e'));
+
+    assert!(!harness.take_calls().iter().any(|call| matches!(
+        call,
+        Call::HideGhost | Call::RedrawGhost { .. } | Call::StartTimer(Timer::AfterKey, _)
+    )));
+}
+
+#[test]
+fn letter_that_does_not_continue_the_ghost_in_the_mirror_hides_it() {
+    let mut harness = Harness::new(Settings::default());
+    harness.show("est regards to you");
+
+    harness.press(Key::Char('x'));
 
     assert!(harness.take_calls().contains(&Call::HideGhost));
 }

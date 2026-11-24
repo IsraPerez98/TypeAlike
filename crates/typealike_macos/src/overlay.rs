@@ -45,15 +45,24 @@ impl Overlay {
         }
     }
 
-    /// Shows `text` starting at `caret`, then the `wrapped` lines below, in the face of `style` at
-    /// the size that fits the caret, and in the colors for a field whose text has `style`.
-    pub(crate) fn show(&self, text: &str, wrapped: Option<&WrappedLines>, caret: Caret, style: &TextStyle) {
+    /// Shows the clear `taken_part` starting at `caret`, then `text`, then the `wrapped` lines
+    /// below, in the face of `style` at the size that fits the caret, and in the colors for a field
+    /// whose text has `style`. The app shows the taken part, so `text` stays where it showed.
+    pub(crate) fn show(
+        &self,
+        text: &str,
+        taken_part: &str,
+        wrapped: Option<&WrappedLines>,
+        caret: Caret,
+        style: &TextStyle,
+    ) {
         self.match_field(style.color);
         let font = font_at(caret, style.face.as_ref());
         let color = ghost_color(style.color, Contrast::read());
-        self.label.setFont(Some(&font));
-        self.label.setTextColor(Some(&color));
-        self.label.setStringValue(&NSString::from_str(text));
+        let line = NSMutableAttributedString::new();
+        line.appendAttributedString(&attributed(taken_part, &font, &NSColor::clearColor(), None));
+        line.appendAttributedString(&attributed(text, &font, &color, None));
+        self.label.setAttributedStringValue(&line);
         self.present(&self.panel, &self.label, caret, 0);
         self.show_wrapped(wrapped, caret, &font, &color);
     }

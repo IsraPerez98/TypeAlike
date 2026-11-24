@@ -200,6 +200,18 @@ fn rest_after_tab_wraps_again_at_the_new_caret() {
 }
 
 #[test]
+fn letters_that_reach_the_end_of_the_line_of_the_caret_hide_the_wrapped_ghost_text() {
+    let mut harness = harness_at(100, Some(FIELD));
+    harness.show(SUGGESTION);
+    harness.type_text("est regard");
+    harness.take_calls();
+
+    harness.press(Key::Char('s'));
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
 fn quick_tab_after_a_part_types_the_next_part_that_showed() {
     let mut harness = harness_at(100, Some(FIELD));
     harness.show(SUGGESTION);

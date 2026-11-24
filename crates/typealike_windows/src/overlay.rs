@@ -100,17 +100,31 @@ struct TypedLetters<'text> {
 #[derive(Debug)]
 pub(crate) struct Overlay {
     window: Window,
+    /// The caret of the last ghost text that the overlay showed.
+    shown_caret: Option<Caret>,
 }
 
 impl Overlay {
     pub(crate) fn create() -> Result<Self> {
         let window = Window::create(WindowSpec::floating(w!("TypeAlike.Overlay")))?;
-        Ok(Self { window })
+        Ok(Self {
+            window,
+            shown_caret: None,
+        })
+    }
+
+    /// Shows the ghost text of `view` at the caret of the last ghost text that the overlay showed,
+    /// as [`Overlay::show`] does. Does nothing before the first ghost text.
+    pub(crate) fn redraw(&mut self, view: &GhostView) -> Result<()> {
+        match self.shown_caret.clone() {
+            Some(caret) => self.show(view, &caret),
+            None => Ok(()),
+        }
     }
 
     /// Shows the ghost text of `view` at its placement at `caret`, sized to the caret, in the font
     /// face of the control at the caret when it is installed, else in the system UI font.
-    pub(crate) fn show(&self, view: &GhostView, caret: &Caret) -> Result<()> {
+    pub(crate) fn show(&mut self, view: &GhostView, caret: &Caret) -> Result<()> {
         let font = ghost_text_font(caret, FontWeight::Regular)?;
         let theme = SystemTheme::read();
         let (bitmap, origin) = match view.placement {
@@ -119,6 +133,7 @@ impl Overlay {
         };
         log_shown_ghost(view, rect_at(origin, bitmap.size()));
         bitmap.present(self.window.handle(), origin)?;
+        self.shown_caret = Some(caret.clone());
         self.window.show_on_top()
     }
 
@@ -140,7 +155,13 @@ fn inline_bitmap(
     caret: &Caret,
 ) -> Result<(TextBitmap, POINT)> {
     let colors = inline_colors(theme, caret.text_color);
-    let (first_line, caret_left) = render(no_typed_letters(font), &view.ghost, font, colors)?;
+    let (first_line, caret_left) = render(
+        no_typed_letters(font),
+        &view.taken_part,
+        &view.ghost,
+        font,
+        colors,
+    )?;
     let first_line_left = caret.origin.x - caret_left;
     let (bitmap, left) = match &view.wrapped {
         Some(wrapped) => {
@@ -176,6 +197,7 @@ fn card_bitmap(
     };
     let (text, caret_left) = render(
         typed,
+        "",
         &view.ghost,
         font,
         fix_colors(theme, text_colors.ghost.into()),
@@ -217,17 +239,19 @@ fn log_shown_ghost(view: &GhostView, covered: RECT) {
     );
 }
 
-/// Renders the `typed` letters, then `ghost` in `font` and `colors`. A fix has a line through its
+/// Renders the `typed` letters, then the clear `taken_part` and `ghost` in `font` and `colors`.
+/// The app shows the taken part, so `ghost` stays where it showed. A fix has a line through its
 /// typo, as wide as the letters of the typo in the font of `typed`, so it can differ a little from
 /// the letters of a control in another font. Returns the bitmap and the distance from its left
 /// edge to the caret.
 fn render(
     typed: TypedLetters<'_>,
+    taken_part: &str,
     ghost: &Ghost,
     font: &Font,
     colors: FixColors,
 ) -> Result<(TextBitmap, i32)> {
-    with_line_runs(typed, ghost, font, colors, TextBitmap::render_line)
+    with_line_runs(typed, taken_part, ghost, font, colors, TextBitmap::render_line)
 }
 
 /// Puts the `wrapped` lines in the font and the ink of `style` below the bitmap of the first line,
@@ -263,6 +287,7 @@ pub(crate) fn inline_width(ghost: &Ghost, caret: &Caret) -> Result<i32> {
     let font = ghost_text_font(caret, FontWeight::Regular)?;
     with_line_runs(
         no_typed_letters(&font),
+        "",
         ghost,
         &font,
         MEASURED_COLORS,
@@ -271,17 +296,20 @@ pub(crate) fn inline_width(ghost: &Ghost, caret: &Caret) -> Result<i32> {
 }
 
 /// Gives `use_runs` the runs before the caret: the `typed` letters, and the typo of a fix. Then
-/// the runs after it: `ghost` in `font` and `colors`, with the word of a fix after a space.
+/// the runs after it: the clear `taken_part` and `ghost` in `font` and `colors`, with the word of
+/// a fix after a space.
 fn with_line_runs<Output>(
     typed: TypedLetters<'_>,
+    taken_part: &str,
     ghost: &Ghost,
     font: &Font,
     colors: FixColors,
     use_runs: impl FnOnce(&[TextRun<'_>], &[TextRun<'_>]) -> Result<Output>,
 ) -> Result<Output> {
     let typed_word = TextRun::new(typed.word, typed.font, typed.ink);
+    let taken = TextRun::new(taken_part, font, Ink::CLEAR);
     match ghost {
-        Ghost::Text(text) => use_runs(&[typed_word], &[TextRun::new(text, font, colors.rest)]),
+        Ghost::Text(text) => use_runs(&[typed_word], &[taken, TextRun::new(text, font, colors.rest)]),
         Ghost::Fix(fix) => {
             let typo = TextRun {
                 strike: Some(colors.strike),
@@ -291,6 +319,7 @@ fn with_line_runs<Output>(
             use_runs(
                 &[typed_word, typo],
                 &[
+                    taken,
                     TextRun::new(&word, font, colors.word.into()),
                     TextRun::new(&fix.rest, font, colors.rest),
                 ],

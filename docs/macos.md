@@ -160,6 +160,8 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Overlay
 
 - A fix: an attributed string with a red line through clear letters, then the fixed word in `systemGreen`.
+- A ghost text after the caret: an attributed string with the taken part in clear letters, then the ghost text. Thus the ghost text keeps its place while the user types it.
+- `redraw_ghost` draws at the caret of the last look. The looks come at once, so that caret is also the caret of the shown ghost text.
 - The overlay reads the color and the font face of the character before the caret (`AXForegroundColor` and `AXFont` of `AXAttributedStringForRange`, not in a terminal of xterm.js, and not for text with an alpha below 0.5) and draws in `DarkAqua` behind light text, else in `Aqua`.
 - It draws in that face when it is installed, else in the system font, at the size whose line fits the caret.
 - A face name that does not belong to its family (Word gives "Helvetica" for each face) gives the family.

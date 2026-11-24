@@ -2,7 +2,9 @@
 //! the look comes, and the ghost text stays off a caret that did not move after a key.
 
 use super::harness::{Call, Harness, TYPO, completed, field_around, fixed, ghost_at_caret};
-use crate::controller::{CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, FocusChange, Timer};
+use crate::controller::{
+    AFTER_KEY_DELAY, CARET_MOVE_CHECK_DELAY, CaretLook, CaretRead, FocusChange, Ghost, Timer,
+};
 use crate::desktop::ScreenRect;
 use crate::key::Key;
 use crate::settings::Settings;
@@ -120,7 +122,8 @@ fn look_that_nothing_waits_for_is_dropped() {
 #[test]
 fn caret_that_did_not_move_after_a_key_gets_only_the_badge_and_a_new_look() {
     let mut harness = harness_showing_at_the_old_caret("est regards");
-    harness.press(Key::Tab);
+    harness.press(Key::Char('x'));
+    harness.answer(completed("ylophone"));
     harness.settle_caret();
     harness.take_calls();
 
@@ -162,17 +165,14 @@ fn harness_after_e_at_the_right_side(suggestion: &str) -> Harness {
 }
 
 #[test]
-fn caret_at_the_right_side_that_one_key_did_not_move_gets_only_the_badge_and_a_new_look() {
+fn caret_at_the_right_side_that_one_key_did_not_move_keeps_the_ghost_and_gets_a_new_look() {
     let mut harness = harness_after_e_at_the_right_side("est");
 
     harness.answer_caret(&look_at(RIGHT_SIDE_CARET));
 
     assert_eq!(
         harness.take_calls(),
-        vec![
-            ghost_at_caret(None, Some(active_badge())),
-            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
-        ]
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY)]
     );
 }
 
@@ -212,10 +212,7 @@ fn caret_that_left_the_right_side_waits_again_for_a_caret_that_moved() {
 
     assert_eq!(
         harness.take_calls(),
-        vec![
-            ghost_at_caret(None, Some(active_badge())),
-            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
-        ]
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY)]
     );
 }
 
@@ -276,6 +273,187 @@ fn ghost_after_fast_keys_stays_when_the_new_look_finds_the_same_caret() {
         harness.take_calls(),
         vec![ghost_at_caret(Some("t regards"), Some(active_badge()))]
     );
+}
+
+/// The redraw of the ghost text after the caret where it shows, with `taken_part` drawn clear
+/// before `ghost`.
+fn redrawn(ghost: &str, taken_part: &str) -> Call {
+    Call::RedrawGhost {
+        ghost: Ghost::Text(ghost.to_owned()),
+        taken_part: taken_part.to_owned(),
+    }
+}
+
+/// A harness that keeps "st regards" at [`OLD_CARET`] after "e", and waits for the look at the
+/// caret.
+fn harness_after_e_on_the_ghost_at_the_old_caret() -> Harness {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.finish_key();
+    harness.settle_caret();
+    harness.take_calls();
+    harness
+}
+
+#[test]
+fn letter_that_continues_the_ghost_after_the_caret_keeps_it() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+
+    harness.press(Key::Char('e'));
+
+    assert!(!harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
+fn letter_that_continues_the_ghost_after_the_caret_redraws_it_after_the_key() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+
+    harness.press(Key::Char('e'));
+
+    assert!(
+        harness
+            .take_calls()
+            .contains(&Call::StartTimer(Timer::AfterKey, AFTER_KEY_DELAY))
+    );
+}
+
+#[test]
+fn ghost_after_the_caret_draws_the_letter_that_continued_it_clear_in_its_place() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), vec![redrawn("st regards", "e")]);
+}
+
+#[test]
+fn ghost_after_the_caret_draws_all_the_fast_letters_that_continued_it_clear() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.press(Key::Char('s'));
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), vec![redrawn("t regards", "es")]);
+}
+
+#[test]
+fn look_at_the_caret_that_the_letter_did_not_move_yet_keeps_the_ghost_and_looks_again() {
+    let mut harness = harness_after_e_on_the_ghost_at_the_old_caret();
+
+    harness.answer_caret(&look_at(OLD_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY)]
+    );
+}
+
+#[test]
+fn look_at_the_caret_that_the_letter_moved_shows_the_rest_there() {
+    let mut harness = harness_after_e_on_the_ghost_at_the_old_caret();
+
+    harness.answer_caret(&look_at(NEXT_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![ghost_at_caret(Some("st regards"), Some(active_badge()))]
+    );
+}
+
+#[test]
+fn letter_after_a_look_at_the_moved_caret_draws_only_itself_clear() {
+    let mut harness = harness_after_e_on_the_ghost_at_the_old_caret();
+    harness.answer_caret(&look_at(NEXT_CARET));
+    harness.press(Key::Char('s'));
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), vec![redrawn("t regards", "s")]);
+}
+
+#[test]
+fn look_far_from_the_field_drops_the_kept_ghost() {
+    let mut harness = harness_after_e_on_the_ghost_at_the_old_caret();
+    harness.answer_caret(&look_at(FAR_CARET));
+    harness.settle_caret();
+    harness.take_calls();
+
+    harness.answer_caret(&look_at(OLD_CARET));
+
+    assert_eq!(
+        harness.take_calls(),
+        vec![
+            ghost_at_caret(None, Some(active_badge())),
+            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
+        ]
+    );
+}
+
+#[test]
+fn scroll_after_a_letter_that_continued_the_ghost_drops_its_redraw() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.scroll();
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), Vec::new());
+}
+
+#[test]
+fn dead_key_hides_the_ghost_after_the_caret() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+
+    harness.press(Key::Dead);
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
+fn tab_on_the_ghost_after_the_caret_keeps_it() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+
+    harness.press(Key::Tab);
+
+    assert!(!harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
+fn ghost_after_the_caret_draws_the_part_that_tab_took_clear_in_its_place() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Tab);
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), vec![redrawn(" regards", "est")]);
+}
+
+#[test]
+fn ghost_after_the_caret_draws_the_typed_letters_and_the_part_that_tab_took_clear() {
+    let mut harness = harness_showing_at_the_old_caret("est regards");
+    harness.press(Key::Char('e'));
+    harness.press(Key::Tab);
+    harness.take_calls();
+
+    harness.finish_key();
+
+    assert_eq!(harness.take_calls(), vec![redrawn(" regards", "est")]);
+}
+
+#[test]
+fn tab_on_the_last_part_of_the_ghost_after_the_caret_hides_it() {
+    let mut harness = harness_showing_at_the_old_caret("est");
+
+    harness.press(Key::Tab);
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
 }
 
 #[test]
@@ -371,6 +549,19 @@ fn letter_after_a_dead_key_that_moved_the_caret_shows_the_ghost_at_once_at_the_s
 }
 
 #[test]
+fn letter_in_place_of_a_marked_accent_hides_the_ghost_after_the_caret() {
+    let mut harness = harness_showing_at_the_old_caret("ó soon");
+    harness.press(Key::Dead);
+    harness.settle_caret();
+    harness.answer_caret(&look_at(NEXT_CARET));
+    harness.take_calls();
+
+    harness.press(Key::Char('ó'));
+
+    assert!(harness.take_calls().contains(&Call::HideGhost));
+}
+
+#[test]
 fn letter_after_a_dead_key_that_did_not_move_the_caret_waits_for_a_caret_that_moved() {
     let mut harness = harness_showing_at_the_old_caret("ó soon");
     harness.press(Key::Dead);
@@ -385,10 +576,7 @@ fn letter_after_a_dead_key_that_did_not_move_the_caret_waits_for_a_caret_that_mo
 
     assert_eq!(
         harness.take_calls(),
-        vec![
-            ghost_at_caret(None, Some(active_badge())),
-            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
-        ]
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY)]
     );
 }
 
@@ -489,7 +677,7 @@ fn pause_shows_the_paused_badge_when_the_look_comes() {
 }
 
 #[test]
-fn caret_read_at_once_that_did_not_move_after_a_key_gets_only_the_badge_and_a_new_look() {
+fn caret_read_at_once_that_did_not_move_after_tab_keeps_the_ghost_and_gets_a_new_look() {
     let mut harness = harness_with_looks_at_once(OLD_CARET);
     harness.show("est regards");
     harness.press(Key::Tab);
@@ -499,10 +687,7 @@ fn caret_read_at_once_that_did_not_move_after_a_key_gets_only_the_badge_and_a_ne
 
     assert_eq!(
         harness.take_calls(),
-        vec![
-            ghost_at_caret(None, Some(active_badge())),
-            Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY),
-        ]
+        vec![Call::StartTimer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY)]
     );
 }
 

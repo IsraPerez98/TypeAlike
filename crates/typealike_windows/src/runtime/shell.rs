@@ -18,8 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{KillTimer, PostQuitMessage, SetTim
 use windows::core::Error;
 
 use super::{
-    CARET_TIMER_ID, FIELD_PAUSE_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE, SCROLL_TIMER_ID,
-    SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID, UPDATE_CHECK_TIMER_ID,
+    AFTER_KEY_TIMER_ID, CARET_TIMER_ID, FIELD_PAUSE_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE,
+    SCROLL_TIMER_ID, SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID, UPDATE_CHECK_TIMER_ID,
 };
 use crate::badge::{self, Badge};
 use crate::caret::Caret;
@@ -221,6 +221,15 @@ impl Shell for Win32Shell {
         self.show_badge(badge);
     }
 
+    /// Draws `ghost` at the caret where the overlay showed the ghost text last, and not at the
+    /// newest answer of the caret reader: the controller drops an answer that comes after a key.
+    fn redraw_ghost(&mut self, ghost: &GhostView) {
+        if let Err(error) = self.overlay.redraw(ghost) {
+            tracing::warn!(%error, "failed to show ghost text");
+            self.overlay.hide();
+        }
+    }
+
     fn hide_ghost(&mut self) {
         self.overlay.hide();
     }
@@ -305,6 +314,7 @@ fn timer_id(timer: Timer) -> usize {
         Timer::FieldPause => FIELD_PAUSE_TIMER_ID,
         Timer::ScrollSettle => SCROLL_TIMER_ID,
         Timer::UpdateCheck => UPDATE_CHECK_TIMER_ID,
+        Timer::AfterKey => AFTER_KEY_TIMER_ID,
     }
 }
 

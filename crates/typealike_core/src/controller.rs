@@ -68,6 +68,9 @@ const CARET_SETTLE_DELAY: Duration = Duration::from_millis(40);
 const CARET_MOVE_CHECK_DELAY: Duration = Duration::from_millis(20);
 /// The most looks at the caret after a key, before the ghost text shows at the caret where it is.
 const MAX_CARET_MOVE_CHECKS: u8 = 20;
+/// The wait for [`Timer::AfterKey`]: none, because the shell runs the timer only after the key
+/// reaches the app.
+const AFTER_KEY_DELAY: Duration = Duration::ZERO;
 /// How long the suggestions in a field pause after Escape rejects the suggestion that shows.
 const FIELD_PAUSE_DELAY: Duration = Duration::from_secs(10);
 /// The time without a scroll event after which a scroll stopped.
@@ -412,6 +415,7 @@ impl Controller {
             Timer::FieldPause => self.app.end_field_pause(),
             Timer::ScrollSettle => self.on_scroll_settled(shell),
             Timer::UpdateCheck => self.on_update_check_time(shell),
+            Timer::AfterKey => self.caret_wait.redraw_kept_view(shell),
         }
     }
 
@@ -470,14 +474,16 @@ impl Controller {
     /// Handles `read`, the look at the caret that the shell gives after it answered
     /// [`CaretLook::Later`]. Shows the waiting ghost text and the badge at the caret of `read`.
     /// After a key, a caret that did not move yet gets only the badge, and the controller looks
-    /// again later. A caret far from the frame of its field counts as no caret. Drops `read` when
-    /// a key came after the look started, because the key can move the caret.
+    /// again later. The ghost text that keys of the suggestion kept stays there as it shows. A
+    /// caret far from the frame of its field counts as no caret. Drops `read` when a key came
+    /// after the look started, because the key can move the caret.
     pub fn on_caret_read(&mut self, read: &CaretRead, shell: &mut dyn Shell) {
         let Some(outcome) = self.caret_wait.on_caret_read(read) else {
             return;
         };
         match outcome {
             LookOutcome::GhostAndBadge => self.render_at_caret(read, shell),
+            LookOutcome::BadgeOnly if self.caret_wait.has_kept_view() => {}
             LookOutcome::BadgeOnly => {
                 let badge = self.badge_at(read, &self.room_after_caret(read), &*shell);
                 shell.render_at_caret(None, badge);
@@ -1036,7 +1042,8 @@ impl Controller {
                 Disposition::Pass
             }
             Reaction::Accept { text, then } => {
-                self.hide_ghost(shell);
+                self.caret_wait.stop(shell);
+                self.caret_wait.on_tab_part(&text);
                 shell.replace_before_caret(0, text);
                 self.apply_after_accept(then, shell);
                 Disposition::Swallow
@@ -1307,7 +1314,7 @@ impl Controller {
         let badge = self.badge_at(read, &room, &*shell);
         let badge_frame = badge.as_ref().and_then(|badge| badge.frame);
         let ghost = self.ghost_view_at(read, &room, badge_frame, &*shell);
-        self.caret_wait.note_view(ghost.as_ref());
+        self.caret_wait.note_view(ghost.as_ref(), read.caret);
         shell.render_at_caret(ghost.as_ref(), badge);
         let is_suggestion_shown = ghost.is_some() && shell.is_ghost_shown();
         if is_suggestion_shown {

@@ -29,6 +29,10 @@ pub enum Timer {
     ScrollSettle,
     /// Waits until the next check for a new version of TypeAlike.
     UpdateCheck,
+    /// Runs out after the key that the controller handles now reaches the app, so that the
+    /// controller draws the ghost text again after the key, and not while the shell waits for the
+    /// decision about the key.
+    AfterKey,
 }
 
 /// Whether another window or app has the focus since the shell looked last.
@@ -101,6 +105,11 @@ pub trait Shell: Desktop {
     /// is not known, it can show the badge at the start of the focused field and the mirror of
     /// `ghost` next to the field, else it hides them.
     fn render_at_caret(&mut self, ghost: Option<&GhostView>, badge: Option<BadgeView>);
+
+    /// Shows `ghost`, a view after the caret, in place of the ghost text that shows, at the caret
+    /// where that ghost text shows. The [`taken_part`](GhostView::taken_part) of `ghost` is clear,
+    /// so that the rest of the ghost text stays where it showed. The badge stays as it is.
+    fn redraw_ghost(&mut self, ghost: &GhostView);
 
     /// Hides the ghost text at once.
     fn hide_ghost(&mut self);

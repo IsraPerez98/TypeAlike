@@ -4,7 +4,7 @@
 use std::{fmt, mem};
 
 use super::{
-    CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, CaretRead, Ghost, GhostPlacement, GhostView,
+    AFTER_KEY_DELAY, CARET_MOVE_CHECK_DELAY, CARET_SETTLE_DELAY, CaretRead, Ghost, GhostPlacement, GhostView,
     MAX_CARET_MOVE_CHECKS, Shell, Timer,
 };
 use crate::desktop::ScreenRect;
@@ -52,10 +52,85 @@ pub(super) struct CaretWait {
     /// and does not reach the app.
     is_rest: bool,
     /// The length in bytes of the end of the ghost text of the last view that the view did not
-    /// show, because it did not fit on the line of the caret. A Tab hides the ghost text before
-    /// it takes a part, so only the next view changes it.
+    /// show, because it did not fit on the line of the caret. Only the view of the next look
+    /// changes it, because the keys keep that end.
     hidden_len: usize,
+    /// The view that the last look showed, and the text that the keys typed after it.
+    looked: Option<LookedView>,
+    /// The view that stays after keys that typed the start of the ghost text of the last look,
+    /// until a look finds the caret that the keys moved.
+    kept: Option<PlacedView>,
     looks: CaretLooks,
+}
+
+/// A view of the ghost text, by where it shows.
+enum PlacedView {
+    /// Right after the caret, where the app writes the typed keys over it.
+    AfterCaret(GhostView),
+    /// Below the caret or in the mirror, where the typed keys do not reach it.
+    Apart,
+}
+
+/// The view that a look showed, and the text that the keys typed after the look.
+struct LookedView {
+    view: PlacedView,
+    /// The whole ghost text that the view fits.
+    whole: Ghost,
+    /// The text that the keys and Tab typed into the app after the look, a start of the whole
+    /// ghost text. `None` after a key that changed the text in another way, or typed another text.
+    typed: Option<String>,
+}
+
+impl LookedView {
+    /// Notes `key`, which the app gets, after a dead key with `accent` or without one: a letter
+    /// adds to the typed text. Tab adds the part that it takes in [`Self::on_tab_part`]. Each
+    /// other key, and a letter in place of a marked accent, change the text in another way.
+    fn on_key(&mut self, key: Key, accent: DeadKeyAccent) {
+        match (key, &mut self.typed) {
+            (Key::Char(_), _) if accent == DeadKeyAccent::Marked => self.typed = None,
+            (Key::Char(character), Some(typed)) => typed.push(character),
+            (Key::Char(_) | Key::Tab, _) => {}
+            _ => self.typed = None,
+        }
+        self.forget_typed_text_off_the_ghost();
+    }
+
+    /// Notes `part`, the part of the suggestion that Tab types into the app.
+    fn on_tab_part(&mut self, part: &str) {
+        if let Some(typed) = &mut self.typed {
+            typed.push_str(part);
+        }
+        self.forget_typed_text_off_the_ghost();
+    }
+
+    /// Forgets the typed text when it is not a start of the whole ghost text, because no later key
+    /// makes it one again.
+    fn forget_typed_text_off_the_ghost(&mut self) {
+        let is_start_of_whole = match (&self.whole, &self.typed) {
+            (Ghost::Text(whole), Some(typed)) => whole.starts_with(typed.as_str()),
+            _ => false,
+        };
+        if !is_start_of_whole {
+            self.typed = None;
+        }
+    }
+
+    /// The view that stays after the keys, when `ghost` is the rest of the whole ghost text after
+    /// the typed text, and the user still sees a next part: a view after the caret with the typed
+    /// text as its taken part, else the view as it shows. `None` when the view must hide.
+    fn after_keys(&self, ghost: &Ghost) -> Option<PlacedView> {
+        let (Ghost::Text(whole), Ghost::Text(rest), Some(typed)) = (&self.whole, ghost, &self.typed) else {
+            return None;
+        };
+        let is_rest_of_whole = whole.strip_prefix(typed.as_str()) == Some(rest.as_str());
+        if !is_rest_of_whole || rest.trim().is_empty() {
+            return None;
+        }
+        match &self.view {
+            PlacedView::AfterCaret(view) => view.after_typed(typed).map(PlacedView::AfterCaret),
+            PlacedView::Apart => Some(PlacedView::Apart),
+        }
+    }
 }
 
 /// Whether the user saw the next part of the rest of a suggestion that Tab took a part of.
@@ -78,6 +153,8 @@ impl fmt::Debug for CaretWait {
             .field("has_caret_settled", &self.has_caret_settled)
             .field("is_rest", &self.is_rest)
             .field("hidden_len", &self.hidden_len)
+            .field("has_looked_view", &self.looked.is_some())
+            .field("has_kept_view", &self.kept.is_some())
             .field("looks", &self.looks)
             .finish()
     }
@@ -233,13 +310,26 @@ impl CaretWait {
     /// the key can move the caret. The look that waits ends, because its caret can be stale.
     pub(super) fn on_key(&mut self, key: Key) {
         self.has_caret_settled = false;
+        let accent = self.looks.accent;
         self.looks.on_key(key);
+        if let Some(looked) = &mut self.looked {
+            looked.on_key(key, accent);
+        }
     }
 
-    /// Forgets the caret of the last look, because the caret is now in another field or at an
-    /// unknown place.
+    /// Notes `part`, the part of the suggestion that Tab types into the app.
+    pub(super) fn on_tab_part(&mut self, part: &str) {
+        if let Some(looked) = &mut self.looked {
+            looked.on_tab_part(part);
+        }
+    }
+
+    /// Forgets the caret and the view of the last look, because the caret is now in another field
+    /// or at an unknown place.
     pub(super) fn on_context_lost(&mut self) {
         self.looks.last_caret = None;
+        self.looked = None;
+        self.kept = None;
     }
 
     /// Waits for the caret to settle again after a scroll. The look that waits ends, because its
@@ -247,6 +337,7 @@ impl CaretWait {
     /// a caret that did not move.
     pub(super) fn on_scroll(&mut self, shell: &mut dyn Shell) {
         self.looks.is_pending = false;
+        self.kept = None;
         self.restart_timer(shell);
     }
 
@@ -271,22 +362,50 @@ impl CaretWait {
     }
 
     /// Shows `ghost` at the settled caret. When the caret settled after the last key, the
-    /// controller shows `ghost` at once. Else the shown ghost text hides, because the app writes
-    /// the key over it, and the caret timer starts again. When the user saw the next part of
-    /// `ghost` before the key, it counts as shown while it waits.
+    /// controller shows `ghost` at once. Else the caret timer starts again, and the shown ghost
+    /// text stays while `ghost` is its rest after the typed keys, or hides. When the user saw the
+    /// next part of `ghost` before the key, it counts as shown while it waits.
     pub(super) fn show_at_settled_caret(&mut self, ghost: Ghost, shell: &mut dyn Shell) -> GhostTiming {
         if self.has_caret_settled {
             self.ghost = Some(ghost);
             return GhostTiming::Now;
         }
-        let is_shown = shell.is_ghost_shown();
-        self.is_rest = (self.is_rest || is_shown) && self.shows_next_part_of(&ghost);
+        self.is_rest = (self.is_rest || shell.is_ghost_shown()) && self.shows_next_part_of(&ghost);
+        self.keep_view_after_key(&ghost, shell);
         self.ghost = Some(ghost);
-        if is_shown {
-            shell.hide_ghost();
-        }
         self.restart_timer(shell);
         GhostTiming::AfterSettle
+    }
+
+    /// Keeps the shown view of the last look while the caret moves after the keys, when `ghost`
+    /// is the rest of its ghost text after the typed text. A view after the caret then shows the
+    /// typed text clear after the key ([`Timer::AfterKey`]), where the app writes it, so the rest
+    /// does not move. Else the shown ghost text hides, because the app writes the key over it.
+    fn keep_view_after_key(&mut self, ghost: &Ghost, shell: &mut dyn Shell) {
+        let is_shown = shell.is_ghost_shown();
+        self.kept = self
+            .looked
+            .as_ref()
+            .filter(|_| is_shown)
+            .and_then(|looked| looked.after_keys(ghost));
+        match &self.kept {
+            Some(PlacedView::AfterCaret(_)) => shell.start_timer(Timer::AfterKey, AFTER_KEY_DELAY),
+            None if is_shown => shell.hide_ghost(),
+            Some(PlacedView::Apart) | None => {}
+        }
+    }
+
+    /// Whether a view stays after keys that typed the start of its ghost text, while the caret
+    /// moves.
+    pub(super) fn has_kept_view(&self) -> bool {
+        self.kept.is_some()
+    }
+
+    /// Shows the view after the caret that stays after the keys, with the typed text clear.
+    pub(super) fn redraw_kept_view(&self, shell: &mut dyn Shell) {
+        if let Some(PlacedView::AfterCaret(view)) = &self.kept {
+            shell.redraw_ghost(view);
+        }
     }
 
     /// Whether the last view of the waiting ghost text showed the next part of `ghost`, which
@@ -305,22 +424,34 @@ impl CaretWait {
     }
 
     /// Shows `rest`, the rest of a suggestion that Tab took a part of, when the caret settles
-    /// after the part that Tab typed. When the user saw its next word, the rest counts as shown
-    /// while it waits. Returns whether the user saw it.
+    /// after the part that Tab typed. Until then, the shown ghost text stays or hides as after a
+    /// typed key. When the user saw its next word, the rest counts as shown while it waits.
+    /// Returns whether the user saw it.
     pub(super) fn show_rest_after_settle(&mut self, rest: String, shell: &mut dyn Shell) -> RestSight {
         let sight = sight_of(&rest, self.hidden_len);
-        self.ghost = Some(Ghost::Text(rest));
+        let ghost = Ghost::Text(rest);
+        self.keep_view_after_key(&ghost, shell);
+        self.ghost = Some(ghost);
         self.restart_timer(shell);
         self.is_rest = sight == RestSight::Seen;
         sight
     }
 
-    /// Notes `view`, the view of the waiting ghost text that the controller shows now, or `None`
-    /// when no ghost text shows.
-    pub(super) fn note_view(&mut self, view: Option<&GhostView>) {
+    /// Notes `view`, the view of the waiting ghost text that the controller shows now at `caret`,
+    /// or `None` when no ghost text shows. The view of the keys before ends.
+    pub(super) fn note_view(&mut self, view: Option<&GhostView>, caret: Option<ScreenRect>) {
         self.hidden_len = view
             .zip(self.ghost.as_ref())
             .map_or(0, |(view, ghost)| view.hidden_len(ghost));
+        self.looked = view.zip(self.ghost.clone()).map(|(view, whole)| LookedView {
+            view: match (caret, view.placement) {
+                (Some(_), GhostPlacement::AfterCaret) => PlacedView::AfterCaret(view.clone()),
+                _ => PlacedView::Apart,
+            },
+            whole,
+            typed: Some(String::new()),
+        });
+        self.kept = None;
     }
 
     /// Shows `ghost` in place of the waiting ghost text, and does not make the wait longer.
@@ -353,17 +484,22 @@ impl CaretWait {
     /// its field over a whole key gets the ghost text, because a field that scrolls its line
     /// sideways keeps the caret there.
     pub(super) fn on_caret_read(&mut self, read: &CaretRead) -> Option<LookOutcome> {
-        self.looks.on_read(read)
+        let outcome = self.looks.on_read(read);
+        if outcome == Some(LookOutcome::Nothing) {
+            self.kept = None;
+        }
+        outcome
     }
 
     /// After the controller showed the waiting ghost text, looks at the caret again later when the
-    /// shell did not show it at the caret, or when the caret can still move after fast keys. The
-    /// wait ends after the last look, or when it shows at a caret that does not catch up.
+    /// shell did not show it at the caret, when a view stays after the keys, or when the caret can
+    /// still move after fast keys. The wait ends after the last look, or when it shows at a caret
+    /// that does not catch up.
     pub(super) fn after_render(&mut self, shell: &mut dyn Shell) {
         if self.ghost.is_none() {
             return;
         }
-        if shell.is_ghost_shown() && !self.looks.is_caret_catching_up {
+        if shell.is_ghost_shown() && !self.looks.is_caret_catching_up && self.kept.is_none() {
             self.looks.on_ghost_shown();
         } else if self.looks.take_check() {
             shell.start_timer(Timer::CaretSettle, CARET_MOVE_CHECK_DELAY);
@@ -383,6 +519,7 @@ impl CaretWait {
     pub(super) fn forget_ghost(&mut self) {
         self.ghost = None;
         self.is_rest = false;
+        self.kept = None;
     }
 
     /// Stops the wait and forgets the waiting ghost text. A look that waits goes on, so that the

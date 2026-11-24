@@ -60,6 +60,7 @@ const SCROLL_TIMER_ID: usize = 7;
 const UPDATE_CHECK_TIMER_ID: usize = 8;
 #[cfg(feature = "suggestion-log")]
 const RESOURCE_TIMER_ID: usize = 9;
+const AFTER_KEY_TIMER_ID: usize = 10;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -374,6 +375,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == FIELD_PAUSE_TIMER_ID => self.on_timer(Timer::FieldPause),
             WM_TIMER if wparam.0 == SCROLL_TIMER_ID => self.on_timer(Timer::ScrollSettle),
             WM_TIMER if wparam.0 == UPDATE_CHECK_TIMER_ID => self.on_timer(Timer::UpdateCheck),
+            WM_TIMER if wparam.0 == AFTER_KEY_TIMER_ID => self.on_timer(Timer::AfterKey),
             #[cfg(feature = "suggestion-log")]
             WM_TIMER if wparam.0 == RESOURCE_TIMER_ID => self.write_resource_usage(),
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
