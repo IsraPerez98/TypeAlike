@@ -810,10 +810,6 @@ impl Controller {
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
             Delivery::Recommendation(event) => self.on_recommendation_event(&event, shell),
-            Delivery::Screen(read) if self.app.is_caret_row_read(read.id) => {
-                self.app.on_caret_row_read(read);
-                self.show_below_read_row(shell);
-            }
             Delivery::Screen(read) => {
                 let work = self.app.on_screen_read(read, &*shell);
                 self.do_settled_work(work, shell);
@@ -1322,19 +1318,6 @@ impl Controller {
         } else {
             self.add_off_by_default_app();
         }
-        if is_suggestion_shown && read.caret.is_none() {
-            let work = self.app.start_caret_row_read(&*shell, read.field);
-            self.do_settled_work(work, shell);
-        }
-    }
-
-    /// Shows the ghost text again after the answer of a read of the row of the caret, so that the
-    /// mirror moves below the row that the answer shows. A ghost text that waits for the caret
-    /// shows there when the caret settles.
-    fn show_below_read_row(&mut self, shell: &mut dyn Shell) {
-        if shell.is_ghost_shown() && !self.caret_wait.is_timer_pending() {
-            self.render_waiting_ghost(shell);
-        }
     }
 
     /// The badge at the caret of `read`, or `None` while no badge shows. A shell that gives the
@@ -1378,10 +1361,6 @@ impl Controller {
         let view = self
             .caret_wait
             .ghost_view(self.app.text_before_caret(), room.placement)?;
-        if read.caret.is_none() {
-            let caret_row = self.app.caret_row_on_screen(read.field);
-            return Some(GhostView { caret_row, ..view });
-        }
         let Some(field_room) = room.field_room(read.caret, badge) else {
             return Some(view);
         };

@@ -173,7 +173,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 ## Mirror
 
-- The mirror is a panel below the row of the caret that core gives (`GhostView::caret_row`), else below the frame of the field, or above it, with the typed word in `labelColor` and the semibold system font, and the ghost text in `labelColor` at 60% opacity (`secondaryLabelColor` with Increase Contrast).
+- The mirror is a panel below the frame of the field, or above it, with the typed word in `labelColor` and the semibold system font, and the ghost text in `labelColor` at 60% opacity (`secondaryLabelColor` with Increase Contrast).
 - A control without a text selection gets no mirror, except in an app that gives no caret ("Fields").
 - When text follows the caret on its line, the mirror shows the typed word and the ghost text below the line of the caret, with the first letter of the ghost text under the caret, or above the line.
 
@@ -227,7 +227,6 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
     - `drawn` tells where the text shows: `Overlay`, `Mirror` (also the card below the caret), or `Nothing` when the field gave no caret and no frame.
     - `span` names the completion of the newest suggestion event with text (`docs/llm.md`): a part of a completion, or a completion with text or a fix. The empty answer of a prompt that core only prepares can come while an earlier ghost text shows, so it does not count. The delivery to the main thread keeps the span of the worker thread that sent the event.
     - `key_to_ghost_ms` is the time from the last key down to the first draw after it that shows. A draw that shows nothing keeps the key for the next draw.
-    - `caret_row` is the row of the caret on the screen that core gave for the mirror (`GhostView::caret_row`), if any. Without it, the mirror shows next to the field.
     - `screen_read` is the id of the newest screen read that macOS gave to core before the draw. Core drops a read that is not the newest that it started, and a session keeps the screen text that it got first. Thus the prompt can use an earlier read.
   - `Tab inserted text`: the text that Tab types, the number of characters that it deletes first, and the `span` of the completion of the newest suggestion event with text.
   - `resource usage`: the resources of the process when TypeAlike starts, then each minute (`RECORD_INTERVAL`), and after each model load. It holds numbers only.

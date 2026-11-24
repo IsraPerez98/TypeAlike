@@ -8,7 +8,6 @@ use crate::private_window;
 use crate::prompt::{self, Preface};
 use crate::settings::{ScreenTextApp, SuggestionLength, TextLimits, is_terminal};
 
-use super::caret_row::CaretRowRead;
 use super::new_line::EnterWait;
 use super::preface::EXAMPLE_STEP_TOKENS;
 use super::shown_suggestions::ShownSuggestions;
@@ -141,9 +140,6 @@ pub(super) struct Session {
     /// checked for a typo, while no fix of it shows. A request after the space after that word does
     /// not check it again.
     pub(super) checked_word: String,
-    /// The answer of the newest read of the row of the caret on the screen, in a field that shows
-    /// its text only on the screen.
-    pub(super) caret_row_read: Option<CaretRowRead>,
 }
 
 impl Session {
@@ -185,7 +181,6 @@ impl Session {
             has_untouched_request: false,
             example_step: 0,
             checked_word: String::new(),
-            caret_row_read: None,
         };
         session.example_step = session.example_step_now();
         session

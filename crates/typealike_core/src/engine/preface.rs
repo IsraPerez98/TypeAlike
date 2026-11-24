@@ -60,36 +60,11 @@ pub(super) struct ScreenReads {
     shown_above: Vec<String>,
     /// The lines of the reads of the conversation of the newest answer.
     conversation: ConversationLines,
-    /// The read of the row of the caret that runs, and the letters and digits of the line of the
-    /// caret when it started. Its answer never goes into a prompt.
-    row_read: Option<(ScreenReadId, usize)>,
 }
 
 impl ScreenReads {
-    pub(super) fn is_reading(&self) -> bool {
+    fn is_reading(&self) -> bool {
         matches!(self.screen, Screen::Reading { .. })
-    }
-
-    pub(super) fn is_row_reading(&self) -> bool {
-        self.row_read.is_some()
-    }
-
-    pub(super) fn is_row_read(&self, read: ScreenReadId) -> bool {
-        self.row_read.is_some_and(|(id, _)| id == read)
-    }
-
-    /// Starts a read of the row of the caret, while the line of the caret has `typed_letters`.
-    pub(super) fn start_row_read(&mut self, typed_letters: usize) -> ScreenReadId {
-        self.newest = self.newest.next();
-        self.row_read = Some((self.newest, typed_letters));
-        self.newest
-    }
-
-    /// Ends the read of the row of the caret when `read` is that read, and returns the letters of
-    /// the line of the caret when it started.
-    pub(super) fn answer_row_read(&mut self, read: ScreenReadId) -> Option<usize> {
-        let (_, typed_letters) = self.row_read.take_if(|(id, _)| *id == read)?;
-        Some(typed_letters)
     }
 
     fn start(&mut self, source: ScreenSource) -> ScreenReadId {
@@ -128,7 +103,6 @@ impl ScreenReads {
     /// Keeps the text of `read` when it answers the newest read at `now`, and returns whether it
     /// does. An OCR answer without lines keeps the text of the read of the tree before it.
     fn answer(&mut self, read: ScreenRead, now: Option<Timestamp>) -> bool {
-        self.row_read.take_if(|(row_read, _)| *row_read < read.id);
         let Screen::Reading { id, tree_text, .. } = &mut self.screen else {
             return false;
         };
@@ -149,7 +123,7 @@ impl ScreenReads {
     }
 
     /// The text of the newest answer, if it has text.
-    pub(super) fn text(&self) -> Option<&ScreenText> {
+    fn text(&self) -> Option<&ScreenText> {
         match &self.screen {
             Screen::Read(text) => Some(text),
             Screen::Unknown | Screen::Reading { .. } => None,
@@ -175,7 +149,6 @@ impl ScreenReads {
 
     fn forget(&mut self) {
         self.screen = Screen::Unknown;
-        self.row_read = None;
         self.shown_above.clear();
         self.conversation = ConversationLines::default();
     }

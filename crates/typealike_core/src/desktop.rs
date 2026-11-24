@@ -356,9 +356,8 @@ pub struct ScreenText {
     pub field: ScreenRect,
 }
 
-/// Names one read of the screen. Core makes it, and the platform gives it back with the answer. A
-/// read that starts later has a greater id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+/// Names one read of the screen. Core makes it, and the platform gives it back with the answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScreenReadId(u64);
 
 impl ScreenReadId {

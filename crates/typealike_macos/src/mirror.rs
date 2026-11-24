@@ -1,6 +1,5 @@
 //! The mirror: a small panel next to a focused field whose caret Accessibility does not give, as
-//! in the editor of VS Code, or below the row of the caret that core finds on the screen, as in a
-//! terminal of Ghostty. It shows the end of the typed word, then the ghost text. When text can
+//! in the editor of VS Code. It shows the end of the typed word, then the ghost text. When text can
 //! follow the caret on its line, as in a terminal of xterm.js, it shows them below the caret.
 
 use objc2::MainThreadMarker;
@@ -52,11 +51,10 @@ impl Mirror {
         self.present(&text.text, caret_line(caret, text.typed_width));
     }
 
-    /// Shows `view` below `anchor`, or above it when it does not fit below, at its left edge. The
-    /// anchor is the row of the caret on the screen, else the frame of the focused field, in global
-    /// points with a top-left origin.
-    pub(crate) fn show(&self, view: &GhostView, anchor: CGRect) {
-        self.present(&MirrorText::of(view, Contrast::read()).text, anchor);
+    /// Shows `view` below `field`, the frame of the focused field in global points with a top-left
+    /// origin, or above it when it does not fit below.
+    pub(crate) fn show(&self, view: &GhostView, field: CGRect) {
+        self.present(&MirrorText::of(view, Contrast::read()).text, field);
     }
 
     /// Shows `text` below `anchor`, a frame in global points with a top-left origin, or above it
@@ -213,15 +211,6 @@ mod tests {
         let frame = mirror_frame(field, SIZE, SCREEN);
 
         assert_eq!(frame, CGRect::new(CGPoint::new(511.0, 826.0), SIZE));
-    }
-
-    #[test]
-    fn mirror_shows_below_the_row_of_the_caret_in_a_field_that_fills_the_screen() {
-        let row = CGRect::new(CGPoint::new(12.0, 700.0), CGSize::new(400.0, 16.0));
-
-        let frame = mirror_frame(row, SIZE, SCREEN);
-
-        assert_eq!(frame, CGRect::new(CGPoint::new(12.0, 720.0), SIZE));
     }
 
     #[test]

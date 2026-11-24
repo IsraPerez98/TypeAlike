@@ -123,16 +123,6 @@ pub(crate) fn screen_rect(frame: CGRect) -> ScreenRect {
     }
 }
 
-/// The frame of `rect`, a core screen rectangle, in global points with a top-left origin.
-pub(crate) fn frame_of(rect: ScreenRect) -> CGRect {
-    let left = f64::from(rect.left);
-    let top = f64::from(rect.top);
-    CGRect::new(
-        CGPoint::new(left, top),
-        CGSize::new(f64::from(rect.right) - left, f64::from(rect.bottom) - top),
-    )
-}
-
 /// The frame at `x` and `y` with the size `width` × `height`, for the tests of several modules.
 #[cfg(test)]
 pub(crate) fn frame(x: f64, y: f64, width: f64, height: f64) -> CGRect {
@@ -280,18 +270,6 @@ mod tests {
         let parts = fields.map(|field| intersection(field, window));
 
         assert_eq!(parts, [Some(frame(152.0, 73.0, 656.0, 416.0)), None, None]);
-    }
-
-    #[test]
-    fn screen_rectangle_turns_back_into_its_frame() {
-        let rect = ScreenRect {
-            left: 10,
-            top: 21,
-            right: 111,
-            bottom: 39,
-        };
-
-        assert_eq!(frame_of(rect), frame(10.0, 21.0, 101.0, 18.0));
     }
 
     #[test]

@@ -158,7 +158,6 @@ impl ShellRecords {
             .as_ref()
             .map(|wrapped| tracing::field::debug(&wrapped.lines));
         let screen_read = self.screen_read.map(tracing::field::debug);
-        let caret_row = view.caret_row.map(tracing::field::debug);
         let placement = tracing::field::debug(view.placement);
         let drawn = tracing::field::debug(drawn);
         match &view.ghost {
@@ -168,7 +167,6 @@ impl ShellRecords {
                 text = text.as_str(),
                 wrapped,
                 placement,
-                caret_row,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,
@@ -182,7 +180,6 @@ impl ShellRecords {
                 rest = fix.rest.as_str(),
                 wrapped,
                 placement,
-                caret_row,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,

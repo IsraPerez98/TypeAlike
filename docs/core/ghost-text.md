@@ -64,26 +64,8 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ### Mirror and card below the caret
 
 - When the platform finds no caret, it can show the ghost text in the mirror next to the focused field.
-- In a field that shows text that the platform cannot read and gives no field text (`FieldTextAccess::Unreadable`), core also gives the row of the caret on the screen (`GhostView::caret_row`, `screen::caret_row`). Examples are the terminal of Ghostty and the window of Herdr. The mirror then shows below that row at its left edge, or above it when it does not fit below.
-  - Thus in a terminal that fills its window, such as Ghostty or Herdr, the mirror shows next to the input line of a coding agent, and not below or above the window.
-  - The row is the last line of a screen read inside the field that shows the line of the typed text where the caret is. Only the letters and the digits count, in lowercase.
-  - A line shows the typed line when its letters and digits are a part of the letters and digits of the typed line, or end with the start of them that the read shows (`ShownTyping`). Thus a line still matches when the OCR splits or joins words, or when it has a prompt mark, the prompt of a shell before the command, or the border of a box around the input.
-  - A line that ends with fewer than 4 letters and digits of the typed line does not count (`MIN_TYPED_END_CHARS`), because it often only ends with the same word, as "type /help to go" for "go".
-  - Only the typed text after its last line break counts. A read before an Enter shows only the line above the caret.
-  - The row comes only from a read of the field frame of the look. A window that moved or changed its size since the read gives no row.
-  - Without a row, the mirror shows next to the field.
-- A session reads the screen at its first key, often before the terminal shows that key. Thus that read often shows none of the typed text, and gives no row.
-- So a mirror without a caret starts an OCR read of its own, a row read (`App::start_caret_row_read`, `engine::caret_row`):
-  - A row read starts when the session has no row read yet, and when its row read found no row and the user typed 4 more letters or digits since (`LETTERS_BEFORE_ROW_RETRY`). An OCR often gives no line for a prompt mark with one or two typed letters.
-  - After 3 row reads in a row that found no row, the session starts no other row read (`MAX_ROW_READS_WITHOUT_ROW`). Thus a field where the OCR never finds the typed text costs at most 3 more OCR reads for each session.
-  - On 2026-11-21, a live OCR of a Terminal window with the Fast level gave each row of an agent screen as one line inside the field, and no line for "❯ D". A warm read took about 100 ms.
-  - It also starts when the typed line has more than 20 letters and digits more than at the start of the last row read (`MAX_LETTERS_AFTER_ROW_READ`). The typed line can wrap onto the next row, and the last row that shows it is then lower.
-  - It starts only when the platform can do an OCR, the screen text is on for the app, and no other read of the screen runs. The platform answers only the newest of the reads that wait together.
-  - When a newer read answers first, the platform dropped the row read, and the next mirror can start another one.
-  - The answer moves the mirror at once: core looks at the caret again and shows the ghost text below the new row.
-  - The row of the newest row read counts first. Without it, the row of the newest screen read of the session counts.
-  - A row read shows the typed line up to its start, less the last 2 letters or digits, which the app can write back later (`UNECHOED_LETTERS`). Thus the row stays while the user types after the read, also after the prompt of a shell.
-  - The text of a row read never goes into a prompt (`docs/core/prompt.md`, "Screen reads").
+  - Thus in a terminal of Ghostty or in the window of Herdr, the mirror shows below or above the terminal, not at the input line.
+  - TypeAlike does not move the mirror to a row of the caret that an OCR read finds. On 2026-11-23, live use of Ghostty and Herdr showed that the OCR lines matched wrong rows, and that the mirror often moved between the rows and the edge of the window.
 - The mirror (also the card below the caret) shows the end of the typed word before the ghost text (`GhostView::typed_word`: the text after the last space, at most 24 characters, without the typo of a fix).
 - The typed word has the primary text color and a semibold font.
 - The ghost text has a lighter color with a contrast of at least 4.5:1.

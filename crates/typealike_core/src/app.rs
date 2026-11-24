@@ -17,7 +17,7 @@ use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
     AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow, OcrAvailability,
-    OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource, Surroundings,
+    OcrRead, ScreenRead, ScreenReadId, ScreenSource,
 };
 use crate::diagnostics::KeptItems;
 use crate::engine::{Engine, Reaction, ScreenAnswer};
@@ -611,16 +611,12 @@ impl App {
     }
 
     fn reads_screen_in(&self, desktop: &dyn Desktop) -> bool {
-        self.reads_screen_around(&desktop.surroundings())
-    }
-
-    fn reads_screen_around(&self, surroundings: &Surroundings) -> bool {
+        let surroundings = desktop.surroundings();
         surroundings.holds_text()
-            && !place::is_excluded_field(surroundings)
+            && !place::is_excluded_field(&surroundings)
             && surroundings
                 .app_id
-                .as_ref()
-                .is_some_and(|app_id| self.screen_text.allows(app_id))
+                .is_some_and(|app_id| self.screen_text.allows(&app_id))
     }
 
     fn prepare_on_focus(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
@@ -720,55 +716,6 @@ impl App {
     #[must_use]
     pub fn text_before_caret(&self) -> &str {
         self.engine.text_before_caret()
-    }
-
-    /// The row of the caret on the screen in the field of the session, when the field gives no text
-    /// but shows text that the platform cannot read: the line of the newest row read, else of the
-    /// newest screen read, that shows the typed text. `None` without such a line, and when the read
-    /// is of another frame than `field`, the frame of the field now, because the window then moved
-    /// since the read.
-    #[must_use]
-    pub fn caret_row_on_screen(&self, field: Option<ScreenRect>) -> Option<ScreenRect> {
-        self.engine.caret_row_on_screen(field)
-    }
-
-    /// Starts an OCR read of the row of the caret in `field`, the frame of the field now, for a
-    /// mirror that shows in a field that gives no text and no caret, when `desktop` can do an OCR
-    /// and the screen text is on for the app. The session needs it when it has no row, or when
-    /// the typed line grew far past its row. Its text never goes into a prompt. Give the answer to
-    /// [`App::on_caret_row_read`].
-    pub fn start_caret_row_read(
-        &mut self,
-        desktop: &dyn Desktop,
-        field: Option<ScreenRect>,
-    ) -> Option<SettledWork> {
-        if !self.engine.is_caret_row_read_due(field) || desktop.ocr_availability() != OcrAvailability::Ready {
-            return None;
-        }
-        let surroundings = desktop.surroundings();
-        if !self.reads_screen_around(&surroundings) {
-            return None;
-        }
-        let ocr = OcrRead {
-            level: self.screen_text.ocr_level,
-            area: screen::ocr_area(&surroundings),
-        };
-        let read = self.engine.start_caret_row_read(field)?;
-        Some(SettledWork::ReadScreen {
-            read,
-            source: ScreenSource::Ocr(ocr),
-        })
-    }
-
-    /// Whether `read` is the read of the row of the caret that runs.
-    #[must_use]
-    pub fn is_caret_row_read(&self, read: ScreenReadId) -> bool {
-        self.engine.is_caret_row_read(read)
-    }
-
-    /// Keeps the answer of the read of the row of the caret for the session.
-    pub fn on_caret_row_read(&mut self, read: ScreenRead) {
-        self.engine.on_caret_row_read(read);
     }
 
     /// Whether the line of the caret has no text after the caret, also without a session, as a look
