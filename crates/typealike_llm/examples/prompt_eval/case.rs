@@ -51,6 +51,11 @@ pub struct Case {
     /// does while its screen reader mode is off.
     #[serde(default)]
     has_unreadable_text: bool,
+    /// Whether the platform reads no text of the field, so that its text shows only on the screen,
+    /// as a terminal of Ghostty or Herdr without a caret. The field then hides its text, and the
+    /// session takes the typed text from the keys.
+    #[serde(default)]
+    shows_text_only_on_screen: bool,
     #[serde(default)]
     writer: Option<String>,
     #[serde(default)]
@@ -184,13 +189,13 @@ impl Case {
                 domain: self.domain.clone(),
                 is_outside_web_pages: false,
                 app_path: None,
-                field_text: Some(FieldText {
+                field_text: (!self.shows_text_only_on_screen).then(|| FieldText {
                     before_caret,
                     after_caret: self.after.clone(),
                 }),
                 is_caret_line_hidden: false,
                 is_search_field: false,
-                has_unreadable_text: self.has_unreadable_text,
+                has_unreadable_text: self.has_unreadable_text || self.shows_text_only_on_screen,
             },
             clipboard: self.clipboard.clone(),
             now: self.now.map(Timestamp),

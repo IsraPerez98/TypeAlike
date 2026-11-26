@@ -25,7 +25,7 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 - The text after the caret: 300 in an email app or web mail, 100 in other places. In an email reply, the quoted message that the user answers is in the field after the caret. A platform reads at most 900 characters after the caret (`MAX_CHARS_AFTER_CARET`).
 - The place line: 40 for the window title, 40 for the name of the field and 40 for its hint.
 - The screen text: 800 on a graphics card (`Settings::screen_tokens`). On the CPU, 500 when TypeAlike prepares the prompt before the first key (the switch "Prepare suggestions early" on), else 300. More screen text is too slow to decode on the CPU at the first key. In a chat or an email app, the lines of the last prompt can use 25 percent more ("Order of the lines").
-- The last line above the field one more time, only when the whole line fits.
+- The last line above the field one more time, only when the whole line fits and the prompt knows the row of the caret ("Field that hides its text").
 - The earlier writing: 320.
 - The clipboard: 170.
 
@@ -100,6 +100,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - Its lines on the screen are its text, so they stay and count as above the caret. In VS Code, that is the line of the caret.
 - A line of such a field that shows a part of the text that the user typed in the session goes, because the prompt has that text already (`FieldContent::shows_typed_text`). The signs at the start of the line do not count, such as the prompt mark of an agent in a terminal ("❯ ").
 - When the platform does not know the caret, the last such line is the line of the caret. The lines nearest to the caret fill the budget first.
+- Without a caret and without a line of the typed text, a field that holds two lines or more does not tell the row of the caret (`screen::knows_caret_row`). Then all its lines are above the caret, and the last line above the field does not come again. In the log of one day, a terminal read before it showed the typed key in more than 90 percent of the requests, and the repeated line was the status bar of the window in about 97 percent of the Herdr prompts. On the made-up set `terminal_agent.jsonl`, the rule changed no match and made the prompts 16 percent shorter.
 - The lines of the field below the row of the caret, such as the status lines of an agent, are below the caret. The other lines of the field count as above it, also a line on the row of the caret that does not match the typed text, such as text that the user typed before the session.
 - The lines of the field come after the other lines above the caret, so that they lead to the caret. In the terminal of VS Code, the side bar has lines between the last answer of the terminal and the caret row.
 - On 12 synthetic prompts to coding agents in a terminal (Gemma 4 E4B), these two rules gave the right next word in 11 cases, against 6 with the whole screen after the caret and 6 with all the lines above the caret. With all the lines above, the model copied the status lines.

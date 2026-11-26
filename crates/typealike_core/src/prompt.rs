@@ -179,9 +179,13 @@ fn budgeted_parts<'text>(
     let below = nearby.below.join("\n");
     budget.spend(&nearby.above.join("\n"));
     budget.spend(&below);
+    let knows_caret_row = screen.is_some_and(|screen| {
+        screen::knows_caret_row(screen.text, FieldContent::of(surroundings, screen.typed))
+    });
     let last_line_above = nearby
         .above
         .last()
+        .filter(|_| knows_caret_row)
         .and_then(|line| budget.take_whole(line))
         .map(str::to_owned);
     let examples = budget.take_examples(&writer.examples);

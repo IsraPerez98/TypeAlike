@@ -430,6 +430,63 @@ fn last_line_above_the_field_comes_again_after_the_screen_text() {
     );
 }
 
+/// A terminal without a caret: its field is the whole screen and hides its text.
+fn terminal() -> (Surroundings, ScreenText) {
+    let surroundings = Surroundings {
+        has_unreadable_text: true,
+        ..Surroundings::default()
+    };
+    let screen = ScreenText {
+        field: ScreenRect {
+            left: 0,
+            top: 0,
+            right: 600,
+            bottom: 800,
+        },
+        ..screen(&[
+            ("Build finished", 300),
+            ("$ git sta", 320),
+            ("main | 3 agents", 760),
+        ])
+    };
+    (surroundings, screen)
+}
+
+#[test]
+fn terminal_screen_without_the_row_of_the_caret_has_no_last_line_above_the_field() {
+    let (surroundings, screen) = terminal();
+
+    let preface = preface(
+        &Writer::default(),
+        &surroundings,
+        None,
+        Some(screen_part(&screen)),
+    );
+
+    assert_eq!(
+        preface,
+        framed("Above the field on my screen:\nBuild finished\n$ git sta\nmain | 3 agents")
+    );
+}
+
+#[test]
+fn terminal_line_with_the_typed_text_gives_the_last_line_above_the_field() {
+    let (surroundings, screen) = terminal();
+    let part = ScreenPart {
+        typed: "git sta",
+        ..screen_part(&screen)
+    };
+
+    let preface = preface(&Writer::default(), &surroundings, None, Some(part));
+
+    assert_eq!(
+        preface,
+        framed(
+            "Below the field on my screen:\nmain | 3 agents\nAbove the field on my screen:\nBuild finished\nThe last line above the field on my screen:\nBuild finished"
+        )
+    );
+}
+
 #[test]
 fn screen_text_below_the_field_has_no_last_line_above_the_field() {
     let screen = screen(&[("Sent from my phone", 600)]);

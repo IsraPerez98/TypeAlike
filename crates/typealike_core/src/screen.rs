@@ -335,6 +335,17 @@ fn candidates(screen: &ScreenText, field: FieldContent<'_>, scope: LineScope) ->
         .collect()
 }
 
+/// Whether `screen` tells the row of the caret: it has the caret, the field gives its text, a line
+/// shows the typed text of a field that hides its text, or that field holds at most one line. Else
+/// all the lines of the field, such as the status line of a terminal, count as above the caret.
+pub(crate) fn knows_caret_row(screen: &ScreenText, field: FieldContent<'_>) -> bool {
+    let field_lines = screen
+        .lines
+        .iter()
+        .filter(|line| field.holds(line.frame, screen.field));
+    screen.caret.is_some() || field.typed_line(screen).is_some() || field_lines.take(2).count() < 2
+}
+
 /// Returns the caret of `screen`, else the line that shows the typed text of a field that hides
 /// its text, else the frame of the field.
 fn caret_of(screen: &ScreenText, field: FieldContent<'_>) -> ScreenRect {
