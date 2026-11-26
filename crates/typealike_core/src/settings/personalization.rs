@@ -193,6 +193,7 @@ mod tests {
             ("com.termius-dmg.mac", HistoryScope::Off),
             ("Termius.exe", HistoryScope::Off),
             ("dev.herdr.app", HistoryScope::Off),
+            ("herdr-app.exe", HistoryScope::Off),
         ];
 
         let scopes = cases.map(|(app_id, _)| HistoryApp::of(&screen_text_app(app_id, "App", true)).scope);
