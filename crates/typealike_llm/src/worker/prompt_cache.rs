@@ -193,6 +193,31 @@ impl<'model> PromptCache<'model> {
         self.decode_added_tokens(&prompt[..prompt.len().min(1 + GUESSED_TOKENS)])
     }
 
+    /// Decodes two added tokens after the prompt sequence, on a copy of it, as a completion does,
+    /// and then forgets them. The prompt sequence, its tokens and its logits stay as they are, so
+    /// the next completion gives the same tokens. Thus the backend prepares the kernels and the
+    /// memory of these decodes, also the guess of a drafter and its check, before that completion.
+    /// Returns whether it decoded them: it does nothing when the cache holds no prompt or the
+    /// context has no room for the tokens and the guess.
+    pub(super) fn warm_up_added_tokens(&mut self) -> Result<bool, GenerateError> {
+        let added = self
+            .tokens
+            .iter()
+            .copied()
+            .cycle()
+            .take(1 + GUESSED_TOKENS)
+            .collect::<Vec<_>>();
+        let room = usize::try_from(self.context.target().n_ctx()).expect("a u32 fits in usize");
+        if added.is_empty() || self.tokens.len() + added.len() + GUESSED_TOKENS > room {
+            return Ok(false);
+        }
+        let decoded = self.decode_added_tokens(&added);
+        self.context
+            .target_mut()
+            .kv_cache_seq_rm(COMPLETION_SEQUENCE, None, None)?;
+        decoded.map(|()| true)
+    }
+
     /// Decodes `added` after the prompt sequence, on a copy of it, as the first added tokens of a
     /// completion: the first token alone, and each later token with a guess of the drafter.
     fn decode_added_tokens(&mut self, added: &[LlamaToken]) -> Result<(), GenerateError> {

@@ -490,9 +490,11 @@ fn program_folder() -> Option<PathBuf> {
 /// Runs the completions and the reads of GPU memory for the `loaded` model until a job loads or
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
 /// before the next model loads. A completion with such a job behind it does not run: it answers
-/// with [`InferenceError::Superseded`], because that job drops the model of the completion. It
-/// frees the context when no job comes for `idle_timeout`. A read of GPU memory first adds the
-/// backends of its backend from `backend_dlls`.
+/// with [`InferenceError::Superseded`], because that job drops the model of the completion. After
+/// the answer of a preparation (a completion of 0 tokens), it warms up the decodes of added tokens
+/// when no job waits, as [`LoadedModel::warm_up_added_tokens`] tells. It frees the context when no
+/// job comes for `idle_timeout`. A read of GPU memory first adds the backends of its backend from
+/// `backend_dlls`.
 fn serve(
     loaded: &mut LoadedModel<'_>,
     queue: &mut JobQueue<'_>,
@@ -560,6 +562,9 @@ fn serve(
         job.reply.answer(InferenceEvent::Completed(
             result.map(|(completion, _)| completion),
         ));
+        if max_tokens.0 == 0 {
+            loaded.warm_up_added_tokens(&mut || queue.has_waiting_job());
+        }
     }
 }
 

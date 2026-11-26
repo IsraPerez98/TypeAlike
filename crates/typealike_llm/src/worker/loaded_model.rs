@@ -30,9 +30,27 @@ pub(super) struct LoadedModel<'model> {
     drafter: Option<&'model LlamaModel>,
     setup: ContextSetup,
     cache: Option<PromptCache<'model>>,
+    /// Whether the backend decoded added tokens since the load.
+    added_token_decodes: AddedTokenDecodes,
     /// The logits of the last word bias.
     word_tokens: Option<WordTokens>,
     pieces: TokenPieces,
+}
+
+/// Whether the backend decoded added tokens since the load. The first decodes of added tokens
+/// prepare the kernels and the memory of the backend for them, which makes them slow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddedTokenDecodes {
+    /// No warm-up and no completion decoded added tokens yet.
+    NotRun,
+    /// A warm-up or a completion decoded added tokens.
+    Ran,
+}
+
+/// Whether a model warms up the decodes of added tokens after a preparation: only when its load
+/// warms up the backend (`warm_up`), and its `decodes` did not run since the load.
+fn warms_up_added_tokens(warm_up: WarmUp, decodes: AddedTokenDecodes) -> bool {
+    warm_up == WarmUp::AtLoad && decodes == AddedTokenDecodes::NotRun
 }
 
 /// The logits that one version of the word bias adds to the first token of each word.
@@ -63,6 +81,7 @@ impl<'model> LoadedModel<'model> {
             drafter,
             setup,
             cache: None,
+            added_token_decodes: AddedTokenDecodes::NotRun,
             word_tokens: None,
             pieces: TokenPieces::new(model.tokens(false), |token| model.vocab().is_eog(token)),
         }
@@ -79,11 +98,40 @@ impl<'model> LoadedModel<'model> {
         }
         let started = Instant::now();
         match self.decode_warm_up(is_outdated) {
-            Ok(()) => tracing::info!(duration = ?started.elapsed(), "warmed up the model"),
+            Ok(()) => {
+                self.added_token_decodes = AddedTokenDecodes::Ran;
+                tracing::info!(duration = ?started.elapsed(), "warmed up the model");
+            }
             Err(GenerateError::Superseded) => tracing::info!("stopped the warm-up for a waiting request"),
             Err(error) => {
                 self.cache = None;
                 tracing::warn!(%error, "failed to warm up the model");
+            }
+        }
+    }
+
+    /// Decodes two added tokens after the prompt of the cache, as the next completion does, and
+    /// then forgets them, so that the first key after a load does not prepare the backend for
+    /// them. The next completion gives the same tokens. It runs once after a load that warms up
+    /// the backend, when no warm-up and no completion decoded added tokens since the load and
+    /// `is_outdated` does not tell that a request waits. Call it after a preparation.
+    pub(super) fn warm_up_added_tokens(&mut self, is_outdated: &mut dyn FnMut() -> bool) {
+        if !warms_up_added_tokens(self.setup.warm_up, self.added_token_decodes) || is_outdated() {
+            return;
+        }
+        let Some(cache) = self.cache.as_mut() else {
+            return;
+        };
+        let started = Instant::now();
+        match cache.warm_up_added_tokens() {
+            Ok(true) => {
+                self.added_token_decodes = AddedTokenDecodes::Ran;
+                tracing::info!(duration = ?started.elapsed(), "warmed up the decodes of added tokens");
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.added_token_decodes = AddedTokenDecodes::Ran;
+                tracing::warn!(%error, "failed to warm up the decodes of added tokens");
             }
         }
     }
@@ -156,6 +204,9 @@ impl<'model> LoadedModel<'model> {
         progress: &mut Progress<'_>,
     ) -> Result<(Completion, Stop), InferenceError> {
         let started = Instant::now();
+        if limits.max_added > 0 {
+            self.added_token_decodes = AddedTokenDecodes::Ran;
+        }
         let (text, added) = self
             .generate(prompt, limits, token_bias, progress)
             .map_err(|error| {
@@ -343,11 +394,22 @@ mod tests {
     use crate::worker::model_params::drafter_params;
 
     const BATCH_TOKENS: u32 = 128;
+    const MAX_ADDED: usize = 12;
     const STORY: &str = "Once upon a time";
+    const PROMPTS: [&str; 4] = [
+        STORY,
+        "Once upon a time there was a",
+        "Hi Anna,\n\nThanks for the notes from the meeting. I think we",
+        "Dear Mr. Smith, I am writing to ask about the status of my ord",
+    ];
 
     fn complete(loaded: &mut LoadedModel<'_>, prompt: &str) -> String {
+        completion_of(loaded, prompt, MAX_ADDED).text
+    }
+
+    fn completion_of(loaded: &mut LoadedModel<'_>, prompt: &str, max_added: usize) -> Completion {
         let limits = Limits {
-            max_added: 12,
+            max_added,
             min_log_probability: Some(LogProbability(-6.0)),
             typo_check: TypoCheck::Off,
             finished_word_fix: None,
@@ -364,7 +426,6 @@ mod tests {
             .complete(&Prompt(prompt.to_owned()), limits, &token_bias, &mut progress)
             .expect("the model completes the prompt")
             .0
-            .text
     }
 
     fn setup() -> ContextSetup {
@@ -374,6 +435,126 @@ mod tests {
             warm_up: WarmUp::Off,
             context_tokens: 4096,
         }
+    }
+
+    fn warm_up_setup() -> ContextSetup {
+        ContextSetup {
+            warm_up: WarmUp::AtLoad,
+            ..setup()
+        }
+    }
+
+    /// Returns the text and the word probabilities of a completion of `prompt` after a preparation
+    /// of it.
+    fn words_after_a_preparation(
+        loaded: &mut LoadedModel<'_>,
+        prompt: &str,
+    ) -> (String, Vec<LogProbability>) {
+        completion_of(loaded, prompt, 0);
+        let completion = completion_of(loaded, prompt, MAX_ADDED);
+        (completion.text, completion.word_log_probabilities)
+    }
+
+    /// Returns the words of a completion of `prompt` as [`words_after_a_preparation`] does, with
+    /// the warm-up of the added tokens after the preparation.
+    fn words_after_a_warm_up(loaded: &mut LoadedModel<'_>, prompt: &str) -> (String, Vec<LogProbability>) {
+        completion_of(loaded, prompt, 0);
+        loaded.warm_up_added_tokens(&mut || false);
+        let completion = completion_of(loaded, prompt, MAX_ADDED);
+        (completion.text, completion.word_log_probabilities)
+    }
+
+    #[test]
+    fn only_a_model_that_warms_up_and_decoded_no_added_tokens_warms_them_up() {
+        let cases = [
+            (WarmUp::AtLoad, AddedTokenDecodes::NotRun, true),
+            (WarmUp::AtLoad, AddedTokenDecodes::Ran, false),
+            (WarmUp::Off, AddedTokenDecodes::NotRun, false),
+            (WarmUp::Off, AddedTokenDecodes::Ran, false),
+        ];
+
+        let warm_ups = cases.map(|(warm_up, decodes, _)| warms_up_added_tokens(warm_up, decodes));
+
+        assert_eq!(warm_ups, cases.map(|(_, _, warms_up)| warms_up));
+    }
+
+    #[test]
+    #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+    fn warm_up_after_a_preparation_decodes_added_tokens() {
+        let mut llama = None;
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let llama = llama.as_ref().expect("the load starts llama.cpp");
+        let mut loaded = LoadedModel::new(llama, &model, None, warm_up_setup());
+        completion_of(&mut loaded, STORY, 0);
+        let cache = loaded.cache.as_mut().expect("the preparation makes the cache");
+
+        let decoded = cache.warm_up_added_tokens();
+
+        assert!(matches!(decoded, Ok(true)), "the warm-up gives {decoded:?}");
+    }
+
+    #[test]
+    #[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+    fn completion_after_the_warm_up_of_added_tokens_gives_the_same_words() {
+        let mut llama = None;
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let llama = llama.as_ref().expect("the load starts llama.cpp");
+        let without_warm_up = PROMPTS.map(|prompt| {
+            words_after_a_preparation(
+                &mut LoadedModel::new(llama, &model, None, warm_up_setup()),
+                prompt,
+            )
+        });
+
+        let with_warm_up = PROMPTS.map(|prompt| {
+            words_after_a_warm_up(
+                &mut LoadedModel::new(llama, &model, None, warm_up_setup()),
+                prompt,
+            )
+        });
+
+        assert_eq!(with_warm_up, without_warm_up);
+    }
+
+    #[test]
+    #[ignore = "needs the paths of a Gemma 4 model in TYPEALIKE_TEST_MODEL and of its drafter in \
+                TYPEALIKE_TEST_DRAFTER"]
+    fn completion_with_the_drafter_after_the_warm_up_of_added_tokens_gives_the_same_words() {
+        let mut llama = None;
+        let model = load(
+            &mut llama,
+            Some(path_in("TYPEALIKE_TEST_MODEL")),
+            Backend::Cpu,
+            BATCH_TOKENS,
+        )
+        .expect("the model loads");
+        let llama = llama.as_ref().expect("the load starts llama.cpp");
+        let drafter_params = drafter_params(Backend::Cpu).expect("the CPU runs the drafter");
+        let drafter = LlamaModel::load_from_file(llama, path_in("TYPEALIKE_TEST_DRAFTER"), &drafter_params)
+            .expect("the drafter loads");
+        let without_warm_up = PROMPTS.map(|prompt| {
+            let mut loaded = LoadedModel::new(llama, &model, Some(&drafter), warm_up_setup());
+            words_after_a_preparation(&mut loaded, prompt)
+        });
+
+        let with_warm_up = PROMPTS.map(|prompt| {
+            let mut loaded = LoadedModel::new(llama, &model, Some(&drafter), warm_up_setup());
+            words_after_a_warm_up(&mut loaded, prompt)
+        });
+
+        assert_eq!(with_warm_up, without_warm_up);
     }
 
     fn path_in(variable: &str) -> PathBuf {
@@ -428,12 +609,6 @@ mod tests {
     #[ignore = "needs the paths of a Gemma 4 model in TYPEALIKE_TEST_MODEL and of its drafter in \
                 TYPEALIKE_TEST_DRAFTER"]
     fn completions_with_the_drafter_give_the_texts_without_it() {
-        let prompts = [
-            STORY,
-            "Once upon a time there was a",
-            "Hi Anna,\n\nThanks for the notes from the meeting. I think we",
-            "Dear Mr. Smith, I am writing to ask about the status of my ord",
-        ];
         let mut llama = None;
         let model = load(
             &mut llama,
@@ -447,10 +622,10 @@ mod tests {
         let drafter = LlamaModel::load_from_file(llama, path_in("TYPEALIKE_TEST_DRAFTER"), &drafter_params)
             .expect("the drafter loads");
         let mut plain = LoadedModel::new(llama, &model, None, setup());
-        let without_drafter = prompts.map(|prompt| complete(&mut plain, prompt));
+        let without_drafter = PROMPTS.map(|prompt| complete(&mut plain, prompt));
         let mut with_guesses = LoadedModel::new(llama, &model, Some(&drafter), setup());
 
-        let with_drafter = prompts.map(|prompt| complete(&mut with_guesses, prompt));
+        let with_drafter = PROMPTS.map(|prompt| complete(&mut with_guesses, prompt));
 
         assert_eq!(with_drafter, without_drafter);
     }

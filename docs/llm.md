@@ -59,6 +59,10 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - On Vulkan, CUDA and Metal, each load warms up the backend before it answers (`WarmUp`): it makes the context, decodes a prompt of one batch and two added tokens (with a drafter, also a guess and its check), and then forgets them.
 - Thus the first completion after a load does not prepare the kernels and the memory of the GPU.
 - A request that waits stops the warm-up.
+- The app sends a preparation (a completion of 0 tokens) with each load, so the warm-up of a load almost always stops at its first step. A preparation decodes only the prompt.
+- Thus, after the answer of a preparation, when no request waits, the worker also decodes two added tokens after the prepared prompt (with a drafter, also a guess and its check), as the first completion does (`warm_up_added_tokens`). It decodes them on the completion sequence, and then removes them.
+- The prompt sequence, its tokens and its logits stay as they are, so the next completion gives the same words and the same probabilities, with and without the drafter.
+- It runs once after each load, and only when no warm-up and no completion decoded added tokens since the load. It needs room in the context for the two tokens and the guess.
 - The CPU does no warm-up, because it costs more CPU time than it saves.
 
 ## Metal residency sets
