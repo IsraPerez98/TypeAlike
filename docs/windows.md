@@ -71,6 +71,15 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The runtime gives the answer to the newest read to the controller, and the shell draws at the caret of that answer (`NewestCaret`).
 - With `TYPEALIKE_LOG=typealike_windows=debug`, the log gives the time, the caret, the UIA frame, the client area, the frame of the field and what follows the caret of each read of the caret, and the area of its pixels after the caret.
 
+### Fields without a caret
+
+- When a read finds no caret, the caret reader reads the kind of the focused element of that read in one request: the UIA framework id and the UIA control type id (`MissingCarets`, `Uia::kind_of`).
+- It reads the kind after it sends the answer, so that the ghost text does not wait for the log.
+- The log tells the first such read of each program and kind in a run at the info level ("the focused field gives no caret"). The record gives the file name of the program (`program`), `framework`, `control_type` and the class name of the focused window (`class`). It holds no text.
+  - The class is the Win32 class of the focused window. In a web page, the UIA class name is the class of the HTML element, which the page writes, so the record does not use it.
+  - Core reads the caret after each key in a field that it watches, after a scroll, and when a ghost text waits. Thus the record can also name a control that is not a text field, such as a list.
+  - Without UIA, or when UIA gives no focused element, the read tells no kind and the log gives no record.
+
 ### What follows the caret
 
 - Each read of the caret also tells what follows the caret now (`AfterCaret`, from the UIA `TextPattern` of the focused element): selected text, else text after the caret on its line, else text on the lines below, else nothing.

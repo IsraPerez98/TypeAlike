@@ -225,6 +225,16 @@ pub(crate) fn is_chromium_window(window: HWND) -> bool {
     window_class(window).is_some_and(|class| class == CHROMIUM_WINDOW_CLASS)
 }
 
+/// Reads the class name of the focused window of the foreground thread, else of the foreground
+/// window. The program of the window gave the class its name, so it holds no user text. `None`
+/// when no window is in the foreground.
+pub(crate) fn focused_window_class() -> Option<String> {
+    let focused = foreground_thread_state()
+        .map(|thread_state| thread_state.hwndFocus)
+        .filter(|window| !window.is_invalid());
+    window_class(focused.unwrap_or_else(foreground_hwnd))
+}
+
 /// Reads the class name of `window`, which the program that made the class gave it. `None` when
 /// the window does not exist.
 fn window_class(window: HWND) -> Option<String> {

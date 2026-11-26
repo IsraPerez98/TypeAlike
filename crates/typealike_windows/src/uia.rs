@@ -5,6 +5,7 @@
 mod caret_box;
 mod com;
 mod drawn_caret;
+mod element_kind;
 mod field;
 mod screen;
 
@@ -21,6 +22,7 @@ use windows::core::{BOOL, Interface, Result};
 
 pub(crate) use self::com::ComApartment;
 pub(crate) use self::drawn_caret::FocusedCaret;
+pub(crate) use self::element_kind::{ElementKind, FocusedElement};
 pub(crate) use self::field::{ShownField, UiaField};
 pub(crate) use self::screen::FocusedField;
 use crate::display;

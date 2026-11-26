@@ -15,6 +15,7 @@ use windows::Win32::UI::Accessibility::{
 
 use super::caret_box::CaretBox;
 use super::com::SafeArray;
+use super::element_kind::FocusedElement;
 use super::field::after_caret;
 use super::{
     Uia, WHOLE_RANGE, caret_range, frame_with_area, has_unreadable_text, is_password, is_terminal_input,
@@ -49,6 +50,8 @@ pub(crate) struct FocusedCaret {
     /// its text, and the hidden input box of a terminal of xterm.js has none of the text of the
     /// terminal. Then only the pixels after the caret tell what follows it.
     pub(crate) has_hidden_text_after_caret: bool,
+    /// The focused control of the read, or `None` when UIA gives no focused control.
+    pub(crate) element: Option<FocusedElement>,
 }
 
 impl Uia {
@@ -77,6 +80,7 @@ impl Uia {
             }),
             has_hidden_text_after_caret: terminal.is_some()
                 || element.as_ref().is_some_and(has_unreadable_text),
+            element: element.map(FocusedElement),
         }
     }
 

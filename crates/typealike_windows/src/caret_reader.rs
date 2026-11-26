@@ -21,13 +21,14 @@ use std::time::{Duration, Instant};
 
 use typealike_core::controller::CaretRead;
 use typealike_core::desktop::{AfterCaret, FieldText, ScreenPixels};
+use typealike_core::diagnostics::{RecordTurn, RecordedKinds};
 use windows::Win32::Foundation::RECT;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
 use crate::caret_pixels::{CaretPixels, IDLE_CAPTURE_TIMEOUT};
 use crate::mailbox::Mailbox;
-use crate::uia::{FocusedCaret, ShownField, Uia, UiaConnection, UiaField};
+use crate::uia::{ElementKind, FocusedCaret, FocusedElement, ShownField, Uia, UiaConnection, UiaField};
 use crate::window::WindowId;
 use crate::{display, focus};
 
@@ -162,7 +163,8 @@ impl CaretReader {
 
 /// Answers the reads until the reader drops. Of the reads of one kind that wait together, only
 /// the newest gets an answer. The caret goes first, because the ghost text waits for it. A capture
-/// of the pixels after the caret stops after a time without reads.
+/// of the pixels after the caret stops after a time without reads. The note of a read without a
+/// caret comes after its answer, so that the ghost text does not wait for the log.
 fn answer_reads(
     requests: &mpsc::Receiver<Request>,
     carets: &Mailbox<CaretAnswer>,
@@ -170,6 +172,7 @@ fn answer_reads(
 ) {
     let mut connection = UiaConnection::connect(CONNECTION_TIMEOUT, TRANSACTION_TIMEOUT);
     let mut pixels = CaretPixels::default();
+    let mut missing_carets = MissingCarets::default();
     loop {
         let oldest = match requests.recv_timeout(IDLE_CAPTURE_TIMEOUT) {
             Ok(request) => request,
@@ -182,7 +185,12 @@ fn answer_reads(
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         let uia = connection.connected();
         if let Some(id) = newest.caret {
-            carets.send(read_caret(id, uia, &mut pixels));
+            let (answer, element) = read_caret(id, uia, &mut pixels);
+            let gives_no_caret = answer.caret.is_none();
+            carets.send(answer);
+            if gives_no_caret {
+                missing_carets.note(uia, element.as_ref());
+            }
         }
         if let Some(id) = newest.field_text {
             let window = focus::foreground_window();
@@ -198,8 +206,13 @@ fn answer_reads(
 /// Reads the caret through `uia`, else the system caret. The frame of the focused field is the part
 /// of the frame that UIA gives inside the client area of the focused window, else that client area
 /// ([`display::visible_field_frame`]). In a field whose text after the caret UIA hides, `pixels`
-/// reads the pixels after the caret, and else its capture stops.
-fn read_caret(id: ReadId, uia: Option<&Uia>, pixels: &mut CaretPixels) -> CaretAnswer {
+/// reads the pixels after the caret, and else its capture stops. The focused element of the read
+/// comes with the answer, or `None` without UIA.
+fn read_caret(
+    id: ReadId,
+    uia: Option<&Uia>,
+    pixels: &mut CaretPixels,
+) -> (CaretAnswer, Option<FocusedElement>) {
     let started = Instant::now();
     let focused = uia.map_or_else(
         || FocusedCaret {
@@ -207,6 +220,7 @@ fn read_caret(id: ReadId, uia: Option<&Uia>, pixels: &mut CaretPixels) -> CaretA
             frame: None,
             after: AfterCaret::Unknown,
             has_hidden_text_after_caret: false,
+            element: None,
         },
         Uia::caret,
     );
@@ -230,12 +244,55 @@ fn read_caret(id: ReadId, uia: Option<&Uia>, pixels: &mut CaretPixels) -> CaretA
         pixels_duration = ?started.elapsed().saturating_sub(read),
         "read the caret"
     );
-    CaretAnswer {
+    let answer = CaretAnswer {
         id,
         caret: focused.caret,
         field,
         after: focused.after,
         pixels: pixels_after_caret,
+    };
+    (answer, focused.element)
+}
+
+/// The kinds of the focused fields that gave no caret in this run. The log tells each kind once,
+/// so that it shows the apps where the ghost text cannot show at a caret.
+#[derive(Debug, Default)]
+struct MissingCarets {
+    kinds: RecordedKinds<MissingCaretKind>,
+}
+
+/// The program of a focused field without a caret, and the kind of its UIA element. It holds no
+/// user text.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MissingCaretKind {
+    /// The file name of the program of the foreground window.
+    program: String,
+    element: ElementKind,
+}
+
+impl MissingCarets {
+    /// Notes that `element`, the focused element of a read of the caret through `uia`, gave no
+    /// caret. The log tells the first note of each program and kind of element in the run at the
+    /// info level, with the class name of the focused window. A read without UIA or without a
+    /// focused element tells no kind.
+    fn note(&mut self, uia: Option<&Uia>, element: Option<&FocusedElement>) {
+        let Some(element) = uia.zip(element).and_then(|(uia, element)| uia.kind_of(element)) else {
+            return;
+        };
+        let kind = MissingCaretKind {
+            program: focus::program_file_name_of(focus::foreground_hwnd()),
+            element,
+        };
+        if self.kinds.note(kind.clone()) == RecordTurn::Repeat {
+            return;
+        }
+        tracing::info!(
+            program = kind.program,
+            framework = kind.element.framework,
+            control_type = kind.element.control_type,
+            class = focus::focused_window_class(),
+            "the focused field gives no caret"
+        );
     }
 }
 
