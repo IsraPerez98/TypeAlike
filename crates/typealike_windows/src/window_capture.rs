@@ -9,7 +9,7 @@ use std::slice;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use typealike_core::desktop::ScreenRect;
+use typealike_core::desktop::{PixelColor, ScreenRect};
 use windows::Foundation::Metadata::ApiInformation;
 use windows::Foundation::TypedEventHandler;
 use windows::Graphics::Capture::{
@@ -254,6 +254,15 @@ pub(crate) struct WindowFrame {
     _session: CaptureSession,
 }
 
+/// The colors of `bgra`, pixels of 4 bytes in the order blue, green, red and alpha.
+pub(crate) fn colors_of_bgra(bgra: &[u8]) -> Vec<PixelColor> {
+    let (pixels, _) = bgra.as_chunks::<BYTES_PER_PIXEL>();
+    pixels
+        .iter()
+        .map(|&[blue, green, red, _]| PixelColor { red, green, blue })
+        .collect()
+}
+
 /// The frame of `window` on the screen without its invisible borders, which is the area that its
 /// capture shows.
 pub(crate) fn window_bounds(window: HWND) -> Result<ScreenRect, CaptureError> {
@@ -359,6 +368,27 @@ pub(crate) mod tests {
             right,
             bottom,
         }
+    }
+
+    #[test]
+    fn bgra_bytes_give_the_colors_of_the_pixels() {
+        let colors = colors_of_bgra(&[10, 20, 30, 255, 1, 2, 3, 0]);
+
+        assert_eq!(
+            colors,
+            [
+                PixelColor {
+                    red: 30,
+                    green: 20,
+                    blue: 10
+                },
+                PixelColor {
+                    red: 3,
+                    green: 2,
+                    blue: 1
+                },
+            ]
+        );
     }
 
     #[test]

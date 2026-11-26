@@ -11,7 +11,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use typealike_core::desktop::{PixelColor, ScreenPixels, ScreenRect};
+use typealike_core::desktop::{ScreenPixels, ScreenRect};
 use windows::Foundation::TypedEventHandler;
 use windows::Graphics::Capture::{
     Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession,
@@ -26,7 +26,7 @@ use windows::core::{Interface, factory};
 
 use crate::window::WindowId;
 use crate::window_capture::{
-    BYTES_PER_PIXEL, CaptureError, Capturer, PixelRect, can_capture_without_border, window_bounds,
+    CaptureError, Capturer, PixelRect, can_capture_without_border, colors_of_bgra, window_bounds,
 };
 
 /// The longest wait for the first frame of a new capture.
@@ -258,15 +258,6 @@ fn is_inside(rect: PixelRect, size: SizeInt32) -> bool {
         && rect.height() > 0
 }
 
-/// The colors of `bgra`, pixels of 4 bytes in the order blue, green, red and alpha.
-fn colors_of_bgra(bgra: &[u8]) -> Vec<PixelColor> {
-    let (pixels, _) = bgra.as_chunks::<BYTES_PER_PIXEL>();
-    pixels
-        .iter()
-        .map(|&[blue, green, red, _]| PixelColor { red, green, blue })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,27 +267,6 @@ mod tests {
         Width: 800,
         Height: 600,
     };
-
-    #[test]
-    fn bgra_bytes_give_the_colors_of_the_pixels() {
-        let colors = colors_of_bgra(&[10, 20, 30, 255, 1, 2, 3, 0]);
-
-        assert_eq!(
-            colors,
-            [
-                PixelColor {
-                    red: 30,
-                    green: 20,
-                    blue: 10
-                },
-                PixelColor {
-                    red: 3,
-                    green: 2,
-                    blue: 1
-                },
-            ]
-        );
-    }
 
     #[test]
     fn rectangle_inside_the_frame_with_an_area_is_inside() {
