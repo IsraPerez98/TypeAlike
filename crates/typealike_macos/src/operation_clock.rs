@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use typealike_core::diagnostics::Operation;
 #[cfg(feature = "suggestion-log")]
 use typealike_core::{
-    SUGGESTION_LOG_TARGET,
+    SUGGESTION_LOG_TARGET, SuggestionLog,
     controller::Services,
     diagnostics::operation_times,
     history::{HistoryEntry, WritingHistory},
@@ -76,7 +76,7 @@ impl OperationTotals {
     /// Starts the totals while the suggestion log is on, with the clock that sends them the times.
     /// While the log is off, gives no totals and a clock that measures nothing.
     pub(crate) fn start() -> (Option<Self>, OperationClock) {
-        if !tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        if !SuggestionLog::of_run().is_on() {
             return (None, OperationClock::default());
         }
         let (sender, runs) = mpsc::channel();

@@ -4,9 +4,9 @@
 use std::time::Duration;
 
 use tracing::span::EnteredSpan;
-use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{Backend, Completion, InferenceError, InferenceRequest};
+use typealike_core::{SUGGESTION_LOG_TARGET, SuggestionLog};
 
 use super::generation::Stop;
 
@@ -120,7 +120,7 @@ impl CompletionLog {
         result: Result<&(Completion, Stop), &InferenceError>,
         timing: Timing,
     ) {
-        if !tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        if !SuggestionLog::of_run().is_on() {
             return;
         }
         let InferenceRequest::Complete {

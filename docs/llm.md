@@ -213,6 +213,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 ## Suggestion log
 
 - With the `suggestion-log` feature, the worker writes records with the target `typealike_suggestions` (`SUGGESTION_LOG_TARGET`). The bin sends them only to `suggestions.jsonl` (`CLAUDE.md`, Debugging).
+- The bin sets the state of the log once when it starts (`SuggestionLog::set_for_run`): on only when `suggestions.jsonl` exists. Each crate asks this state (`SuggestionLog::of_run`) before it collects a record, so a run without the file does no work for the log.
 - Each completion gets a number, which stays unique after another model loads. The numbers start at 1 in each run, and the file keeps the records of the earlier runs. The record `loaded the settings` starts each run. Its records, and the events that it sends to the platform, are in its span: `"span":{"completion":N,"name":"completion"}`. Thus a ghost record of macOS names the completion of its text, also when it comes before the `completed` record.
 - `completed`: the request and the outcome of each completion.
   - The prompt is the first `prompt_shared_chars` characters of the prompt of the `completed` record before, then `prompt_tail`. When the shared start is less than half of the prompt, the record holds the full prompt, so that each session starts with a full prompt.

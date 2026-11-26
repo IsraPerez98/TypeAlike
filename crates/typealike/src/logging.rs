@@ -12,7 +12,7 @@ use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
-use typealike_core::SUGGESTION_LOG_TARGET;
+use typealike_core::{SUGGESTION_LOG_TARGET, SuggestionLog};
 
 /// The environment variable that sets the log levels, for example `debug` or
 /// `info,typealike_llm=debug,llama-cpp-2=warn`.
@@ -38,14 +38,25 @@ pub(crate) fn start() {
     let file_error = file.as_ref().err().map(ToString::to_string);
     let subscriber = main_subscriber(main_targets, io::stdout, file.ok());
     #[cfg(feature = "suggestion-log")]
-    let subscriber = subscriber.with(suggestion_log::layer());
+    let (subscriber, suggestion_log) = {
+        let layer = suggestion_log::layer();
+        let state = if layer.is_some() {
+            SuggestionLog::On
+        } else {
+            SuggestionLog::Off
+        };
+        (subscriber.with(layer), state)
+    };
+    #[cfg(not(feature = "suggestion-log"))]
+    let suggestion_log = SuggestionLog::Off;
+    suggestion_log.set_for_run();
     subscriber.init();
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         tracing::error!(%info, "TypeAlike panicked");
         default_hook(info);
     }));
-    log_start(&path);
+    log_start(&path, suggestion_log);
     if let Some(error) = filter_error {
         tracing::warn!(
             %error,
@@ -76,16 +87,16 @@ fn main_subscriber(
         }))
 }
 
-/// Logs the start of the run: the build, the process, the path of the `log` file and whether the
-/// suggestion log is on.
-fn log_start(log: &Path) {
+/// Logs the start of the run: the build, the process, the path of the `log` file and the state of
+/// the `suggestion_log`.
+fn log_start(log: &Path, suggestion_log: SuggestionLog) {
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         process = std::process::id(),
         vulkan = cfg!(feature = "vulkan"),
         cuda = cfg!(feature = "cuda"),
         log = %log.display(),
-        suggestion_log = tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO),
+        suggestion_log = suggestion_log.is_on(),
         "TypeAlike started"
     );
 }
@@ -262,8 +273,51 @@ mod suggestion_log {
 mod tests {
     use std::io::Write as _;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::layer::Identity;
 
     use super::*;
+
+    /// A log file in memory, which each writer of a subscriber shares.
+    #[derive(Clone, Default)]
+    struct MemoryLog(Arc<Mutex<Vec<u8>>>);
+
+    impl MemoryLog {
+        fn text(&self) -> String {
+            let bytes = self.0.lock().expect("no test panics while it holds the lock");
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+    }
+
+    impl io::Write for MemoryLog {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("no test panics while it holds the lock")
+                .write(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn start_line_reaches_the_log_file_when_the_suggestion_log_has_no_file() {
+        let file = MemoryLog::default();
+        let writer = file.clone();
+        let subscriber = main_subscriber(
+            main_targets(DEFAULT_LEVELS).0,
+            io::sink,
+            Some(move || writer.clone()),
+        )
+        .with(None::<Identity>);
+
+        tracing::subscriber::with_default(subscriber, || log_start(Path::new(LOG_FILE), SuggestionLog::Off));
+
+        assert!(file.text().contains("TypeAlike started"));
+    }
 
     pub(super) fn temporary_folder(name: &str) -> PathBuf {
         let folder = std::env::temp_dir().join(format!("typealike-logging-{}-{name}", std::process::id()));

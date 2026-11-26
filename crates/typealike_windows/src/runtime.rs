@@ -440,7 +440,7 @@ impl Runtime {
     /// [`RECORD_INTERVAL`]: crate::resource_usage::RECORD_INTERVAL
     #[cfg(feature = "suggestion-log")]
     fn schedule_resource_records(&mut self) {
-        if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        if !typealike_core::SuggestionLog::of_run().is_on() {
             return;
         }
         self.write_resource_usage();

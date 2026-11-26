@@ -5,8 +5,8 @@
 use std::mem;
 use std::time::{Duration, Instant};
 
-use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::diagnostics::{CpuWindow, KeptItems, megabytes};
+use typealike_core::{SUGGESTION_LOG_TARGET, SuggestionLog};
 use windows::Win32::Foundation::FILETIME;
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
@@ -97,7 +97,7 @@ impl ResourceLog {
     /// Writes the usage of the process now, with the `kept` items of core, when the suggestion log
     /// is on.
     pub(crate) fn write(&mut self, kept: KeptItems) {
-        if !tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+        if !SuggestionLog::of_run().is_on() {
             return;
         }
         let Some(usage) = ProcessUsage::read() else {

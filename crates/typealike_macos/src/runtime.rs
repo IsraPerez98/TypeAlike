@@ -190,7 +190,7 @@ fn deliver_on_main_thread(delivery: Delivery) {
 /// [`RECORD_INTERVAL`]: crate::resource_usage::RECORD_INTERVAL
 #[cfg(feature = "suggestion-log")]
 fn schedule_usage_records() {
-    if !tracing::enabled!(target: typealike_core::SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+    if !typealike_core::SuggestionLog::of_run().is_on() {
         return;
     }
     with_runtime(Runtime::write_resource_usage);

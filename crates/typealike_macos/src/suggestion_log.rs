@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use objc2_application_services::AXUIElement;
 use tracing::Span;
-use typealike_core::SUGGESTION_LOG_TARGET;
 use typealike_core::controller::{Delivery, Ghost, GhostView};
 use typealike_core::desktop::{ScreenRead, ScreenReadId, ScreenSource, Surroundings};
 use typealike_core::inference::InferenceEvent;
+use typealike_core::{SUGGESTION_LOG_TARGET, SuggestionLog};
 
 use crate::accessibility::{ROLE_ATTRIBUTE, SUBROLE_ATTRIBUTE, copy_string, frame};
 use crate::mirror::Mirror;
@@ -22,7 +22,7 @@ pub(crate) fn field(
     surroundings: &Surroundings,
     shows_text_only_on_screen: bool,
 ) {
-    if !tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO) {
+    if !SuggestionLog::of_run().is_on() {
         return;
     }
     let role = element.and_then(|element| copy_string(element, ROLE_ATTRIBUTE));
