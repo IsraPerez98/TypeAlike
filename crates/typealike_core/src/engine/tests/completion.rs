@@ -296,6 +296,35 @@ fn completion_that_names_the_clipboard_without_a_clipboard_text_shows() {
     assert_eq!(reaction, show("clipboard."));
 }
 
+/// The words before the clipboard word show while they arrive, because no earlier word tells that
+/// the clipboard word comes next. The clipboard word itself never shows.
+#[test]
+fn partial_completion_that_names_the_clipboard_hides_the_words_that_it_showed() {
+    let mut engine = engine_waiting_with_copy("FAIL src/orders.spec.ts", "Check ");
+    let shown = engine.on_partial_completion("the environment variables in the ");
+
+    let reaction = engine.on_partial_completion("the environment variables in the clipboard ");
+
+    assert_eq!(
+        (shown, reaction),
+        (Some(show("the environment variables in")), Some(Reaction::Hide))
+    );
+}
+
+/// The words of the label show while they arrive, and the colon that ends the copy hides them.
+#[test]
+fn partial_completion_that_ends_a_copy_of_a_label_with_a_colon_hides_the_words_that_it_showed() {
+    let mut engine = engine_waiting_with(&named_writer("I am a nurse."), "The ");
+    let shown = engine.on_partial_completion("text I am typing ");
+
+    let reaction = engine.on_partial_completion("text I am typing is: ");
+
+    assert_eq!(
+        (shown, reaction),
+        (Some(show("text I am typing")), Some(Reaction::Hide))
+    );
+}
+
 #[test]
 fn completion_that_names_the_clipboard_shows_when_a_text_of_the_writer_or_the_clipboard_holds_it() {
     let cases = [
