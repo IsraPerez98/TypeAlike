@@ -1,6 +1,8 @@
 //! The pixels of the screen after the caret, which show what follows the caret where the field does
 //! not tell it.
 
+mod cursor;
+
 use std::fmt;
 use std::ops::Range;
 
@@ -566,6 +568,78 @@ mod tests {
         let seen = frames.map(|frame| Canvas::of(frame).pixels().after_caret(CARET, FIELD));
 
         assert_eq!(seen, [None, None, None]);
+    }
+
+    /// A block cursor of a terminal, one cell of 8 x 17 pixels.
+    const CURSOR_BLOCK: ScreenRect = rect(40, 30, 48, 47);
+
+    /// A line of text before the cursor: glyphs of 6 x 10 pixels, each an "H" of strokes 1 pixel
+    /// wide, from 10 to 38.
+    fn with_text_before_the_cursor(canvas: Canvas) -> Canvas {
+        [10, 18, 26, 34].into_iter().fold(canvas, |canvas, left| {
+            canvas
+                .paint(rect(left, 34, left + 1, 44), TEXT)
+                .paint(rect(left + 5, 34, left + 6, 44), TEXT)
+                .paint(rect(left, 38, left + 6, 39), TEXT)
+        })
+    }
+
+    #[test]
+    fn cursor_blocks_give_the_block_cursor_after_the_text() {
+        let canvas = with_text_before_the_cursor(Canvas::of(FIELD)).paint(CURSOR_BLOCK, CURSOR);
+
+        assert_eq!(canvas.pixels().cursor_blocks(), [CURSOR_BLOCK]);
+    }
+
+    #[test]
+    fn cursor_blocks_give_a_dark_block_on_a_light_background() {
+        let canvas = Canvas::of(FIELD)
+            .paint(FIELD, gray(245))
+            .paint(CURSOR_BLOCK, gray(40));
+
+        assert_eq!(canvas.pixels().cursor_blocks(), [CURSOR_BLOCK]);
+    }
+
+    #[test]
+    fn cursor_blocks_give_each_block_of_two_panes() {
+        let other = rect(90, 30, 98, 47);
+        let canvas = Canvas::of(FIELD).paint(CURSOR_BLOCK, CURSOR).paint(other, CURSOR);
+
+        assert_eq!(canvas.pixels().cursor_blocks(), [CURSOR_BLOCK, other]);
+    }
+
+    #[test]
+    fn cursor_blocks_leave_out_shapes_that_are_not_a_cell() {
+        let shapes = [
+            rect(40, 30, 42, 47),
+            rect(40, 30, 80, 47),
+            rect(40, 10, 48, 70),
+            rect(40, 30, 48, 36),
+        ];
+
+        let blocks = shapes.map(|shape| Canvas::of(FIELD).paint(shape, CURSOR).pixels().cursor_blocks());
+
+        assert_eq!(blocks, [vec![], vec![], vec![], vec![]]);
+    }
+
+    #[test]
+    fn cursor_blocks_leave_out_the_highlight_of_a_word_in_a_diff() {
+        let highlight = PixelColor {
+            red: 35,
+            green: 110,
+            blue: 45,
+        };
+        let canvas = Canvas::of(FIELD).paint(CURSOR_BLOCK, highlight);
+
+        assert_eq!(canvas.pixels().cursor_blocks(), []);
+    }
+
+    #[test]
+    fn cursor_blocks_leave_out_a_block_at_the_edge_of_the_pixels() {
+        let at_edge = rect(0, 30, 8, 47);
+        let canvas = Canvas::of(FIELD).paint(at_edge, CURSOR);
+
+        assert_eq!(canvas.pixels().cursor_blocks(), []);
     }
 
     #[test]
