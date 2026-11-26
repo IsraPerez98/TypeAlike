@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use typealike_core::controller::CaretRead;
 use typealike_core::desktop::{AfterCaret, FieldText, ScreenPixels};
 use typealike_core::diagnostics::{RecordTurn, RecordedKinds};
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::RECT;
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
@@ -190,7 +190,13 @@ fn answer_reads(
             let gives_no_caret = answer.caret.is_none();
             carets.send(answer);
             if gives_no_caret {
-                missing_carets.note(window, uia.zip(element.as_ref()));
+                let read_kind = || {
+                    uia.zip(element.as_ref())
+                        .and_then(|(uia, element)| uia.kind_of(element))
+                };
+                if let Some(record) = missing_carets.note(focus::program_file_name_of(window), read_kind) {
+                    record.write();
+                }
             }
         }
         if let Some(id) = newest.field_text {
@@ -255,17 +261,16 @@ fn read_caret(
     (answer, focused.element)
 }
 
-/// The kinds of the focused fields that gave no caret in this run. The log tells each kind once,
+/// The programs whose focused fields gave no caret in this run. The log tells each program once,
 /// so that it shows the apps where the ghost text cannot show at a caret.
 #[derive(Debug, Default)]
 struct MissingCarets {
-    kinds: RecordedKinds<MissingCaretKind>,
+    programs: RecordedKinds<String>,
 }
 
-/// The program of a focused field without a caret, and the kind of its UIA element. It holds no
-/// user text.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct MissingCaretKind {
+/// The record of the first read without a caret in a program. It holds no user text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MissingCaretRecord {
     /// The file name of the program of the foreground window of the read.
     program: String,
     /// The kind of the focused element, or `None` when UIA does not tell it.
@@ -273,22 +278,33 @@ struct MissingCaretKind {
 }
 
 impl MissingCarets {
-    /// Notes that a read of the caret in `window`, the foreground window at the start of the read,
-    /// gave no caret. `focused` is the connection to UIA and the focused element of the read, or
-    /// `None` without UIA or without a focused element. The log tells the first note of each
-    /// program and kind of element in the run at the info level, with the class name of the
-    /// focused window. A record without a kind gives no framework and no control type.
-    fn note(&mut self, window: HWND, focused: Option<(&Uia, &FocusedElement)>) {
-        let kind = MissingCaretKind {
-            program: focus::program_file_name_of(window),
-            element: focused.and_then(|(uia, element)| uia.kind_of(element)),
-        };
-        if self.kinds.note(kind.clone()) == RecordTurn::Repeat {
-            return;
+    /// Notes that a read of the caret in `program`, the file name of the program of the foreground
+    /// window at the start of the read, gave no caret. Returns the record of the first note of the
+    /// program in the run, with the kind of the focused element that `read_kind` reads. A later
+    /// note of the program returns `None` and does not call `read_kind`, so that it sends no
+    /// request to the app.
+    fn note(
+        &mut self,
+        program: String,
+        read_kind: impl FnOnce() -> Option<ElementKind>,
+    ) -> Option<MissingCaretRecord> {
+        if self.programs.note(program.clone()) == RecordTurn::Repeat {
+            return None;
         }
-        let element = kind.element.as_ref();
+        Some(MissingCaretRecord {
+            program,
+            element: read_kind(),
+        })
+    }
+}
+
+impl MissingCaretRecord {
+    /// Writes the record at the info level, with the class name of the focused window. A record
+    /// without a kind gives no framework and no control type.
+    fn write(&self) {
+        let element = self.element.as_ref();
         tracing::info!(
-            program = kind.program,
+            program = self.program,
             framework = element.map(|element| element.framework.as_str()),
             control_type = element.map(|element| element.control_type),
             class = focus::focused_window_class(),
@@ -462,7 +478,7 @@ mod tests {
     use std::ptr;
 
     use typealike_core::desktop::{FieldLabels, PixelColor, ScreenRect};
-    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Foundation::{HWND, POINT};
 
     use super::*;
 
@@ -894,5 +910,54 @@ mod tests {
 
         let text = answer.shown().map(|field| field.text.clone());
         assert_eq!(text, Some(None), "{answer:?}");
+    }
+
+    fn edit_kind() -> ElementKind {
+        ElementKind {
+            framework: "Win32".to_owned(),
+            control_type: 50004,
+        }
+    }
+
+    fn record_of(program: &str, element: Option<ElementKind>) -> MissingCaretRecord {
+        MissingCaretRecord {
+            program: program.to_owned(),
+            element,
+        }
+    }
+
+    #[test]
+    fn only_the_first_read_without_a_caret_of_each_program_reads_the_kind() {
+        let mut missing_carets = MissingCarets::default();
+        let mut kind_reads = Vec::new();
+
+        let records = ["Notes.exe", "Notes.exe", "Mail.exe", "Mail.exe"].map(|program| {
+            missing_carets.note(program.to_owned(), || {
+                kind_reads.push(program);
+                Some(edit_kind())
+            })
+        });
+
+        assert_eq!(
+            (records, kind_reads),
+            (
+                [
+                    Some(record_of("Notes.exe", Some(edit_kind()))),
+                    None,
+                    Some(record_of("Mail.exe", Some(edit_kind()))),
+                    None,
+                ],
+                vec!["Notes.exe", "Mail.exe"]
+            )
+        );
+    }
+
+    #[test]
+    fn first_read_without_a_caret_gives_a_record_also_without_a_kind() {
+        let mut missing_carets = MissingCarets::default();
+
+        let record = missing_carets.note("Game.exe".to_owned(), || None);
+
+        assert_eq!(record, Some(record_of("Game.exe", None)));
     }
 }

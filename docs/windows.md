@@ -73,10 +73,11 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 ### Fields without a caret
 
-- When a read finds no caret, the caret reader reads the kind of the focused element of that read in one request: the UIA framework id and the UIA control type id (`MissingCarets`, `Uia::kind_of`).
+- The log tells the first read without a caret of each program in a run at the info level ("the focused field gives no caret", `MissingCarets`). The program is the program of the foreground window at the start of the read.
+- Only for that first read, the caret reader reads the kind of the focused element of the read in one request: the UIA framework id and the UIA control type id (`Uia::kind_of`). A later read without a caret in the same program sends no request.
 - It reads the kind after it sends the answer, so that the ghost text does not wait for the log.
-- The log tells the first such read of each program and kind in a run at the info level ("the focused field gives no caret"). The program is the program of the foreground window at the start of the read.
   - The record gives the file name of the program (`program`), `framework`, `control_type` and the class name of the focused window (`class`). It holds no text.
+  - The kind and the class are those of the first read in the program. Another field of the same program gives no other record.
   - Without UIA, without a focused element, or when the request fails, the kind is unknown. The record then has no `framework` and no `control_type`.
   - The class is the Win32 class of the focused window. In a web page, the UIA class name is the class of the HTML element, which the page writes. Thus the record does not use it.
   - Core reads the caret after each key in a field that it watches, after a scroll, and when a ghost text waits. Thus the record can also name a control that is not a text field, such as a list.

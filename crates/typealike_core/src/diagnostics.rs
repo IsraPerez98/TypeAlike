@@ -316,10 +316,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_record_of_each_kind_is_the_first() {
-        let mut kinds = RecordedKinds::default();
+    fn only_the_first_record_of_each_program_is_the_first() {
+        let mut programs = RecordedKinds::default();
 
-        let turns = ["Notes.exe", "Mail.exe", "Notes.exe", "Mail.exe"].map(|kind| kinds.note(kind));
+        let turns = ["Notes.exe", "Mail.exe", "Notes.exe", "Mail.exe"].map(|program| programs.note(program));
 
         assert_eq!(
             turns,
