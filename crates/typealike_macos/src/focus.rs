@@ -13,7 +13,7 @@ use typealike_core::desktop::{Field, Surroundings};
 
 use crate::accessibility::{
     FOCUSED_ELEMENT_ATTRIBUTE, FOCUSED_WINDOW_ATTRIBUTE, bound_queries, can_focused_element_hide_text,
-    copy_element, frame, is_same, is_search_field, is_secure_text, selected_range,
+    copy_element, frame, is_focused_control, is_same, is_search_field, is_secure_text, selected_range,
 };
 pub(crate) use crate::focus::caret::{FontFace, TextStyle};
 use crate::focus::caret::{caret_bounds, is_terminal_input, terminal_screen_frame, text_style};
@@ -175,10 +175,13 @@ impl FocusTracker {
         self.walked_window = Some(window);
     }
 
-    /// Classifies the focused control right now: excluded for ineligible apps and for a control
-    /// that can hide its text.
+    /// Classifies the focused control right now: excluded for ineligible apps, for a control that
+    /// can hide its text, and for a control that takes no typed text.
     pub(crate) fn field(&self) -> Field {
-        if self.is_frontmost_eligible() && !can_focused_element_hide_text(&self.system_wide) {
+        if self.is_frontmost_eligible()
+            && !can_focused_element_hide_text(&self.system_wide)
+            && !is_focused_control(&self.system_wide)
+        {
             Field::Open
         } else {
             Field::Excluded

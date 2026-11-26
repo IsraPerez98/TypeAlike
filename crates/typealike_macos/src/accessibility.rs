@@ -36,6 +36,18 @@ pub(crate) const WEB_AREA_ROLE: &str = "AXWebArea";
 const DOM_CLASS_LIST_ATTRIBUTE: &str = "AXDOMClassList";
 const CHILDREN_ATTRIBUTE: &str = "AXChildren";
 const QUERY_TIMEOUT_SECONDS: f32 = 0.1;
+/// The roles of the controls that take no typed text. Chromium gives some of them text, as if they
+/// were fields.
+const CONTROL_ROLES: [&str; 8] = [
+    "AXButton",
+    "AXCheckBox",
+    "AXLink",
+    "AXMenuButton",
+    "AXMenuItem",
+    "AXPopUpButton",
+    "AXRadioButton",
+    "AXRow",
+];
 
 /// Returns whether TypeAlike may use Accessibility, without a prompt.
 pub(crate) fn is_trusted() -> bool {
@@ -70,6 +82,14 @@ pub(crate) fn is_secure_text(element: &AXUIElement) -> bool {
 /// Whether `element` is a search box, as a native search field or an HTML `<input type="search">` is.
 pub(crate) fn is_search_field(element: &AXUIElement) -> bool {
     copy_string(element, SUBROLE_ATTRIBUTE).is_some_and(|subrole| subrole == SEARCH_FIELD_SUBROLE)
+}
+
+/// Whether the focused element of `system_wide` is a control that takes no typed text, as a button
+/// or a link.
+pub(crate) fn is_focused_control(system_wide: &AXUIElement) -> bool {
+    copy_element(system_wide, FOCUSED_ELEMENT_ATTRIBUTE)
+        .and_then(|element| copy_string(&element, ROLE_ATTRIBUTE))
+        .is_some_and(|role| CONTROL_ROLES.contains(&role.as_str()))
 }
 
 /// Whether the focused element of `system_wide` can hide its text: a password field, or an

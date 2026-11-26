@@ -82,6 +82,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Each look at the caret also gives the frame of the focused field.
 - A look does not tell what follows the caret yet (`AfterCaret::Unknown`), so core uses the text that the session read at its start.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
+- A focused control that takes no typed text gets no suggestions and no prompt (`is_focused_control`, `Field::Excluded`): a button, a check box, a link, a menu button, a menu item, a pop-up button, a radio button or a row. Chromium gives some of them a text, as if they were fields. In the log of one day, these roles got about 300 prepared prompts in Chrome and Slack, and no Tab.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
 - The walk up from the field to its web area (`web_place`, at most 64 elements) gives the host of the page. When it gets to the window first, the field is outside each web page (`Surroundings::is_outside_web_pages`), as the address bar and the find bar of Chrome (`AXTextField` without a subrole). A walk that stops earlier tells nothing.
 - A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.
