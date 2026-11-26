@@ -53,8 +53,8 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 
 - Log file: `TypeAlike.log` in the temp folder (`%TEMP%` on Windows, `$TMPDIR` on macOS), next to the terminal output.
   - Each run appends to it, so a crash log stays. When TypeAlike starts, it moves a log above 10 MB to `TypeAlike.previous.log`.
-  - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info`), for example `debug` or `info,typealike_llm=debug`.
-  - The llama.cpp logs have the target `llama-cpp-2`.
+  - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info,llama-cpp-2=warn`), for example `debug` or `info,typealike_llm=debug`.
+  - The llama.cpp logs have the target `llama-cpp-2`. By default, only their warnings and errors go to the log. To see the load of a model, add `llama-cpp-2=info`.
   - A panic also goes to the log.
   - The first log line of each run shows the version, the GPU features of the build and whether the suggestion log is on.
 - Settings file: `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS. The default settings are in `docs/core/settings-window.md`.

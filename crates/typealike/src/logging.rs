@@ -15,7 +15,9 @@ use typealike_core::SUGGESTION_LOG_TARGET;
 /// The environment variable that sets the log levels, for example `debug` or
 /// `info,typealike_llm=debug,llama-cpp-2=warn`.
 const LEVELS_VARIABLE: &str = "TYPEALIKE_LOG";
-const DEFAULT_LEVEL: LevelFilter = LevelFilter::INFO;
+/// The levels without `TYPEALIKE_LOG`. llama.cpp writes many info lines for each model load, so
+/// only its warnings and errors go to the log.
+const DEFAULT_LEVELS: &str = "info,llama-cpp-2=warn";
 const LOG_FILE: &str = "TypeAlike.log";
 const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 /// The size above which a start moves the log to the previous log, so the log does not grow
@@ -23,11 +25,11 @@ const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Sends the logs to the terminal and appends them to `TypeAlike.log` in the temp folder, with the
-/// levels of `TYPEALIKE_LOG`, else `info`. A panic also goes to the logs. With the `suggestion-log`
+/// levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`]. A panic also goes to the logs. With the `suggestion-log`
 /// feature, it also appends the records of the suggestion log to `suggestions.jsonl` in the data
 /// folder, when that file exists.
 pub(crate) fn start() {
-    let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVEL.to_string());
+    let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVELS.to_owned());
     let (main_targets, filter_error) = main_targets(&levels);
     let path = env::temp_dir().join(LOG_FILE);
     let file = open_log_file(&path);
@@ -58,21 +60,26 @@ pub(crate) fn start() {
         "TypeAlike started"
     );
     if let Some(error) = filter_error {
-        tracing::warn!(%error, levels, "the log levels are not valid, so the log uses info");
+        tracing::warn!(
+            %error,
+            levels,
+            default = DEFAULT_LEVELS,
+            "the log levels are not valid, so the log uses the default levels"
+        );
     }
     if let Some(error) = file_error {
         tracing::warn!(%error, "failed to open the log file");
     }
 }
 
-/// The levels of the terminal and of `TypeAlike.log` from `levels`, else `info`, and why `levels`
-/// is not valid. They never take the records of the suggestion log, which hold what the user
-/// wrote, also when `levels` names their target.
+/// The levels of the terminal and of `TypeAlike.log` from `levels`, else [`DEFAULT_LEVELS`], and
+/// why `levels` is not valid. They never take the records of the suggestion log, which hold what
+/// the user wrote, also when `levels` names their target.
 fn main_targets(levels: &str) -> (Targets, Option<String>) {
     let (targets, error) = match levels.parse::<Targets>() {
         Ok(targets) => (targets, None),
         Err(error) => (
-            Targets::new().with_default(DEFAULT_LEVEL),
+            DEFAULT_LEVELS.parse().expect("the default levels are valid"),
             Some(error.to_string()),
         ),
     };
@@ -262,6 +269,32 @@ mod tests {
         });
 
         assert_eq!(is_enabled, [false; 4]);
+    }
+
+    #[test]
+    fn default_levels_keep_only_the_warnings_of_llama_cpp() {
+        let lines = [
+            ("typealike", tracing::Level::INFO),
+            ("llama-cpp-2", tracing::Level::INFO),
+            ("llama-cpp-2", tracing::Level::WARN),
+        ];
+
+        let targets = main_targets(DEFAULT_LEVELS).0;
+        let is_enabled = lines.map(|(target, level)| targets.would_enable(target, &level));
+
+        assert_eq!(is_enabled, [true, false, true]);
+    }
+
+    #[test]
+    fn levels_that_are_not_valid_give_the_default_levels() {
+        let (targets, error) = main_targets("typealike=loud");
+
+        let is_enabled = [
+            targets.would_enable("typealike", &tracing::Level::INFO),
+            targets.would_enable("llama-cpp-2", &tracing::Level::INFO),
+        ];
+
+        assert_eq!((is_enabled, error.is_some()), ([true, false], true));
     }
 
     #[test]
