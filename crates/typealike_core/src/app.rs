@@ -9,7 +9,6 @@ pub use badge::{BadgeCommand, BadgeEntry, BadgeItem, BadgeMenu, BadgeSettings, B
 pub use tray::{TrayCommand, TrayGlyph, TrayItem, TrayOutcome, TrayView};
 
 use std::collections::HashSet;
-use std::mem;
 use std::time::Duration;
 
 use badge::place_entries;
@@ -36,6 +35,15 @@ use crate::spelling::SpellChecker;
 /// The time without keys and clicks after which the caret is where the user types next. A short
 /// stop on the way to another field must not start the model.
 pub const INPUT_SETTLE_DELAY: Duration = Duration::from_millis(300);
+/// The time from the start of the stop of a game to the unload of the suggestion model. A game
+/// needs the memory of the graphics card soon after it starts, so it waits less than an app in
+/// full screen.
+pub const GAME_UNLOAD_DELAY: Duration = Duration::from_secs(10);
+/// The time from the start of the stop of an app in full screen to the unload of the suggestion
+/// model. Many apps fill the screen only for some seconds, such as a media viewer, a screenshot
+/// tool, a search window of the system or a task switcher. A load after each of them costs time
+/// and energy.
+pub const FULL_SCREEN_UNLOAD_DELAY: Duration = Duration::from_secs(30);
 
 /// Whether TypeAlike is currently offering suggestions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -92,6 +100,17 @@ pub enum StopReason {
     /// The user did not type or click for the idle timeout of the Energy saving pane. A key still
     /// gets a suggestion: the next request for a suggestion ends this stop.
     Idle,
+}
+
+/// The stop of a game or an app in full screen while the suggestion model stays as it is, until
+/// the delay of the stop runs out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnloadWait {
+    /// The stop that waits: [`StopReason::Game`] or [`StopReason::FullScreen`].
+    pub reason: StopReason,
+    /// The time from the start of the stop to the unload: [`GAME_UNLOAD_DELAY`] or
+    /// [`FULL_SCREEN_UNLOAD_DELAY`].
+    pub delay: Duration,
 }
 
 /// What TypeAlike does when the input settles in a field, a session starts or a read of the
@@ -172,8 +191,9 @@ pub struct App {
     game_rule: GameRule,
     full_screen: FullScreenActivity,
     full_screen_rule: FullScreenRule,
-    /// The stops that apply until the next request for a suggestion: the idle timeout that ran
-    /// out, and a game or an app in full screen that stopped suggestions.
+    /// The stops that keep the suggestion model unloaded until the next request for a suggestion:
+    /// the idle timeout that ran out, and a game or an app in full screen whose unload delay ran
+    /// out.
     stops_until_request: HashSet<StopReason>,
 }
 
@@ -239,8 +259,9 @@ impl App {
     }
 
     /// Uses `game`, whether a game is in front, from now on. When a game starts to stop
-    /// suggestions, the session ends. After the game, [`StopReason::Game`] applies until
-    /// [`end_stops_before_request`](Self::end_stops_before_request).
+    /// suggestions, the session ends, and the stop waits for [`GAME_UNLOAD_DELAY`]
+    /// ([`unload_wait`](Self::unload_wait)). After that delay, [`StopReason::Game`] applies until
+    /// [`end_stops_before_request`](Self::end_stops_before_request) after the game.
     pub fn use_game(&mut self, game: GameActivity) {
         self.use_game_state(game, self.game_rule);
     }
@@ -253,7 +274,6 @@ impl App {
         self.game = game;
         self.game_rule = rule;
         if self.stops_for_game() && !was_stopped {
-            self.stops_until_request.insert(StopReason::Game);
             self.end_session_for_a_stop();
         }
         if rule == GameRule::KeepSuggestions {
@@ -262,9 +282,10 @@ impl App {
     }
 
     /// Uses `full_screen`, whether an app in full screen is in front, from now on. When the full
-    /// screen starts to stop suggestions, the session ends. After the full screen,
+    /// screen starts to stop suggestions, the session ends, and the stop waits for
+    /// [`FULL_SCREEN_UNLOAD_DELAY`] ([`unload_wait`](Self::unload_wait)). After that delay,
     /// [`StopReason::FullScreen`] applies until
-    /// [`end_stops_before_request`](Self::end_stops_before_request).
+    /// [`end_stops_before_request`](Self::end_stops_before_request) after the full screen.
     pub fn use_full_screen(&mut self, full_screen: FullScreenActivity) {
         self.use_full_screen_state(full_screen, self.full_screen_rule);
     }
@@ -277,7 +298,6 @@ impl App {
         self.full_screen = full_screen;
         self.full_screen_rule = rule;
         if self.stops_for_full_screen() && !was_stopped {
-            self.stops_until_request.insert(StopReason::FullScreen);
             self.end_session_for_a_stop();
         }
         if rule == FullScreenRule::KeepSuggestions {
@@ -333,18 +353,16 @@ impl App {
 
     /// Why TypeAlike keeps the suggestion model unloaded now, or `None` when it keeps the model
     /// loaded. A pause comes first, then the energy saver, a game, an app in full screen, and the
-    /// idle timeout last.
+    /// idle timeout last. A game or an app in full screen is a reason only after its unload delay
+    /// ([`end_unload_wait`](Self::end_unload_wait)).
     #[must_use]
     pub fn stop_reason(&self) -> Option<StopReason> {
         [
             (self.status == Status::Paused, StopReason::Paused),
             (self.stops_for_energy_saver(), StopReason::EnergySaver),
+            (self.lasts_until_request(StopReason::Game), StopReason::Game),
             (
-                self.stops_for_game() || self.lasts_until_request(StopReason::Game),
-                StopReason::Game,
-            ),
-            (
-                self.stops_for_full_screen() || self.lasts_until_request(StopReason::FullScreen),
+                self.lasts_until_request(StopReason::FullScreen),
                 StopReason::FullScreen,
             ),
             (self.lasts_until_request(StopReason::Idle), StopReason::Idle),
@@ -355,6 +373,53 @@ impl App {
 
     fn lasts_until_request(&self, reason: StopReason) -> bool {
         self.stops_until_request.contains(&reason)
+    }
+
+    /// The stop of a game or an app in full screen that applies now and waits for its delay
+    /// before the suggestion model unloads, or `None`. A game comes first, because its delay is
+    /// shorter.
+    #[must_use]
+    pub fn unload_wait(&self) -> Option<UnloadWait> {
+        [
+            (self.stops_for_game(), StopReason::Game, GAME_UNLOAD_DELAY),
+            (
+                self.stops_for_full_screen(),
+                StopReason::FullScreen,
+                FULL_SCREEN_UNLOAD_DELAY,
+            ),
+        ]
+        .into_iter()
+        .find(|&(applies, reason, _)| applies && !self.lasts_until_request(reason))
+        .map(|(_, reason, delay)| UnloadWait { reason, delay })
+    }
+
+    /// Ends the wait of each stop of a game or an app in full screen that applies now: it becomes
+    /// a [`stop_reason`](Self::stop_reason), which keeps the suggestion model unloaded until the
+    /// next request that adds text after the stop.
+    pub fn end_unload_wait(&mut self) {
+        let waiting = [
+            (self.stops_for_game(), StopReason::Game),
+            (self.stops_for_full_screen(), StopReason::FullScreen),
+        ];
+        self.stops_until_request.extend(
+            waiting
+                .into_iter()
+                .filter_map(|(applies, reason)| applies.then_some(reason)),
+        );
+    }
+
+    /// Ends the stops that last until a request, except the stop of a game or an app in full
+    /// screen that is still in front. Returns whether one of them ended.
+    fn end_stops_until_request(&mut self) -> bool {
+        let is_game = self.stops_for_game();
+        let is_full_screen = self.stops_for_full_screen();
+        let count = self.stops_until_request.len();
+        self.stops_until_request.retain(|reason| match reason {
+            StopReason::Game => is_game,
+            StopReason::FullScreen => is_full_screen,
+            StopReason::Paused | StopReason::EnergySaver | StopReason::Idle => false,
+        });
+        self.stops_until_request.len() < count
     }
 
     /// Handles the end of the idle timeout of the Energy saving pane: the session ends as after a
@@ -371,9 +436,9 @@ impl App {
     }
 
     /// Ends the stops that last until the next request for a suggestion: the idle timeout, and a
-    /// game or an app in full screen that left the front. Returns whether one of them applied.
+    /// game or an app in full screen that left the front. Returns whether one of them ended.
     pub fn end_stops_before_request(&mut self) -> bool {
-        !mem::take(&mut self.stops_until_request).is_empty()
+        self.end_stops_until_request()
     }
 
     /// The glyph that the tray icon shows, whose robot the badge also shows, and the message of
@@ -865,7 +930,7 @@ impl App {
         let (status, outcome) = match self.status {
             Status::Active => (Status::Paused, TrayOutcome::Paused),
             Status::Paused => {
-                self.stops_until_request.clear();
+                self.end_stops_until_request();
                 (Status::Active, TrayOutcome::Resumed)
             }
         };

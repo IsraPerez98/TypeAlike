@@ -724,6 +724,11 @@ impl Harness {
         self.controller.on_timer(Timer::Idle, &mut self.shell);
     }
 
+    /// Runs out the delay of a game or an app in full screen before the unload of the model.
+    pub(super) fn run_out_unload_delay(&mut self) {
+        self.controller.on_timer(Timer::StopUnload, &mut self.shell);
+    }
+
     pub(super) fn change_energy_saver(&mut self, energy_saver: EnergySaver) {
         self.controller.on_energy_saver(energy_saver, &mut self.shell);
     }
@@ -887,4 +892,15 @@ pub(super) fn history_on() -> Settings {
         },
         ..Settings::default()
     }
+}
+
+/// The delay of each start of [`Timer::StopUnload`] in `calls`.
+pub(super) fn unload_delays(calls: &[Call]) -> Vec<Duration> {
+    calls
+        .iter()
+        .filter_map(|call| match call {
+            Call::StartTimer(Timer::StopUnload, delay) => Some(*delay),
+            _ => None,
+        })
+        .collect()
 }

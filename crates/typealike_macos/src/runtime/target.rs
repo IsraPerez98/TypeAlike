@@ -153,6 +153,12 @@ define_class!(
         }
 
         // SAFETY: matches the timer action signature.
+        #[unsafe(method(stopUnloadDelayDidEnd:))]
+        fn stop_unload_delay_did_end(&self, _timer: &NSTimer) {
+            with_runtime(Runtime::on_stop_unload_delay_ended);
+        }
+
+        // SAFETY: matches the timer action signature.
         #[unsafe(method(fieldPauseDidEnd:))]
         fn field_pause_did_end(&self, _timer: &NSTimer) {
             with_runtime(Runtime::on_field_pause_ended);

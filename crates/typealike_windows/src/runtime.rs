@@ -61,6 +61,7 @@ const UPDATE_CHECK_TIMER_ID: usize = 8;
 #[cfg(feature = "suggestion-log")]
 const RESOURCE_TIMER_ID: usize = 9;
 const AFTER_KEY_TIMER_ID: usize = 10;
+const STOP_UNLOAD_TIMER_ID: usize = 11;
 const INJECT_MESSAGE: u32 = WM_APP + 2;
 const DELIVERY_MESSAGE: u32 = WM_APP + 3;
 const CARET_READ_MESSAGE: u32 = WM_APP + 4;
@@ -372,6 +373,7 @@ impl Runtime {
             WM_TIMER if wparam.0 == FIELD_TIMER_ID => self.shell.read_field_text(),
             WM_TIMER if wparam.0 == TAB_HOLD_TIMER_ID => self.on_timer(Timer::TabHold),
             WM_TIMER if wparam.0 == IDLE_TIMER_ID => self.on_timer(Timer::Idle),
+            WM_TIMER if wparam.0 == STOP_UNLOAD_TIMER_ID => self.on_timer(Timer::StopUnload),
             WM_TIMER if wparam.0 == FIELD_PAUSE_TIMER_ID => self.on_timer(Timer::FieldPause),
             WM_TIMER if wparam.0 == SCROLL_TIMER_ID => self.on_timer(Timer::ScrollSettle),
             WM_TIMER if wparam.0 == UPDATE_CHECK_TIMER_ID => self.on_timer(Timer::UpdateCheck),

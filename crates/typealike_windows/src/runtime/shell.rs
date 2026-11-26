@@ -19,7 +19,7 @@ use windows::core::Error;
 
 use super::{
     AFTER_KEY_TIMER_ID, CARET_TIMER_ID, FIELD_PAUSE_TIMER_ID, FIELD_TIMER_ID, IDLE_TIMER_ID, INJECT_MESSAGE,
-    SCROLL_TIMER_ID, SETTLE_TIMER_ID, TAB_HOLD_TIMER_ID, UPDATE_CHECK_TIMER_ID,
+    SCROLL_TIMER_ID, SETTLE_TIMER_ID, STOP_UNLOAD_TIMER_ID, TAB_HOLD_TIMER_ID, UPDATE_CHECK_TIMER_ID,
 };
 use crate::badge::{self, Badge};
 use crate::caret::Caret;
@@ -323,6 +323,7 @@ fn timer_id(timer: Timer) -> usize {
         Timer::InputSettle => SETTLE_TIMER_ID,
         Timer::TabHold => TAB_HOLD_TIMER_ID,
         Timer::Idle => IDLE_TIMER_ID,
+        Timer::StopUnload => STOP_UNLOAD_TIMER_ID,
         Timer::FieldPause => FIELD_PAUSE_TIMER_ID,
         Timer::ScrollSettle => SCROLL_TIMER_ID,
         Timer::UpdateCheck => UPDATE_CHECK_TIMER_ID,

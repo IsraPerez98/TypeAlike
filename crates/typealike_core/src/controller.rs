@@ -131,6 +131,9 @@ pub struct Controller {
     download_sink: DownloadSink,
     caret_wait: CaretWait,
     tab_hold: TabHold,
+    /// The delay of the running [`Timer::StopUnload`], while a game or an app in full screen waits
+    /// before the suggestion model unloads.
+    unload_delay: Option<Duration>,
     /// Whether the Apps and websites, Screen text or Personalization pane has an app or a website
     /// that the settings store does not have yet.
     has_unsaved_app: bool,
@@ -228,6 +231,7 @@ impl Controller {
             download_sink: delivering_sink(deliver, Delivery::ReleaseDownload),
             caret_wait: CaretWait::default(),
             tab_hold: TabHold::default(),
+            unload_delay: None,
             has_unsaved_app: false,
             setup: None,
             tray: startup.tray,
@@ -412,6 +416,7 @@ impl Controller {
             Timer::InputSettle => self.on_input_settled(shell),
             Timer::TabHold => self.tab_hold.on_timer(),
             Timer::Idle => self.on_idle(shell),
+            Timer::StopUnload => self.on_unload_delay_end(shell),
             Timer::FieldPause => self.app.end_field_pause(),
             Timer::ScrollSettle => self.on_scroll_settled(shell),
             Timer::UpdateCheck => self.on_update_check_time(shell),
@@ -437,9 +442,11 @@ impl Controller {
     }
 
     /// Handles a change of the app in front: whether it is a game. While a game is in front and the
-    /// Energy saving pane stops suggestions then, the session ends, the suggestion model unloads,
-    /// and the tray and the badge show the stop. After the game, the next request for a suggestion
-    /// that adds text loads the model again. The same state again changes nothing.
+    /// Energy saving pane stops suggestions then, the session ends, and the tray and the badge show
+    /// the stop. The suggestion model unloads when the game is still in front after
+    /// [`GAME_UNLOAD_DELAY`](crate::app::GAME_UNLOAD_DELAY). After a game that left before the
+    /// delay, the model in memory gives the next suggestion. After a longer game, the next request
+    /// for a suggestion that adds text loads the model again. The same state again changes nothing.
     pub fn on_game(&mut self, game: GameActivity, shell: &mut dyn Shell) {
         if self.app.game() == game {
             return;
@@ -449,15 +456,27 @@ impl Controller {
     }
 
     /// Handles a change of the app in front: whether it shows in full screen. While an app in full
-    /// screen is in front and the Energy saving pane stops suggestions then, the session ends, the
-    /// suggestion model unloads, and the tray and the badge show the stop. After the full screen,
-    /// the next request for a suggestion that adds text loads the model again. The same state
-    /// again changes nothing.
+    /// screen is in front and the Energy saving pane stops suggestions then, the session ends, and
+    /// the tray and the badge show the stop. The suggestion model unloads when the app is still in
+    /// full screen after [`FULL_SCREEN_UNLOAD_DELAY`](crate::app::FULL_SCREEN_UNLOAD_DELAY), as
+    /// after a game. The same state again changes nothing.
     pub fn on_full_screen(&mut self, full_screen: FullScreenActivity, shell: &mut dyn Shell) {
         if self.app.full_screen() == full_screen {
             return;
         }
         self.app.use_full_screen(full_screen);
+        self.on_stop_change(shell);
+    }
+
+    /// Handles the end of the delay of a game or an app in full screen: when the stop still
+    /// applies, the suggestion model unloads. A timer that runs out after the end of the stop does
+    /// nothing.
+    fn on_unload_delay_end(&mut self, shell: &mut dyn Shell) {
+        if self.app.unload_wait().is_none() {
+            return;
+        }
+        self.unload_delay = None;
+        self.app.end_unload_wait();
         self.on_stop_change(shell);
     }
 
@@ -1208,13 +1227,19 @@ impl Controller {
     }
 
     /// Unloads the suggestion model while a stop reason applies, and loads it again when no stop
-    /// reason applies and no model is in memory.
+    /// reason applies and no model is in memory. While a game or an app in full screen waits for
+    /// its delay, the model stays as it is: a loaded model stays loaded, and an unloaded model
+    /// stays unloaded with the reason of that stop.
     fn submit_model_request(&mut self) {
-        let request = match self.app.stop_reason() {
+        let is_unloaded = self.playground.is_model_unloaded();
+        let waiting = self
+            .app
+            .unload_wait()
+            .filter(|_| is_unloaded)
+            .map(|wait| wait.reason);
+        let request = match self.app.stop_reason().or(waiting) {
             Some(reason) => self.general.unload_suggestion_model(&mut self.playground, reason),
-            None if self.playground.is_model_unloaded() => {
-                self.general.load_suggestion_model(&mut self.playground)
-            }
+            None if is_unloaded => self.general.load_suggestion_model(&mut self.playground),
             None => None,
         };
         if let Some(request) = request {
@@ -1222,15 +1247,30 @@ impl Controller {
         }
     }
 
-    /// Uses the stop reason of the app after it changed: the ghost text hides while a stop reason
+    /// Runs [`Timer::StopUnload`] while a game or an app in full screen waits before the
+    /// suggestion model unloads. A stop with a shorter delay starts the timer again with that
+    /// delay, but a wait never gets longer.
+    fn follow_unload_wait(&mut self, shell: &mut dyn Shell) {
+        let delay = self.app.unload_wait().map(|wait| wait.delay);
+        match (self.unload_delay, delay) {
+            (Some(_), None) => shell.stop_timer(Timer::StopUnload),
+            (Some(running), Some(delay)) if delay >= running => return,
+            (_, Some(delay)) => shell.start_timer(Timer::StopUnload, delay),
+            (None, None) => return,
+        }
+        self.unload_delay = delay;
+    }
+
+    /// Uses the stop reason of the app after it changed: the ghost text hides while a stop
     /// applies, the suggestion model loads or unloads, and the tray, the badge and the panes show
-    /// the new state.
+    /// the new state. A game or an app in full screen first waits for its delay before the unload.
     fn on_stop_change(&mut self, shell: &mut dyn Shell) {
-        if self.app.stop_reason().is_some() {
+        if self.app.stop_reason().is_some() || self.app.unload_wait().is_some() {
             self.tab_hold.end(shell);
             self.hide_ghost(shell);
         }
         self.submit_model_request();
+        self.follow_unload_wait(shell);
         shell.render_tray(&self.app.tray_view(&self.translations));
         self.render_waiting_ghost(shell);
         self.render_settings(shell);

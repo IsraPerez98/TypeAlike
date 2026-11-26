@@ -119,6 +119,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
             settle_timer: None,
             tab_hold_timer: None,
             idle_timer: None,
+            stop_unload_timer: None,
             field_pause_timer: None,
             scroll_timer: None,
             update_check_timer: None,
@@ -292,6 +293,11 @@ impl Runtime {
     fn on_idle_timeout(&mut self) {
         self.shell.idle_timer = None;
         self.controller.on_timer(Timer::Idle, &mut self.shell);
+    }
+
+    fn on_stop_unload_delay_ended(&mut self) {
+        self.shell.stop_unload_timer = None;
+        self.controller.on_timer(Timer::StopUnload, &mut self.shell);
     }
 
     fn on_field_pause_ended(&mut self) {
@@ -484,6 +490,7 @@ struct AppKitShell {
     settle_timer: Option<Retained<NSTimer>>,
     tab_hold_timer: Option<Retained<NSTimer>>,
     idle_timer: Option<Retained<NSTimer>>,
+    stop_unload_timer: Option<Retained<NSTimer>>,
     field_pause_timer: Option<Retained<NSTimer>>,
     scroll_timer: Option<Retained<NSTimer>>,
     update_check_timer: Option<Retained<NSTimer>>,
@@ -568,6 +575,7 @@ impl AppKitShell {
             Timer::InputSettle => &mut self.settle_timer,
             Timer::TabHold => &mut self.tab_hold_timer,
             Timer::Idle => &mut self.idle_timer,
+            Timer::StopUnload => &mut self.stop_unload_timer,
             Timer::FieldPause => &mut self.field_pause_timer,
             Timer::ScrollSettle => &mut self.scroll_timer,
             Timer::UpdateCheck => &mut self.update_check_timer,
@@ -690,6 +698,7 @@ impl Shell for AppKitShell {
             Timer::InputSettle => sel!(inputDidSettle:),
             Timer::TabHold => sel!(tabHoldDidEnd:),
             Timer::Idle => sel!(idleTimeoutDidEnd:),
+            Timer::StopUnload => sel!(stopUnloadDelayDidEnd:),
             Timer::FieldPause => sel!(fieldPauseDidEnd:),
             Timer::ScrollSettle => sel!(scrollDidSettle:),
             Timer::UpdateCheck => sel!(updateCheckDidCome:),

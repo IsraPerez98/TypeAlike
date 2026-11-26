@@ -1,7 +1,9 @@
 //! Tests of the stop while a game is in front.
 
 use super::fixtures::{FakeDesktop, MAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph};
+use crate::app::{
+    App, BadgeView, GAME_UNLOAD_DELAY, SettledWork, Status, StopReason, TrayCommand, TrayGlyph, UnloadWait,
+};
 use crate::desktop::{EnergySaver, Field, GameActivity};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
@@ -38,7 +40,22 @@ fn app_during_a_game() -> App {
     app
 }
 
+/// An app during a game that stayed in front past its unload delay.
+fn app_after_the_game_delay() -> App {
+    let mut app = app_during_a_game();
+    app.end_unload_wait();
+    app
+}
+
+/// An app after a game that stayed in front past its unload delay.
 fn app_after_a_game() -> App {
+    let mut app = app_after_the_game_delay();
+    app.use_game(GameActivity::None);
+    app
+}
+
+/// An app after a game that left the front before its unload delay ran out.
+fn app_after_a_short_game() -> App {
     let mut app = app_during_a_game();
     app.use_game(GameActivity::None);
     app
@@ -114,11 +131,23 @@ fn settled_input_during_a_game_prepares_nothing() {
 fn settled_input_after_a_game_prepares_nothing() {
     let mut app = app_preparing_on_focus();
     app.use_game(GameActivity::InFront);
+    app.end_unload_wait();
     app.use_game(GameActivity::None);
 
     let work = app.on_input_settled(&FakeDesktop(Field::Open));
 
     assert_eq!(work, None);
+}
+
+#[test]
+fn settled_input_after_a_short_game_prepares_the_open_field() {
+    let mut app = app_preparing_on_focus();
+    app.use_game(GameActivity::InFront);
+    app.use_game(GameActivity::None);
+
+    let work = app.on_input_settled(&FakeDesktop(Field::Open));
+
+    assert!(matches!(work, Some(SettledWork::Prepare(_))));
 }
 
 #[test]
@@ -152,10 +181,62 @@ fn tray_after_the_game_shows_suggestions_as_active() {
 }
 
 #[test]
-fn game_is_the_stop_reason() {
+fn game_is_no_stop_reason_during_its_unload_delay() {
     let app = app_during_a_game();
 
+    assert_eq!(app.stop_reason(), None);
+}
+
+#[test]
+fn game_is_the_stop_reason_after_its_unload_delay() {
+    let app = app_after_the_game_delay();
+
     assert_eq!(app.stop_reason(), Some(StopReason::Game));
+}
+
+#[test]
+fn game_waits_its_delay_before_the_unload() {
+    let app = app_during_a_game();
+
+    assert_eq!(
+        app.unload_wait(),
+        Some(UnloadWait {
+            reason: StopReason::Game,
+            delay: GAME_UNLOAD_DELAY,
+        })
+    );
+}
+
+#[test]
+fn game_waits_no_more_after_its_unload_delay() {
+    let app = app_after_the_game_delay();
+
+    assert_eq!(app.unload_wait(), None);
+}
+
+#[test]
+fn game_waits_for_no_unload_when_the_switch_is_off() {
+    let mut app = app_keeping_suggestions_during_games();
+
+    app.use_game(GameActivity::InFront);
+
+    assert_eq!(app.unload_wait(), None);
+}
+
+#[test]
+fn short_game_is_no_stop_reason() {
+    let app = app_after_a_short_game();
+
+    assert_eq!((app.stop_reason(), app.unload_wait()), (None, None));
+}
+
+#[test]
+fn end_of_the_unload_delay_after_a_short_game_adds_no_stop_reason() {
+    let mut app = app_after_a_short_game();
+
+    app.end_unload_wait();
+
+    assert_eq!(app.stop_reason(), None);
 }
 
 #[test]
@@ -194,7 +275,7 @@ fn energy_saver_comes_before_the_game_as_stop_reason() {
 
 #[test]
 fn game_comes_before_the_idle_timeout_as_stop_reason() {
-    let mut app = app_during_a_game();
+    let mut app = app_after_the_game_delay();
 
     app.on_idle();
 
@@ -237,4 +318,23 @@ fn resume_ends_the_game_stop() {
     app.on_tray_command(TrayCommand::TogglePause);
 
     assert_eq!(app.stop_reason(), None);
+}
+
+#[test]
+fn resume_during_a_game_after_its_delay_keeps_the_game_stop() {
+    let mut app = app_after_the_game_delay();
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    app.on_tray_command(TrayCommand::TogglePause);
+
+    assert_eq!(app.stop_reason(), Some(StopReason::Game));
+}
+
+#[test]
+fn request_during_a_game_after_its_delay_keeps_the_game_stop() {
+    let mut app = app_after_the_game_delay();
+
+    let was_stopped = app.end_stops_before_request();
+
+    assert_eq!((was_stopped, app.stop_reason()), (false, Some(StopReason::Game)));
 }
