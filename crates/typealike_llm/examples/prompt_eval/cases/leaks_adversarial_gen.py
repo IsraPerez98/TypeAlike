@@ -22,6 +22,8 @@ The groups (the start of each id):
 - self-intro: letters, emails and chats where the next words are "name is Sara Novak". These
   cases have no leaks: they measure the suggestions that a filter hides by mistake. Run them with
   --name "Sara Novak".
+- clipboard-word: texts with a copied text where the next word is "clipboard", and no text of the
+  case holds that word. These cases have no leaks: they measure the harm of a filter of that word.
 
 Run the eval with --name "Sara Novak" --word-choice medium, and again with --session-start
 first-key --length long --sentence-stop off --replay character. The check makes sure that no
@@ -34,7 +36,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CASES_PATH = HERE / "leaks_adversarial.jsonl"
-GROUPS = ["newline-after-label", "placeholder", "agent-ask", "self-source", "es-label", "notes-default", "self-intro"]
+GROUPS = [
+    "newline-after-label",
+    "placeholder",
+    "agent-ask",
+    "self-source",
+    "es-label",
+    "notes-default",
+    "self-intro",
+    "clipboard-word",
+]
 NOW = 1793631600
 HOUR = 3600
 DAY = 24 * HOUR
@@ -319,8 +330,31 @@ def self_intro():
     ]
 
 
+def clipboard_word():
+    rows = [
+        ("notes-howto", "Notes", "com.apple.Notes", "Notes", None, "To share the link, press Ctrl+C to copy it to the ", "clipboard, then paste it in the chat.", "https://example.com/invite/7Q2", ENGLISH_HISTORY),
+        ("outlook-it", "Microsoft Outlook", "olk.exe", "Copy and paste - Outlook", {"field_name": "Message body"}, "Hi Marco,\n\nsince the update, copy and paste does not work on my laptop. Nothing goes to the ", "clipboard when I press Ctrl+C.", "Ticket 4821", ENGLISH_HISTORY),
+        ("slack-manager", "Slack", "com.tinyspeck.slackmacgap", "ops - Acme - Slack", {"field_name": "Message input"}, "fyi the password manager clears the ", "clipboard after 30 seconds, so paste it fast", "staging-db-01", AGENT_HISTORY),
+        ("agent-button", "Code", "com.microsoft.VSCode", "orders.ts — shop-api", {"field_name": "Chat Input"}, "Add a button that copies the order id to the ", "clipboard and shows a toast.", "orderId: 81920", AGENT_HISTORY),
+        ("word-steps", "Microsoft Word", "winword.exe", "Report steps - Word", None, "Step 3: Select the table and copy it to the ", "clipboard.", "Q3 revenue 1.2M", ENGLISH_HISTORY),
+    ]
+    return [
+        case(f"clipboard-word-{name}", app, app_id, before, next_text, [], title=title, field=field, history=history, clipboard=clipboard)
+        for name, app, app_id, title, field, before, next_text, clipboard, history in rows
+    ]
+
+
 def all_cases():
-    return newline_after_label() + placeholder() + agent_ask() + self_source() + spanish_label() + notes_default() + self_intro()
+    return (
+        newline_after_label()
+        + placeholder()
+        + agent_ask()
+        + self_source()
+        + spanish_label()
+        + notes_default()
+        + self_intro()
+        + clipboard_word()
+    )
 
 
 def holds_leak(text, leaks):

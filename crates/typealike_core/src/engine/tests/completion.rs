@@ -1,5 +1,7 @@
 //! Tests how completions and their parts become the ghost text.
 
+use std::time::Duration;
+
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
 use crate::key::{Key, Press};
@@ -222,6 +224,67 @@ fn completion_that_holds_all_the_words_of_a_short_label_of_the_prompt_frame_hide
     });
 
     assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+/// Returns an engine with no writer notes that typed `context` with `copied` text on the
+/// clipboard, and waits for the completion of its newest request.
+fn engine_waiting_with_copy(copied: &str, context: &str) -> Engine {
+    let desktop = FakeDesktop::default().with_copy(copied, Some(Duration::from_secs(5)));
+    let mut engine = engine_with(&named_writer(""));
+    for character in context.chars() {
+        engine.on_completion(completion(""));
+        engine.on_key(Key::Char(character), Press::First, &desktop);
+    }
+    engine
+}
+
+#[test]
+fn completion_that_names_the_clipboard_beside_a_clipboard_text_hides() {
+    let cases = [
+        ("Check ", "the environment variables in the clipboard"),
+        (
+            "Write a unit test for the bug based on ",
+            "the clipboard content.",
+        ),
+        ("Summarize ", "what is on my Clipboard."),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with_copy("FAIL src/orders.spec.ts", context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_names_the_clipboard_without_a_clipboard_text_shows() {
+    let mut engine = engine_waiting_with(&named_writer(""), "Copy the link to the ");
+
+    let reaction = engine.on_completion(completion("clipboard."));
+
+    assert_eq!(reaction, show("clipboard."));
+}
+
+#[test]
+fn completion_that_names_the_clipboard_shows_when_a_text_of_the_writer_or_the_clipboard_holds_it() {
+    let cases = [
+        (
+            "Clipboard history is full.",
+            "Please clear the ",
+            "clipboard history.",
+        ),
+        (
+            "FAIL src/orders.spec.ts",
+            "The clipboard is empty. Copy it to the ",
+            "clipboard again.",
+        ),
+    ];
+
+    let reactions = cases.map(|(copied, context, text)| {
+        engine_waiting_with_copy(copied, context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, text)| show(text)));
 }
 
 #[test]

@@ -2,7 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::{Correction, MIN_FIXED_CHARACTERS};
-use crate::prompt::Preface;
+use crate::prompt::{CLIPBOARD_LABEL, Preface};
 
 use super::WordFix;
 
@@ -153,9 +153,9 @@ pub(super) fn suggestion_after_typed(
 
 /// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
 /// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
-/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, the name
-/// of the writer after a greeting, or a bracket after the end of a sentence, which opens a note
-/// about the text and not the text.
+/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, the word
+/// of the clipboard label, the name of the writer after a greeting, or a bracket after the end of a
+/// sentence, which opens a note about the text and not the text.
 pub(super) fn is_bad_suggestion(
     suggestion: &str,
     context: &str,
@@ -172,8 +172,35 @@ pub(super) fn is_bad_suggestion(
         || copies_last_words(&suggested, context)
         || repeats_a_pattern(&suggested)
         || copies_frame_line(&suggested, suggestion, context, &preface.frame_lines)
+        || names_the_clipboard(&suggested, context, text_after, preface)
         || greets_the_writer(suggestion, context, preface)
         || opens_note_after_sentence(suggestion, context)
+}
+
+/// Whether `suggested`, the words of a suggestion after `context`, holds the last word of the
+/// [`CLIPBOARD_LABEL`] while `preface` has that label, and no text that the writer wrote or saw
+/// holds that word: `context`, `text_after` and the texts of `preface` (the clipboard text, the
+/// screen text, the earlier writing, the notes and the place). The model then names the label and
+/// not the text, as in "the environment variables in the clipboard".
+fn names_the_clipboard(suggested: &[String], context: &str, text_after: &str, preface: &Preface) -> bool {
+    let Some(word) = words(CLIPBOARD_LABEL).next_back() else {
+        return false;
+    };
+    let has_clipboard = preface
+        .frame_lines
+        .iter()
+        .any(|line| line.trim_end() == CLIPBOARD_LABEL);
+    if !has_clipboard || !suggested.contains(&word) {
+        return false;
+    }
+    let count_in = |text: &str| words(text).filter(|text_word| *text_word == word).count();
+    let in_frame = preface
+        .frame_lines
+        .iter()
+        .map(|line| count_in(line))
+        .sum::<usize>();
+    let is_written = count_in(context) + count_in(text_after) > 0 || count_in(&preface.text) > in_frame;
+    !is_written
 }
 
 /// Whether `suggestion` after `context` makes a word of the name of the writer of `preface` the
