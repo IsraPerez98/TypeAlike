@@ -170,6 +170,18 @@ impl<'jobs> JobQueue<'jobs> {
         !self.received.is_empty()
     }
 
+    /// Whether a job that loads or unloads a model waits, anywhere in the queue, so that the loaded
+    /// model goes before that job runs. It keeps each job that it receives, in order.
+    fn has_waiting_model_change(&mut self) -> bool {
+        self.received.extend(self.jobs.try_iter());
+        self.received.iter().any(|job| {
+            matches!(
+                job.request,
+                InferenceRequest::Load { .. } | InferenceRequest::Unload
+            )
+        })
+    }
+
     /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
     /// completion for `sink` that runs now. It keeps the job that it receives as the next job.
     fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
@@ -450,8 +462,10 @@ fn program_folder() -> Option<PathBuf> {
 
 /// Runs the completions and the reads of GPU memory for the `loaded` model until a job loads or
 /// unloads a model. It gives the job that loads or unloads back to `queue`, so the model is gone
-/// before the next model loads. It frees the context when no job comes for `idle_timeout`. A read
-/// of GPU memory first adds the backends of its backend from `backend_dlls`.
+/// before the next model loads. A completion with such a job behind it does not run: it answers
+/// with [`InferenceError::Superseded`], because that job drops the model of the completion. It
+/// frees the context when no job comes for `idle_timeout`. A read of GPU memory first adds the
+/// backends of its backend from `backend_dlls`.
 fn serve(
     loaded: &mut LoadedModel<'_>,
     queue: &mut JobQueue<'_>,
@@ -485,22 +499,27 @@ fn serve(
         let _completion = queue.log.start_completion();
         #[cfg(feature = "suggestion-log")]
         let started = Instant::now();
-        let sink = &job.reply.sink;
-        let mut progress = Progress {
-            is_outdated: &mut || queue.has_newer_completion(sink),
-            send_partial: &mut |text| sink(InferenceEvent::Partial(text)),
+        let result = if queue.has_waiting_model_change() {
+            tracing::debug!("skipped a completion, because a load or an unload of a model waits");
+            Err(InferenceError::Superseded)
+        } else {
+            let sink = &job.reply.sink;
+            let mut progress = Progress {
+                is_outdated: &mut || queue.has_newer_completion(sink),
+                send_partial: &mut |text| sink(InferenceEvent::Partial(text)),
+            };
+            let limits = Limits {
+                max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
+                min_log_probability: *min_log_probability,
+                typo_check: *typo_check,
+                finished_word_fix: *finished_word_fix,
+                sentence_end: *sentence_end,
+                line_after: line_after.as_bytes(),
+                guesses: &dictionary_guesses.0,
+            };
+            let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
+            loaded.complete(prompt, limits, &token_bias, &mut progress)
         };
-        let limits = Limits {
-            max_added: usize::try_from(max_tokens.0).expect("a u32 fits in usize"),
-            min_log_probability: *min_log_probability,
-            typo_check: *typo_check,
-            finished_word_fix: *finished_word_fix,
-            sentence_end: *sentence_end,
-            line_after: line_after.as_bytes(),
-            guesses: &dictionary_guesses.0,
-        };
-        let token_bias = loaded.token_bias(word_bias.as_ref(), next_word_bias);
-        let result = loaded.complete(prompt, limits, &token_bias, &mut progress);
         #[cfg(feature = "suggestion-log")]
         queue.log.completed(
             &job.request,
@@ -578,6 +597,37 @@ mod tests {
         }
     }
 
+    fn load_request() -> InferenceRequest {
+        InferenceRequest::Load {
+            file: ModelFile {
+                repo: "test/model".to_owned(),
+                name: "model.gguf".to_owned(),
+            },
+            backend: Backend::Cuda,
+        }
+    }
+
+    fn gpu_memory_request() -> InferenceRequest {
+        InferenceRequest::ReadGpuMemory {
+            backend: Backend::Cuda,
+        }
+    }
+
+    /// Returns the queue of the jobs of `requests`, oldest first, with no sender.
+    fn queue_of(requests: Vec<InferenceRequest>) -> Receiver<Job> {
+        let (sender, jobs) = mpsc::channel();
+        for request in requests {
+            sender
+                .send(Job::new(request, sink()))
+                .expect("the queue receives jobs");
+        }
+        jobs
+    }
+
+    fn has_waiting_model_change(waiting: Vec<InferenceRequest>) -> bool {
+        JobQueue::new(&queue_of(waiting)).has_waiting_model_change()
+    }
+
     fn has_newer_completion(
         waiting: InferenceRequest,
         waiting_sink: &InferenceEventSink,
@@ -622,6 +672,47 @@ mod tests {
             .map(|(request, waiting_sink, _)| has_newer_completion(request, waiting_sink, &running));
 
         assert_eq!(newer, cases.map(|(_, _, is_newer)| is_newer));
+    }
+
+    #[test]
+    fn only_a_waiting_load_or_unload_changes_the_model() {
+        let cases = [
+            (vec![load_request()], true),
+            (vec![InferenceRequest::Unload], true),
+            (vec![complete_request(), InferenceRequest::Unload], true),
+            (vec![gpu_memory_request(), load_request()], true),
+            (vec![complete_request()], false),
+            (vec![gpu_memory_request()], false),
+            (vec![], false),
+        ];
+
+        let changes = cases
+            .clone()
+            .map(|(waiting, _)| has_waiting_model_change(waiting));
+
+        assert_eq!(changes, cases.map(|(_, is_change)| is_change));
+    }
+
+    #[test]
+    fn jobs_keep_their_order_after_a_look_for_a_model_change() {
+        let jobs = queue_of(vec![
+            complete_request(),
+            gpu_memory_request(),
+            InferenceRequest::Unload,
+        ]);
+        let mut queue = JobQueue::new(&jobs);
+        queue.has_waiting_model_change();
+
+        let order = [queue.next(), queue.next(), queue.next()].map(|job| job.map(|job| job.request));
+
+        assert_eq!(
+            order,
+            [
+                Some(complete_request()),
+                Some(gpu_memory_request()),
+                Some(InferenceRequest::Unload),
+            ]
+        );
     }
 
     #[test]

@@ -355,6 +355,26 @@ fn newer_completion_replaces_one_that_did_not_finish() {
     );
 }
 
+#[test]
+#[ignore = "needs the path of a GGUF model file in TYPEALIKE_TEST_MODEL"]
+fn completion_before_an_unload_does_not_run() {
+    let mut model = ModelSession::load();
+    model.runner.submit(
+        InferenceRequest::Load {
+            file: model_file(),
+            backend: BUILT_IN_BACKEND,
+        },
+        &model.sink,
+    );
+    model.submit(completion_request(SHORT_PROMPT));
+    model.runner.submit(InferenceRequest::Unload, &model.sink);
+    model.events.recv().expect("the runner answers the load");
+
+    let skipped = model.next_completion();
+
+    assert_eq!(skipped.err(), Some(InferenceError::Superseded));
+}
+
 /// Returns how many words `text` has: a word starts at each whitespace character after a
 /// character that is not whitespace. The model runner splits only at ASCII whitespace, so the
 /// count agrees with it only on text without other whitespace.

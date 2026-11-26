@@ -9,6 +9,12 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - Without `CpuCores` (macOS, tests, eval), and on the GPU backends, llama.cpp keeps its threads.
 - When llama.cpp starts, and when it loads another backend, the worker logs each device that llama.cpp found, because a release build of llama.cpp loads its GPU backends without a log.
 
+## Queue
+
+- The worker runs the requests one at a time, in the order that they came.
+- A newer completion for the same sink stops the completion that runs, before its next decode. The stopped completion answers `Superseded`.
+- When a load or an unload of a model waits anywhere in the queue, a completion does not run and answers `Superseded`. Thus the worker does not make a context or decode a prompt for a model that a later request drops.
+
 ## Backend DLLs
 
 - On Windows, a GPU build has the DLLs of each llama.cpp backend in a folder next to the program: `backends\cpu` (a DLL for each kind of CPU), `backends\vulkan` and `backends\cuda`.
