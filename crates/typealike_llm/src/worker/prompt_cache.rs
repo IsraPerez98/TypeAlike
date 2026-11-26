@@ -190,10 +190,16 @@ impl<'model> PromptCache<'model> {
         if is_outdated() {
             return Err(GenerateError::Superseded);
         }
+        self.decode_added_tokens(&prompt[..prompt.len().min(1 + GUESSED_TOKENS)])
+    }
+
+    /// Decodes `added` after the prompt sequence, on a copy of it, as the first added tokens of a
+    /// completion: the first token alone, and each later token with a guess of the drafter.
+    fn decode_added_tokens(&mut self, added: &[LlamaToken]) -> Result<(), GenerateError> {
         self.start_completion()?;
         let mut batch = LlamaBatch::new(1 + GUESSED_TOKENS, 1);
-        for (offset, &added_token) in prompt.iter().take(1 + GUESSED_TOKENS).enumerate() {
-            let token_position = position(prompt.len() + offset);
+        for (offset, &added_token) in added.iter().enumerate() {
+            let token_position = position(self.tokens.len() + offset);
             self.context
                 .decode_next(&mut batch, added_token, token_position, COMPLETION_SEQUENCE)?;
         }
