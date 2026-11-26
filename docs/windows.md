@@ -28,6 +28,14 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 - The ghost text is in the Fluent secondary text color in light mode and the tertiary one in dark mode (`CardText`).
 - In high contrast, they are `COLOR_WINDOWTEXT` and `COLOR_GRAYTEXT`.
 
+### Mirror
+
+- In a field without a caret, core can give an anchor for the mirror (`GhostView::mirror_anchor`, `docs/core/ghost-text.md`, "Mirror and card below the caret"). The overlay then shows the typed word and the ghost text on the card of "Card below the caret" (`Overlay::show_mirror`).
+- The card starts at the left edge of the anchor. It shows below the anchor when it fits in the work area, else above it. Thus at the bottom edge of a window that fills the work area, it covers the last rows of the window.
+- The text is in Segoe UI at the size of the Fluent body text (a cell of 19 DIPs, `MIRROR_CELL_HEIGHT_DIPS`), because the field gives no caret and no font.
+- Without a caret and without an anchor, the ghost text hides. Only a field that shows its text only on the screen gets an anchor ("Field reads").
+- The badge needs a caret, so it does not show with the mirror.
+
 ### Badge
 
 - The badge shows in the frame that core gives it, at the end of the line of the caret (`docs/core/ghost-text.md`, "Badge"). Without a frame, it hides.
@@ -118,6 +126,11 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - A field with the ARIA role `searchbox` (UIA `AriaRole`: a web search box or an HTML `<input type="search">`) is a search field. A native search box gives no ARIA role.
 - A field without a Chromium or Gecko document above it is outside each web page (`ShownField::is_outside_web_pages`), as the address bar of a browser. A request about the document that fails tells nothing.
 - A field with the class `native-edit-context` in UIA (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): UIA gives its text only while the screen reader mode of VS Code is on.
+- Some programs give no caret and no text through UIA (`focus::gives_no_caret`, `NO_CARET_PROGRAMS`). They match by the file name of their program, never by the shape of their tree, because a game can also give only its window.
+  - Herdr (`herdr-app.exe`, an app for coding agents with gpui and libghostty) draws its whole window itself. Its focused UIA element is the window (class `Zed::Window`, framework `AccessKit`) without children, `TextPattern` or value, and it has no system caret (checked with Herdr 0.1.18 on 2026-11-26).
+  - When the read of such a field gives no text, the field shows its text only on the screen (`Surroundings::shows_text_only_on_screen`) and has unreadable text. Core then reads its text from the screen and shows the mirror (`docs/core/prompt.md`, "Field that hides its text").
+  - When such an app gives the text of its field, that text counts again.
+  - Its field frame is the UIA frame of the window inside its client area, as for each field.
 - After a click or a focus move, the field also counts as a password field until a read of the new field tells that it shows its text.
 - A read that gives no focused element (`FieldAnswer::Unknown`: the request failed or did not finish in time) does not change whether the field counts as a password field.
 - The caret reader waits at most 500 ms for an element and 3 s for each request about an element (`Uia::limit_waits`), so that one app that does not answer cannot stop the reads in all apps. Only the UIA object of Windows 8 and later (`CUIAutomation8`) can set these limits, so `Uia::connect` makes that object.
@@ -131,6 +144,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
   - With WARP, a capture keeps no GPU memory and takes as long: 30 to 60 ms for the capture of an OCR. Each WARP device also uses about 15 MB less RAM.
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
+- The OCR leaves out the pixels of the focused field (`Band::hide_field`), so that the typed text and the caret do not change the OCR. A field that shows its text only on the screen keeps its pixels (`FieldPixels::Read`), because they hold its text. The shell gives the reader this choice with each read.
 - It stops while energy saver is on.
 - When it cannot connect to UIA, it tries again at each later read.
 
@@ -202,7 +216,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
   - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`).
-  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines.
+  - `showed the ghost text` and `showed a fix`: the text of each draw at the caret or in the mirror, with its wrapped lines, and the kind and the frame of the anchor of the mirror.
   - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.
   - `resource usage`: the resources of the process when TypeAlike starts, then each minute (`RECORD_INTERVAL`, a window timer), and after each model load. It holds numbers only.
     - `private_mb` is the memory that only the process uses, which Task Manager shows. `working_set_mb` and `peak_working_set_mb` are the working set and its highest value since the start (`GetProcessMemoryInfo`). A megabyte has 1024 × 1024 bytes.

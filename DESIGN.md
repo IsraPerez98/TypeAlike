@@ -10,7 +10,7 @@ The visual system of TypeAlike is the system of the OS. TypeAlike has no brand p
 There are two kinds of UI:
 
 1. **The settings window and the menus.** The OS draws them with its own controls: WinUI 3 on Windows, AppKit on macOS. They follow the theme, the accent color, the contrast settings and the text size of the OS while they are open.
-2. **The overlay at the caret.** TypeAlike draws it: the suggestion, the card below the caret, the typo fix, the mirror (macOS) and the badge. It must look like a part of the host app, not like a part of TypeAlike.
+2. **The overlay at the caret.** TypeAlike draws it: the suggestion, the card below the caret, the typo fix, the mirror and the badge. It must look like a part of the host app, not like a part of TypeAlike.
 
 ## Colors
 
@@ -41,7 +41,7 @@ There are two kinds of UI:
 
 - Windows: two layers. Mica is the base layer with the title bar and the navigation. The pages are cards on top of it. WinUI and the window manager draw the only shadows.
 - macOS: Liquid Glass only on the functional layer that AppKit gives (sidebar, toolbar, menus). No custom glass.
-- Overlay: no shadow, no border and no material on the suggestion after the caret. On Windows, the card below the caret and the badge use the fill and the border of the Fluent tooltip. On macOS, they are small rounded panels.
+- Overlay: no shadow, no border and no material on the suggestion after the caret. On Windows, the card below the caret, the mirror and the badge use the fill and the border of the Fluent tooltip. On macOS, they are small rounded panels.
 
 ## Shapes
 

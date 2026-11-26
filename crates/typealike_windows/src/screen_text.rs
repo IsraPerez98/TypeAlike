@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use typealike_core::desktop::{ScreenRead, ScreenReadId, ScreenSource};
+use typealike_core::desktop::{ScreenRead, ScreenReadId, ScreenSource, Surroundings};
 use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
 use windows::core::Result;
 
@@ -27,11 +27,34 @@ pub(crate) struct ScreenTextReader {
     requests: mpsc::Sender<ScreenRequest>,
 }
 
+/// What a read of the screen does with the pixels of the focused field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldPixels {
+    /// The field gives its text through UIA. The OCR leaves out its pixels, so that the typed text
+    /// and the caret in the field do not change the OCR.
+    LeftOut,
+    /// The field shows its text only on the screen, as the window of Herdr. The OCR reads its
+    /// pixels, because they hold its text.
+    Read,
+}
+
+impl FieldPixels {
+    /// What a read does with the pixels of the focused field of `surroundings`.
+    pub(crate) fn of(surroundings: &Surroundings) -> Self {
+        if surroundings.shows_text_only_on_screen {
+            Self::Read
+        } else {
+            Self::LeftOut
+        }
+    }
+}
+
 /// A read that core asked for.
 #[derive(Debug)]
 struct ScreenRequest {
     read: ScreenReadId,
     source: ScreenSource,
+    field_pixels: FieldPixels,
     requested: Instant,
 }
 
@@ -52,13 +75,14 @@ impl ScreenTextReader {
         Ok(Self { requests })
     }
 
-    /// Asks for the text near the focused field from `source`, as it is now. The answer has the
-    /// id `read`.
-    pub(crate) fn read(&self, read: ScreenReadId, source: ScreenSource) {
-        tracing::debug!(?read, ?source, "screen read requested");
+    /// Asks for the text near the focused field from `source`, as it is now. The read does with
+    /// the pixels of the field what `field_pixels` tells. The answer has the id `read`.
+    pub(crate) fn read(&self, read: ScreenReadId, source: ScreenSource, field_pixels: FieldPixels) {
+        tracing::debug!(?read, ?source, ?field_pixels, "screen read requested");
         let request = ScreenRequest {
             read,
             source,
+            field_pixels,
             requested: Instant::now(),
         };
         if self.requests.send(request).is_err() {
@@ -81,7 +105,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
         let started = Instant::now();
         let text = connection.connected().and_then(|uia| match newest.source {
             ScreenSource::Accessibility => uia.screen_text(),
-            ScreenSource::Ocr(_) => ocr.read(uia),
+            ScreenSource::Ocr(_) => ocr.read(uia, newest.field_pixels),
             ScreenSource::Cursor => None,
         });
         tracing::debug!(
@@ -108,5 +132,35 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
             read,
             sent: Instant::now(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_that_shows_its_text_only_on_the_screen_gives_its_pixels_to_the_read() {
+        let surroundings = Surroundings {
+            shows_text_only_on_screen: true,
+            has_unreadable_text: true,
+            ..Surroundings::default()
+        };
+
+        let pixels = FieldPixels::of(&surroundings);
+
+        assert_eq!(pixels, FieldPixels::Read);
+    }
+
+    #[test]
+    fn other_field_leaves_its_pixels_out_of_the_read() {
+        let surroundings = Surroundings {
+            has_unreadable_text: true,
+            ..Surroundings::default()
+        };
+
+        let pixels = FieldPixels::of(&surroundings);
+
+        assert_eq!(pixels, FieldPixels::LeftOut);
     }
 }

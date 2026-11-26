@@ -20,6 +20,7 @@ use self::capture::{Band, capture_band};
 use crate::display::round_to_pixel;
 use crate::energy_saver;
 use crate::focus::foreground_hwnd;
+use crate::screen_text::FieldPixels;
 use crate::uia::{FocusedField, Uia};
 use crate::window::WindowId;
 use crate::window_capture::{CaptureError, Capturer, PixelRect, can_capture_without_border};
@@ -106,9 +107,10 @@ struct RecognizedLine {
 }
 
 impl Ocr {
-    /// Reads the text near the focused field from a capture of the foreground window. `None` for
-    /// a password field, or when the capture or the OCR fails.
-    pub(crate) fn read(&mut self, uia: &Uia) -> Option<ScreenText> {
+    /// Reads the text near the focused field from a capture of the foreground window, with or
+    /// without the pixels of the field, as `field_pixels` tells. `None` for a password field, or
+    /// when the capture or the OCR fails.
+    pub(crate) fn read(&mut self, uia: &Uia, field_pixels: FieldPixels) -> Option<ScreenText> {
         let field = uia.focused_field()?;
         let window = foreground_hwnd();
         if self.tools.is_none() {
@@ -122,7 +124,9 @@ impl Ocr {
             .inspect_err(|error| tracing::warn!(%error, "failed to capture the window"))
             .ok()?;
         let captured = Instant::now();
-        band.hide_field(field.frame);
+        if field_pixels == FieldPixels::LeftOut {
+            band.hide_field(field.frame);
+        }
         let input = RecognitionInput {
             window: WindowId::from(window),
             pixels: band.hash(),

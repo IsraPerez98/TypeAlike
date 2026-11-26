@@ -330,3 +330,25 @@ fn found_cursor_does_not_change_the_prompt() {
 
     assert_eq!(prompts[0], prompts[1]);
 }
+
+#[test]
+fn later_look_without_a_caret_shows_the_mirror_at_the_bottom_edge() {
+    let mut harness = harness_in(terminal());
+    harness.shell.caret_look = CaretLook::Later;
+    harness.press(Key::Char('D'));
+    harness.answer(completed("eploy the staging server"));
+    harness.settle_caret();
+
+    harness.answer_caret(&CaretRead {
+        field: Some(WINDOW),
+        ..CaretRead::default()
+    });
+
+    let anchor = harness
+        .shell
+        .ghost_view
+        .clone()
+        .expect("a shown ghost text")
+        .mirror_anchor;
+    assert_eq!(anchor, Some(BOTTOM_EDGE));
+}

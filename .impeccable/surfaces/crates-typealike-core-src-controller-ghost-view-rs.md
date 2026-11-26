@@ -9,7 +9,7 @@ related_targets: ["crates/typealike_windows/src/overlay.rs","crates/typealike_wi
 
 ## Scope
 
-What TypeAlike draws in the apps of the user: the suggestion after the caret, the card below the caret, the typo fix, the mirror next to a field without a caret (macOS) and the badge at the caret (at the end of the line of the caret on Windows, above the caret on macOS). Core decides what shows and where (`controller/ghost_view.rs`). The platforms draw it.
+What TypeAlike draws in the apps of the user: the suggestion after the caret, the card below the caret, the typo fix, the mirror next to a field without a caret (macOS, and Herdr on Windows) and the badge at the caret (at the end of the line of the caret on Windows, above the caret on macOS). Core decides what shows and where (`controller/ghost_view.rs`). The platforms draw it.
 
 ## Mode
 
@@ -30,6 +30,10 @@ The user types in any app. A suggestion that the user can read at a glance, and 
 ## Direction
 
 Keep the incumbent look: inline text in the font of the host, at half the opacity of the host text. No brand color, no material, no shadow on the suggestion.
+
+## Closed decisions
+
+- 2026-11-26: the mirror on Windows (Herdr) is the card below the caret at the anchor of the mirror. It starts at the left edge of the anchor, below it, or above it when it does not fit in the work area, as `docs/core/ghost-text.md` tells for the mirror. Its text is Segoe UI at the Fluent body size, because the field gives no caret height and no font. One size also keeps the card the same when the anchor moves from the bottom edge to the cursor.
 
 ## Open decisions
 

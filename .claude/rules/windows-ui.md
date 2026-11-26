@@ -76,6 +76,7 @@ Sources (checked 2026-10): learn.microsoft.com/windows/apps/design: `style/mica`
 - No animation beyond a subtle fade, and none when animations are off. Hide instantly on caret move, focus change, or fullscreen exclusive app.
 - The ghost text after the caret ends 4 px before the badge at the end of the line of the caret, so it never covers the badge. Its wrapped lines keep the whole width of the field.
 - Exception: when text follows the caret on its line, inline ghost text would cover that text. The overlay then shows the end of the typed word and the ghost text on a card below the caret line: the fill and the border of the Fluent tooltip (as the badge), radius 4, a 1 DIP border, 8 x 4 DIPs padding, 4 DIPs below the line. The card goes above the line when it does not fit in the work area. The typed word is in the Fluent primary text color and semibold. The ghost text is regular, in the lightest Fluent text color with 4.5:1 on the card: secondary in light mode, tertiary in dark mode. The ghost text starts under the caret.
+- In a field without a caret (Herdr), the same card shows at the anchor of the mirror that core gives: from the left edge of the anchor, below it, or above it when it does not fit in the work area. Its text is Segoe UI at the Fluent body size, because the field gives no caret height and no font.
 
 ## Caret badge
 - A small button at the end of the line of the caret, inside the field. The line has no text there, and the ghost text ends before it. Core gives its frame (`BadgeView::frame`, `docs/core/ghost-text.md`, "Badge").

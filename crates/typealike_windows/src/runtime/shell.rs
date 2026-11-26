@@ -26,11 +26,11 @@ use crate::caret::Caret;
 use crate::caret_reader::{CaretReader, KeptFieldText, NewestCaret};
 use crate::clipboard::ClipboardWatch;
 use crate::display::{monitor_dpi, win32_rect};
-use crate::focus::FocusTracker;
+use crate::focus::{self, FocusTracker};
 use crate::injection::{Replacement, ReplacementQueue};
 use crate::ocr::OcrSupport;
 use crate::overlay::{self, Overlay};
-use crate::screen_text::ScreenTextReader;
+use crate::screen_text::{FieldPixels, ScreenTextReader};
 use crate::settings::SettingsThread;
 use crate::tray::Tray;
 use crate::uia::ShownField;
@@ -103,12 +103,22 @@ impl Win32Shell {
         let _ = unsafe { KillTimer(Some(self.window.handle()), id) };
     }
 
+    /// Shows `ghost` at `caret`, else in the mirror at the anchor that core gives for a field
+    /// without a caret. Hides the ghost text without a caret and without an anchor.
     fn show_ghost(&mut self, ghost: Option<&GhostView>, caret: Option<&Caret>) {
-        let (Some(ghost), Some(caret)) = (ghost, caret) else {
+        let Some(ghost) = ghost else {
             self.overlay.hide();
             return;
         };
-        if let Err(error) = self.overlay.show(ghost, caret) {
+        let shown = match (caret, ghost.mirror_anchor) {
+            (Some(caret), _) => self.overlay.show(ghost, caret),
+            (None, Some(anchor)) => self.overlay.show_mirror(ghost, win32_rect(anchor.frame)),
+            (None, None) => {
+                self.overlay.hide();
+                return;
+            }
+        };
+        if let Err(error) = shown {
             tracing::warn!(%error, "failed to show ghost text");
             self.overlay.hide();
         }
@@ -161,7 +171,8 @@ impl Desktop for Win32Shell {
         Some(Timestamp(since_epoch.as_secs()))
     }
 
-    /// The overlay hides the ghost text when the caret reader finds no caret.
+    /// The overlay hides the ghost text when the caret reader finds no caret, unless core gives the
+    /// anchor of the mirror.
     fn is_ghost_shown(&self) -> bool {
         self.overlay.is_shown()
     }
@@ -289,7 +300,8 @@ impl Shell for Win32Shell {
     }
 
     fn read_screen(&mut self, read: ScreenReadId, source: ScreenSource) {
-        self.screen_text.read(read, source);
+        let field_pixels = FieldPixels::of(&self.surroundings());
+        self.screen_text.read(read, source, field_pixels);
     }
 
     /// Windows asks for no permission, so core never asks for one.
@@ -319,8 +331,12 @@ fn timer_id(timer: Timer) -> usize {
 }
 
 /// Adds to `app`, the surroundings of the foreground app, what `field`, the focused field that
-/// shows its text, tells about itself. Without that field, the field parts stay empty.
+/// shows its text, tells about itself. Without that field, the field parts stay empty. A field
+/// without text in an app that gives no caret shows its text only on the screen, so core reads it
+/// from the screen.
 fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroundings {
+    let shows_text_only_on_screen = field.is_some_and(|field| field.text.is_none())
+        && app.app_id.as_deref().is_some_and(focus::gives_no_caret);
     Surroundings {
         window_title: field
             .and_then(|field| field.window_title.clone())
@@ -331,7 +347,9 @@ fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroun
         is_outside_web_pages: field.is_some_and(|field| field.is_outside_web_pages),
         is_caret_line_hidden: field.is_some_and(|field| field.is_caret_line_hidden),
         is_search_field: field.is_some_and(|field| field.is_search_field),
-        has_unreadable_text: field.is_some_and(|field| field.has_unreadable_text),
+        has_unreadable_text: shows_text_only_on_screen
+            || field.is_some_and(|field| field.has_unreadable_text),
+        shows_text_only_on_screen,
         ..app
     }
 }
@@ -414,6 +432,70 @@ mod tests {
         let surroundings = merged_surroundings(notepad(), Some(&field));
 
         assert!(surroundings.is_caret_line_hidden);
+    }
+
+    fn herdr() -> Surroundings {
+        Surroundings {
+            app_name: Some("herdr-app".to_owned()),
+            app_id: Some("herdr-app.exe".to_owned()),
+            window_title: Some("Herdr".to_owned()),
+            ..Surroundings::default()
+        }
+    }
+
+    #[test]
+    fn field_without_text_in_an_app_that_gives_no_caret_shows_its_text_only_on_the_screen() {
+        let surroundings = merged_surroundings(herdr(), Some(&ShownField::default()));
+
+        assert_eq!(
+            (
+                surroundings.shows_text_only_on_screen,
+                surroundings.has_unreadable_text,
+                surroundings.field_text
+            ),
+            (true, true, None)
+        );
+    }
+
+    #[test]
+    fn field_with_text_in_an_app_that_gives_no_caret_gives_its_text() {
+        let field = ShownField {
+            text: Some(FieldText {
+                before_caret: "git status".to_owned(),
+                after_caret: String::new(),
+            }),
+            ..ShownField::default()
+        };
+
+        let surroundings = merged_surroundings(herdr(), Some(&field));
+
+        assert_eq!(
+            (
+                surroundings.shows_text_only_on_screen,
+                surroundings.has_unreadable_text
+            ),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn field_without_text_in_another_app_holds_no_text() {
+        let surroundings = merged_surroundings(notepad(), Some(&ShownField::default()));
+
+        assert_eq!(
+            (
+                surroundings.shows_text_only_on_screen,
+                surroundings.has_unreadable_text
+            ),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn no_shown_field_in_an_app_that_gives_no_caret_shows_no_text() {
+        let surroundings = merged_surroundings(herdr(), None);
+
+        assert!(!surroundings.shows_text_only_on_screen);
     }
 
     #[test]

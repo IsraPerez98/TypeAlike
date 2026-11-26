@@ -24,22 +24,36 @@ pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Dur
     );
 }
 
-/// Writes the ghost text of `view`.
+/// Writes the ghost text of `view`, with the kind and the frame of the anchor of its mirror in a
+/// field without a caret.
 pub(crate) fn ghost(view: &GhostView) {
     let wrapped = view
         .wrapped
         .as_ref()
         .map(|wrapped| tracing::field::debug(&wrapped.lines));
+    let mirror_anchor = view
+        .mirror_anchor
+        .map(|anchor| tracing::field::debug(anchor.kind));
+    let mirror_anchor_frame = view
+        .mirror_anchor
+        .map(|anchor| tracing::field::debug(anchor.frame));
     match &view.ghost {
-        Ghost::Text(text) => {
-            tracing::info!(target: SUGGESTION_LOG_TARGET, text = text.as_str(), wrapped, "showed the ghost text");
-        }
+        Ghost::Text(text) => tracing::info!(
+            target: SUGGESTION_LOG_TARGET,
+            text = text.as_str(),
+            wrapped,
+            mirror_anchor,
+            mirror_anchor_frame,
+            "showed the ghost text"
+        ),
         Ghost::Fix(fix) => tracing::info!(
             target: SUGGESTION_LOG_TARGET,
             typo = fix.typo.as_str(),
             word = fix.word.as_str(),
             rest = fix.rest.as_str(),
             wrapped,
+            mirror_anchor,
+            mirror_anchor_frame,
             "showed a fix"
         ),
     }

@@ -1,6 +1,7 @@
 //! The ghost text: a click-through, never-focused layered window drawn right after the caret, with
 //! the lines that a long ghost text wraps onto below the line of the caret, or the mirror on a card
-//! below the caret when text follows the caret on its line.
+//! below the caret when text follows the caret on its line. In a field without a caret, the mirror
+//! shows on the same card at the anchor that core gives.
 
 use typealike_core::controller::{Ghost, GhostPlacement, GhostView, WrappedLines};
 use typealike_core::desktop::{GHOST_TEXT_ALPHA, TextColor};
@@ -22,6 +23,10 @@ const CARD_VERTICAL_PADDING_DIPS: i32 = 4;
 const CARD_CORNER_RADIUS_DIPS: i32 = 4;
 const CARD_BORDER_WIDTH_DIPS: i32 = 1;
 const GAP_TO_CARET_LINE_DIPS: i32 = 4;
+/// The height of the character cell of the text of the mirror in a field without a caret: the
+/// body text of Fluent (14 epx) in Segoe UI. Without a caret, the overlay has no size of the host
+/// text.
+const MIRROR_CELL_HEIGHT_DIPS: i32 = 19;
 /// The critical and the success foreground colors of Fluent, for light mode.
 const LIGHT_STRIKE: Rgb = Rgb {
     red: 0xC4,
@@ -131,10 +136,24 @@ impl Overlay {
             GhostPlacement::AfterCaret => inline_bitmap(view, &font, theme, caret)?,
             GhostPlacement::BelowCaret => card_bitmap(view, &font, theme, caret)?,
         };
-        log_shown_ghost(view, rect_at(origin, bitmap.size()));
-        bitmap.present(self.window.handle(), origin)?;
-        self.shown_caret = Some(caret.clone());
-        self.window.show_on_top()
+        self.present(view, &bitmap, origin, Some(caret.clone()))
+    }
+
+    /// Shows the mirror of `view` on a card at `anchor`, the frame on the screen that core gives
+    /// for a field without a caret. The card starts at the left edge of the anchor, below it, or
+    /// above it when the card does not fit below in the work area. The text is in the system UI
+    /// font at the size of body text.
+    pub(crate) fn show_mirror(&mut self, view: &GhostView, anchor: RECT) -> Result<()> {
+        let inside = inside_corner(anchor);
+        let dpi = monitor_dpi(inside);
+        let cell_height = to_pixels(MIRROR_CELL_HEIGHT_DIPS, dpi);
+        let font = Font::first_installed(&UI_FONT_FACES, cell_height, FontWeight::Regular)?;
+        let typed_font = Font::first_installed(&UI_FONT_FACES, cell_height, FontWeight::Semibold)?;
+        let theme = SystemTheme::read();
+        let (text, _) = card_text_bitmap(view, &font, &typed_font, theme)?;
+        let layout = CardLayout::new(mirror_line(anchor, dpi), text.size(), work_area(inside)?, dpi);
+        let (bitmap, origin) = on_card(text, &layout, theme)?;
+        self.present(view, &bitmap, origin, None)
     }
 
     pub(crate) fn hide(&self) {
@@ -143,6 +162,21 @@ impl Overlay {
 
     pub(crate) fn is_shown(&self) -> bool {
         self.window.is_visible()
+    }
+
+    /// Shows `bitmap` of `view` with its top left corner at `origin`, and keeps `caret`, the caret
+    /// that the bitmap shows at, for [`Overlay::redraw`].
+    fn present(
+        &mut self,
+        view: &GhostView,
+        bitmap: &TextBitmap,
+        origin: POINT,
+        caret: Option<Caret>,
+    ) -> Result<()> {
+        log_shown_ghost(view, rect_at(origin, bitmap.size()));
+        bitmap.present(self.window.handle(), origin)?;
+        self.shown_caret = caret;
+        self.window.show_on_top()
     }
 }
 
@@ -188,20 +222,7 @@ fn card_bitmap(
     caret: &Caret,
 ) -> Result<(TextBitmap, POINT)> {
     let typed_font = ghost_text_font(caret, FontWeight::Semibold)?;
-    let colors = TooltipColors::for_theme(theme);
-    let text_colors = card_text(theme);
-    let typed = TypedLetters {
-        word: &view.typed_word,
-        font: &typed_font,
-        ink: text_colors.typed.into(),
-    };
-    let (text, caret_left) = render(
-        typed,
-        "",
-        &view.ghost,
-        font,
-        fix_colors(theme, text_colors.ghost.into()),
-    )?;
+    let (text, caret_left) = card_text_bitmap(view, font, &typed_font, theme)?;
     let text_left = caret.origin.x - caret_left;
     let line = RECT {
         left: text_left,
@@ -211,13 +232,65 @@ fn card_bitmap(
     };
     let bounds = part_inside(work_area(caret.origin)?, focus::foreground_window_bounds());
     let layout = CardLayout::new(line, text.size(), bounds, monitor_dpi(caret.origin));
+    on_card(text, &layout, theme)
+}
+
+/// Renders the text of a card for `view`: the typed word in `typed_font`, then the ghost text in
+/// `font`, in the card colors of `theme`. Returns the bitmap and the distance from its left edge to
+/// the caret.
+fn card_text_bitmap(
+    view: &GhostView,
+    font: &Font,
+    typed_font: &Font,
+    theme: SystemTheme,
+) -> Result<(TextBitmap, i32)> {
+    let text_colors = card_text(theme);
+    let typed = TypedLetters {
+        word: &view.typed_word,
+        font: typed_font,
+        ink: text_colors.typed.into(),
+    };
+    render(
+        typed,
+        "",
+        &view.ghost,
+        font,
+        fix_colors(theme, text_colors.ghost.into()),
+    )
+}
+
+/// Puts `text` on the plate of a card in the tooltip colors of `theme`, at the place of `layout`.
+/// Returns the bitmap and its top left corner on the screen.
+fn on_card(text: TextBitmap, layout: &CardLayout, theme: SystemTheme) -> Result<(TextBitmap, POINT)> {
     let mut bitmap = text.padded(layout.padding)?;
-    bitmap.lay_over(&layout.plate(colors).pixels());
+    bitmap.lay_over(&layout.plate(TooltipColors::for_theme(theme)).pixels());
     let top_left = POINT {
         x: layout.frame.left,
         y: layout.frame.top,
     };
     Ok((bitmap, top_left))
+}
+
+/// The line that the text of the mirror starts on, at `anchor` on a monitor of `dpi`. The text
+/// starts one card padding after the left edge of the anchor, so that the card starts at that edge.
+fn mirror_line(anchor: RECT, dpi: i32) -> RECT {
+    let text_left = anchor
+        .left
+        .saturating_add(to_pixels(CARD_HORIZONTAL_PADDING_DIPS, dpi));
+    RECT {
+        left: text_left,
+        right: text_left,
+        ..anchor
+    }
+}
+
+/// The pixel at the bottom left corner inside `anchor`. The anchor at the bottom edge of a field
+/// has no height, and the pixel above it is still in the field and on its monitor.
+fn inside_corner(anchor: RECT) -> POINT {
+    POINT {
+        x: anchor.left,
+        y: anchor.bottom.saturating_sub(1),
+    }
 }
 
 /// Logs where the ghost text of `view` shows: `covered`, the rectangle of the screen that its
@@ -561,6 +634,68 @@ mod tests {
                 bottom: i32::MAX - 24,
             }
         );
+    }
+
+    #[test]
+    fn mirror_starts_at_the_left_edge_of_the_cursor_below_its_line() {
+        let cursor = RECT {
+            left: 600,
+            top: 200,
+            right: 609,
+            bottom: 219,
+        };
+
+        let frames =
+            [96, 144].map(|dpi| CardLayout::new(mirror_line(cursor, dpi), TEXT_SIZE, WORK_AREA, dpi).frame);
+
+        assert_eq!(
+            frames.map(|frame| (frame.left, frame.top)),
+            [(600, 223), (600, 225)]
+        );
+    }
+
+    #[test]
+    fn mirror_at_the_bottom_edge_of_a_field_that_fills_the_work_area_shows_inside_the_field() {
+        let bottom_edge = RECT {
+            left: 0,
+            top: 1040,
+            right: 1920,
+            bottom: 1040,
+        };
+
+        let layout = CardLayout::new(mirror_line(bottom_edge, 96), TEXT_SIZE, WORK_AREA, 96);
+
+        assert_eq!(
+            layout.frame,
+            RECT {
+                left: 0,
+                top: 1008,
+                right: 136,
+                bottom: 1036,
+            }
+        );
+    }
+
+    #[test]
+    fn monitor_of_the_mirror_is_the_monitor_of_a_pixel_inside_the_anchor() {
+        let anchors = [
+            RECT {
+                left: 0,
+                top: 1040,
+                right: 1920,
+                bottom: 1040,
+            },
+            RECT {
+                left: 600,
+                top: 200,
+                right: 609,
+                bottom: 219,
+            },
+        ];
+
+        let points = anchors.map(inside_corner);
+
+        assert_eq!(points, [POINT { x: 0, y: 1039 }, POINT { x: 600, y: 218 }]);
     }
 
     #[test]

@@ -32,6 +32,10 @@ const MAX_CLASS_NAME_UNITS: usize = 256;
 /// Vivaldi and the apps of Electron.
 const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
 const MAX_PATH_UNITS: usize = 1024;
+/// The programs whose windows give no caret and no text through UIA, by their file name. Herdr
+/// draws its whole window itself (gpui with AccessKit), and its focused element is the window
+/// without children, text or caret.
+const NO_CARET_PROGRAMS: [&str; 1] = ["herdr-app.exe"];
 
 /// Follows the foreground window and classifies whether TypeAlike may observe and type into it.
 #[derive(Debug)]
@@ -193,6 +197,15 @@ pub(crate) fn is_chromium_window(window: HWND) -> bool {
         .ok()
         .and_then(|written| units.get(..written))
         .is_some_and(|class| String::from_utf16_lossy(class) == CHROMIUM_WINDOW_CLASS)
+}
+
+/// Whether the app with `app_id`, the file name of its program, gives no caret and no text through
+/// UIA ([`NO_CARET_PROGRAMS`]). It matches by its program, never by the shape of its UIA tree,
+/// because a game can also give only its window.
+pub(crate) fn gives_no_caret(app_id: &str) -> bool {
+    NO_CARET_PROGRAMS
+        .iter()
+        .any(|program| program.eq_ignore_ascii_case(app_id))
 }
 
 /// Reads the title of `window`. For a window of another process, the system reads the title
@@ -361,5 +374,23 @@ mod tests {
         let ids = cases.map(|(path, _)| program_file_name(path));
 
         assert_eq!(ids, cases.map(|(_, id)| id));
+    }
+
+    #[test]
+    fn herdr_gives_no_caret() {
+        let app_ids = ["herdr-app.exe", "Herdr-App.EXE"];
+
+        let answers = app_ids.map(gives_no_caret);
+
+        assert_eq!(answers, [true; 2]);
+    }
+
+    #[test]
+    fn other_programs_give_their_caret() {
+        let app_ids = ["WindowsTerminal.exe", "Code.exe", "Zed.exe", "herdr-core.exe"];
+
+        let answers = app_ids.map(gives_no_caret);
+
+        assert_eq!(answers, [false; 4]);
     }
 }
