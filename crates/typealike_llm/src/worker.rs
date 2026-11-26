@@ -37,7 +37,7 @@ use crate::worker::generation::{Limits, Progress};
 use crate::worker::loaded_model::LoadedModel;
 pub(crate) use crate::worker::model_params::PromptBatch;
 use crate::worker::model_params::{
-    ContextSetup, DrafterUse, drafter_params, free_gpu_memory, log_devices, model_params,
+    ContextSetup, DrafterUse, PassedFits, drafter_params, free_gpu_memory, log_devices, model_params,
 };
 
 /// The time without a request after which the worker frees the context of a model on a GPU: its
@@ -204,6 +204,7 @@ pub(crate) fn run(
     let mut queue = JobQueue::new(jobs);
     let mut llama = None;
     let mut backend_dlls = BackendDlls::of_program_in(program_folder().as_deref(), Path::is_dir);
+    let mut passed_fits = PassedFits::default();
     while let Some(Job {
         request, mut reply, ..
     }) = queue.next()
@@ -223,6 +224,7 @@ pub(crate) fn run(
                 let loaded = load_with_drafter(
                     &mut llama,
                     &mut backend_dlls,
+                    &mut passed_fits,
                     locate_model(&file),
                     drafter_path,
                     backend,
@@ -277,6 +279,7 @@ fn load(
     load_with_drafter(
         llama,
         &mut BackendDlls::found_by_llama_cpp(),
+        &mut PassedFits::default(),
         path,
         None,
         backend,
@@ -289,10 +292,12 @@ fn load(
 /// another thread at the same time, it loads the drafter at `drafter_path`, so that the drafter
 /// adds little time to the load. It starts llama.cpp in `llama` with the backends of `backend` in
 /// `backend_dlls` first, as [`start_backend`] does. The model runs without the drafter when the
-/// drafter fails to load or does not fit it.
+/// drafter fails to load or does not fit it. The check that the model fits in the GPU uses and
+/// fills `passed_fits`, as [`params_with_room_for`] tells.
 fn load_with_drafter(
     llama: &mut Option<LlamaBackend>,
     backend_dlls: &mut BackendDlls,
+    passed_fits: &mut PassedFits,
     path: Option<PathBuf>,
     drafter_path: Option<PathBuf>,
     backend: Backend,
@@ -302,7 +307,8 @@ fn load_with_drafter(
         .filter(|path| path.is_file())
         .ok_or(InferenceError::ModelMissing)?;
     let llama = start_backend(llama, backend_dlls, backend)?;
-    let (params, drafter_path) = params_with_room_for(drafter_path, &path, backend, batch_tokens)?;
+    let (params, drafter_path) =
+        params_with_room_for(passed_fits, drafter_path, &path, backend, batch_tokens)?;
     thread::scope(|scope| {
         let loading_drafter =
             drafter_path.map(|drafter_path| scope.spawn(move || load_drafter(llama, &drafter_path, backend)));
@@ -326,22 +332,28 @@ fn load_with_drafter(
 
 /// Returns the parameters that load the model at `path` on `backend` and leave GPU memory free for
 /// the drafter at `drafter_path`, with that path. When the model fits in the GPU only without the
-/// drafter, it returns no drafter path, so that the model loads without the drafter.
+/// drafter, it returns no drafter path, so that the model loads without the drafter. A check of
+/// the fit that passed before with no more free GPU memory than now, in `passed_fits`, does not
+/// run again.
 fn params_with_room_for(
+    passed_fits: &mut PassedFits,
     drafter_path: Option<PathBuf>,
     path: &Path,
     backend: Backend,
     batch_tokens: u32,
 ) -> Result<(LlamaModelParams, Option<PathBuf>), InferenceError> {
     if drafter_path.is_some() {
-        match model_params(path, backend, batch_tokens, DRAFTER_MEMORY) {
+        match model_params(path, backend, batch_tokens, DRAFTER_MEMORY, passed_fits) {
             Err(InferenceError::ModelTooLarge) => {
                 tracing::warn!("the model fits in the GPU only without its drafter, so it runs without it");
             }
             params => return Ok((params?, drafter_path)),
         }
     }
-    Ok((model_params(path, backend, batch_tokens, ByteSize(0))?, None))
+    Ok((
+        model_params(path, backend, batch_tokens, ByteSize(0), passed_fits)?,
+        None,
+    ))
 }
 
 /// Returns the path of the drafter of the model of `file`, when the model runs with a drafter on

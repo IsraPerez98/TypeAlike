@@ -49,6 +49,9 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 
 - The runner refuses a GPU load when the whole model does not fit in free GPU memory with the context of the backend (8192 tokens).
 - With a drafter, the check also keeps 64 MiB free for the drafter (`DRAFTER_MEMORY`). When the model fits only without the drafter, it loads without the drafter.
+- The check is the fit of llama.cpp. It reads the model file and makes a context without memory to count the memory, so it takes a large part of the load. It gives only the verdict, and the parameters of the load do not come from it.
+- The worker keeps the free GPU memory of the last check that passed for each set of inputs (`PassedFits`): the path, the length and the time of change of the model file, the device, the memory to keep free and the context (tokens, batch).
+- When a later load has the same inputs and the device has at least that free memory, the worker skips the check, because llama.cpp keeps every layer on the GPU when the memory that the model needs is at most the free memory. The log tells that it skipped the check, with the free memory now and at the check that passed.
 - A read of GPU memory gives the free memory of the device that a load on that backend uses (the Metal device on macOS), and keeps a loaded model.
 
 ## Warm-up

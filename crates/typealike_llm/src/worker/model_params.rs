@@ -1,9 +1,12 @@
 //! The parameters that load a model and create its context, and the CPU threads that run it.
 
+use std::collections::HashMap;
 use std::ffi::CString;
+use std::fs;
 use std::num::NonZeroU32;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::time::SystemTime;
 
 use llama_cpp_2::context::params::{LlamaContextParams, LlamaContextType};
 use llama_cpp_2::model::params::{FitError, LlamaLazyMode, LlamaModelParams};
@@ -55,7 +58,7 @@ impl PromptBatch {
 }
 
 /// How each context of a loaded model runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ContextSetup {
     /// The threads on the CPU, or `None` for the threads of llama.cpp.
     pub(super) cpu_threads: Option<CpuThreads>,
@@ -82,7 +85,7 @@ impl ContextSetup {
 }
 
 /// Whether a load makes the context and runs the first decodes before it answers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum WarmUp {
     /// The load warms up the backend. A GPU backend prepares its kernels and its memory at the
     /// first decodes, which makes the first completion after a load slow.
@@ -147,11 +150,15 @@ pub(super) fn log_devices() {
 /// The CPU, Metal and a discrete GPU read only the rows of a marked tensor that a batch needs, from
 /// the mapped model file (`LlamaLazyMode::On`). In Gemma 4, the per-layer embeddings are marked, and
 /// llama.cpp keeps them in CPU memory on each backend.
+///
+/// The check of the fit does not run again when the same check is in `passed_fits` with no more
+/// free memory than now, and each check that passes goes into `passed_fits`.
 pub(super) fn model_params(
     path: &Path,
     backend: Backend,
     batch_tokens: u32,
     drafter_memory: ByteSize,
+    passed_fits: &mut PassedFits,
 ) -> Result<LlamaModelParams, InferenceError> {
     match backend {
         Backend::Cpu => Ok(on_devices(&[])?.with_lazy_mode(LlamaLazyMode::On)),
@@ -164,15 +171,112 @@ pub(super) fn model_params(
                 free_mib = device.memory_free / BYTES_IN_MIB,
                 "loading the model on a GPU"
             );
-            check_fit(
+            check_fit_once(
+                passed_fits,
                 path,
-                device.index,
+                &device,
                 free_memory_of_load(drafter_memory),
                 ContextSetup::on(gpu_backend, None, batch_tokens),
             )?;
             Ok(on_devices(&[device.index])?.with_lazy_mode(lazy_mode_for(device.device_type)))
         }
     }
+}
+
+/// What the check of the fit reads, except the free memory of the device. llama.cpp keeps every
+/// layer on the device when the memory that the model and its context need, with the margin, is
+/// at most the free memory. Thus a check of the same inputs passes again with at least as much
+/// free memory.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FitInputs {
+    /// The path of the model file, with its length and the time of its last change, so that
+    /// another file at the same path gives other inputs.
+    path: PathBuf,
+    file_length: u64,
+    modified: Option<SystemTime>,
+    /// The index of the device among the devices of llama.cpp, with its name.
+    device: usize,
+    device_name: String,
+    /// The free memory that the load leaves on the device, in bytes.
+    margin_bytes: usize,
+    setup: ContextSetup,
+}
+
+impl FitInputs {
+    /// Returns the inputs of a check that the model at `path` fits on `device` and leaves
+    /// `margin_bytes` free, with a context of `setup`. Returns `None` when the file system gives no
+    /// length of the file.
+    fn of(
+        path: &Path,
+        device: &LlamaBackendDevice,
+        margin_bytes: usize,
+        setup: ContextSetup,
+    ) -> Option<Self> {
+        let metadata = fs::metadata(path).ok()?;
+        Some(Self {
+            path: path.to_path_buf(),
+            file_length: metadata.len(),
+            modified: metadata.modified().ok(),
+            device: device.index,
+            device_name: device.name.clone(),
+            margin_bytes,
+            setup,
+        })
+    }
+}
+
+/// The checks of the fit that passed: for each [`FitInputs`], the free memory of the device in
+/// bytes at its last check that passed.
+#[derive(Debug, Default)]
+pub(super) struct PassedFits {
+    free_bytes: HashMap<FitInputs, usize>,
+}
+
+impl PassedFits {
+    /// Returns the free memory of the device at the last check of `inputs` that passed, when the
+    /// device has at least that much free memory now (`free_bytes`), so that the check would pass
+    /// again. Else returns `None`.
+    fn passed_with(&self, inputs: &FitInputs, free_bytes: usize) -> Option<usize> {
+        self.free_bytes
+            .get(inputs)
+            .copied()
+            .filter(|&passed_free_bytes| free_bytes >= passed_free_bytes)
+    }
+
+    /// Keeps `free_bytes`, the free memory of the device, for a check of `inputs` that passed.
+    fn add(&mut self, inputs: FitInputs, free_bytes: usize) {
+        self.free_bytes.insert(inputs, free_bytes);
+    }
+}
+
+/// Makes sure that the model at `path` fits on `device` as [`check_fit`] does. It skips the check
+/// when the same check passed before with no more free memory than `device` has now, and keeps each
+/// check that passes in `passed_fits`.
+fn check_fit_once(
+    passed_fits: &mut PassedFits,
+    path: &Path,
+    device: &LlamaBackendDevice,
+    margin_bytes: usize,
+    setup: ContextSetup,
+) -> Result<(), InferenceError> {
+    let inputs = FitInputs::of(path, device, margin_bytes, setup);
+    let passed_free_bytes = inputs
+        .as_ref()
+        .and_then(|inputs| passed_fits.passed_with(inputs, device.memory_free));
+    if let Some(passed_free_bytes) = passed_free_bytes {
+        tracing::info!(
+            free_mib = device.memory_free / BYTES_IN_MIB,
+            passed_free_mib = passed_free_bytes / BYTES_IN_MIB,
+            "skipped the check that the model fits in the GPU, because the same check passed with \
+             no more free memory"
+        );
+        return Ok(());
+    }
+    check_fit(path, device.index, margin_bytes, setup)?;
+    if let Some(inputs) = inputs {
+        passed_fits.add(inputs, device.memory_free);
+    }
+    Ok(())
 }
 
 /// Returns the GPU memory in bytes that a load leaves free: the margin of a load and the
@@ -320,7 +424,7 @@ pub(super) fn drafter_context_params(context_tokens: u32, setup: ContextSetup) -
 }
 
 /// The threads that run a model on the CPU.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CpuThreads {
     /// The threads for the tokens of a prompt.
     pub(super) prompt: i32,
@@ -355,7 +459,6 @@ fn threads_for(backend: Backend, cpu_cores: Option<CpuCores>) -> Option<CpuThrea
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::path::PathBuf;
 
     use typealike_core::inference::DRAFTER_MEMORY;
 
@@ -505,6 +608,94 @@ mod tests {
         }
     }
 
+    const PASSED_FREE_BYTES: usize = 8 << 30;
+
+    fn fit_inputs() -> FitInputs {
+        FitInputs {
+            path: PathBuf::from("model.gguf"),
+            file_length: 4 << 30,
+            modified: None,
+            device: 1,
+            device_name: "CUDA0".to_owned(),
+            margin_bytes: 1 << 30,
+            setup: setup(None, LARGE_BATCH_TOKENS),
+        }
+    }
+
+    fn fits_that_passed_with(inputs: FitInputs, free_bytes: usize) -> PassedFits {
+        let mut fits = PassedFits::default();
+        fits.add(inputs, free_bytes);
+        fits
+    }
+
+    #[test]
+    fn fit_passes_again_with_at_least_the_free_memory_of_its_last_pass() {
+        let fits = fits_that_passed_with(fit_inputs(), PASSED_FREE_BYTES);
+        let free_now = [PASSED_FREE_BYTES - 1, PASSED_FREE_BYTES, PASSED_FREE_BYTES + 1];
+
+        let passed = free_now.map(|free_bytes| fits.passed_with(&fit_inputs(), free_bytes));
+
+        assert_eq!(passed, [None, Some(PASSED_FREE_BYTES), Some(PASSED_FREE_BYTES)]);
+    }
+
+    #[test]
+    fn fit_of_other_inputs_runs_again() {
+        let fits = fits_that_passed_with(fit_inputs(), PASSED_FREE_BYTES);
+        let other_inputs = [
+            FitInputs {
+                path: PathBuf::from("other.gguf"),
+                ..fit_inputs()
+            },
+            FitInputs {
+                file_length: 5 << 30,
+                ..fit_inputs()
+            },
+            FitInputs {
+                modified: Some(SystemTime::UNIX_EPOCH),
+                ..fit_inputs()
+            },
+            FitInputs {
+                device: 2,
+                ..fit_inputs()
+            },
+            FitInputs {
+                device_name: "CUDA1".to_owned(),
+                ..fit_inputs()
+            },
+            FitInputs {
+                margin_bytes: 2 << 30,
+                ..fit_inputs()
+            },
+            FitInputs {
+                setup: setup(None, BATCH_TOKENS),
+                ..fit_inputs()
+            },
+        ];
+
+        let passed = other_inputs.map(|inputs| fits.passed_with(&inputs, PASSED_FREE_BYTES));
+
+        assert_eq!(passed, [None; 7]);
+    }
+
+    #[test]
+    fn fit_without_a_pass_runs() {
+        let fits = PassedFits::default();
+
+        let passed = fits.passed_with(&fit_inputs(), PASSED_FREE_BYTES);
+
+        assert_eq!(passed, None);
+    }
+
+    #[test]
+    fn last_pass_of_a_fit_gives_its_free_memory() {
+        let mut fits = fits_that_passed_with(fit_inputs(), PASSED_FREE_BYTES);
+        fits.add(fit_inputs(), PASSED_FREE_BYTES - 1);
+
+        let passed = fits.passed_with(&fit_inputs(), PASSED_FREE_BYTES - 1);
+
+        assert_eq!(passed, Some(PASSED_FREE_BYTES - 1));
+    }
+
     #[test]
     fn context_on_a_gpu_backend_holds_more_tokens() {
         let backends = [Backend::Cpu, Backend::Vulkan, Backend::Cuda, Backend::Metal];
@@ -627,8 +818,14 @@ mod tests {
         let backends = [Backend::Cpu, Backend::Metal];
 
         let lazy_modes = backends.map(|backend| {
-            model_params(Path::new("model.gguf"), backend, BATCH_TOKENS, ByteSize(0))
-                .map(|params| params.lazy_mode())
+            model_params(
+                Path::new("model.gguf"),
+                backend,
+                BATCH_TOKENS,
+                ByteSize(0),
+                &mut PassedFits::default(),
+            )
+            .map(|params| params.lazy_mode())
         });
 
         assert_eq!(lazy_modes, [Ok(Some(LlamaLazyMode::On)); 2]);
