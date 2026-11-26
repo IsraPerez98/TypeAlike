@@ -5,10 +5,12 @@ use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use std::{env, io, panic};
 
+use tracing::Subscriber;
 use tracing_subscriber::Layer as _;
 use tracing_subscriber::filter::{LevelFilter, Targets};
-use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use typealike_core::SUGGESTION_LOG_TARGET;
 
@@ -25,40 +27,25 @@ const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Sends the logs to the terminal and appends them to `TypeAlike.log` in the temp folder, with the
-/// levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`]. A panic also goes to the logs. With the `suggestion-log`
-/// feature, it also appends the records of the suggestion log to `suggestions.jsonl` in the data
-/// folder, when that file exists.
+/// levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`]. A panic also goes to the logs. With the
+/// `suggestion-log` feature, it also appends the records of the suggestion log to
+/// `suggestions.jsonl` in the data folder, when that file exists.
 pub(crate) fn start() {
     let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVELS.to_owned());
     let (main_targets, filter_error) = main_targets(&levels);
     let path = env::temp_dir().join(LOG_FILE);
     let file = open_log_file(&path);
     let file_error = file.as_ref().err().map(ToString::to_string);
-    let registry = tracing_subscriber::registry()
-        .with(fmt::layer().with_filter(main_targets.clone()))
-        .with(file.ok().map(|file| {
-            fmt::layer()
-                .with_ansi(false)
-                .with_writer(file)
-                .with_filter(main_targets)
-        }));
+    let subscriber = main_subscriber(main_targets, io::stdout, file.ok());
     #[cfg(feature = "suggestion-log")]
-    let registry = registry.with(suggestion_log::layer());
-    registry.init();
+    let subscriber = subscriber.with(suggestion_log::layer());
+    subscriber.init();
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         tracing::error!(%info, "TypeAlike panicked");
         default_hook(info);
     }));
-    tracing::info!(
-        version = env!("CARGO_PKG_VERSION"),
-        process = std::process::id(),
-        vulkan = cfg!(feature = "vulkan"),
-        cuda = cfg!(feature = "cuda"),
-        log = %path.display(),
-        suggestion_log = tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO),
-        "TypeAlike started"
-    );
+    log_start(&path);
     if let Some(error) = filter_error {
         tracing::warn!(
             %error,
@@ -70,6 +57,37 @@ pub(crate) fn start() {
     if let Some(error) = file_error {
         tracing::warn!(%error, "failed to open the log file");
     }
+}
+
+/// The subscriber that sends the logs at `targets` to `terminal`, and to `file` without colors when
+/// the log file opened.
+fn main_subscriber(
+    targets: Targets,
+    terminal: impl for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+    file: Option<impl for<'writer> MakeWriter<'writer> + Send + Sync + 'static>,
+) -> impl Subscriber + for<'span> LookupSpan<'span> + Send + Sync {
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_writer(terminal).with_filter(targets.clone()))
+        .with(file.map(|file| {
+            fmt::layer()
+                .with_ansi(false)
+                .with_writer(file)
+                .with_filter(targets)
+        }))
+}
+
+/// Logs the start of the run: the build, the process, the path of the `log` file and whether the
+/// suggestion log is on.
+fn log_start(log: &Path) {
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        process = std::process::id(),
+        vulkan = cfg!(feature = "vulkan"),
+        cuda = cfg!(feature = "cuda"),
+        log = %log.display(),
+        suggestion_log = tracing::enabled!(target: SUGGESTION_LOG_TARGET, tracing::Level::INFO),
+        "TypeAlike started"
+    );
 }
 
 /// The levels of the terminal and of `TypeAlike.log` from `levels`, else [`DEFAULT_LEVELS`], and
