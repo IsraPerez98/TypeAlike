@@ -2,7 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::{Correction, MIN_FIXED_CHARACTERS};
-use crate::prompt::{CLIPBOARD_LABEL, LABEL_TOPIC_WORDS, Preface};
+use crate::prompt::{CLIPBOARD_LABEL, LABEL_TOPIC_WORDS, Preface, is_age_label};
 
 use super::WordFix;
 
@@ -177,6 +177,7 @@ pub(super) fn is_bad_suggestion(
         || repeats_a_pattern(&suggested)
         || copies_frame_line(&suggested, suggestion, context, &preface.frame_lines)
         || names_the_clipboard(&suggested, context, text_after, preface)
+        || holds_age_frame(suggestion)
         || copies_frame_label(suggestion, context, &preface.frame_lines)
         || greets_the_writer(suggestion, context, preface)
         || opens_note_after_sentence(suggestion, context)
@@ -206,6 +207,17 @@ fn names_the_clipboard(suggested: &[String], context: &str, text_after: &str, pr
         .sum::<usize>();
     let is_written = count_in(context) + count_in(text_after) > 0 || count_in(&preface.text) > in_frame;
     !is_written
+}
+
+/// Whether `suggestion` holds the age of an earlier text in brackets, in any case, as the preface
+/// writes it before each earlier text: "(today)", "(yesterday)" or "(4 days ago)". Without the
+/// brackets, the age is often writing, as in "I sent it 4 days ago".
+fn holds_age_frame(suggestion: &str) -> bool {
+    let text = suggestion.to_lowercase();
+    text.match_indices('(').any(|(start, _)| {
+        let inside = &text[start + 1..];
+        inside.find(')').is_some_and(|end| is_age_label(&inside[..end]))
+    })
 }
 
 /// Whether `suggestion` after `context` makes a word of the name of the writer of `preface` the

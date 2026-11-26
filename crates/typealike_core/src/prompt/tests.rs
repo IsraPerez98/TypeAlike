@@ -704,6 +704,24 @@ fn each_topic_word_of_the_labels_is_a_word_of_a_label() {
 }
 
 #[test]
+fn age_label_is_how_the_preface_writes_the_age_of_an_earlier_text() {
+    let cases = [
+        ("today", true),
+        ("yesterday", true),
+        ("4 days ago", true),
+        ("3 weeks ago", true),
+        ("1 days ago", false),
+        ("20 days ago", false),
+        ("a week ago", false),
+        ("Monday", false),
+    ];
+
+    let found = cases.map(|(text, _)| is_age_label(text));
+
+    assert_eq!(found, cases.map(|(_, is_age)| is_age));
+}
+
+#[test]
 fn frame_lines_keep_the_notes_of_an_example() {
     let notes = WriterNotes::default();
     let writer = Writer {

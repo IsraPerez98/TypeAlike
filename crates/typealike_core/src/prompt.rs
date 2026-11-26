@@ -360,6 +360,20 @@ fn age_frame(days_ago: u64) -> String {
     format!("({}) ", age_label(days_ago))
 }
 
+/// Whether `text` is how long ago an earlier text is, as the preface writes it ([`age_label`]),
+/// such as "today" or "4 days ago".
+pub(crate) fn is_age_label(text: &str) -> bool {
+    let number = text
+        .split(' ')
+        .next()
+        .and_then(|first_word| first_word.parse::<u64>().ok());
+    let weeks_in_days = number.map(|weeks| weeks.saturating_mul(7));
+    [Some(0), Some(1), number, weeks_in_days]
+        .into_iter()
+        .flatten()
+        .any(|days_ago| age_label(days_ago) == text)
+}
+
 /// Returns how long ago a text of `days_ago` days is, in words.
 fn age_label(days_ago: u64) -> String {
     match days_ago {

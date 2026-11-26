@@ -8,16 +8,16 @@ use crate::settings::WriterNotes;
 use super::{is_bad_suggestion, words};
 
 /// The frame lines that do not hide in each form of a copy ([`copies_of`]), with the forms that
-/// hide. A writer can type them:
-/// - The age of an earlier text of 1 word, as in "I sent it today". Only a bracket after the end of
-///   a sentence hides it, because such a bracket opens a note about the text.
-/// - The name line with a name of 1 word, as in "Hi, my name is Sara." It hides only when it starts
-///   the line of the caret.
+/// hide:
+/// - The age of an earlier text of 1 word in brackets. A copy after its typed opening bracket
+///   shows, because the check of the brackets does not look across the caret.
+/// - The name line with a name of 1 word. A writer can type it, as in "Hi, my name is Sara.", so it
+///   hides only when it starts the line of the caret.
 ///
 /// A new frame line of 1 or 2 words fails the tests until it comes here or gets a rule.
 const KNOWN_EXCEPTIONS: [(&str, [bool; 4]); 3] = [
-    ("(today) ", [false, true, false, false]),
-    ("(yesterday) ", [false, true, false, false]),
+    ("(today) ", [true, true, true, false]),
+    ("(yesterday) ", [true, true, true, false]),
     ("My name is Sara.", [true, false, true, true]),
 ];
 /// The text before a copy of a frame line after the end of a sentence.
@@ -163,6 +163,34 @@ fn each_frame_line_of_one_or_two_words_is_a_known_exception() {
         .collect::<Vec<_>>();
 
     assert_eq!(unknown, Vec::<&String>::new());
+}
+
+#[test]
+fn suggestion_with_the_age_of_an_earlier_text_in_brackets_hides() {
+    let preface = full_preface("Sara Novak");
+    let cases = [
+        ("Where:\n", "(today)"),
+        ("I sent it ", "(Yesterday) to Tom."),
+        ("Notes ", "(2 weeks ago) budget"),
+    ];
+
+    let hidden = cases.map(|(context, suggestion)| is_bad_suggestion(suggestion, context, "", &preface));
+
+    assert_eq!(hidden, [true; 3]);
+}
+
+#[test]
+fn suggestion_with_an_age_without_brackets_or_another_text_in_brackets_shows() {
+    let preface = full_preface("Sara Novak");
+    let cases = [
+        ("I sent it ", "4 days ago to Tom."),
+        ("See you ", "(Monday) at noon."),
+        ("The report ", "(20 days ago) is late."),
+    ];
+
+    let hidden = cases.map(|(context, suggestion)| is_bad_suggestion(suggestion, context, "", &preface));
+
+    assert_eq!(hidden, [false; 3]);
 }
 
 #[test]
