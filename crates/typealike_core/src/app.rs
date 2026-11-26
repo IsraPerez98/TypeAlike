@@ -40,9 +40,9 @@ pub const INPUT_SETTLE_DELAY: Duration = Duration::from_millis(300);
 /// full screen.
 pub const GAME_UNLOAD_DELAY: Duration = Duration::from_secs(10);
 /// The time from the start of the stop of an app in full screen to the unload of the suggestion
-/// model. Many apps fill the screen only for some seconds, such as a media viewer, a screenshot
-/// tool, a search window of the system or a task switcher. A load after each of them costs time
-/// and energy.
+/// model. Many apps fill the screen only for some seconds: a media viewer, a screenshot tool, a
+/// search window of the system or a task switcher. A load after each of them costs time and
+/// energy.
 pub const FULL_SCREEN_UNLOAD_DELAY: Duration = Duration::from_secs(30);
 
 /// Whether TypeAlike is currently offering suggestions.
