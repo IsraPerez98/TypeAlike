@@ -116,6 +116,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - Thus in a Chromium window (class `Chrome_WidgetWin_1`), the field read also reads the name of the `BrowserRootView` child of the window in UIA, and that name replaces the window title (`ShownField::window_title`). Core then finds the private windows of these browsers too (`docs/core/settings-window.md`, "Private windows").
 - Checked on 2026-11-10: Chrome 2026-11 gives "Page - Google Chrome (Incognito)" there, and the window title "Page - Google Chrome". A Firefox private window has its mark in the window title. An app of Electron has no such view and keeps its window title.
 - A field with the ARIA role `searchbox` (UIA `AriaRole`: a web search box or an HTML `<input type="search">`) is a search field. A native search box gives no ARIA role.
+- A field without a Chromium or Gecko document above it is outside each web page (`ShownField::is_outside_web_pages`), as the address bar of a browser. A request about the document that fails tells nothing.
 - A field with the class `native-edit-context` in UIA (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): UIA gives its text only while the screen reader mode of VS Code is on.
 - After a click or a focus move, the field also counts as a password field until a read of the new field tells that it shows its text.
 - A read that gives no focused element (`FieldAnswer::Unknown`: the request failed or did not finish in time) does not change whether the field counts as a password field.

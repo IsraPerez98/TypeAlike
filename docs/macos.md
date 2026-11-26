@@ -83,6 +83,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - A look does not tell what follows the caret yet (`AfterCaret::Unknown`), so core uses the text that the session read at its start.
 - A field whose app does not answer the read of its subrole in time (0.1 s, `AXError::CannotComplete`) counts as a password field.
 - A field with the subrole `AXSearchField` (a native search field or an HTML search box) is a search field. The address bar of Chrome gives no subrole.
+- The walk up from the field to its web area (`web_place`, at most 64 elements) gives the host of the page. When it gets to the window first, the field is outside each web page (`Surroundings::is_outside_web_pages`), as the address bar and the find bar of Chrome (`AXTextField` without a subrole). A walk that stops earlier tells nothing.
 - A field with the DOM class `native-edit-context` (the editor of VS Code) has unreadable text (`Surroundings::has_unreadable_text`): its tree holds the text only while the screen reader mode of VS Code is on.
 - Some apps give no caret through AX (`gives_no_caret`, `NO_CARET_BUNDLE_PREFIXES`). They match by the start of their bundle identifier, never by the shape of their tree, because a game can also give only its window.
   - The terminal of Ghostty gives its mouse selection as its selection, never its cursor. Its text then does not tell where the caret is. The value would put the whole screen after the caret.
@@ -215,7 +216,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 ## Suggestion log
 
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
-  - `read the field`: the app, the window title, the domain, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
+  - `read the field`: the app, the window title, the domain, whether the field is outside each web page, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
   - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`). The source tells whether the time is for the Accessibility tree or for the OCR.
   - `ran OCR`: the steps of each OCR, before the `read the screen` record of its read. Its `span` names that read: `"span":{"read":"ScreenReadId(N)","name":"screen read"}`. It holds numbers only.
     - `level` and `area` are the level of Vision and the part of the window.

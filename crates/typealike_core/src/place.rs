@@ -153,10 +153,19 @@ impl Format {
     }
 }
 
-/// Whether the focused field gets no suggestions: a search box, or an address or the subject of
-/// an email. The screen reads also skip such a field.
+/// Whether the focused field gets no suggestions: a search box, a field of a browser itself, or an
+/// address or the subject of an email. The screen reads also skip such a field.
 pub(crate) fn is_excluded_field(surroundings: &Surroundings) -> bool {
-    surroundings.is_search_field || is_address_or_subject_field(surroundings)
+    surroundings.is_search_field
+        || is_browser_field(surroundings)
+        || is_address_or_subject_field(surroundings)
+}
+
+/// Whether the focused field is a part of a browser itself, as its address bar or its find bar: a
+/// field of a browser app outside each web page.
+fn is_browser_field(surroundings: &Surroundings) -> bool {
+    surroundings.is_outside_web_pages
+        && Format::of_place(surroundings.app_id.as_deref(), None) == Some(Format::WebPage)
 }
 
 /// Whether the focused field is an address or the subject of an email. These fields get no
@@ -365,6 +374,36 @@ mod tests {
         let names = formats.map(Format::name);
 
         assert_eq!(names, ["email", "chat", "document", "web page"]);
+    }
+
+    fn outside_web_pages(app_id: &str) -> Surroundings {
+        Surroundings {
+            is_outside_web_pages: true,
+            ..place(Some(app_id), None, None)
+        }
+    }
+
+    #[test]
+    fn fields_of_a_browser_outside_web_pages_are_excluded() {
+        let cases = ["com.google.Chrome", "com.apple.Safari", "msedge.exe"];
+
+        let excluded = cases.map(|app_id| is_excluded_field(&outside_web_pages(app_id)));
+
+        assert_eq!(excluded, [true; 3]);
+    }
+
+    #[test]
+    fn fields_of_web_pages_and_of_other_apps_are_not_excluded() {
+        let cases = [
+            place(Some("com.google.Chrome"), Some("example.com"), None),
+            place(Some("com.google.Chrome"), None, None),
+            outside_web_pages("com.apple.mail"),
+            outside_web_pages("com.tinyspeck.slackmacgap"),
+        ];
+
+        let excluded = cases.map(|surroundings| is_excluded_field(&surroundings));
+
+        assert_eq!(excluded, [false; 4]);
     }
 
     #[test]

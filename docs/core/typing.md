@@ -14,6 +14,7 @@ How `typealike_core` follows the typing of the user: the key rules, the session,
 ## Fields without suggestions
 
 - A field whose role marks it as a search box (`Surroundings::is_search_field`) gets no suggestions, as the address and subject fields of an email.
+- A field of a browser app outside each web page gets no suggestions (`place::is_browser_field`), as the address bar and the find bar. The platform finds no web page between the field and its window (`Surroundings::is_outside_web_pages`). A web page without a host, as a file, is still a web page.
 - The platform reads the role, never the labels, so the rule works in any language.
 - A field whose app or website is off works as a paused field (`docs/core/settings-window.md`, "Apps and websites").
 

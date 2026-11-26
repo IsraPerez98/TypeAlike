@@ -52,6 +52,10 @@ pub(crate) enum UiaField {
 /// What a field that shows its text tells about itself. `Debug` shows only what is known, so logs
 /// never hold the text, the labels or the web page.
 #[derive(Clone, PartialEq, Eq, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a separate fact that UIA reads"
+)]
 pub(crate) struct ShownField {
     /// The text around the caret, or `None` when TypeAlike cannot read it.
     pub(crate) text: Option<FieldText>,
@@ -59,6 +63,8 @@ pub(crate) struct ShownField {
     pub(crate) labels: FieldLabels,
     /// The host of the web page that holds the field, or `None` outside a web page.
     pub(crate) domain: Option<String>,
+    /// Whether UIA gives no web document above the field, as for the address bar of a browser.
+    pub(crate) is_outside_web_pages: bool,
     /// Whether the field hides the text on the line of its caret, as the input box of a terminal
     /// of xterm.js does.
     pub(crate) is_caret_line_hidden: bool,
@@ -86,6 +92,7 @@ impl fmt::Debug for ShownField {
             .field("text", &self.text)
             .field("labels", &self.labels)
             .field("has_domain", &self.domain.is_some())
+            .field("is_outside_web_pages", &self.is_outside_web_pages)
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
             .field("has_unreadable_text", &self.has_unreadable_text)
@@ -103,10 +110,16 @@ impl Uia {
         if is_password(&element) {
             return Some(UiaField::Password);
         }
+        let web_place = self.web_place(&element);
+        let is_outside_web_pages = matches!(web_place, WebPlace::OutsidePages);
         Some(UiaField::Shown(ShownField {
             text: text_around_selection(&element),
             labels: labels_of(&element),
-            domain: self.web_domain(&element),
+            domain: match web_place {
+                WebPlace::Page { domain } => domain,
+                WebPlace::OutsidePages | WebPlace::Unknown => None,
+            },
+            is_outside_web_pages,
             is_caret_line_hidden: is_terminal_input(&element),
             is_search_field: is_search_field(&element),
             has_unreadable_text: has_unreadable_text(&element),
@@ -139,22 +152,34 @@ impl Uia {
         (!title.is_empty()).then_some(title)
     }
 
-    /// Reads the host of the web page that holds `element`, from the URL of the nearest web
-    /// document at or above it. Only a web document counts, because the value of another
-    /// document, such as a page of a word processor, can be all of its text.
-    fn web_domain(&self, element: &IUIAutomationElement) -> Option<String> {
-        let walker = self.web_document_walker()?;
-        // SAFETY: plain calls on interfaces of this thread.
-        let url = unsafe {
-            let cache = self.cache_request(&[UIA_ControlTypePropertyId, UIA_ValueValuePropertyId])?;
-            let document = walker.NormalizeElementBuildCache(element, &cache).ok()?;
-            // UIA gives the root of the tree when no element above matches.
-            if document.CachedControlType().ok()? != UIA_DocumentControlTypeId {
-                return None;
-            }
-            document.GetCachedPropertyValue(UIA_ValueValuePropertyId).ok()?
+    /// Finds the nearest web document at or above `element`, with the host of its URL. Only a web
+    /// document counts, because the value of another document, such as a page of a word
+    /// processor, can be all of its text.
+    fn web_place(&self, element: &IUIAutomationElement) -> WebPlace {
+        let Some(walker) = self.web_document_walker() else {
+            return WebPlace::Unknown;
         };
-        url_host(&text_of(&url)?)
+        // SAFETY: plain calls on interfaces of this thread.
+        unsafe {
+            let Some(cache) = self.cache_request(&[UIA_ControlTypePropertyId, UIA_ValueValuePropertyId])
+            else {
+                return WebPlace::Unknown;
+            };
+            let Ok(document) = walker.NormalizeElementBuildCache(element, &cache) else {
+                return WebPlace::Unknown;
+            };
+            let Ok(control_type) = document.CachedControlType() else {
+                return WebPlace::Unknown;
+            };
+            // UIA gives the root of the tree when no element above matches.
+            if control_type != UIA_DocumentControlTypeId {
+                return WebPlace::OutsidePages;
+            }
+            let url = document.GetCachedPropertyValue(UIA_ValueValuePropertyId).ok();
+            WebPlace::Page {
+                domain: url.and_then(|url| url_host(&text_of(&url)?)),
+            }
+        }
     }
 
     /// A walker that sees only the documents of web pages.
@@ -180,6 +205,16 @@ impl Uia {
             self.automation.CreateTreeWalker(&condition).ok()
         }
     }
+}
+
+/// Where a field is in its window: in a web page, or outside each web page.
+enum WebPlace {
+    /// A web document is above the field. `domain` is the host of its URL, if the URL has one.
+    Page { domain: Option<String> },
+    /// No web document is above the field, as for the address bar of a browser.
+    OutsidePages,
+    /// UIA did not answer.
+    Unknown,
 }
 
 /// A side of the selection.

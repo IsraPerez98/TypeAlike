@@ -17,7 +17,9 @@ use crate::accessibility::{
 };
 pub(crate) use crate::focus::caret::{FontFace, TextStyle};
 use crate::focus::caret::{caret_bounds, is_terminal_input, terminal_screen_frame, text_style};
-use crate::focus::surroundings::{field_labels, field_text, has_unreadable_text, web_domain, window_title};
+use crate::focus::surroundings::{
+    WebPlace, field_labels, field_text, has_unreadable_text, web_place, window_title,
+};
 use crate::focus::window_tree::walk_window;
 use crate::geometry::{Caret, is_finite_frame};
 
@@ -190,13 +192,19 @@ impl FocusTracker {
         let shows_text_only_on_screen = element
             .as_deref()
             .is_some_and(|element| shows_text_only_on_screen(element, app_id.as_deref()));
+        let web_place = element.as_deref().map_or(WebPlace::Unknown, web_place);
+        let is_outside_web_pages = matches!(web_place, WebPlace::OutsidePages);
         let surroundings = Surroundings {
             app_name: self.frontmost.as_ref().and_then(|app| app.name.clone()),
             app_id,
             app_path: None,
             window_title: window_title(element.as_deref(), app_element.as_deref()),
             field_labels: element.as_deref().map(field_labels).unwrap_or_default(),
-            domain: element.as_deref().and_then(web_domain),
+            domain: match web_place {
+                WebPlace::Page { domain } => domain,
+                WebPlace::OutsidePages | WebPlace::Unknown => None,
+            },
+            is_outside_web_pages,
             field_text: element
                 .as_deref()
                 .filter(|_| !shows_text_only_on_screen)

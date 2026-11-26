@@ -328,6 +328,7 @@ fn merged_surroundings(app: Surroundings, field: Option<&ShownField>) -> Surroun
         field_text: field.and_then(|field| field.text.clone()),
         field_labels: field.map(|field| field.labels.clone()).unwrap_or_default(),
         domain: field.and_then(|field| field.domain.clone()),
+        is_outside_web_pages: field.is_some_and(|field| field.is_outside_web_pages),
         is_caret_line_hidden: field.is_some_and(|field| field.is_caret_line_hidden),
         is_search_field: field.is_some_and(|field| field.is_search_field),
         has_unreadable_text: field.is_some_and(|field| field.has_unreadable_text),
@@ -361,6 +362,7 @@ mod tests {
                 ..FieldLabels::default()
             },
             domain: Some("mail.example.com".to_owned()),
+            is_outside_web_pages: false,
             is_caret_line_hidden: false,
             is_search_field: false,
             has_unreadable_text: false,
@@ -424,6 +426,18 @@ mod tests {
         let surroundings = merged_surroundings(notepad(), Some(&field));
 
         assert!(surroundings.has_unreadable_text);
+    }
+
+    #[test]
+    fn field_outside_web_pages_tells_it() {
+        let field = ShownField {
+            is_outside_web_pages: true,
+            ..ShownField::default()
+        };
+
+        let surroundings = merged_surroundings(notepad(), Some(&field));
+
+        assert!(surroundings.is_outside_web_pages);
     }
 
     #[test]

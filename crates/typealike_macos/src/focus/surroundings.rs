@@ -97,18 +97,35 @@ fn first_text(element: &AXUIElement, attributes: &[&'static str]) -> Option<Stri
         .find(|text| !text.trim().is_empty())
 }
 
-/// Reads the host of the web page that holds `element`, from the URL of the nearest web area
-/// above it in its window.
-pub(super) fn web_domain(element: &AXUIElement) -> Option<String> {
+/// Where an element is in its window: in a web page, or outside each web page.
+pub(super) enum WebPlace {
+    /// A web area is above the element. `domain` is the host of its URL, if the URL has one.
+    Page { domain: Option<String> },
+    /// No web area is between the element and its window, as for the address bar of a browser.
+    OutsidePages,
+    /// The walk up from the element stopped before a web area or the window.
+    Unknown,
+}
+
+/// Finds the nearest web area above `element` in its window.
+pub(super) fn web_place(element: &AXUIElement) -> WebPlace {
     let mut current = element.retain();
     for _ in 0..MAX_WEB_AREA_DISTANCE {
         match copy_string(&current, ROLE_ATTRIBUTE).as_deref() {
-            Some(WEB_AREA_ROLE) => return url_host(&current),
-            Some(WINDOW_ROLE) | None => return None,
-            Some(_) => current = parent(&current)?,
+            Some(WEB_AREA_ROLE) => {
+                return WebPlace::Page {
+                    domain: url_host(&current),
+                };
+            }
+            Some(WINDOW_ROLE) => return WebPlace::OutsidePages,
+            None => return WebPlace::Unknown,
+            Some(_) => match parent(&current) {
+                Some(above) => current = above,
+                None => return WebPlace::Unknown,
+            },
         }
     }
-    None
+    WebPlace::Unknown
 }
 
 fn url_host(element: &AXUIElement) -> Option<String> {

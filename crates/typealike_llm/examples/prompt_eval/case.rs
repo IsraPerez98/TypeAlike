@@ -182,6 +182,7 @@ impl Case {
                     help: self.field_help.clone(),
                 },
                 domain: self.domain.clone(),
+                is_outside_web_pages: false,
                 app_path: None,
                 field_text: Some(FieldText {
                     before_caret,

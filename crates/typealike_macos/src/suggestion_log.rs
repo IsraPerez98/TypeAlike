@@ -34,6 +34,7 @@ pub(crate) fn field(
         app_name = surroundings.app_name.as_deref(),
         window_title = surroundings.window_title.as_deref(),
         domain = surroundings.domain.as_deref(),
+        is_outside_web_pages = surroundings.is_outside_web_pages,
         caption = labels.caption.as_deref(),
         name = labels.name.as_deref(),
         placeholder = labels.placeholder.as_deref(),

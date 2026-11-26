@@ -406,6 +406,10 @@ impl fmt::Debug for FieldLabels {
 /// What surrounds the caret in the focused app. `Debug` shows only what is known, so logs never
 /// hold what the user wrote or which document is open.
 #[derive(Clone, PartialEq, Eq, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a separate fact that the platform reads"
+)]
 pub struct Surroundings {
     /// The name of the app, as the user knows it, for example "Mail".
     pub app_name: Option<String>,
@@ -421,6 +425,9 @@ pub struct Surroundings {
     pub field_labels: FieldLabels,
     /// The host of the web page that holds the focused field, for example "mail.google.com".
     pub domain: Option<String>,
+    /// Whether the platform found no web page between the focused field and its window, as for
+    /// the address bar of a browser. A web page without a host, as a file, is a web page.
+    pub is_outside_web_pages: bool,
     /// The text of the focused field, or `None` when the platform cannot read the field.
     pub field_text: Option<FieldText>,
     /// Whether the focused field hides the text on the line of its caret, as the input box of a
@@ -463,6 +470,7 @@ impl fmt::Debug for Surroundings {
             .field("has_window_title", &self.window_title.is_some())
             .field("field_labels", &self.field_labels)
             .field("has_domain", &self.domain.is_some())
+            .field("is_outside_web_pages", &self.is_outside_web_pages)
             .field("field_text", &self.field_text)
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
@@ -598,6 +606,7 @@ mod tests {
                 help: Some("secret help".to_owned()),
             },
             domain: Some("secret.example.com".to_owned()),
+            is_outside_web_pages: false,
             field_text: Some(FieldText {
                 before_caret: "secret before".to_owned(),
                 after_caret: "secret after".to_owned(),
