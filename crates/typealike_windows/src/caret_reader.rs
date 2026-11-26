@@ -823,4 +823,18 @@ mod tests {
             }
         );
     }
+
+    /// Reads the field of the window in front, which must be a window of Herdr, such as the window
+    /// of a terminal of Herdr that runs this test. Herdr gives no text through UIA, and its focused
+    /// window is no classic edit control, so the field shows no text.
+    #[test]
+    #[ignore = "reads the window in front, which must be a window of Herdr"]
+    fn field_of_herdr_in_front_gives_no_text() {
+        let mut connection = UiaConnection::connect(Duration::from_millis(500), Duration::from_secs(3));
+
+        let answer = read_field(connection.connected());
+
+        let text = answer.shown().map(|field| field.text.clone());
+        assert_eq!(text, Some(None), "{answer:?}");
+    }
 }
