@@ -156,10 +156,13 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
 - Before the capture, the OCR compares the UIA frame of the focused field with the frame of the window (`DWMWA_EXTENDED_FRAME_BOUNDS`, the area of a capture). The focus can be in a popup or in another window, and the frame can be empty or old.
-  - When the frame has no area, or the band of the window cannot hold the field (`field_miss`: no row of the field is in the window, or the middle of the field is not between its left and right edges), the read skips the capture and gives no screen text. The rule is the rule of the band after a capture (`band_in_frame`).
-  - Thus a field outside the window costs no capture of 30 to 60 ms at each read. A frame without an area tells no place of the field, also inside the window.
-  - The log tells the first skip of each program in a run at the info level ("skipped the capture of the OCR"), with the file name of the program, the reason, the field frame and the window frame. It tells each later skip at the debug level. It never gives the text.
-  - When Windows gives no frame of the window, the capture goes on, and a failed capture gives a warning as before.
+  - The band of the window cannot hold the field (`field_miss`, the rule of the band after a capture in `band_in_frame`) when:
+    - no row of the field is in the window, or
+    - the middle of the field is not between the left and right edges of the window.
+  - When the frame has no area, or the band cannot hold the field, the read skips the capture and gives no screen text. A frame without an area tells no place of the field, also inside the window.
+  - Thus a field outside the window costs no capture of 30 to 60 ms at each read.
+  - The log tells the first skip of each program in a run at the info level ("skipped the capture of the OCR"). The record gives the file name of the program, the reason, the field frame and the window frame. The log tells each later skip at the debug level. It never gives the text.
+  - When Windows gives no frame of the window, the capture goes on. A failed capture then gives a warning.
 - The OCR leaves out the pixels of the focused field (`Band::hide_field`), so that the typed text and the caret do not change the OCR. A field that shows its text only on the screen keeps its pixels (`FieldPixels::Read`), because they hold its text. The shell gives the reader this choice with each read.
 - In a field that shows its text only on the screen and gives no caret, the OCR read also looks for the block cursor in the pixels of the field, in the same capture (`ocr::cursor_look`, `docs/core/ghost-text.md`, "Mirror and card below the caret"). A look without OCR (`ScreenSource::Cursor`, `Ocr::look_at_cursor`) captures the same band.
   - The look uses the field frame that the caret reader gives to core: the UIA frame inside the client area of the focused window (`FocusedField::visible_frame`). Core keeps a found cursor only for the frame of its look.
@@ -191,8 +194,11 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - Windows sends no event when a window goes into or out of full screen, so the thread also reads the window in front every second.
 - At the start, the runtime also reads the app in front once on the main thread (`FrontApp::read`). It gives the result to the controller in `Startup`. Thus the model does not load at the start while a game or an app in full screen is in front.
 - When the watch does not start, the start has no game and no full screen in front. No later change could end a stop.
-- The log tells each change of the game or the full-screen state at the info level ("the app in front changed"), with the full path of the program in front at that moment (`program`) and of the program at the change before that the log told (`previous_program`). The program at the moment of a change is often the task switcher, so `previous_program` shows the app before it.
-  - When TypeAlike knows no program, the line gives `program="<none>"` and the reason (`program_missing`: no window in front, or Windows gives no path of the program). `previous_program` is `"<none>"` at the first change of a run, and after a change without a program.
+- The log tells each change of the game or the full-screen state at the info level ("the app in front changed").
+  - `program` is the full path of the program in front at that moment. This program is often the task switcher.
+  - `previous_program` is the program at the change before that the log told, in the same form. Thus it shows the app before the task switcher.
+  - When TypeAlike knows no program, the line gives `program="<none>"` and the reason (`program_missing`): no window in front, or Windows gives no path of the program.
+  - `previous_program` is `"<none>"` at the first change of a run, and after a change without a program.
 
 ## Settings window
 
