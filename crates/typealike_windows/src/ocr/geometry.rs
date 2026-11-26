@@ -35,25 +35,28 @@ pub(super) fn band_in_frame(
     max_side: i32,
 ) -> Option<PixelRect> {
     let rows = field.top.saturating_sub(reach).max(0)..field.bottom.saturating_add(reach).min(frame.Height);
-    let columns = 0..frame.Width;
+    if !holds_field(field, frame) || rows.is_empty() {
+        return None;
+    }
     let middle = POINT {
         x: field.left.midpoint(field.right),
         y: field.top.midpoint(field.bottom),
     };
-    let overlaps_rows = field.top < frame.Height && field.bottom > 0;
-    let has_field =
-        overlaps_rows && rows.start < rows.end && (columns.start..columns.end).contains(&middle.x);
-    if !has_field {
-        return None;
-    }
     let rows = shrink_around(rows, middle.y, max_side);
-    let columns = shrink_around(columns, middle.x, max_side);
+    let columns = shrink_around(0..frame.Width, middle.x, max_side);
     Some(PixelRect {
         left: columns.start,
         top: rows.start,
         right: columns.end,
         bottom: rows.end,
     })
+}
+
+/// Whether a frame of `frame` pixels holds `field` for the OCR: a row of the field is in the frame,
+/// and the middle of the field is between the left and the right edge of the frame.
+fn holds_field(field: PixelRect, frame: SizeInt32) -> bool {
+    let overlaps_rows = field.top < frame.Height && field.bottom > 0;
+    overlaps_rows && (0..frame.Width).contains(&field.left.midpoint(field.right))
 }
 
 /// Shrinks `range` to at most `max_length`, around `middle` as far as the range allows.
