@@ -4,12 +4,14 @@ Copies the files of a Windows installer from a Cargo release folder to one folde
 
 .DESCRIPTION
 Copies TypeAlike.exe, the llama.cpp DLLs and the Windows App Runtime of a build with the
-self-contained feature, and the license. The backend DLLs of llama.cpp stay in their folders in
-backends (cpu, vulkan, cuda), so that TypeAlike loads only the backends that it uses. It also
-copies the Visual C++ runtime DLLs from Visual Studio, because a new Windows installation does not
-always have them. With -CudaPath, it also copies the CUDA runtime and cuBLAS DLLs that
-ggml-cuda.dll loads. Then it makes sure that Windows or the folder has each DLL that TypeAlike.exe
-and the llama.cpp DLLs load.
+self-contained feature, and the license. TypeAlike.exe is the only program that it copies. Any
+other program in the release folder, such as GhostType.exe from before the rename of the app,
+stays out with a warning. When the installer folder then has another program, the script stops.
+The backend DLLs of llama.cpp stay in their folders in backends (cpu, vulkan, cuda), so that
+TypeAlike loads only the backends that it uses. It also copies the Visual C++ runtime DLLs from
+Visual Studio, because a new Windows installation does not always have them. With -CudaPath, it
+also copies the CUDA runtime and cuBLAS DLLs that ggml-cuda.dll loads. Then it makes sure that
+Windows or the folder has each DLL that TypeAlike.exe and the llama.cpp DLLs load.
 
 .EXAMPLE
 packaging\windows\stage.ps1 -Release C:\t\release -Destination dist\app -CudaPath C:\cuda
@@ -25,6 +27,9 @@ $PSNativeCommandUseErrorActionPreference = $true
 
 $cargoFolders = 'build', 'deps', 'examples', 'incremental', '.fingerprint'
 $cargoFiles = '*.d', '*.pdb', '*.lock', '.cargo-*'
+# The only program of the installer. A local release folder can keep old programs, such as
+# GhostType.exe from before the rename of the app.
+$shippedPrograms = @('TypeAlike.exe')
 $visualCppRuntime = 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
 $cudaDlls = 'cudart64_*.dll', 'cublas64_*.dll', 'cublasLt64_*.dll'
 $checkedBinaries = @('TypeAlike.exe', 'llama*.dll', 'ggml*.dll') + $cudaDlls
@@ -44,6 +49,10 @@ function Test-CargoOutput([System.IO.FileSystemInfo] $Item) {
         return $Item.Name -in $cargoFolders
     }
     return [bool]($cargoFiles | Where-Object { $Item.Name -like $_ })
+}
+
+function Test-UnshippedProgram([System.IO.FileSystemInfo] $Item) {
+    return -not $Item.PSIsContainer -and $Item.Extension -eq '.exe' -and $Item.Name -notin $shippedPrograms
 }
 
 function Get-VisualCppRuntimeFolder {
@@ -86,6 +95,13 @@ $Destination = Convert-Path -LiteralPath $Destination
 
 Get-ChildItem -LiteralPath $Release -Force |
     Where-Object { -not (Test-CargoOutput $_) } |
+    Where-Object {
+        if (Test-UnshippedProgram $_) {
+            Write-Warning "skipped $($_.Name): the installer does not need this program"
+            return $false
+        }
+        return $true
+    } |
     Copy-Item -Destination $Destination -Recurse -Force
 
 $runtimeFolder = Get-VisualCppRuntimeFolder
@@ -97,6 +113,13 @@ if ($CudaPath) {
     Get-ChildItem -LiteralPath $CudaPath -Recurse -Include $cudaDlls |
         Copy-Item -Destination $Destination -Force
     $required += @($cudaBackend) + $cudaDlls
+}
+
+$otherPrograms = Get-ChildItem -LiteralPath $Destination -Recurse -File -Filter '*.exe' |
+    ForEach-Object { [System.IO.Path]::GetRelativePath($Destination, $_.FullName) } |
+    Where-Object { $_ -notin $shippedPrograms }
+if ($otherPrograms) {
+    throw "the installer folder has programs that the installer does not need: $($otherPrograms -join ', ')"
 }
 
 $missing = $required | Where-Object { -not (Test-Path (Join-Path $Destination $_)) }

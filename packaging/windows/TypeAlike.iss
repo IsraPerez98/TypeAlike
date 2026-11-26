@@ -45,6 +45,8 @@ SetupIconFile=..\..\crates\typealike\TypeAlike.ico
 ; llama.cpp does not load a backend of an older install.
 Type: files; Name: "{app}\*.dll"
 Type: filesandordirs; Name: "{app}\backends"
+; Removes the program of an install from before the rename of the app.
+Type: files; Name: "{app}\GhostType.exe"
 
 [Files]
 Source: "{#StagingDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
