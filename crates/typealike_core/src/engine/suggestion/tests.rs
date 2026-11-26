@@ -1,0 +1,163 @@
+//! Tests that a suggestion does not show a copy of a frame line of a preface with all its parts.
+
+use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
+use crate::inference::TokenCount;
+use crate::prompt::{Example, LABELS, Preface, ScreenPart, Writer, preface_with_screen_lines};
+
+use super::{is_bad_suggestion, words};
+
+/// The frame lines that do not hide in each form of a copy ([`copies_of`]), with the forms that
+/// hide. A writer can type them:
+/// - The age of an earlier text of 1 word, as in "I sent it today". Only a bracket after the end of
+///   a sentence hides it, because such a bracket opens a note about the text.
+/// - The name line with a name of 1 word, as in "Hi, my name is Sara." It hides only when it starts
+///   the line of the caret.
+///
+/// A new frame line of 1 or 2 words fails the tests until it comes here or gets a rule.
+const KNOWN_EXCEPTIONS: [(&str, [bool; 4]); 3] = [
+    ("(today) ", [false, true, false, false]),
+    ("(yesterday) ", [false, true, false, false]),
+    ("My name is Sara.", [true, false, true, true]),
+];
+/// The text before a copy of a frame line after the end of a sentence.
+const SENTENCE_BEFORE: &str = "Thanks. ";
+
+/// The four forms of a copy of a frame line: the whole line at the start of the field, the whole
+/// line after [`SENTENCE_BEFORE`], the line in upper case, and the rest of the line after its
+/// typed first word. A line of one word has its first character as the typed part. Each form is
+/// the text before the caret and the suggestion.
+fn copies_of(line: &str) -> [(String, String); 4] {
+    let typed_end = line
+        .find(' ')
+        .filter(|&space| space + 1 < line.trim_end().len())
+        .map_or(1, |space| space + 1);
+    let (typed, rest) = line.split_at(typed_end);
+    [
+        (String::new(), line.to_owned()),
+        (SENTENCE_BEFORE.to_owned(), line.to_owned()),
+        (String::new(), line.to_uppercase()),
+        (typed.to_owned(), rest.to_owned()),
+    ]
+}
+
+/// Whether each form of a copy of `line` ([`copies_of`]) hides with `preface`.
+fn hidden_copies(line: &str, preface: &Preface) -> [bool; 4] {
+    copies_of(line).map(|(context, suggestion)| is_bad_suggestion(&suggestion, &context, "", preface))
+}
+
+/// Returns the forms of a copy of `line` that hide: those of [`KNOWN_EXCEPTIONS`] for such a line,
+/// else all.
+fn expected_hidden_copies(line: &str) -> [bool; 4] {
+    KNOWN_EXCEPTIONS
+        .into_iter()
+        .find(|&(known, _)| known == line)
+        .map_or([true; 4], |(_, hidden)| hidden)
+}
+
+/// Returns the preface with each of its parts, earlier texts of each kind of age, and the writer
+/// with the `name`.
+fn full_preface(name: &str) -> Preface {
+    let writer = Writer {
+        notes: "I am a nurse.",
+        name,
+        examples: [0, 1, 4, 21]
+            .map(|days_ago| Example {
+                text: "See you on Monday.".to_owned(),
+                days_ago: Some(days_ago),
+            })
+            .to_vec(),
+    };
+    let surroundings = Surroundings {
+        app_name: Some("Mail".to_owned()),
+        window_title: Some("Lunch on Friday".to_owned()),
+        field_text: Some(FieldText {
+            before_caret: "Hi ".to_owned(),
+            after_caret: "Best, Ana".to_owned(),
+        }),
+        ..Surroundings::default()
+    };
+    let screen = ScreenText {
+        lines: [
+            ("From: Sam", 300),
+            ("See you at 7?", 400),
+            ("Sent from my phone", 600),
+        ]
+        .map(|(text, top)| ScreenLine {
+            text: text.to_owned(),
+            frame: ScreenRect {
+                left: 0,
+                top,
+                right: 600,
+                bottom: top + 20,
+            },
+            confidence: Confidence::CERTAIN,
+        })
+        .to_vec(),
+        caret: None,
+        field: ScreenRect {
+            left: 0,
+            top: 500,
+            right: 600,
+            bottom: 540,
+        },
+    };
+    let screen_part = ScreenPart {
+        text: &screen,
+        max_tokens: TokenCount(300),
+        shown_above: &[],
+        typed: "",
+    };
+    preface_with_screen_lines(&writer, &surroundings, Some("1Z999"), Some(screen_part)).0
+}
+
+#[test]
+fn full_preface_has_each_label_of_the_prompt_as_a_frame_line() {
+    let preface = full_preface("Sara Novak");
+
+    let missing = LABELS
+        .into_iter()
+        .filter(|label| !preface.frame_lines.iter().any(|line| line.trim_end() == *label))
+        .collect::<Vec<_>>();
+
+    assert_eq!(missing, Vec::<&str>::new());
+}
+
+#[test]
+fn each_frame_line_hides_in_each_form_of_a_copy_unless_it_is_a_known_exception() {
+    let prefaces = [full_preface("Sara Novak"), full_preface("Sara")];
+    let lines = prefaces
+        .iter()
+        .flat_map(|preface| {
+            preface
+                .frame_lines
+                .iter()
+                .map(move |line| (line.as_str(), preface))
+        })
+        .collect::<Vec<_>>();
+
+    let hidden = lines
+        .iter()
+        .map(|&(line, preface)| (line, hidden_copies(line, preface)))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        hidden,
+        lines
+            .iter()
+            .map(|&(line, _)| (line, expected_hidden_copies(line)))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn each_frame_line_of_one_or_two_words_is_a_known_exception() {
+    let preface = full_preface("Sara Novak");
+
+    let unknown = preface
+        .frame_lines
+        .iter()
+        .filter(|line| words(line).count() < 3 && !KNOWN_EXCEPTIONS.iter().any(|&(known, _)| known == *line))
+        .collect::<Vec<_>>();
+
+    assert_eq!(unknown, Vec::<&String>::new());
+}

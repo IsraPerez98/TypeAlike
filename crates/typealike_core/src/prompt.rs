@@ -20,15 +20,50 @@ const FRAME: &str = "I type the text below on my computer, for example an email,
 /// The line just before the text before the caret. Without it, the model reads one or two typed
 /// characters as the start of one more line of the preface, and writes a label.
 const TEXT_HEADING: &str = "The part of my writing that I am typing now:";
+/// The label of the notes of the writer, before the notes in quotes.
+const NOTES_LABEL: &str = "Notes about me:";
+/// The start of the line that gives the name of the writer, before the name and a period.
+const NAME_LINE_START: &str = "My name is ";
+/// The label of the line that tells where the user types, before the parts of the place
+/// ([`PLACE_PART_LABELS`]).
+const PLACE_LABEL: &str = "Where I am typing:";
+/// The label of the earlier texts of the writer, which come on the lines after it, each with its
+/// age ([`age_frame`]).
+const EARLIER_WRITING_LABEL: &str = "My earlier writing:";
+/// The label of the text on the clipboard, before the text in quotes.
+pub(crate) const CLIPBOARD_LABEL: &str = "Text on my clipboard:";
+/// The label of the screen text below the field, which comes on the lines after it.
+const BELOW_FIELD_LABEL: &str = "Below the field on my screen:";
+/// The label of the screen text above the field, which comes on the lines after it.
+const ABOVE_FIELD_LABEL: &str = "Above the field on my screen:";
 /// The label of the last line above the field, which the preface shows one more time. That line
 /// is often the message that the user answers, and its second copy gives it more weight than the
 /// older text of the preface.
 const LAST_LINE_LABEL: &str = "The last line above the field on my screen:";
-/// The start of the line that gives the name of the writer, before the name and a period.
-const NAME_LINE_START: &str = "My name is ";
-/// The label of the line that tells where the user types, before the app, the window title and
-/// the labels of the field.
-const PLACE_LABEL: &str = "Where I am typing:";
+/// The label of the text after the caret, before the text in quotes.
+const AFTER_CARET_LABEL: &str = "The text that comes right after the part that I am typing now:";
+/// Each fixed label of the prompt, in the order of the prompt: the labels of the parts of the
+/// preface, then the [`TEXT_HEADING`]. Each one starts a frame line ([`Preface::frame_lines`]).
+#[cfg(test)]
+pub(crate) const LABELS: [&str; 9] = [
+    NOTES_LABEL,
+    PLACE_LABEL,
+    EARLIER_WRITING_LABEL,
+    CLIPBOARD_LABEL,
+    BELOW_FIELD_LABEL,
+    ABOVE_FIELD_LABEL,
+    LAST_LINE_LABEL,
+    AFTER_CARET_LABEL,
+    TEXT_HEADING,
+];
+/// The labels of the parts of the place line, in their order: the format of the place, the app,
+/// the window title, the name of the field and its hint. Each part is its label,
+/// [`PLACE_VALUE_START`] and its value, and [`PLACE_PART_SEPARATOR`] divides the parts.
+pub(crate) const PLACE_PART_LABELS: [&str; 5] = ["Format", "App", "Title", "Field", "Hint"];
+/// The signs between the label of a part of the place line and its value.
+pub(crate) const PLACE_VALUE_START: &str = ": ";
+/// The signs between two parts of the place line.
+pub(crate) const PLACE_PART_SEPARATOR: &str = "; ";
 /// The most estimated tokens of the preface. The text before the caret can use the rest of the
 /// context, so a long preface never pushes it out.
 const PREFACE_TOKENS: TokenCount = TokenCount(2000);
@@ -226,17 +261,19 @@ fn after_caret_tokens(surroundings: &Surroundings) -> TokenCount {
 /// Returns the preface of the `parts` in reading order after the [`FRAME`], without the empty
 /// parts. Each line starts with the part that the prompt writes itself, its frame line.
 fn preface_of(parts: PrefaceParts<'_>) -> Preface {
-    let quoted = |label: &str, text: &str| (label.to_owned(), format!("“{text}”"));
+    let quoted = |label: &str, text: &str| (format!("{label} "), format!("“{text}”"));
     // A closing quote of the screen text before the heading makes the model close the typed text.
     let under = |label: &str, text: &str| (label.to_owned(), format!("\n{text}"));
     // A quote just after an earlier text makes the model end the typed text with a quote.
     let examples = parts.examples.iter().map(|&(text, days_ago)| {
-        let age = days_ago.map_or_else(String::new, |days_ago| format!("({}) ", age_label(days_ago)));
-        (age, format!("“{text}\n”"))
+        (
+            days_ago.map_or_else(String::new, age_frame),
+            format!("“{text}\n”"),
+        )
     });
     let lines = [(FRAME.to_owned(), String::new())]
         .into_iter()
-        .chain(parts.notes.map(|text| quoted("Notes about me: ", &text)))
+        .chain(parts.notes.map(|text| quoted(NOTES_LABEL, &text)))
         .chain(parts.name.map(|line| (line, String::new())))
         .chain(
             parts
@@ -244,23 +281,23 @@ fn preface_of(parts: PrefaceParts<'_>) -> Preface {
                 .filter(|line| !line.is_empty())
                 .map(|line| (PLACE_LABEL.to_owned(), format!(" {line}"))),
         )
-        .chain((!parts.examples.is_empty()).then(|| ("My earlier writing:".to_owned(), String::new())))
+        .chain((!parts.examples.is_empty()).then(|| (EARLIER_WRITING_LABEL.to_owned(), String::new())))
         .chain(examples)
         .chain(
             parts
                 .clipboard
                 .and_then(non_empty)
-                .map(|text| quoted("Text on my clipboard: ", text)),
+                .map(|text| quoted(CLIPBOARD_LABEL, text)),
         )
-        .chain(non_empty(&parts.below).map(|text| under("Below the field on my screen:", text)))
-        .chain(non_empty(&parts.above.join("\n")).map(|text| under("Above the field on my screen:", text)))
+        .chain(non_empty(&parts.below).map(|text| under(BELOW_FIELD_LABEL, text)))
+        .chain(non_empty(&parts.above.join("\n")).map(|text| under(ABOVE_FIELD_LABEL, text)))
         .chain(parts.last_line_above.map(|line| under(LAST_LINE_LABEL, &line)))
-        .chain(parts.after_caret.and_then(non_empty).map(|text| {
-            quoted(
-                "The text that comes right after the part that I am typing now: ",
-                text,
-            )
-        }))
+        .chain(
+            parts
+                .after_caret
+                .and_then(non_empty)
+                .map(|text| quoted(AFTER_CARET_LABEL, text)),
+        )
         .collect::<Vec<_>>();
     let text = lines
         .iter()
@@ -274,6 +311,12 @@ fn preface_of(parts: PrefaceParts<'_>) -> Preface {
         .chain([TEXT_HEADING.to_owned()])
         .collect();
     Preface { text, frame_lines }
+}
+
+/// Returns the frame of an earlier text of `days_ago` days before the text: its age in brackets and
+/// a space.
+fn age_frame(days_ago: u64) -> String {
+    format!("({}) ", age_label(days_ago))
 }
 
 /// Returns how long ago a text of `days_ago` days is, in words.
@@ -352,21 +395,19 @@ fn place_line(surroundings: &Surroundings) -> Option<String> {
     let mut labels = place::field_labels(surroundings).into_iter();
     let field = labels.next();
     let hint = labels.collect::<Vec<_>>().join(", ");
-    let parts = [
-        (
-            "Format",
-            Format::of(surroundings).map(|format| format.name().to_owned()),
-        ),
-        ("App", app.filter(|_| !names_app)),
-        ("Title", title),
-        ("Field", budgeted_line(field.as_deref(), FIELD_LABEL_TOKENS)),
-        ("Hint", budgeted_line(Some(&hint), FIELD_LABEL_TOKENS)),
+    let values = [
+        Format::of(surroundings).map(|format| format.name().to_owned()),
+        app.filter(|_| !names_app),
+        title,
+        budgeted_line(field.as_deref(), FIELD_LABEL_TOKENS),
+        budgeted_line(Some(&hint), FIELD_LABEL_TOKENS),
     ];
-    let line = parts
+    let line = PLACE_PART_LABELS
         .into_iter()
-        .filter_map(|(name, value)| Some(format!("{name}: {}", value?)))
+        .zip(values)
+        .filter_map(|(label, value)| Some(format!("{label}{PLACE_VALUE_START}{}", value?)))
         .collect::<Vec<_>>()
-        .join("; ");
+        .join(PLACE_PART_SEPARATOR);
     (!line.is_empty()).then_some(line)
 }
 
@@ -392,7 +433,7 @@ pub(crate) fn framed_prompt(lines: &[&str], text_before: &str) -> Prompt {
 /// `text_before`.
 #[cfg(test)]
 pub(crate) fn prompt_with_notes(notes: &str, lines: &[&str], text_before: &str) -> Prompt {
-    let notes_line = format!("Notes about me: “{notes}”");
+    let notes_line = format!("{NOTES_LABEL} “{notes}”");
     let preface = [FRAME, notes_line.as_str()]
         .into_iter()
         .chain(lines.iter().copied())

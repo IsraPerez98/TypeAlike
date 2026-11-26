@@ -525,3 +525,6 @@ pub(crate) fn split_next_part(suggestion: &str) -> (&str, &str) {
     };
     suggestion.split_at(part.len())
 }
+
+#[cfg(test)]
+mod tests;
