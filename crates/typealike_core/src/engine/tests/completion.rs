@@ -509,6 +509,36 @@ fn name_of_the_writer_shows_on_a_line_without_the_end_of_a_sentence_before_it() 
 }
 
 #[test]
+fn completion_that_ends_three_words_of_a_label_of_the_prompt_with_a_colon_hides() {
+    let cases = [
+        ("The ", "text I am typing is:"),
+        ("Here are my ", "notes about me:"),
+        ("Hi. Below ", "is what I am typing："),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_shares_a_label_without_its_colon_or_with_fewer_words_shows() {
+    let cases = [
+        ("Sorry, ", "I am typing on my phone."),
+        ("Agenda for ", "the meeting:"),
+        ("Notes about me: ", "I am typing a list."),
+    ];
+
+    let reactions = cases.map(|(context, text)| {
+        engine_waiting_with(&named_writer("I am a nurse."), context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, text)| show(text)));
+}
+
+#[test]
 fn completion_that_starts_as_a_line_that_the_prompt_does_not_have_shows() {
     let cases = [
         ("My ", "name is Sara Novak."),

@@ -57,6 +57,11 @@ pub(crate) const LABELS: [&str; 9] = [
     AFTER_CARET_LABEL,
     TEXT_HEADING,
 ];
+/// The words of the labels that name what a part of the preface is about. A text seldom has one of
+/// them with two other words of a label in a clause before a colon, as in "The part of my plan:",
+/// so only a copy of a label with one of them hides.
+pub(crate) const LABEL_TOPIC_WORDS: [&str; 6] =
+    ["typing", "screen", "clipboard", "field", "writing", "notes"];
 /// The labels of the parts of the place line, in their order: the format of the place, the app,
 /// the window title, the name of the field and its hint. Each part is its label,
 /// [`PLACE_VALUE_START`] and its value, and [`PLACE_PART_SEPARATOR`] divides the parts.

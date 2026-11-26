@@ -2,7 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::{Correction, MIN_FIXED_CHARACTERS};
-use crate::prompt::{CLIPBOARD_LABEL, Preface};
+use crate::prompt::{CLIPBOARD_LABEL, LABEL_TOPIC_WORDS, Preface};
 
 use super::WordFix;
 
@@ -26,8 +26,12 @@ const FIX_KEEPING_SIGNS: [char; 5] = [',', ';', ':', '!', '?'];
 const FRAME_COPY_WORDS: usize = 5;
 /// The fewest words of a shorter frame line that count as a copy of it.
 const MIN_FRAME_COPY_WORDS: usize = 3;
-/// The sign at the end of a label of the prompt frame, such as "Text on my clipboard:".
-const LABEL_END: char = ':';
+/// The words of a label of the prompt frame in a row that make a copy of the label when a colon
+/// ends their clause, as "I am typing" in "The text I am typing is:". Without the colon, these
+/// words are often writing.
+const LABEL_COPY_WORDS: usize = 3;
+/// The signs that end a label of the prompt frame, such as the colon of "Text on my clipboard:".
+const LABEL_ENDS: [char; 2] = [':', '：'];
 /// The signs that end a sentence.
 const SENTENCE_ENDS: [char; 7] = ['.', '!', '?', '…', '。', '！', '？'];
 /// The quotes and brackets that can come after the sign that ends a sentence.
@@ -153,9 +157,9 @@ pub(super) fn suggestion_after_typed(
 
 /// Whether `suggestion` after `context` has a shape that is wrong almost each time: no letter or
 /// digit, closing punctuation after a space, the start of `text_after` again, a copy of the last
-/// words of `context`, a loop of a few words, a copy of a line of the frame of `preface`, the word
-/// of the clipboard label, the name of the writer after a greeting, or a bracket after the end of a
-/// sentence, which opens a note about the text and not the text.
+/// words of `context`, a loop of a few words, a copy of a line or of a label of the frame of
+/// `preface`, the word of the clipboard label, the name of the writer after a greeting, or a
+/// bracket after the end of a sentence, which opens a note about the text and not the text.
 pub(super) fn is_bad_suggestion(
     suggestion: &str,
     context: &str,
@@ -173,6 +177,7 @@ pub(super) fn is_bad_suggestion(
         || repeats_a_pattern(&suggested)
         || copies_frame_line(&suggested, suggestion, context, &preface.frame_lines)
         || names_the_clipboard(&suggested, context, text_after, preface)
+        || copies_frame_label(suggestion, context, &preface.frame_lines)
         || greets_the_writer(suggestion, context, preface)
         || opens_note_after_sentence(suggestion, context)
 }
@@ -317,10 +322,10 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
 
 /// Returns the words of `frame_line`, which has `frame_words` words, that make a copy of it when a
 /// suggestion holds them in a row: [`FRAME_COPY_WORDS`], or all the words of a shorter label of at
-/// least [`MIN_FRAME_COPY_WORDS`], which ends with [`LABEL_END`]. The other short lines hold text
+/// least [`MIN_FRAME_COPY_WORDS`], which ends with one of the [`LABEL_ENDS`]. The other short lines hold text
 /// that the writer can type, such as the name of the writer or the age of an earlier text.
 fn copy_run_words(frame_line: &str, frame_words: usize) -> usize {
-    let is_short_label = frame_line.trim_end().ends_with(LABEL_END) && frame_words >= MIN_FRAME_COPY_WORDS;
+    let is_short_label = frame_line.trim_end().ends_with(LABEL_ENDS) && frame_words >= MIN_FRAME_COPY_WORDS;
     if is_short_label {
         frame_words.min(FRAME_COPY_WORDS)
     } else {
@@ -365,6 +370,38 @@ pub(super) fn before_frame_copy_start<'text>(
         })
         .min();
     first_held_word.map_or(completion, |index| &completion[..spans[index].0])
+}
+
+/// Whether `suggestion` after `context` adds a colon that ends a clause with [`LABEL_COPY_WORDS`]
+/// words in a row of a label of the prompt frame: a line of `frame_lines` that ends with one of the
+/// [`LABEL_ENDS`]. These words must hold one of the [`LABEL_TOPIC_WORDS`], because other runs of a
+/// label, such as "the part of", often end a clause of a text before a colon. The clause starts
+/// after the last end of a sentence before the colon on its line.
+fn copies_frame_label(suggestion: &str, context: &str, frame_lines: &[String]) -> bool {
+    let labels = frame_lines
+        .iter()
+        .filter(|frame_line| frame_line.trim_end().ends_with(LABEL_ENDS))
+        .map(|label| words(label).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let caret_line = context.rsplit('\n').next().unwrap_or_default();
+    let line = format!("{caret_line}{suggestion}");
+    line.match_indices(LABEL_ENDS)
+        .filter(|&(colon, _)| colon >= caret_line.len())
+        .any(|(colon, _)| {
+            let before_colon = &line[..colon];
+            let clause_start = before_colon
+                .char_indices()
+                .rev()
+                .find(|(_, character)| SENTENCE_ENDS.contains(character))
+                .map_or(0, |(index, character)| index + character.len_utf8());
+            let clause = words(&before_colon[clause_start..]).collect::<Vec<_>>();
+            labels.iter().any(|label| {
+                label
+                    .windows(LABEL_COPY_WORDS)
+                    .filter(|run| run.iter().any(|word| LABEL_TOPIC_WORDS.contains(&word.as_str())))
+                    .any(|run| clause.windows(LABEL_COPY_WORDS).any(|copy| copy == run))
+            })
+        })
 }
 
 /// Returns the words of `text` in lowercase: its runs of letters, digits and apostrophes.

@@ -688,6 +688,22 @@ fn earlier_text_ends_with_a_line_break_before_its_closing_quote() {
 }
 
 #[test]
+fn each_topic_word_of_the_labels_is_a_word_of_a_label() {
+    let label_words = LABELS
+        .iter()
+        .flat_map(|label| label.split(|character: char| !character.is_alphanumeric()))
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+
+    let missing = LABEL_TOPIC_WORDS
+        .into_iter()
+        .filter(|word| !label_words.iter().any(|label_word| label_word == word))
+        .collect::<Vec<_>>();
+
+    assert_eq!(missing, Vec::<&str>::new());
+}
+
+#[test]
 fn frame_lines_keep_the_notes_of_an_example() {
     let notes = WriterNotes::default();
     let writer = Writer {

@@ -164,3 +164,31 @@ fn each_frame_line_of_one_or_two_words_is_a_known_exception() {
 
     assert_eq!(unknown, Vec::<&String>::new());
 }
+
+#[test]
+fn colon_clause_that_shares_three_words_of_a_label_without_a_word_of_its_topic_shows() {
+    let preface = full_preface("Sara Novak");
+    let cases = [
+        ("T", "he part of my plan:"),
+        ("T", "he last line of the poem:"),
+        ("H", "ere is the text that I am sending:"),
+    ];
+
+    let hidden = cases.map(|(context, suggestion)| is_bad_suggestion(suggestion, context, "", &preface));
+
+    assert_eq!(hidden, [false; 3]);
+}
+
+#[test]
+fn colon_clause_that_shares_three_words_of_a_label_with_a_word_of_its_topic_hides() {
+    let preface = full_preface("Sara Novak");
+    let cases = [
+        ("The ", "text I am typing is:"),
+        ("Below are the ", "field on my screen:"),
+        ("Here are my ", "notes about me:"),
+    ];
+
+    let hidden = cases.map(|(context, suggestion)| is_bad_suggestion(suggestion, context, "", &preface));
+
+    assert_eq!(hidden, [true; 3]);
+}
