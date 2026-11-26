@@ -222,13 +222,17 @@ pub(crate) fn process_id(window: HWND) -> u32 {
 
 /// Whether `window` is a top-level window of Chromium.
 pub(crate) fn is_chromium_window(window: HWND) -> bool {
+    window_class(window).is_some_and(|class| class == CHROMIUM_WINDOW_CLASS)
+}
+
+/// Reads the class name of `window`, which the program that made the class gave it. `None` when
+/// the window does not exist.
+fn window_class(window: HWND) -> Option<String> {
     let mut units = [0_u16; MAX_CLASS_NAME_UNITS];
     // SAFETY: the buffer is valid for the call, and a window that closed only makes it fail.
     let written = unsafe { GetClassNameW(window, &mut units) };
-    usize::try_from(written)
-        .ok()
-        .and_then(|written| units.get(..written))
-        .is_some_and(|class| String::from_utf16_lossy(class) == CHROMIUM_WINDOW_CLASS)
+    let length = usize::try_from(written).ok().filter(|&length| length > 0)?;
+    Some(String::from_utf16_lossy(units.get(..length)?))
 }
 
 /// Whether the app with `app_id`, the file name of its program, gives no caret and no text through
