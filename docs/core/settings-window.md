@@ -194,7 +194,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - The About pane (`settings_window::about`) is the page after the Permissions pane, before the Playground pane.
 - Its first row shows "TypeAlike" and the version of the build (`Build::version`), with "Check for updates" at the trailing edge. The version is `X.Y.Z` for a release build, and `X.Y.Z-dev+<commit>` for a development build.
-- A build is a development build only when `TYPEALIKE_DEVELOPMENT_BUILD` is `1` at build time (`BuildKind::from_mark`, `.cargo/config.local.example.toml`). Each other build is a release build, also a build of the release workflow. The bin gives the build to core (`Services::build`).
+- A build is a development build only when `TYPEALIKE_DEVELOPMENT_BUILD` is `1` at build time (`BuildKind::from_mark`, `.cargo/config.local.example.toml`). Any other build is a release build, also a build of the release workflow. The bin gives the build to core (`Services::build`).
 - In an installed copy of a release build, the switch "Keep TypeAlike up to date" (`Settings::updates`, on by default) follows. A build from the source code and a development build have no switch.
 - A link below them opens the source code (`Cargo.toml`, `repository`) in the web browser (`Shell::open_web_page`).
 - The footer tells that TypeAlike has the GNU General Public License, version 3 or later.
