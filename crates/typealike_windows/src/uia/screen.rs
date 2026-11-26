@@ -10,10 +10,10 @@ use windows::Win32::UI::Accessibility::{
     UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_TextControlTypeId,
 };
 
-use super::{Uia, is_password};
+use super::{Uia, frame_with_area, is_password};
 use crate::caret::{self, Caret};
-use crate::display::screen_rect;
-use crate::focus::foreground_hwnd;
+use crate::display::{screen_rect, visible_field_frame};
+use crate::focus::{focused_client_area, foreground_hwnd};
 
 /// The most text elements that one read of the screen keeps.
 const MAX_TEXT_ELEMENTS: i32 = 2000;
@@ -43,6 +43,8 @@ impl Uia {
         let caret = caret::system_caret().or_else(|| self.drawn_caret(&focused));
         Some(FocusedField {
             frame: screen_rect(frame),
+            visible_frame: visible_field_frame(frame_with_area(&focused), focused_client_area())
+                .map(screen_rect),
             caret: caret.as_ref().map(caret_frame),
         })
     }
@@ -95,7 +97,11 @@ impl Uia {
 /// Where the focused control, which does not hide its text, and its caret are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FocusedField {
+    /// The UIA frame of the control.
     pub(crate) frame: ScreenRect,
+    /// The part of the frame inside the client area of the focused window, as the caret reader
+    /// gives it to core. `None` when TypeAlike cannot read it.
+    pub(crate) visible_frame: Option<ScreenRect>,
     pub(crate) caret: Option<ScreenRect>,
 }
 

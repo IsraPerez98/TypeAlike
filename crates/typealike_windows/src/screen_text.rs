@@ -34,7 +34,8 @@ pub(crate) enum FieldPixels {
     /// and the caret in the field do not change the OCR.
     LeftOut,
     /// The field shows its text only on the screen, as the window of Herdr. The OCR reads its
-    /// pixels, because they hold its text.
+    /// pixels, because they hold its text. When the field gives no caret, the read also looks for
+    /// the block cursor in them.
     Read,
 }
 
@@ -103,23 +104,26 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
-        let text = connection.connected().and_then(|uia| match newest.source {
-            ScreenSource::Accessibility => uia.screen_text(),
-            ScreenSource::Ocr(_) => ocr.read(uia, newest.field_pixels),
-            ScreenSource::Cursor => None,
-        });
+        let (text, cursor) = connection
+            .connected()
+            .map_or((None, None), |uia| match newest.source {
+                ScreenSource::Accessibility => (uia.screen_text(), None),
+                ScreenSource::Ocr(_) => ocr.read(uia, newest.field_pixels),
+                ScreenSource::Cursor => (None, ocr.look_at_cursor(uia, newest.field_pixels)),
+            });
         tracing::debug!(
             read = ?newest.read,
             source = ?newest.source,
             waited = ?started - newest.requested,
             duration = ?started.elapsed(),
             lines = text.as_ref().map(|text| text.lines.len()),
+            blocks = cursor.as_ref().map(|look| look.blocks.len()),
             "screen read answered"
         );
         let read = ScreenRead {
             id: newest.read,
             text,
-            cursor: None,
+            cursor,
         };
         #[cfg(feature = "suggestion-log")]
         crate::suggestion_log::screen_read(

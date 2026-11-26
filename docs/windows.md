@@ -145,6 +145,10 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - The OCR needs Windows 11, because Windows 10 draws a border around the window at each capture.
 - The OCR reads the band of the whole window, also when core asks for the content of the field (`OcrArea::Content`).
 - The OCR leaves out the pixels of the focused field (`Band::hide_field`), so that the typed text and the caret do not change the OCR. A field that shows its text only on the screen keeps its pixels (`FieldPixels::Read`), because they hold its text. The shell gives the reader this choice with each read.
+- In a field that shows its text only on the screen and gives no caret, the OCR read also looks for the block cursor in the pixels of the field, in the same capture (`ocr::cursor_look`, `docs/core/ghost-text.md`, "Mirror and card below the caret"). A look without OCR (`ScreenSource::Cursor`, `Ocr::look_at_cursor`) captures the same band.
+  - The look uses the field frame that the caret reader gives to core: the UIA frame inside the client area of the focused window (`FocusedField::visible_frame`). Core keeps a found cursor only for the frame of its look.
+  - The pixels are physical pixels, one for each unit of `ScreenRect`. The sizes of a block cursor in core fit a terminal font from about 8 to 30 points at a scale of 100 %. At 200 %, only a font up to about 15 points gives a block.
+  - Checked on 2026-11-26 with Herdr 0.1.18 at a scale of 100 %, in a window of 2560 x 1392 pixels (`window_of_herdr_in_front_gives_one_cursor_block`): 9 of 9 looks found one block, the cursor of the input line of Claude Code (9 x 20 pixels). A screenshot showed the cursor at that place. In a release build, a look took about 35 ms after the capture: 11 ms for the colors of the field and 24 ms for the search of the blocks.
 - It stops while energy saver is on.
 - When it cannot connect to UIA, it tries again at each later read.
 
@@ -215,7 +219,7 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 ## Suggestion log
 
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
-  - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`).
+  - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`). `cursor_blocks` is the count of the blocks that the look at the cursor of the read found, when the read looked.
   - `showed the ghost text` and `showed a fix`: the text of each draw at the caret or in the mirror, with its wrapped lines, and the kind and the frame of the anchor of the mirror.
   - `Tab inserted text`: the text that Tab types, and the number of characters that it deletes first.
   - `resource usage`: the resources of the process when TypeAlike starts, then each minute (`RECORD_INTERVAL`, a window timer), and after each model load. It holds numbers only.

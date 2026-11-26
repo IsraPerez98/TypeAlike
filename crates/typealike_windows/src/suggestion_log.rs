@@ -9,7 +9,8 @@ use typealike_core::controller::{Ghost, GhostView};
 use typealike_core::desktop::{ScreenRead, ScreenSource};
 
 /// Writes the lines of the screen read `answer` from `source`, which waited `waited` in the queue
-/// of the reader and then took `duration`.
+/// of the reader and then took `duration`, and the count of the blocks that its look at the cursor
+/// found.
 pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Duration, duration: Duration) {
     tracing::info!(
         target: SUGGESTION_LOG_TARGET,
@@ -20,6 +21,7 @@ pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Dur
         lines = answer.text.as_ref().map(|text| {
             tracing::field::debug(text.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>())
         }),
+        cursor_blocks = answer.cursor.as_ref().map(|look| look.blocks.len()),
         "read the screen"
     );
 }
