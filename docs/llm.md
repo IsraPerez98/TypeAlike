@@ -172,6 +172,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - On Vulkan, CUDA and Metal, after 1 minute without a request (`CONTEXT_IDLE_TIMEOUT`), it frees the context: the cache of the last prompt and the buffers of the backend (for Gemma 4 E4B on Metal, the footprint goes from about 420 MB to 170 MB).
 - The next request makes the context again and decodes its whole prompt.
 - The CPU keeps its context, because that decode takes seconds on a slow CPU.
+- An unload frees the model, its drafter and its context. Then the log tells `unloaded the model`. An unload without a loaded model writes no line.
 - It decodes the new tokens of a prompt in batches of at most 256 tokens on Vulkan, CUDA and Metal, and 128 tokens on the CPU.
 - A newer request stops the decode between two batches.
 - For a recurrent model (Qwen3.5), it also saves the state before each of the last words, so a backspace across a word does not decode the full prompt again.

@@ -170,6 +170,14 @@ impl<'jobs> JobQueue<'jobs> {
         !self.received.is_empty()
     }
 
+    /// Whether the next job, which a step looked at or gave back, unloads the model. It receives no
+    /// job.
+    fn is_unload_next(&self) -> bool {
+        self.received
+            .front()
+            .is_some_and(|job| matches!(job.request, InferenceRequest::Unload))
+    }
+
     /// Whether a job that loads or unloads a model waits, anywhere in the queue, so that the loaded
     /// model goes before that job runs. It keeps each job that it receives, in order.
     fn has_waiting_model_change(&mut self) -> bool {
@@ -246,6 +254,13 @@ pub(crate) fn run(
                             &mut backend_dlls,
                             context_idle_timeout(backend),
                         );
+                        // The log line of an unload comes only after the model and its context go.
+                        drop(loaded_model);
+                        drop(drafter);
+                        drop(model);
+                        if queue.is_unload_next() {
+                            tracing::info!("unloaded the model");
+                        }
                     }
                     (loaded, _) => reply.answer(InferenceEvent::Loaded {
                         file,
@@ -725,6 +740,31 @@ mod tests {
                 Some(InferenceRequest::Unload),
             ]
         );
+    }
+
+    fn is_unload_next_after_giving_back(request: InferenceRequest) -> bool {
+        let jobs = queue_of(vec![]);
+        let mut queue = JobQueue::new(&jobs);
+        queue.give_back(Job::new(request, sink()));
+        queue.is_unload_next()
+    }
+
+    #[test]
+    fn only_an_unload_that_was_given_back_unloads_next() {
+        let requests = [InferenceRequest::Unload, load_request()];
+
+        let unloads = requests.map(is_unload_next_after_giving_back);
+
+        assert_eq!(unloads, [true, false]);
+    }
+
+    #[test]
+    fn empty_queue_does_not_unload_next() {
+        let jobs = queue_of(vec![]);
+
+        let unloads = JobQueue::new(&jobs).is_unload_next();
+
+        assert!(!unloads);
     }
 
     #[test]
