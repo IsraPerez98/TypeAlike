@@ -202,7 +202,11 @@ define_class!(
         #[unsafe(method(quitApplication:))]
         fn quit_application(&self, _timer: &NSTimer) {
             // `terminate` ends the process, so the event loop does not return to `main`.
-            tracing::info!(reason = "the event loop ends", "TypeAlike quits");
+            tracing::info!(
+                process = std::process::id(),
+                reason = "the event loop ends",
+                "TypeAlike quits"
+            );
             NSApplication::sharedApplication(self.mtm()).terminate(None);
         }
 

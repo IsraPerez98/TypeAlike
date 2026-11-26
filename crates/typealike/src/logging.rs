@@ -109,8 +109,16 @@ fn log_start(log: &Path, build: Build, suggestion_log: SuggestionLog) {
 /// or a kill of the process logs no such line.
 pub(crate) fn log_quit(run: &anyhow::Result<()>) {
     match run {
-        Ok(()) => tracing::info!(reason = "the event loop ended", "TypeAlike quits"),
-        Err(error) => tracing::error!(reason = %format_args!("{error:#}"), "TypeAlike quits"),
+        Ok(()) => tracing::info!(
+            process = std::process::id(),
+            reason = "the event loop ended",
+            "TypeAlike quits"
+        ),
+        Err(error) => tracing::error!(
+            process = std::process::id(),
+            reason = %format_args!("{error:#}"),
+            "TypeAlike quits"
+        ),
     }
 }
 
@@ -356,11 +364,13 @@ mod tests {
 
     #[test]
     fn end_of_the_event_loop_logs_a_quit_with_its_reason() {
+        let process = format!("process={}", std::process::id());
+
         let lines = quit_lines(&Ok(()));
 
-        let has_parts = ["TypeAlike quits", "reason="].map(|part| lines.contains(part));
+        let has_parts = ["TypeAlike quits", "reason=", process.as_str()].map(|part| lines.contains(part));
 
-        assert_eq!(has_parts, [true; 2]);
+        assert_eq!(has_parts, [true; 3]);
     }
 
     #[test]

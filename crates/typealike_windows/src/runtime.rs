@@ -393,7 +393,11 @@ impl Runtime {
             WM_TIMER if wparam.0 == RESOURCE_TIMER_ID => self.write_resource_usage(),
             // Windows ends the process after this message, so the event loop does not return.
             WM_ENDSESSION if wparam.0 != 0 => {
-                tracing::info!(reason = "the Windows session ends", "TypeAlike quits");
+                tracing::info!(
+                    process = std::process::id(),
+                    reason = "the Windows session ends",
+                    "TypeAlike quits"
+                );
             }
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
