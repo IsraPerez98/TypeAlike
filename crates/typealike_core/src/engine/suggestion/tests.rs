@@ -11,13 +11,14 @@ use super::{is_bad_suggestion, words};
 /// hide:
 /// - The age of an earlier text of 1 word in brackets. A copy after its typed opening bracket
 ///   shows, because the check of the brackets does not look across the caret.
-/// - The name line with a name of 1 word. A writer can type it, as in "Hi, my name is Sara.", so it
-///   hides only when it starts the line of the caret.
+/// - The name line. A writer can type it, as in "Hi, my name is Sara Novak.", so it hides only
+///   when it starts the field.
 ///
 /// A new frame line of 1 or 2 words fails the tests until it comes here or gets a rule.
-const KNOWN_EXCEPTIONS: [(&str, [bool; 4]); 3] = [
+const KNOWN_EXCEPTIONS: [(&str, [bool; 4]); 4] = [
     ("(today) ", [true, true, true, false]),
     ("(yesterday) ", [true, true, true, false]),
+    ("My name is Sara Novak.", [true, false, true, true]),
     ("My name is Sara.", [true, false, true, true]),
 ];
 /// The text before a copy of a frame line after the end of a sentence.

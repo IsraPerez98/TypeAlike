@@ -352,6 +352,45 @@ fn completion_that_copies_the_own_notes_of_the_writer_shows() {
 }
 
 #[test]
+fn completion_that_starts_a_later_line_as_the_name_line_shows() {
+    let cases = [
+        (
+            "Dear Mr. Lee,\n\nMy",
+            ' ',
+            "name is Sara Novak, and I am the new office manager.",
+        ),
+        ("Hello everyone,\n\nmy n", 'a', "me is Sara Novak."),
+        (
+            "Hello,",
+            ' ',
+            "my name is Sara Novak, the new contact for your account.",
+        ),
+    ];
+
+    let reactions = cases.map(|(field_before, key, text)| {
+        let mut engine = engine_with(&named_writer("I am a nurse."));
+        engine.on_key(
+            Key::Char(key),
+            Press::First,
+            &FakeDesktop::with_field_text(field_before),
+        );
+        engine.on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|(_, _, text)| show(text)));
+}
+
+#[test]
+fn completion_that_starts_the_field_as_the_name_line_hides() {
+    let mut engine = engine_with(&named_writer("I am a nurse."));
+    engine.on_key(Key::Char(' '), Press::First, &FakeDesktop::with_field_text("My"));
+
+    let reaction = engine.on_completion(completion("name is Sara Novak."));
+
+    assert_eq!(reaction, Reaction::Hide);
+}
+
+#[test]
 fn completion_that_holds_a_short_name_line_of_the_prompt_frame_shows() {
     let settings = Settings {
         writer_name: WriterName("Sara".to_owned()),

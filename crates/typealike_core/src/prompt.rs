@@ -166,6 +166,11 @@ pub(crate) struct Preface {
     pub(crate) frame_lines: Vec<String>,
 }
 
+/// Whether `frame_line` is the line that gives the name of the writer ([`NAME_LINE_START`]).
+pub(crate) fn is_name_line(frame_line: &str) -> bool {
+    frame_line.starts_with(NAME_LINE_START) && frame_line.ends_with('.')
+}
+
 impl Preface {
     /// Returns the name of the writer that the frame gives, if any.
     pub(crate) fn writer_name(&self) -> Option<&str> {

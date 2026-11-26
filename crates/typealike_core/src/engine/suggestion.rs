@@ -2,7 +2,7 @@
 
 use crate::history::is_apostrophe;
 use crate::inference::{Correction, MIN_FIXED_CHARACTERS};
-use crate::prompt::{CLIPBOARD_LABEL, LABEL_TOPIC_WORDS, Preface, is_age_label};
+use crate::prompt::{CLIPBOARD_LABEL, LABEL_TOPIC_WORDS, Preface, is_age_label, is_name_line};
 
 use super::WordFix;
 
@@ -341,6 +341,9 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
     let typed_words = words(caret_line).count();
     let line = words(&format!("{caret_line}{suggestion}")).collect::<Vec<_>>();
     frame_lines.iter().any(|frame_line| {
+        if is_name_line(frame_line) {
+            return copies_name_line(&line, typed_words, context, frame_line);
+        }
         let frame_words = words(frame_line).collect::<Vec<_>>();
         let start = frame_words.len().min(FRAME_COPY_WORDS);
         let starts_as_frame_line =
@@ -351,6 +354,16 @@ fn copies_frame_line(suggested: &[String], suggestion: &str, context: &str, fram
                 .windows(run_words)
                 .any(|run| suggested.windows(run_words).any(|copy| copy == run))
     })
+}
+
+/// Whether `line`, the words of the line of the caret with a suggestion after `typed_words` typed
+/// words, starts as `name_line` starts at the start of the field, after `context`. A writer can
+/// type their name line in a letter or after a greeting, as in "Dear Tom,\n\nMy name is Sara Novak",
+/// so it hides only as the first text of the field.
+fn copies_name_line(line: &[String], typed_words: usize, context: &str, name_line: &str) -> bool {
+    let name_words = words(name_line).collect::<Vec<_>>();
+    let start = name_words.len().min(FRAME_COPY_WORDS);
+    !context.contains('\n') && typed_words < start && line.starts_with(&name_words[..start])
 }
 
 /// Returns the words of `frame_line`, which has `frame_words` words, that make a copy of it when a
@@ -388,6 +401,7 @@ pub(super) fn before_frame_copy_start<'text>(
     let line = words(&format!("{caret_line}{completion}")).collect::<Vec<_>>();
     let first_held_word = frame_lines
         .iter()
+        .filter(|frame_line| !is_name_line(frame_line) || !context.contains('\n'))
         .filter_map(|frame_line| {
             let frame_words = words(frame_line).collect::<Vec<_>>();
             let start = frame_words.len().min(FRAME_COPY_WORDS);
