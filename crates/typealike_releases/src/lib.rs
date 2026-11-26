@@ -41,8 +41,6 @@ const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
 const RATE_LIMIT_REMAINING: &str = "x-ratelimit-remaining";
 /// The header with the time of the reset of the limit, in seconds since the Unix epoch.
 const RATE_LIMIT_RESET: &str = "x-ratelimit-reset";
-/// The characters at the start of the body of a refused request that the log keeps.
-const LOGGED_BODY_CHARS: usize = 200;
 
 /// Why a read of the newest release failed, with the details worth logging.
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +54,8 @@ enum FetchError {
 }
 
 /// An answer of the GitHub API with a status other than a success, with the details worth logging.
+/// It has no part of the body, because the body of a rate limit names the IP address of the
+/// computer, and the log goes into bug reports.
 #[derive(Debug, PartialEq, Eq)]
 struct RefusedRequest {
     status: u16,
@@ -63,12 +63,10 @@ struct RefusedRequest {
     rate_limit_remaining: Option<String>,
     /// The value of `x-ratelimit-reset`.
     rate_limit_reset: Option<String>,
-    /// The first [`LOGGED_BODY_CHARS`] characters of the body.
-    body_start: String,
 }
 
 impl RefusedRequest {
-    fn new(status: u16, headers: &HeaderMap, body: &str) -> Self {
+    fn new(status: u16, headers: &HeaderMap) -> Self {
         let header = |name| {
             headers
                 .get(name)
@@ -79,7 +77,6 @@ impl RefusedRequest {
             status,
             rate_limit_remaining: header(RATE_LIMIT_REMAINING),
             rate_limit_reset: header(RATE_LIMIT_RESET),
-            body_start: body.chars().take(LOGGED_BODY_CHARS).collect(),
         }
     }
 
@@ -251,7 +248,7 @@ impl ReleaseFeed for GitHubReleases {
 }
 
 /// Reads the release of the GitHub API at `url`. A status other than a success gives
-/// [`FetchError::Refused`] with the rate limit and the start of the body.
+/// [`FetchError::Refused`] with the rate limit.
 fn fetch_release(agent: &Agent, url: &str) -> Result<Release, FetchError> {
     let mut response = agent
         .get(url)
@@ -262,9 +259,7 @@ fn fetch_release(agent: &Agent, url: &str) -> Result<Release, FetchError> {
         .call()?;
     let status = response.status();
     if !status.is_success() {
-        // The status and the headers tell enough when the body does not read.
-        let body = response.body_mut().read_to_string().unwrap_or_default();
-        let refused = RefusedRequest::new(status.as_u16(), response.headers(), &body);
+        let refused = RefusedRequest::new(status.as_u16(), response.headers());
         return Err(FetchError::Refused(refused));
     }
     let body = response.body_mut().read_to_string()?;
@@ -402,19 +397,18 @@ mod tests {
     }
 
     #[test]
-    fn refused_request_keeps_the_status_the_rate_limit_and_the_start_of_the_body() {
-        let body = format!(r#"{{"message":"{}"}}"#, "é".repeat(300));
+    fn refused_request_keeps_only_the_status_and_the_rate_limit() {
+        let headers = rate_limit_headers("0", "1700000000");
 
-        let refused = RefusedRequest::new(403, &rate_limit_headers("0", "1700000000"), &body);
+        let refused = RefusedRequest::new(403, &headers);
 
         assert_eq!(
-            (
-                refused.status,
-                refused.rate_limit_remaining.as_deref(),
-                refused.rate_limit_reset.as_deref(),
-                refused.body_start.chars().count(),
-            ),
-            (403, Some("0"), Some("1700000000"), 200)
+            refused,
+            RefusedRequest {
+                status: 403,
+                rate_limit_remaining: Some("0".to_owned()),
+                rate_limit_reset: Some("1700000000".to_owned()),
+            }
         );
     }
 
@@ -423,7 +417,7 @@ mod tests {
 
     /// The failure that core gets for an answer with `status` and `headers` at [`NOW_S`].
     fn read_failure_at_now(status: u16, headers: &HeaderMap) -> ReleaseReadFailed {
-        RefusedRequest::new(status, headers, "").read_failure(UNIX_EPOCH + Duration::from_secs(NOW_S))
+        RefusedRequest::new(status, headers).read_failure(UNIX_EPOCH + Duration::from_secs(NOW_S))
     }
 
     #[test]
@@ -481,9 +475,9 @@ mod tests {
 
     #[test]
     fn refused_request_without_rate_limit_headers_has_no_rate_limit() {
-        let body = r#"{"message":"Not Found"}"#;
+        let headers = HeaderMap::new();
 
-        let refused = RefusedRequest::new(404, &HeaderMap::new(), body);
+        let refused = RefusedRequest::new(404, &headers);
 
         assert_eq!(
             refused,
@@ -491,7 +485,6 @@ mod tests {
                 status: 404,
                 rate_limit_remaining: None,
                 rate_limit_reset: None,
-                body_start: body.to_owned(),
             }
         );
     }

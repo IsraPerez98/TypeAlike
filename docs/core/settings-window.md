@@ -205,7 +205,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - The feed reads the newest release of the GitHub API (`/releases/latest`), which skips drafts and pre-releases.
 - The log gets one line for each read:
   - A read that succeeds logs `read the newest release` with the tag and whether it is newer than the build (`ReleaseTag::is_newer_than_build`).
-  - A status other than a success logs the status, `x-ratelimit-remaining`, `x-ratelimit-reset` and the first 200 characters of the body (`RefusedRequest`). The body of a rate limit names the IP address of the computer.
+  - A status other than a success logs the status, `x-ratelimit-remaining` and `x-ratelimit-reset` (`RefusedRequest`). The log never takes the body, because the body of a rate limit names the IP address of the computer, and logs go into bug reports.
 - While the check runs, the row shows "Checking for updates…" and the button is dimmed.
 - A tag `vX.Y.Z` higher than the version of the build:
   - While the switch is on, the download starts at once (see "Updates").
