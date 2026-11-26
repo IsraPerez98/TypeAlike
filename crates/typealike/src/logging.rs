@@ -20,6 +20,8 @@ const LEVELS_VARIABLE: &str = "TYPEALIKE_LOG";
 /// The levels without `TYPEALIKE_LOG`. llama.cpp writes many info lines for each model load, so
 /// only its warnings and errors go to the log.
 const DEFAULT_LEVELS: &str = "info,llama-cpp-2=warn";
+/// The git commit of the source of this build, or `unknown` (`build.rs`).
+const COMMIT: &str = env!("TYPEALIKE_COMMIT");
 const LOG_FILE: &str = "TypeAlike.log";
 const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 /// The size above which a start moves the log to the previous log, so the log does not grow
@@ -87,15 +89,17 @@ fn main_subscriber(
         }))
 }
 
-/// Logs the start of the run: the build, the process, the path of the `log` file and the state of
-/// the `suggestion_log`.
+/// Logs the start of the run: the build with its commit and its features, the process, the path of
+/// the `log` file and the state of the `suggestion_log`.
 fn log_start(log: &Path, suggestion_log: SuggestionLog) {
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
+        commit = COMMIT,
         process = std::process::id(),
         vulkan = cfg!(feature = "vulkan"),
         cuda = cfg!(feature = "cuda"),
         log = %log.display(),
+        suggestion_log_feature = cfg!(feature = "suggestion-log"),
         suggestion_log = suggestion_log.is_on(),
         "TypeAlike started"
     );
@@ -303,8 +307,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn start_line_reaches_the_log_file_when_the_suggestion_log_has_no_file() {
+    /// The lines that the start of a run writes to the log file, when the suggestion log has no
+    /// file.
+    fn start_lines() -> String {
         let file = MemoryLog::default();
         let writer = file.clone();
         let subscriber = main_subscriber(
@@ -315,8 +320,31 @@ mod tests {
         .with(None::<Identity>);
 
         tracing::subscriber::with_default(subscriber, || log_start(Path::new(LOG_FILE), SuggestionLog::Off));
+        file.text()
+    }
 
-        assert!(file.text().contains("TypeAlike started"));
+    #[test]
+    fn start_line_reaches_the_log_file_when_the_suggestion_log_has_no_file() {
+        let lines = start_lines();
+
+        assert!(lines.contains("TypeAlike started"));
+    }
+
+    #[test]
+    fn start_line_names_the_commit_and_the_suggestion_log_feature() {
+        let lines = start_lines();
+
+        let has_fields = ["commit=", COMMIT, "suggestion_log_feature="].map(|field| lines.contains(field));
+
+        assert_eq!(has_fields, [true; 3]);
+    }
+
+    #[test]
+    fn commit_of_the_build_is_a_short_hash_or_unknown() {
+        let is_short_hash =
+            COMMIT.len() >= 7 && COMMIT.chars().all(|character| character.is_ascii_hexdigit());
+
+        assert!(is_short_hash || COMMIT == "unknown", "commit {COMMIT}");
     }
 
     pub(super) fn temporary_folder(name: &str) -> PathBuf {

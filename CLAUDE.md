@@ -56,7 +56,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info,llama-cpp-2=warn`), for example `debug` or `info,typealike_llm=debug`.
   - The llama.cpp logs have the target `llama-cpp-2`. By default, only their warnings and errors go to the log. To see the load of a model, add `llama-cpp-2=info`.
   - A panic also goes to the log.
-  - The first log line of each run shows the version, the GPU features of the build and whether the suggestion log is on.
+  - The first log line of each run shows the version, the git commit (`build.rs` of the bin: `GITHUB_SHA` in a workflow, else `HEAD`), the GPU features and the `suggestion-log` feature of the build, and whether the suggestion log is on.
 - Settings file: `%LOCALAPPDATA%\TypeAlike\settings.json` on Windows, `~/Library/Application Support/TypeAlike/settings.json` on macOS. The default settings are in `docs/core/settings-window.md`.
 - Suggestion log: only a build with the `suggestion-log` feature has it, for example `cargo run --features suggestion-log`. The release builds do not.
   - To make a logging disk image on macOS, run `BUILD_FEATURES=suggestion-log sh packaging/macos/build-dmg.sh VERSION target/release/TypeAlike OUTPUT_FOLDER`. The app has an ad-hoc signature, so macOS can ask for its permissions again.
