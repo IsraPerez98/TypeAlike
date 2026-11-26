@@ -37,6 +37,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - The notes, the earlier writing, the clipboard and the text after the caret are in curly quotes after their labels. Each earlier text has a line break before its closing quote (`docs/core/earlier-writing.md`).
 - The screen text has no quotes. Each of its parts (below the field, above the field, the last line above the field) starts on the line after its label.
 - The reason: the screen text is often the last part before the heading. With quotes, the model often ended the typed text with the closing quote of that part, and the quote then showed at the end of the suggestion.
+- A closing quote at the end of a suggestion without an opening quote on its line also goes (`docs/core/suggestions.md`, "Closing quote at the end").
 - Measured with Gemma 4 E4B on Metal (2026-11-21), with a name, notes, the medium word choice, the long length and without the sentence stop:
   - The sets: 81 chats where the field holds a finished reply (`chat_end.jsonl` and the `mt-end` cases of `message_times.jsonl`).
   - The mean probability of a closing quote (”, ", », ' or ´) after a period at the end of the reply went from 2.0 percent to 0.03 percent. In 11 chats, it was more than 5 percent before, and in none after.

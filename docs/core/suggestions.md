@@ -112,6 +112,12 @@ The length of the suggestions, the typo rule and fix, the languages and their di
 - Measured with Gemma 4 E4B (Metal, long, without the sentence stop): on the 28 `note-` cases of `leaks.jsonl` (`--session-start first-key`, character replay), the cut removed the note in the 2 cases that showed one (9 places, 370 to 379 of 379 without a leak) and harmed none.
 - In 60 cases of `tuning` (word replay), it cut one note, a translation after a Spanish chat message, and changed no score. In `chat`, no suggestion had such a bracket. It also cut the translations after 2 Spanish prompts to an agent in the `clip-mid-` cases.
 
+### Closing quote at the end
+
+- A suggestion loses a closing quote ” at its end when no opening quote “ comes before it on the line of the caret (`without_lone_closing_quote`). The preface puts its texts in these quotes, so the model can close the typed text as a text of the preface.
+- A quote that the writer opened on the line stays, as in "the sign says “closed”".
+- Measured with Gemma 4 E4B (CUDA, 2026-11-26, `--name "Sara Novak" --notes TEXT --word-choice medium --length long --sentence-stop off`): no case changed in `chat_end` (no closing quote showed there before), `message_times` and `quotes_needed` (word replay). With `--name "Sara Novak" --word-choice medium`, `leaks`, `leaks_adversarial`, `tuning`, `chat`, `recall` and `new_line` did not change. With the first key as the start of the session, the long length without the sentence stop and the character replay, it cut the quote at 5 places of one case of `leaks_adversarial` ("…paste it quickly”"), and changed no match. `terminal` (word replay) did not change.
+
 ### Unknown words
 
 - Each suggestion of the model also stops before its first word that no dictionary of the languages of the user knows (`SpellChecker`), unless the prompt, the text after the caret, the word bias of the pool or the earlier writing holds that word in any case (`engine/spelling.rs`).

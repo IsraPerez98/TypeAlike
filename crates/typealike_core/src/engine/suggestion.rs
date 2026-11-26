@@ -44,13 +44,18 @@ const MIN_LETTERS_BEFORE_PERIOD: usize = 2;
 const SIGN_OFF_COMMAS: [char; 3] = [',', '，', '、'];
 /// The most words of a sentence before the comma of a sign-off on the line of a message.
 const MAX_SIGN_OFF_WORDS: usize = 2;
+/// The quote that opens a text of the preface.
+const OPENING_QUOTE: char = '“';
+/// The quote that closes a text of the preface.
+const CLOSING_QUOTE: char = '”';
 /// The brackets that open a note about a text, such as its translation, after the end of a sentence.
 const NOTE_BRACKETS: [char; 2] = ['(', '（'];
 
 /// Returns the first line of `completion` up to a placeholder, up to a note after the end of a
 /// sentence, and up to where it writes `text_after` again, as ghost text after `context`, or
 /// `None` when it has no text. Spaces that would double the space at the end of `context`, or
-/// trail, are dropped.
+/// trail, are dropped, and so is a closing quote at its end that no quote on the line of the caret
+/// opens ([`without_lone_closing_quote`]).
 pub(super) fn suggestion_after(context: &str, completion: &str, text_after: &str) -> Option<String> {
     let first_line = completion.lines().next().unwrap_or_default();
     let line = if context.ends_with(char::is_whitespace) {
@@ -61,7 +66,23 @@ pub(super) fn suggestion_after(context: &str, completion: &str, text_after: &str
     let caret_line = context.rsplit('\n').next().unwrap_or_default();
     let suggestion =
         before_text_after(before_note(caret_line, before_placeholder(line)), text_after).trim_end();
+    let suggestion = without_lone_closing_quote(caret_line, suggestion);
     (!suggestion.is_empty()).then(|| suggestion.to_owned())
+}
+
+/// Returns `suggestion` after `caret_line` without the [`CLOSING_QUOTE`] at its end when the
+/// line has no [`OPENING_QUOTE`] before it. The preface puts its texts in these quotes, so the
+/// model can close the typed text as a text of the preface.
+fn without_lone_closing_quote<'text>(caret_line: &str, suggestion: &'text str) -> &'text str {
+    let Some(before_quote) = suggestion.strip_suffix(CLOSING_QUOTE) else {
+        return suggestion;
+    };
+    let is_opened = caret_line.contains(OPENING_QUOTE) || before_quote.contains(OPENING_QUOTE);
+    if is_opened {
+        suggestion
+    } else {
+        before_quote.trim_end()
+    }
 }
 
 /// Returns `text` up to where it writes the line of `text_after` again, which the model often does

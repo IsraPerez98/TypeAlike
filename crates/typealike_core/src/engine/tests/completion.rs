@@ -144,6 +144,36 @@ fn bad_completion_hides() {
 }
 
 #[test]
+fn completion_drops_a_closing_quote_at_its_end_that_no_quote_of_its_line_opens() {
+    let cases = [
+        ("See you at 7", " tonight!”", Some(" tonight!")),
+        ("Thanks a lot ", "for the help.”", Some("for the help.")),
+        ("Ok", " ”", None),
+    ];
+
+    let reactions =
+        cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(
+        reactions,
+        cases.map(|(_, _, shown)| shown.map_or(Reaction::Hide, show))
+    );
+}
+
+#[test]
+fn completion_keeps_a_closing_quote_that_a_quote_of_its_line_opens() {
+    let cases = [
+        ("He said “see you", " at 7”", " at 7”"),
+        ("Hi, ", "the sign says “closed”", "the sign says “closed”"),
+    ];
+
+    let reactions =
+        cases.map(|(context, text, _)| engine_waiting_for(context).on_completion(completion(text)));
+
+    assert_eq!(reactions, cases.map(|(_, _, shown)| show(shown)));
+}
+
+#[test]
 fn completion_stops_before_a_placeholder() {
     let cases = [
         ("Send it to", " 14 Orchard Lane, [City", " 14 Orchard Lane,"),
