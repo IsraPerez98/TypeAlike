@@ -16,6 +16,7 @@ mod history;
 mod input_settle;
 mod key_repeat;
 mod languages;
+mod mirror_anchor;
 mod pixels_after_caret;
 mod screen_read;
 mod scroll;

@@ -54,9 +54,12 @@ impl SessionField {
 pub(super) enum FieldTextAccess {
     /// The platform reads the text of the field.
     Readable,
-    /// The field shows text that the platform cannot read, as a terminal that shows its text only
-    /// on the screen.
+    /// The field shows text that the platform cannot read, as the editor of VS Code while its
+    /// screen reader mode is off.
     Unreadable,
+    /// The field gives no caret and no text, and shows its text only on the screen, as the
+    /// terminal of Ghostty and the window of Herdr do.
+    OnlyOnScreen,
     /// The field holds no text, as far as the platform can tell.
     NoText,
 }
@@ -65,6 +68,8 @@ impl FieldTextAccess {
     fn of(surroundings: &Surroundings) -> Self {
         if surroundings.field_text.is_some() {
             Self::Readable
+        } else if surroundings.shows_text_only_on_screen {
+            Self::OnlyOnScreen
         } else if surroundings.has_unreadable_text {
             Self::Unreadable
         } else {

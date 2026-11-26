@@ -214,6 +214,15 @@ mod tests {
     }
 
     #[test]
+    fn mirror_shows_inside_the_bottom_of_a_field_that_fills_the_screen() {
+        let bottom_edge = CGRect::new(CGPoint::new(0.0, 900.0), CGSize::new(1440.0, 0.0));
+
+        let frame = mirror_frame(bottom_edge, SIZE, SCREEN);
+
+        assert_eq!(frame, CGRect::new(CGPoint::new(0.0, 866.0), SIZE));
+    }
+
+    #[test]
     fn mirror_below_the_caret_starts_its_ghost_text_under_the_caret() {
         let caret = Caret {
             left: 600.0,

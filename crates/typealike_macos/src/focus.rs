@@ -216,6 +216,7 @@ impl FocusTracker {
             is_search_field: element.as_deref().is_some_and(is_search_field),
             has_unreadable_text: shows_text_only_on_screen
                 || element.as_deref().is_some_and(has_unreadable_text),
+            shows_text_only_on_screen,
         };
         #[cfg(feature = "suggestion-log")]
         crate::suggestion_log::field(element.as_deref(), &surroundings, shows_text_only_on_screen);

@@ -196,6 +196,7 @@ impl Case {
                 is_caret_line_hidden: false,
                 is_search_field: false,
                 has_unreadable_text: self.has_unreadable_text || self.shows_text_only_on_screen,
+                shows_text_only_on_screen: self.shows_text_only_on_screen,
             },
             clipboard: self.clipboard.clone(),
             now: self.now.map(Timestamp),

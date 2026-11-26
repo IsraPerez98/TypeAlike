@@ -58,6 +58,9 @@ pub struct GhostView {
     pub typed_word: String,
     /// Where the ghost text shows when the platform finds the caret.
     pub placement: GhostPlacement,
+    /// The frame that the mirror shows below, else above, when the platform finds no caret. `None`
+    /// shows the mirror next to the focused field.
+    pub mirror_anchor: Option<ScreenRect>,
 }
 
 impl GhostView {
@@ -77,6 +80,7 @@ impl GhostView {
             taken_part: String::new(),
             wrapped: None,
             placement,
+            mirror_anchor: None,
         }
     }
 
@@ -301,6 +305,7 @@ impl fmt::Debug for GhostView {
                 &format_args!("{} chars", self.typed_word.chars().count()),
             )
             .field("placement", &self.placement)
+            .field("mirror_anchor", &self.mirror_anchor)
             .finish()
     }
 }

@@ -31,7 +31,7 @@ use earlier_writing::needs_new_tables;
 use ended_session::KeyEndedSession;
 use offer::Offer;
 use preface::ScreenReads;
-use session::Session;
+use session::{FieldTextAccess, Session};
 use spelling::Dictionary;
 use suggestion::{ends_with_typo, fix_after_delimiter, typed_after_letters};
 
@@ -400,6 +400,14 @@ impl Engine {
             self.suggest()
         };
         AfterAccept::Next(Box::new(next))
+    }
+
+    /// Whether the field of the session gives no caret and no text, and shows its text only on the
+    /// screen. `false` without a session.
+    pub(crate) fn shows_text_only_on_screen(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.field.text == FieldTextAccess::OnlyOnScreen)
     }
 
     /// Returns the text before the caret in the session, empty without a session.

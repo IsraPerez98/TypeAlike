@@ -440,6 +440,9 @@ pub struct Surroundings {
     /// Code (an `EditContext` element) does while its screen reader mode is off. Its `field_text`
     /// then has no text.
     pub has_unreadable_text: bool,
+    /// Whether the focused field gives no caret and no text, and shows its text only on the
+    /// screen, as the terminal of Ghostty and the window of Herdr do.
+    pub shows_text_only_on_screen: bool,
 }
 
 impl Surroundings {
@@ -471,6 +474,7 @@ impl fmt::Debug for Surroundings {
             .field("field_labels", &self.field_labels)
             .field("has_domain", &self.domain.is_some())
             .field("is_outside_web_pages", &self.is_outside_web_pages)
+            .field("shows_text_only_on_screen", &self.shows_text_only_on_screen)
             .field("field_text", &self.field_text)
             .field("is_caret_line_hidden", &self.is_caret_line_hidden)
             .field("is_search_field", &self.is_search_field)
@@ -614,6 +618,7 @@ mod tests {
             is_caret_line_hidden: false,
             is_search_field: false,
             has_unreadable_text: false,
+            shows_text_only_on_screen: false,
         };
 
         let debug = format!("{surroundings:?}");

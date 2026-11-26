@@ -42,7 +42,7 @@ use crate::event_tap::EventTap;
 use crate::focus::{FocusTracker, TextStyle};
 use crate::full_screen;
 use crate::game;
-use crate::geometry::{Caret, screen_rect, whole_points_up};
+use crate::geometry::{Caret, frame_of, screen_rect, whole_points_up};
 use crate::injection::{self, Replacement};
 use crate::keyboard_layout::DeadKeyState;
 use crate::keys;
@@ -519,12 +519,12 @@ impl AppKitShell {
         self.caret_text_style.get_or_init(|| self.focus.text_style())
     }
 
-    /// Shows `view` in the mirror next to the focused field, which gives no caret. Hides it when
-    /// the focused control holds no text.
+    /// Shows `view` in the mirror for the focused field, which gives no caret: at the anchor that
+    /// core gives, else next to the field. Hides it when the focused control holds no text.
     fn show_mirror(&self, view: &GhostView) {
         self.overlay.hide();
-        match self.field_frame {
-            Some(field) => self.mirror.show(view, field),
+        match view.mirror_anchor.map(frame_of).or(self.field_frame) {
+            Some(anchor) => self.mirror.show(view, anchor),
             None => self.mirror.hide(),
         }
     }

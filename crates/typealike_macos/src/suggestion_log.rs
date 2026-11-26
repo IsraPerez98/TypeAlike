@@ -160,6 +160,7 @@ impl ShellRecords {
             .map(|wrapped| tracing::field::debug(&wrapped.lines));
         let screen_read = self.screen_read.map(tracing::field::debug);
         let placement = tracing::field::debug(view.placement);
+        let mirror_anchor = view.mirror_anchor.map(tracing::field::debug);
         let drawn = tracing::field::debug(drawn);
         match &view.ghost {
             Ghost::Text(text) => tracing::info!(
@@ -168,6 +169,7 @@ impl ShellRecords {
                 text = text.as_str(),
                 wrapped,
                 placement,
+                mirror_anchor,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,
@@ -181,6 +183,7 @@ impl ShellRecords {
                 rest = fix.rest.as_str(),
                 wrapped,
                 placement,
+                mirror_anchor,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,

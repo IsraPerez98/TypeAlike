@@ -227,6 +227,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - `warmed up OCR`: the time (`duration_ms`) and the lines of the warm-up of the Accurate level, which loads the model of Vision once.
   - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines and its placement. Each record comes after the draw:
     - `drawn` tells where the text shows: `Overlay`, `Mirror` (also the card below the caret), or `Nothing` when the field gave no caret and no frame.
+    - `mirror_anchor` is the frame that core gave the mirror of a field without a caret (`GhostView::mirror_anchor`). Without it, the mirror shows next to the field frame.
     - `span` names the completion of the newest suggestion event with text (`docs/llm.md`): a part of a completion, or a completion with text or a fix. The empty answer of a prompt that core only prepares can come while an earlier ghost text shows, so it does not count. The delivery to the main thread keeps the span of the worker thread that sent the event.
     - `key_to_ghost_ms` is the time from the last key down to the first draw after it that shows. A draw that shows nothing keeps the key for the next draw.
     - `screen_read` is the id of the newest screen read that macOS gave to core before the draw. Core drops a read that is not the newest that it started, and a session keeps the screen text that it got first. Thus the prompt can use an earlier read.

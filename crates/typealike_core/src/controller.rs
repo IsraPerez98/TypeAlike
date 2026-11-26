@@ -1361,6 +1361,13 @@ impl Controller {
         let view = self
             .caret_wait
             .ghost_view(self.app.text_before_caret(), room.placement)?;
+        if read.caret.is_none() {
+            let mirror_anchor = self.app.mirror_anchor(read.field);
+            return Some(GhostView {
+                mirror_anchor,
+                ..view
+            });
+        }
         let Some(field_room) = room.field_room(read.caret, badge) else {
             return Some(view);
         };

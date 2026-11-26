@@ -64,7 +64,10 @@ When and where `typealike_core` shows the ghost text and the badge (`controller`
 ### Mirror and card below the caret
 
 - When the platform finds no caret, it can show the ghost text in the mirror next to the focused field.
-  - Thus in a terminal of Ghostty or in the window of Herdr, the mirror shows below or above the terminal, not at the input line.
+- A field that shows its text only on the screen (`FieldTextAccess::OnlyOnScreen`), as a terminal of Ghostty or the window of Herdr, gives its mirror an anchor: the bottom edge of the field (`GhostView::mirror_anchor`). The input line of a coding agent or of a shell at the end of its output is near that edge.
+  - The mirror shows below the anchor when it fits on the screen, else above it, inside the bottom of the field. Thus it covers the last rows of a terminal that fills the screen.
+  - Before, the mirror of the Herdr window showed above the window, at the top of the screen. In the log of 2026-11-25, that was about 34 rows from the input line, and 1 of 732 shown suggestions got a Tab there. At the bottom edge, it is about 7 rows from the input line of a coding agent. The input line of a shell at the top of a pane stays far.
+  - Other fields without a caret, as the editor of VS Code, keep the mirror next to the field.
   - TypeAlike does not move the mirror to a row of the caret that an OCR read finds. On 2026-11-23, live use of Ghostty and Herdr showed that the OCR lines matched wrong rows, and that the mirror often moved between the rows and the edge of the window.
 - The mirror (also the card below the caret) shows the end of the typed word before the ghost text (`GhostView::typed_word`: the text after the last space, at most 24 characters, without the typo of a fix).
 - The typed word has the primary text color and a semibold font.

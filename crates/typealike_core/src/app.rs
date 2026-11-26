@@ -17,7 +17,7 @@ use field_place::{FieldPlace, ReadField};
 
 use crate::desktop::{
     AfterCaret, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow, OcrAvailability,
-    OcrRead, ScreenRead, ScreenReadId, ScreenSource,
+    OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
 };
 use crate::diagnostics::KeptItems;
 use crate::engine::{Engine, Reaction, ScreenAnswer};
@@ -710,6 +710,19 @@ impl App {
             tooltip: translations.text(name),
             ..TrayView::of(self.status, translations)
         }
+    }
+
+    /// The anchor of the mirror when the platform finds no caret in the field at `field` on the
+    /// screen: the bottom edge of a field that shows its text only on the screen, as a terminal.
+    /// Its input line is most often near that edge. `None` for other fields, whose mirror shows
+    /// next to the field.
+    #[must_use]
+    pub fn mirror_anchor(&self, field: Option<ScreenRect>) -> Option<ScreenRect> {
+        let field = field.filter(|_| self.engine.shows_text_only_on_screen())?;
+        Some(ScreenRect {
+            top: field.bottom,
+            ..field
+        })
     }
 
     /// Returns the text before the caret in the session, empty without a session.
