@@ -326,6 +326,7 @@ impl Engine {
             .collect();
         let writer = Writer {
             notes: &self.writer_notes.0,
+            notes_origin: self.notes_origin,
             name: &self.writer_name.0,
             examples,
         };

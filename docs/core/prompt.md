@@ -10,6 +10,7 @@ The prompt is in the first person. It has these sections:
 - The notes about the writer from the Personalization pane.
   - When the settings file has no notes, the default notes in the first person, from the Fluent files in the language of the UI.
   - The menu "Start from an example" (`NotesExample`) puts the notes of an example for a kind of writing into the field, and shows "Your own notes" for notes that are no example.
+  - When the notes are the text of an example in any language of the UI, such as the default notes, the writer did not write them. Thus they are also a frame line, which a suggestion must not copy (`NotesOrigin`, `docs/core/suggestions.md`). The engine finds where the notes come from once for each change of the notes.
 - The name of the writer.
 - The place line.
 - The text around the caret.

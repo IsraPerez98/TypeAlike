@@ -3,6 +3,7 @@
 use super::*;
 use crate::desktop::{Confidence, FieldLabels, FieldText, MAX_CHARS_AFTER_CARET, ScreenLine, ScreenRect};
 use crate::inference::Backend;
+use crate::localization::UiLanguage;
 use crate::settings::{Settings, SuggestionLength};
 
 fn notes(text: &str) -> Writer<'_> {
@@ -77,11 +78,15 @@ fn debug_of_the_writer_hides_the_text() {
         notes: "I am a nurse.",
         name: "Sara Novak",
         examples: vec![example("Cheers,\nTom")],
+        ..Writer::default()
     };
 
     let debug = format!("{writer:?}");
 
-    assert_eq!(debug, "Writer { notes: 13, name: 10, examples: 1 }");
+    assert_eq!(
+        debug,
+        "Writer { notes: 13, name: 10, examples: 1, notes_origin: Own }"
+    );
 }
 
 #[test]
@@ -683,6 +688,43 @@ fn earlier_text_ends_with_a_line_break_before_its_closing_quote() {
 }
 
 #[test]
+fn frame_lines_keep_the_notes_of_an_example() {
+    let notes = WriterNotes::default();
+    let writer = Writer {
+        notes: &notes.0,
+        notes_origin: NotesOrigin::Example,
+        ..Writer::default()
+    };
+
+    let lines = frame_lines(&writer, &Surroundings::default(), None);
+
+    assert_eq!(lines, [FRAME, "Notes about me: ", notes.0.as_str(), TEXT_HEADING]);
+}
+
+#[test]
+fn frame_lines_leave_out_the_own_notes_of_the_writer() {
+    let lines = frame_lines(&notes("I am a nurse."), &Surroundings::default(), None);
+
+    assert_eq!(lines, [FRAME, "Notes about me: ", TEXT_HEADING]);
+}
+
+#[test]
+fn notes_of_an_example_in_any_language_of_the_ui_come_from_the_example() {
+    let cases = [
+        (WriterNotes::default(), NotesOrigin::Example),
+        (
+            WriterNotes::default_for(UiLanguage::Spanish),
+            NotesOrigin::Example,
+        ),
+        (WriterNotes("I am a nurse.".to_owned()), NotesOrigin::Own),
+    ];
+
+    let origins = cases.each_ref().map(|(notes, _)| NotesOrigin::of(notes));
+
+    assert_eq!(origins, cases.map(|(_, origin)| origin));
+}
+
+#[test]
 fn frame_lines_leave_out_the_earlier_texts() {
     let writer = examples(&["Hi Tom,\nthe report is ready for you now"]);
 
@@ -766,6 +808,7 @@ fn full_preface() -> String {
         notes: &notes,
         name: &name,
         examples: vec![example(&earlier_text), example(&earlier_text)],
+        ..Writer::default()
     };
     let surroundings = Surroundings {
         app_id: Some("com.apple.mail".to_owned()),

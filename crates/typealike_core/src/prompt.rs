@@ -11,6 +11,7 @@ use crate::excerpt::{estimated_tokens, first_tokens, from_word, last_tokens, one
 use crate::inference::{Prompt, TokenCount};
 use crate::place::{self, Format};
 use crate::screen::{self, FieldContent, LineScope, NearbyLines};
+use crate::settings::{NotesExample, WriterNotes};
 
 /// The start of each preface. The labels of the lines after it depend on it, so the user does not
 /// change it. The user writes [`WriterNotes`](crate::settings::WriterNotes) instead.
@@ -85,12 +86,37 @@ pub(crate) struct Example {
     pub(crate) days_ago: Option<u64>,
 }
 
+/// Where the notes of the writer come from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum NotesOrigin {
+    /// The writer wrote the notes or changed them.
+    #[default]
+    Own,
+    /// The notes are the text of an example of the settings in a language of the UI, such as the
+    /// default notes ([`NotesExample`](crate::settings::NotesExample)). The writer did not write
+    /// them, so they are a part of the frame of the prompt, which a suggestion must not copy.
+    Example,
+}
+
+impl NotesOrigin {
+    /// Returns where `notes` come from.
+    pub(crate) fn of(notes: &WriterNotes) -> Self {
+        if NotesExample::is_example_text(notes) {
+            Self::Example
+        } else {
+            Self::Own
+        }
+    }
+}
+
 /// What TypeAlike knows about the person who writes. `Debug` shows only the length of each text
 /// and the number of examples, so logs never hold what the user wrote.
 #[derive(Clone, Default)]
 pub(crate) struct Writer<'text> {
     /// The notes that the writer gives about themself.
     pub(crate) notes: &'text str,
+    /// Where the `notes` come from.
+    pub(crate) notes_origin: NotesOrigin,
     /// The name of the writer.
     pub(crate) name: &'text str,
     /// Earlier texts of the writer, oldest first.
@@ -104,6 +130,7 @@ impl fmt::Debug for Writer<'_> {
             .field("notes", &self.notes.chars().count())
             .field("name", &self.name.chars().count())
             .field("examples", &self.examples.len())
+            .field("notes_origin", &self.notes_origin)
             .finish()
     }
 }
@@ -127,8 +154,10 @@ pub(crate) struct Preface {
     pub(crate) text: String,
     /// The lines that the prompt writes itself around the texts of `text`, such as the [`FRAME`]
     /// and the labels, then the [`TEXT_HEADING`]. A text of the preface holds what the writer
-    /// wrote or saw, so no line holds it. The place line keeps only its [`PLACE_LABEL`], because
-    /// the window title and the labels of the field are text that the writer can type.
+    /// wrote or saw, so no line holds it. The notes of an example ([`NotesOrigin::Example`]) are
+    /// the exception, because the writer did not write them. The place line keeps only its
+    /// [`PLACE_LABEL`], because the window title and the labels of the field are text that the
+    /// writer can type.
     pub(crate) frame_lines: Vec<String>,
 }
 
@@ -176,6 +205,8 @@ pub(crate) fn preface_with_screen_lines(
 /// The parts of a preface after their cut to the budget, before their layout.
 struct PrefaceParts<'text> {
     notes: Option<String>,
+    /// The notes again when they are a part of the frame ([`NotesOrigin::Example`]).
+    frame_notes: Option<String>,
     name: Option<String>,
     place: Option<String>,
     examples: Vec<(&'text str, Option<u64>)>,
@@ -225,8 +256,12 @@ fn budgeted_parts<'text>(
         .map(str::to_owned);
     let examples = budget.take_examples(&writer.examples);
     let clipboard = clipboard.map(|text| budget.take_start(text.trim(), CLIPBOARD_TOKENS));
+    let frame_notes = notes
+        .clone()
+        .filter(|_| writer.notes_origin == NotesOrigin::Example);
     PrefaceParts {
         notes,
+        frame_notes,
         name,
         place,
         examples,
@@ -308,6 +343,7 @@ fn preface_of(parts: PrefaceParts<'_>) -> Preface {
         .into_iter()
         .map(|(frame, _)| frame)
         .filter(|frame| !frame.is_empty())
+        .chain(parts.frame_notes)
         .chain([TEXT_HEADING.to_owned()])
         .collect();
     Preface { text, frame_lines }
@@ -426,7 +462,7 @@ fn non_empty(text: &str) -> Option<&str> {
 /// `text_before`.
 #[cfg(test)]
 pub(crate) fn framed_prompt(lines: &[&str], text_before: &str) -> Prompt {
-    prompt_with_notes(&crate::settings::WriterNotes::default().0, lines, text_before)
+    prompt_with_notes(&WriterNotes::default().0, lines, text_before)
 }
 
 /// Returns the prompt with the [`FRAME`], the `notes` and the `lines` of the preface, then

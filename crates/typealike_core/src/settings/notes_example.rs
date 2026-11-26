@@ -55,6 +55,14 @@ impl NotesExample {
             .find(|example| example.notes(translations) == *notes)
     }
 
+    /// Whether `notes` are the notes of an example in any language of the UI, such as the default
+    /// notes in Spanish while the UI is in English.
+    pub(crate) fn is_example_text(notes: &WriterNotes) -> bool {
+        UiLanguage::ALL
+            .into_iter()
+            .any(|language| Self::of(notes, &Translations::new(language)).is_some())
+    }
+
     /// The message of the name of the example in a menu.
     pub(crate) const fn name_message(self) -> &'static str {
         match self {
@@ -106,6 +114,25 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn notes_of_an_example_in_any_language_are_an_example_text() {
+        let cases = [
+            (WriterNotes::default_for(UiLanguage::English), true),
+            (WriterNotes::default_for(UiLanguage::Spanish), true),
+            (
+                NotesExample::Chats.notes(&Translations::new(UiLanguage::German)),
+                true,
+            ),
+            (WriterNotes("I am a nurse.".to_owned()), false),
+        ];
+
+        let found = cases
+            .each_ref()
+            .map(|(notes, _)| NotesExample::is_example_text(notes));
+
+        assert_eq!(found, cases.map(|(_, is_example)| is_example));
     }
 
     #[test]

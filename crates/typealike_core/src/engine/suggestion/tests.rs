@@ -2,7 +2,8 @@
 
 use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
 use crate::inference::TokenCount;
-use crate::prompt::{Example, LABELS, Preface, ScreenPart, Writer, preface_with_screen_lines};
+use crate::prompt::{Example, LABELS, NotesOrigin, Preface, ScreenPart, Writer, preface_with_screen_lines};
+use crate::settings::WriterNotes;
 
 use super::{is_bad_suggestion, words};
 
@@ -55,10 +56,12 @@ fn expected_hidden_copies(line: &str) -> [bool; 4] {
 }
 
 /// Returns the preface with each of its parts, earlier texts of each kind of age, and the writer
-/// with the `name`.
+/// with the `name` and the default notes.
 fn full_preface(name: &str) -> Preface {
+    let notes = WriterNotes::default();
     let writer = Writer {
-        notes: "I am a nurse.",
+        notes: &notes.0,
+        notes_origin: NotesOrigin::Example,
         name,
         examples: [0, 1, 4, 21]
             .map(|days_ago| Example {

@@ -23,6 +23,7 @@ use crate::excerpt::{icons_as_spaces, plain_spaces, without_zero_width_spaces};
 use crate::history::{HistoryEntry, HistoryTables};
 use crate::inference::{SentenceEnd, TokenCount, TypoCheck};
 use crate::key::{Key, Press};
+use crate::prompt::NotesOrigin;
 use crate::settings::{
     ClipboardAccess, PersonalizationSettings, ScreenTextApp, Settings, SuggestionLength, TextLimits, TypoFix,
     WriterName, WriterNotes,
@@ -50,6 +51,8 @@ pub(crate) struct Engine {
     offer: Offer,
     unanswered_requests: usize,
     writer_notes: WriterNotes,
+    /// Where `writer_notes` come from, which the engine finds when the notes change.
+    notes_origin: NotesOrigin,
     writer_name: WriterName,
     clipboard_access: ClipboardAccess,
     suggestion_length: SuggestionLength,
@@ -102,7 +105,8 @@ impl Default for Engine {
             key_ended_session: None,
             offer: Offer::default(),
             unanswered_requests: 0,
-            writer_notes: WriterNotes::default(),
+            writer_notes: WriterNotes(String::new()),
+            notes_origin: NotesOrigin::Own,
             writer_name: WriterName::default(),
             clipboard_access: ClipboardAccess::default(),
             suggestion_length: SuggestionLength::default(),
@@ -149,7 +153,10 @@ impl Engine {
     /// its typo fix and its sentence end from the next request on.
     pub(crate) fn use_settings(&mut self, settings: &Settings) {
         let needs_new_tables = needs_new_tables(&self.personalization, &settings.personalization);
-        self.writer_notes = settings.writer_notes.clone();
+        if settings.writer_notes != self.writer_notes {
+            self.notes_origin = NotesOrigin::of(&settings.writer_notes);
+            self.writer_notes = settings.writer_notes.clone();
+        }
         self.writer_name = settings.writer_name.clone();
         self.personalization = settings.personalization.clone();
         self.clipboard_access = settings.clipboard_access;

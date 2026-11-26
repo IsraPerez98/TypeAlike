@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::engine::{Engine, Reaction};
 use crate::inference::InferenceError;
 use crate::key::{Key, Press};
+use crate::localization::UiLanguage;
 use crate::settings::{HistoryAccess, Settings, WriterName, WriterNotes};
 use crate::test_support::{at_hour, completion, mail_entry, on_day};
 
@@ -285,6 +286,39 @@ fn completion_that_names_the_clipboard_shows_when_a_text_of_the_writer_or_the_cl
     });
 
     assert_eq!(reactions, cases.map(|(_, _, text)| show(text)));
+}
+
+#[test]
+fn completion_that_copies_the_notes_of_an_example_hides() {
+    let cases = [
+        (UiLanguage::English, "I ", "write clear and friendly messages."),
+        (UiLanguage::Spanish, "Escribo ", "mensajes claros y amables."),
+        (
+            UiLanguage::English,
+            "Thanks. ",
+            "I keep the tone of the conversation.",
+        ),
+    ];
+
+    let reactions = cases.map(|(language, context, text)| {
+        let settings = Settings {
+            writer_notes: WriterNotes::default_for(language),
+            ..Settings::default()
+        };
+        engine_waiting_with(&settings, context).on_completion(completion(text))
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_copies_the_own_notes_of_the_writer_shows() {
+    let notes = "I write clear and friendly messages. I keep the tone of the conversation. I am a nurse.";
+    let mut engine = engine_waiting_with(&named_writer(notes), "I ");
+
+    let reaction = engine.on_completion(completion("write clear and friendly messages."));
+
+    assert_eq!(reaction, show("write clear and friendly messages."));
 }
 
 #[test]
