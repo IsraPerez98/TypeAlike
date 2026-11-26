@@ -20,15 +20,38 @@ const LIBRARIES: &[Library] = &[
 ];
 const NEWER_TAG: &str = "v99.0.0";
 const OLDER_TAG: &str = "v0.0.1";
+const RELEASE_BUILD: Build = Build {
+    kind: BuildKind::Release,
+    commit: "1a2b3c4",
+};
+const DEVELOPMENT_BUILD: Build = Build {
+    kind: BuildKind::Development,
+    commit: "1a2b3c4",
+};
 
 /// The pane of a build from the source code, which cannot install a new version.
 fn pane_from_source() -> AboutPane {
-    AboutPane::new(LIBRARIES, Updates::Automatic, SelfUpdate::Unsupported)
+    AboutPane::new(
+        LIBRARIES,
+        Updates::Automatic,
+        SelfUpdate::Unsupported,
+        RELEASE_BUILD,
+    )
 }
 
 /// The pane of an installed copy, with `updates`.
 fn installed_pane(updates: Updates) -> AboutPane {
-    AboutPane::new(LIBRARIES, updates, SelfUpdate::Supported)
+    AboutPane::new(LIBRARIES, updates, SelfUpdate::Supported, RELEASE_BUILD)
+}
+
+/// The pane of an installed copy of a development build, with automatic updates.
+fn installed_development_pane() -> AboutPane {
+    AboutPane::new(
+        LIBRARIES,
+        Updates::Automatic,
+        SelfUpdate::Supported,
+        DEVELOPMENT_BUILD,
+    )
 }
 
 /// An installed pane with automatic updates, whose check found the newer release.
@@ -412,6 +435,50 @@ fn build_from_the_source_code_has_no_switch() {
     let rows = pane.page(&english()).sections[0].rows.clone();
 
     assert!(!rows.iter().any(|row| matches!(row, Row::Switch(_))));
+}
+
+#[test]
+fn development_build_has_no_switch() {
+    let pane = installed_development_pane();
+
+    let rows = pane.page(&english()).sections[0].rows.clone();
+
+    assert!(!rows.iter().any(|row| matches!(row, Row::Switch(_))));
+}
+
+#[test]
+fn development_build_shows_its_commit_after_the_version() {
+    let pane = installed_development_pane();
+
+    let item = version_item(&pane);
+
+    assert_eq!(
+        item.title,
+        format!("TypeAlike {}-dev+1a2b3c4", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn development_build_shows_a_newer_release_and_does_not_download_it() {
+    let mut pane = installed_development_pane();
+    pane.on_action(AboutAction::CheckForUpdates);
+
+    let request = pane.on_newest_release(Ok(tag(NEWER_TAG)));
+
+    let item = version_item(&pane);
+    assert_eq!(
+        (request, item.subtitle.as_str(), pane.release_to_install()),
+        (None, "Version 99.0.0 is available.", None)
+    );
+}
+
+#[test]
+fn development_build_starts_no_scheduled_check() {
+    let mut pane = installed_development_pane();
+
+    let request = pane.on_scheduled_check();
+
+    assert_eq!(request, None);
 }
 
 #[test]

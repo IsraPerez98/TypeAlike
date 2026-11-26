@@ -13,9 +13,10 @@ pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
     Ok(std::path::PathBuf::from(local_app_data).join("TypeAlike"))
 }
 
-/// Runs the app with this OS's tray, hooks, overlay and settings window until the user quits.
+/// Runs the app of `build` with this OS's tray, hooks, overlay and settings window until the user
+/// quits.
 #[cfg(target_os = "windows")]
-pub(crate) fn run() -> anyhow::Result<()> {
+pub(crate) fn run(build: typealike_core::release::Build) -> anyhow::Result<()> {
     use anyhow::Context as _;
     use typealike_core::settings::{Settings, Setup, WriterNotes};
     let data_dir = data_dir()?;
@@ -53,6 +54,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         ))),
         releases: Box::new(typealike_releases::GitHubReleases::new(installer_suffix())),
         libraries: windows_licenses::LIBRARIES,
+        build,
     };
     typealike_windows::run(settings, services).context("typealike stopped unexpectedly")
 }
@@ -75,10 +77,10 @@ pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
     Ok(std::env::home_dir().context("no home directory")?.join(DATA_DIR))
 }
 
-/// Runs the app with this OS's menu bar extra, event tap, overlay and settings window until the
-/// user quits.
+/// Runs the app of `build` with this OS's menu bar extra, event tap, overlay and settings window
+/// until the user quits.
 #[cfg(target_os = "macos")]
-pub(crate) fn run() -> anyhow::Result<()> {
+pub(crate) fn run(build: typealike_core::release::Build) -> anyhow::Result<()> {
     use anyhow::Context as _;
     use typealike_core::settings::{Settings, Setup, WriterNotes};
     const LAUNCH_AGENTS_DIR: &str = "Library/LaunchAgents";
@@ -112,6 +114,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         dictionary_hub: None,
         releases: Box::new(typealike_releases::GitHubReleases::new("-macos-arm64.dmg")),
         libraries: macos_licenses::LIBRARIES,
+        build,
     };
     typealike_macos::run(settings, services).context("typealike stopped unexpectedly")
 }
@@ -127,6 +130,6 @@ pub(crate) fn data_dir() -> anyhow::Result<std::path::PathBuf> {
 
 /// Fails: no platform layer exists for this OS yet.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub(crate) fn run() -> anyhow::Result<()> {
+pub(crate) fn run(_build: typealike_core::release::Build) -> anyhow::Result<()> {
     anyhow::bail!("typealike does not support this operating system yet")
 }

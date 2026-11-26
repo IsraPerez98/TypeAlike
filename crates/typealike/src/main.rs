@@ -8,9 +8,31 @@
 mod logging;
 mod platform;
 
+use typealike_core::release::{Build, BuildKind};
+
+/// The git commit of the source of this build, or `unknown` (`build.rs`).
+const COMMIT: &str = env!("TYPEALIKE_COMMIT");
+
 fn main() -> anyhow::Result<()> {
     // SAFETY: no other thread runs yet.
     unsafe { typealike_llm::disable_metal_residency_sets() };
-    logging::start();
-    platform::run()
+    let build = Build {
+        kind: BuildKind::from_mark(option_env!("TYPEALIKE_DEVELOPMENT_BUILD")),
+        commit: COMMIT,
+    };
+    logging::start(build);
+    platform::run(build)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_of_the_build_is_a_short_hash_or_unknown() {
+        let is_short_hash =
+            COMMIT.len() >= 7 && COMMIT.chars().all(|character| character.is_ascii_hexdigit());
+
+        assert!(is_short_hash || COMMIT == "unknown", "commit {COMMIT}");
+    }
 }

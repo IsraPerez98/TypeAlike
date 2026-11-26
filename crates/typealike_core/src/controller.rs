@@ -172,6 +172,7 @@ impl Controller {
             dictionary_hub,
             releases,
             libraries,
+            build,
         } = services;
         let mut app = App::new();
         app.use_settings(&settings);
@@ -193,7 +194,7 @@ impl Controller {
         let screen_text = ScreenTextPane::new(settings.screen_text.clone());
         let personalization = PersonalizationPane::new(settings.personalization.clone());
         let saved_backend = settings.backend;
-        let about = AboutPane::new(libraries, settings.updates, releases.self_update());
+        let about = AboutPane::new(libraries, settings.updates, releases.self_update(), build);
         let general = match startup.backend_choice {
             BackendChoice::User => GeneralPane::new(settings),
             BackendChoice::Platform(backend) => GeneralPane::new(settings).with_platform_backend(backend),

@@ -193,8 +193,9 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 ## About pane
 
 - The About pane (`settings_window::about`) is the page after the Permissions pane, before the Playground pane.
-- Its first row shows "TypeAlike" and the version of the build, with "Check for updates" at the trailing edge.
-- In an installed copy, the switch "Keep TypeAlike up to date" (`Settings::updates`, on by default) follows. A build from the source code has no switch.
+- Its first row shows "TypeAlike" and the version of the build (`Build::version`), with "Check for updates" at the trailing edge. The version is `X.Y.Z` for a release build, and `X.Y.Z-dev+<commit>` for a development build.
+- A build is a development build only when `TYPEALIKE_DEVELOPMENT_BUILD` is `1` at build time (`BuildKind::from_mark`, `.cargo/config.local.example.toml`). Each other build is a release build, also a build of the release workflow. The bin gives the build to core (`Services::build`).
+- In an installed copy of a release build, the switch "Keep TypeAlike up to date" (`Settings::updates`, on by default) follows. A build from the source code and a development build have no switch.
 - A link below them opens the source code (`Cargo.toml`, `repository`) in the web browser (`Shell::open_web_page`).
 - The footer tells that TypeAlike has the GNU General Public License, version 3 or later.
 
@@ -205,14 +206,15 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - While the check runs, the row shows "Checking for updates…" and the button is dimmed.
 - A tag `vX.Y.Z` higher than the version of the build:
   - While the switch is on, the download starts at once (see "Updates").
-  - Else the row shows "Version X.Y.Z is available." and a "Download" button, which opens the page of the newest release in the web browser.
+  - Else, and always in a development build, the row shows "Version X.Y.Z is available." and a "Download" button, which opens the page of the newest release in the web browser.
 - The same version or a lower one shows "This is the newest version."
 - A failed read, or a tag of another form, shows that TypeAlike cannot check for updates, with "Try again".
 
 ### Updates
 
 - `Controller::on_launch` starts `Timer::UpdateCheck`. The first check comes 1 minute after the launch (`FIRST_UPDATE_CHECK_DELAY`), so that it does not slow the load of the model. Then a check comes each 24 hours (`UPDATE_CHECK_INTERVAL`).
-- A check of the timer runs only while the switch is on, the copy is installed (`ReleaseFeed::self_update`) and no other check, download or install runs (`AboutPane::on_scheduled_check`).
+- A check of the timer runs only while the switch is on, the copy is installed (`ReleaseFeed::self_update`), the build is a release build and no other check, download or install runs (`AboutPane::on_scheduled_check`).
+- A development build never checks by itself, and never downloads or installs a release by itself. Thus a release does not replace a local build.
 - The feed downloads the file of the release for this build (`ReleaseFeed::download`): the release file whose name ends with the suffix that the bin gives (`-macos-arm64.dmg`, `-windows-x64-vulkan-setup.exe`, `-windows-x64-cuda-setup.exe` with the `cuda` feature).
   - It reads the release of the tag (`/releases/tags/vX.Y.Z`) and stops when the file has no SHA-256 `digest`.
   - When no file or more than one file of the release ends with the suffix, the download fails.

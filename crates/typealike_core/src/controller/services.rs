@@ -8,7 +8,9 @@ use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
 use crate::localization::UiLanguage;
-use crate::release::{DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed, ReleaseReadFailed, ReleaseTag};
+use crate::release::{
+    Build, DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed, ReleaseReadFailed, ReleaseTag,
+};
 use crate::settings::{Autostart, SettingsStore};
 use crate::settings_window::about::Library;
 use crate::setup::TrayPlace;
@@ -115,6 +117,9 @@ pub struct Services {
     pub releases: Box<dyn ReleaseFeed>,
     /// The third-party libraries of the build, which the About pane lists with their licenses.
     pub libraries: &'static [Library],
+    /// The identity of the build, which the About pane shows. A development build never installs
+    /// a new release by itself.
+    pub build: Build,
 }
 
 impl fmt::Debug for Services {

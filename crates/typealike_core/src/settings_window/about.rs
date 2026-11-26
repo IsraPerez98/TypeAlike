@@ -3,8 +3,8 @@
 
 use crate::localization::{MessageArgument, Translations};
 use crate::release::{
-    DownloadedRelease, ReleaseDownloadFailed, ReleaseInstallFailed, ReleaseReadFailed, ReleaseTag,
-    SelfUpdate, Version,
+    Build, BuildKind, DownloadedRelease, ReleaseDownloadFailed, ReleaseInstallFailed, ReleaseReadFailed,
+    ReleaseTag, SelfUpdate, Version,
 };
 use crate::settings::Updates;
 use crate::settings_window::view::{
@@ -92,11 +92,15 @@ impl UpdateCheck {
 /// the pane shows.
 ///
 /// ```
-/// use typealike_core::release::SelfUpdate;
+/// use typealike_core::release::{Build, BuildKind, SelfUpdate};
 /// use typealike_core::settings::Updates;
 /// use typealike_core::settings_window::about::{AboutAction, AboutPane, AboutRequest};
 ///
-/// let mut pane = AboutPane::new(&[], Updates::Automatic, SelfUpdate::Supported);
+/// let build = Build {
+///     kind: BuildKind::Release,
+///     commit: "1a2b3c4",
+/// };
+/// let mut pane = AboutPane::new(&[], Updates::Automatic, SelfUpdate::Supported, build);
 ///
 /// let request = pane.on_action(AboutAction::CheckForUpdates);
 ///
@@ -107,20 +111,27 @@ pub struct AboutPane {
     libraries: &'static [Library],
     updates: Updates,
     self_update: SelfUpdate,
+    build: Build,
     update_check: UpdateCheck,
     shown_license: Option<usize>,
 }
 
 impl AboutPane {
     /// Creates a pane that lists `libraries` in their order, before a check for a newer version.
-    /// With `updates` and a copy of TypeAlike that `self_update` supports, the pane installs each
-    /// newer version that a check finds.
+    /// It shows the version of `build`. With `updates`, a copy of TypeAlike that `self_update`
+    /// supports and a release `build`, the pane installs each newer version that a check finds.
     #[must_use]
-    pub fn new(libraries: &'static [Library], updates: Updates, self_update: SelfUpdate) -> Self {
+    pub fn new(
+        libraries: &'static [Library],
+        updates: Updates,
+        self_update: SelfUpdate,
+        build: Build,
+    ) -> Self {
         Self {
             libraries,
             updates,
             self_update,
+            build,
             update_check: UpdateCheck::NotStarted,
             shown_license: None,
         }
@@ -133,7 +144,13 @@ impl AboutPane {
     }
 
     fn installs_updates(&self) -> bool {
-        self.updates == Updates::Automatic && self.self_update == SelfUpdate::Supported
+        self.updates == Updates::Automatic && self.can_install_updates()
+    }
+
+    /// Whether this copy can install a new version by itself: an installed copy of a release
+    /// build. A development build never installs a new version by itself.
+    fn can_install_updates(&self) -> bool {
+        self.self_update == SelfUpdate::Supported && self.build.kind == BuildKind::Release
     }
 
     /// Returns the action of `input`, when `input` is for a control of the pane.
@@ -283,7 +300,7 @@ impl AboutPane {
     }
 
     fn version_section(&self, translations: &Translations) -> Section {
-        let version = Version::of_build().to_string();
+        let version = self.build.version();
         let (subtitle, accessory) = self.update_status(translations);
         let version_item = Item {
             title: translations.text_with("about-version", &[("version", MessageArgument::Text(&version))]),
@@ -291,7 +308,7 @@ impl AboutPane {
             detail: String::new(),
             accessory,
         };
-        let switch = (self.self_update == SelfUpdate::Supported).then(|| {
+        let switch = self.can_install_updates().then(|| {
             Row::Switch(Switch {
                 id: ControlId::new(KEEP_UP_TO_DATE),
                 icon: RowIcon::CircleArrows,

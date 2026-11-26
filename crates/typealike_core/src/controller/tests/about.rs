@@ -165,6 +165,17 @@ fn check_of_the_day_reads_nothing_while_updates_are_manual() {
 }
 
 #[test]
+fn check_of_the_day_reads_nothing_in_a_development_build() {
+    let mut harness = Harness::installed_development(Settings::default());
+
+    harness
+        .controller
+        .on_timer(Timer::UpdateCheck, &mut harness.shell);
+
+    assert_eq!(harness.release_reads(), 0);
+}
+
+#[test]
 fn check_of_the_day_reads_nothing_in_a_build_from_the_source_code() {
     let mut harness = Harness::new(Settings::default());
 

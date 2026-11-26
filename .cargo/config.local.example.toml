@@ -21,3 +21,7 @@ CMAKE_CUDA_ARCHITECTURES = "120a-real"
 # Load cuBLAS in ggml-cuda.dll only at its first call, as the CUDA installer does. This saves about 100 MB of RAM
 # (docs/llm.md). The number in the DLL name is the major version of the CUDA Toolkit. Windows (MSVC) only.
 CMAKE_MODULE_LINKER_FLAGS = "/machine:x64 /DELAYLOAD:cublas64_13.dll delayimp.lib"
+# Marks the builds of this machine as development builds. They show the version as X.Y.Z-dev+<commit> and never
+# install a new release by themselves (docs/core/settings-window.md). Only the value "1" counts. Without this line,
+# a build is a release build. A change of this value rebuilds only the bin, so no `cargo clean` is necessary.
+TYPEALIKE_DEVELOPMENT_BUILD = "1"

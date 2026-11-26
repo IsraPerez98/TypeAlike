@@ -12,6 +12,7 @@ use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use typealike_core::release::Build;
 use typealike_core::{SUGGESTION_LOG_TARGET, SuggestionLog};
 
 /// The environment variable that sets the log levels, for example `debug` or
@@ -20,8 +21,6 @@ const LEVELS_VARIABLE: &str = "TYPEALIKE_LOG";
 /// The levels without `TYPEALIKE_LOG`. llama.cpp writes many info lines for each model load, so
 /// only its warnings and errors go to the log.
 const DEFAULT_LEVELS: &str = "info,llama-cpp-2=warn";
-/// The git commit of the source of this build, or `unknown` (`build.rs`).
-const COMMIT: &str = env!("TYPEALIKE_COMMIT");
 const LOG_FILE: &str = "TypeAlike.log";
 const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 /// The size above which a start moves the log to the previous log, so the log does not grow
@@ -31,8 +30,8 @@ const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 /// Sends the logs to the terminal and appends them to `TypeAlike.log` in the temp folder, with the
 /// levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`]. A panic also goes to the logs. With the
 /// `suggestion-log` feature, it also appends the records of the suggestion log to
-/// `suggestions.jsonl` in the data folder, when that file exists.
-pub(crate) fn start() {
+/// `suggestions.jsonl` in the data folder, when that file exists. The first line shows the `build`.
+pub(crate) fn start(build: Build) {
     let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVELS.to_owned());
     let (main_targets, filter_error) = main_targets(&levels);
     let path = env::temp_dir().join(LOG_FILE);
@@ -58,7 +57,7 @@ pub(crate) fn start() {
         tracing::error!(%info, "TypeAlike panicked");
         default_hook(info);
     }));
-    log_start(&path, suggestion_log);
+    log_start(&path, build, suggestion_log);
     if let Some(error) = filter_error {
         tracing::warn!(
             %error,
@@ -89,12 +88,12 @@ fn main_subscriber(
         }))
 }
 
-/// Logs the start of the run: the build with its commit and its features, the process, the path of
-/// the `log` file and the state of the `suggestion_log`.
-fn log_start(log: &Path, suggestion_log: SuggestionLog) {
+/// Logs the start of the run: the version and the commit of the `build` and its features, the
+/// process, the path of the `log` file and the state of the `suggestion_log`.
+fn log_start(log: &Path, build: Build, suggestion_log: SuggestionLog) {
     tracing::info!(
-        version = env!("CARGO_PKG_VERSION"),
-        commit = COMMIT,
+        version = %build.version(),
+        commit = build.commit,
         process = std::process::id(),
         vulkan = cfg!(feature = "vulkan"),
         cuda = cfg!(feature = "cuda"),
@@ -280,6 +279,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use tracing_subscriber::layer::Identity;
+    use typealike_core::release::BuildKind;
 
     use super::*;
 
@@ -307,9 +307,14 @@ mod tests {
         }
     }
 
-    /// The lines that the start of a run writes to the log file, when the suggestion log has no
-    /// file.
-    fn start_lines() -> String {
+    const RELEASE_BUILD: Build = Build {
+        kind: BuildKind::Release,
+        commit: "1a2b3c4",
+    };
+
+    /// The lines that the start of a run of `build` writes to the log file, when the suggestion log
+    /// has no file.
+    fn start_lines(build: Build) -> String {
         let file = MemoryLog::default();
         let writer = file.clone();
         let subscriber = main_subscriber(
@@ -319,32 +324,38 @@ mod tests {
         )
         .with(None::<Identity>);
 
-        tracing::subscriber::with_default(subscriber, || log_start(Path::new(LOG_FILE), SuggestionLog::Off));
+        tracing::subscriber::with_default(subscriber, || {
+            log_start(Path::new(LOG_FILE), build, SuggestionLog::Off);
+        });
         file.text()
     }
 
     #[test]
     fn start_line_reaches_the_log_file_when_the_suggestion_log_has_no_file() {
-        let lines = start_lines();
+        let lines = start_lines(RELEASE_BUILD);
 
         assert!(lines.contains("TypeAlike started"));
     }
 
     #[test]
     fn start_line_names_the_commit_and_the_suggestion_log_feature() {
-        let lines = start_lines();
+        let lines = start_lines(RELEASE_BUILD);
 
-        let has_fields = ["commit=", COMMIT, "suggestion_log_feature="].map(|field| lines.contains(field));
+        let has_fields = ["commit=", "1a2b3c4", "suggestion_log_feature="].map(|field| lines.contains(field));
 
         assert_eq!(has_fields, [true; 3]);
     }
 
     #[test]
-    fn commit_of_the_build_is_a_short_hash_or_unknown() {
-        let is_short_hash =
-            COMMIT.len() >= 7 && COMMIT.chars().all(|character| character.is_ascii_hexdigit());
+    fn start_line_of_a_development_build_shows_its_development_version() {
+        let build = Build {
+            kind: BuildKind::Development,
+            commit: "1a2b3c4",
+        };
 
-        assert!(is_short_hash || COMMIT == "unknown", "commit {COMMIT}");
+        let lines = start_lines(build);
+
+        assert!(lines.contains(&format!("{}-dev+1a2b3c4", env!("CARGO_PKG_VERSION"))));
     }
 
     pub(super) fn temporary_folder(name: &str) -> PathBuf {

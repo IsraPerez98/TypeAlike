@@ -23,8 +23,8 @@ use crate::inference::{
 use crate::key::{Disposition, Key, Press};
 use crate::localization::UiLanguage;
 use crate::release::{
-    DownloadSink, DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed, ReleaseInstallFailed,
-    ReleaseReadFailed, ReleaseSink, ReleaseTag, SelfUpdate,
+    Build, BuildKind, DownloadSink, DownloadedRelease, ReleaseDownloadFailed, ReleaseFeed,
+    ReleaseInstallFailed, ReleaseReadFailed, ReleaseSink, ReleaseTag, SelfUpdate,
 };
 use crate::settings::{
     Autostart, ClipboardAccess, HistoryAccess, HistoryScope, KeptTexts, OcrLevel, PersonalizationSettings,
@@ -409,6 +409,7 @@ pub(super) struct Harness {
 struct FakeServices {
     kept_history: Vec<HistoryEntry>,
     self_update: SelfUpdate,
+    build_kind: BuildKind,
 }
 
 impl Default for FakeServices {
@@ -416,6 +417,7 @@ impl Default for FakeServices {
         Self {
             kept_history: Vec::new(),
             self_update: SelfUpdate::Unsupported,
+            build_kind: BuildKind::Release,
         }
     }
 }
@@ -505,6 +507,17 @@ impl Harness {
         Self::start(settings, default_startup(), services)
     }
 
+    /// Starts an installed copy of a development build, which never installs a new release by
+    /// itself.
+    pub(super) fn installed_development(settings: Settings) -> Self {
+        let services = FakeServices {
+            self_update: SelfUpdate::Supported,
+            build_kind: BuildKind::Development,
+            ..FakeServices::default()
+        };
+        Self::start(settings, default_startup(), services)
+    }
+
     /// Starts the controller with the saved `settings`, the state of the platform at `startup`,
     /// and the fake `services`.
     fn start(settings: Settings, startup: Startup, services: FakeServices) -> Self {
@@ -533,6 +546,10 @@ impl Harness {
                 self_update: services.self_update,
             }),
             libraries: &[],
+            build: Build {
+                kind: services.build_kind,
+                commit: "1a2b3c4",
+            },
         };
         Self {
             controller: Controller::new(settings, services, startup, &deliver),

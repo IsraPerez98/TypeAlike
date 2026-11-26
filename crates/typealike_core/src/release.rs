@@ -63,6 +63,51 @@ pub trait ReleaseFeed {
     fn install(&mut self, release: &DownloadedRelease) -> Result<(), ReleaseInstallFailed>;
 }
 
+/// Who made this build of TypeAlike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildKind {
+    /// A build without the development mark, such as a build of the release workflow. It installs
+    /// each new release by itself while the user allows it.
+    Release,
+    /// A local build with the development mark. It never installs a new release by itself.
+    Development,
+}
+
+impl BuildKind {
+    /// The kind of a build with this development `mark` at build time
+    /// (`TYPEALIKE_DEVELOPMENT_BUILD`). Only the mark `1` makes a development build. Any other
+    /// mark, and no mark, makes a release build, so that a release never stops its updates.
+    #[must_use]
+    pub fn from_mark(mark: Option<&str>) -> Self {
+        match mark {
+            Some("1") => Self::Development,
+            _ => Self::Release,
+        }
+    }
+}
+
+/// The identity of this build of TypeAlike, which the log and the About pane show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Build {
+    /// Who made the build.
+    pub kind: BuildKind,
+    /// The short hash of the git commit of the source, or `unknown`.
+    pub commit: &'static str,
+}
+
+impl Build {
+    /// The version that TypeAlike shows: `X.Y.Z` for a release build, and `X.Y.Z-dev+<commit>` for
+    /// a development build, so that nobody takes a development build for a release.
+    #[must_use]
+    pub fn version(self) -> String {
+        let version = Version::of_build();
+        match self.kind {
+            BuildKind::Release => version.to_string(),
+            BuildKind::Development => format!("{version}-dev+{}", self.commit),
+        }
+    }
+}
+
 /// A version of TypeAlike: major, minor and patch numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Version {
@@ -149,6 +194,38 @@ mod tests {
         let version = Version::parse("1.12.3").expect("valid version");
 
         assert_eq!(version.tag(), ReleaseTag("v1.12.3".to_owned()));
+    }
+
+    #[test]
+    fn build_without_the_development_mark_is_a_release() {
+        let marks = [None, Some(""), Some("0"), Some("true"), Some(" 1")];
+
+        let kinds = marks.map(BuildKind::from_mark);
+
+        assert_eq!(kinds, [BuildKind::Release; 5]);
+    }
+
+    #[test]
+    fn development_mark_one_makes_a_development_build() {
+        let kind = BuildKind::from_mark(Some("1"));
+
+        assert_eq!(kind, BuildKind::Development);
+    }
+
+    #[test]
+    fn development_build_shows_its_commit_after_the_version() {
+        let kinds = [BuildKind::Release, BuildKind::Development];
+
+        let versions = kinds.map(|kind| {
+            Build {
+                kind,
+                commit: "1a2b3c4",
+            }
+            .version()
+        });
+
+        let version = env!("CARGO_PKG_VERSION");
+        assert_eq!(versions, [version.to_owned(), format!("{version}-dev+1a2b3c4")]);
     }
 
     #[test]
