@@ -263,7 +263,7 @@ fn release_of_this_version_or_older_is_up_to_date() {
 #[test]
 fn failed_read_or_unknown_tag_offers_another_try() {
     let panes = [
-        checked_pane(Err(ReleaseReadFailed)),
+        checked_pane(Err(ReleaseReadFailed::Other)),
         checked_pane(Ok(tag("nightly"))),
     ];
 
@@ -375,7 +375,7 @@ fn page_follows_the_writing_rules() {
         running,
         checked_pane(Ok(tag(NEWER_TAG))),
         checked_pane(Ok(tag(OLDER_TAG))),
-        checked_pane(Err(ReleaseReadFailed)),
+        checked_pane(Err(ReleaseReadFailed::Other)),
         license_shown,
         downloading_pane(),
         downloaded_pane(),

@@ -218,6 +218,8 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - `Controller::on_launch` starts `Timer::UpdateCheck`. The first check comes 1 minute after the launch (`FIRST_UPDATE_CHECK_DELAY`), so that it does not slow the load of the model. Then a check comes each 24 hours (`UPDATE_CHECK_INTERVAL`).
 - A check of the timer runs only while the switch is on, the copy is installed (`ReleaseFeed::self_update`), the build is a release build and no other check, download or install runs (`AboutPane::on_scheduled_check`).
 - A development build never checks by itself, and never downloads or installs a release by itself. Thus a release does not replace a local build.
+- The GitHub API allows 60 reads each hour for each IP address without a sign-in. When it refuses a check with status 403 or 429 and `x-ratelimit-remaining` 0, the feed gives the time until `x-ratelimit-reset` (`ReleaseReadFailed::RateLimited`). The next check then comes at that reset, but at least 5 minutes (`MIN_RATE_LIMIT_WAIT`) and at most 24 hours later. A refused click on "Check for updates" also moves the next check of the timer.
+- After any other failure, the next check comes after 24 hours or at the next start.
 - The feed downloads the file of the release for this build (`ReleaseFeed::download`): the release file whose name ends with the suffix that the bin gives (`-macos-arm64.dmg`, `-windows-x64-vulkan-setup.exe`, `-windows-x64-cuda-setup.exe` with the `cuda` feature).
   - It reads the release of the tag (`/releases/tags/vX.Y.Z`) and stops when the file has no SHA-256 `digest`.
   - When no file or more than one file of the release ends with the suffix, the download fails.

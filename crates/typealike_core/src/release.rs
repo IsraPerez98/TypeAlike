@@ -3,6 +3,7 @@
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The tag of a release, such as `v0.4.0`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +20,16 @@ impl ReleaseTag {
 
 /// The read of the newest release failed. The service logs why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReleaseReadFailed;
+pub enum ReleaseReadFailed {
+    /// The service refused the read, because this computer used all the reads that its limit
+    /// allows. The limit resets after `resets_in`.
+    RateLimited {
+        /// The time from the answer to the reset of the limit.
+        resets_in: Duration,
+    },
+    /// Any other failure, such as no connection.
+    Other,
+}
 
 /// Receives the tag of the newest release, or the failure of the read. The feed may call it from
 /// any thread.

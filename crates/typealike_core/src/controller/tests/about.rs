@@ -1,10 +1,11 @@
 //! Tests of the check for updates of the About pane, and of the install of a new version.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use super::first_run::{download_recommended_model, finish_download, processor_model};
 use super::harness::{Call, Harness};
-use crate::controller::{FIRST_UPDATE_CHECK_DELAY, Timer, UPDATE_CHECK_INTERVAL};
+use crate::controller::{FIRST_UPDATE_CHECK_DELAY, MIN_RATE_LIMIT_WAIT, Timer, UPDATE_CHECK_INTERVAL};
 use crate::inference::Backend;
 use crate::release::{DownloadedRelease, ReleaseDownloadFailed, ReleaseReadFailed, ReleaseTag};
 use crate::settings::{Settings, Updates};
@@ -90,7 +91,7 @@ fn failed_read_shows_on_the_about_page() {
     let mut harness = Harness::new(Settings::default());
     harness.press_button(CHECK_FOR_UPDATES);
 
-    harness.answer_release_read(Err(ReleaseReadFailed));
+    harness.answer_release_read(Err(ReleaseReadFailed::Other));
 
     assert_eq!(
         rendered_version_item(&mut harness)
@@ -151,6 +152,47 @@ fn check_of_the_day_reads_the_newest_release_and_waits_for_the_next_day() {
         ),
         (1, true)
     );
+}
+
+/// The wait for the next check that an installed copy starts when its check of the day ends with
+/// `release`, if it starts one.
+fn next_check_wait_after(release: Result<ReleaseTag, ReleaseReadFailed>) -> Option<Duration> {
+    let mut harness = Harness::installed(Settings::default());
+    harness
+        .controller
+        .on_timer(Timer::UpdateCheck, &mut harness.shell);
+    harness.take_calls();
+
+    harness.answer_release_read(release);
+
+    harness.take_calls().into_iter().find_map(|call| match call {
+        Call::StartTimer(Timer::UpdateCheck, wait) => Some(wait),
+        _ => None,
+    })
+}
+
+#[test]
+fn rate_limit_moves_the_next_check_to_its_reset_within_bounds() {
+    let resets = [Duration::from_mins(30), Duration::ZERO, Duration::from_hours(72)];
+
+    let waits =
+        resets.map(|resets_in| next_check_wait_after(Err(ReleaseReadFailed::RateLimited { resets_in })));
+
+    assert_eq!(
+        waits,
+        [
+            Some(Duration::from_mins(30)),
+            Some(MIN_RATE_LIMIT_WAIT),
+            Some(UPDATE_CHECK_INTERVAL),
+        ]
+    );
+}
+
+#[test]
+fn other_failure_keeps_the_wait_of_the_day() {
+    let wait = next_check_wait_after(Err(ReleaseReadFailed::Other));
+
+    assert_eq!(wait, None);
 }
 
 #[test]

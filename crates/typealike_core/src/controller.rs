@@ -38,7 +38,7 @@ use crate::hub::{HubEvent, HubEventSink, HubRequest, ModelHub};
 use crate::inference::{Backend, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner};
 use crate::key::{Disposition, Key, Press};
 use crate::localization::Translations;
-use crate::release::{DownloadSink, ReleaseFeed, ReleaseSink};
+use crate::release::{DownloadSink, ReleaseFeed, ReleaseReadFailed, ReleaseSink};
 use crate::settings::{
     HistoryAccess, HistoryApp, Settings, SettingsStore, Setup, SuggestionApp, TypoFix, TypoRule,
 };
@@ -80,6 +80,9 @@ const SCROLL_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const FIRST_UPDATE_CHECK_DELAY: Duration = Duration::from_secs(60);
 /// The time between two checks for a new version.
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_hours(24);
+/// The shortest wait for the next check after a rate limit, so that a reset in the past or a clock
+/// that differs from the clock of the service does not start the next check at once.
+const MIN_RATE_LIMIT_WAIT: Duration = Duration::from_mins(5);
 
 /// Something that the user did in a pane of the settings window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -837,6 +840,9 @@ impl Controller {
             Delivery::Recommendation(event) => self.on_recommendation_event(&event, shell),
             Delivery::Screen(read) => self.on_screen_read(read, shell),
             Delivery::Release(release) => {
+                if let Err(ReleaseReadFailed::RateLimited { resets_in }) = release {
+                    shell.start_timer(Timer::UpdateCheck, wait_after_rate_limit(resets_in));
+                }
                 let request = self.about.on_newest_release(release);
                 self.on_about_request(request, shell);
                 self.render_settings(shell);
@@ -1549,6 +1555,13 @@ impl Desktop for DesktopWithPendingRest<'_> {
     fn is_ghost_shown(&self) -> bool {
         true
     }
+}
+
+/// The wait for the next check for a new version after a rate limit that resets after
+/// `resets_in`: until the reset, but at least [`MIN_RATE_LIMIT_WAIT`] and at most
+/// [`UPDATE_CHECK_INTERVAL`].
+fn wait_after_rate_limit(resets_in: Duration) -> Duration {
+    resets_in.clamp(MIN_RATE_LIMIT_WAIT, UPDATE_CHECK_INTERVAL)
 }
 
 #[cfg(test)]

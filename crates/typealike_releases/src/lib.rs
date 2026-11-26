@@ -13,7 +13,7 @@ use std::io::{self, Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ring::digest::{Context, SHA256};
 use serde::Deserialize;
@@ -80,6 +80,35 @@ impl RefusedRequest {
             rate_limit_remaining: header(RATE_LIMIT_REMAINING),
             rate_limit_reset: header(RATE_LIMIT_RESET),
             body_start: body.chars().take(LOGGED_BODY_CHARS).collect(),
+        }
+    }
+
+    /// The failure that core gets for this answer at `now`. A status 403 or 429 with no request
+    /// left is a rate limit, which resets at the time of `x-ratelimit-reset`. Any other answer is
+    /// another failure.
+    fn read_failure(&self, now: SystemTime) -> ReleaseReadFailed {
+        let is_used_rate_limit =
+            matches!(self.status, 403 | 429) && self.rate_limit_remaining.as_deref() == Some("0");
+        let reset = self
+            .rate_limit_reset
+            .as_deref()
+            .and_then(|seconds| seconds.parse().ok())
+            .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds));
+        match reset {
+            Some(reset) if is_used_rate_limit => ReleaseReadFailed::RateLimited {
+                resets_in: reset.duration_since(now).unwrap_or(Duration::ZERO),
+            },
+            _ => ReleaseReadFailed::Other,
+        }
+    }
+}
+
+impl FetchError {
+    /// The failure that core gets for this error at `now`: a used rate limit, or another failure.
+    fn read_failure(&self, now: SystemTime) -> ReleaseReadFailed {
+        match self {
+            Self::Refused(refused) => refused.read_failure(now),
+            Self::Http(_) | Self::Json(_) => ReleaseReadFailed::Other,
         }
     }
 }
@@ -172,7 +201,7 @@ impl ReleaseFeed for GitHubReleases {
                 .map(|release| ReleaseTag(release.tag_name))
                 .map_err(|error| {
                     tracing::warn!(?error, "failed to read the newest release");
-                    ReleaseReadFailed
+                    error.read_failure(SystemTime::now())
                 });
             if let Ok(tag) = &release {
                 tracing::info!(
@@ -387,6 +416,66 @@ mod tests {
             ),
             (403, Some("0"), Some("1700000000"), 200)
         );
+    }
+
+    /// The seconds since the Unix epoch at the answers of the tests.
+    const NOW_S: u64 = 1_700_000_000;
+
+    /// The failure that core gets for an answer with `status` and `headers` at [`NOW_S`].
+    fn read_failure_at_now(status: u16, headers: &HeaderMap) -> ReleaseReadFailed {
+        RefusedRequest::new(status, headers, "").read_failure(UNIX_EPOCH + Duration::from_secs(NOW_S))
+    }
+
+    #[test]
+    fn rate_limit_without_requests_left_waits_until_its_reset() {
+        let reset = (NOW_S + 600).to_string();
+
+        let failures = [403, 429].map(|status| read_failure_at_now(status, &rate_limit_headers("0", &reset)));
+
+        assert_eq!(
+            failures,
+            [ReleaseReadFailed::RateLimited {
+                resets_in: Duration::from_secs(600)
+            }; 2]
+        );
+    }
+
+    #[test]
+    fn rate_limit_with_a_reset_in_the_past_resets_at_once() {
+        let reset = (NOW_S - 60).to_string();
+
+        let failure = read_failure_at_now(403, &rate_limit_headers("0", &reset));
+
+        assert_eq!(
+            failure,
+            ReleaseReadFailed::RateLimited {
+                resets_in: Duration::ZERO
+            }
+        );
+    }
+
+    #[test]
+    fn refusal_that_is_not_a_used_rate_limit_is_another_failure() {
+        let reset = (NOW_S + 600).to_string();
+        let cases = [
+            (403, rate_limit_headers("12", &reset)),
+            (404, rate_limit_headers("0", &reset)),
+            (403, rate_limit_headers("0", "soon")),
+            (403, HeaderMap::new()),
+        ];
+
+        let failures = cases.map(|(status, headers)| read_failure_at_now(status, &headers));
+
+        assert_eq!(failures, [ReleaseReadFailed::Other; 4]);
+    }
+
+    #[test]
+    fn malformed_answer_is_another_failure() {
+        let error = FetchError::from(parse_json::<Release>("{").err().expect("malformed json"));
+
+        let failure = error.read_failure(UNIX_EPOCH);
+
+        assert_eq!(failure, ReleaseReadFailed::Other);
     }
 
     #[test]
