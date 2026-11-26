@@ -75,10 +75,12 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 
 - When a read finds no caret, the caret reader reads the kind of the focused element of that read in one request: the UIA framework id and the UIA control type id (`MissingCarets`, `Uia::kind_of`).
 - It reads the kind after it sends the answer, so that the ghost text does not wait for the log.
-- The log tells the first such read of each program and kind in a run at the info level ("the focused field gives no caret"). The record gives the file name of the program (`program`), `framework`, `control_type` and the class name of the focused window (`class`). It holds no text.
-  - The class is the Win32 class of the focused window. In a web page, the UIA class name is the class of the HTML element, which the page writes, so the record does not use it.
+- The log tells the first such read of each program and kind in a run at the info level ("the focused field gives no caret"). The program is the program of the foreground window at the start of the read.
+  - The record gives the file name of the program (`program`), `framework`, `control_type` and the class name of the focused window (`class`). It holds no text.
+  - Without UIA, without a focused element, or when the request fails, the kind is unknown. The record then has no `framework` and no `control_type`.
+  - The class is the Win32 class of the focused window. In a web page, the UIA class name is the class of the HTML element, which the page writes. Thus the record does not use it.
   - Core reads the caret after each key in a field that it watches, after a scroll, and when a ghost text waits. Thus the record can also name a control that is not a text field, such as a list.
-  - Without UIA, or when UIA gives no focused element, the read tells no kind and the log gives no record.
+- One record tells that one read found no caret. It does not tell that the app never gives a caret: an empty field or a read during a move of the focus can also give no caret.
 
 ### What follows the caret
 

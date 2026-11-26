@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use typealike_core::controller::CaretRead;
 use typealike_core::desktop::{AfterCaret, FieldText, ScreenPixels};
 use typealike_core::diagnostics::{RecordTurn, RecordedKinds};
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::core::Result;
 
 use crate::caret::{self, Caret};
@@ -185,11 +185,12 @@ fn answer_reads(
         let newest = NewestReads::of(iter::once(oldest).chain(requests.try_iter()));
         let uia = connection.connected();
         if let Some(id) = newest.caret {
+            let window = focus::foreground_hwnd();
             let (answer, element) = read_caret(id, uia, &mut pixels);
             let gives_no_caret = answer.caret.is_none();
             carets.send(answer);
             if gives_no_caret {
-                missing_carets.note(uia, element.as_ref());
+                missing_carets.note(window, uia.zip(element.as_ref()));
             }
         }
         if let Some(id) = newest.field_text {
@@ -265,31 +266,31 @@ struct MissingCarets {
 /// user text.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MissingCaretKind {
-    /// The file name of the program of the foreground window.
+    /// The file name of the program of the foreground window of the read.
     program: String,
-    element: ElementKind,
+    /// The kind of the focused element, or `None` when UIA does not tell it.
+    element: Option<ElementKind>,
 }
 
 impl MissingCarets {
-    /// Notes that `element`, the focused element of a read of the caret through `uia`, gave no
-    /// caret. The log tells the first note of each program and kind of element in the run at the
-    /// info level, with the class name of the focused window. A read without UIA or without a
-    /// focused element tells no kind.
-    fn note(&mut self, uia: Option<&Uia>, element: Option<&FocusedElement>) {
-        let Some(element) = uia.zip(element).and_then(|(uia, element)| uia.kind_of(element)) else {
-            return;
-        };
+    /// Notes that a read of the caret in `window`, the foreground window at the start of the read,
+    /// gave no caret. `focused` is the connection to UIA and the focused element of the read, or
+    /// `None` without UIA or without a focused element. The log tells the first note of each
+    /// program and kind of element in the run at the info level, with the class name of the
+    /// focused window. A record without a kind gives no framework and no control type.
+    fn note(&mut self, window: HWND, focused: Option<(&Uia, &FocusedElement)>) {
         let kind = MissingCaretKind {
-            program: focus::program_file_name_of(focus::foreground_hwnd()),
-            element,
+            program: focus::program_file_name_of(window),
+            element: focused.and_then(|(uia, element)| uia.kind_of(element)),
         };
         if self.kinds.note(kind.clone()) == RecordTurn::Repeat {
             return;
         }
+        let element = kind.element.as_ref();
         tracing::info!(
             program = kind.program,
-            framework = kind.element.framework,
-            control_type = kind.element.control_type,
+            framework = element.map(|element| element.framework.as_str()),
+            control_type = element.map(|element| element.control_type),
             class = focus::focused_window_class(),
             "the focused field gives no caret"
         );
@@ -461,7 +462,7 @@ mod tests {
     use std::ptr;
 
     use typealike_core::desktop::{FieldLabels, PixelColor, ScreenRect};
-    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::Foundation::POINT;
 
     use super::*;
 
