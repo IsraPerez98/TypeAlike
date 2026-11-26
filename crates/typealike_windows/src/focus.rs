@@ -172,12 +172,6 @@ pub(crate) fn foreground_thread() -> u32 {
     unsafe { GetWindowThreadProcessId(foreground_hwnd(), None) }
 }
 
-/// The full path of the program of the window in the foreground now, or `None` when no window is
-/// in the foreground or Windows does not give the path.
-pub(crate) fn foreground_program() -> Option<String> {
-    program_of(foreground_hwnd()).ok()
-}
-
 /// Why TypeAlike knows no program for a window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MissingProgram {

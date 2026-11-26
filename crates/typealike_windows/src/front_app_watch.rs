@@ -28,6 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, Owned, PCWSTR, Result, w};
 
+use crate::focus::{MissingProgram, NO_PROGRAM};
 use crate::mailbox::Mailbox;
 use crate::registry::OpenKey;
 use crate::{focus, full_screen};
@@ -57,7 +58,7 @@ impl FrontApp {
             .map(|key| GameList::read(&key))
             .unwrap_or_default();
         Self {
-            game: list.activity_of(focus::foreground_program().as_deref()),
+            game: list.activity_of(focus::program_of(focus::foreground_hwnd()).ok().as_deref()),
             full_screen: full_screen::read(),
         }
     }
@@ -181,6 +182,9 @@ struct FrontAppWatcher<'changes> {
     list_watch: Option<GameListWatch>,
     list: GameList,
     sent: Option<FrontApp>,
+    /// The program in front at the last change that the log tells, or `None` when TypeAlike knew
+    /// none.
+    logged_program: Option<String>,
 }
 
 impl<'changes> FrontAppWatcher<'changes> {
@@ -194,6 +198,7 @@ impl<'changes> FrontAppWatcher<'changes> {
             list_watch,
             list,
             sent: None,
+            logged_program: None,
         }
     }
 
@@ -214,17 +219,27 @@ impl<'changes> FrontAppWatcher<'changes> {
     }
 
     /// Sends whether the app in front is a game and whether it shows in full screen, when this
-    /// changed since the last send.
+    /// changed since the last send. The log tells each change, with the program in front now and
+    /// at the change before.
     fn send_front_app(&mut self) {
-        let program = focus::foreground_program();
+        let program = focus::program_of(focus::foreground_hwnd());
         let front_app = FrontApp {
-            game: self.list.activity_of(program.as_deref()),
+            game: self.list.activity_of(program.as_deref().ok()),
             full_screen: full_screen::read(),
         };
         if self.sent == Some(front_app) {
             return;
         }
-        tracing::info!(game = ?front_app.game, full_screen = ?front_app.full_screen, program, "the app in front changed");
+        let texts = program_texts(&program, self.logged_program.as_deref());
+        tracing::info!(
+            game = ?front_app.game,
+            full_screen = ?front_app.full_screen,
+            program = texts.program,
+            program_missing = texts.missing,
+            previous_program = texts.previous,
+            "the app in front changed"
+        );
+        self.logged_program = program.ok();
         self.sent = Some(front_app);
         self.changes.send(front_app);
     }
@@ -254,6 +269,34 @@ impl<'changes> FrontAppWatcher<'changes> {
             return;
         }
         self.list = list_watch.read();
+    }
+}
+
+/// The programs in the log line of a change of the app in front. A program is the full path of
+/// its file, or [`NO_PROGRAM`] when TypeAlike knows none.
+#[derive(Debug, PartialEq, Eq)]
+struct ProgramTexts<'line> {
+    /// The program in front now.
+    program: &'line str,
+    /// Why TypeAlike knows no program in front now, or `None` when it knows one.
+    missing: Option<&'static str>,
+    /// The program in front at the change before that the log tells.
+    previous: &'line str,
+}
+
+/// The texts of `program`, the program in front now, and of `previous`, the program at the change
+/// before, for the log line of a change of the app in front.
+fn program_texts<'line>(
+    program: &'line std::result::Result<String, MissingProgram>,
+    previous: Option<&'line str>,
+) -> ProgramTexts<'line> {
+    ProgramTexts {
+        program: program.as_deref().unwrap_or(NO_PROGRAM),
+        missing: program.as_ref().err().map(|missing| match missing {
+            MissingProgram::NoWindow => "no window in front",
+            MissingProgram::NoPath => "Windows gives no path of the program",
+        }),
+        previous: previous.unwrap_or(NO_PROGRAM),
     }
 }
 
@@ -411,5 +454,63 @@ mod tests {
         let list = GameList::new([entry(GAME_KIND, Some(GAME))]);
 
         assert_eq!(list.activity_of(None), GameActivity::None);
+    }
+
+    const NOTEPAD: &str = r"C:\Windows\notepad.exe";
+
+    #[test]
+    fn line_of_a_change_names_the_program_now_and_at_the_change_before() {
+        let cases = [
+            (Ok(GAME.to_owned()), Some(NOTEPAD)),
+            (Ok(NOTEPAD.to_owned()), None),
+        ];
+
+        let texts = cases
+            .each_ref()
+            .map(|(program, previous)| program_texts(program, *previous));
+
+        assert_eq!(
+            texts,
+            [
+                ProgramTexts {
+                    program: GAME,
+                    missing: None,
+                    previous: NOTEPAD,
+                },
+                ProgramTexts {
+                    program: NOTEPAD,
+                    missing: None,
+                    previous: "<none>",
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn line_of_a_change_without_a_program_tells_why() {
+        let cases = [
+            (Err(MissingProgram::NoWindow), Some(NOTEPAD)),
+            (Err(MissingProgram::NoPath), None),
+        ];
+
+        let texts = cases
+            .each_ref()
+            .map(|(program, previous)| program_texts(program, *previous));
+
+        assert_eq!(
+            texts,
+            [
+                ProgramTexts {
+                    program: "<none>",
+                    missing: Some("no window in front"),
+                    previous: NOTEPAD,
+                },
+                ProgramTexts {
+                    program: "<none>",
+                    missing: Some("Windows gives no path of the program"),
+                    previous: "<none>",
+                },
+            ]
+        );
     }
 }

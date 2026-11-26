@@ -189,6 +189,8 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - Windows sends no event when a window goes into or out of full screen, so the thread also reads the window in front every second.
 - At the start, the runtime also reads the app in front once on the main thread (`FrontApp::read`). It gives the result to the controller in `Startup`. Thus the model does not load at the start while a game or an app in full screen is in front.
 - When the watch does not start, the start has no game and no full screen in front. No later change could end a stop.
+- The log tells each change of the game or the full-screen state at the info level ("the app in front changed"), with the full path of the program in front at that moment (`program`) and of the program at the change before that the log told (`previous_program`). The program at the moment of a change is often the task switcher, so `previous_program` shows the app before it.
+  - When TypeAlike knows no program, the line gives `program="<none>"` and the reason (`program_missing`: no window in front, or Windows gives no path of the program). `previous_program` is `"<none>"` at the first change of a run, and after a change without a program.
 
 ## Settings window
 
