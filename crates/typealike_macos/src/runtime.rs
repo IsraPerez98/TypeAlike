@@ -84,11 +84,14 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let startup = Startup {
         backend_choice: BackendChoice::Platform(Backend::Metal),
         energy_saver: energy_saver::read(),
+        game: game::read(),
+        full_screen: full_screen::read(main_thread),
         ui_language: ui_language(),
         tray: TrayPlace::MenuBar,
         playground: PlaygroundPage::of_build(),
     };
     tracing::info!(energy_saver = ?startup.energy_saver, "read Low Power Mode");
+    tracing::info!(game = ?startup.game, full_screen = ?startup.full_screen, "read the app in front at the start");
     let mut ocr_warm_up = AccurateWarmUp::default();
     ocr_warm_up.start_for(settings.screen_text.ocr_level);
     let controller = Controller::new(settings, services, startup, &deliver);

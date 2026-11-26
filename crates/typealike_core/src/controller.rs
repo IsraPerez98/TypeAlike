@@ -155,9 +155,11 @@ impl fmt::Debug for Controller {
 
 impl Controller {
     /// Starts TypeAlike with the saved `settings` and the `services`, and starts to load the
-    /// suggestion model of `settings`, unless the energy saver of `startup` stops suggestions. The
-    /// services answer through `deliver`. When the backend choice of `startup` changes the saved
-    /// backend, it saves the settings with the new backend.
+    /// suggestion model of `settings`, unless the energy saver, a game or an app in full screen of
+    /// `startup` stops suggestions. The model is not in memory yet, so a game or an app in full
+    /// screen at the start does not wait for its delay: the model loads at the first request that
+    /// adds text after it. The services answer through `deliver`. When the backend choice of
+    /// `startup` changes the saved backend, it saves the settings with the new backend.
     #[must_use]
     pub fn new(settings: Settings, services: Services, startup: Startup, deliver: &DeliverySink) -> Self {
         let Services {
@@ -174,6 +176,9 @@ impl Controller {
         let mut app = App::new();
         app.use_settings(&settings);
         app.use_energy_saver(startup.energy_saver);
+        app.use_game(startup.game);
+        app.use_full_screen(startup.full_screen);
+        app.end_unload_wait();
         let os_languages = OsLanguages {
             preferred: os_dictionaries.preferred_languages(),
             available: os_dictionaries.available_languages(),

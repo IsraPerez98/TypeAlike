@@ -297,3 +297,35 @@ fn key_after_settled_input_after_the_game_loads_the_model_before_its_request() {
         (Some(&load_request()), true, 2)
     );
 }
+
+#[test]
+fn start_with_a_game_does_not_load_the_suggestion_model() {
+    let harness = Harness::with_game(suggestion_settings(), GameActivity::InFront);
+
+    assert_eq!(harness.requests(), []);
+}
+
+#[test]
+fn start_with_a_game_loads_the_suggestion_model_when_the_switch_is_off() {
+    let harness = Harness::with_game(settings_keeping_suggestions_during_games(), GameActivity::InFront);
+
+    assert_eq!(harness.requests(), [load_request()]);
+}
+
+#[test]
+fn key_after_the_game_of_the_start_loads_the_model_before_its_request() {
+    let mut harness = Harness::with_game(suggestion_settings(), GameActivity::InFront);
+    harness.change_game(GameActivity::None);
+
+    harness.press(Key::Char('B'));
+
+    let requests = harness.requests();
+    assert_eq!(
+        (
+            requests.first(),
+            requests.get(1).is_some_and(is_complete),
+            requests.len()
+        ),
+        (Some(&load_request()), true, 2)
+    );
+}

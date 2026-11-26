@@ -433,3 +433,76 @@ fn suggestion_shows_after_settled_input_after_full_screen() {
             .any(|call| matches!(call, Call::RenderAtCaret { ghost: Some(_), .. }))
     );
 }
+
+#[test]
+fn start_in_full_screen_does_not_load_the_suggestion_model() {
+    let harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+
+    assert_eq!(harness.requests(), []);
+}
+
+#[test]
+fn start_in_full_screen_loads_the_suggestion_model_when_the_switch_is_off() {
+    let harness = Harness::with_full_screen(
+        settings_keeping_suggestions_in_full_screen(),
+        FullScreenActivity::InFront,
+    );
+
+    assert_eq!(harness.requests(), [load_request()]);
+}
+
+#[test]
+fn start_in_full_screen_shows_the_stop_in_the_tray() {
+    let harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+
+    assert_eq!(
+        harness.controller.tray_view().tooltip,
+        "TypeAlike (off while an app fills the screen)"
+    );
+}
+
+#[test]
+fn full_screen_of_the_start_again_changes_nothing() {
+    let mut harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+
+    harness.change_full_screen(FullScreenActivity::InFront);
+
+    assert_eq!((harness.requests(), harness.take_calls()), (vec![], vec![]));
+}
+
+#[test]
+fn end_of_the_full_screen_of_the_start_keeps_the_model_unloaded() {
+    let mut harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+
+    harness.change_full_screen(FullScreenActivity::None);
+
+    assert_eq!(harness.requests(), []);
+}
+
+#[test]
+fn settled_input_after_the_full_screen_of_the_start_keeps_the_model_unloaded() {
+    let mut harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+    harness.change_full_screen(FullScreenActivity::None);
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests(), []);
+}
+
+#[test]
+fn key_after_the_full_screen_of_the_start_loads_the_model_before_its_request() {
+    let mut harness = Harness::with_full_screen(suggestion_settings(), FullScreenActivity::InFront);
+    harness.change_full_screen(FullScreenActivity::None);
+
+    harness.press(Key::Char('B'));
+
+    let requests = harness.requests();
+    assert_eq!(
+        (
+            requests.first(),
+            requests.get(1).is_some_and(is_complete),
+            requests.len()
+        ),
+        (Some(&load_request()), true, 2)
+    );
+}

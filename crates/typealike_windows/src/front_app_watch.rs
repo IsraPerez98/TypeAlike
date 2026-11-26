@@ -43,10 +43,24 @@ const PROGRAM_VALUE: PCWSTR = w!("MatchedExeFullPath");
 const GAME_KIND: u32 = 1;
 
 /// What the watch tells about the app in front.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct FrontApp {
     pub(crate) game: GameActivity,
     pub(crate) full_screen: FullScreenActivity,
+}
+
+impl FrontApp {
+    /// Reads once whether the app in front is a game and whether it shows in full screen, for
+    /// the start of TypeAlike. Without the game list, no app counts as a game.
+    pub(crate) fn read() -> Self {
+        let list = OpenKey::open(GAME_LIST_KEY)
+            .map(|key| GameList::read(&key))
+            .unwrap_or_default();
+        Self {
+            game: list.activity_of(focus::foreground_program().as_deref()),
+            full_screen: full_screen::read(),
+        }
+    }
 }
 
 /// The thread that watches the app in front. Drop stops the thread and waits for it.

@@ -173,6 +173,8 @@ The caret reader runs on its own thread. When it cannot connect to UIA, it tries
 - A maximized window keeps its title bar, also when the taskbar hides itself.
 - The windows of the shell (the process of `GetShellWindow`: the desktop, Alt+Tab and Task View) also fill the monitor, so they do not count.
 - Windows sends no event when a window goes into or out of full screen, so the thread also reads the window in front every second.
+- At the start, the runtime also reads the app in front once on the main thread (`FrontApp::read`) and gives it to the controller in `Startup`. Thus the model does not load at the start while a game or an app in full screen is in front.
+- When the watch does not start, the start has no game and no full screen in front, because no later change can end a stop.
 
 ## Settings window
 

@@ -39,6 +39,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - An app without `LSApplicationCategoryType` is a game when its bundle path has `/steamapps/common/`, the games folder of a Steam library. Some games do not set the key.
   - The category decides when the app has one, also in a Steam library. Thus a game engine editor from Steam with the developer tools category keeps the suggestions.
   - A Steam shortcut app (a script that opens `steam://run/<id>`) is never in front. The game that Steam starts is in front, from its own bundle in the Steam library.
+- The runtime gives both reads of the start to the controller in `Startup`, before the controller starts. Thus the model does not load at the start while a game or an app in full screen is in front.
 
 ## Screen text
 

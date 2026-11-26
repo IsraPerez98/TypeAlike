@@ -127,13 +127,7 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
     let front_app_watch = FrontAppWatch::start(front_app_mailbox)
         .inspect_err(|error| tracing::warn!(%error, "failed to watch the app in front"))
         .ok();
-    let startup = Startup {
-        backend_choice: BackendChoice::User,
-        energy_saver: energy_saver::read(),
-        ui_language: ui_language(),
-        tray: TrayPlace::NotificationArea,
-        playground: PlaygroundPage::of_build(),
-    };
+    let startup = read_startup(front_app_watch.as_ref());
     tracing::info!(energy_saver = ?startup.energy_saver, "read the energy saver");
     let controller = Controller::new(settings, services, startup, &delivery_mailbox.into_sink());
     let tray =
@@ -198,6 +192,23 @@ pub(crate) fn run(settings: Settings, services: Services) -> Result<(), RunError
 
 /// The message that comes when the taskbar starts again, or `None` when Windows does not register
 /// it.
+/// Reads the state of the computer that the controller needs at the start. Without
+/// `front_app_watch`, no change of the app in front comes, so a stop at the start would never end:
+/// the start then has no game and no full screen in front.
+fn read_startup(front_app_watch: Option<&FrontAppWatch>) -> Startup {
+    let front_app = front_app_watch.map_or_else(FrontApp::default, |_watch| FrontApp::read());
+    tracing::info!(game = ?front_app.game, full_screen = ?front_app.full_screen, "read the app in front at the start");
+    Startup {
+        backend_choice: BackendChoice::User,
+        energy_saver: energy_saver::read(),
+        game: front_app.game,
+        full_screen: front_app.full_screen,
+        ui_language: ui_language(),
+        tray: TrayPlace::NotificationArea,
+        playground: PlaygroundPage::of_build(),
+    }
+}
+
 fn register_taskbar_created_message() -> Option<u32> {
     // SAFETY: plain call with a static, nul-terminated name.
     let message = Some(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }).filter(|&id| id != 0);

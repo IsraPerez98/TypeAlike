@@ -79,7 +79,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - When the game leaves the front before the delay ends, the timer stops, and the next key gets a suggestion from the model in memory, with no load. A timer that runs out after the game does nothing.
 - When the user turns on the switch "Stop during games" while a game is in front, the stop starts with the same delay.
 - During the delay, the model stays as it is: a loaded model stays loaded, and an unloaded model stays unloaded. A pause, the energy saver or the idle timeout still unloads the model at once.
-- The platform gives each change of the app in front (`Controller::on_game`).
+- The platform gives the state at start (`Startup`) and each change of the app in front (`Controller::on_game`). When a game is in front at the start, the model does not load at the start, because it is not in memory yet. It then loads at the first request that adds text after the game, as after a long game.
 - After the game, the model stays unloaded until the next request for a suggestion that adds text, such as the request of a key. A preparation of the prompt adds no text. Thus TypeAlike prepares no prompt then, and the settled input does not load the model.
 
 ### Full screen
@@ -87,7 +87,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - While an app in full screen is in front (`FullScreenActivity`: a video, a slideshow or a game that fills the display) and the switch "Stop in full screen" is on, suggestions stop as during a game, and the badge and the tray show "TypeAlike (off while an app fills the screen)", with the yellow tray icon.
 - The model unloads only when the app is still in full screen after 30 seconds (`FULL_SCREEN_UNLOAD_DELAY`). Many apps fill the screen only for some seconds, such as a media viewer, a screenshot tool, a search window of the system or a task switcher. A load after each of them costs time and energy.
 - The delay works as the delay of a game. When a game also fills the screen, the shorter delay of the game applies. One timer runs for both stops, and a running delay never gets longer.
-- The platform gives each change (`Controller::on_full_screen`). After the full screen, the model also stays unloaded until the next request that adds text, as after a game.
+- The platform gives the state at start (`Startup`) and each change (`Controller::on_full_screen`). As with a game, an app in full screen at the start keeps the model unloaded. After the full screen, the model also stays unloaded until the next request that adds text, as after a game.
 
 ### Reason of a stop
 

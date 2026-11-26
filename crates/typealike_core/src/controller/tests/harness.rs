@@ -425,6 +425,8 @@ fn default_startup() -> Startup {
     Startup {
         backend_choice: BackendChoice::User,
         energy_saver: EnergySaver::Off,
+        game: GameActivity::None,
+        full_screen: FullScreenActivity::None,
         ui_language: UiLanguage::English,
         playground: PlaygroundPage::Hidden,
         tray: TrayPlace::NotificationArea,
@@ -447,6 +449,24 @@ impl Harness {
     pub(super) fn with_energy_saver(settings: Settings, energy_saver: EnergySaver) -> Self {
         let startup = Startup {
             energy_saver,
+            ..default_startup()
+        };
+        Self::start(settings, startup, FakeServices::default())
+    }
+
+    /// Starts with `game`, whether a game is in front at the start.
+    pub(super) fn with_game(settings: Settings, game: GameActivity) -> Self {
+        let startup = Startup {
+            game,
+            ..default_startup()
+        };
+        Self::start(settings, startup, FakeServices::default())
+    }
+
+    /// Starts with `full_screen`, whether an app in full screen is in front at the start.
+    pub(super) fn with_full_screen(settings: Settings, full_screen: FullScreenActivity) -> Self {
+        let startup = Startup {
+            full_screen,
             ..default_startup()
         };
         Self::start(settings, startup, FakeServices::default())

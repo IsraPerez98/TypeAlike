@@ -3,7 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::desktop::{EnergySaver, ScreenRead};
+use crate::desktop::{EnergySaver, FullScreenActivity, GameActivity, ScreenRead};
 use crate::history::WritingHistory;
 use crate::hub::{HubEvent, ModelHub};
 use crate::inference::{Backend, InferenceEvent, ModelRunner};
@@ -31,6 +31,12 @@ pub struct Startup {
     /// Whether the energy saver of the computer is on. The platform reports each later change to
     /// [`Controller::on_energy_saver`](super::Controller::on_energy_saver).
     pub energy_saver: EnergySaver,
+    /// Whether a game is in front. The platform reports each later change to
+    /// [`Controller::on_game`](super::Controller::on_game).
+    pub game: GameActivity,
+    /// Whether an app in full screen is in front. The platform reports each later change to
+    /// [`Controller::on_full_screen`](super::Controller::on_full_screen).
+    pub full_screen: FullScreenActivity,
     /// The language of the texts that TypeAlike shows while the user picked no language in the
     /// settings, from the preferred languages of the user ([`UiLanguage::for_preferred`]).
     pub ui_language: UiLanguage,
