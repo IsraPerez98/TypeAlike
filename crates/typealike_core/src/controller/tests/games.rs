@@ -167,3 +167,32 @@ fn resume_after_a_game_loads_the_model() {
 
     assert_eq!(harness.last_request(), Some(load_request()));
 }
+
+#[test]
+fn settled_input_after_the_game_keeps_the_model_unloaded() {
+    let mut harness = harness_after_a_game();
+    let earlier = harness.requests().len();
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests().split_off(earlier), []);
+}
+
+#[test]
+fn key_after_settled_input_after_the_game_loads_the_model_before_its_request() {
+    let mut harness = harness_after_a_game();
+    harness.settle_input();
+    let earlier = harness.requests().len();
+
+    harness.press(Key::Char('B'));
+
+    let requests = harness.requests().split_off(earlier);
+    assert_eq!(
+        (
+            requests.first(),
+            requests.get(1).is_some_and(is_complete),
+            requests.len()
+        ),
+        (Some(&load_request()), true, 2)
+    );
+}

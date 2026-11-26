@@ -439,7 +439,7 @@ impl Controller {
     /// Handles a change of the app in front: whether it is a game. While a game is in front and the
     /// Energy saving pane stops suggestions then, the session ends, the suggestion model unloads,
     /// and the tray and the badge show the stop. After the game, the next request for a suggestion
-    /// loads the model again. The same state again changes nothing.
+    /// that adds text loads the model again. The same state again changes nothing.
     pub fn on_game(&mut self, game: GameActivity, shell: &mut dyn Shell) {
         if self.app.game() == game {
             return;
@@ -451,8 +451,8 @@ impl Controller {
     /// Handles a change of the app in front: whether it shows in full screen. While an app in full
     /// screen is in front and the Energy saving pane stops suggestions then, the session ends, the
     /// suggestion model unloads, and the tray and the badge show the stop. After the full screen,
-    /// the next request for a suggestion loads the model again. The same state again changes
-    /// nothing.
+    /// the next request for a suggestion that adds text loads the model again. The same state
+    /// again changes nothing.
     pub fn on_full_screen(&mut self, full_screen: FullScreenActivity, shell: &mut dyn Shell) {
         if self.app.full_screen() == full_screen {
             return;
@@ -1197,7 +1197,8 @@ impl Controller {
 
     /// Submits `request` for a suggestion. After the idle timeout, a game or an app in full
     /// screen, it first loads the suggestion model again, so that the runner completes the
-    /// request after the load.
+    /// request after the load. The app gives no preparation of the prompt while a game or an app
+    /// in full screen keeps the model unloaded, so only a request that adds text ends their stop.
     fn request_suggestion(&mut self, request: InferenceRequest, shell: &mut dyn Shell) {
         if self.app.end_stops_before_request() {
             self.submit_model_request();

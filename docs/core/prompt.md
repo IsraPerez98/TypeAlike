@@ -162,3 +162,4 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 ## Preparation of the prompt
 
 - With the preparation at the first key (the switch "Prepare suggestions early" off), TypeAlike still prepares the prompt when the input settles in a place where the earlier writing has a text.
+- After a game or an app in full screen unloaded the suggestion model, TypeAlike prepares no prompt until the first key loads the model again (`docs/core/settings-window.md`, "Games").

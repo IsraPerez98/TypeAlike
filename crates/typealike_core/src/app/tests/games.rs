@@ -1,8 +1,8 @@
 //! Tests of the stop while a game is in front.
 
-use super::fixtures::{MAIL, app_preparing_on_focus};
+use super::fixtures::{FakeDesktop, MAIL, app_preparing_on_focus};
 use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph};
-use crate::desktop::{EnergySaver, GameActivity};
+use crate::desktop::{EnergySaver, Field, GameActivity};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
 use crate::settings::{EnergySavingSettings, GameRule, Settings};
@@ -106,6 +106,17 @@ fn settled_input_during_a_game_prepares_nothing() {
     app.use_game(GameActivity::InFront);
 
     let work = app.on_input_settled(&MAIL);
+
+    assert_eq!(work, None);
+}
+
+#[test]
+fn settled_input_after_a_game_prepares_nothing() {
+    let mut app = app_preparing_on_focus();
+    app.use_game(GameActivity::InFront);
+    app.use_game(GameActivity::None);
+
+    let work = app.on_input_settled(&FakeDesktop(Field::Open));
 
     assert_eq!(work, None);
 }

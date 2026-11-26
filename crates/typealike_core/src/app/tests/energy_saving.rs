@@ -1,8 +1,10 @@
 //! Tests of the stops that save energy: the energy saver of the computer and the idle timeout.
 
-use super::fixtures::{MAIL, app_preparing_on_focus};
-use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph, TrayItem, TrayView};
-use crate::desktop::EnergySaver;
+use super::fixtures::{FakeDesktop, MAIL, app_preparing_on_focus};
+use crate::app::{
+    App, BadgeView, SettledWork, Status, StopReason, TrayCommand, TrayGlyph, TrayItem, TrayView,
+};
+use crate::desktop::{EnergySaver, Field};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
 use crate::localization::UiLanguage;
@@ -265,4 +267,14 @@ fn resume_ends_the_idle_stop() {
     app.on_tray_command(TrayCommand::TogglePause);
 
     assert_eq!(app.stop_reason(), None);
+}
+
+#[test]
+fn settled_input_after_the_idle_timeout_prepares_the_open_field() {
+    let mut app = app_preparing_on_focus();
+    app.on_idle();
+
+    let work = app.on_input_settled(&FakeDesktop(Field::Open));
+
+    assert!(matches!(work, Some(SettledWork::Prepare(_))));
 }

@@ -63,6 +63,7 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 - Each key or click starts the idle timeout again (`Timer::Idle`).
 - When it runs out, the session ends and the suggestion model unloads.
 - The next request for a suggestion first loads the model again (`App::end_stops_before_request`), and the runner completes the request after the load.
+- The preparation of the prompt when the input settles (`PromptPreparation::OnFocus`) is also a request. Thus after the idle timeout, the model loads again when the input settles in a field, before the first key. This is by design: the first suggestion then comes sooner.
 
 ### Energy saver
 
@@ -75,16 +76,16 @@ The settings model, the panes, the badge menu, the setup and the UI languages (`
 
 - While a game is in front (`GameActivity`) and the switch "Stop during games" is on, suggestions stop as in the energy saver, the model unloads, and the badge and the tray show "TypeAlike (off while you play a game)", with the yellow tray icon.
 - The platform gives each change of the app in front (`Controller::on_game`).
-- After the game, the model stays unloaded until the next request for a suggestion, as after the idle timeout. Thus a quick switch out of a game does not load the model.
+- After the game, the model stays unloaded until the next request for a suggestion that adds text, such as the request of a key. A preparation of the prompt adds no text. Thus TypeAlike prepares no prompt then, and the settled input does not load the model.
 
 ### Full screen
 
 - While an app in full screen is in front (`FullScreenActivity`: a video, a slideshow or a game that fills the display) and the switch "Stop in full screen" is on, suggestions stop as during a game, and the badge and the tray show "TypeAlike (off while an app fills the screen)", with the yellow tray icon.
-- The platform gives each change (`Controller::on_full_screen`), and after the full screen the model also stays unloaded until the next request for a suggestion.
+- The platform gives each change (`Controller::on_full_screen`). After the full screen, the model also stays unloaded until the next request that adds text, as after a game.
 
 ### Reason of a stop
 
-- The stops that last until that request (idle, game, full screen) are one set (`App::stops_until_request`).
+- The stops that last until a request (idle, game, full screen) are one set (`App::stops_until_request`). A preparation of the prompt ends only the idle stop. A request that adds text ends each stop of the set.
 - `App::stop_reason` gives the reason for an unloaded model (pause, energy saver, game, full screen, idle, in this order), and the model menu of the General and Playground panes tells it.
 - A pause of the user comes before a stop: the tray icon then shows the paused robot in the color of the taskbar or the menu bar, and "TypeAlike (paused)".
 - The idle timeout, and a game or an app in full screen that left the front, do not change the tray icon, because the next key gets a suggestion.

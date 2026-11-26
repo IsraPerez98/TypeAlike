@@ -1,8 +1,8 @@
 //! Tests of the stop while an app in full screen is in front.
 
-use super::fixtures::{MAIL, app_preparing_on_focus};
+use super::fixtures::{FakeDesktop, MAIL, app_preparing_on_focus};
 use crate::app::{App, BadgeView, Status, StopReason, TrayCommand, TrayGlyph};
-use crate::desktop::{FullScreenActivity, GameActivity};
+use crate::desktop::{Field, FullScreenActivity, GameActivity};
 use crate::engine::Reaction;
 use crate::key::{Key, Press};
 use crate::settings::{EnergySavingSettings, FullScreenRule, Settings};
@@ -221,4 +221,15 @@ fn resume_ends_the_full_screen_stop() {
     app.on_tray_command(TrayCommand::TogglePause);
 
     assert_eq!(app.stop_reason(), None);
+}
+
+#[test]
+fn settled_input_after_full_screen_prepares_nothing() {
+    let mut app = app_preparing_on_focus();
+    app.use_full_screen(FullScreenActivity::InFront);
+    app.use_full_screen(FullScreenActivity::None);
+
+    let work = app.on_input_settled(&FakeDesktop(Field::Open));
+
+    assert_eq!(work, None);
 }

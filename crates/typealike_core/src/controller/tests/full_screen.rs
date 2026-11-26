@@ -1,6 +1,6 @@
 //! Tests of the stop while an app in full screen is in front.
 
-use super::harness::{Call, Harness, model_file, suggestion_settings};
+use super::harness::{Call, Harness, completed, model_file, suggestion_settings};
 use crate::desktop::FullScreenActivity;
 use crate::inference::{Backend, InferenceRequest};
 use crate::key::Key;
@@ -148,5 +148,52 @@ fn full_screen_switch_is_saved() {
             .pop()
             .map(|settings| settings.energy_saving.full_screen),
         Some(FullScreenRule::KeepSuggestions)
+    );
+}
+
+#[test]
+fn settled_input_after_full_screen_keeps_the_model_unloaded() {
+    let mut harness = harness_after_full_screen();
+    let earlier = harness.requests().len();
+
+    harness.settle_input();
+
+    assert_eq!(harness.requests().split_off(earlier), []);
+}
+
+#[test]
+fn key_after_settled_input_after_full_screen_loads_the_model_before_its_request() {
+    let mut harness = harness_after_full_screen();
+    harness.settle_input();
+    let earlier = harness.requests().len();
+
+    harness.press(Key::Char('B'));
+
+    let requests = harness.requests().split_off(earlier);
+    assert_eq!(
+        (
+            requests.first(),
+            requests.get(1).is_some_and(is_complete),
+            requests.len()
+        ),
+        (Some(&load_request()), true, 2)
+    );
+}
+
+#[test]
+fn suggestion_shows_after_settled_input_after_full_screen() {
+    let mut harness = harness_after_full_screen();
+    harness.settle_input();
+    harness.settle_input();
+    harness.press(Key::Char('B'));
+
+    harness.answer(completed("est"));
+    harness.settle_caret();
+
+    assert!(
+        harness
+            .take_calls()
+            .iter()
+            .any(|call| matches!(call, Call::RenderAtCaret { ghost: Some(_), .. }))
     );
 }

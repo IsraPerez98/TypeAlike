@@ -349,3 +349,22 @@ fn resume_ends_the_idle_stop_and_loads_the_model() {
 
     assert_eq!(harness.last_request(), Some(load_request()));
 }
+
+#[test]
+fn settled_input_after_the_idle_timeout_loads_the_model_before_its_preparation() {
+    let mut harness = Harness::new(suggestion_settings());
+    harness.run_out_idle_timeout();
+    let earlier = harness.requests().len();
+
+    harness.settle_input();
+
+    let requests = requests_after(&harness, earlier);
+    assert_eq!(
+        (
+            requests.first(),
+            requests.get(1).is_some_and(is_complete),
+            requests.len()
+        ),
+        (Some(&load_request()), true, 2)
+    );
+}

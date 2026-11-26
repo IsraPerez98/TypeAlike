@@ -82,11 +82,12 @@ pub enum StopReason {
     /// The energy saver of the computer is on, and the Energy saving pane stops suggestions then.
     EnergySaver,
     /// A game is in front, and the Energy saving pane stops suggestions then. After the game, a
-    /// key still gets a suggestion: the next request for a suggestion ends this stop.
+    /// key still gets a suggestion: the next request for a suggestion that adds text ends this
+    /// stop. A preparation of the prompt does not end it.
     Game,
     /// An app in full screen is in front, and the Energy saving pane stops suggestions then. After
-    /// the full screen, a key still gets a suggestion: the next request for a suggestion ends this
-    /// stop.
+    /// the full screen, a key still gets a suggestion: the next request for a suggestion that adds
+    /// text ends this stop. A preparation of the prompt does not end it.
     FullScreen,
     /// The user did not type or click for the idle timeout of the Energy saving pane. A key still
     /// gets a suggestion: the next request for a suggestion ends this stop.
@@ -447,8 +448,9 @@ impl App {
     /// In a text field that gets suggestions, of an app where the screen text is on, it then starts
     /// a read of the screen, unless the session has its final screen text or waits for a read.
     /// Else, without a session, it prepares the prompt of the focused field of `desktop` with
-    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text. In a
-    /// place where suggestions are off, it does nothing.
+    /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, unless a
+    /// game or an app in full screen keeps the model unloaded until a key. In a place where
+    /// suggestions are off, it does nothing.
     pub fn on_input_settled(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
         let is_excluded = desktop.field() == Field::Excluded;
         if !self.offers_suggestions() || is_excluded || !self.allows_suggestions_in(desktop) {
@@ -494,7 +496,8 @@ impl App {
     /// after its request, it returns the request for that suggestion again. Else, with
     /// [`PromptPreparation::OnFocus`], or in a place where the earlier writing has a text, it then
     /// returns the request that prepares the prompt of the focused field of `desktop` with the new
-    /// screen text. In a place where suggestions are off, it only keeps the screen text.
+    /// screen text, unless a game or an app in full screen keeps the model unloaded until a key.
+    /// In a place where suggestions are off, it only keeps the screen text.
     pub fn on_screen_read(&mut self, read: ScreenRead, desktop: &dyn Desktop) -> Option<SettledWork> {
         let is_active = self.offers_suggestions()
             && desktop.field() == Field::Open
@@ -620,11 +623,17 @@ impl App {
     }
 
     fn prepare_on_focus(&mut self, desktop: &dyn Desktop) -> Option<InferenceRequest> {
-        if self.is_preparation_due(desktop) {
+        if self.is_preparation_due(desktop) && !self.waits_for_text_request() {
             self.engine.prepare(desktop)
         } else {
             None
         }
+    }
+
+    /// Whether a game or an app in full screen keeps the suggestion model unloaded until a
+    /// request that adds text. A preparation adds no text, so it must not load the model then.
+    fn waits_for_text_request(&self) -> bool {
+        self.lasts_until_request(StopReason::Game) || self.lasts_until_request(StopReason::FullScreen)
     }
 
     /// Whether TypeAlike prepares the prompt of the focused field of `desktop` before a key: with
