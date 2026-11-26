@@ -23,8 +23,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DefWindowProcW, DispatchMessageW, EVENT_OBJECT_FOCUS, GetMessageW, HC_ACTION, HHOOK,
     HOOKPROC, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, RegisterWindowMessageW, SetWindowsHookExW,
     TranslateMessage, WH_KEYBOARD_LL, WH_MOUSE_LL, WINDOW_EX_STYLE, WINDOWS_HOOK_ID, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS, WM_APP, WM_CLIPBOARDUPDATE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WINEVENT_SKIPOWNPROCESS, WM_APP, WM_CLIPBOARDUPDATE, WM_ENDSESSION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
     WM_SETTINGCHANGE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_OVERLAPPED,
 };
 use windows::core::{Error, Owned, w};
@@ -391,6 +391,10 @@ impl Runtime {
             WM_TIMER if wparam.0 == AFTER_KEY_TIMER_ID => self.on_timer(Timer::AfterKey),
             #[cfg(feature = "suggestion-log")]
             WM_TIMER if wparam.0 == RESOURCE_TIMER_ID => self.write_resource_usage(),
+            // Windows ends the process after this message, so the event loop does not return.
+            WM_ENDSESSION if wparam.0 != 0 => {
+                tracing::info!(reason = "the Windows session ends", "TypeAlike quits");
+            }
             WM_SETTINGCHANGE if system_theme::is_appearance_change(wparam, lparam) => {
                 self.on_appearance_change();
             }

@@ -104,6 +104,16 @@ fn log_start(log: &Path, build: Build, suggestion_log: SuggestionLog) {
     );
 }
 
+/// Logs the end of the run when the event loop of the platform returns: the end of the loop, which
+/// a quit from the menu or the install of an update asks for, or the error of the `run`. A crash
+/// or a kill of the process logs no such line.
+pub(crate) fn log_quit(run: &anyhow::Result<()>) {
+    match run {
+        Ok(()) => tracing::info!(reason = "the event loop ended", "TypeAlike quits"),
+        Err(error) => tracing::error!(reason = %format_args!("{error:#}"), "TypeAlike quits"),
+    }
+}
+
 /// The levels of the terminal and of `TypeAlike.log` from `levels`, else [`DEFAULT_LEVELS`], and
 /// why `levels` is not valid. They never take the records of the suggestion log, which hold what
 /// the user wrote, also when `levels` names their target.
@@ -328,6 +338,40 @@ mod tests {
             log_start(Path::new(LOG_FILE), build, SuggestionLog::Off);
         });
         file.text()
+    }
+
+    /// The lines that the end of a run with `run` writes to the log file.
+    fn quit_lines(run: &anyhow::Result<()>) -> String {
+        let file = MemoryLog::default();
+        let writer = file.clone();
+        let subscriber = main_subscriber(
+            main_targets(DEFAULT_LEVELS).0,
+            io::sink,
+            Some(move || writer.clone()),
+        );
+
+        tracing::subscriber::with_default(subscriber, || log_quit(run));
+        file.text()
+    }
+
+    #[test]
+    fn end_of_the_event_loop_logs_a_quit_with_its_reason() {
+        let lines = quit_lines(&Ok(()));
+
+        let has_parts = ["TypeAlike quits", "reason="].map(|part| lines.contains(part));
+
+        assert_eq!(has_parts, [true; 2]);
+    }
+
+    #[test]
+    fn error_of_the_run_logs_a_quit_with_the_error() {
+        let run = Err(anyhow::anyhow!("no tray icon").context("typealike stopped unexpectedly"));
+
+        let lines = quit_lines(&run);
+
+        let has_parts = ["TypeAlike quits", "typealike stopped unexpectedly: no tray icon"]
+            .map(|part| lines.contains(part));
+        assert_eq!(has_parts, [true; 2]);
     }
 
     #[test]

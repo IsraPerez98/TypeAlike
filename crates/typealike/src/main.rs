@@ -21,7 +21,9 @@ fn main() -> anyhow::Result<()> {
         commit: COMMIT,
     };
     logging::start(build);
-    platform::run(build)
+    let run = platform::run(build);
+    logging::log_quit(&run);
+    run
 }
 
 #[cfg(test)]

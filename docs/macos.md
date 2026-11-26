@@ -17,6 +17,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 - Setup window.
 - Spelling dictionary.
 - Web pages of the About pane: `NSWorkspace` opens them in the default browser.
+- Quit: `NSApplication::terminate` ends the process, so the event loop never returns to `main`. Thus the runtime logs `TypeAlike quits` with its reason just before it.
 
 ## Permissions
 

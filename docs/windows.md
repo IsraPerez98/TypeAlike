@@ -6,6 +6,7 @@ What `typealike_windows` does. All FFI. The threads and the runtime rules are in
 
 - Hooks, overlay, badge at the caret, `SendInput`, tray (Win32, main thread).
 - The tray icon is the robot of the logo, from the icon files in `assets/tray` (`docs/icons.md`).
+- When the event loop ends (Quit in the tray menu, or the install of an update), the bin logs `TypeAlike quits` with the reason (`logging::log_quit`). At the end of the Windows session (`WM_ENDSESSION`), Windows ends the process without an end of the loop, so the runtime logs `TypeAlike quits` with that reason first.
 
 ### Overlay
 
