@@ -1,9 +1,11 @@
 //! The geometry of the band that the OCR reads.
 //!
-//! It has the band around the focused field, in the pixels of the window.
+//! It has the band around the focused field, in the pixels of the window, and the check of the
+//! field before the capture of the window.
 
 use std::ops::Range;
 
+use typealike_core::desktop::ScreenRect;
 use windows::Graphics::SizeInt32;
 use windows::Win32::Foundation::POINT;
 
@@ -50,6 +52,35 @@ pub(super) fn band_in_frame(
         right: columns.end,
         bottom: rows.end,
     })
+}
+
+/// Why the band of a window cannot hold the focused field, so that a capture of the window gives
+/// the OCR nothing to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FieldMiss {
+    /// The frame of the field has no width or no height, so it tells no place of the field.
+    NoArea,
+    /// No row of the field is in the window, or the middle of the field is not between the left
+    /// and the right edge of the window.
+    OutsideWindow,
+}
+
+/// Why the band of `window`, the frame of a window on the screen, cannot hold `field`, the frame of
+/// its focused field on the screen. `None` when the band can hold it. The rule is the rule of the
+/// band of a captured frame ([`band_in_frame`]).
+pub(super) fn field_miss(field: ScreenRect, window: ScreenRect) -> Option<FieldMiss> {
+    if !field.has_area() {
+        return Some(FieldMiss::NoArea);
+    }
+    let origin = POINT {
+        x: window.left,
+        y: window.top,
+    };
+    let size = SizeInt32 {
+        Width: window.right.saturating_sub(window.left),
+        Height: window.bottom.saturating_sub(window.top),
+    };
+    (!holds_field(PixelRect::from_screen(field, origin), size)).then_some(FieldMiss::OutsideWindow)
 }
 
 /// Whether a frame of `frame` pixels holds `field` for the OCR: a row of the field is in the frame,
@@ -118,6 +149,62 @@ mod tests {
         ];
 
         assert_eq!(bands, [None, None]);
+    }
+
+    const WINDOW: ScreenRect = ScreenRect {
+        left: -1000,
+        top: -500,
+        right: 1000,
+        bottom: 1500,
+    };
+
+    fn screen_rect(left: i32, top: i32, right: i32, bottom: i32) -> ScreenRect {
+        ScreenRect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn field_with_its_middle_in_the_window_gives_no_miss() {
+        let fields = [
+            screen_rect(-900, 500, -500, 530),
+            screen_rect(-1100, -600, -700, -480),
+            screen_rect(900, 1480, 1050, 1600),
+        ];
+
+        let misses = fields.map(|field| field_miss(field, WINDOW));
+
+        assert_eq!(misses, [None, None, None]);
+    }
+
+    #[test]
+    fn field_outside_of_the_window_is_a_miss() {
+        let fields = [
+            screen_rect(1100, 500, 1400, 530),
+            screen_rect(800, 500, 1400, 530),
+            screen_rect(-900, 1500, -500, 1530),
+            screen_rect(-900, -600, -500, -500),
+        ];
+
+        let misses = fields.map(|field| field_miss(field, WINDOW));
+
+        assert_eq!(misses, [Some(FieldMiss::OutsideWindow); 4]);
+    }
+
+    #[test]
+    fn field_without_an_area_is_a_miss_also_in_the_window() {
+        let fields = [
+            ScreenRect::default(),
+            screen_rect(-500, 500, -500, 530),
+            screen_rect(-900, 500, -500, 500),
+        ];
+
+        let misses = fields.map(|field| field_miss(field, WINDOW));
+
+        assert_eq!(misses, [Some(FieldMiss::NoArea); 3]);
     }
 
     #[test]

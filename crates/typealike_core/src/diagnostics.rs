@@ -1,8 +1,9 @@
-//! The numbers of the debug records about the resources and the times that TypeAlike uses. The
-//! platform measures and writes the records, and these pure types and functions only count, add up
-//! and convert.
+//! The numbers of the debug records about the resources and the times that TypeAlike uses, and the
+//! kinds of the records that a run wrote. The platform measures and writes the records, and these
+//! pure types and functions only count, add up and convert.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::hash::Hash;
 use std::time::Duration;
 
 use crate::controller::Delivery;
@@ -154,6 +155,41 @@ pub fn is_model_load(delivery: &Delivery) -> bool {
     matches!(event, InferenceEvent::Loaded { result: Ok(()), .. })
 }
 
+/// Whether a record is the first record of its kind in a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordTurn {
+    /// No record of the kind came before in the run.
+    First,
+    /// A record of the kind came before in the run.
+    Repeat,
+}
+
+/// The kinds of a record that a run wrote. The platform writes the first record of each kind at
+/// the info level, so that the log of a run tells each kind once.
+#[derive(Debug, Clone)]
+pub struct RecordedKinds<K> {
+    kinds: HashSet<K>,
+}
+
+impl<K> Default for RecordedKinds<K> {
+    fn default() -> Self {
+        Self {
+            kinds: HashSet::new(),
+        }
+    }
+}
+
+impl<K: Eq + Hash> RecordedKinds<K> {
+    /// Notes a record of `kind`, and tells whether it is the first record of that kind in the run.
+    pub fn note(&mut self, kind: K) -> RecordTurn {
+        if self.kinds.insert(kind) {
+            RecordTurn::First
+        } else {
+            RecordTurn::Repeat
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +313,22 @@ mod tests {
         let loads = deliveries.each_ref().map(is_model_load);
 
         assert_eq!(loads, [true, true, true, false, false, false]);
+    }
+
+    #[test]
+    fn only_the_first_record_of_each_kind_is_the_first() {
+        let mut kinds = RecordedKinds::default();
+
+        let turns = ["Notes.exe", "Mail.exe", "Notes.exe", "Mail.exe"].map(|kind| kinds.note(kind));
+
+        assert_eq!(
+            turns,
+            [
+                RecordTurn::First,
+                RecordTurn::First,
+                RecordTurn::Repeat,
+                RecordTurn::Repeat
+            ]
+        );
     }
 }

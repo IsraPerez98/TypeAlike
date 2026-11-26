@@ -11,7 +11,10 @@ mod geometry;
 use std::num::TryFromIntError;
 use std::time::Instant;
 
-use typealike_core::desktop::{Confidence, CursorLook, EnergySaver, OcrAvailability, ScreenLine, ScreenText};
+use typealike_core::desktop::{
+    Confidence, CursorLook, EnergySaver, OcrAvailability, ScreenLine, ScreenRect, ScreenText,
+};
+use typealike_core::diagnostics::{RecordTurn, RecordedKinds};
 use windows::Foundation::Rect;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::{OcrEngine, OcrLine};
@@ -19,13 +22,14 @@ use windows::Storage::Streams::DataWriter;
 use windows::Win32::Foundation::{HWND, POINT};
 
 use self::capture::{Band, capture_band};
+use self::geometry::field_miss;
 use crate::display::round_to_pixel;
 use crate::energy_saver;
-use crate::focus::foreground_hwnd;
+use crate::focus::{foreground_hwnd, program_file_name_of};
 use crate::screen_text::FieldPixels;
 use crate::uia::{FocusedField, Uia};
 use crate::window::WindowId;
-use crate::window_capture::{CaptureError, Capturer, PixelRect, can_capture_without_border};
+use crate::window_capture::{CaptureError, Capturer, PixelRect, can_capture_without_border, window_bounds};
 
 /// Whether this computer can do an OCR at all, apart from what changes while TypeAlike runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +83,8 @@ enum OcrError {
 pub(crate) struct Ocr {
     tools: Option<OcrTools>,
     last: Option<Recognition>,
+    /// The programs whose reads skipped the capture in this run, by the file name of the program.
+    skipping_programs: RecordedKinds<String>,
 }
 
 /// What each OCR uses: the capture of the windows and the engine that recognizes the text.
@@ -119,8 +125,8 @@ impl Ocr {
     /// Reads the text near the focused field from a capture of the foreground window, with or
     /// without the pixels of the field, as `field_pixels` tells. In a field without a caret whose
     /// pixels the read takes, it also looks for the block cursor in the same capture. Each part is
-    /// `None` for a password field, or when the capture fails. The text is also `None` when the OCR
-    /// fails.
+    /// `None` for a password field, for a field that the band of the window cannot hold, or when
+    /// the capture fails. The text is also `None` when the OCR fails.
     pub(crate) fn read(
         &mut self,
         uia: &Uia,
@@ -135,7 +141,8 @@ impl Ocr {
 
     /// Looks for the block cursor of the focused field in a capture of the foreground window,
     /// without OCR. `None` unless the read takes the pixels of the field (`field_pixels`) and the
-    /// field gives no caret, and when the capture fails.
+    /// field gives no caret, for a field that the band of the window cannot hold, and when the
+    /// capture fails.
     pub(crate) fn look_at_cursor(&mut self, uia: &Uia, field_pixels: FieldPixels) -> Option<CursorLook> {
         if field_pixels != FieldPixels::Read {
             return None;
@@ -145,10 +152,13 @@ impl Ocr {
     }
 
     /// Captures the band of the foreground window around its focused field. `None` for a password
-    /// field, or when the capture fails.
+    /// field, for a field that the band of the window cannot hold, or when the capture fails.
     fn capture(&mut self, uia: &Uia) -> Option<FieldCapture> {
         let field = uia.focused_field()?;
         let window = foreground_hwnd();
+        if self.misses_window(window, field.frame) {
+            return None;
+        }
         if self.tools.is_none() {
             self.tools = OcrTools::create()
                 .inspect_err(|error| tracing::warn!(%error, "failed to start the OCR"))
@@ -166,6 +176,30 @@ impl Ocr {
             "captured the window"
         );
         Some(FieldCapture { window, field, band })
+    }
+
+    /// Whether the band of `window` cannot hold `field`, the frame of its focused field, before a
+    /// capture: the focus can be in a popup or in another window, and the frame can have no area.
+    /// A capture then gives nothing to read, so the read skips it. The log tells each skip, at the
+    /// info level for the first skip of each program in the run, and else at the debug level. When
+    /// Windows gives no frame of the window, the capture goes on and tells what failed.
+    fn misses_window(&mut self, window: HWND, field: ScreenRect) -> bool {
+        let Ok(bounds) = window_bounds(window) else {
+            return false;
+        };
+        let Some(miss) = field_miss(field, bounds) else {
+            return false;
+        };
+        let program = program_file_name_of(window);
+        match self.skipping_programs.note(program.clone()) {
+            RecordTurn::First => {
+                tracing::info!(program, ?miss, ?field, window = ?bounds, "skipped the capture of the OCR");
+            }
+            RecordTurn::Repeat => {
+                tracing::debug!(program, ?miss, ?field, window = ?bounds, "skipped the capture of the OCR");
+            }
+        }
+        true
     }
 
     /// Recognizes the text of the band of `capture`, without the pixels of its field unless
@@ -311,8 +345,6 @@ fn enclosing_rect(rects: impl Iterator<Item = Rect>) -> Option<PixelRect> {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
-
-    use typealike_core::desktop::ScreenRect;
 
     use super::*;
     use crate::display::{screen_rect, visible_field_frame};

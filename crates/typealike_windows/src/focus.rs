@@ -36,6 +36,8 @@ const MAX_PATH_UNITS: usize = 1024;
 /// draws its whole window itself (gpui with AccessKit), and its focused element is the window
 /// without children, text or caret.
 const NO_CARET_PROGRAMS: [&str; 1] = ["herdr-app.exe"];
+/// The program in a record of the log when TypeAlike knows no program for the window.
+pub(crate) const NO_PROGRAM: &str = "<none>";
 
 /// Follows the foreground window and classifies whether TypeAlike may observe and type into it.
 #[derive(Debug)]
@@ -173,11 +175,41 @@ pub(crate) fn foreground_thread() -> u32 {
 /// The full path of the program of the window in the foreground now, or `None` when no window is
 /// in the foreground or Windows does not give the path.
 pub(crate) fn foreground_program() -> Option<String> {
-    let process_id = process_id(foreground_hwnd());
+    program_of(foreground_hwnd()).ok()
+}
+
+/// Why TypeAlike knows no program for a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MissingProgram {
+    /// The window does not exist, as when no window is in the foreground.
+    NoWindow,
+    /// Windows does not give the path of the program of the window.
+    NoPath,
+}
+
+/// The full path of the program of `window`.
+///
+/// # Errors
+///
+/// [`MissingProgram::NoWindow`] when `window` does not exist, and [`MissingProgram::NoPath`] when
+/// Windows does not give the path of its program.
+pub(crate) fn program_of(window: HWND) -> std::result::Result<String, MissingProgram> {
+    let process_id = process_id(window);
     if process_id == 0 {
-        return None;
+        return Err(MissingProgram::NoWindow);
     }
-    process_image_path(process_id).ok()
+    process_image_path(process_id).map_err(|_denied| MissingProgram::NoPath)
+}
+
+/// The file name of the program of `window` for a record of the log, or [`NO_PROGRAM`] when
+/// TypeAlike knows no program for it. It holds no user text.
+pub(crate) fn program_file_name_of(window: HWND) -> String {
+    program_of(window)
+        .ok()
+        .as_deref()
+        .and_then(program_file_name)
+        .unwrap_or(NO_PROGRAM)
+        .to_owned()
 }
 
 /// The process of `window`, or process 0 when the window does not exist.
