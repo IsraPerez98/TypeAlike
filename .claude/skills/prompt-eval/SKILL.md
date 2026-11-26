@@ -214,9 +214,10 @@ cargo run --release -p typealike_llm --example spelling_eval -- --dictionary win
 cargo run --release -p typealike_llm --features vulkan,cuda --example first_key -- MODEL.gguf --backend vulkan
 ```
 
-- It loads the model 6 times (`--loads N`), and times the first completion after each load, a later key, and a whole other prompt after the first completion.
-- The first request of a load goes with the load request (no warm-up) or after the answer of the load (with the warm-up), in turns.
-- `--first queued|after-load` sets the way of the first load, which also starts the backend as at the start of the app. Run it several times with each value.
+- It loads the model 7 times (`--loads N`), and times the first completion after each load, a later key, and a whole other prompt after the first completion. It also writes the texts of the completions of each load.
+- The first request of a load goes in three ways, in turns: with the load request (`queued`, no warm-up), after the answer of the load (`after-load`, with the warm-up), or 0.5 s after a preparation that goes with the load request (`prepared`, as the app sends a load).
+- `--first queued|after-load|prepared` sets the way of the first load, which also starts the backend as at the start of the app. Run it several times with each value.
+- `TYPEALIKE_LOG=info` writes the log of the runner to stderr.
 - `--drafter on|off` loads the model with or without its drafter, which `prompt_eval` finds in the same way (default: on).
 - The NVIDIA Vulkan driver keeps the compiled shaders for each program, so the first run of a new build compiles them for some seconds.
 - Close TypeAlike before a run.

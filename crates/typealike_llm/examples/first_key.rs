@@ -4,18 +4,21 @@
 //! ```text
 //! cargo run --release -p typealike_llm --example first_key -- \
 //!     MODEL.gguf [--backend cpu|vulkan|cuda|metal] [--cpu-cores PERFORMANCE,EFFICIENCY] \
-//!     [--loads N] [--first queued|after-load] [--drafter on|off]
+//!     [--loads N] [--first queued|after-load|prepared] [--drafter on|off]
 //! ```
 //!
-//! The loads send their first request in two ways, in turns:
+//! The loads send their first request in three ways, in turns:
 //!
 //! - `queued`: with the load request. The request waits while the model loads, so the load does no
 //!   warm-up, and the first completion makes the context and runs the first decodes.
 //! - `after-load`: after the answer of the load, so that the load warms up the backend first.
+//! - `prepared`: a preparation of the first prompt (0 tokens) goes with the load request, as the
+//!   app sends it. The preparation waits while the model loads, so the load does no warm-up. The
+//!   first completion goes 0.5 s after the answer of the preparation, as the first key of a person.
 //!
 //! `--first` gives the way of the first load (default: `queued`). The first load of a process
 //! also starts the backend, for example the shaders of Vulkan, as at the start of the app. Run the
-//! example several times with each `--first` to measure that start. The later loads (default: 6
+//! example several times with each `--first` to measure that start. The later loads (default: 7
 //! loads in all) are as a resume after a pause or a change of the model.
 //!
 //! Each load times four completions of 10 tokens, from the start of the completion in the runner:
@@ -23,9 +26,11 @@
 //! not start as the first one (`other`), and that prompt with more words (`other next`). Each
 //! prompt has about 200 tokens, as most prompts of the app. `other` decodes a whole prompt after
 //! the first completion, so `first` less `other` is the cost of the first completion after a load.
-//! The report gives each load, then the median of the loads after the first one for each way. The
-//! `load` time goes from the load request to the answer of the load, so with `after-load` it also
-//! holds the warm-up.
+//! The report gives each load and the texts of its completions, then the median of the loads after
+//! the first one for each way. The `load` time goes from the load request to the answer of the
+//! load, so with `after-load` it also holds the warm-up.
+//!
+//! `TYPEALIKE_LOG` sets the levels of the log on stderr, as in the app, for example `info`.
 //!
 //! As in the folder of the models of the app, the folder of `MODEL.gguf` and its parent folder
 //! name the repository of the model, and the folder holds the drafter of the model, which loads
@@ -35,21 +40,34 @@ use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::bail;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
 use typealike_core::hub::ModelFile;
 use typealike_core::inference::{
-    Backend, CpuCores, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest, ModelRunner,
-    NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
+    Backend, Completion, CpuCores, DictionaryGuesses, InferenceEvent, InferenceEventSink, InferenceRequest,
+    ModelRunner, NextWordBias, Prompt, SentenceEnd, TokenCount, TypoCheck,
 };
 use typealike_llm::{BUILT_IN_BACKEND, LlamaCpp};
 
 const USAGE: &str = "usage: first_key MODEL.gguf [--backend cpu|vulkan|cuda|metal] \
-     [--cpu-cores PERFORMANCE,EFFICIENCY] [--loads N] [--first queued|after-load] [--drafter on|off]";
-const DEFAULT_LOADS: usize = 6;
+     [--cpu-cores PERFORMANCE,EFFICIENCY] [--loads N] [--first queued|after-load|prepared] \
+     [--drafter on|off]";
+/// The loads in all: the first load, and two later loads for each way.
+const DEFAULT_LOADS: usize = 7;
+/// The environment variable with the levels of the log, as in the app.
+const LEVELS_VARIABLE: &str = "TYPEALIKE_LOG";
 /// The token limit of the medium suggestion length.
 const MAX_TOKENS: TokenCount = TokenCount(10);
+/// The token limit of a preparation, which only decodes the prompt.
+const PREPARATION_TOKENS: TokenCount = TokenCount(0);
+/// The time from the answer of a preparation to the first key, as a person who starts to type
+/// after the focus.
+const FIRST_KEY_PAUSE: Duration = Duration::from_millis(500);
 const FIRST_PROMPT: &str = "Hi Maria,\n\nThank you for the notes from the planning meeting last \
     week. I read them on the train this morning, and I agree with most of the points. The new \
     schedule for the release looks fine to me, but I think we need two more days for the tests on \
@@ -78,6 +96,8 @@ enum FirstRequest {
     Queued,
     /// After the answer of the load.
     AfterLoad,
+    /// After the answer of a preparation that goes with the load request.
+    Prepared,
 }
 
 impl FirstRequest {
@@ -85,6 +105,7 @@ impl FirstRequest {
         match name {
             "queued" => Some(Self::Queued),
             "after-load" => Some(Self::AfterLoad),
+            "prepared" => Some(Self::Prepared),
             _ => None,
         }
     }
@@ -93,13 +114,16 @@ impl FirstRequest {
         match self {
             Self::Queued => "queued",
             Self::AfterLoad => "after-load",
+            Self::Prepared => "prepared",
         }
     }
 
-    fn other(self) -> Self {
+    /// Returns the way of the load after a load of this way.
+    fn next(self) -> Self {
         match self {
             Self::Queued => Self::AfterLoad,
-            Self::AfterLoad => Self::Queued,
+            Self::AfterLoad => Self::Prepared,
+            Self::Prepared => Self::Queued,
         }
     }
 }
@@ -185,6 +209,13 @@ struct LoadTimes {
     other_next: Duration,
 }
 
+/// The times of one load and the texts of its four completions.
+#[derive(Debug)]
+struct LoadRun {
+    times: LoadTimes,
+    texts: [String; 4],
+}
+
 /// Returns the model file at `path`, with the repository that the folder of the model and its
 /// parent folder name, as in the folder of the models of the app.
 fn model_file_at(path: &Path) -> ModelFile {
@@ -240,9 +271,13 @@ impl Session {
     }
 
     fn submit_completion(&mut self, prompt: &str) {
+        self.submit_completion_of(prompt, MAX_TOKENS);
+    }
+
+    fn submit_completion_of(&mut self, prompt: &str, max_tokens: TokenCount) {
         self.submit(InferenceRequest::Complete {
             prompt: Prompt(prompt.to_owned()),
-            max_tokens: MAX_TOKENS,
+            max_tokens,
             word_bias: None,
             next_word_bias: NextWordBias::default(),
             min_log_probability: None,
@@ -261,44 +296,58 @@ impl Session {
         }
     }
 
-    /// Waits for the next completion, and returns its time in the runner.
-    fn wait_for_completion(&self) -> anyhow::Result<Duration> {
+    /// Waits for the next completion, and returns it with its time in the runner.
+    fn wait_for_completion(&self) -> anyhow::Result<Completion> {
         loop {
             match self.events.recv()? {
                 InferenceEvent::Partial(_) => {}
-                InferenceEvent::Completed(Ok(completion)) => return Ok(completion.duration),
+                InferenceEvent::Completed(Ok(completion)) => return Ok(completion),
                 event => bail!("expected a completion, got {event:?}"),
             }
         }
     }
 
-    fn complete(&mut self, prompt: &str) -> anyhow::Result<Duration> {
+    fn complete(&mut self, prompt: &str) -> anyhow::Result<Completion> {
         self.submit_completion(prompt);
         self.wait_for_completion()
     }
 
     /// Loads the model, times the completions, and unloads the model.
-    fn time_load(&mut self, backend: Backend, first: FirstRequest) -> anyhow::Result<LoadTimes> {
+    fn time_load(&mut self, backend: Backend, first: FirstRequest) -> anyhow::Result<LoadRun> {
         let file = self.file.clone();
         let started = Instant::now();
         self.submit(InferenceRequest::Load { file, backend });
-        if first == FirstRequest::Queued {
-            self.submit_completion(FIRST_PROMPT);
+        match first {
+            FirstRequest::Queued => self.submit_completion(FIRST_PROMPT),
+            FirstRequest::Prepared => self.submit_completion_of(FIRST_PROMPT, PREPARATION_TOKENS),
+            FirstRequest::AfterLoad => {}
         }
         self.wait_for_load()?;
         let load = started.elapsed();
-        if first == FirstRequest::AfterLoad {
-            self.submit_completion(FIRST_PROMPT);
+        match first {
+            FirstRequest::AfterLoad => self.submit_completion(FIRST_PROMPT),
+            FirstRequest::Prepared => {
+                self.wait_for_completion()?;
+                thread::sleep(FIRST_KEY_PAUSE);
+                self.submit_completion(FIRST_PROMPT);
+            }
+            FirstRequest::Queued => {}
         }
-        let times = LoadTimes {
-            load,
-            first: self.wait_for_completion()?,
-            next: self.complete(&format!("{FIRST_PROMPT}{MORE_WORDS}"))?,
-            other: self.complete(OTHER_PROMPT)?,
-            other_next: self.complete(&format!("{OTHER_PROMPT}{MORE_WORDS}"))?,
-        };
+        let first = self.wait_for_completion()?;
+        let next = self.complete(&format!("{FIRST_PROMPT}{MORE_WORDS}"))?;
+        let other = self.complete(OTHER_PROMPT)?;
+        let other_next = self.complete(&format!("{OTHER_PROMPT}{MORE_WORDS}"))?;
         self.submit(InferenceRequest::Unload);
-        Ok(times)
+        Ok(LoadRun {
+            times: LoadTimes {
+                load,
+                first: first.duration,
+                next: next.duration,
+                other: other.duration,
+                other_next: other_next.duration,
+            },
+            texts: [first.text, next.text, other.text, other_next.text],
+        })
     }
 }
 
@@ -317,6 +366,14 @@ fn write_times(output: &mut impl Write, label: &str, times: &LoadTimes) -> io::R
         times.other.as_millis(),
         times.other_next.as_millis(),
         times.first.saturating_sub(times.other).as_millis(),
+    )
+}
+
+fn write_texts(output: &mut impl Write, label: &str, texts: &[String; 4]) -> io::Result<()> {
+    let [first, next, other, other_next] = texts;
+    writeln!(
+        output,
+        "{label} texts: first {first:?}, next {next:?}, other {other:?}, other next {other_next:?}"
     )
 }
 
@@ -362,17 +419,33 @@ fn main() -> anyhow::Result<()> {
     let Some(arguments) = Arguments::parse(&arguments) else {
         bail!("{USAGE}");
     };
+    if let Some(levels) = std::env::var(LEVELS_VARIABLE)
+        .ok()
+        .and_then(|levels| levels.parse::<Targets>().ok())
+    {
+        tracing_subscriber::registry()
+            .with(levels)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(io::stderr),
+            )
+            .init();
+    }
     let mut session = Session::new(&arguments);
     let mut output = io::stdout().lock();
     let mut loads = Vec::new();
     let mut way = arguments.first;
     for index in 1..=arguments.loads {
-        let times = session.time_load(arguments.backend, way)?;
-        write_times(&mut output, &format!("load {index} {}", way.name()), &times)?;
-        loads.push((way, times));
-        way = way.other();
+        let run = session.time_load(arguments.backend, way)?;
+        let label = format!("load {index} {}", way.name());
+        write_times(&mut output, &label, &run.times)?;
+        write_texts(&mut output, &label, &run.texts)?;
+        loads.push((way, run.times));
+        way = way.next();
     }
     write_medians(&mut output, FirstRequest::Queued, &loads)?;
     write_medians(&mut output, FirstRequest::AfterLoad, &loads)?;
+    write_medians(&mut output, FirstRequest::Prepared, &loads)?;
     Ok(())
 }
