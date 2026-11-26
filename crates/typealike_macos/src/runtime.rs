@@ -523,7 +523,11 @@ impl AppKitShell {
     /// core gives, else next to the field. Hides it when the focused control holds no text.
     fn show_mirror(&self, view: &GhostView) {
         self.overlay.hide();
-        match view.mirror_anchor.map(frame_of).or(self.field_frame) {
+        match view
+            .mirror_anchor
+            .map(|anchor| frame_of(anchor.frame))
+            .or(self.field_frame)
+        {
             Some(anchor) => self.mirror.show(view, anchor),
             None => self.mirror.hide(),
         }

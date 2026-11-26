@@ -63,8 +63,19 @@ pub(super) struct ScreenReads {
 }
 
 impl ScreenReads {
-    fn is_reading(&self) -> bool {
+    pub(super) fn is_reading(&self) -> bool {
         matches!(self.screen, Screen::Reading { .. })
+    }
+
+    /// Whether `read` is the newest read, which runs.
+    pub(super) fn is_newest_reading(&self, read: ScreenReadId) -> bool {
+        matches!(self.screen, Screen::Reading { id, .. } if id == read)
+    }
+
+    /// The id of a new read that does not read the text of the screen, as a look at the cursor.
+    pub(super) fn next_id(&mut self) -> ScreenReadId {
+        self.newest = self.newest.next();
+        self.newest
     }
 
     fn start(&mut self, source: ScreenSource) -> ScreenReadId {

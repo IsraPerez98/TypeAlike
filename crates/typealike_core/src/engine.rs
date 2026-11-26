@@ -1,6 +1,7 @@
 //! Decides what ghost text to show as the user types, and what Tab inserts.
 
 mod autocorrect;
+mod cursor_anchor;
 mod earlier_writing;
 mod ended_session;
 mod new_line;
@@ -31,10 +32,11 @@ use earlier_writing::needs_new_tables;
 use ended_session::KeyEndedSession;
 use offer::Offer;
 use preface::ScreenReads;
-use session::{FieldTextAccess, Session};
+use session::Session;
 use spelling::Dictionary;
 use suggestion::{ends_with_typo, fix_after_delimiter, typed_after_letters};
 
+pub use cursor_anchor::{MirrorAnchor, MirrorAnchorKind};
 pub(crate) use preface::ScreenAnswer;
 pub use reaction::{AfterAccept, Reaction, WordFix};
 pub(crate) use suggestion::split_next_part;
@@ -400,14 +402,6 @@ impl Engine {
             self.suggest()
         };
         AfterAccept::Next(Box::new(next))
-    }
-
-    /// Whether the field of the session gives no caret and no text, and shows its text only on the
-    /// screen. `false` without a session.
-    pub(crate) fn shows_text_only_on_screen(&self) -> bool {
-        self.session
-            .as_ref()
-            .is_some_and(|session| session.field.text == FieldTextAccess::OnlyOnScreen)
     }
 
     /// Returns the text before the caret in the session, empty without a session.

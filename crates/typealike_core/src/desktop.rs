@@ -249,6 +249,9 @@ pub enum ScreenSource {
     Accessibility,
     /// Optical character recognition (OCR) of a capture of the window.
     Ocr(OcrRead),
+    /// A capture of the focused field without OCR, which only looks for the block cursor in a
+    /// field that shows its text only on the screen and gives no caret.
+    Cursor,
 }
 
 /// How the platform reads the screen with OCR.
@@ -375,6 +378,20 @@ pub struct ScreenRead {
     pub id: ScreenReadId,
     /// The text near the focused field, or `None` when the platform cannot read the window.
     pub text: Option<ScreenText>,
+    /// The block cursors in the pixels of the focused field, when the read looked for them: in a
+    /// field that shows its text only on the screen and gives no caret. `None` for other reads,
+    /// and when the platform cannot capture the field.
+    pub cursor: Option<CursorLook>,
+}
+
+/// The blocks that a look at the pixels of a field found, which can be the block cursor of a
+/// terminal ([`ScreenPixels::cursor_blocks`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CursorLook {
+    /// The frame of the field that the pixels show.
+    pub field: ScreenRect,
+    /// The blocks, in the units of [`ScreenRect`].
+    pub blocks: Vec<ScreenRect>,
 }
 
 /// The labels that the focused field gives to assistive apps. Each one is `None` when the field

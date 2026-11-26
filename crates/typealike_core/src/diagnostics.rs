@@ -270,6 +270,7 @@ mod tests {
             Delivery::Screen(ScreenRead {
                 id: ScreenReadId::default(),
                 text: None,
+                cursor: None,
             }),
         ];
 

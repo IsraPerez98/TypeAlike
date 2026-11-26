@@ -51,6 +51,7 @@ fn answer(read: ScreenReadId) -> ScreenRead {
     ScreenRead {
         id: read,
         text: Some(ScreenText::default()),
+        cursor: None,
     }
 }
 
@@ -173,6 +174,7 @@ fn answer_with(read: ScreenReadId, line: &str) -> ScreenRead {
                 bottom: 240,
             },
         }),
+        cursor: None,
     }
 }
 
@@ -686,6 +688,7 @@ fn ocr_line_of_the_caret_in_a_field_that_hides_its_text_goes_into_the_prompt() {
                 bottom: 240,
             },
         }),
+        cursor: None,
     };
 
     let work = app.on_screen_read(ocr_answer, &editor);

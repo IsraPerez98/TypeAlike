@@ -153,6 +153,7 @@ fn read_screen(engine: &mut Engine, line: &str) {
         ScreenRead {
             id,
             text: Some(screen_with(line)),
+            cursor: None,
         },
         &FakeDesktop::default(),
     );
@@ -196,6 +197,7 @@ fn kept_chat_text_answers_the_message_of_the_screen_read_of_its_session() {
         ScreenRead {
             id,
             text: Some(screen_with("Standup in 5? Same room")),
+            cursor: None,
         },
         &desktop,
     );

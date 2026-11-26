@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::desktop::{FIELD_EDGE_GAP, LinesBelow, ScreenRect};
-use crate::engine::WordFix;
+use crate::engine::{MirrorAnchor, WordFix};
 
 /// The most characters of the word before the caret that the mirror shows.
 const MIRROR_WORD_CHARS: usize = 24;
@@ -60,7 +60,7 @@ pub struct GhostView {
     pub placement: GhostPlacement,
     /// The frame that the mirror shows below, else above, when the platform finds no caret. `None`
     /// shows the mirror next to the focused field.
-    pub mirror_anchor: Option<ScreenRect>,
+    pub mirror_anchor: Option<MirrorAnchor>,
 }
 
 impl GhostView {

@@ -132,6 +132,7 @@ fn screen_answer_after_the_app_turned_off_prepares_nothing() {
         ScreenRead {
             id: read,
             text: Some(ScreenText::default()),
+            cursor: None,
         },
         &MAIL,
     );

@@ -427,7 +427,14 @@ impl Typing<'_> {
                 SettledWork::ReadScreen { read, .. } => {
                     settled.has_read_screen = true;
                     let text = screen.map(CaseScreen::to_screen_text);
-                    app.on_screen_read(ScreenRead { id: read, text }, field)
+                    app.on_screen_read(
+                        ScreenRead {
+                            id: read,
+                            text,
+                            cursor: None,
+                        },
+                        field,
+                    )
                 }
                 SettledWork::Prepare(request) => {
                     app.on_completion(preparation.complete(model, request)?);

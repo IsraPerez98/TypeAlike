@@ -64,6 +64,7 @@ pub(crate) fn screen_read(answer: &ScreenRead, source: ScreenSource, waited: Dur
         lines = answer.text.as_ref().map(|text| {
             tracing::field::debug(text.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>())
         }),
+        cursor_blocks = answer.cursor.as_ref().map(|look| look.blocks.len()),
         "read the screen"
     );
 }
@@ -160,7 +161,12 @@ impl ShellRecords {
             .map(|wrapped| tracing::field::debug(&wrapped.lines));
         let screen_read = self.screen_read.map(tracing::field::debug);
         let placement = tracing::field::debug(view.placement);
-        let mirror_anchor = view.mirror_anchor.map(tracing::field::debug);
+        let mirror_anchor = view
+            .mirror_anchor
+            .map(|anchor| tracing::field::debug(anchor.kind));
+        let mirror_anchor_frame = view
+            .mirror_anchor
+            .map(|anchor| tracing::field::debug(anchor.frame));
         let drawn = tracing::field::debug(drawn);
         match &view.ghost {
             Ghost::Text(text) => tracing::info!(
@@ -170,6 +176,7 @@ impl ShellRecords {
                 wrapped,
                 placement,
                 mirror_anchor,
+                mirror_anchor_frame,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,
@@ -184,6 +191,7 @@ impl ShellRecords {
                 wrapped,
                 placement,
                 mirror_anchor,
+                mirror_anchor_frame,
                 drawn,
                 screen_read,
                 key_to_ghost_ms,
@@ -242,6 +250,7 @@ mod tests {
         let screen = Delivery::Screen(ScreenRead {
             id: ScreenReadId::default(),
             text: None,
+            cursor: None,
         });
         let suggestion = Delivery::Suggestion(InferenceEvent::Partial("Dear".to_owned()));
 

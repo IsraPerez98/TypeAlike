@@ -455,7 +455,14 @@ fn screen_read_of_a_settle_after_a_new_block_of_typed_words_prepares_the_prompt_
         panic!("a settle in a mail field reads the screen");
     };
 
-    let work = app.on_screen_read(ScreenRead { id: read, text: None }, &MailDraft(draft));
+    let work = app.on_screen_read(
+        ScreenRead {
+            id: read,
+            text: None,
+            cursor: None,
+        },
+        &MailDraft(draft),
+    );
 
     assert_eq!(
         work,

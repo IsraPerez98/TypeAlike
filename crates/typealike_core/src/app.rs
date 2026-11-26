@@ -20,7 +20,7 @@ use crate::desktop::{
     OcrRead, ScreenRead, ScreenReadId, ScreenRect, ScreenSource,
 };
 use crate::diagnostics::KeptItems;
-use crate::engine::{Engine, Reaction, ScreenAnswer};
+use crate::engine::{Engine, MirrorAnchor, Reaction, ScreenAnswer};
 use crate::history::HistoryEntry;
 use crate::inference::{Completion, InferenceError, InferenceRequest};
 use crate::key::{Key, Press};
@@ -713,16 +713,42 @@ impl App {
     }
 
     /// The anchor of the mirror when the platform finds no caret in the field at `field` on the
-    /// screen: the bottom edge of a field that shows its text only on the screen, as a terminal.
-    /// Its input line is most often near that edge. `None` for other fields, whose mirror shows
-    /// next to the field.
+    /// screen, in a field that shows its text only on the screen, as a terminal: the block cursor
+    /// that a look of the session found, else the bottom edge of the field. The input line of a
+    /// terminal is most often near that edge. `None` for other fields, whose mirror shows next to
+    /// the field.
     #[must_use]
-    pub fn mirror_anchor(&self, field: Option<ScreenRect>) -> Option<ScreenRect> {
-        let field = field.filter(|_| self.engine.shows_text_only_on_screen())?;
-        Some(ScreenRect {
-            top: field.bottom,
-            ..field
-        })
+    pub fn mirror_anchor(&self, field: Option<ScreenRect>) -> Option<MirrorAnchor> {
+        self.engine.mirror_anchor(field?)
+    }
+
+    /// Starts a look at the block cursor of the field of the session, a capture of its pixels
+    /// without OCR, when its field shows its text only on the screen, `desktop` can capture it,
+    /// and the typed line can be on another row since the newest look. The session looks again
+    /// only after the look of its read of the screen, which the screen text setting of its app
+    /// allows. Give the answer to [`App::on_cursor_look`].
+    pub fn start_cursor_look(&mut self, desktop: &dyn Desktop) -> Option<SettledWork> {
+        if !self.engine.is_cursor_look_due() || desktop.ocr_availability() != OcrAvailability::Ready {
+            return None;
+        }
+        self.engine
+            .start_cursor_look()
+            .map(|read| SettledWork::ReadScreen {
+                read,
+                source: ScreenSource::Cursor,
+            })
+    }
+
+    /// Whether `read` is the look at the cursor that runs, which has no text for the prompt.
+    #[must_use]
+    pub fn is_cursor_look(&self, read: ScreenReadId) -> bool {
+        self.engine.is_cursor_look(read)
+    }
+
+    /// Keeps the look at the block cursor of `read` for the session, when `read` answers the look
+    /// that runs or the newest read of the screen. Returns whether the anchor of the mirror moved.
+    pub fn on_cursor_look(&mut self, read: &ScreenRead) -> bool {
+        self.engine.on_cursor_look(read)
     }
 
     /// Returns the text before the caret in the session, empty without a session.

@@ -66,6 +66,9 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - Excel: 70 lines, about 36 of them of the ribbon and the toolbar. The crop does not change it.
 - The OCR keeps the lines of its last read, and reads again only when the pixels of the band change (`pixels_hash`). The pixels of the field do not count, so that typing does not start a new OCR.
 - In a field that shows its text only on the screen, the OCR reads the text of the field, so its pixels count. Thus a new answer in a terminal starts a new OCR.
+- In a field that shows its text only on the screen and gives no caret, the OCR read also looks for the block cursor in its capture (`cursor_look`, `docs/core/ghost-text.md`). A look without OCR (`look_at_cursor`) captures only the band around the field.
+  - The look takes one pixel for each point of the field: the top left pixel of the point (`field_pixels`). It reads the order of the color bytes from the alpha and the byte order of the image (`ChannelOffsets`).
+  - The pixels and the search for the blocks took about 14 ms for each capture of a Herdr window of 1512 x 882 pt in a release build, on the queue of the screen reads.
 - Vision loads the model of the accurate level at its first recognition in a process. In a new program, such as a new build, the first load took 24 to 53 s. Each later process of that program took about 75 ms. The screen reads wait for the load.
 - Thus the accurate level gets a warm-up (`AccurateWarmUp`): a recognition of the letters "HI", drawn as black bars in a small image, on a dispatch queue with a low priority. A blank image does not load the model that reads the letters.
 - The warm-up starts when TypeAlike starts with the accurate level, or when the user picks it (`Shell::warm_up_ocr`). It runs once in each process. The log shows its time at the debug level.
@@ -218,7 +221,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - With the `suggestion-log` feature, `suggestion_log` writes these records:
   - `read the field`: the app, the window title, the domain, whether the field is outside each web page, the labels, the Accessibility role and subrole, the frame and the text length of each field that the focus tracker reads.
-  - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`). The source tells whether the time is for the Accessibility tree or for the OCR.
+  - `read the screen`: the id, the source and the lines of each screen read, with the time that it waited for the reader (`waited_ms`) and the time of the read (`duration_ms`). The source tells whether the time is for the Accessibility tree, for the OCR, or for a look at the cursor without OCR (`Cursor`). `cursor_blocks` is the count of the blocks that the look at the cursor of the read found, when the read looked.
   - `ran OCR`: the steps of each OCR, before the `read the screen` record of its read. Its `span` names that read: `"span":{"read":"ScreenReadId(N)","name":"screen read"}`. It holds numbers only.
     - `level` and `area` are the level of Vision and the part of the window.
     - `capture_ms` is the time of the capture by ScreenCaptureKit, also when it failed. `width` and `height` give the size of the image in pixels. Without them, the capture failed, for example after its limit of 3 s.
@@ -227,7 +230,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
   - `warmed up OCR`: the time (`duration_ms`) and the lines of the warm-up of the Accurate level, which loads the model of Vision once.
   - `showed the ghost text` and `showed a fix`: the text of each draw at the caret, with its wrapped lines and its placement. Each record comes after the draw:
     - `drawn` tells where the text shows: `Overlay`, `Mirror` (also the card below the caret), or `Nothing` when the field gave no caret and no frame.
-    - `mirror_anchor` is the frame that core gave the mirror of a field without a caret (`GhostView::mirror_anchor`). Without it, the mirror shows next to the field frame.
+    - `mirror_anchor` is where the anchor of the mirror of a field without a caret comes from (`MirrorAnchorKind`: `Cursor`, `Kept` or `FieldBottom`), and `mirror_anchor_frame` is its frame (`GhostView::mirror_anchor`). Without them, the mirror shows next to the field frame.
     - `span` names the completion of the newest suggestion event with text (`docs/llm.md`): a part of a completion, or a completion with text or a fix. The empty answer of a prompt that core only prepares can come while an earlier ghost text shows, so it does not count. The delivery to the main thread keeps the span of the worker thread that sent the event.
     - `key_to_ghost_ms` is the time from the last key down to the first draw after it that shows. A draw that shows nothing keeps the key for the next draw.
     - `screen_read` is the id of the newest screen read that macOS gave to core before the draw. Core drops a read that is not the newest that it started, and a session keeps the screen text that it got first. Thus the prompt can use an earlier read.

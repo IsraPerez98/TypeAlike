@@ -21,7 +21,7 @@ use crate::accessibility::{
 };
 use crate::focus::focused_field;
 use crate::geometry::screen_rect;
-use crate::ocr::Ocr;
+use crate::ocr::{self, Ocr};
 use crate::operation_clock::OperationClock;
 
 const STATIC_TEXT_ROLE: &str = "AXStaticText";
@@ -84,7 +84,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
     while let Ok(oldest) = requests.recv() {
         let newest = requests.try_iter().last().unwrap_or(oldest);
         let started = Instant::now();
-        let text = clock.time(Operation::ScreenRead, || {
+        let (text, cursor) = clock.time(Operation::ScreenRead, || {
             autoreleasepool(|_| {
                 #[cfg(feature = "suggestion-log")]
                 let _read = tracing::info_span!(
@@ -93,10 +93,13 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
                     read = ?newest.read
                 )
                 .entered();
-                newest.process.and_then(|process| match newest.source {
-                    ScreenSource::Accessibility => read_screen_text(process),
-                    ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),
-                })
+                newest
+                    .process
+                    .map_or((None, None), |process| match newest.source {
+                        ScreenSource::Accessibility => (read_screen_text(process), None),
+                        ScreenSource::Ocr(ocr_read) => ocr.read(process, ocr_read),
+                        ScreenSource::Cursor => (None, ocr::look_at_cursor(process)),
+                    })
             })
         });
         tracing::debug!(
@@ -105,11 +108,13 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, deliver: &DeliverySink
             waited = ?started - newest.requested,
             duration = ?started.elapsed(),
             lines = text.as_ref().map(|text| text.lines.len()),
+            cursor_blocks = cursor.as_ref().map(|look| look.blocks.len()),
             "screen read answered"
         );
         let answer = ScreenRead {
             id: newest.read,
             text,
+            cursor,
         };
         #[cfg(feature = "suggestion-log")]
         crate::suggestion_log::screen_read(

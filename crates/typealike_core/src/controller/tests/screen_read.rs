@@ -44,7 +44,11 @@ fn screen_answer_without_lines_reads_the_screen_with_ocr() {
     let read = harness.settle_input_to_read_screen();
 
     harness.controller.on_delivery(
-        Delivery::Screen(ScreenRead { id: read, text: None }),
+        Delivery::Screen(ScreenRead {
+            id: read,
+            text: None,
+            cursor: None,
+        }),
         &mut harness.shell,
     );
 
@@ -67,6 +71,7 @@ fn screen_answer_prepares_the_prompt_on_focus() {
         Delivery::Screen(ScreenRead {
             id: read,
             text: Some(ScreenText::default()),
+            cursor: None,
         }),
         &mut harness.shell,
     );
@@ -120,6 +125,7 @@ fn key_after_a_scroll_reads_the_screen_again() {
         Delivery::Screen(ScreenRead {
             id: read,
             text: Some(ScreenText::default()),
+            cursor: None,
         }),
         &mut harness.shell,
     );
@@ -216,6 +222,7 @@ fn key_after_the_read_of_a_scroll_stop_reads_the_screen_no_more() {
         Delivery::Screen(ScreenRead {
             id: read,
             text: Some(ScreenText::default()),
+            cursor: None,
         }),
         &mut harness.shell,
     );
@@ -226,6 +233,7 @@ fn key_after_the_read_of_a_scroll_stop_reads_the_screen_no_more() {
         Delivery::Screen(ScreenRead {
             id: stop_read,
             text: Some(ScreenText::default()),
+            cursor: None,
         }),
         &mut harness.shell,
     );

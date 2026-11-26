@@ -15,8 +15,8 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSWorkspace;
 use objc2_core_foundation::{CFData, CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
-    CGBitmapInfo, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage,
-    CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
+    CGBitmapInfo, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage, CGImageAlphaInfo,
+    CGImageByteOrderInfo, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
 use objc2_screen_capture_kit::{
@@ -24,7 +24,8 @@ use objc2_screen_capture_kit::{
 };
 use objc2_vision::{VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel};
 use typealike_core::desktop::{
-    Confidence, EnergySaver, OcrArea, OcrAvailability, OcrRead, ScreenLine, ScreenText,
+    Confidence, CursorLook, EnergySaver, OcrArea, OcrAvailability, OcrRead, PixelColor, ScreenLine,
+    ScreenPixels, ScreenRect, ScreenText,
 };
 use typealike_core::settings::OcrLevel;
 
@@ -146,28 +147,31 @@ impl Ocr {
     /// Reads the text near the focused field of the app of `process` from a capture of the area
     /// of `ocr` in its window, at the level of `ocr`. `None` for a password field, or when the
     /// capture or the OCR fails.
-    pub(crate) fn read(&mut self, process: i32, ocr: OcrRead) -> Option<ScreenText> {
-        let field = focus::focused_field(process)?;
+    /// A field that shows its text only on the screen and gives no caret also gets the look at its
+    /// block cursor in the same capture.
+    pub(crate) fn read(&mut self, process: i32, ocr: OcrRead) -> (Option<ScreenText>, Option<CursorLook>) {
+        let Some(field) = focus::focused_field(process) else {
+            return (None, None);
+        };
         let field_window = FieldWindow::of(&field, ocr.area);
         let mut run = OcrRun::new(ocr);
-        let text = self.read_window(process, &field, field_window, &mut run);
-        run.log();
-        text
-    }
-
-    /// Captures the band of `field_window` around `field`, and recognizes its text unless the
-    /// last OCR had the same pixels at the same level. Notes the time of each step in `run`.
-    fn read_window(
-        &mut self,
-        process: i32,
-        field: &FocusedField,
-        field_window: FieldWindow,
-        run: &mut OcrRun,
-    ) -> Option<ScreenText> {
         let started = Instant::now();
         let capture = capture_band(process, field_window);
         run.capture = Some(started.elapsed());
-        let capture = capture?;
+        let cursor = capture.as_ref().and_then(|capture| cursor_look(capture, &field));
+        let text = capture.and_then(|capture| self.recognize_capture(&capture, &field, &mut run));
+        run.log();
+        (text, cursor)
+    }
+
+    /// Recognizes the text of `capture` around `field` unless the last OCR had the same pixels at
+    /// the same level. Notes the time of each step in `run`.
+    fn recognize_capture(
+        &mut self,
+        capture: &Capture,
+        field: &FocusedField,
+        run: &mut OcrRun,
+    ) -> Option<ScreenText> {
         run.pixels = Some((
             CGImage::width(Some(&capture.image)),
             CGImage::height(Some(&capture.image)),
@@ -176,7 +180,7 @@ impl Ocr {
         let typing_area = (!field.shows_text_only_on_screen).then_some(field.frame);
         let input = RecognitionInput {
             window: capture.window,
-            pixels_hash: pixels_hash(&capture, typing_area)?,
+            pixels_hash: pixels_hash(capture, typing_area)?,
             level: run.ocr.level,
         };
         run.hash = Some(hash_started.elapsed());
@@ -191,6 +195,30 @@ impl Ocr {
         run.lines = Some(lines.len());
         Some(screen_text_of(lines.iter(), capture.band.origin, field))
     }
+}
+
+/// Looks for the block cursor of the focused field of the app of `process` in a capture of the
+/// field, without OCR. `None` when the field does not show its text only on the screen, gives a
+/// caret, or the capture fails.
+pub(crate) fn look_at_cursor(process: i32) -> Option<CursorLook> {
+    let field = focus::focused_field(process)?;
+    let started = Instant::now();
+    let capture = capture_band(process, FieldWindow::of(&field, OcrArea::Window));
+    tracing::debug!(capture = ?started.elapsed(), "captured the field for its cursor");
+    cursor_look(&capture?, &field)
+}
+
+/// The block cursors in the pixels of `field` in `capture`, when the field shows its text only on
+/// the screen and gives no caret.
+fn cursor_look(capture: &Capture, field: &FocusedField) -> Option<CursorLook> {
+    if !field.shows_text_only_on_screen || field.caret.is_some() {
+        return None;
+    }
+    let pixels = field_pixels(&capture.image, capture.band, capture.scale, field.frame)?;
+    Some(CursorLook {
+        field: screen_rect(field.frame),
+        blocks: pixels.cursor_blocks(),
+    })
 }
 
 /// The steps of one OCR and their times, for the logs. A step that did not run has no value.
@@ -660,6 +688,111 @@ fn masked_hash(pixels: &[u8], layout: &PixelLayout, mask: &PixelRect) -> u64 {
     hasher.finish()
 }
 
+/// Where the red, the green and the blue byte of a pixel lie, from the first byte of the pixel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChannelOffsets {
+    red: usize,
+    green: usize,
+    blue: usize,
+}
+
+impl ChannelOffsets {
+    /// The offsets in an image of 4 bytes for each pixel, with its alpha byte as `alpha` tells and
+    /// its bytes in `byte_order`. `None` for another layout.
+    fn of(alpha: CGImageAlphaInfo, byte_order: CGImageByteOrderInfo, bytes_per_pixel: usize) -> Option<Self> {
+        const FOUR_BYTES: usize = 4;
+        if bytes_per_pixel != FOUR_BYTES {
+            return None;
+        }
+        let is_alpha_first = [
+            CGImageAlphaInfo::PremultipliedFirst,
+            CGImageAlphaInfo::First,
+            CGImageAlphaInfo::NoneSkipFirst,
+        ]
+        .contains(&alpha);
+        let is_alpha_last = [
+            CGImageAlphaInfo::PremultipliedLast,
+            CGImageAlphaInfo::Last,
+            CGImageAlphaInfo::NoneSkipLast,
+        ]
+        .contains(&alpha);
+        let is_little_endian = byte_order == CGImageByteOrderInfo::Order32Little;
+        let is_big_endian = [
+            CGImageByteOrderInfo::Order32Big,
+            CGImageByteOrderInfo::OrderDefault,
+        ]
+        .contains(&byte_order);
+        let [red, green, blue] = match (is_alpha_first, is_alpha_last) {
+            (true, _) if is_little_endian => [2, 1, 0],
+            (true, _) if is_big_endian => [1, 2, 3],
+            (_, true) if is_little_endian => [3, 2, 1],
+            (_, true) if is_big_endian => [0, 1, 2],
+            _ => return None,
+        };
+        Some(Self { red, green, blue })
+    }
+}
+
+/// The pixels of `field` in `image`, a capture of `band` with `scale` pixels for each point, with
+/// one pixel for each point. `None` when the image has another layout of its bytes, or does not
+/// show the field.
+fn field_pixels(image: &CGImage, band: CGRect, scale: f64, field: CGRect) -> Option<ScreenPixels> {
+    let area = screen_rect(intersection(field, band)?);
+    let data = CGDataProvider::data(CGImage::data_provider(Some(image)).as_deref())?;
+    let layout = PixelLayout {
+        width: CGImage::width(Some(image)),
+        height: CGImage::height(Some(image)),
+        bytes_per_row: CGImage::bytes_per_row(Some(image)),
+        bytes_per_pixel: CGImage::bits_per_pixel(Some(image)) / 8,
+    };
+    let offsets = ChannelOffsets::of(
+        CGImage::alpha_info(Some(image)),
+        CGImage::byte_order_info(Some(image)),
+        layout.bytes_per_pixel,
+    )?;
+    // SAFETY: `data` is a copy of the pixels that nothing changes.
+    let pixels = unsafe { data.as_bytes_unchecked() };
+    let colors = colors_at_points(pixels, &layout, offsets, area, band.origin, scale)?;
+    ScreenPixels::new(area, colors)
+}
+
+/// The color of each point of `area`, in global points, in the `pixels` of a band at `band_origin`
+/// with `scale` pixels for each point: the color of the top left pixel of the point. `None` when
+/// the pixels do not hold all of `area`.
+fn colors_at_points(
+    pixels: &[u8],
+    layout: &PixelLayout,
+    offsets: ChannelOffsets,
+    area: ScreenRect,
+    band_origin: CGPoint,
+    scale: f64,
+) -> Option<Vec<PixelColor>> {
+    let columns = (area.left..area.right)
+        .map(|column| to_pixels(f64::from(column) - band_origin.x, scale))
+        .collect::<Vec<_>>();
+    let mut colors = Vec::new();
+    for row in area.top..area.bottom {
+        let pixel_row = to_pixels(f64::from(row) - band_origin.y, scale);
+        if pixel_row >= layout.height {
+            return None;
+        }
+        let row_start = pixel_row * layout.bytes_per_row;
+        for &column in &columns {
+            if column >= layout.width {
+                return None;
+            }
+            let start = row_start + column * layout.bytes_per_pixel;
+            let pixel = pixels.get(start..start + layout.bytes_per_pixel)?;
+            colors.push(PixelColor {
+                red: pixel[offsets.red],
+                green: pixel[offsets.green],
+                blue: pixel[offsets.blue],
+            });
+        }
+    }
+    Some(colors)
+}
+
 /// Recognizes the lines of text in `image`, which shows `size` points of the screen, at `level`.
 fn recognize(image: &CGImage, size: CGSize, level: OcrLevel) -> Option<Vec<RecognizedLine>> {
     // SAFETY: plain calls on new objects.
@@ -715,6 +848,11 @@ fn frame_in_band(bounds: CGRect, size: CGSize) -> CGRect {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::c_void;
+    use std::fmt::Write as _;
+
+    use objc2_core_foundation::{CFType, CFURL};
+
     use super::*;
     use crate::geometry::frame;
 
@@ -912,5 +1050,172 @@ mod tests {
         let in_band = frame_in_band(frame(0.25, 0.5, 0.5, 0.25), CGSize::new(800.0, 400.0));
 
         assert_eq!(in_band, frame(200.0, 100.0, 400.0, 100.0));
+    }
+
+    #[test]
+    fn channel_offsets_follow_the_alpha_and_the_byte_order() {
+        let layouts = [
+            (
+                CGImageAlphaInfo::PremultipliedFirst,
+                CGImageByteOrderInfo::Order32Little,
+                4,
+            ),
+            (
+                CGImageAlphaInfo::NoneSkipFirst,
+                CGImageByteOrderInfo::OrderDefault,
+                4,
+            ),
+            (
+                CGImageAlphaInfo::PremultipliedLast,
+                CGImageByteOrderInfo::Order32Big,
+                4,
+            ),
+            (CGImageAlphaInfo::Last, CGImageByteOrderInfo::Order32Little, 4),
+            (CGImageAlphaInfo::None, CGImageByteOrderInfo::OrderDefault, 3),
+        ];
+
+        let offsets = layouts.map(|(alpha, order, bytes)| {
+            ChannelOffsets::of(alpha, order, bytes).map(|offsets| [offsets.red, offsets.green, offsets.blue])
+        });
+
+        assert_eq!(
+            offsets,
+            [
+                Some([2, 1, 0]),
+                Some([1, 2, 3]),
+                Some([0, 1, 2]),
+                Some([3, 2, 1]),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn each_point_takes_the_color_of_its_top_left_pixel() {
+        let layout = PixelLayout {
+            width: 4,
+            height: 2,
+            bytes_per_row: 16,
+            bytes_per_pixel: 4,
+        };
+        let pixels = (0..32).collect::<Vec<u8>>();
+        let rgba = ChannelOffsets {
+            red: 0,
+            green: 1,
+            blue: 2,
+        };
+        let area = ScreenRect {
+            left: 10,
+            top: 20,
+            right: 12,
+            bottom: 21,
+        };
+
+        let colors = colors_at_points(&pixels, &layout, rgba, area, CGPoint::new(10.0, 20.0), 2.0);
+
+        let color_starting_at = |first: u8| PixelColor {
+            red: first,
+            green: first + 1,
+            blue: first + 2,
+        };
+        assert_eq!(colors, Some(vec![color_starting_at(0), color_starting_at(8)]));
+    }
+
+    #[test]
+    fn points_outside_the_pixels_give_no_colors() {
+        let layout = PixelLayout {
+            width: 2,
+            height: 2,
+            bytes_per_row: 8,
+            bytes_per_pixel: 4,
+        };
+        let rgba = ChannelOffsets {
+            red: 0,
+            green: 1,
+            blue: 2,
+        };
+        let area = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 2,
+            bottom: 1,
+        };
+
+        let colors = colors_at_points(&[0; 16], &layout, rgba, area, CGPoint::ZERO, 2.0);
+
+        assert_eq!(colors, None);
+    }
+
+    #[link(name = "ImageIO", kind = "framework")]
+    unsafe extern "C-unwind" {
+        fn CGImageSourceCreateWithURL(url: &CFURL, options: *const c_void) -> *mut CFType;
+        fn CGImageSourceCreateImageAtIndex(
+            source: &CFType,
+            index: usize,
+            options: *const c_void,
+        ) -> *mut CGImage;
+    }
+
+    /// The image of the PNG file at `path`.
+    fn png_image(path: &str) -> CFRetained<CGImage> {
+        let url = CFURL::from_file_path(path).expect("the path is a file path");
+        // SAFETY: valid arguments, and each call gives a new object that the `CFRetained` owns.
+        unsafe {
+            let source =
+                NonNull::new(CGImageSourceCreateWithURL(&url, ptr::null())).expect("the file is an image");
+            let source = CFRetained::from_raw(source);
+            let image = NonNull::new(CGImageSourceCreateImageAtIndex(&source, 0, ptr::null()))
+                .expect("the file holds an image");
+            CFRetained::from_raw(image)
+        }
+    }
+
+    /// Finds the cursor blocks in the captures that the manifest at `CURSOR_REPLAY` lists, one
+    /// capture on each line: its path, its pixels for each point, and the frame of the field in
+    /// points of the capture (left, top, right, bottom). Writes one line for each capture to the
+    /// file at `CURSOR_REPLAY_OUT`: its path, the time of the search in microseconds, and the frame
+    /// of each block.
+    #[test]
+    #[ignore = "reads local captures of the screen, which never go into the repo"]
+    fn captures_give_their_cursor_blocks() {
+        let manifest = std::env::var("CURSOR_REPLAY").expect("CURSOR_REPLAY names the manifest");
+        let out = std::env::var("CURSOR_REPLAY_OUT").expect("CURSOR_REPLAY_OUT names the result file");
+        let mut results = String::new();
+        for line in std::fs::read_to_string(manifest)
+            .expect("the manifest is readable")
+            .lines()
+        {
+            let parts = line.split_whitespace().collect::<Vec<_>>();
+            let numbers = parts[1..]
+                .iter()
+                .map(|part| part.parse::<f64>().expect("a number"))
+                .collect::<Vec<_>>();
+            let [scale, left, top, right, bottom] = numbers[..] else {
+                panic!("each line has a path and 5 numbers");
+            };
+            let image = png_image(parts[0]);
+            let size = CGSize::new(
+                f64::from(u32::try_from(CGImage::width(Some(&image))).expect("a small image")) / scale,
+                f64::from(u32::try_from(CGImage::height(Some(&image))).expect("a small image")) / scale,
+            );
+            let band = CGRect::new(CGPoint::ZERO, size);
+            let field = CGRect::new(CGPoint::new(left, top), CGSize::new(right - left, bottom - top));
+            let started = Instant::now();
+            let blocks = field_pixels(&image, band, scale, field).map(|pixels| pixels.cursor_blocks());
+            let search = started.elapsed();
+            let shown = blocks.map_or_else(
+                || "none".to_owned(),
+                |blocks| {
+                    blocks
+                        .iter()
+                        .map(|block| format!("{},{},{},{}", block.left, block.top, block.right, block.bottom))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                },
+            );
+            writeln!(results, "{} {} {shown}", parts[0], search.as_micros())
+                .expect("a string takes the text");
+        }
+        std::fs::write(out, results).expect("the result file is writable");
     }
 }

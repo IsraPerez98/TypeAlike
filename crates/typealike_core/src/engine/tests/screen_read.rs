@@ -120,7 +120,14 @@ fn chat_at(seconds: u64) -> FakeDesktop {
 fn read_screens<const COUNT: usize>(engine: &mut Engine, reads: [(ScreenText, FakeDesktop); COUNT]) {
     for (text, desktop) in reads {
         let id = engine.start_screen_read().expect("no session runs");
-        engine.on_screen_read(ScreenRead { id, text: Some(text) }, &desktop);
+        engine.on_screen_read(
+            ScreenRead {
+                id,
+                text: Some(text),
+                cursor: None,
+            },
+            &desktop,
+        );
     }
 }
 
@@ -209,6 +216,7 @@ fn read_screen(engine: &mut Engine, desktop: &FakeDesktop, screen: ScreenText) {
         ScreenRead {
             id,
             text: Some(screen),
+            cursor: None,
         },
         desktop,
     );
@@ -238,7 +246,14 @@ fn prompt_after_one_read(desktop: &FakeDesktop, screen: ScreenText, typed: &str)
 }
 
 fn answer_read(engine: &mut Engine, id: ScreenReadId, text: Option<ScreenText>) -> ScreenAnswer {
-    engine.on_screen_read(ScreenRead { id, text }, &FakeDesktop::default())
+    engine.on_screen_read(
+        ScreenRead {
+            id,
+            text,
+            cursor: None,
+        },
+        &FakeDesktop::default(),
+    )
 }
 
 fn engine_that_read(line: &str) -> Engine {
@@ -333,6 +348,7 @@ fn screen_text_that_comes_during_a_session_keeps_room_for_the_completion() {
         ScreenRead {
             id,
             text: Some(screen_with(&"屏".repeat(1100))),
+            cursor: None,
         },
         &desktop,
     );

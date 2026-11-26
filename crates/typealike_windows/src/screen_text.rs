@@ -82,6 +82,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
         let text = connection.connected().and_then(|uia| match newest.source {
             ScreenSource::Accessibility => uia.screen_text(),
             ScreenSource::Ocr(_) => ocr.read(uia),
+            ScreenSource::Cursor => None,
         });
         tracing::debug!(
             read = ?newest.read,
@@ -94,6 +95,7 @@ fn answer_reads(requests: &mpsc::Receiver<ScreenRequest>, answers: &Mailbox<Scre
         let read = ScreenRead {
             id: newest.read,
             text,
+            cursor: None,
         };
         #[cfg(feature = "suggestion-log")]
         crate::suggestion_log::screen_read(

@@ -28,7 +28,7 @@ use crate::app::{
 };
 use crate::desktop::{
     AfterCaret, CopiedText, Desktop, EnergySaver, Field, FullScreenActivity, GameActivity, LinesBelow,
-    OcrAvailability, OcrLevels, Permission, PermissionState, ScreenRect, Surroundings, Timestamp,
+    OcrAvailability, OcrLevels, Permission, PermissionState, ScreenRead, ScreenRect, Surroundings, Timestamp,
 };
 use crate::diagnostics::KeptItems;
 use crate::engine::{AfterAccept, Reaction};
@@ -810,10 +810,7 @@ impl Controller {
             Delivery::Playground(event) => self.on_playground_event(event, shell),
             Delivery::Suggestion(event) => self.on_suggestion_event(event, shell),
             Delivery::Recommendation(event) => self.on_recommendation_event(&event, shell),
-            Delivery::Screen(read) => {
-                let work = self.app.on_screen_read(read, &*shell);
-                self.do_settled_work(work, shell);
-            }
+            Delivery::Screen(read) => self.on_screen_read(read, shell),
             Delivery::Release(release) => {
                 let request = self.about.on_newest_release(release);
                 self.on_about_request(request, shell);
@@ -1317,6 +1314,26 @@ impl Controller {
             self.add_suggested_place();
         } else {
             self.add_off_by_default_app();
+        }
+        if is_suggestion_shown && read.caret.is_none() {
+            let work = self.app.start_cursor_look(&*shell);
+            self.do_settled_work(work, shell);
+        }
+    }
+
+    /// Handles the answer of a read of the screen. Its look at the block cursor goes to the
+    /// session, and the text of a read that is not only a look goes to the prompt. When the look
+    /// moves the anchor of the mirror, the shown ghost text shows again at the new anchor. A ghost
+    /// text that waits for the caret shows there when the caret settles.
+    fn on_screen_read(&mut self, read: ScreenRead, shell: &mut dyn Shell) {
+        let is_only_a_look = self.app.is_cursor_look(read.id);
+        let is_anchor_moved = self.app.on_cursor_look(&read);
+        if !is_only_a_look {
+            let work = self.app.on_screen_read(read, &*shell);
+            self.do_settled_work(work, shell);
+        }
+        if is_anchor_moved && shell.is_ghost_shown() && !self.caret_wait.is_timer_pending() {
+            self.render_waiting_ghost(shell);
         }
     }
 
