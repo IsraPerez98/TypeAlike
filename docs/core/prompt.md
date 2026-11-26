@@ -32,6 +32,14 @@ Each section has a budget of estimated tokens. The whole preface has at most 200
 
 The examples of the earlier writing are in `docs/core/earlier-writing.md`. The frame lines (the lines that a suggestion must not copy) are in `docs/core/suggestions.md`, "Suggestions that do not show".
 
+These changes of the prompt did not ship:
+
+- A line with the region of each spelling language. On `regional.jsonl`, it helped 51 cases and harmed 22, but for an en-GB writer it made more leaks and harmed the general sets.
+- Three changes of the frame, measured on the 34 `start-` and `clip-` cases of `leaks.jsonl` (Gemma 4 E4B, `--name "Sara Novak" --notes TEXT --word-choice medium`, the first key as the start of the session, the long length without the sentence stop and the character replay). With the frame before them, the model wrote a clipboard echo in 2 cases and a note in brackets after the end of a sentence in 1 case.
+  - The clipboard label "Clipboard: " gave echoes in 5 cases.
+  - A frame without its list of kinds of text ("for example an email, …") gave leaks in 3 cases and notes in 2.
+  - Age labels without brackets ("9 days ago: ") gave echoes in 4 cases and notes in 2.
+
 ### Quotes
 
 - The notes, the earlier writing, the clipboard and the text after the caret are in curly quotes after their labels. Each earlier text has a line break before its closing quote (`docs/core/earlier-writing.md`).
@@ -102,7 +110,7 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
 - Its lines on the screen are its text, so they stay and count as above the caret. In VS Code, that is the line of the caret.
 - A line of such a field that shows a part of the text that the user typed in the session goes, because the prompt has that text already (`FieldContent::shows_typed_text`). The signs at the start of the line do not count, such as the prompt mark of an agent in a terminal ("❯ ").
 - When the platform does not know the caret, the last such line is the line of the caret. The lines nearest to the caret fill the budget first.
-- Without a caret and without a line of the typed text, a field that holds two lines or more does not tell the row of the caret (`screen::knows_caret_row`). Then all its lines are above the caret, and the last line above the field does not come again. In the log of one day, a terminal read before it showed the typed key in more than 90 percent of the requests, and the repeated line was the status bar of the window in about 97 percent of the Herdr prompts. On the made-up set `terminal_agent.jsonl`, the rule changed no match and made the prompts 16 percent shorter.
+- Without a caret and without a line of the typed text, a field that holds two lines or more does not tell the row of the caret (`screen::knows_caret_row`). Then all its lines are above the caret, and the last line above the field does not come again. In the log of one day, a terminal read before it showed the typed key in more than 90 percent of the requests, and the repeated line was the status bar of the window in about 97 percent of the Herdr prompts. On the made-up set `terminal_agent.jsonl` (Gemma 4 E4B on Metal, 2026-11-25), the rule changed no match and made the median prompt 16 percent shorter (175 to 147 tokens). The log probability of the next word changed by +0.119 (95% interval −0.064 to +0.303).
 - The lines of the field below the row of the caret, such as the status lines of an agent, are below the caret. The other lines of the field count as above it, also a line on the row of the caret that does not match the typed text, such as text that the user typed before the session.
 - The lines of the field come after the other lines above the caret, so that they lead to the caret. In the terminal of VS Code, the side bar has lines between the last answer of the terminal and the caret row.
 - On 12 synthetic prompts to coding agents in a terminal (Gemma 4 E4B), these two rules gave the right next word in 11 cases, against 6 with the whole screen after the caret and 6 with all the lines above the caret. With all the lines above, the model copied the status lines.
@@ -147,6 +155,9 @@ The examples of the earlier writing are in `docs/core/earlier-writing.md`. The f
   - A focus change drops the kept lines, as it drops the screen text. Without a clock, TypeAlike keeps no lines.
   - The kept lines that the newest read does not show go above all its lines, in their old order, as if the chat were taller. They are farther from the caret, so they fill the budget of the screen text after the lines on the screen.
   - After a single read, the prompt shows only the lines of that read. In other places, it shows only the newest read.
+  - Two rules for the copies of a message did not ship (`scrolled.jsonl`, Gemma 4 E4B on Metal, `--name "Sara Novak" --word-choice medium`, with `--length long --sentence-stop off` and with the defaults, 2026-11-21):
+    - A chat line of 5 or more words that is the start or the end of another line of the prompt goes. On `topcut` and `quote` (18 cases), no case changed its match, and the log probability of the next word changed by −0.016 (95% interval −0.032 to −0.000). The loss was on `quote` (−0.046), where the quote near the caret went. With a floor of 3 words, the rule also dropped the name of a company under an email signature, because that name ended the subject line.
+    - A kept line of an earlier read matches a line of the newest read with or without a time at its end. On `timed` (8 cases), no case changed its match, and the log probability changed by −0.008 (−0.030 to +0.015).
 - When the lines of the accessibility tree that the prompt can keep hold fewer than 40 words with a letter (`MIN_TREE_WORDS`) and the platform can do an OCR, core asks for an OCR read. The tree of an app that draws its text itself, such as the editor of VS Code, often gives only the labels of the app.
 - When the OCR gives no lines, the lines of the tree stay.
 - An OCR reads the whole window only in a chat or an email app (`OcrArea::Window`). Elsewhere, and in a browser also for a chat or an email page, it reads the content that holds the field (`OcrArea::Content`, `screen::ocr_area`):

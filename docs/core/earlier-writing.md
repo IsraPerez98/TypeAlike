@@ -56,6 +56,7 @@ The earlier writing of the user (`history` in `typealike_core`, the file in `typ
 - Each example keeps at most 160 estimated tokens: a longer text keeps its start (its greeting) and its end, with "…" between them.
 - All the examples together keep at most 320 estimated tokens (`HISTORY_TOKENS`), so two long examples both keep their greeting and their names. When they do not fit, the older examples keep only their end. On 327 cases with earlier writing (Gemma 4 E4B), 320 instead of 200 tokens helped 9 cases and harmed 1, and the time on the first key went from 296 to 302 ms (median).
 - Each example with a time starts with its age ("(today)", "(yesterday)", "(4 days ago)", "(2 weeks ago)"), from the clock of the desktop.
+- A line of the prompt with the new word of the texts of today did not ship. It helped 9 cases of `new_words` and harmed none, but it helped 3 cases of `today_harm` and harmed 18, because the model wrote the invented word in place of the right word.
 - Each example is in curly quotes, with a line break before its closing quote. A quote just after the text makes the model end the typed text with a quote, which then shows at the end of the suggestion.
 - A near copy of a picked example is no example: two texts that differ in at most 2 inserted, deleted or changed characters, or in at most 10 percent of the characters of the shorter text. Thus the spelling that the writer uses most stays.
 
