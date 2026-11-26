@@ -722,6 +722,37 @@ fn age_label_is_how_the_preface_writes_the_age_of_an_earlier_text() {
 }
 
 #[test]
+fn frame_lines_keep_the_placeholder_of_the_field() {
+    let field = Surroundings {
+        field_labels: FieldLabels {
+            name: Some("Message body".to_owned()),
+            placeholder: Some("Write a reply".to_owned()),
+            ..FieldLabels::default()
+        },
+        ..Surroundings::default()
+    };
+
+    let lines = frame_lines(&Writer::default(), &field, None);
+
+    assert_eq!(
+        lines,
+        [FRAME, "Where I am typing:", "Write a reply", TEXT_HEADING]
+    );
+}
+
+#[test]
+fn frame_lines_leave_out_the_other_labels_of_the_field() {
+    let named = Surroundings {
+        field_labels: named_field("Message body"),
+        ..Surroundings::default()
+    };
+
+    let lines = frame_lines(&Writer::default(), &named, None);
+
+    assert_eq!(lines, [FRAME, "Where I am typing:", TEXT_HEADING]);
+}
+
+#[test]
 fn frame_lines_keep_the_notes_of_an_example() {
     let notes = WriterNotes::default();
     let writer = Writer {

@@ -1,6 +1,6 @@
 //! Tests that a suggestion does not show a copy of a frame line of a preface with all its parts.
 
-use crate::desktop::{Confidence, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
+use crate::desktop::{Confidence, FieldLabels, FieldText, ScreenLine, ScreenRect, ScreenText, Surroundings};
 use crate::inference::TokenCount;
 use crate::prompt::{Example, LABELS, NotesOrigin, Preface, ScreenPart, Writer, preface_with_screen_lines};
 use crate::settings::WriterNotes;
@@ -74,6 +74,10 @@ fn full_preface(name: &str) -> Preface {
     let surroundings = Surroundings {
         app_name: Some("Mail".to_owned()),
         window_title: Some("Lunch on Friday".to_owned()),
+        field_labels: FieldLabels {
+            placeholder: Some("Write a reply to the team".to_owned()),
+            ..FieldLabels::default()
+        },
         field_text: Some(FieldText {
             before_caret: "Hi ".to_owned(),
             after_caret: "Best, Ana".to_owned(),

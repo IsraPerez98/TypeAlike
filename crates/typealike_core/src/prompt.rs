@@ -162,7 +162,8 @@ pub(crate) struct Preface {
     /// wrote or saw, so no line holds it. The notes of an example ([`NotesOrigin::Example`]) are
     /// the exception, because the writer did not write them. The place line keeps only its
     /// [`PLACE_LABEL`], because the window title and the labels of the field are text that the
-    /// writer can type.
+    /// writer can type. The placeholder of the field is the exception, because the field shows it
+    /// only while it is empty.
     pub(crate) frame_lines: Vec<String>,
 }
 
@@ -217,6 +218,8 @@ struct PrefaceParts<'text> {
     notes: Option<String>,
     /// The notes again when they are a part of the frame ([`NotesOrigin::Example`]).
     frame_notes: Option<String>,
+    /// The placeholder of the field when the place line shows it ([`shown_placeholder`]).
+    placeholder: Option<String>,
     name: Option<String>,
     place: Option<String>,
     examples: Vec<(&'text str, Option<u64>)>,
@@ -249,6 +252,7 @@ fn budgeted_parts<'text>(
         .as_ref()
         .map(|field_text| budget.take_start(field_text.after_caret.trim(), after_caret_tokens(surroundings)));
     let place = place_line(surroundings).map(|line| budget.take_start(&line, PREFACE_TOKENS).to_owned());
+    let placeholder = shown_placeholder(surroundings, place.as_deref());
     let nearby = screen
         .map(|screen| nearby_lines(screen, surroundings, budget.left(screen.max_tokens)))
         .unwrap_or_default();
@@ -272,6 +276,7 @@ fn budgeted_parts<'text>(
     PrefaceParts {
         notes,
         frame_notes,
+        placeholder,
         name,
         place,
         examples,
@@ -354,6 +359,7 @@ fn preface_of(parts: PrefaceParts<'_>) -> Preface {
         .map(|(frame, _)| frame)
         .filter(|frame| !frame.is_empty())
         .chain(parts.frame_notes)
+        .chain(parts.placeholder)
         .chain([TEXT_HEADING.to_owned()])
         .collect();
     Preface { text, frame_lines }
@@ -469,6 +475,19 @@ fn place_line(surroundings: &Surroundings) -> Option<String> {
         .collect::<Vec<_>>()
         .join(PLACE_PART_SEPARATOR);
     (!line.is_empty()).then_some(line)
+}
+
+/// Returns the placeholder of the field in `surroundings` on one line, when the `place` line shows
+/// it. A field shows its placeholder only while it is empty, so the writer does not type it, and a
+/// copy of it is no writing.
+fn shown_placeholder(surroundings: &Surroundings, place: Option<&str>) -> Option<String> {
+    let placeholder = budgeted_line(
+        surroundings.field_labels.placeholder.as_deref(),
+        FIELD_LABEL_TOKENS,
+    )?;
+    let is_shown = place.is_some_and(|place| place.contains(&placeholder))
+        && place::field_labels(surroundings).contains(&placeholder);
+    is_shown.then_some(placeholder)
 }
 
 /// Returns the start of `text` that fits in `budget`, with each run of whitespace as one space, or

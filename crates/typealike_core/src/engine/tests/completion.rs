@@ -390,6 +390,47 @@ fn completion_that_starts_the_field_as_the_name_line_hides() {
     assert_eq!(reaction, Reaction::Hide);
 }
 
+/// Returns what the engine does with `completion` after the key `key` in a field with the
+/// `placeholder` that holds `field_before`.
+fn completion_in_field_with_placeholder(
+    placeholder: &str,
+    field_before: &str,
+    key: char,
+    completion_text: &str,
+) -> Reaction {
+    let mut desktop = FakeDesktop::with_field_text(field_before);
+    desktop.surroundings.field_labels.placeholder = Some(placeholder.to_owned());
+    let mut engine = engine_with(&named_writer(""));
+    engine.on_key(Key::Char(key), Press::First, &desktop);
+    engine.on_completion(completion(completion_text))
+}
+
+#[test]
+fn completion_that_starts_the_line_as_the_placeholder_of_the_field_hides() {
+    let cases = [
+        ("Write a reply", "W", 'r', "ite a reply to Tom"),
+        ("Press '/' for commands", "P", 'r', "ess '/' for commands"),
+    ];
+
+    let reactions = cases.map(|(placeholder, field_before, key, text)| {
+        completion_in_field_with_placeholder(placeholder, field_before, key, text)
+    });
+
+    assert_eq!(reactions, cases.map(|_| Reaction::Hide));
+}
+
+#[test]
+fn completion_that_holds_a_short_placeholder_inside_its_line_shows() {
+    let reaction = completion_in_field_with_placeholder(
+        "Write a reply",
+        "Thanks, I will",
+        ' ',
+        "write a reply to Tom tomorrow.",
+    );
+
+    assert_eq!(reaction, show("write a reply to Tom tomorrow."));
+}
+
 #[test]
 fn completion_that_holds_a_short_name_line_of_the_prompt_frame_shows() {
     let settings = Settings {
