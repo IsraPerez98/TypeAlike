@@ -15,6 +15,7 @@ mod suggestion_log;
 mod test_support;
 mod words;
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -120,8 +121,9 @@ enum Waited {
 /// The jobs that wait.
 struct JobQueue<'jobs> {
     jobs: &'jobs Receiver<Job>,
-    /// The job that comes before the jobs in `jobs`: a job that a step looked at or gave back.
-    next_job: Option<Job>,
+    /// The jobs that come before the jobs in `jobs`, oldest first: the jobs that a step looked at
+    /// or gave back.
+    received: VecDeque<Job>,
     /// What the records of the completions keep from one completion to the next, also after
     /// another model loads.
     #[cfg(feature = "suggestion-log")]
@@ -132,7 +134,7 @@ impl<'jobs> JobQueue<'jobs> {
     fn new(jobs: &'jobs Receiver<Job>) -> Self {
         Self {
             jobs,
-            next_job: None,
+            received: VecDeque::new(),
             #[cfg(feature = "suggestion-log")]
             log: suggestion_log::CompletionLog::default(),
         }
@@ -140,12 +142,12 @@ impl<'jobs> JobQueue<'jobs> {
 
     /// Waits for the next job. Returns `None` when every sender is gone.
     fn next(&mut self) -> Option<Job> {
-        self.next_job.take().or_else(|| self.jobs.recv().ok())
+        self.received.pop_front().or_else(|| self.jobs.recv().ok())
     }
 
     /// Waits at most `limit` for the next job.
     fn next_within(&mut self, limit: Duration) -> Waited {
-        if let Some(job) = self.next_job.take() {
+        if let Some(job) = self.received.pop_front() {
             return Waited::Job(job);
         }
         match self.jobs.recv_timeout(limit) {
@@ -157,22 +159,22 @@ impl<'jobs> JobQueue<'jobs> {
 
     /// Makes `job` the next job again.
     fn give_back(&mut self, job: Job) {
-        self.next_job = Some(job);
+        self.received.push_front(job);
     }
 
     /// Whether a job waits. It keeps the job that it receives as the next job.
     fn has_waiting_job(&mut self) -> bool {
-        if self.next_job.is_none() {
-            self.next_job = self.jobs.try_recv().ok();
+        if self.received.is_empty() {
+            self.received.extend(self.jobs.try_recv());
         }
-        self.next_job.is_some()
+        !self.received.is_empty()
     }
 
     /// Whether the next job, if one waits, completes text for `sink`, so that it replaces the
     /// completion for `sink` that runs now. It keeps the job that it receives as the next job.
     fn has_newer_completion(&mut self, sink: &InferenceEventSink) -> bool {
         self.has_waiting_job()
-            && self.next_job.as_ref().is_some_and(|job| {
+            && self.received.front().is_some_and(|job| {
                 matches!(job.request, InferenceRequest::Complete { .. }) && Arc::ptr_eq(&job.reply.sink, sink)
             })
     }
