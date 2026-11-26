@@ -84,8 +84,8 @@ impl RefusedRequest {
     }
 
     /// The failure that core gets for this answer at `now`. A status 403 or 429 with no request
-    /// left is a rate limit, which resets at the time of `x-ratelimit-reset`. Any other answer is
-    /// another failure.
+    /// left is a rate limit, which resets at the time of `x-ratelimit-reset`. Any other answer, and a
+    /// reset that the clock cannot hold, is another failure.
     fn read_failure(&self, now: SystemTime) -> ReleaseReadFailed {
         let is_used_rate_limit =
             matches!(self.status, 403 | 429) && self.rate_limit_remaining.as_deref() == Some("0");
@@ -93,7 +93,7 @@ impl RefusedRequest {
             .rate_limit_reset
             .as_deref()
             .and_then(|seconds| seconds.parse().ok())
-            .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds));
+            .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
         match reset {
             Some(reset) if is_used_rate_limit => ReleaseReadFailed::RateLimited {
                 resets_in: reset.duration_since(now).unwrap_or(Duration::ZERO),
@@ -461,12 +461,13 @@ mod tests {
             (403, rate_limit_headers("12", &reset)),
             (404, rate_limit_headers("0", &reset)),
             (403, rate_limit_headers("0", "soon")),
+            (403, rate_limit_headers("0", &u64::MAX.to_string())),
             (403, HeaderMap::new()),
         ];
 
         let failures = cases.map(|(status, headers)| read_failure_at_now(status, &headers));
 
-        assert_eq!(failures, [ReleaseReadFailed::Other; 4]);
+        assert_eq!(failures, [ReleaseReadFailed::Other; 5]);
     }
 
     #[test]
