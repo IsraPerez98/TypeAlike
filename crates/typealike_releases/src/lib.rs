@@ -23,6 +23,7 @@ use typealike_core::release::{
     ReleaseReadFailed, ReleaseSink, ReleaseTag, SelfUpdate,
 };
 use ureq::Agent;
+use ureq::http::HeaderMap;
 
 const RELEASES_URL: &str = "https://api.github.com/repos/IsraPerez98/TypeAlike/releases";
 const ACCEPT: &str = "application/vnd.github+json";
@@ -35,14 +36,52 @@ const BODY_TIMEOUT: Duration = Duration::from_hours(1);
 const UPDATE_FOLDER: &str = "TypeAlike-update";
 const DIGEST_PREFIX: &str = "sha256:";
 const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
+/// The header with the number of requests that this IP address can still make before the limit of
+/// the GitHub API resets.
+const RATE_LIMIT_REMAINING: &str = "x-ratelimit-remaining";
+/// The header with the time of the reset of the limit, in seconds since the Unix epoch.
+const RATE_LIMIT_RESET: &str = "x-ratelimit-reset";
+/// The characters at the start of the body of a refused request that the log keeps.
+const LOGGED_BODY_CHARS: usize = 200;
 
 /// Why a read of the newest release failed, with the details worth logging.
 #[derive(Debug, thiserror::Error)]
 enum FetchError {
     #[error("github request failed")]
     Http(#[from] ureq::Error),
+    #[error("github refused the request with status {}", .0.status)]
+    Refused(RefusedRequest),
     #[error("github sent malformed json")]
     Json(#[from] serde_json::Error),
+}
+
+/// An answer of the GitHub API with a status other than a success, with the details worth logging.
+#[derive(Debug, PartialEq, Eq)]
+struct RefusedRequest {
+    status: u16,
+    /// The value of `x-ratelimit-remaining`.
+    rate_limit_remaining: Option<String>,
+    /// The value of `x-ratelimit-reset`.
+    rate_limit_reset: Option<String>,
+    /// The first [`LOGGED_BODY_CHARS`] characters of the body.
+    body_start: String,
+}
+
+impl RefusedRequest {
+    fn new(status: u16, headers: &HeaderMap, body: &str) -> Self {
+        let header = |name| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        Self {
+            status,
+            rate_limit_remaining: header(RATE_LIMIT_REMAINING),
+            rate_limit_reset: header(RATE_LIMIT_RESET),
+            body_start: body.chars().take(LOGGED_BODY_CHARS).collect(),
+        }
+    }
 }
 
 /// Why the download of a release failed, with the details worth logging.
@@ -135,6 +174,13 @@ impl ReleaseFeed for GitHubReleases {
                     tracing::warn!(?error, "failed to read the newest release");
                     ReleaseReadFailed
                 });
+            if let Ok(tag) = &release {
+                tracing::info!(
+                    tag = tag.0,
+                    is_newer = tag.is_newer_than_build(),
+                    "read the newest release"
+                );
+            }
             sink(release);
         });
     }
@@ -175,13 +221,24 @@ impl ReleaseFeed for GitHubReleases {
     }
 }
 
+/// Reads the release of the GitHub API at `url`. A status other than a success gives
+/// [`FetchError::Refused`] with the rate limit and the start of the body.
 fn fetch_release(agent: &Agent, url: &str) -> Result<Release, FetchError> {
-    let body = agent
+    let mut response = agent
         .get(url)
         .header("Accept", ACCEPT)
-        .call()?
-        .body_mut()
-        .read_to_string()?;
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()?;
+    let status = response.status();
+    if !status.is_success() {
+        // The status and the headers tell enough when the body does not read.
+        let body = response.body_mut().read_to_string().unwrap_or_default();
+        let refused = RefusedRequest::new(status.as_u16(), response.headers(), &body);
+        return Err(FetchError::Refused(refused));
+    }
+    let body = response.body_mut().read_to_string()?;
     Ok(parse_json(&body)?)
 }
 
@@ -299,6 +356,55 @@ fn remove_folder(folder: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use ureq::http::HeaderValue;
+
+    fn rate_limit_headers(remaining: &str, reset: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            RATE_LIMIT_REMAINING,
+            HeaderValue::from_str(remaining).expect("ascii value"),
+        );
+        headers.insert(
+            RATE_LIMIT_RESET,
+            HeaderValue::from_str(reset).expect("ascii value"),
+        );
+        headers
+    }
+
+    #[test]
+    fn refused_request_keeps_the_status_the_rate_limit_and_the_start_of_the_body() {
+        let body = format!(r#"{{"message":"{}"}}"#, "é".repeat(300));
+
+        let refused = RefusedRequest::new(403, &rate_limit_headers("0", "1700000000"), &body);
+
+        assert_eq!(
+            (
+                refused.status,
+                refused.rate_limit_remaining.as_deref(),
+                refused.rate_limit_reset.as_deref(),
+                refused.body_start.chars().count(),
+            ),
+            (403, Some("0"), Some("1700000000"), 200)
+        );
+    }
+
+    #[test]
+    fn refused_request_without_rate_limit_headers_has_no_rate_limit() {
+        let body = r#"{"message":"Not Found"}"#;
+
+        let refused = RefusedRequest::new(404, &HeaderMap::new(), body);
+
+        assert_eq!(
+            refused,
+            RefusedRequest {
+                status: 404,
+                rate_limit_remaining: None,
+                rate_limit_reset: None,
+                body_start: body.to_owned(),
+            }
+        );
+    }
 
     const RELEASE_JSON: &str = r#"{
         "tag_name": "v0.7.0",

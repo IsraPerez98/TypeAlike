@@ -8,6 +8,15 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseTag(pub String);
 
+impl ReleaseTag {
+    /// Whether the tag is a version higher than the version of this build. A tag of another form,
+    /// such as a version with a pre-release part, is not newer.
+    #[must_use]
+    pub fn is_newer_than_build(&self) -> bool {
+        Version::parse(&self.0).is_some_and(|version| version > Version::of_build())
+    }
+}
+
 /// The read of the newest release failed. The service logs why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReleaseReadFailed;
@@ -226,6 +235,16 @@ mod tests {
 
         let version = env!("CARGO_PKG_VERSION");
         assert_eq!(versions, [version.to_owned(), format!("{version}-dev+1a2b3c4")]);
+    }
+
+    #[test]
+    fn tag_is_newer_only_when_its_version_is_higher_than_the_build() {
+        let this_version = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let tags = ["v99.0.0", "v0.0.1", this_version.as_str(), "latest"];
+
+        let are_newer = tags.map(|tag| ReleaseTag(tag.to_owned()).is_newer_than_build());
+
+        assert_eq!(are_newer, [true, false, false, false]);
     }
 
     #[test]
