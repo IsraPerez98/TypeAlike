@@ -149,6 +149,17 @@
 //! `--name "Sara Novak"` and `--word-choice medium` for a change to the prompt or to the filters
 //! of a suggestion, also with `--session-start first-key`.
 //!
+//! `cases/leaks_adversarial.jsonl` has made-up leak cases where the model can copy a text of the
+//! prompt or answer a prompt in place of the writer: a label-like line before Enter, a placeholder,
+//! prompts to an agent, the source code of the prompt on the screen, Spanish starts of a label and
+//! starts of the default notes. Its `self-intro` cases have no leaks: their next words are "name is
+//! Sara Novak", so they count the good suggestions that a filter hides. Run it with
+//! `--name "Sara Novak"` and `--word-choice medium`, also with `--session-start first-key`.
+//!
+//! For the leak cases, the report also counts the completions that hold a leak before the filters
+//! of the app, and the leaks that the ghost text does not show. A leak matches in any case, and a
+//! leak without whitespace only as a whole word.
+//!
 //! `cases/chat_end.jsonl` has chats in English and Spanish where the last line above the field is
 //! a message of the other person, and the field holds a finished reply without end punctuation,
 //! and then a space. Its leaks are the closing quotes that the model can copy from a quoted part

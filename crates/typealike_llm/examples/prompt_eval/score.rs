@@ -61,11 +61,37 @@ pub fn is_match(
     match kind {
         CaseKind::Typo => !suggestion.is_some_and(|text| text.starts_with(char::is_alphanumeric)),
         CaseKind::NoNewLine => suggestion.is_none(),
-        CaseKind::Leak => {
-            !suggestion.is_some_and(|text| leaks.iter().any(|leak| text.contains(leak.as_str())))
-        }
+        CaseKind::Leak => !suggestion.is_some_and(|text| holds_leak(text, leaks)),
         CaseKind::NextWord | CaseKind::PartialWord => is_next_word(accepted, next),
     }
+}
+
+/// Returns whether `text` holds one of the `leaks`, in any case. A leak without whitespace matches
+/// only as a whole word: a letter at its edge must not touch a letter of `text`, and a digit at its
+/// edge must not touch a digit. Thus "Sara" is not a leak in "Sarah" and "9:41" is not a leak in
+/// "19:41", but "9:41" is a leak in "9:41PM". A leak with whitespace, such as "my writing", matches
+/// anywhere.
+pub fn holds_leak(text: &str, leaks: &[String]) -> bool {
+    let text = text.to_lowercase();
+    leaks.iter().any(|leak| {
+        let leak = leak.to_lowercase();
+        let is_one_word = !leak.contains(char::is_whitespace);
+        text.match_indices(leak.as_str()).any(|(start, found)| {
+            let end = start + found.len();
+            let is_cut_before = joins(leak.chars().next(), text[..start].chars().next_back());
+            let is_cut_after = joins(leak.chars().next_back(), text[end..].chars().next());
+            !is_one_word || !(is_cut_before || is_cut_after)
+        })
+    })
+}
+
+/// Whether `edge`, a character at the edge of a leak, and `neighbor`, the character of the text
+/// just beside it, make one word: two letters or two digits.
+fn joins(edge: Option<char>, neighbor: Option<char>) -> bool {
+    let (Some(edge), Some(neighbor)) = (edge, neighbor) else {
+        return false;
+    };
+    (edge.is_alphabetic() && neighbor.is_alphabetic()) || (edge.is_numeric() && neighbor.is_numeric())
 }
 
 /// Returns whether the first word of `accepted` is the first word of `next`. Signs after the word,
@@ -161,6 +187,14 @@ pub struct Outcome {
     /// eval does not replay the case.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
+    /// The first line of the completion of the model that the ghost text comes from, before the
+    /// filters of the app, or `None` when no completion came.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<String>,
+    /// Whether `completion` holds a leak of the case, as [`holds_leak`] tells, also when the app
+    /// hid it or cut it from the ghost text.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub has_raw_leak: bool,
 }
 
 /// Returns the word that the fix of a typo writes, from the `word` that the ghost text shows: its
@@ -411,6 +445,44 @@ mod tests {
         let matches = cases.map(|(suggestion, _)| is_match(CaseKind::Leak, suggestion, "", "", &leaks));
 
         assert_eq!(matches, cases.map(|(_, is_right)| is_right));
+    }
+
+    #[test]
+    fn leak_matches_in_any_case() {
+        let leaks = ["Text on my clipboard".to_owned(), "CERTAINLY".to_owned()];
+        let texts = ["based on the TEXT ON MY Clipboard", "certainly, here"];
+
+        let found = texts.map(|text| holds_leak(text, &leaks));
+
+        assert_eq!(found, [true, true]);
+    }
+
+    #[test]
+    fn leak_of_one_word_matches_only_a_whole_word() {
+        let leaks = ["Sara".to_owned(), "Sure,".to_owned(), "9:41".to_owned()];
+        let cases = [
+            ("Thanks, Sara.", true),
+            ("Hi Sarah", false),
+            ("the Saras", false),
+            ("Sure, here it is", true),
+            ("make unsure, then", false),
+            ("see you 9:41PM", true),
+            ("at 19:41", false),
+        ];
+
+        let found = cases.map(|(text, _)| holds_leak(text, &leaks));
+
+        assert_eq!(found, cases.map(|(_, is_leak)| is_leak));
+    }
+
+    #[test]
+    fn leak_of_several_words_or_of_a_sign_matches_inside_a_word() {
+        let leaks = ["my writing".to_owned(), "(".to_owned(), "”".to_owned()];
+        let texts = ["all of my writings", "Thanks. (This", "see you”"];
+
+        let found = texts.map(|text| holds_leak(text, &leaks));
+
+        assert_eq!(found, [true, true, true]);
     }
 
     #[test]

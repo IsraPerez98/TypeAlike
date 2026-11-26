@@ -18,6 +18,8 @@ pub fn outcome(id: &str, kind: CaseKind, is_match: bool, millis: u64) -> Outcome
         fixed_word: None,
         is_fix_right: None,
         reference: None,
+        completion: None,
+        has_raw_leak: false,
     }
 }
 

@@ -25,7 +25,8 @@ use crate::case::{Case, CaseField, CaseScreen};
 use crate::dictionary::FileDictionary;
 use crate::likelihood::{Continuation, Measured};
 use crate::score::{
-    CaseKind, Outcome, cumulative_log_probabilities, fixed_word, intended_word, is_match, next_word, words,
+    CaseKind, Outcome, cumulative_log_probabilities, fixed_word, holds_leak, intended_word, is_match,
+    next_word, words,
 };
 
 /// The runner of the eval with its loaded model, and the events of its requests.
@@ -155,6 +156,13 @@ impl CaseRun {
                 prompt_tokens: None,
                 log_probability: None,
                 reference: case.reference.clone(),
+                has_raw_leak: kind == CaseKind::Leak
+                    && cold
+                        .answer
+                        .completion
+                        .as_deref()
+                        .is_some_and(|completion| holds_leak(completion, &case.leaks)),
+                completion: cold.answer.completion,
             },
             continuation: cold
                 .answer
@@ -219,11 +227,12 @@ impl Preparation {
     }
 }
 
-/// What the app does after a request, with the prompt of the request and how likely the model
-/// found each word of its completion.
+/// What the app does after a request, with the prompt of the request, the first line of its
+/// completion and how likely the model found each word of that completion.
 struct Answer {
     reaction: Reaction,
     prompt: Option<String>,
+    completion: Option<String>,
     word_log_probabilities: Vec<LogProbability>,
     typed_log_probability: Option<LogProbability>,
     fixed_word: Option<String>,
@@ -319,6 +328,7 @@ impl Typing<'_> {
             return Ok(Answer {
                 reaction,
                 prompt: None,
+                completion: None,
                 word_log_probabilities: Vec::new(),
                 typed_log_probability: None,
                 fixed_word: None,
@@ -337,6 +347,10 @@ impl Typing<'_> {
             .as_ref()
             .ok()
             .map(|completion| completion.typed_log_probability);
+        let first_line = completion
+            .as_ref()
+            .ok()
+            .map(|completion| completion.text.lines().next().unwrap_or_default().to_owned());
         let reaction = app.on_completion(completion);
         if matches!(reaction, Reaction::Request(_)) {
             return self.complete(model, app, reaction);
@@ -348,6 +362,7 @@ impl Typing<'_> {
         Ok(Answer {
             reaction,
             prompt,
+            completion: first_line,
             word_log_probabilities,
             typed_log_probability,
             fixed_word,

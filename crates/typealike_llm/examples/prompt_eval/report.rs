@@ -31,6 +31,8 @@ pub fn write_report(
     }
     if summary.leak.cases > 0 {
         writeln!(output, "no leak:       {}", summary.leak)?;
+        writeln!(output, "no raw leak:   {}", summary.raw_leak)?;
+        writeln!(output, "hidden leaks:  {}", summary.hidden_leaks)?;
     }
     writeln!(output, "no suggestion: {}", summary.without_suggestion)?;
     writeln!(output, "median time:   {}", summary.time)?;

@@ -195,6 +195,16 @@ impl Score {
             cases: of_kind.count(),
         }
     }
+
+    /// Returns the leak cases of `outcomes`, with the cases whose completion holds no leak as the
+    /// matches.
+    fn of_raw_leaks(outcomes: &[Outcome]) -> Self {
+        let leak_cases = outcomes.iter().filter(|outcome| outcome.kind == CaseKind::Leak);
+        Self {
+            matches: leak_cases.clone().filter(|outcome| !outcome.has_raw_leak).count(),
+            cases: leak_cases.count(),
+        }
+    }
 }
 
 impl fmt::Display for Score {
@@ -272,6 +282,11 @@ pub struct Summary {
     pub no_new_line: Score,
     /// The cases whose suggestion must not show a text of the prompt that is no writing.
     pub leak: Score,
+    /// The leak cases whose completion holds no leak before the filters of the app.
+    pub raw_leak: Score,
+    /// The leak cases whose completion holds a leak that the ghost text does not show, because the
+    /// app hid the suggestion or cut the leak from it.
+    pub hidden_leaks: usize,
     /// The cases that show no ghost text.
     pub without_suggestion: usize,
     /// The milliseconds from the key to the ghost text.
@@ -321,6 +336,11 @@ impl Summary {
             typo: Score::of(outcomes, CaseKind::Typo),
             no_new_line: Score::of(outcomes, CaseKind::NoNewLine),
             leak: Score::of(outcomes, CaseKind::Leak),
+            raw_leak: Score::of_raw_leaks(outcomes),
+            hidden_leaks: outcomes
+                .iter()
+                .filter(|outcome| outcome.kind == CaseKind::Leak && outcome.has_raw_leak && outcome.is_match)
+                .count(),
             without_suggestion: outcomes
                 .iter()
                 .filter(|outcome| outcome.suggestion.is_none())
@@ -586,6 +606,29 @@ mod tests {
                 Score { matches: 1, cases: 2 },
                 WordCounts::default()
             )
+        );
+    }
+
+    #[test]
+    fn summary_counts_the_leak_cases_without_a_leak_in_the_completion_and_the_hidden_leaks() {
+        let outcomes = [
+            Outcome {
+                has_raw_leak: true,
+                ..outcome("shown", CaseKind::Leak, false, 10)
+            },
+            Outcome {
+                has_raw_leak: true,
+                ..outcome("hidden", CaseKind::Leak, true, 10)
+            },
+            outcome("clean", CaseKind::Leak, true, 10),
+            outcome("other", CaseKind::NextWord, true, 10),
+        ];
+
+        let summary = Summary::of(&outcomes);
+
+        assert_eq!(
+            (summary.raw_leak, summary.hidden_leaks),
+            (Score { matches: 1, cases: 3 }, 1)
         );
     }
 
