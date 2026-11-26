@@ -285,13 +285,7 @@ impl GameListWatch {
     }
 
     fn read(&self) -> GameList {
-        GameList::new(self.key.subkey_names().iter().map(|name| {
-            let subkey = PCWSTR(name.as_ptr());
-            GameEntry {
-                kind: self.key.subkey_number(subkey, KIND_VALUE),
-                program: self.key.subkey_text(subkey, PROGRAM_VALUE),
-            }
-        }))
+        GameList::read(&self.key)
     }
 }
 
@@ -311,6 +305,17 @@ struct GameList {
 }
 
 impl GameList {
+    /// Reads the game list from `key`, the key of the list in the registry.
+    fn read(key: &OpenKey) -> Self {
+        Self::new(key.subkey_names().iter().map(|name| {
+            let subkey = PCWSTR(name.as_ptr());
+            GameEntry {
+                kind: key.subkey_number(subkey, KIND_VALUE),
+                program: key.subkey_text(subkey, PROGRAM_VALUE),
+            }
+        }))
+    }
+
     fn new(entries: impl IntoIterator<Item = GameEntry>) -> Self {
         let programs = entries
             .into_iter()
