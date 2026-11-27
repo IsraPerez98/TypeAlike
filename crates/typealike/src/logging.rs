@@ -1,12 +1,14 @@
-//! Sends the logs to the terminal and to a file in the temp folder. A build with the
-//! `suggestion-log` feature also sends the records of the suggestion log to their own file.
+//! Sends the logs of a development build to the terminal and to a file in the temp folder. A
+//! release build writes no log. A build with the `suggestion-log` feature also sends the records of
+//! the suggestion log to their own file.
 
 use std::fs::{self, File, OpenOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::{env, io, panic};
 
 use tracing::Subscriber;
-use tracing_subscriber::Layer as _;
+use tracing_subscriber::Layer;
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::{self, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -27,17 +29,14 @@ const PREVIOUS_LOG_FILE: &str = "TypeAlike.previous.log";
 /// without end.
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
-/// Sends the logs to the terminal and appends them to `TypeAlike.log` in the temp folder, with the
-/// levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`]. A panic also goes to the logs. With the
-/// `suggestion-log` feature, it also appends the records of the suggestion log to
-/// `suggestions.jsonl` in the data folder, when that file exists. The first line shows the `build`.
+/// Starts the logs of a run of `build`. A development build sends the logs to the terminal and
+/// appends them to `TypeAlike.log` in the temp folder ([`MainLog`]). A panic also goes to these
+/// logs, and their first line shows the `build`. A release build writes no log at all. With the
+/// `suggestion-log` feature, a build also appends the records of the suggestion log to
+/// `suggestions.jsonl` in the data folder, when that file exists.
 pub(crate) fn start(build: Build) {
-    let levels = env::var(LEVELS_VARIABLE).unwrap_or_else(|_| DEFAULT_LEVELS.to_owned());
-    let (main_targets, filter_error) = main_targets(&levels);
-    let path = env::temp_dir().join(LOG_FILE);
-    let file = open_log_file(&path);
-    let file_error = file.as_ref().err().map(ToString::to_string);
-    let subscriber = main_subscriber(main_targets, io::stdout, file.ok());
+    let main_log = MainLog::of_build(build, &env::temp_dir(), env::var(LEVELS_VARIABLE).ok());
+    let subscriber = tracing_subscriber::registry().with(main_log.as_ref().map(|log| log.layer(io::stdout)));
     #[cfg(feature = "suggestion-log")]
     let (subscriber, suggestion_log) = {
         let layer = suggestion_log::layer();
@@ -57,35 +56,101 @@ pub(crate) fn start(build: Build) {
         tracing::error!(%info, "TypeAlike panicked");
         default_hook(info);
     }));
-    log_start(&path, build, suggestion_log);
-    if let Some(error) = filter_error {
-        tracing::warn!(
-            %error,
-            levels,
-            default = DEFAULT_LEVELS,
-            "the log levels are not valid, so the log uses the default levels"
-        );
-    }
-    if let Some(error) = file_error {
-        tracing::warn!(%error, "failed to open the log file");
+    if let Some(main_log) = main_log {
+        main_log.log_run_start(build, suggestion_log);
     }
 }
 
-/// The subscriber that sends the logs at `targets` to `terminal`, and to `file` without colors when
-/// the log file opened.
-fn main_subscriber(
+/// The terminal and `TypeAlike.log` of a development build.
+struct MainLog {
+    /// The path of the log file, which the start line shows.
+    path: PathBuf,
+    /// The levels of `TYPEALIKE_LOG`, else [`DEFAULT_LEVELS`].
+    levels: String,
+    /// The levels that the terminal and the log file keep.
+    targets: Targets,
+    /// Why `levels` is not valid.
+    filter_error: Option<String>,
+    /// The log file, or why it did not open.
+    file: Result<Arc<File>, String>,
+}
+
+impl MainLog {
+    /// The main log of a run of `build` in `folder`, with the `levels` of `TYPEALIKE_LOG`, else
+    /// [`DEFAULT_LEVELS`]. A release build writes no log at all, so it gets `None`, and it does not
+    /// make or move a log file.
+    fn of_build(build: Build, folder: &Path, levels: Option<String>) -> Option<Self> {
+        if !build.kind.writes_log() {
+            return None;
+        }
+        let levels = levels.unwrap_or_else(|| DEFAULT_LEVELS.to_owned());
+        let (targets, filter_error) = main_targets(&levels);
+        let path = folder.join(LOG_FILE);
+        let file = open_log_file(&path)
+            .map(Arc::new)
+            .map_err(|error| error.to_string());
+        Some(Self {
+            path,
+            levels,
+            targets,
+            filter_error,
+            file,
+        })
+    }
+
+    /// The layer that sends the logs to `terminal`, and to the log file when it opened.
+    fn layer<S>(
+        &self,
+        terminal: impl for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+    ) -> impl Layer<S>
+    where
+        S: Subscriber + for<'span> LookupSpan<'span>,
+    {
+        main_layer(
+            self.targets.clone(),
+            terminal,
+            self.file.as_ref().ok().map(Arc::clone),
+        )
+    }
+
+    /// Logs the start of the run of `build` with the state of the `suggestion_log`, then the
+    /// problems of the start of this log.
+    fn log_run_start(&self, build: Build, suggestion_log: SuggestionLog) {
+        log_start(&self.path, build, suggestion_log);
+        if let Some(error) = &self.filter_error {
+            tracing::warn!(
+                %error,
+                levels = self.levels.as_str(),
+                default = DEFAULT_LEVELS,
+                "the log levels are not valid, so the log uses the default levels"
+            );
+        }
+        if let Err(error) = &self.file {
+            tracing::warn!(%error, "failed to open the log file");
+        }
+    }
+}
+
+/// The layer that sends the logs at `targets` to `terminal`, and to `file` without colors when the
+/// log file opened.
+fn main_layer<S>(
     targets: Targets,
     terminal: impl for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
     file: Option<impl for<'writer> MakeWriter<'writer> + Send + Sync + 'static>,
-) -> impl Subscriber + for<'span> LookupSpan<'span> + Send + Sync {
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(terminal).with_filter(targets.clone()))
-        .with(file.map(|file| {
-            fmt::layer()
-                .with_ansi(false)
-                .with_writer(file)
-                .with_filter(targets)
-        }))
+) -> impl Layer<S>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    let file_layer = file.map(|file| {
+        fmt::layer()
+            .with_ansi(false)
+            .with_writer(file)
+            .with_filter(targets.clone())
+    });
+    fmt::layer()
+        .with_writer(terminal)
+        .with_filter(targets)
+        .and_then(file_layer)
 }
 
 /// Logs the start of the run: the version and the commit of the `build` and its features, the
@@ -293,8 +358,7 @@ mod suggestion_log {
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     use tracing_subscriber::layer::Identity;
     use typealike_core::release::BuildKind;
@@ -330,17 +394,69 @@ mod tests {
         commit: "1a2b3c4",
     };
 
+    const DEVELOPMENT_BUILD: Build = Build {
+        kind: BuildKind::Development,
+        commit: "1a2b3c4",
+    };
+
+    /// The size of the log file at `path`, or `None` when it does not exist.
+    fn size_of(path: &Path) -> Option<u64> {
+        fs::metadata(path).map(|metadata| metadata.len()).ok()
+    }
+
+    #[test]
+    fn release_build_creates_no_log_file() {
+        let folder = temporary_folder("release");
+
+        let log = MainLog::of_build(RELEASE_BUILD, &folder, None);
+        let has_file = folder.join(LOG_FILE).exists();
+
+        fs::remove_dir_all(&folder).ok();
+        assert_eq!((log.is_none(), has_file), (true, false));
+    }
+
+    #[test]
+    fn release_build_leaves_a_large_log_of_an_earlier_version() {
+        let folder = temporary_folder("release-large");
+        let path = folder.join(LOG_FILE);
+        File::create(&path)
+            .and_then(|file| file.set_len(MAX_LOG_BYTES + 1))
+            .expect("temp dir is writable");
+
+        let log = MainLog::of_build(RELEASE_BUILD, &folder, None);
+        let sizes = [path.clone(), folder.join(PREVIOUS_LOG_FILE)].map(|file| size_of(&file));
+
+        fs::remove_dir_all(&folder).ok();
+        assert_eq!((log.is_none(), sizes), (true, [Some(MAX_LOG_BYTES + 1), None]));
+    }
+
+    #[test]
+    fn development_build_writes_the_start_line_to_its_log_file() {
+        let folder = temporary_folder("development");
+        let log = MainLog::of_build(DEVELOPMENT_BUILD, &folder, None).expect("a development build has a log");
+        let subscriber = tracing_subscriber::registry().with(log.layer(io::sink));
+
+        tracing::subscriber::with_default(subscriber, || {
+            log.log_run_start(DEVELOPMENT_BUILD, SuggestionLog::Off);
+        });
+        let lines = fs::read_to_string(folder.join(LOG_FILE)).unwrap_or_default();
+
+        fs::remove_dir_all(&folder).ok();
+        assert!(lines.contains("TypeAlike started"));
+    }
+
     /// The lines that the start of a run of `build` writes to the log file, when the suggestion log
     /// has no file.
     fn start_lines(build: Build) -> String {
         let file = MemoryLog::default();
         let writer = file.clone();
-        let subscriber = main_subscriber(
-            main_targets(DEFAULT_LEVELS).0,
-            io::sink,
-            Some(move || writer.clone()),
-        )
-        .with(None::<Identity>);
+        let subscriber = tracing_subscriber::registry()
+            .with(main_layer(
+                main_targets(DEFAULT_LEVELS).0,
+                io::sink,
+                Some(move || writer.clone()),
+            ))
+            .with(None::<Identity>);
 
         tracing::subscriber::with_default(subscriber, || {
             log_start(Path::new(LOG_FILE), build, SuggestionLog::Off);
@@ -352,11 +468,11 @@ mod tests {
     fn quit_lines(run: &anyhow::Result<()>) -> String {
         let file = MemoryLog::default();
         let writer = file.clone();
-        let subscriber = main_subscriber(
+        let subscriber = tracing_subscriber::registry().with(main_layer(
             main_targets(DEFAULT_LEVELS).0,
             io::sink,
             Some(move || writer.clone()),
-        );
+        ));
 
         tracing::subscriber::with_default(subscriber, || log_quit(run));
         file.text()
@@ -386,14 +502,14 @@ mod tests {
 
     #[test]
     fn start_line_reaches_the_log_file_when_the_suggestion_log_has_no_file() {
-        let lines = start_lines(RELEASE_BUILD);
+        let lines = start_lines(DEVELOPMENT_BUILD);
 
         assert!(lines.contains("TypeAlike started"));
     }
 
     #[test]
     fn start_line_names_the_commit_and_the_suggestion_log_feature() {
-        let lines = start_lines(RELEASE_BUILD);
+        let lines = start_lines(DEVELOPMENT_BUILD);
 
         let has_fields = ["commit=", "1a2b3c4", "suggestion_log_feature="].map(|field| lines.contains(field));
 
@@ -402,12 +518,7 @@ mod tests {
 
     #[test]
     fn start_line_of_a_development_build_shows_its_development_version() {
-        let build = Build {
-            kind: BuildKind::Development,
-            commit: "1a2b3c4",
-        };
-
-        let lines = start_lines(build);
+        let lines = start_lines(DEVELOPMENT_BUILD);
 
         assert!(lines.contains(&format!("{}-dev+1a2b3c4", env!("CARGO_PKG_VERSION"))));
     }

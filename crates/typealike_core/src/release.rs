@@ -86,13 +86,24 @@ pub trait ReleaseFeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildKind {
     /// A build without the development mark, such as a build of the release workflow. It installs
-    /// each new release by itself while the user allows it.
+    /// each new release by itself while the user allows it, and it writes no log.
     Release,
-    /// A local build with the development mark. It never installs a new release by itself.
+    /// A local build with the development mark. It never installs a new release by itself, and it
+    /// writes the log.
     Development,
 }
 
 impl BuildKind {
+    /// Whether a build of this kind writes the log. A release build writes no log at all, so that
+    /// no file on the user's computer keeps what TypeAlike did.
+    #[must_use]
+    pub fn writes_log(self) -> bool {
+        match self {
+            Self::Release => false,
+            Self::Development => true,
+        }
+    }
+
     /// The kind of a build with this development `mark` at build time
     /// (`TYPEALIKE_DEVELOPMENT_BUILD`). Only the mark `1` makes a development build. Any other
     /// mark, and no mark, makes a release build, so that a release never stops its updates.
@@ -229,6 +240,15 @@ mod tests {
         let kind = BuildKind::from_mark(Some("1"));
 
         assert_eq!(kind, BuildKind::Development);
+    }
+
+    #[test]
+    fn only_a_development_build_writes_a_log() {
+        let kinds = [BuildKind::Release, BuildKind::Development];
+
+        let writes_log = kinds.map(BuildKind::writes_log);
+
+        assert_eq!(writes_log, [false, true]);
     }
 
     #[test]

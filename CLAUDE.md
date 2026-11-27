@@ -26,7 +26,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
   - a short target folder (the Vulkan shader build goes past `MAX_PATH`)
   - `CMAKE_CUDA_ARCHITECTURES` for the local GPU only (much faster CUDA build)
   - the delay load of cuBLAS in `ggml-cuda.dll` (`CMAKE_MODULE_LINKER_FLAGS`, `docs/llm.md`). With it, a program that does not find cuBLAS stops at the first cuBLAS call. Without it, llama.cpp skips the CUDA backend.
-  - the development mark (`TYPEALIKE_DEVELOPMENT_BUILD = "1"`). A local build then shows its version as `X.Y.Z-dev+<commit>` and never installs a release by itself. Without the mark, a local installer makes a copy that a newer release replaces.
+  - the development mark (`TYPEALIKE_DEVELOPMENT_BUILD = "1"`). A local build then shows its version as `X.Y.Z-dev+<commit>`, never installs a release by itself and writes the log. Without the mark, a local build writes no log, and a local installer makes a copy that a newer release replaces.
 - CMake configures llama.cpp only once. After a change in `[env]` or a failed CMake step, run `cargo clean -p llama-cpp-sys-2`.
 - The llama.cpp build needs CMake and libclang. It does not use OpenSSL (`.cargo/config.toml`), because llama-common.dll then needs OpenSSL DLLs that Windows does not have.
 - Windows settings window: WinUI 3 through `windows-reactor`, a git dependency on windows-rs `master` at a fixed commit (the release 0.100.0 has no `AppProxy` and no public `App::run_with`).
@@ -54,6 +54,7 @@ TypeAlike gives system-wide inline autocomplete: ghost text at the caret in any 
 ## Debugging
 
 - Log file: `TypeAlike.log` in the temp folder (`%TEMP%` on Windows, `$TMPDIR` on macOS), next to the terminal output.
+  - Only a development build (the development mark) writes the log. A release build writes no log at all: no file and no terminal lines (`BuildKind::writes_log`).
   - Each run appends to it, so a crash log stays. When TypeAlike starts, it moves a log above 10 MB to `TypeAlike.previous.log`.
   - `TYPEALIKE_LOG` sets the levels in the syntax of `tracing_subscriber::filter::Targets` (default `info,llama-cpp-2=warn`), for example `debug` or `info,typealike_llm=debug`.
   - The llama.cpp logs have the target `llama-cpp-2`. By default, only their warnings and errors go to the log. To see the load of a model, add `llama-cpp-2=info`.

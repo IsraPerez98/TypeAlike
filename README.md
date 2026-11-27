@@ -159,8 +159,8 @@ tccutil reset ScreenCapture io.github.israperez98.typealike
   **Resume suggestions** in the tray menu, the menu bar menu or the badge menu.
 - **Suggestions are slow.** Select a smaller model in **Settings** > **Models**. On Windows, you can also run the
   model on the graphics card.
-- **The log.** TypeAlike writes `TypeAlike.log` in the temp folder: `%TEMP%` on Windows, `$TMPDIR` on macOS. Add
-  the lines about the problem to your bug report.
+- **Bug reports.** A release of TypeAlike writes no log. In your bug report, give the app, the steps and what
+  TypeAlike did.
 
 ## Build from source
 
