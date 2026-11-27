@@ -994,7 +994,7 @@ dependencies = [
 
 [[package]]
 name = "typealike"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_dictionaries"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ring",
  "spellbook",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_history"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ring",
  "serde",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_llm"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "llama-cpp-2",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_macos"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "block2",
  "dispatch2",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_models"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ring",
  "serde",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_releases"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ring",
  "serde",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_settings"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "typealike_windows"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "thiserror",
  "tracing",
