@@ -53,6 +53,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - The worker keeps the free GPU memory of the last check that passed for each set of inputs (`PassedFits`): the path, the length and the time of change of the model file, the device, the memory to keep free and the context (tokens, batch).
 - When a later load has the same inputs and the device has at least that free memory, the worker skips the check, because llama.cpp keeps every layer on the GPU when the memory that the model needs is at most the free memory. The log tells that it skipped the check, with the free memory now and at the check that passed.
 - A read of GPU memory gives the free memory of the device that a load on that backend uses (the Metal device on macOS), and keeps a loaded model.
+- Measured with `first_key` (Gemma 4 E4B with its drafter, CUDA, 13 loads, 3 runs, 2026-11-26): from the third load on, the skip made each load about 520 ms shorter (median 2076 ms to 1556 ms after a preparation). In the same build, the second load, which still did the check, took about 500 ms more than the later loads. The times of the completions and their texts did not change.
 
 ## Warm-up
 
@@ -63,6 +64,7 @@ What `typealike_llm` does: it runs GGUF models with llama.cpp (`llama-cpp-2`) on
 - Thus, after the answer of a preparation, when no request waits, the worker also decodes two added tokens after the prepared prompt (with a drafter, also a guess and its check), as the first completion does (`warm_up_added_tokens`). It decodes them on the completion sequence, and then removes them.
 - The prompt sequence, its tokens and its logits stay as they are, so the next completion gives the same words and the same probabilities, with and without the drafter.
 - It runs once after each load, and only when no warm-up and no completion decoded added tokens since the load. It needs room in the context for the two tokens and the guess.
+- Measured with `first_key` (Gemma 4 E4B with its drafter, CUDA, loads 3 to 13 of 3 runs, 2026-11-26): the first completion after a prepared load took 70 to 73 ms (median 72 ms) in place of 70 to 84 ms (median 76 ms). The texts of the completions did not change. `first_key` does not time the decode of the added tokens itself, because it runs in the pause after the answer of the preparation. The load times did not change beyond their spread.
 - The CPU does no warm-up, because it costs more CPU time than it saves.
 
 ## Metal residency sets
