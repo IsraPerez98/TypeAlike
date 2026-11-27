@@ -188,6 +188,7 @@ What `typealike_macos` does. All FFI. The look is in `.claude/rules/macos-ui.md`
 
 - A replacement posts a delete key for each deleted character first.
 - TypeAlike creates all the key events of a replacement before it posts the first. When it cannot create one, it posts none.
+- A space that starts a key event goes alone, as a press of the space key. Herdr reads an event whose text starts with a space as the space key, and drops the rest of its text.
 - The shell queues the replacements, and each inject pass types the oldest one.
 
 ## Spelling dictionary

@@ -13,6 +13,8 @@ const INJECTION_TAG: i64 = 0x4754_5950;
 
 const MAX_UTF16_UNITS_APPS_READ_PER_EVENT: usize = 20;
 const UNUSED_KEY_CODE: CGKeyCode = 0;
+const SPACE_KEY_CODE: CGKeyCode = 49;
+const SPACE_UNIT: u16 = 0x0020;
 
 /// A keyboard event for accepted text could not be created.
 #[derive(Debug, thiserror::Error)]
@@ -45,7 +47,7 @@ impl fmt::Debug for Replacement {
 pub(crate) fn replace_text(replacement: &Replacement) -> Result<(), InjectionError> {
     let chunks = utf16_chunks(&replacement.text);
     let deletions = iter::repeat_n((DELETE_KEY_CODE, &[][..]), replacement.deleted);
-    let typing = chunks.iter().map(|chunk| (UNUSED_KEY_CODE, chunk.as_slice()));
+    let typing = chunks.iter().map(|chunk| (key_code_of(chunk), chunk.as_slice()));
     let presses = deletions
         .chain(typing)
         .map(|(key_code, units)| key_press(key_code, units))
@@ -77,13 +79,28 @@ fn key_press(key_code: CGKeyCode, units: &[u16]) -> Result<[CFRetained<CGEvent>;
     Ok([key_event(true)?, key_event(false)?])
 }
 
+/// The key that types `chunk`: the space key for a lone space, else a key whose own character
+/// apps ignore for the Unicode text.
+fn key_code_of(chunk: &[u16]) -> CGKeyCode {
+    if chunk == [SPACE_UNIT] {
+        SPACE_KEY_CODE
+    } else {
+        UNUSED_KEY_CODE
+    }
+}
+
+/// Splits `text` into the texts of the key events. A space that starts an event is an event of its
+/// own, because Herdr types only the space of an event whose text starts with one.
 fn utf16_chunks(text: &str) -> Vec<Vec<u16>> {
     let mut chunks: Vec<Vec<u16>> = Vec::new();
     for character in text.chars() {
         let mut buffer = [0_u16; 2];
         let units = character.encode_utf16(&mut buffer);
         match chunks.last_mut() {
-            Some(chunk) if chunk.len() + units.len() <= MAX_UTF16_UNITS_APPS_READ_PER_EVENT => {
+            Some(chunk)
+                if chunk.first() != Some(&SPACE_UNIT)
+                    && chunk.len() + units.len() <= MAX_UTF16_UNITS_APPS_READ_PER_EVENT =>
+            {
                 chunk.extend_from_slice(units);
             }
             _ => chunks.push(units.to_vec()),
@@ -122,6 +139,35 @@ mod tests {
         let chunk_lengths: Vec<usize> = utf16_chunks(&text).iter().map(Vec::len).collect();
 
         assert_eq!(chunk_lengths, [MAX_UTF16_UNITS_APPS_READ_PER_EVENT, 1]);
+    }
+
+    #[test]
+    fn space_before_a_word_is_its_own_event() {
+        let chunks = utf16_chunks(" the");
+
+        assert_eq!(
+            chunks,
+            [vec![SPACE_UNIT], "the".encode_utf16().collect::<Vec<_>>()]
+        );
+    }
+
+    #[test]
+    fn space_at_event_limit_is_its_own_event() {
+        let text = format!("{} b", "a".repeat(MAX_UTF16_UNITS_APPS_READ_PER_EVENT));
+
+        let chunk_lengths: Vec<usize> = utf16_chunks(&text).iter().map(Vec::len).collect();
+
+        assert_eq!(chunk_lengths, [MAX_UTF16_UNITS_APPS_READ_PER_EVENT, 1, 1]);
+    }
+
+    #[test]
+    fn lone_space_types_on_space_key() {
+        let key_codes = [
+            key_code_of(&[SPACE_UNIT]),
+            key_code_of(&" a".encode_utf16().collect::<Vec<_>>()),
+        ];
+
+        assert_eq!(key_codes, [SPACE_KEY_CODE, UNUSED_KEY_CODE]);
     }
 
     #[test]
